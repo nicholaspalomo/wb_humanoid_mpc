@@ -171,7 +171,9 @@ def parse_literal(text: str) -> Literal:
         return Literal(value, floating)
     binary = _BINARY.match(text)
     if binary:
-        return Literal(fractions.Fraction(int(binary.group("digits"), 2)), False)
+        return Literal(
+            fractions.Fraction(int(binary.group("digits"), 2)), False
+        )
     decimal = _DECIMAL.match(text)
     if not decimal or not (decimal.group("whole") or decimal.group("fraction")):
         return Literal(None, False)
@@ -184,7 +186,9 @@ def parse_literal(text: str) -> Literal:
         if any(digit in "89" for digit in whole):
             return Literal(None, False)
         return Literal(fractions.Fraction(int(whole, 8)), False)
-    value = fractions.Fraction(int(whole + fraction or "0"), 10 ** len(fraction))
+    value = fractions.Fraction(
+        int(whole + fraction or "0"), 10 ** len(fraction)
+    )
     if exponent is not None:
         value *= fractions.Fraction(10) ** int(exponent)
     return Literal(value, floating)
@@ -224,7 +228,10 @@ def _is_factor(tokens: tuple[cpp_source.Token, ...], k: int) -> bool:
         return False
     if tokens[before].text in _MULTIPLICATIVE:
         return True
-    return tokens[before].text in _MULTIPLICATIVE_ASSIGNMENT and after in _OPERAND_END
+    return (
+        tokens[before].text in _MULTIPLICATIVE_ASSIGNMENT
+        and after in _OPERAND_END
+    )
 
 
 def is_exempt_literal(tokens: tuple[cpp_source.Token, ...], k: int) -> bool:
@@ -234,7 +241,9 @@ def is_exempt_literal(tokens: tuple[cpp_source.Token, ...], k: int) -> bool:
         return False
     if literal.value in _EXEMPT_VALUES:
         return True
-    return literal.floating and literal.value in _FACTORS and _is_factor(tokens, k)
+    return (
+        literal.floating and literal.value in _FACTORS and _is_factor(tokens, k)
+    )
 
 
 def _template_arguments_end(
@@ -243,8 +252,20 @@ def _template_arguments_end(
     """The `>` that closes the template argument list opened by the `<` at tokens[k], or None when it opens none.
 
     A `<` opens one after a name (`std::array<`, `kSize<`) when it closes before `stop`; otherwise it is a comparison.
+
+    Args:
+      tokens: The code tokens (cpp_source.code_tokens()).
+      k: The index of the token that may open the list.
+      stop: The index the list must close before.
+
+    Returns:
+      The index of the closing `>`, or None.
     """
-    if tokens[k].text != "<" or k == 0 or tokens[k - 1].kind != cpp_source.IDENTIFIER:
+    if (
+        tokens[k].text != "<"
+        or k == 0
+        or tokens[k - 1].kind != cpp_source.IDENTIFIER
+    ):
         return None
     close = cpp_source.matching_angle(tokens, k)
     return close if close < stop else None
@@ -266,7 +287,9 @@ def _is_declarator_name(
       template arguments in between.
     """
     token = tokens[k]
-    if token.kind != cpp_source.IDENTIFIER or not _CONSTANT_NAME.match(token.text):
+    if token.kind != cpp_source.IDENTIFIER or not _CONSTANT_NAME.match(
+        token.text
+    ):
         return False
     if not (
         tokens[k - 1].kind == cpp_source.IDENTIFIER
@@ -315,7 +338,11 @@ def _named_constant_ranges(
     while k + 1 < stop:
         k += 1
         token = tokens[k]
-        if token.text == "template" and k + 1 < stop and tokens[k + 1].text == "<":
+        if (
+            token.text == "template"
+            and k + 1 < stop
+            and tokens[k + 1].text == "<"
+        ):
             # A template header, whose default arguments are not the declaration's initializer.
             k = cpp_source.matching_angle(tokens, k + 1)
             continue
@@ -370,7 +397,9 @@ def _named_constant_ranges(
 def _exempt_by_context(source: str) -> list[bool]:
     """For every code token of `source`, whether it is part of a named constant's definition or of an enumerator."""
     tokens = cpp_source.code_tokens(source)
-    exempt = [cpp_source.ENUM_SCOPE in scope for scope in cpp_source.scopes(source)]
+    exempt = [
+        cpp_source.ENUM_SCOPE in scope for scope in cpp_source.scopes(source)
+    ]
     for statement in cpp_source.statements(source):
         if statement.body not in (None, cpp_source.CODE_SCOPE):
             continue
@@ -386,7 +415,9 @@ def _exempt_by_context(source: str) -> list[bool]:
     for body_open, body_close in cpp_source.code_bodies_in_initializers(source):
         for k in range(body_open + 1, body_close):
             exempt[k] = False
-        for first, last in _body_statement_ranges(tokens, body_open, body_close):
+        for first, last in _body_statement_ranges(
+            tokens, body_open, body_close
+        ):
             for constant_first, constant_last in _named_constant_ranges(
                 tokens, first, last
             ):
@@ -436,8 +467,9 @@ def _findings(source: str, path: str) -> list[check_types.Finding]:
                 token.line,
                 token.col,
                 NAME,
-                f"magic number `{token.text}`: declare it as a named constant, `static constexpr T kName = "
-                f"{token.text};`, and use the name.",
+                f"magic number `{token.text}`: declare it as a named constant,"
+                f" `static constexpr T kName = {token.text};`, and use the"
+                " name.",
             )
         )
     return findings
@@ -449,11 +481,18 @@ CHECKS = [
         languages=frozenset({check_types.Language.CPP}),
         scope=lint_files.Scope.FIRST_PARTY_AND_OCS2,
         check_source=_findings,
-        description="no magic numbers in production C++: a literal other than 0 and 1 (and 0.5 or 2.0 as a factor of "
-        "`*` or `/`) is a named constant, outside constant definitions and enumerators (AGENTS.md).",
-        hint="Name the literal after what it is (kPositionDim, kDefaultSwingHeight), with the literal's type: "
-        "`static constexpr T kName = ...;` in its class, `constexpr` in the .cpp's unnamed namespace, `inline "
-        "constexpr` in a header that shares it (the generic dimensions are in ocs2_core/Dimensions.h). A literal that "
-        "must stay carries `// NOLINT(magic-number): <reason>`.",
+        description=(
+            "no magic numbers in production C++: a literal other than 0 and 1"
+            " (and 0.5 or 2.0 as a factor of `*` or `/`) is a named constant,"
+            " outside constant definitions and enumerators (AGENTS.md)."
+        ),
+        hint=(
+            "Name the literal after what it is (kPositionDim,"
+            " kDefaultSwingHeight), with the literal's type: `static constexpr"
+            " T kName = ...;` in its class, `constexpr` in the .cpp's unnamed"
+            " namespace, `inline constexpr` in a header that shares it (the"
+            " generic dimensions are in ocs2_core/Dimensions.h). A literal that"
+            " must stay carries `// NOLINT(magic-number): <reason>`."
+        ),
     ),
 ]

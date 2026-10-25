@@ -48,22 +48,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_model/RobotJointAction.h"
 
 /*
- * The simulator's torque switch and its hand-overs with the control thread, headless, on the shipped Atlas scene,
- * stepped by the test itself. Switching the torques back on used to leave the action latched before they went off - in
- * WB_MPC, with high gains and the inverse dynamics' feedforward - in force until the next control cycle applied one;
- * and the switch wrote MuJoCo's dof_damping from the control thread while the physics thread stepped with it.
+ * The simulator's torque switch and its hand-overs with the control thread,
+ * headless, on the shipped Atlas scene, stepped by the test itself. Switching
+ * the torques back on used to leave the action latched before they went off -
+ * in WB_MPC, with high gains and the inverse dynamics' feedforward - in force
+ * until the next control cycle applied one; and the switch wrote MuJoCo's
+ * dof_damping from the control thread while the physics thread stepped with it.
  *
- * Also the mapping of the scene's actuators to the robot's joints, on a minimal scene of its own: an actuator without a
- * name used to stop the simulator's construction, because mj_id2name returns null for it.
+ * Also the mapping of the scene's actuators to the robot's joints, on a minimal
+ * scene of its own: an actuator without a name used to stop the simulator's
+ * construction, because mj_id2name returns null for it.
  */
 
 namespace robot::mujoco_sim_interface {
 namespace {
 
-constexpr char kAtlasScene[] = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml";
-constexpr char kAtlasUrdf[] = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
+constexpr char kAtlasScene[] =
+    "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml";
+constexpr char kAtlasUrdf[] =
+    "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
 
-/** A floating base with an arm on two hinges (the robot description needs at least two joints). */
+/** A floating base with an arm on two hinges (the robot description needs at
+ * least two joints). */
 constexpr char kHingeUrdf[] = R"(
 <robot name="hinge_robot">
   <link name="base"/>
@@ -78,7 +84,8 @@ constexpr char kHingeUrdf[] = R"(
 </robot>
 )";
 
-/** The same robot in MuJoCo, with an unnamed hinge motor and an unnamed arm body: mj_id2name returns null for both. */
+/** The same robot in MuJoCo, with an unnamed hinge motor and an unnamed arm
+ * body: mj_id2name returns null for both. */
 constexpr char kUnnamedActuatorScene[] = R"(
 <mujoco>
   <worldbody>
@@ -103,7 +110,8 @@ constexpr char kUnnamedActuatorScene[] = R"(
 </mujoco>
 )";
 
-std::string writeTempFile(const std::string& name, const char* absl_nonnull content) {
+std::string writeTempFile(const std::string& name,
+                          const char* absl_nonnull content) {
   const std::string path = testing::TempDir() + "/" + name;
   std::ofstream(path) << content;
   return path;
@@ -115,15 +123,18 @@ std::unique_ptr<MujocoSimInterface> makeSim() {
   config.viewer.names = {kNoViewerName};
   config.isGantryLocked = true;
   config.gantryHold = "weld_constraint";
-  absl::StatusOr<std::unique_ptr<MujocoSimInterface>> sim = MujocoSimInterface::Create(config, kAtlasUrdf);
+  absl::StatusOr<std::unique_ptr<MujocoSimInterface>> sim =
+      MujocoSimInterface::Create(config, kAtlasUrdf);
   ABSL_CHECK_OK(sim);
   return *std::move(sim);
 }
 
-/** Applies a pure feedforward torque of `torque` on every joint, as the control thread would. */
+/** Applies a pure feedforward torque of `torque` on every joint, as the control
+ * thread would. */
 void applyFeedforward(MujocoSimInterface& sim, double torque) {
   model::RobotJointAction& action = sim.getRobotJointAction();
-  for (size_t joint = 0; joint < sim.getRobotDescription().getNumJoints(); ++joint) {
+  for (size_t joint = 0; joint < sim.getRobotDescription().getNumJoints();
+       ++joint) {
     std::optional<model::JointAction>& slot = action[joint];
     if (!slot.has_value()) continue;
     model::JointAction& jointAction = *slot;
@@ -136,37 +147,44 @@ void applyFeedforward(MujocoSimInterface& sim, double torque) {
 
 double largestControl(const MujocoSimInterface& sim) {
   double largest = 0.0;
-  for (double control : sim.actuatorControlsForTesting()) largest = std::max(largest, std::abs(control));
+  for (double control : sim.actuatorControlsForTesting())
+    largest = std::max(largest, std::abs(control));
   return largest;
 }
 
 std::vector<double> dofDamping(const MujocoSimInterface& sim) {
   const mjModel* absl_nonnull model = sim.getModel();
-  return std::vector<double>(model->dof_damping, model->dof_damping + model->nv);
+  return std::vector<double>(model->dof_damping,
+                             model->dof_damping + model->nv);
 }
 
-TEST(SimTorqueSwitch, AnActionAppliedBeforeTheTorquesCameBackOnIsNeverExecuted) {
+TEST(SimTorqueSwitch,
+     AnActionAppliedBeforeTheTorquesCameBackOnIsNeverExecuted) {
   const std::unique_ptr<MujocoSimInterface> sim = makeSim();
   ASSERT_GT(sim->getModel()->nu, 0);
   sim->enableTorques();
   applyFeedforward(*sim, /*torque=*/5.0);
   sim->simulationStep();
-  EXPECT_NEAR(largestControl(*sim), 5.0, 1.0e-9) << "an action applied while the torques are on is executed";
+  EXPECT_NEAR(largestControl(*sim), 5.0, 1.0e-9)
+      << "an action applied while the torques are on is executed";
 
   // The torques go off and the controller, with them, applies nothing more.
   sim->disableTorques();
   sim->simulationStep();
   EXPECT_EQ(largestControl(*sim), 0.0);
 
-  // Back on: the latched action is that of before, and the actuators stay at zero until a new one is applied.
+  // Back on: the latched action is that of before, and the actuators stay at
+  // zero until a new one is applied.
   sim->enableTorques();
   for (int step = 0; step < 20; ++step) {
     sim->simulationStep();
-    EXPECT_EQ(largestControl(*sim), 0.0) << "step " << step << " executed the stale action";
+    EXPECT_EQ(largestControl(*sim), 0.0)
+        << "step " << step << " executed the stale action";
   }
   applyFeedforward(*sim, /*torque=*/3.0);
   sim->simulationStep();
-  EXPECT_NEAR(largestControl(*sim), 3.0, 1.0e-9) << "the action applied after the switch is executed";
+  EXPECT_NEAR(largestControl(*sim), 3.0, 1.0e-9)
+      << "the action applied after the switch is executed";
 }
 
 TEST(SimTorqueSwitch, TheDampingFollowsTheSwitchOnThePhysicsThreadOnly) {
@@ -174,89 +192,113 @@ TEST(SimTorqueSwitch, TheDampingFollowsTheSwitchOnThePhysicsThreadOnly) {
   sim->simulationStep();
   const std::vector<double> ragdoll = dofDamping(*sim);
 
-  // The switch of another thread is an atomic: the model is written by the next step, on the thread that steps it.
+  // The switch of another thread is an atomic: the model is written by the next
+  // step, on the thread that steps it.
   sim->enableTorques();
-  EXPECT_EQ(dofDamping(*sim), ragdoll) << "enableTorques() wrote the model outside a step";
+  EXPECT_EQ(dofDamping(*sim), ragdoll)
+      << "enableTorques() wrote the model outside a step";
   sim->simulationStep();
   const std::vector<double> active = dofDamping(*sim);
-  EXPECT_NE(active, ragdoll) << "the active damping is restored at the next step";
+  EXPECT_NE(active, ragdoll)
+      << "the active damping is restored at the next step";
 
   sim->disableTorques();
-  EXPECT_EQ(dofDamping(*sim), active) << "disableTorques() wrote the model outside a step";
+  EXPECT_EQ(dofDamping(*sim), active)
+      << "disableTorques() wrote the model outside a step";
   sim->simulationStep();
-  EXPECT_EQ(dofDamping(*sim), ragdoll) << "the ragdoll damping is back at the next step";
+  EXPECT_EQ(dofDamping(*sim), ragdoll)
+      << "the ragdoll damping is back at the next step";
 }
 
-// The torques on: every dof has the damping the scene declares, which the simulator used to overwrite with 10 N m s/rad on
-// every joint at start-up and never give back. The torques off: the configured ragdoll damping on the robot's joints
-// only, the root's six dofs keeping the scene's.
-TEST(SimTorqueSwitch, TheActiveDampingIsTheScenesOwnAndTheRagdollDampingTheConfiguredOne) {
+// The torques on: every dof has the damping the scene declares, which the
+// simulator used to overwrite with 10 N m s/rad on every joint at start-up and
+// never give back. The torques off: the configured ragdoll damping on the
+// robot's joints only, the root's six dofs keeping the scene's.
+TEST(SimTorqueSwitch,
+     TheActiveDampingIsTheScenesOwnAndTheRagdollDampingTheConfiguredOne) {
   constexpr int kErrorSize = 1000;
   char error[kErrorSize] = "";
-  const MjModelPtr scene(mj_loadXML(kAtlasScene, /*vfs=*/nullptr, error, kErrorSize));
+  const MjModelPtr scene(
+      mj_loadXML(kAtlasScene, /*vfs=*/nullptr, error, kErrorSize));
   ASSERT_NE(scene, nullptr) << error;
-  const std::vector<double> sceneDamping(scene->dof_damping, scene->dof_damping + scene->nv);
+  const std::vector<double> sceneDamping(scene->dof_damping,
+                                         scene->dof_damping + scene->nv);
 
   MujocoSimConfig config;
   config.scenePath = kAtlasScene;
   config.viewer.names = {kNoViewerName};
   config.ragdollJointDamping = 7.5;
-  absl::StatusOr<std::unique_ptr<MujocoSimInterface>> created = MujocoSimInterface::Create(config, kAtlasUrdf);
+  absl::StatusOr<std::unique_ptr<MujocoSimInterface>> created =
+      MujocoSimInterface::Create(config, kAtlasUrdf);
   ASSERT_TRUE(created.ok()) << created.status();
   MujocoSimInterface& sim = **created;
   ASSERT_EQ(sim.getModel()->nv, scene->nv);
 
   for (int cycle = 0; cycle < 2; ++cycle) {
-    sim.simulationStep();  // zero-torque mode, as the simulator starts and as disableTorques() leaves it
+    sim.simulationStep();  // zero-torque mode, as the simulator starts and as
+                           // disableTorques() leaves it
     const std::vector<double> ragdoll = dofDamping(sim);
     for (int dof = 0; dof < scene->nv; ++dof) {
-      EXPECT_EQ(ragdoll[dof], dof < kMjFreeJointDofs ? sceneDamping[dof] : 7.5) << "cycle " << cycle << ", dof " << dof;
+      EXPECT_EQ(ragdoll[dof], dof < kMjFreeJointDofs ? sceneDamping[dof] : 7.5)
+          << "cycle " << cycle << ", dof " << dof;
     }
     sim.enableTorques();
     sim.simulationStep();
-    EXPECT_EQ(dofDamping(sim), sceneDamping) << "cycle " << cycle << ": the scene's own damping while the torques are on";
+    EXPECT_EQ(dofDamping(sim), sceneDamping)
+        << "cycle " << cycle
+        << ": the scene's own damping while the torques are on";
     sim.disableTorques();
   }
 }
 
-/** The hinge robot on kUnnamedActuatorScene, with one contact point on the unnamed arm body. */
+/** The hinge robot on kUnnamedActuatorScene, with one contact point on the
+ * unnamed arm body. */
 absl::StatusOr<std::unique_ptr<MujocoSimInterface>> makeHingeSim() {
   MujocoSimConfig config;
-  config.scenePath = writeTempFile("unnamed_actuator_scene.xml", kUnnamedActuatorScene);
+  config.scenePath =
+      writeTempFile("unnamed_actuator_scene.xml", kUnnamedActuatorScene);
   config.viewer.names = {kNoViewerName};
-  config.verbose = true;  // logs the MuJoCo body of every resolved contact point, which here has no name
+  config.verbose = true;  // logs the MuJoCo body of every resolved contact
+                          // point, which here has no name
   config.enableGantry = false;
   config.gantryHold = "kinematic_teleport";  // the scene has no gantry weld
   config.contactFrameNames = {"arm_contact"};
-  config.contactParentJointNames = {"hinge"};  // resolved to the unnamed body the hinge drives
-  return MujocoSimInterface::Create(config, writeTempFile("unnamed_actuator_robot.urdf", kHingeUrdf));
+  config.contactParentJointNames = {
+      "hinge"};  // resolved to the unnamed body the hinge drives
+  return MujocoSimInterface::Create(
+      config, writeTempFile("unnamed_actuator_robot.urdf", kHingeUrdf));
 }
 
-TEST(SimActuators, AnUnnamedActuatorDrivesItsJointAndAnUnnamedContactBodyIsLogged) {
+TEST(SimActuators,
+     AnUnnamedActuatorDrivesItsJointAndAnUnnamedContactBodyIsLogged) {
   absl::StatusOr<std::unique_ptr<MujocoSimInterface>> created = makeHingeSim();
   ASSERT_TRUE(created.ok()) << created.status();
   const std::unique_ptr<MujocoSimInterface> sim = *std::move(created);
   ASSERT_EQ(sim->getModel()->nu, 2);
-  EXPECT_EQ(sim->getUnresolvedContactMask(), 0u) << "the contact point is resolved through its parent joint";
+  EXPECT_EQ(sim->getUnresolvedContactMask(), 0u)
+      << "the contact point is resolved through its parent joint";
 
   sim->enableTorques();
   applyFeedforward(*sim, /*torque=*/2.0);
   sim->simulationStep();
   const std::vector<double> controls = sim->actuatorControlsForTesting();
   ASSERT_EQ(controls.size(), 2u);
-  EXPECT_NEAR(controls[0], 2.0, 1.0e-9) << "the unnamed motor is commanded through the joint it drives";
+  EXPECT_NEAR(controls[0], 2.0, 1.0e-9)
+      << "the unnamed motor is commanded through the joint it drives";
   EXPECT_NEAR(controls[1], 2.0, 1.0e-9) << "the named one alike";
 }
 
 TEST(SimActuators, AJointWhoseActionWasResetIsCommandedNothing) {
-  // RobotJointAction holds an action for every joint, but a controller can reset one. Its actuator then gets no torque,
-  // and the physics thread carries on with the others.
+  // RobotJointAction holds an action for every joint, but a controller can
+  // reset one. Its actuator then gets no torque, and the physics thread carries
+  // on with the others.
   absl::StatusOr<std::unique_ptr<MujocoSimInterface>> created = makeHingeSim();
   ASSERT_TRUE(created.ok()) << created.status();
   const std::unique_ptr<MujocoSimInterface> sim = *std::move(created);
   sim->enableTorques();
   applyFeedforward(*sim, /*torque=*/2.0);
-  sim->getRobotJointAction()[sim->getRobotDescription().getJointIndex("hinge")].reset();
+  sim->getRobotJointAction()[sim->getRobotDescription().getJointIndex("hinge")]
+      .reset();
   sim->applyJointAction();
   sim->simulationStep();
   const std::vector<double> controls = sim->actuatorControlsForTesting();
@@ -266,7 +308,8 @@ TEST(SimActuators, AJointWhoseActionWasResetIsCommandedNothing) {
 }
 
 TEST(SimTorqueSwitch, TheFeetsForcesComeFromThePublishedStep) {
-  // The Atlas scene has no foot force sensor: zero, read from the buffer the physics step fills, not from mjData.
+  // The Atlas scene has no foot force sensor: zero, read from the buffer the
+  // physics step fills, not from mjData.
   const std::unique_ptr<MujocoSimInterface> sim = makeSim();
   vector3_t left = vector3_t::Constant(1.0);
   vector3_t right = vector3_t::Constant(1.0);

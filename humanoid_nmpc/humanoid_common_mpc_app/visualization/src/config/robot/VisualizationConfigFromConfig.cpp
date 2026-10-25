@@ -47,35 +47,42 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::visualization {
 namespace {
 
-/** True for a name the Rerun bridge accepts as one part of an entity path: letters, digits, '_', '-' and '.'. */
+/** True for a name the Rerun bridge accepts as one part of an entity path:
+ * letters, digits, '_', '-' and '.'. */
 bool isEntityPathName(absl::string_view name) {
   if (name.empty() || name == "." || name == "..") {
     return false;
   }
   for (const char character : name) {
-    if (!absl::ascii_isalnum(static_cast<unsigned char>(character)) && character != '_' && character != '-' && character != '.') {
+    if (!absl::ascii_isalnum(static_cast<unsigned char>(character)) &&
+        character != '_' && character != '-' && character != '.') {
       return false;
     }
   }
   return true;
 }
 
-/** The frames of the list `field`, or `fallback` when it is empty; InvalidArgument naming `field` for a bad list. */
-absl::StatusOr<std::vector<std::string>> frameList(const std::vector<std::string>& frames,
-                                                   absl::string_view field,
-                                                   const std::vector<std::string>& fallback) {
+/** The frames of the list `field`, or `fallback` when it is empty;
+ * InvalidArgument naming `field` for a bad list. */
+absl::StatusOr<std::vector<std::string>> frameList(
+    const std::vector<std::string>& frames,
+    absl::string_view field,
+    const std::vector<std::string>& fallback) {
   if (frames.empty()) {
     return fallback;
   }
   absl::flat_hash_set<absl::string_view> seen;
   for (const std::string& frame : frames) {
     if (!isEntityPathName(frame)) {
-      return absl::InvalidArgumentError(absl::StrCat(field, " names the frame '", frame,
-                                                     "'; a frame name of the plots and the 3D scene may only contain letters, "
-                                                     "digits, '_', '-' and '.'."));
+      return absl::InvalidArgumentError(
+          absl::StrCat(field, " names the frame '", frame,
+                       "'; a frame name of the plots and the 3D scene may only "
+                       "contain letters, "
+                       "digits, '_', '-' and '.'."));
     }
     if (!seen.insert(frame).second) {
-      return absl::InvalidArgumentError(absl::StrCat(field, " names the frame '", frame, "' twice."));
+      return absl::InvalidArgumentError(
+          absl::StrCat(field, " names the frame '", frame, "' twice."));
     }
   }
   return frames;
@@ -83,20 +90,26 @@ absl::StatusOr<std::vector<std::string>> frameList(const std::vector<std::string
 
 }  // namespace
 
-absl::StatusOr<VisualizationConfig> visualizationConfigFromConfig(const mpc_config::TaskFile& task,
-                                                                  const std::vector<std::string>& contactFrameNames) {
+absl::StatusOr<VisualizationConfig> visualizationConfigFromConfig(
+    const mpc_config::TaskFile& task,
+    const std::vector<std::string>& contactFrameNames) {
   VisualizationConfig config;
   if (task.rerun_scene_frequency.has_value()) {
     const double frequency = *task.rerun_scene_frequency;
     if (!std::isfinite(frequency) || frequency <= 0.0) {
       return absl::InvalidArgumentError(
-          absl::StrCat(kRerunSceneFrequencyField, " is ", frequency, "; it must be a positive number of Hz."));
+          absl::StrCat(kRerunSceneFrequencyField, " is ", frequency,
+                       "; it must be a positive number of Hz."));
     }
     config.sceneFrequency = frequency;
     config.sceneFrequencyIsDefault = false;
   }
-  ASSIGN_OR_RETURN(config.telemetryFrames, frameList(task.telemetry_frames, kTelemetryFramesField, contactFrameNames));
-  ASSIGN_OR_RETURN(config.planFrames, frameList(task.rerun_plan_frames, kRerunPlanFramesField, contactFrameNames));
+  ASSIGN_OR_RETURN(config.telemetryFrames,
+                   frameList(task.telemetry_frames, kTelemetryFramesField,
+                             contactFrameNames));
+  ASSIGN_OR_RETURN(config.planFrames,
+                   frameList(task.rerun_plan_frames, kRerunPlanFramesField,
+                             contactFrameNames));
   return config;
 }
 

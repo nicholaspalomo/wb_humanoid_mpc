@@ -97,9 +97,17 @@ _ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 def _rotation_about(axis: np.ndarray, angle: float) -> np.ndarray:
     """Returns the rotation by `angle` [rad] about the unit vector `axis` (Rodrigues)."""
     cross = np.array(
-        [[0.0, -axis[2], axis[1]], [axis[2], 0.0, -axis[0]], [-axis[1], axis[0], 0.0]]
+        [
+            [0.0, -axis[2], axis[1]],
+            [axis[2], 0.0, -axis[0]],
+            [-axis[1], axis[0], 0.0],
+        ]
     )
-    return np.eye(3) + math.sin(angle) * cross + (1.0 - math.cos(angle)) * cross @ cross
+    return (
+        np.eye(3)
+        + math.sin(angle) * cross
+        + (1.0 - math.cos(angle)) * cross @ cross
+    )
 
 
 def _rotation_from_rpy(roll: float, pitch: float, yaw: float) -> np.ndarray:
@@ -125,7 +133,9 @@ def _child_attribute(element: ElementTree.Element, tag: str, name: str) -> str:
     """Returns the attribute `name` of `element`'s child `tag`, failing with the element named when either is missing."""
     child = element.find(tag)
     if child is None:
-        raise ValueError(f"<{element.tag} name='{element.get('name')}'> has no <{tag}>")
+        raise ValueError(
+            f"<{element.tag} name='{element.get('name')}'> has no <{tag}>"
+        )
     return _attribute(child, name)
 
 
@@ -214,7 +224,9 @@ def _paths(robot: str) -> tuple[str, str, str, str]:
 def _load(
     robot: str,
 ) -> tuple[
-    dict[str, _UrdfJoint], reference_file_pb2.ReferenceFile, task_file_pb2.TaskFile
+    dict[str, _UrdfJoint],
+    reference_file_pb2.ReferenceFile,
+    task_file_pb2.TaskFile,
 ]:
     """Returns `robot`'s URDF joints, reference file and task file."""
     urdf, _, reference_path, task_path = _paths(robot)
@@ -278,16 +290,22 @@ class DefaultStanceTest(unittest.TestCase):
         for robot in _ROBOTS:
             _, reference, _ = _load(robot)
             positions = {
-                entry.joint: entry.value for entry in reference.default_joint_state
+                entry.joint: entry.value
+                for entry in reference.default_joint_state
             }
-            base = (np.array([0.0, 0.0, reference.default_base_height]), np.eye(3))
+            base = (
+                np.array([0.0, 0.0, reference.default_base_height]),
+                np.eye(3),
+            )
             self._assert_stands(robot, "reference default", base, positions)
 
     def test_the_task_initial_state_stands_on_the_ground(self):
         for robot in _ROBOTS:
             _, _, task = _load(robot)
             state = task.initial_state
-            positions = {entry.joint: entry.value for entry in state.joint_positions}
+            positions = {
+                entry.joint: entry.value for entry in state.joint_positions
+            }
             orientation = state.base_orientation
             base = (
                 np.array(
@@ -314,7 +332,8 @@ class DefaultStanceTest(unittest.TestCase):
                 msg=robot,
             )
             initial = {
-                entry.joint: entry.value for entry in task.initial_state.joint_positions
+                entry.joint: entry.value
+                for entry in task.initial_state.joint_positions
             }
             for entry in reference.default_joint_state:
                 self.assertAlmostEqual(
@@ -338,7 +357,9 @@ def _convex_hull(points: np.ndarray) -> np.ndarray:
     for point in ordered:
         while (
             len(lower) >= 2
-            and _cross(np.subtract(lower[-1], lower[-2]), np.subtract(point, lower[-2]))
+            and _cross(
+                np.subtract(lower[-1], lower[-2]), np.subtract(point, lower[-2])
+            )
             <= 0.0
         ):
             lower.pop()
@@ -346,7 +367,9 @@ def _convex_hull(points: np.ndarray) -> np.ndarray:
     for point in reversed(ordered):
         while (
             len(upper) >= 2
-            and _cross(np.subtract(upper[-1], upper[-2]), np.subtract(point, upper[-2]))
+            and _cross(
+                np.subtract(upper[-1], upper[-2]), np.subtract(point, upper[-2])
+            )
             <= 0.0
         ):
             upper.pop()
@@ -367,11 +390,15 @@ class ContactRectangleTest(unittest.TestCase):
 
     def test_the_hull_algorithm_on_a_known_polygon(self):
         hull = _convex_hull(
-            np.array([[0.0, 0.0], [2.0, 0.0], [1.0, 1.0], [2.0, 2.0], [0.0, 2.0]])
+            np.array(
+                [[0.0, 0.0], [2.0, 0.0], [1.0, 1.0], [2.0, 2.0], [0.0, 2.0]]
+            )
         )
         self.assertEqual(len(hull), 4, "the interior point is not a vertex")
         self.assertTrue(_inside(np.array([1.0, 1.0]), hull))
-        self.assertTrue(_inside(np.array([2.0, 2.0]), hull), "a vertex is on the hull")
+        self.assertTrue(
+            _inside(np.array([2.0, 2.0]), hull), "a vertex is on the hull"
+        )
         self.assertFalse(_inside(np.array([2.1, 1.0]), hull))
 
     def test_the_rectangle_is_inside_the_sole_spheres_of_both_feet(self):
@@ -398,7 +425,9 @@ class ContactRectangleTest(unittest.TestCase):
                 data.xmat[root_body].reshape(3, 3).copy(),
             )
             for parent in task.model_settings.contact_parent_joint_names:
-                joint = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, parent)
+                joint = mujoco.mj_name2id(
+                    model, mujoco.mjtObj.mjOBJ_JOINT, parent
+                )
                 self.assertGreaterEqual(
                     joint, 0, f"{robot}: the MJCF has no joint {parent}"
                 )
@@ -429,7 +458,9 @@ class ContactRectangleTest(unittest.TestCase):
                     )
                 ]
                 self.assertGreaterEqual(
-                    len(spheres), 3, f"{robot} {parent}: a sole of contact spheres"
+                    len(spheres),
+                    3,
+                    f"{robot} {parent}: a sole of contact spheres",
                 )
                 centers = np.array(
                     [model.geom_pos[geom] - translation for geom in spheres]
@@ -439,14 +470,17 @@ class ContactRectangleTest(unittest.TestCase):
                     self.assertLess(
                         abs(bottom),
                         HEIGHT_TOLERANCE_M,
-                        f"{robot} {parent}: a sole sphere's bottom is {bottom * 1000:.2f} mm off the contact frame's plane",
+                        f"{robot} {parent}: a sole sphere's bottom is"
+                        f" {bottom * 1000:.2f} mm off the contact frame's"
+                        " plane",
                     )
                 hull = _convex_hull(centers[:, :2])
                 for corner in corners:
                     self.assertTrue(
                         _inside(corner, hull),
-                        f"{robot} {parent}: the contact rectangle's corner {corner.tolist()} is outside the sole spheres' "
-                        f"hull {np.round(hull, 4).tolist()}",
+                        f"{robot} {parent}: the contact rectangle's corner"
+                        f" {corner.tolist()} is outside the sole spheres' hull"
+                        f" {np.round(hull, 4).tolist()}",
                     )
 
 

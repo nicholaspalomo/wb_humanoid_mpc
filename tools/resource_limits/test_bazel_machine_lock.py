@@ -46,7 +46,9 @@ def _runfile(relative_path):
             os.path.join(os.environ["TEST_SRCDIR"], "_main"),
             os.environ["TEST_SRCDIR"],
         ]
-    roots.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+    roots.append(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
+    )
     for root in roots:
         candidate = os.path.join(root, relative_path)
         if os.path.exists(candidate):
@@ -118,8 +120,12 @@ class BazelMachineLockTest(unittest.TestCase):
         self.assertEqual((first.returncode, second.returncode), (0, 0))
         runs = self.intervals()
         a, b = runs["build //a"], runs["--output_base=/x test //b"]
-        self.assertGreaterEqual(b["start"], a["end"], "the two builds overlapped")
-        self.assertIn("another Bazel build is running on this machine", second_err)
+        self.assertGreaterEqual(
+            b["start"], a["end"], "the two builds overlapped"
+        )
+        self.assertIn(
+            "another Bazel build is running on this machine", second_err
+        )
         self.assertNotIn("another Bazel build", first_err)
 
     def test_commands_that_do_not_compile_do_not_wait(self):
@@ -206,7 +212,9 @@ class BazelMachineLockTest(unittest.TestCase):
                     check=True,
                     timeout=30,
                 )
-        self.assertFalse(os.path.exists(depth_file), "the wrapper sourced BASH_ENV")
+        self.assertFalse(
+            os.path.exists(depth_file), "the wrapper sourced BASH_ENV"
+        )
 
     def test_it_refuses_to_run_without_bazelisk(self):
         environment = self.environment()
@@ -284,9 +292,13 @@ class ShellInitCheckoutTest(unittest.TestCase):
     def make_checkout(self, name):
         checkout = os.path.join(self.directory, name)
         os.makedirs(os.path.join(checkout, "some", "package"))
-        with open(os.path.join(checkout, "MODULE.bazel"), "w", encoding="utf-8"):
+        with open(
+            os.path.join(checkout, "MODULE.bazel"), "w", encoding="utf-8"
+        ):
             pass  # An empty MODULE.bazel marks the checkout's root.
-        with open(os.path.join(checkout, "setup_env.sh"), "w", encoding="utf-8") as f:
+        with open(
+            os.path.join(checkout, "setup_env.sh"), "w", encoding="utf-8"
+        ) as f:
             f.write('export WB_SOURCED_FROM="%s"\n' % name)
         return checkout
 
@@ -317,10 +329,14 @@ class ShellInitCheckoutTest(unittest.TestCase):
         # From anywhere inside it, and the shell is left where it started.
         self.assertEqual(self.sourced_from(deep), f"second|{deep}")
 
-    def test_a_directory_with_a_setup_script_but_no_module_is_not_a_checkout(self):
+    def test_a_directory_with_a_setup_script_but_no_module_is_not_a_checkout(
+        self,
+    ):
         stray = os.path.join(self.directory, "stray")
         os.makedirs(stray)
-        with open(os.path.join(stray, "setup_env.sh"), "w", encoding="utf-8") as f:
+        with open(
+            os.path.join(stray, "setup_env.sh"), "w", encoding="utf-8"
+        ) as f:
             f.write('export WB_SOURCED_FROM="stray"\n')
         self.assertNotIn("stray|", self.sourced_from(stray))
 

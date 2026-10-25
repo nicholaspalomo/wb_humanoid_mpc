@@ -66,7 +66,10 @@ FILES = (
         os.path.join("mpc", "contact_planning.textproto"),
         contact_planning_file_pb2.ContactPlanningFile,
     ),
-    (os.path.join("command", "reference.textproto"), reference_file_pb2.ReferenceFile),
+    (
+        os.path.join("command", "reference.textproto"),
+        reference_file_pb2.ReferenceFile,
+    ),
     (
         os.path.join("controller", "joint_pd_gains.textproto"),
         joint_pd_gains_file_pb2.JointPdGainsFile,
@@ -91,7 +94,11 @@ def new_value(spec: config_schema.ParameterSpec) -> Any:
 
 
 def editable(file: tuned_file.TunedFile) -> list[config_schema.ParameterSpec]:
-    return [spec for spec in file.rendered() if spec.kind in tuned_file.EDITABLE_KINDS]
+    return [
+        spec
+        for spec in file.rendered()
+        if spec.kind in tuned_file.EDITABLE_KINDS
+    ]
 
 
 class LiveUpdateCoverageTest(unittest.TestCase):
@@ -102,7 +109,9 @@ class LiveUpdateCoverageTest(unittest.TestCase):
     def _files(self) -> list[tuple[str, str, Any]]:
         """(robot, path of a copy, message class) of every configuration file of every robot."""
         found = []
-        for package, config in sorted(operator_test_support.ROBOT_CONFIGS.items()):
+        for package, config in sorted(
+            operator_test_support.ROBOT_CONFIGS.items()
+        ):
             copied = operator_test_support.copy_config(
                 config, os.path.join(self.tmpdir, package)
             )
@@ -112,7 +121,9 @@ class LiveUpdateCoverageTest(unittest.TestCase):
                     found.append((package, path, message_class))
         return found
 
-    def test_every_value_the_file_sets_is_published_and_saved_and_nothing_else(self):
+    def test_every_value_the_file_sets_is_published_and_saved_and_nothing_else(
+        self,
+    ):
         for robot, path, message_class in self._files():
             with self.subTest(robot=robot, file=os.path.basename(path)):
                 with open(path, encoding="utf-8", newline="") as handle:
@@ -129,11 +140,14 @@ class LiveUpdateCoverageTest(unittest.TestCase):
                     file.set(key, value)
                 edited = file.edited()
                 after = {
-                    spec.path: spec for spec in config_schema.parameters(edited.message)
+                    spec.path: spec
+                    for spec in config_schema.parameters(edited.message)
                 }
                 for spec in file.parameters():
                     expected = changed.get(spec.path, spec.value)
-                    self.assertEqual(after[spec.path].value, expected, spec.path)
+                    self.assertEqual(
+                        after[spec.path].value, expected, spec.path
+                    )
 
                 saved = file.save()
                 self.assertEqual(saved.message, edited.message)
@@ -169,10 +183,14 @@ class LiveUpdateCoverageTest(unittest.TestCase):
                 for key, value in sample.items():
                     spec = reloaded.spec(key)
                     self.assertEqual(spec.value, value, key)
-                    self.assertEqual(spec.source, config_schema.ValueSource.FILE, key)
+                    self.assertEqual(
+                        spec.source, config_schema.ValueSource.FILE, key
+                    )
 
     def test_the_parameter_update_is_what_the_saved_files_parse_into(self):
-        for package, config in sorted(operator_test_support.ROBOT_CONFIGS.items()):
+        for package, config in sorted(
+            operator_test_support.ROBOT_CONFIGS.items()
+        ):
             with self.subTest(robot=package):
                 copied = operator_test_support.copy_config(
                     config, os.path.join(self.tmpdir, "update", package)
@@ -181,11 +199,14 @@ class LiveUpdateCoverageTest(unittest.TestCase):
                     os.path.join(copied, "mpc", "task.textproto"),
                     task_file_pb2.TaskFile,
                 )
-                planner_path = os.path.join(copied, "mpc", "contact_planning.textproto")
+                planner_path = os.path.join(
+                    copied, "mpc", "contact_planning.textproto"
+                )
                 planner = None
                 if os.path.exists(planner_path):
                     planner = tuned_file.TunedFile(
-                        planner_path, contact_planning_file_pb2.ContactPlanningFile
+                        planner_path,
+                        contact_planning_file_pb2.ContactPlanningFile,
                     )
                 for file in [task] + ([planner] if planner is not None else []):
                     first = editable(file)[0]
@@ -202,14 +223,17 @@ class LiveUpdateCoverageTest(unittest.TestCase):
                 task.save()
                 self.assertEqual(
                     wire.task,
-                    nproto_textproto.load_textproto(task.path, task_file_pb2.TaskFile),
+                    nproto_textproto.load_textproto(
+                        task.path, task_file_pb2.TaskFile
+                    ),
                 )
                 if planner is not None:
                     planner.save()
                     self.assertEqual(
                         wire.contact_planning,
                         nproto_textproto.load_textproto(
-                            planner.path, contact_planning_file_pb2.ContactPlanningFile
+                            planner.path,
+                            contact_planning_file_pb2.ContactPlanningFile,
                         ),
                     )
                 else:

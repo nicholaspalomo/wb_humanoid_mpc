@@ -44,65 +44,86 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** Nominal trajectory the heading frame of the foothold constraints is linearized around (heading model), per node. */
+/** Nominal trajectory the heading frame of the foothold constraints is
+ * linearized around (heading model), per node. */
 struct HeadingNominal {
   std::vector<scalar_t> heading;
   std::vector<vector2_t> com;
   std::vector<feet_array_t<vector2_t>> feet;
-  // [rad] per node, the nominal yaw of every foot, which the footprint frames of the ZMP support region are taken at
-  // (ContactPlanningContext::footAxes). Empty, or not covering every node: every foot is taken at the nominal heading.
+  // [rad] per node, the nominal yaw of every foot, which the footprint frames
+  // of the ZMP support region are taken at (ContactPlanningContext::footAxes).
+  // Empty, or not covering every node: every foot is taken at the nominal
+  // heading.
   std::vector<feet_array_t<scalar_t>> footYaws;
 };
 
 /**
- * Per-plan pre-computation, the analog of ocs2::PreComputation: everything the terms read that depends on the input
- * and not on the node alone. Built once in LipContactPlanner::plan() (and once per heading re-linearization pass);
- * every term reads from it and none of them recomputes it.
+ * Per-plan pre-computation, the analog of ocs2::PreComputation: everything the
+ * terms read that depends on the input and not on the node alone. Built once in
+ * LipContactPlanner::plan() (and once per heading re-linearization pass); every
+ * term reads from it and none of them recomputes it.
  */
 struct ContactPlanningContext {
   const ContactPlannerInput* absl_nullable input = nullptr;
   const Layout* absl_nullable layout = nullptr;
-  const HeadingNominal* absl_nullable nominal = nullptr;  // per node; the commanded ramp without the heading model
+  const HeadingNominal* absl_nullable nominal =
+      nullptr;  // per node; the commanded ramp without the heading model
   const ContactPlan* absl_nullable previousPlan = nullptr;
   const ContactPlanningConfig* absl_nullable config = nullptr;
-  std::optional<int> previousPlanShift;  // nodes between the previous plan's start and input.time; empty: no usable previous plan
-  scalar_t yawInertia = 1.0;             // [kg m^2] from the input (heading model), 1 otherwise
+  std::optional<int>
+      previousPlanShift;  // nodes between the previous plan's start and
+                          // input.time; empty: no usable previous plan
+  scalar_t yawInertia =
+      1.0;  // [kg m^2] from the input (heading model), 1 otherwise
   scalar_t dt = PlannerSettings::kDefaultNodeDuration;
   int numNodes = 0;
   scalar_t omega = 0.0;
   scalar_t bigM = 0.0;
-  // Yaw-aligned constraint frame of every node k = 0..N: components of the world-frame unit vectors of the local x and y
-  // axes. With the heading model the frame of node k is the nominal heading of node k, the base yaw otherwise.
+  // Yaw-aligned constraint frame of every node k = 0..N: components of the
+  // world-frame unit vectors of the local x and y axes. With the heading model
+  // the frame of node k is the nominal heading of node k, the base yaw
+  // otherwise.
   std::vector<std::array<vector2_t, kHorizontalPositionDim>> axes;
-  // Footprint frame of every foot at every node k = 0..N, the same components at the foot's nominal yaw
-  // (HeadingNominal::footYaws); equal to `axes` without the heading model or without nominal foot yaws.
-  std::vector<feet_array_t<std::array<vector2_t, kHorizontalPositionDim>>> footAxes;
+  // Footprint frame of every foot at every node k = 0..N, the same components
+  // at the foot's nominal yaw (HeadingNominal::footYaws); equal to `axes`
+  // without the heading model or without nominal foot yaws.
+  std::vector<feet_array_t<std::array<vector2_t, kHorizontalPositionDim>>>
+      footAxes;
 
   bool hasHeading() const { return layout != nullptr && layout->hasHeading; }
-  const std::array<vector2_t, kHorizontalPositionDim>& axesAt(int node) const { return axes[static_cast<size_t>(node)]; }
-  const std::array<vector2_t, kHorizontalPositionDim>& footAxesAt(int node, size_t foot) const {
+  const std::array<vector2_t, kHorizontalPositionDim>& axesAt(int node) const {
+    return axes[static_cast<size_t>(node)];
+  }
+  const std::array<vector2_t, kHorizontalPositionDim>& footAxesAt(
+      int node, size_t foot) const {
     return footAxes[static_cast<size_t>(node)][foot];
   }
 
   /**
-   * First-order heading term of the projection e_axis(theta) . d around the nominal (theta_n, d_n): the coefficient g
-   * on the heading state and the constant offset -g theta_n, so that g theta + offset = g (theta - theta_n), with
-   * d e_x / d theta = e_y and d e_y / d theta = -e_x. Zero without the heading model.
+   * First-order heading term of the projection e_axis(theta) . d around the
+   * nominal (theta_n, d_n): the coefficient g on the heading state and the
+   * constant offset -g theta_n, so that g theta + offset = g (theta - theta_n),
+   * with d e_x / d theta = e_y and d e_y / d theta = -e_x. Zero without the
+   * heading model.
    */
   struct HeadingFrameTerm {
     scalar_t gain = 0.0;    // g, the coefficient on the heading state
     scalar_t offset = 0.0;  // -g theta_n
   };
-  HeadingFrameTerm frameTerm(int node, int axis, const vector2_t& dNominal) const;
+  HeadingFrameTerm frameTerm(int node,
+                             int axis,
+                             const vector2_t& dNominal) const;
 
-  /** Fills `axes` from the nominal heading (or the input yaw), and `footAxes` from the nominal foot yaws. */
+  /** Fills `axes` from the nominal heading (or the input yaw), and `footAxes`
+   * from the nominal foot yaws. */
   void computeAxes();
 };
 
 /**
- * The nominal heading trajectory read off a solution: its heading, CoM, foot positions and foot yaws per node (successive
- * linearization).
+ * The nominal heading trajectory read off a solution: its heading, CoM, foot
+ * positions and foot yaws per node (successive linearization).
  */
-HeadingNominal nominalFromSolution(const Layout& layout, const std::vector<vector_t>& x);
+HeadingNominal nominalFromSolution(const Layout& layout,
+                                   const std::vector<vector_t>& x);
 
 }  // namespace ocs2::humanoid

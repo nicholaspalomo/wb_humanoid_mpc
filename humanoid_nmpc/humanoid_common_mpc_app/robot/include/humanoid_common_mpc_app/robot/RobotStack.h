@@ -43,13 +43,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Everything a robot binary builds before it starts (the setUpRobot() of humanoid_centroidal_mpc_robot and
- * humanoid_wb_mpc_robot, run by runRobot()): the formulation's controller models, the robot description, the bus, the
- * backend and its contact estimators, the controller and the process. Passive data; the members are declared in the
- * order they may be built, so that they are destroyed in the reverse one: the process first (it stops the realtime loop,
- * the configuration store's writer and the bus), then the controller (whose MPC link is registered on the bus), the
- * estimators, the backend, the bus, and last the models and the description the controller refers to. Every object is on
- * the heap, so moving the stack moves no object a pointer refers to.
+ * Everything a robot binary builds before it starts (the setUpRobot() of
+ * humanoid_centroidal_mpc_robot and humanoid_wb_mpc_robot, run by runRobot()):
+ * the formulation's controller models, the robot description, the bus, the
+ * backend and its contact estimators, the controller and the process. Passive
+ * data; the members are declared in the order they may be built, so that they
+ * are destroyed in the reverse one: the process first (it stops the realtime
+ * loop, the configuration store's writer and the bus), then the controller
+ * (whose MPC link is registered on the bus), the estimators, the backend, the
+ * bus, and last the models and the description the controller refers to. Every
+ * object is on the heap, so moving the stack moves no object a pointer refers
+ * to.
  */
 struct RobotStack {
   std::unique_ptr<RobotInterface> interface;

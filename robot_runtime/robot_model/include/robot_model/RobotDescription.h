@@ -45,7 +45,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace robot::model {
 
-/** The limits of one revolute or prismatic joint of the URDF, and its joint index. */
+/** The limits of one revolute or prismatic joint of the URDF, and its joint
+ * index. */
 struct JointDescription {
   joint_index_t id = 0;
   scalar_t min_angle = std::numeric_limits<scalar_t>::lowest();
@@ -53,84 +54,112 @@ struct JointDescription {
   scalar_t max_velocity = std::numeric_limits<scalar_t>::max();
   scalar_t max_effort = std::numeric_limits<scalar_t>::max();
 
-  /** Formats the joint as `JointDescription { id: ..., min_angle: ..., ... }` for absl::StrCat, StrFormat and logging. */
+  /** Formats the joint as `JointDescription { id: ..., min_angle: ..., ... }`
+   * for absl::StrCat, StrFormat and logging. */
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const JointDescription& joint) {
-    absl::Format(&sink, "JointDescription { id: %d, min_angle: %v, max_angle: %v, max_velocity: %v, max_effort: %v }", joint.id,
-                 joint.min_angle, joint.max_angle, joint.max_velocity, joint.max_effort);
+    absl::Format(&sink,
+                 "JointDescription { id: %d, min_angle: %v, max_angle: %v, "
+                 "max_velocity: %v, max_effort: %v }",
+                 joint.id, joint.min_angle, joint.max_angle, joint.max_velocity,
+                 joint.max_effort);
   }
 };
 
 /**
- * The joints of a robot as its URDF describes them: the revolute and prismatic joints, numbered 0 to getNumJoints() - 1
- * in the order of their names, which is the joint index of RobotState and RobotJointAction. Built once during setup;
- * the name lookups hash, so the realtime loop works with the indices instead. Immutable, and so safe to share between
- * threads.
+ * The joints of a robot as its URDF describes them: the revolute and prismatic
+ * joints, numbered 0 to getNumJoints() - 1 in the order of their names, which
+ * is the joint index of RobotState and RobotJointAction. Built once during
+ * setup; the name lookups hash, so the realtime loop works with the indices
+ * instead. Immutable, and so safe to share between threads.
  */
 class RobotDescription {
  public:
-  /** The fewest and the most joints a description may have: the bounds of a JointIdMap. */
+  /** The fewest and the most joints a description may have: the bounds of a
+   * JointIdMap. */
   static constexpr size_t kMinJoints = 2;
   static constexpr size_t kMaxJoints = 255;
 
   /**
-   * Reads the URDF at `urdfPath`. NotFound when there is no such file; InvalidArgument when it does not parse or has
-   * fewer than kMinJoints or more than kMaxJoints revolute and prismatic joints.
+   * Reads the URDF at `urdfPath`. NotFound when there is no such file;
+   * InvalidArgument when it does not parse or has fewer than kMinJoints or more
+   * than kMaxJoints revolute and prismatic joints.
    */
   static absl::StatusOr<RobotDescription> Create(absl::string_view urdfPath);
 
   RobotDescription() = delete;
   RobotDescription(const RobotDescription&) = delete;
   RobotDescription& operator=(const RobotDescription&) = delete;
-  /** Movable, so that Create() can return one: a moved-from description is left empty. */
+  /** Movable, so that Create() can return one: a moved-from description is left
+   * empty. */
   RobotDescription(RobotDescription&&) = default;
   RobotDescription& operator=(RobotDescription&&) = delete;
   virtual ~RobotDescription() = default;
 
   /** 0 to getNumJoints() - 1, in order. */
-  const std::vector<joint_index_t>& getJointIndices() const { return joint_indices_; }
-  /** The joint names in joint-index order: getJointNames()[i] is the joint of index i. */
+  const std::vector<joint_index_t>& getJointIndices() const {
+    return joint_indices_;
+  }
+  /** The joint names in joint-index order: getJointNames()[i] is the joint of
+   * index i. */
   const std::vector<std::string>& getJointNames() const { return joint_names_; }
 
   bool containsJoint(absl::string_view jointName) const;
 
-  /** The joint called `jointName`, or nullptr when the URDF has no revolute or prismatic joint of that name. */
-  const JointDescription* absl_nullable findJointDescription(absl::string_view jointName) const;
+  /** The joint called `jointName`, or nullptr when the URDF has no revolute or
+   * prismatic joint of that name. */
+  const JointDescription* absl_nullable findJointDescription(
+      absl::string_view jointName) const;
 
   size_t getNumJoints() const { return joint_names_.size(); }
   const std::string& getURDFPath() const { return urdf_path_; }
   /** The file name of the URDF, without its directory. */
   std::string getURDFName() const;
 
-  /** The index of `jointName`, or nullopt when the URDF has no joint of that name. */
-  std::optional<joint_index_t> findJointIndex(absl::string_view jointName) const;
-  /** The indices of `jointNames`, in their order; NotFound naming the first joint the URDF does not have. */
-  absl::StatusOr<std::vector<joint_index_t>> findJointIndices(const std::vector<std::string>& jointNames) const;
+  /** The index of `jointName`, or nullopt when the URDF has no joint of that
+   * name. */
+  std::optional<joint_index_t> findJointIndex(
+      absl::string_view jointName) const;
+  /** The indices of `jointNames`, in their order; NotFound naming the first
+   * joint the URDF does not have. */
+  absl::StatusOr<std::vector<joint_index_t>> findJointIndices(
+      const std::vector<std::string>& jointNames) const;
 
   /**
-   * The index of `jointName`, which must be a joint of the description (containsJoint()); a name it does not have ends
-   * the process. For names that come from a file, use findJointIndex().
+   * The index of `jointName`, which must be a joint of the description
+   * (containsJoint()); a name it does not have ends the process. For names that
+   * come from a file, use findJointIndex().
    */
   joint_index_t getJointIndex(absl::string_view jointName) const;
-  /** getJointIndex() of each name, in their order. For names that come from a file, use findJointIndices(). */
-  std::vector<joint_index_t> getJointIndices(const std::vector<std::string>& jointNames) const;
+  /** getJointIndex() of each name, in their order. For names that come from a
+   * file, use findJointIndices(). */
+  std::vector<joint_index_t> getJointIndices(
+      const std::vector<std::string>& jointNames) const;
 
-  /** The name of joint `jointIndex`, which must be below getNumJoints(); another index ends the process. */
+  /** The name of joint `jointIndex`, which must be below getNumJoints();
+   * another index ends the process. */
   const std::string& getJointName(joint_index_t jointIndex) const;
 
-  /** Formats the URDF path and every joint, one per line in joint-index order, for absl::StrCat and logging. */
+  /** Formats the URDF path and every joint, one per line in joint-index order,
+   * for absl::StrCat and logging. */
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const RobotDescription& robot) {
-    absl::Format(&sink, "RobotDescription {\nGenerated from URDF: %s\n Joint names and descriptions:\n", robot.urdf_path_);
+    absl::Format(&sink,
+                 "RobotDescription {\nGenerated from URDF: %s\n Joint names "
+                 "and descriptions:\n",
+                 robot.urdf_path_);
     for (joint_index_t index = 0; index < robot.getNumJoints(); ++index) {
-      absl::Format(&sink, "  {%s: %v }\n", robot.joint_names_[index], robot.joints_[index]);
+      absl::Format(&sink, "  {%s: %v }\n", robot.joint_names_[index],
+                   robot.joints_[index]);
     }
     sink.Append("}");
   }
 
  private:
   /** The description of `urdfPath`'s joints, given in joint-index order. */
-  RobotDescription(std::string urdfPath, std::vector<std::string> jointNames, std::vector<JointDescription> joints);
+  RobotDescription(std::string urdfPath,
+                   std::vector<std::string> jointNames,
+                   std::vector<JointDescription> joints);
 
   std::string urdf_path_;
   std::vector<std::string> joint_names_;      // by joint index

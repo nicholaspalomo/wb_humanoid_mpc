@@ -50,7 +50,9 @@ HttpReply replyOf(const httplib::Result& result) {
   if (!result) return reply;
   reply.status = result->status;
   reply.body = result->body;
-  if (!absl::SimpleAtoi(result->get_header_value("X-Frame-Sequence"), &reply.frameSequence)) reply.frameSequence = 0;
+  if (!absl::SimpleAtoi(result->get_header_value("X-Frame-Sequence"),
+                        &reply.frameSequence))
+    reply.frameSequence = 0;
   return reply;
 }
 
@@ -63,7 +65,8 @@ httplib::Client client(int port) {
 }
 
 /** The text after `"key":` in `json`; none without it. */
-std::optional<absl::string_view> fieldValue(absl::string_view json, absl::string_view key) {
+std::optional<absl::string_view> fieldValue(absl::string_view json,
+                                            absl::string_view key) {
   const std::string pattern = absl::StrCat("\"", key, "\":");
   const size_t at = json.find(pattern);
   if (at == absl::string_view::npos) return std::nullopt;
@@ -79,31 +82,40 @@ HttpReply httpGet(int port, absl::string_view target) {
 
 HttpReply httpPost(int port, absl::string_view target) {
   httplib::Client server = client(port);
-  return replyOf(server.Post(std::string(target), httplib::Headers{{"X-MuJoCo-Viewer", "1"}}, /*body=*/"", /*content_type=*/"text/plain"));
+  return replyOf(server.Post(std::string(target),
+                             httplib::Headers{{"X-MuJoCo-Viewer", "1"}},
+                             /*body=*/"", /*content_type=*/"text/plain"));
 }
 
-std::optional<double> jsonNumberField(absl::string_view json, absl::string_view key) {
+std::optional<double> jsonNumberField(absl::string_view json,
+                                      absl::string_view key) {
   const std::optional<absl::string_view> value = fieldValue(json, key);
   if (!value.has_value()) return std::nullopt;
-  const absl::string_view number = value->substr(0, value->find_first_of(",}]"));
+  const absl::string_view number =
+      value->substr(0, value->find_first_of(",}]"));
   double parsed = 0.0;
-  if (!absl::SimpleAtod(absl::StripAsciiWhitespace(number), &parsed)) return std::nullopt;
+  if (!absl::SimpleAtod(absl::StripAsciiWhitespace(number), &parsed))
+    return std::nullopt;
   return parsed;
 }
 
-std::optional<std::string> jsonStringField(absl::string_view json, absl::string_view key) {
+std::optional<std::string> jsonStringField(absl::string_view json,
+                                           absl::string_view key) {
   const std::optional<absl::string_view> value = fieldValue(json, key);
-  if (!value.has_value() || value->empty() || value->front() != '"') return std::nullopt;
+  if (!value.has_value() || value->empty() || value->front() != '"')
+    return std::nullopt;
   const size_t end = value->find('"', 1);
   if (end == absl::string_view::npos) return std::nullopt;
   return std::string(value->substr(1, end - 1));
 }
 
-std::optional<bool> visualizationEnabled(absl::string_view json, absl::string_view name) {
+std::optional<bool> visualizationEnabled(absl::string_view json,
+                                         absl::string_view name) {
   const std::string entry = absl::StrCat(R"({"name":")", name, "\"");
   const size_t at = json.find(entry);
   if (at == absl::string_view::npos) return std::nullopt;
-  const std::optional<absl::string_view> enabled = fieldValue(json.substr(at), "enabled");
+  const std::optional<absl::string_view> enabled =
+      fieldValue(json.substr(at), "enabled");
   if (!enabled.has_value()) return std::nullopt;
   return absl::StartsWith(*enabled, "true");
 }
@@ -111,10 +123,11 @@ std::optional<bool> visualizationEnabled(absl::string_view json, absl::string_vi
 MjpegStreamTestClient::MjpegStreamTestClient(int port)
     : thread_([this, port] {
         httplib::Client server = client(port);
-        server.Get("/stream.mjpg", [this](const char* absl_nonnull /*data*/, size_t length) {
-          bytes_.fetch_add(static_cast<int64_t>(length));
-          return !stop_.load();
-        });
+        server.Get("/stream.mjpg",
+                   [this](const char* absl_nonnull /*data*/, size_t length) {
+                     bytes_.fetch_add(static_cast<int64_t>(length));
+                     return !stop_.load();
+                   });
         finished_.store(true);
       }) {}
 

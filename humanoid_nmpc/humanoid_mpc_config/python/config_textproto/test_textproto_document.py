@@ -121,8 +121,11 @@ class StandardLibraryTest(unittest.TestCase):
             [
                 sys.executable,
                 "-c",
-                "import sys; from config_textproto import textproto_document; "
-                "print(sorted(m for m in sys.modules if m.split('.')[0] in ('google', 'config_textproto')))",
+                (
+                    "import sys; from config_textproto import"
+                    " textproto_document; print(sorted(m for m in sys.modules"
+                    " if m.split('.')[0] in ('google', 'config_textproto')))"
+                ),
             ],
             env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)},
             capture_output=True,
@@ -176,7 +179,9 @@ class TokenizerTest(unittest.TestCase):
             "18000000000",
         ):
             with self.subTest(text=text):
-                self.assertEqual(self.kinds(text), [(textproto_document.NUMBER, text)])
+                self.assertEqual(
+                    self.kinds(text), [(textproto_document.NUMBER, text)]
+                )
 
     def test_names_and_signs(self):
         self.assertEqual(
@@ -193,7 +198,8 @@ class TokenizerTest(unittest.TestCase):
     def test_strings_of_both_quotes_with_escapes(self):
         text = r""""a\"b" 'c\'d' "e\\" '\n'"""
         self.assertEqual(
-            [kind for kind, _ in self.kinds(text)], [textproto_document.STRING] * 4
+            [kind for kind, _ in self.kinds(text)],
+            [textproto_document.STRING] * 4,
         )
 
     def test_symbols_and_comments(self):
@@ -204,12 +210,18 @@ class TokenizerTest(unittest.TestCase):
         )
 
     def test_an_unterminated_string_is_an_error_at_its_quote(self):
-        with self.assertRaises(textproto_document.TextprotoSyntaxError) as caught:
+        with self.assertRaises(
+            textproto_document.TextprotoSyntaxError
+        ) as caught:
             textproto_document.tokenize('a: 1\nb: "open\n', "f.textproto")
-        self.assertEqual(str(caught.exception), "f.textproto:2:4: unterminated string")
+        self.assertEqual(
+            str(caught.exception), "f.textproto:2:4: unterminated string"
+        )
 
     def test_a_character_no_token_starts_with_is_an_error(self):
-        with self.assertRaises(textproto_document.TextprotoSyntaxError) as caught:
+        with self.assertRaises(
+            textproto_document.TextprotoSyntaxError
+        ) as caught:
             textproto_document.tokenize("a: 1 @", "f.textproto")
         self.assertEqual(
             str(caught.exception), "f.textproto:1:6: unexpected character '@'"
@@ -261,13 +273,27 @@ class ValuesTest(unittest.TestCase):
             textproto_document.parse_number("abc")
 
     def test_formatting_reads_back(self):
-        for value in (0.1, -0.0, 1e-05, 1e16, 123456789.123, 5.0, math.inf, -math.inf):
+        for value in (
+            0.1,
+            -0.0,
+            1e-05,
+            1e16,
+            123456789.123,
+            5.0,
+            math.inf,
+            -math.inf,
+        ):
             with self.subTest(value=value):
                 text = textproto_document.format_scalar(value)
-                read = textproto_document.parse(f"x: {text}").scalar("x").number_value()
+                read = (
+                    textproto_document.parse(f"x: {text}")
+                    .scalar("x")
+                    .number_value()
+                )
                 self.assertTrue(
                     textproto_document.same_value(
-                        textproto_document.parse(f"x: {text}").scalar("x"), value
+                        textproto_document.parse(f"x: {text}").scalar("x"),
+                        value,
                     )
                 )
                 self.assertEqual(float(read), value)
@@ -285,7 +311,9 @@ class ValuesTest(unittest.TestCase):
                 self.assertEqual(
                     textproto_document.parse(f"x: {text}").value("x"), string
                 )
-        self.assertEqual(textproto_document.format_scalar(b"\x00a\xff"), r'"\000a\377"')
+        self.assertEqual(
+            textproto_document.format_scalar(b"\x00a\xff"), r'"\000a\377"'
+        )
         self.assertEqual(textproto_document.format_scalar(True), "true")
         self.assertEqual(textproto_document.format_scalar(-7), "-7")
         self.assertEqual(
@@ -297,13 +325,16 @@ class ValuesTest(unittest.TestCase):
 
     def test_a_literal_must_be_one_value(self):
         self.assertEqual(
-            textproto_document.format_scalar(textproto_document.Literal("0.1")), "0.1"
+            textproto_document.format_scalar(textproto_document.Literal("0.1")),
+            "0.1",
         )
         for text in ("1 2", "", "{", "a: 1"):
             with self.subTest(text=text), self.assertRaises(
                 textproto_document.DocumentError
             ):
-                textproto_document.format_scalar(textproto_document.Literal(text))
+                textproto_document.format_scalar(
+                    textproto_document.Literal(text)
+                )
         with self.assertRaises(textproto_document.DocumentError):
             textproto_document.Identifier("not a name")
 
@@ -338,7 +369,8 @@ class ValuesTest(unittest.TestCase):
 class TreeTest(unittest.TestCase):
     def test_fields_lists_blocks_and_separators(self):
         document = textproto_document.parse(
-            'a: 1, b { c: "x"; } d <e: 2> f: [1, 2] g [{h: 1}, <h: 2>] [ext.name]: 3'
+            'a: 1, b { c: "x"; } d <e: 2> f: [1, 2] g [{h: 1}, <h: 2>]'
+            " [ext.name]: 3"
         )
         self.assertEqual(
             document.field_names(), ["a", "b", "d", "f", "g", "[ext.name]"]
@@ -354,7 +386,9 @@ class TreeTest(unittest.TestCase):
     def test_syntax_errors_name_the_position(self):
         cases = {
             "a 5\n": "1:3: expected \":\" between a and its value, found '5'",
-            "a: 1\nb {\n  c: 2\n": '4:1: expected "}" before the end of the text',
+            "a: 1\nb {\n  c: 2\n": (
+                '4:1: expected "}" before the end of the text'
+            ),
             "a { b: 1 >": "1:10: expected a field name, found '>'",
             "a: [1 2]": '1:7: expected "," or "]", found \'2\'',
             'a: -"x"': "1:5: expected a number after '-', found '\"x\"'",
@@ -373,7 +407,8 @@ class TreeTest(unittest.TestCase):
         document = textproto_document.parse(ATLAS_STYLE)
         self.assertEqual(document.position("telemetry_frequency"), (8, 1))
         self.assertEqual(
-            document.position("state_weights.normalized_linear_momentum.y"), (20, 5)
+            document.position("state_weights.normalized_linear_momentum.y"),
+            (20, 5),
         )
         self.assertEqual(
             document.trailing_comment("telemetry_frequency"),
@@ -387,7 +422,9 @@ class TreeTest(unittest.TestCase):
             "hip roll",
         )
         self.assertEqual(
-            document.trailing_comment("state_weights.joint_positions[joint=l_leg_hpx]"),
+            document.trailing_comment(
+                "state_weights.joint_positions[joint=l_leg_hpx]"
+            ),
             "hip roll",
         )
         self.assertEqual(
@@ -397,7 +434,9 @@ class TreeTest(unittest.TestCase):
             None,
         )
         self.assertEqual(
-            document.leading_comments("state_weights.normalized_linear_momentum"),
+            document.leading_comments(
+                "state_weights.normalized_linear_momentum"
+            ),
             ["Raised from 2."],
         )
         self.assertEqual(
@@ -463,12 +502,20 @@ class PathTest(unittest.TestCase):
     def test_selection(self):
         document = textproto_document.parse(ATLAS_STYLE)
         self.assertEqual(
-            document.value("state_weights.joint_positions[joint=back_bkz].value"), 5
+            document.value(
+                "state_weights.joint_positions[joint=back_bkz].value"
+            ),
+            5,
         )
         self.assertEqual(
-            document.value('state_weights.joint_positions[joint="back_bkz"].value'), 5
+            document.value(
+                'state_weights.joint_positions[joint="back_bkz"].value'
+            ),
+            5,
         )
-        self.assertEqual(document.value("state_weights.joint_positions[1].value"), 25)
+        self.assertEqual(
+            document.value("state_weights.joint_positions[1].value"), 25
+        )
         self.assertIsNone(
             document.find("state_weights.joint_positions[joint=nope].value")
         )
@@ -508,7 +555,9 @@ class EditTest(unittest.TestCase):
         document = textproto_document.parse(ATLAS_STYLE)
         node = document.scalar("state_weights.normalized_linear_momentum.y")
         self.assertTrue(
-            document.set_scalar("state_weights.normalized_linear_momentum.y", 12.5)
+            document.set_scalar(
+                "state_weights.normalized_linear_momentum.y", 12.5
+            )
         )
         self.assert_one_splice(
             ATLAS_STYLE, document.text(), node.start, node.end, "12.5"
@@ -516,7 +565,9 @@ class EditTest(unittest.TestCase):
         self.assertEqual(_comments(document.text()), _comments(ATLAS_STYLE))
 
     def test_an_unchanged_value_keeps_its_spelling(self):
-        document = textproto_document.parse("a: 5\nb: 5e-5\nc: 0x10\nd: t\ne: 'x'\n")
+        document = textproto_document.parse(
+            "a: 5\nb: 5e-5\nc: 0x10\nd: t\ne: 'x'\n"
+        )
         for path, value in (
             ("a", 5.0),
             ("b", 0.00005),
@@ -526,7 +577,9 @@ class EditTest(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 self.assertFalse(document.set_scalar(path, value))
-        self.assertEqual(document.text(), "a: 5\nb: 5e-5\nc: 0x10\nd: t\ne: 'x'\n")
+        self.assertEqual(
+            document.text(), "a: 5\nb: 5e-5\nc: 0x10\nd: t\ne: 'x'\n"
+        )
 
     def test_values_of_every_kind_are_written(self):
         document = textproto_document.parse(
@@ -539,16 +592,20 @@ class EditTest(unittest.TestCase):
         document.set_scalar("e", textproto_document.Identifier("K2"))
         document.set_scalar("f[1]", 7)
         self.assertEqual(
-            document.text(), 'a: 2.5\nb: -3\nc: "q\\""\nd: false\ne: K2\nf: [1, 7]\n'
+            document.text(),
+            'a: 2.5\nb: -3\nc: "q\\""\nd: false\ne: K2\nf: [1, 7]\n',
         )
 
     def test_insert_at_the_end_of_a_block_at_the_siblings_indentation(self):
         document = textproto_document.parse(ATLAS_STYLE)
         document.set_or_insert("acom_weights.extra", 1.0)
         self.assertIn("  roll: 50\n  extra: 1.0\n}\n", document.text())
-        document.set_or_insert("state_weights.normalized_linear_momentum.w", 2.0)
+        document.set_or_insert(
+            "state_weights.normalized_linear_momentum.w", 2.0
+        )
         self.assertIn(
-            "    z: 15  # h_com_z / robotMass\n    w: 2.0\n  }\n", document.text()
+            "    z: 15  # h_com_z / robotMass\n    w: 2.0\n  }\n",
+            document.text(),
         )
 
     def test_insert_after_the_last_field_of_the_same_name(self):
@@ -563,7 +620,8 @@ class EditTest(unittest.TestCase):
         )
         document.append("telemetry_sinks", "rerun")
         self.assertIn(
-            f'telemetry_sinks: "bus"\ntelemetry_sinks: "rerun"\n# {LINT}.ThenChange(',
+            'telemetry_sinks: "bus"\ntelemetry_sinks: "rerun"\n#'
+            f" {LINT}.ThenChange(",
             document.text(),
         )
 
@@ -576,17 +634,24 @@ class EditTest(unittest.TestCase):
             )
         )
         document.set_or_insert("state_weights.base_orientation.yaw", 1.0)
-        self.assertIn("  base_orientation {\n    yaw: 1.0\n  }\n}\n", document.text())
+        self.assertIn(
+            "  base_orientation {\n    yaw: 1.0\n  }\n}\n", document.text()
+        )
         document.set_or_insert(
             "input_weights.contact_wrenches[contact=left].force.x", 3.0
         )
         self.assertIn(
-            'input_weights {\n  contact_wrenches {\n    contact: "left"\n    force {\n      x: 3.0\n    }\n  }\n}\n',
+            'input_weights {\n  contact_wrenches {\n    contact: "left"\n   '
+            " force {\n      x: 3.0\n    }\n  }\n}\n",
             document.text(),
         )
 
-    def test_insert_in_one_line_blocks_lists_and_files_without_a_final_newline(self):
-        document = textproto_document.parse("a { b: 1 }\nc {}\nd: [1]\ne: []\nf {b:1}")
+    def test_insert_in_one_line_blocks_lists_and_files_without_a_final_newline(
+        self,
+    ):
+        document = textproto_document.parse(
+            "a { b: 1 }\nc {}\nd: [1]\ne: []\nf {b:1}"
+        )
         document.set_or_insert("a.x", 2)
         document.set_or_insert("c.x", 3)
         document.append("d", 4)
@@ -595,7 +660,8 @@ class EditTest(unittest.TestCase):
         document.set_or_insert("g", 7)
         self.assertEqual(
             document.text(),
-            "a { b: 1 x: 2 }\nc { x: 3 }\nd: [1, 4]\ne: [5]\nf {b:1 x: 6}\ng: 7\n",
+            "a { b: 1 x: 2 }\nc { x: 3 }\nd: [1, 4]\ne: [5]\nf {b:1 x:"
+            " 6}\ng: 7\n",
         )
         last = textproto_document.parse("a: 1")
         last.append("a", 2)
@@ -660,16 +726,20 @@ class EditTest(unittest.TestCase):
             document.remove("state_weights.joint_positions[joint=l_leg_hpx]"), 1
         )
         self.assertIn(
-            '  joint_positions { joint: "back_bkz" value: 5 }\n  # Lowered from 250.\n}\n',
+            '  joint_positions { joint: "back_bkz" value: 5 }\n  # Lowered from'
+            " 250.\n}\n",
             document.text(),
         )
-        self.assertEqual(document.remove("state_weights.normalized_linear_momentum"), 1)
+        self.assertEqual(
+            document.remove("state_weights.normalized_linear_momentum"), 1
+        )
         self.assertEqual(document.remove("nothing.here"), 0)
         self.assertEqual(document.remove("state_weights.nothing"), 0)
 
     def test_remove_on_shared_lines_lists_and_repeated_fields(self):
         document = textproto_document.parse(
-            "a { b: 1 c: 2 }\nl: [1, 2, 3]\nr: 1\nr: [2, 3]\nm: [4]\nx: 1 y: 2\n"
+            "a { b: 1 c: 2 }\nl: [1, 2, 3]\nr: 1\nr: [2, 3]\nm: [4]\nx: 1"
+            " y: 2\n"
         )
         document.remove("a.b")
         document.remove("l[1]")
@@ -682,7 +752,9 @@ class EditTest(unittest.TestCase):
         self.assertEqual(same_line.remove("a"), 2)
         self.assertEqual(same_line.text(), "\n")
 
-    def test_removing_a_list_element_keeps_the_comment_lines_between_the_elements(self):
+    def test_removing_a_list_element_keeps_the_comment_lines_between_the_elements(
+        self,
+    ):
         # A LINT directive, written so that the repository's IFTTT check does not take this source line for one.
         if_change = f"  # {LINT}.IfChange(log_sink)\n"
         then_change = f"  # {LINT}.ThenChange(//x/y.cpp:log_sink)\n"
@@ -712,7 +784,9 @@ class EditTest(unittest.TestCase):
         for index, kept in expected.items():
             with self.subTest(index=index):
                 document = textproto_document.parse(text)
-                self.assertEqual(document.remove(f"telemetry_sinks[{index}]"), 1)
+                self.assertEqual(
+                    document.remove(f"telemetry_sinks[{index}]"), 1
+                )
                 self.assertEqual(document.text(), kept)
                 # Still a list of the other two, the directives in place.
                 textproto_document.parse(document.text())
@@ -720,7 +794,9 @@ class EditTest(unittest.TestCase):
     def test_a_failed_edit_leaves_the_document_as_it_was(self):
         document = textproto_document.parse(ATLAS_STYLE)
         with self.assertRaises(textproto_document.DocumentError):
-            document.set_scalar("acom_weights.yaw", textproto_document.Literal("1 2"))
+            document.set_scalar(
+                "acom_weights.yaw", textproto_document.Literal("1 2")
+            )
         self.assertEqual(document.text(), ATLAS_STYLE)
 
 
@@ -733,7 +809,8 @@ def _random_document(rng: random.Random, depth: int = 0) -> str:
         roll = rng.random()
         if roll < 0.15:
             lines.append(
-                f"{indent}# {rng.choice([f'{LINT}.IfChange(x)', 'a comment', f'{LINT}.ThenChange(//y:z)', ''])}"
+                f"{indent}#"
+                f" {rng.choice([f'{LINT}.IfChange(x)', 'a comment', f'{LINT}.ThenChange(//y:z)', ''])}"
             )
         elif roll < 0.25 and depth < 3:
             inner = _random_document(rng, depth + 1).rstrip("\n")
@@ -744,7 +821,8 @@ def _random_document(rng: random.Random, depth: int = 0) -> str:
             )
         elif roll < 0.35:
             lines.append(
-                f'{indent}{name} {{ k: "{rng.randint(0, 9)}" v: {rng.randint(-5, 5)} }}'
+                f'{indent}{name} {{ k: "{rng.randint(0, 9)}" v:'
+                f" {rng.randint(-5, 5)} }}"
             )
         elif roll < 0.45:
             values = ", ".join(
@@ -786,7 +864,9 @@ class PropertyTest(unittest.TestCase):
             with open(path, encoding="utf-8", newline="") as file:
                 found.append((path, file.read()))
         rng = random.Random(20261003)
-        found += [(f"random {index}", _random_document(rng)) for index in range(300)]
+        found += [
+            (f"random {index}", _random_document(rng)) for index in range(300)
+        ]
         return found
 
     def test_the_data_holds_the_configuration_files(self):
@@ -802,7 +882,9 @@ class PropertyTest(unittest.TestCase):
     def test_an_unedited_document_is_its_text(self):
         for source, text in self.documents():
             with self.subTest(source=source):
-                self.assertEqual(textproto_document.parse(text, source).text(), text)
+                self.assertEqual(
+                    textproto_document.parse(text, source).text(), text
+                )
 
     def test_scalar_edits_change_only_their_value(self):
         for source, text in self.documents():
@@ -819,7 +901,8 @@ class PropertyTest(unittest.TestCase):
             with self.subTest(source=source, edit="every value at once"):
                 edited = document.copy()
                 new = [
-                    (path, textproto_document.Literal("12345")) for path, _ in scalars
+                    (path, textproto_document.Literal("12345"))
+                    for path, _ in scalars
                 ]
                 self.assertEqual(
                     edited.set_scalars(new),
@@ -832,7 +915,8 @@ class PropertyTest(unittest.TestCase):
                     edited = document.copy()
                     edited.set_scalar(path, textproto_document.Literal("12345"))
                     self.assertEqual(
-                        edited.text(), f"{text[: node.start]}12345{text[node.end :]}"
+                        edited.text(),
+                        f"{text[: node.start]}12345{text[node.end :]}",
                     )
                     self.assertEqual(document.text(), text)
 
@@ -845,11 +929,17 @@ class PropertyTest(unittest.TestCase):
             for parent in _sample(blocks):
                 with self.subTest(source=source, parent=parent):
                     edited = document.copy()
-                    edited.insert_field(parent, "inserted_field", rng.choice(values))
+                    edited.insert_field(
+                        parent, "inserted_field", rng.choice(values)
+                    )
                     prefix, suffix = _common_affixes(text, edited.text())
                     self.assertEqual(prefix + suffix, len(text))
                     self.assertEqual(_comments(edited.text()), _comments(text))
-                    path = f"{parent}.inserted_field" if parent else "inserted_field"
+                    path = (
+                        f"{parent}.inserted_field"
+                        if parent
+                        else "inserted_field"
+                    )
                     self.assertTrue(edited.has(path))
             for path, _ in _sample(_scalars(document) + _blocks(document)):
                 with self.subTest(source=source, removed=path):
@@ -868,7 +958,9 @@ def _sample(items: list) -> list:
     """At most SAMPLE_SIZE of `items`, evenly spread, in order."""
     if len(items) <= SAMPLE_SIZE:
         return items
-    return [items[index * len(items) // SAMPLE_SIZE] for index in range(SAMPLE_SIZE)]
+    return [
+        items[index * len(items) // SAMPLE_SIZE] for index in range(SAMPLE_SIZE)
+    ]
 
 
 def _gaps(document: textproto_document.TextprotoDocument) -> list[str]:
@@ -908,7 +1000,9 @@ def _values(
     document: textproto_document.TextprotoDocument,
     block: textproto_document.BlockNode,
     prefix: tuple[textproto_document.PathSegment, ...],
-) -> list[tuple[str, textproto_document.ScalarNode | textproto_document.BlockNode]]:
+) -> list[
+    tuple[str, textproto_document.ScalarNode | textproto_document.BlockNode]
+]:
     """Every value below `block`, each by its path with an index on every segment."""
     found: list[
         tuple[str, textproto_document.ScalarNode | textproto_document.BlockNode]

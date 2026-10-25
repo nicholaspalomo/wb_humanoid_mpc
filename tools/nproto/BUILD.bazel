@@ -50,9 +50,18 @@ py_library(
     srcs = ["nproto_generator.py"],
     imports = ["."],
     deps = [
+        ":nproto_layout",
         ":options_py_proto",
         requirement("protobuf"),
     ],
+)
+
+# clang-format's line breaking, ported for the lines the generator writes, so that the generated code is
+# clang-format clean without clang-format in the build.
+py_library(
+    name = "nproto_layout",
+    srcs = ["nproto_layout.py"],
+    imports = ["."],
 )
 
 # The protoc plugin, `protoc --plugin=protoc-gen-nproto=... --nproto_out=...`.

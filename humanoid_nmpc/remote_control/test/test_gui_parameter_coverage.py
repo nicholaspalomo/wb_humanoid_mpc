@@ -83,7 +83,10 @@ ROBOT_FILE_SCHEMAS = (
         os.path.join("mpc", "contact_planning.textproto"),
         contact_planning_file_pb2.ContactPlanningFile,
     ),
-    (os.path.join("command", "reference.textproto"), reference_file_pb2.ReferenceFile),
+    (
+        os.path.join("command", "reference.textproto"),
+        reference_file_pb2.ReferenceFile,
+    ),
     (
         os.path.join("controller", "joint_pd_gains.textproto"),
         joint_pd_gains_file_pb2.JointPdGainsFile,
@@ -121,13 +124,17 @@ def _condition_paths(message_class: Any) -> set[str]:
     """The fields the conditions of every field of a schema name, by their paths from its message."""
     paths: set[str] = set()
     for field in _fields(message_class):
-        paths.update(condition.field_path for condition in field.tuning.active_when)
+        paths.update(
+            condition.field_path for condition in field.tuning.active_when
+        )
     return paths
 
 
 def _is_element_key(field: config_schema.SchemaField) -> bool:
     """Whether a text field is the key of its repeated element: the element's first string field (config_schema)."""
-    if not field.path.endswith(f"{config_schema.EVERY_ELEMENT}.{field.field.name}"):
+    if not field.path.endswith(
+        f"{config_schema.EVERY_ELEMENT}.{field.field.name}"
+    ):
         return False
     strings = [
         candidate
@@ -151,8 +158,8 @@ class TestTheSchemasSayHowEveryFieldIsTuned(unittest.TestCase):
                         continue  # a key, or the name of a joint, a link or a frame: nothing to choose it from
                     self.assertTrue(
                         field.renders or field.tuning.exclude_reason.strip(),
-                        "neither rendered nor excluded with a reason (a string that picks from a fixed set "
-                        "names its registry)",
+                        "neither rendered nor excluded with a reason (a string"
+                        " that picks from a fixed set names its registry)",
                     )
 
     def test_every_entity_name_field_is_a_text_field_of_a_schema(self):
@@ -167,7 +174,9 @@ class TestTheSchemasSayHowEveryFieldIsTuned(unittest.TestCase):
         self.assertLessEqual(ENTITY_NAME_FIELDS, text)
 
     def test_the_solver_selectors_are_choices_of_their_registries(self):
-        fields = {field.path: field for field in _fields(task_file_pb2.TaskFile)}
+        fields = {
+            field.path: field for field in _fields(task_file_pb2.TaskFile)
+        }
         for path, registry in (
             ("multiple_shooting.integrator_type", "sensitivity_integrator"),
             ("rollout.integrator_type", "rollout_integrator"),
@@ -197,12 +206,15 @@ class TestTheSchemasSayHowEveryFieldIsTuned(unittest.TestCase):
                     schema=message_class.DESCRIPTOR.name, path=field.path
                 ):
                     self.assertLessEqual(
-                        set(field.tuning.formulations), set(config_schema.FORMULATIONS)
+                        set(field.tuning.formulations),
+                        set(config_schema.FORMULATIONS),
                     )
         # The task file names both, so the rule above was exercised.
         self.assertEqual(named, set(config_schema.FORMULATIONS))
 
-    def test_the_hot_fields_are_a_proper_part_of_each_file_the_mpc_reloads(self):
+    def test_the_hot_fields_are_a_proper_part_of_each_file_the_mpc_reloads(
+        self,
+    ):
         # A positive control for the rule above: the task file has both kinds, the gait file (never reloaded) none hot.
         for message_class, has_hot in (
             (task_file_pb2.TaskFile, True),
@@ -229,17 +241,23 @@ class TestTheSchemasSayHowEveryFieldIsTuned(unittest.TestCase):
                 ):
                     self.assertIn(
                         field.kind,
-                        (config_schema.Kind.CHOICE, config_schema.Kind.NAME_LIST),
+                        (
+                            config_schema.Kind.CHOICE,
+                            config_schema.Kind.NAME_LIST,
+                        ),
                     )
 
-    def test_the_parameter_update_resolves_the_task_files_conditions_inside_it(self):
+    def test_the_parameter_update_resolves_the_task_files_conditions_inside_it(
+        self,
+    ):
         # A condition names a field of the file; inside the bus message the file is `task`.
         self.assertIn(
             "task.contact_input_parameterization",
             _condition_paths(mpc_parameter_update_pb2.MpcParameterUpdate),
         )
         self.assertIn(
-            "contact_input_parameterization", _condition_paths(task_file_pb2.TaskFile)
+            "contact_input_parameterization",
+            _condition_paths(task_file_pb2.TaskFile),
         )
 
     def test_a_field_added_to_a_schema_has_a_row_with_no_gui_code(self):
@@ -342,8 +360,14 @@ def _stated_units(proto_path: str) -> dict[str, str]:
             if block:
                 blocks.append((block.group(2), depth))
             field = _FIELD_LINE.match(line)
-            if field and blocks and not stripped.startswith(("reserved", "option")):
-                stated = re.match(r"\[([^\]]+)\]", comments[0]) if comments else None
+            if (
+                field
+                and blocks
+                and not stripped.startswith(("reserved", "option"))
+            ):
+                stated = (
+                    re.match(r"\[([^\]]+)\]", comments[0]) if comments else None
+                )
                 unit = stated.group(1).split(",")[0].strip() if stated else "-"
                 if unit != "-":
                     name = ".".join([package] + [name for name, _ in blocks])
@@ -371,8 +395,12 @@ class TestTheUnitsOfTheFieldComments(unittest.TestCase):
             for full_name, unit in _stated_units(source).items():
                 stated += 1
                 with self.subTest(field=full_name):
-                    own = config_schema.own_tuning(pool.FindFieldByName(full_name))
-                    self.assertIsNotNone(own, f"[{unit}] in the comment, no unit")
+                    own = config_schema.own_tuning(
+                        pool.FindFieldByName(full_name)
+                    )
+                    self.assertIsNotNone(
+                        own, f"[{unit}] in the comment, no unit"
+                    )
                     self.assertEqual(own.unit, unit)
         # The schemas do state units, so the rule above was exercised.
         self.assertGreater(stated, 50)
@@ -381,7 +409,9 @@ class TestTheUnitsOfTheFieldComments(unittest.TestCase):
 class TestTheLabelsAreTheFieldNames(unittest.TestCase):
     def test_no_schema_sets_a_label_option(self):
         # The GUI reads no label option: a field is shown by its name, so a schema that set one would mislead.
-        for message_class in FILE_SCHEMAS + (tuning_test_file_pb2.TuningTestFile,):
+        for message_class in FILE_SCHEMAS + (
+            tuning_test_file_pb2.TuningTestFile,
+        ):
             for field in _every_field(message_class.DESCRIPTOR, set()):
                 own = config_schema.own_tuning(field)
                 if own is None:
@@ -402,9 +432,9 @@ class TestTheLabelsAreTheFieldNames(unittest.TestCase):
                         _label_names(spec.label), _path_names(spec.path)
                     )
                     self.assertTrue(
-                        config_schema.display_label(spec, file.message).startswith(
-                            spec.label
-                        )
+                        config_schema.display_label(
+                            spec, file.message
+                        ).startswith(spec.label)
                     )
 
     def test_no_label_shows_a_comment_of_the_file(self):
@@ -443,7 +473,9 @@ class TestEveryTabShowsEveryRenderedParameter(unittest.TestCase):
                 )
                 expected: set[str] = set()
                 for prefix, file in tab._files():
-                    expected.update(prefix + spec.path for spec in file.rendered())
+                    expected.update(
+                        prefix + spec.path for spec in file.rendered()
+                    )
                 shown: set[str] = set()
                 for category in tab.categories:
                     tab.active_category.set(category)
@@ -486,7 +518,9 @@ class TestEveryTabShowsEveryRenderedParameter(unittest.TestCase):
     def test_every_kind_of_the_test_schema_gets_a_widget(self):
         message = tuning_test_file_pb2.TuningTestFile()
         for spec in config_schema.parameters(message):
-            row = parameter_rows.make_row(self.root, spec, spec.label, spec.value)
+            row = parameter_rows.make_row(
+                self.root, spec, spec.label, spec.value
+            )
             with self.subTest(path=spec.path):
                 self.assertEqual(row is not None, spec.renders)
 

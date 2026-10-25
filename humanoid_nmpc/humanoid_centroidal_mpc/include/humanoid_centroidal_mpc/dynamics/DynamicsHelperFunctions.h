@@ -53,19 +53,22 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-/** Computes an input with zero joint velocity and forces which equally distribute the robot weight between contact
- * feet. */
+/** Computes an input with zero joint velocity and forces which equally
+ * distribute the robot weight between contact feet. */
 
-inline vector_t weightCompensatingInput(const CentroidalModelInfoTpl<scalar_t>& info,
-                                        const contact_flag_t& contactFlags,
-                                        const MpcRobotModelBase<scalar_t>& mpcRobotModel) {
-  // The mass of THIS model, read per call: a function-static cache kept the first model's weight for every model in the
-  // process.
-  const scalar_t totalGravitationalForce = info.robotMass * kGravitationalAcceleration;
+inline vector_t weightCompensatingInput(
+    const CentroidalModelInfoTpl<scalar_t>& info,
+    const contact_flag_t& contactFlags,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel) {
+  // The mass of THIS model, read per call: a function-static cache kept the
+  // first model's weight for every model in the process.
+  const scalar_t totalGravitationalForce =
+      info.robotMass * kGravitationalAcceleration;
   const size_t numStanceLegs = numberOfLegsInContacts(contactFlags);
   vector_t input = vector_t::Zero(mpcRobotModel.getInputDim());
   if (numStanceLegs > 0) {
-    const vector3_t forceInInertialFrame(0.0, 0.0, totalGravitationalForce / numStanceLegs);
+    const vector3_t forceInInertialFrame(
+        0.0, 0.0, totalGravitationalForce / numStanceLegs);
     for (size_t i = 0; i < contactFlags.size(); ++i) {
       if (contactFlags[i]) {
         mpcRobotModel.setContactForce(input, forceInInertialFrame, i);
@@ -75,23 +78,29 @@ inline vector_t weightCompensatingInput(const CentroidalModelInfoTpl<scalar_t>& 
   return input;
 }
 
-/** State-aware variant: the vertical world-frame force is written through the model's world-frame setter so that it is
- * expressed correctly in the input parameterization (e.g. rotated into the local contact frame for basis-vector inputs). */
+/** State-aware variant: the vertical world-frame force is written through the
+ * model's world-frame setter so that it is expressed correctly in the input
+ * parameterization (e.g. rotated into the local contact frame for basis-vector
+ * inputs). */
 
-inline vector_t weightCompensatingInput(const CentroidalModelInfoTpl<scalar_t>& info,
-                                        const contact_flag_t& contactFlags,
-                                        const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                        const vector_t& state) {
-  // The mass of THIS model, read per call: a function-static cache kept the first model's weight for every model in the
-  // process.
-  const scalar_t totalGravitationalForce = info.robotMass * kGravitationalAcceleration;
+inline vector_t weightCompensatingInput(
+    const CentroidalModelInfoTpl<scalar_t>& info,
+    const contact_flag_t& contactFlags,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    const vector_t& state) {
+  // The mass of THIS model, read per call: a function-static cache kept the
+  // first model's weight for every model in the process.
+  const scalar_t totalGravitationalForce =
+      info.robotMass * kGravitationalAcceleration;
   const size_t numStanceLegs = numberOfLegsInContacts(contactFlags);
   vector_t input = vector_t::Zero(mpcRobotModel.getInputDim());
   if (numStanceLegs > 0) {
-    const vector3_t forceInInertialFrame(0.0, 0.0, totalGravitationalForce / numStanceLegs);
+    const vector3_t forceInInertialFrame(
+        0.0, 0.0, totalGravitationalForce / numStanceLegs);
     for (size_t i = 0; i < contactFlags.size(); ++i) {
       if (contactFlags[i]) {
-        mpcRobotModel.setContactForceInWorldFrame(state, input, forceInInertialFrame, i);
+        mpcRobotModel.setContactForceInWorldFrame(state, input,
+                                                  forceInInertialFrame, i);
       }
     }  // end of i loop
   }

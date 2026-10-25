@@ -38,10 +38,12 @@ namespace robot::ipc {
 // The Python bus speaks the same protocol (robot_ipc/envelope.py).
 // LINT.IfChange(wire_protocol)
 /**
- * The version of the bus's wire protocol. Every bus topic is a DDS topic of the same name whose samples are one
- * robot_ipc::Envelope (idl/Envelope.idl): the protocol version, the writer's sequence number, the full protobuf type
- * name and the serialized message. A bus refuses (counts as rejected and logs) a sample of another version. Version 1
- * was the four-frame ZeroMQ framing that came before; bump the version with every change of the envelope, on both
+ * The version of the bus's wire protocol. Every bus topic is a DDS topic of the
+ * same name whose samples are one robot_ipc::Envelope (idl/Envelope.idl): the
+ * protocol version, the writer's sequence number, the full protobuf type name
+ * and the serialized message. A bus refuses (counts as rejected and logs) a
+ * sample of another version. Version 1 was the four-frame ZeroMQ framing that
+ * came before; bump the version with every change of the envelope, on both
  * sides at once.
  */
 inline constexpr uint32_t kWireProtocolVersion = 2;

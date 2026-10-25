@@ -38,9 +38,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Base of the planner's constraint terms: the bound LIP indices and the slack penalty of a soft term.
+ * Base of the planner's constraint terms: the bound LIP indices and the slack
+ * penalty of a soft term.
  *
- * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
  */
 class LipConstraintBase : public LipConstraint {
  public:
@@ -48,8 +50,10 @@ class LipConstraintBase : public LipConstraint {
   SlackPenalty slackPenalty() const override { return penalty_; }
 
  protected:
-  /** The term's own penalty when given, the shared default otherwise (both validated by ContactPlanningConfig). */
-  void configurePenalty(const ContactPlanningConfig& config, std::optional<SlackPenalty> own);
+  /** The term's own penalty when given, the shared default otherwise (both
+   * validated by ContactPlanningConfig). */
+  void configurePenalty(const ContactPlanningConfig& config,
+                        std::optional<SlackPenalty> own);
   /** "slack (Z, z)" for describe(). */
   std::string penaltyText() const;
   LipIndices idx_;

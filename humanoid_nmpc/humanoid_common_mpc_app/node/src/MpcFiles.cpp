@@ -42,7 +42,8 @@ namespace ocs2::humanoid::node {
 
 absl::Status validateFileFlag(absl::string_view flag, const std::string& path) {
   if (path.empty()) {
-    return absl::InvalidArgumentError(absl::StrCat(flag, " is not given; name the robot's file"));
+    return absl::InvalidArgumentError(
+        absl::StrCat(flag, " is not given; name the robot's file"));
   }
   std::error_code error;
   if (!std::filesystem::is_regular_file(path, error)) {
@@ -52,13 +53,15 @@ absl::Status validateFileFlag(absl::string_view flag, const std::string& path) {
 }
 
 absl::Status validateMpcFiles(const MpcFiles& files) {
-  const std::pair<absl::string_view, const std::string* absl_nonnull> flags[] = {
-      {"--task_file", &files.taskFile},
-      {"--reference_file", &files.referenceFile},
-      {"--urdf_file", &files.urdfFile},
-      {"--gait_file", &files.gaitFile},
-  };
-  for (const std::pair<absl::string_view, const std::string* absl_nonnull>& flag : flags) {
+  const std::pair<absl::string_view, const std::string* absl_nonnull> flags[] =
+      {
+          {"--task_file", &files.taskFile},
+          {"--reference_file", &files.referenceFile},
+          {"--urdf_file", &files.urdfFile},
+          {"--gait_file", &files.gaitFile},
+      };
+  for (const std::pair<absl::string_view, const std::string* absl_nonnull>&
+           flag : flags) {
     const absl::Status valid = validateFileFlag(flag.first, *flag.second);
     if (!valid.ok()) return valid;
   }

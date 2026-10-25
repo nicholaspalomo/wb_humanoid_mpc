@@ -41,7 +41,8 @@ namespace ocs2::humanoid {
 namespace {
 
 /** `points` scaled by `scaleFactor` about the frame's origin. */
-std::vector<vector3_t> scaledPoints(const std::vector<vector3_t>& points, scalar_t scaleFactor) {
+std::vector<vector3_t> scaledPoints(const std::vector<vector3_t>& points,
+                                    scalar_t scaleFactor) {
   std::vector<vector3_t> scaled;
   scaled.reserve(points.size());
   for (const vector3_t& point : points) scaled.push_back(scaleFactor * point);
@@ -50,8 +51,12 @@ std::vector<vector3_t> scaledPoints(const std::vector<vector3_t>& points, scalar
 
 /** The x and y extent of `points`; all zero for no points. */
 PolygonBounds boundsOf(const std::vector<vector3_t>& points) {
-  if (points.empty()) return PolygonBounds(/*x_min=*/0.0, /*x_max=*/0.0, /*y_min=*/0.0, /*y_max=*/0.0);
-  PolygonBounds bounds(points.front()(kXAxisIndex), points.front()(kXAxisIndex), points.front()(kYAxisIndex), points.front()(kYAxisIndex));
+  if (points.empty())
+    return PolygonBounds(/*x_min=*/0.0, /*x_max=*/0.0, /*y_min=*/0.0,
+                         /*y_max=*/0.0);
+  PolygonBounds bounds(points.front()(kXAxisIndex), points.front()(kXAxisIndex),
+                       points.front()(kYAxisIndex),
+                       points.front()(kYAxisIndex));
   for (const vector3_t& point : points) {
     bounds.x_min = std::min(bounds.x_min, point(kXAxisIndex));
     bounds.x_max = std::max(bounds.x_max, point(kXAxisIndex));
@@ -66,20 +71,26 @@ PolygonBounds boundsOf(const std::vector<vector3_t>& points) {
 ContactPolygon::ContactPolygon(const std::vector<vector3_t>& polygonPoints,
                                const ContactCenterPoint& contactCenterPoint,
                                scalar_t scaleFactor)
-    : ContactPolygon(scaledPoints(polygonPoints, scaleFactor), boundsOf(scaledPoints(polygonPoints, scaleFactor)), contactCenterPoint) {}
+    : ContactPolygon(scaledPoints(polygonPoints, scaleFactor),
+                     boundsOf(scaledPoints(polygonPoints, scaleFactor)),
+                     contactCenterPoint) {}
 
 ContactPolygon::ContactPolygon(const std::vector<vector3_t>& polygonPoints,
                                const PolygonBounds& polygonBounds,
                                const ContactCenterPoint& contactCenterPoint)
-    : polygonLimits_(polygonBounds), polygonPoints_(polygonPoints), contactCenterPoint_(contactCenterPoint) {
+    : polygonLimits_(polygonBounds),
+      polygonPoints_(polygonPoints),
+      contactCenterPoint_(contactCenterPoint) {
   polygonPointFrameNames_.reserve(polygonPoints_.size());
 
   for (int i = 0; i < static_cast<int>(polygonPoints_.size()); ++i) {
-    polygonPointFrameNames_.emplace_back(contactCenterPoint.frameName + "_p_" + std::to_string(i));
+    polygonPointFrameNames_.emplace_back(contactCenterPoint.frameName + "_p_" +
+                                         std::to_string(i));
   }
 }
 
-matrix3_t ContactPolygon::getContactPointTranslationCrossProductMatrix(int index) const {
+matrix3_t ContactPolygon::getContactPointTranslationCrossProductMatrix(
+    int index) const {
   vector3_t current_point = polygonPoints_[index];
   matrix3_t crossprodMat = matrix3_t::Zero();
   // [p]x of the point's projection (x, y, 0) on the sole's plane.

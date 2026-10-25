@@ -42,10 +42,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-static_assert(kNumContacts == kBipedFootCount, "the foothold block lays out two feet (kLipPlx..kLipPry, kLipDlx..kLipCr)");
+static_assert(
+    kNumContacts == kBipedFootCount,
+    "the foothold block lays out two feet (kLipPlx..kLipPry, kLipDlx..kLipCr)");
 
 std::string FootholdIntegrator::describe() const {
-  return absl::StrCat("p_{i,k+1} = p_{i,k} + dp_{i,k}, |dp| <= bigM = ", bigM_, " m, contact binaries c_i in {0, 1}");
+  return absl::StrCat("p_{i,k+1} = p_{i,k} + dp_{i,k}, |dp| <= bigM = ", bigM_,
+                      " m, contact binaries c_i in {0, 1}");
 }
 
 void FootholdIntegrator::configure(const ContactPlanningConfig& config) {
@@ -54,9 +57,12 @@ void FootholdIntegrator::configure(const ContactPlanningConfig& config) {
 
 void FootholdIntegrator::bind(const Layout& layout) {
   idx_.bind(layout);
-  // ContactPlanningProblem::finalize() places the foothold block second before it binds any term.
-  CHECK(idx_.foot[0][0] == kLipPlx && idx_.footDelta[0][0] == kLipDlx && idx_.contact[0] == kLipCl)
-      << "[foothold_integrator] the foothold block must follow the LIP block in the layout";
+  // ContactPlanningProblem::finalize() places the foothold block second before
+  // it binds any term.
+  CHECK(idx_.foot[0][0] == kLipPlx && idx_.footDelta[0][0] == kLipDlx &&
+        idx_.contact[0] == kLipCl)
+      << "[foothold_integrator] the foothold block must follow the LIP block "
+         "in the layout";
 }
 
 void FootholdIntegrator::declareVariables(LayoutBuilder& layout) const {
@@ -68,10 +74,13 @@ void FootholdIntegrator::declareVariables(LayoutBuilder& layout) const {
     layout.addInput(var::footDeltaX(foot));
     layout.addInput(var::footDeltaY(foot));
   }
-  for (size_t foot = 0; foot < kNumContacts; ++foot) layout.addInput(var::contact(foot));
+  for (size_t foot = 0; foot < kNumContacts; ++foot)
+    layout.addInput(var::contact(foot));
 }
 
-void FootholdIntegrator::addDynamics(const ContactPlanningContext& /*ctx*/, int /*node*/, OcpQpStage& s) const {
+void FootholdIntegrator::addDynamics(const ContactPlanningContext& /*ctx*/,
+                                     int /*node*/,
+                                     OcpQpStage& s) const {
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
     for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
       s.A(idx_.foot[foot][axis], idx_.foot[foot][axis]) = 1.0;
@@ -80,33 +89,43 @@ void FootholdIntegrator::addDynamics(const ContactPlanningContext& /*ctx*/, int 
   }
 }
 
-void FootholdIntegrator::addInputBounds(const ContactPlanningContext& ctx, int /*node*/, InputBoundsBuilder& bounds) const {
+void FootholdIntegrator::addInputBounds(const ContactPlanningContext& ctx,
+                                        int /*node*/,
+                                        InputBoundsBuilder& bounds) const {
   const scalar_t M = ctx.bigM;
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
-    for (int axis = 0; axis < kHorizontalPositionDim; ++axis) bounds.add(idx_.footDelta[foot][axis], -M, M);
+    for (int axis = 0; axis < kHorizontalPositionDim; ++axis)
+      bounds.add(idx_.footDelta[foot][axis], -M, M);
   }
-  for (size_t foot = 0; foot < kNumContacts; ++foot) bounds.add(idx_.contact[foot], /*lower=*/0.0, /*upper=*/1.0);
+  for (size_t foot = 0; foot < kNumContacts; ++foot)
+    bounds.add(idx_.contact[foot], /*lower=*/0.0, /*upper=*/1.0);
 }
 
-void FootholdIntegrator::setInitialState(const ContactPlanningContext& ctx, vector_t& x0) const {
+void FootholdIntegrator::setInitialState(const ContactPlanningContext& ctx,
+                                         vector_t& x0) const {
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
-    for (int axis = 0; axis < kHorizontalPositionDim; ++axis) x0(idx_.foot[foot][axis]) = ctx.input->footPositions[foot](axis);
+    for (int axis = 0; axis < kHorizontalPositionDim; ++axis)
+      x0(idx_.foot[foot][axis]) = ctx.input->footPositions[foot](axis);
   }
 }
 
-void FootholdIntegrator::decode(const ContactPlanningContext& ctx, const MiqpResult& result, ContactPlan& plan) const {
+void FootholdIntegrator::decode(const ContactPlanningContext& ctx,
+                                const MiqpResult& result,
+                                ContactPlan& plan) const {
   const int N = ctx.numNodes;
   plan.footholds.resize(static_cast<size_t>(N) + 1);
   plan.contacts.resize(static_cast<size_t>(N));
   for (int k = 0; k <= N; ++k) {
     const vector_t& x = result.solution.x[static_cast<size_t>(k)];
     for (size_t foot = 0; foot < kNumContacts; ++foot) {
-      plan.footholds[static_cast<size_t>(k)][foot] = vector2_t(x(idx_.foot[foot][0]), x(idx_.foot[foot][1]));
+      plan.footholds[static_cast<size_t>(k)][foot] =
+          vector2_t(x(idx_.foot[foot][0]), x(idx_.foot[foot][1]));
     }
     if (k < N) {
       for (size_t foot = 0; foot < kNumContacts; ++foot) {
         plan.contacts[static_cast<size_t>(k)][foot] =
-            result.assignment[static_cast<size_t>(ContactLogicState::contactBinaryIndex(k, foot))] == 1;
+            result.assignment[static_cast<size_t>(
+                ContactLogicState::contactBinaryIndex(k, foot))] == 1;
       }
     }
   }
@@ -114,7 +133,8 @@ void FootholdIntegrator::decode(const ContactPlanningContext& ctx, const MiqpRes
 
 std::vector<int> FootholdIntegrator::binaryInputs() const {
   std::vector<int> binaries;
-  for (size_t foot = 0; foot < kNumContacts; ++foot) binaries.push_back(idx_.contact[foot]);
+  for (size_t foot = 0; foot < kNumContacts; ++foot)
+    binaries.push_back(idx_.contact[foot]);
   return binaries;
 }
 

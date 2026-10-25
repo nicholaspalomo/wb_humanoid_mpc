@@ -38,19 +38,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::mujoco_sim_interface {
 
 /**
- * Barcode along the bottom edge: per contact point, the contact state the controller plans (top strip) against the
- * simulator's ground truth (bottom strip) over a sliding window of time (MujocoSimInterface::copyContactTimeline).
+ * Barcode along the bottom edge: per contact point, the contact state the
+ * controller plans (top strip) against the simulator's ground truth (bottom
+ * strip) over a sliding window of time
+ * (MujocoSimInterface::copyContactTimeline).
  *
  * Not thread-safe: the viewer drives it from one thread.
  */
 class ContactTimelineVisualization final : public MujocoVisualization {
  public:
   std::string name() const override { return "contact_timeline"; }
-  std::string description() const override { return "barcode of planned vs ground-truth contact per contact point"; }
+  std::string description() const override {
+    return "barcode of planned vs ground-truth contact per contact point";
+  }
   char hotkey() const override { return 'b'; }
   void renderOverlay(const VisualizationFrame& frame) override;
 
-  /** Label of the time-axis tick `secondsAgo` seconds before now: "now", then "-1 s", "-2 s", ... */
+  /** Label of the time-axis tick `secondsAgo` seconds before now: "now", then
+   * "-1 s", "-2 s", ... */
   static std::string tickLabel(int secondsAgo);
 
  private:

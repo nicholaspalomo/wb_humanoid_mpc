@@ -173,7 +173,13 @@ def _tokenize(source: str, keep_preprocessor: bool) -> tuple[Token, ...]:
 
     def emit(kind: str, start: int, end: int) -> None:
         tokens.append(
-            Token(kind, source[start:end], line, start - line_start + 1, whitespace)
+            Token(
+                kind,
+                source[start:end],
+                line,
+                start - line_start + 1,
+                whitespace,
+            )
         )
 
     def move_to(end: int) -> None:
@@ -336,7 +342,11 @@ def mask(source: str) -> tuple[str, str]:
         word = _WORD.match(source, i) if (c.isalpha() or c == "_") else None
         if word:
             j = word.end()
-            if j < n and source[j] == '"' and word.group(0) in _RAW_STRING_PREFIXES:
+            if (
+                j < n
+                and source[j] == '"'
+                and word.group(0) in _RAW_STRING_PREFIXES
+            ):
                 opening = _RAW_STRING_OPENING.match(source, j)
                 if opening:
                     terminator = f'){opening.group(1)}"'
@@ -348,7 +358,9 @@ def mask(source: str) -> tuple[str, str]:
             # Any other prefix (u8"...", L'x') is a word; the literal after it is read next.
             i = j
             continue
-        number = _PP_NUMBER.match(source, i) if c.isdigit() or c == "." else None
+        number = (
+            _PP_NUMBER.match(source, i) if c.isdigit() or c == "." else None
+        )
         if number:
             i = number.end()
             continue
@@ -504,12 +516,26 @@ _FUNCTION_QUALIFIERS = frozenset(
 )
 
 
-def _brace_kind(tokens: tuple[Token, ...], index: int, kinds: dict[int, str]) -> str:
+def _brace_kind(
+    tokens: tuple[Token, ...], index: int, kinds: dict[int, str]
+) -> str:
     """The kind of scope the `{` at tokens[index] opens, judged from the tokens before it."""
     if index == 0:
         return CODE_SCOPE
     previous = tokens[index - 1]
-    if previous.text in ("=", "(", ",", "{", "return", "[", "?", ":", "<<", "+", "-"):
+    if previous.text in (
+        "=",
+        "(",
+        ",",
+        "{",
+        "return",
+        "[",
+        "?",
+        ":",
+        "<<",
+        "+",
+        "-",
+    ):
         if previous.text == ":" and _is_label(tokens, index - 1):
             return CODE_SCOPE
         if previous.text == "{" and kinds.get(index - 1) in (
@@ -517,12 +543,16 @@ def _brace_kind(tokens: tuple[Token, ...], index: int, kinds: dict[int, str]) ->
             CLASS_SCOPE,
             CODE_SCOPE,
         ):
-            return CODE_SCOPE if kinds.get(index - 1) == CODE_SCOPE else INIT_SCOPE
+            return (
+                CODE_SCOPE if kinds.get(index - 1) == CODE_SCOPE else INIT_SCOPE
+            )
         return INIT_SCOPE
     if previous.text in ("else", "do", "try"):
         return CODE_SCOPE
     if previous.text == "}":
-        return CODE_SCOPE  # a constructor body after a braced member initializer
+        return (
+            CODE_SCOPE  # a constructor body after a braced member initializer
+        )
     if previous.text == ";":
         return CODE_SCOPE
     # The header: the tokens since the previous statement boundary.
@@ -540,7 +570,8 @@ def _brace_kind(tokens: tuple[Token, ...], index: int, kinds: dict[int, str]) ->
     has_parenthesis = "(" in texts
     for k, token in enumerate(header):
         if token.text in _CLASS_KEYS and (
-            k == 0 or header[k - 1].text not in ("<", ",", "enum", "(", "friend")
+            k == 0
+            or header[k - 1].text not in ("<", ",", "enum", "(", "friend")
         ):
             if "=" not in texts and (
                 not has_parenthesis or "alignas" in texts or "decltype" in texts
@@ -555,7 +586,9 @@ def _brace_kind(tokens: tuple[Token, ...], index: int, kinds: dict[int, str]) ->
     if previous.kind == IDENTIFIER or previous.text in (">", ">>"):
         # `auto f() -> T {` and `[](T x) requires C<T> {` are bodies; `Type name{...}` and `T{...}` are braced
         # initializers.
-        is_body = "->" in texts or ("requires" in texts and previous.text != "requires")
+        is_body = "->" in texts or (
+            "requires" in texts and previous.text != "requires"
+        )
         return CODE_SCOPE if is_body else INIT_SCOPE
     return CODE_SCOPE
 
@@ -623,8 +656,12 @@ class Statement(NamedTuple):
 
     start: int  # index of its first token
     end: int  # index of its terminator, the `;` or the `{` (len(tokens) when there is none)
-    scopes: tuple[str, ...]  # the kinds of the enclosing scopes, outermost first
-    body: str | None  # the kind of scope its `{` opens, or None when a `;` ends it
+    scopes: tuple[
+        str, ...
+    ]  # the kinds of the enclosing scopes, outermost first
+    body: (
+        str | None
+    )  # the kind of scope its `{` opens, or None when a `;` ends it
 
 
 @functools.lru_cache(maxsize=16)
@@ -673,7 +710,11 @@ def _structure(
                 Statement(k if start is None else start, k, tuple(stack), None)
             )
             start = None
-        elif text == ":" and start is not None and _is_access_label(tokens, start, k):
+        elif (
+            text == ":"
+            and start is not None
+            and _is_access_label(tokens, start, k)
+        ):
             start = None
         elif start is None:
             start = k

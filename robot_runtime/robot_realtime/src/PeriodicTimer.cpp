@@ -45,7 +45,8 @@ constexpr int64_t kNanosecondsPerSecond = 1'000'000'000;
 timespec toTimespec(std::chrono::nanoseconds time) {
   timespec converted{};
   converted.tv_sec = static_cast<time_t>(time.count() / kNanosecondsPerSecond);
-  converted.tv_nsec = static_cast<decltype(converted.tv_nsec)>(time.count() % kNanosecondsPerSecond);
+  converted.tv_nsec = static_cast<decltype(converted.tv_nsec)>(
+      time.count() % kNanosecondsPerSecond);
   return converted;
 }
 
@@ -54,14 +55,17 @@ timespec toTimespec(std::chrono::nanoseconds time) {
 std::chrono::nanoseconds monotonicNow() {
   timespec now{};
   clock_gettime(CLOCK_MONOTONIC, &now);
-  return std::chrono::nanoseconds(static_cast<int64_t>(now.tv_sec) * kNanosecondsPerSecond + now.tv_nsec);
+  return std::chrono::nanoseconds(
+      static_cast<int64_t>(now.tv_sec) * kNanosecondsPerSecond + now.tv_nsec);
 }
 
 void sleepUntil(std::chrono::nanoseconds deadline) {
   const timespec target = toTimespec(deadline);
-  // clock_nanosleep returns the error rather than setting errno. A signal ends the sleep early with EINTR; sleeping
-  // again towards the same absolute deadline loses nothing.
-  while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &target, /*remain=*/nullptr) == EINTR) {
+  // clock_nanosleep returns the error rather than setting errno. A signal ends
+  // the sleep early with EINTR; sleeping again towards the same absolute
+  // deadline loses nothing.
+  while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &target,
+                         /*remain=*/nullptr) == EINTR) {
   }
 }
 
@@ -73,12 +77,15 @@ DeadlineAdvance advanceDeadline(std::chrono::nanoseconds servedDeadline,
   if (overrunPolicy == OverrunPolicy::kCatchUp || wakeupTime < following) {
     return DeadlineAdvance{.nextDeadline = following, .missedPeriods = 0};
   }
-  // The deadlines servedDeadline + k * period with 1 <= k <= missed have passed as well; the next is the one after.
+  // The deadlines servedDeadline + k * period with 1 <= k <= missed have passed
+  // as well; the next is the one after.
   const int64_t missed = (wakeupTime - servedDeadline) / period;
-  return DeadlineAdvance{.nextDeadline = servedDeadline + (missed + 1) * period, .missedPeriods = missed};
+  return DeadlineAdvance{.nextDeadline = servedDeadline + (missed + 1) * period,
+                         .missedPeriods = missed};
 }
 
-PeriodicTimer::PeriodicTimer(std::chrono::nanoseconds period, OverrunPolicy overrunPolicy)
+PeriodicTimer::PeriodicTimer(std::chrono::nanoseconds period,
+                             OverrunPolicy overrunPolicy)
     : period_(period), overrunPolicy_(overrunPolicy) {
   CHECK_GT(period_.count(), 0) << "a PeriodicTimer needs a positive period";
 }
@@ -100,10 +107,13 @@ TimerWakeup PeriodicTimer::waitForNextPeriod() {
   const std::chrono::nanoseconds deadline = nextDeadline_;
   sleepUntil(deadline);
   const std::chrono::nanoseconds now = monotonicNow();
-  const DeadlineAdvance advance = advanceDeadline(deadline, now, period_, overrunPolicy_);
+  const DeadlineAdvance advance =
+      advanceDeadline(deadline, now, period_, overrunPolicy_);
   nextDeadline_ = advance.nextDeadline;
   totalMissedPeriods_ += advance.missedPeriods;
-  return TimerWakeup{.deadline = deadline, .lateness = now - deadline, .missedPeriods = advance.missedPeriods};
+  return TimerWakeup{.deadline = deadline,
+                     .lateness = now - deadline,
+                     .missedPeriods = advance.missedPeriods};
 }
 
 }  // namespace robot::realtime

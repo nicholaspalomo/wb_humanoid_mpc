@@ -45,9 +45,13 @@ void ZmpRegularizationCost::configure(const ContactPlanningConfig& config) {
   weight_ = config.zmpRegularization.weight;
 }
 
-void ZmpRegularizationCost::addToStage(const ContactPlanningContext& /*ctx*/, int /*node*/, StageAccumulator& stage) const {
+void ZmpRegularizationCost::addToStage(const ContactPlanningContext& /*ctx*/,
+                                       int /*node*/,
+                                       StageAccumulator& stage) const {
   for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
-    stage.addQuadraticResidual({{idx_.com[axis], -1.0}}, {{idx_.zmp[axis], 1.0}}, /*offset=*/0.0, weight_);
+    stage.addQuadraticResidual({{idx_.com[axis], -1.0}},
+                               {{idx_.zmp[axis], 1.0}}, /*offset=*/0.0,
+                               weight_);
   }
 }
 

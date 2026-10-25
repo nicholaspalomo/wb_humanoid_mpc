@@ -50,10 +50,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_model/RobotState.h"
 
 /*
- * Every robot configuration's MuJoCo scene against the gantry hold its task file names, as the robot process starts
- * them: the task file read by loadRobotProcessSettings(), the simulator created by the mujoco backend. A task file that
- * names weld_constraint over a scene without the gantry weld starts the simulator with an ERROR on kinematic_teleport,
- * as both Unitree G1 configurations did until g1_29dof.xml declared the weld, and the Unitree R1 until R1.xml did.
+ * Every robot configuration's MuJoCo scene against the gantry hold its task
+ * file names, as the robot process starts them: the task file read by
+ * loadRobotProcessSettings(), the simulator created by the mujoco backend. A
+ * task file that names weld_constraint over a scene without the gantry weld
+ * starts the simulator with an ERROR on kinematic_teleport, as both Unitree G1
+ * configurations did until g1_29dof.xml declared the weld, and the Unitree R1
+ * until R1.xml did.
  */
 
 namespace ocs2::humanoid::validation {
@@ -69,7 +72,8 @@ using ::testing::HasSubstr;
 
 constexpr int kErrorSize = 1000;
 
-/** The hold a configuration runs on. A change of one changes its closed-loop runs. */
+/** The hold a configuration runs on. A change of one changes its closed-loop
+ * runs. */
 struct ExpectedHold {
   std::string configuration;
   GantryHold hold = GantryHold::kWeldConstraint;
@@ -96,44 +100,60 @@ std::string holdName(GantryHold hold) {
   return "an unknown gantry hold";
 }
 
-/** The gantry hold the task file of `configuration` names, as the robot process reads it. */
-absl::StatusOr<GantryHold> taskFileHold(const RobotConfiguration& configuration) {
-  const absl::StatusOr<RobotProcessSettings> settings = loadRobotProcessSettings(configuration.taskFile);
+/** The gantry hold the task file of `configuration` names, as the robot process
+ * reads it. */
+absl::StatusOr<GantryHold> taskFileHold(
+    const RobotConfiguration& configuration) {
+  const absl::StatusOr<RobotProcessSettings> settings =
+      loadRobotProcessSettings(configuration.taskFile);
   if (!settings.ok()) return settings.status();
-  return robot::mujoco_sim_interface::gantryHoldFromName(settings->simulator.gantryHold);
+  return robot::mujoco_sim_interface::gantryHoldFromName(
+      settings->simulator.gantryHold);
 }
 
 TEST(RobotSceneGantryHold, EveryConfigurationsTaskFileNamesTheHoldItRunsOn) {
-  ASSERT_EQ(robotConfigurations().size(), expectedHolds().size()) << "a configuration without an expected hold";
+  ASSERT_EQ(robotConfigurations().size(), expectedHolds().size())
+      << "a configuration without an expected hold";
   for (const ExpectedHold& expected : expectedHolds()) {
-    const absl::StatusOr<RobotConfiguration> configuration = findRobotConfiguration(expected.configuration);
+    const absl::StatusOr<RobotConfiguration> configuration =
+        findRobotConfiguration(expected.configuration);
     ASSERT_TRUE(configuration.ok()) << configuration.status();
     const absl::StatusOr<GantryHold> hold = taskFileHold(*configuration);
     ASSERT_TRUE(hold.ok()) << configuration->taskFile << ": " << hold.status();
-    EXPECT_EQ(holdName(*hold), holdName(expected.hold)) << configuration->taskFile;
+    EXPECT_EQ(holdName(*hold), holdName(expected.hold))
+        << configuration->taskFile;
   }
 }
 
-TEST(RobotSceneGantryHold, EveryConfigurationsSceneSupportsTheHoldItsTaskFileNames) {
+TEST(RobotSceneGantryHold,
+     EveryConfigurationsSceneSupportsTheHoldItsTaskFileNames) {
   for (const RobotConfiguration& configuration : robotConfigurations()) {
     const absl::StatusOr<GantryHold> hold = taskFileHold(configuration);
     ASSERT_TRUE(hold.ok()) << configuration.taskFile << ": " << hold.status();
     char error[kErrorSize] = "";
-    const MjModelPtr model(mj_loadXML(configuration.sceneFile.c_str(), /*vfs=*/nullptr, error, kErrorSize));
+    const MjModelPtr model(mj_loadXML(configuration.sceneFile.c_str(),
+                                      /*vfs=*/nullptr, error, kErrorSize));
     ASSERT_NE(model, nullptr) << configuration.sceneFile << ": " << error;
     EXPECT_THAT(checkSceneSupportsGantryHold(model.get(), *hold), IsOk())
-        << configuration.name << ": " << configuration.sceneFile << " cannot hold the robot by the " << holdName(*hold) << " that "
+        << configuration.name << ": " << configuration.sceneFile
+        << " cannot hold the robot by the " << holdName(*hold) << " that "
         << configuration.taskFile << " names";
   }
 }
 
-TEST(RobotSceneGantryHold, TheRobotProcessesSimulatorRunsOnTheHoldTheTaskFileNames) {
-  // No fallback: the mujoco backend the robot binaries create runs every configuration on its task file's hold.
+TEST(RobotSceneGantryHold,
+     TheRobotProcessesSimulatorRunsOnTheHoldTheTaskFileNames) {
+  // No fallback: the mujoco backend the robot binaries create runs every
+  // configuration on its task file's hold.
   for (const RobotConfiguration& configuration : robotConfigurations()) {
-    const absl::StatusOr<RobotProcessSettings> settings = loadRobotProcessSettings(configuration.taskFile);
-    ASSERT_TRUE(settings.ok()) << configuration.taskFile << ": " << settings.status();
-    const absl::StatusOr<robot::model::RobotDescription> description = robot::model::RobotDescription::Create(configuration.urdfFile);
-    ASSERT_TRUE(description.ok()) << configuration.urdfFile << ": " << description.status();
+    const absl::StatusOr<RobotProcessSettings> settings =
+        loadRobotProcessSettings(configuration.taskFile);
+    ASSERT_TRUE(settings.ok())
+        << configuration.taskFile << ": " << settings.status();
+    const absl::StatusOr<robot::model::RobotDescription> description =
+        robot::model::RobotDescription::Create(configuration.urdfFile);
+    ASSERT_TRUE(description.ok())
+        << configuration.urdfFile << ": " << description.status();
     RobotBackendOptions options;
     options.robotName = configuration.name;
     options.urdfFile = configuration.urdfFile;
@@ -141,12 +161,16 @@ TEST(RobotSceneGantryHold, TheRobotProcessesSimulatorRunsOnTheHoldTheTaskFileNam
     options.initialState.emplace(*description);
     options.simulator = settings->simulator;
     options.viewer.names = {robot::mujoco_sim_interface::kNoViewerName};
-    const absl::StatusOr<std::unique_ptr<MujocoRobotBackend>> backend = MujocoRobotBackend::Create(options);
+    const absl::StatusOr<std::unique_ptr<MujocoRobotBackend>> backend =
+        MujocoRobotBackend::Create(options);
     ASSERT_TRUE(backend.ok()) << configuration.name << ": " << backend.status();
-    const robot::mujoco_sim_interface::MujocoSimInterface* absl_nullable simulator = (*backend)->simulator();
+    const robot::mujoco_sim_interface::MujocoSimInterface* absl_nullable
+    simulator = (*backend)->simulator();
     ASSERT_NE(simulator, nullptr) << configuration.name;
     EXPECT_EQ(holdName(simulator->gantryHold()), settings->simulator.gantryHold)
-        << configuration.name << ": the simulator fell back from the task file's gantry_hold on " << configuration.sceneFile;
+        << configuration.name
+        << ": the simulator fell back from the task file's gantry_hold on "
+        << configuration.sceneFile;
   }
 }
 
@@ -154,22 +178,31 @@ TEST(RobotSceneGantryHold, EachWeldedSceneFailsTheCheckWithItsWeldTakenOut) {
   int welded = 0;
   for (const ExpectedHold& expected : expectedHolds()) {
     if (expected.hold != GantryHold::kWeldConstraint) continue;
-    const absl::StatusOr<RobotConfiguration> configuration = findRobotConfiguration(expected.configuration);
+    const absl::StatusOr<RobotConfiguration> configuration =
+        findRobotConfiguration(expected.configuration);
     ASSERT_TRUE(configuration.ok()) << configuration.status();
     char error[kErrorSize] = "";
-    const MjSpecPtr spec(mj_parseXML(configuration->sceneFile.c_str(), /*vfs=*/nullptr, error, kErrorSize));
+    const MjSpecPtr spec(mj_parseXML(configuration->sceneFile.c_str(),
+                                     /*vfs=*/nullptr, error, kErrorSize));
     ASSERT_NE(spec, nullptr) << configuration->sceneFile << ": " << error;
-    mjsElement* absl_nullable weld = mjs_findElement(spec.get(), mjOBJ_EQUALITY, "gantry");
-    ASSERT_NE(weld, nullptr) << configuration->sceneFile << " declares no 'gantry' weld for " << configuration->taskFile;
+    mjsElement* absl_nullable weld =
+        mjs_findElement(spec.get(), mjOBJ_EQUALITY, "gantry");
+    ASSERT_NE(weld, nullptr)
+        << configuration->sceneFile << " declares no 'gantry' weld for "
+        << configuration->taskFile;
     ++welded;
     ASSERT_EQ(mjs_delete(spec.get(), weld), 0) << configuration->sceneFile;
     const MjModelPtr model(mj_compile(spec.get(), /*vfs=*/nullptr));
-    ASSERT_NE(model, nullptr) << configuration->sceneFile << ": " << mjs_getError(spec.get());
-    EXPECT_THAT(checkSceneSupportsGantryHold(model.get(), GantryHold::kWeldConstraint),
-                StatusIs(absl::StatusCode::kFailedPrecondition, HasSubstr("no equality named 'gantry'")))
+    ASSERT_NE(model, nullptr)
+        << configuration->sceneFile << ": " << mjs_getError(spec.get());
+    EXPECT_THAT(
+        checkSceneSupportsGantryHold(model.get(), GantryHold::kWeldConstraint),
+        StatusIs(absl::StatusCode::kFailedPrecondition,
+                 HasSubstr("no equality named 'gantry'")))
         << configuration->sceneFile;
   }
-  EXPECT_EQ(welded, 5) << "every configuration runs on the weld: Atlas, SA01, R1 and both G1 configurations";
+  EXPECT_EQ(welded, 5) << "every configuration runs on the weld: Atlas, SA01, "
+                          "R1 and both G1 configurations";
 }
 
 }  // namespace

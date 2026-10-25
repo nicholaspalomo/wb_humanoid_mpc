@@ -49,12 +49,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-absl::StatusOr<std::shared_ptr<MpcParameterUpdaterModule>> makeWholeBodyMpcParameterUpdater(
+absl::StatusOr<std::shared_ptr<MpcParameterUpdaterModule>>
+makeWholeBodyMpcParameterUpdater(
     MPC_BASE* absl_nullable mpc,
     const WBMpcInterface& interface,
     const std::string& taskFile,
     const std::string& referenceFile,
-    std::vector<MpcParameterUpdaterModule::ReferenceFileReloader> referenceFileReloaders,
+    std::vector<MpcParameterUpdaterModule::ReferenceFileReloader>
+        referenceFileReloaders,
     std::optional<std::filesystem::file_time_type> taskFileReadAt,
     std::optional<std::filesystem::file_time_type> referenceFileReadAt,
     absl::Duration fileCheckPeriod,
@@ -67,12 +69,16 @@ absl::StatusOr<std::shared_ptr<MpcParameterUpdaterModule>> makeWholeBodyMpcParam
   options.fileCheckPeriod = fileCheckPeriod;
   options.clock = std::move(clock);
   options.runningTask = interface.taskFile();
-  options.layout = stateInputLayout(interface.modelSettings(), StateInputLayout::Mpc::kWholeBody);
+  options.layout = stateInputLayout(interface.modelSettings(),
+                                    StateInputLayout::Mpc::kWholeBody);
   options.inputDim = interface.getMpcRobotModel().getInputDim();
-  options.referenceManager = interface.getSwitchedModelReferenceManagerPtr().get();
+  options.referenceManager =
+      interface.getSwitchedModelReferenceManagerPtr().get();
   ASSIGN_OR_RETURN(options.appliers, wholeBodyHotFieldAppliers(interface));
-  ASSIGN_OR_RETURN(std::unique_ptr<MpcParameterUpdaterModule> updater, MpcParameterUpdaterModule::Create(mpc, std::move(options)));
-  for (MpcParameterUpdaterModule::ReferenceFileReloader& reloader : referenceFileReloaders) {
+  ASSIGN_OR_RETURN(std::unique_ptr<MpcParameterUpdaterModule> updater,
+                   MpcParameterUpdaterModule::Create(mpc, std::move(options)));
+  for (MpcParameterUpdaterModule::ReferenceFileReloader& reloader :
+       referenceFileReloaders) {
     updater->addReferenceFileReloader(std::move(reloader));
   }
   return std::shared_ptr<MpcParameterUpdaterModule>(std::move(updater));

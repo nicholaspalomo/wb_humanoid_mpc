@@ -156,7 +156,11 @@ class TestTheIdentityAndTheMessage(unittest.TestCase):
         self.assertEqual(
             robot_config_save.config_path_of(
                 os.path.join(
-                    "/a/robot_models/b/..", "robot_models", "x", "config", "f.textproto"
+                    "/a/robot_models/b/..",
+                    "robot_models",
+                    "x",
+                    "config",
+                    "f.textproto",
                 )
             ),
             "robot_models/x/config/f.textproto",
@@ -180,13 +184,19 @@ class TestTheIdentityAndTheMessage(unittest.TestCase):
         )
         # A last component named robot_models has nothing below it: no identity starts there.
         self.assertEqual(
-            robot_config_save.config_path_of("/x/robot_models"), "/x/robot_models"
+            robot_config_save.config_path_of("/x/robot_models"),
+            "/x/robot_models",
         )
 
-    def test_the_save_carries_kind_robot_identity_fingerprint_text_and_sequence(self):
+    def test_the_save_carries_kind_robot_identity_fingerprint_text_and_sequence(
+        self,
+    ):
         for kind, message_class in (
             (robot_config_save.KIND_TASK, task_file_pb2.TaskFile),
-            (robot_config_save.KIND_REFERENCE, reference_file_pb2.ReferenceFile),
+            (
+                robot_config_save.KIND_REFERENCE,
+                reference_file_pb2.ReferenceFile,
+            ),
             (
                 robot_config_save.KIND_JOINT_PD_GAINS,
                 joint_pd_gains_file_pb2.JointPdGainsFile,
@@ -194,7 +204,11 @@ class TestTheIdentityAndTheMessage(unittest.TestCase):
         ):
             with self.subTest(kind=kind):
                 save = robot_config_save.config_file_save(
-                    kind, os.path.join("/c", ATLAS_IDENTITY), "x: 1\n", "atlas", 5
+                    kind,
+                    os.path.join("/c", ATLAS_IDENTITY),
+                    "x: 1\n",
+                    "atlas",
+                    5,
                 )
                 self.assertEqual(save.kind, kind)
                 self.assertEqual(save.robot_name, "atlas")
@@ -215,14 +229,18 @@ class TestTheIdentityAndTheMessage(unittest.TestCase):
             - {config_file_kind_pb2.CONFIG_FILE_KIND_UNSPECIFIED},
         )
         self.assertEqual(
-            len({entry.message_class for entry in robot_config_save.FILE_KINDS}),
+            len(
+                {entry.message_class for entry in robot_config_save.FILE_KINDS}
+            ),
             len(robot_config_save.FILE_KINDS),
             "two kinds share a schema",
         )
         with self.assertRaises(ValueError):
             robot_config_save.file_kind(0)
         self.assertEqual(
-            robot_config_save.file_kind_of_message("humanoid_mpc_config.TaskFile"),
+            robot_config_save.file_kind_of_message(
+                "humanoid_mpc_config.TaskFile"
+            ),
             robot_config_save.file_kind(robot_config_save.KIND_TASK),
         )
         self.assertIsNone(
@@ -234,7 +252,10 @@ class TestTheIdentityAndTheMessage(unittest.TestCase):
     def test_the_robot_is_the_one_its_configurations_task_file_names(self):
         atlas = operator_test_support.ATLAS_CONFIG
         for kind, path in (
-            (robot_config_save.KIND_TASK, operator_test_support.ATLAS_TASK_FILE),
+            (
+                robot_config_save.KIND_TASK,
+                operator_test_support.ATLAS_TASK_FILE,
+            ),
             (
                 robot_config_save.KIND_REFERENCE,
                 operator_test_support.ATLAS_REFERENCE_FILE,
@@ -245,10 +266,15 @@ class TestTheIdentityAndTheMessage(unittest.TestCase):
             ),
         ):
             with self.subTest(kind=kind):
-                self.assertEqual(robot_config_save.robot_name_of(kind, path), "atlas")
-        with self.assertRaisesRegex(robot_config_save.RobotNameError, "task.textproto"):
+                self.assertEqual(
+                    robot_config_save.robot_name_of(kind, path), "atlas"
+                )
+        with self.assertRaisesRegex(
+            robot_config_save.RobotNameError, "task.textproto"
+        ):
             robot_config_save.robot_name_of(
-                robot_config_save.KIND_REFERENCE, "/nowhere/config/command/x.textproto"
+                robot_config_save.KIND_REFERENCE,
+                "/nowhere/config/command/x.textproto",
             )
         self.assertTrue(os.path.isdir(atlas))
 
@@ -264,13 +290,17 @@ class TestRobotConfigSaver(unittest.TestCase):
         self, bus: operator_test_support.RecordingBus
     ) -> robot_config_save.RobotConfigSaver:
         return robot_config_save.RobotConfigSaver(
-            operator_bus.TopicPublisher.for_topic(bus, topics.OPERATOR_CONFIG_SAVE),
+            operator_bus.TopicPublisher.for_topic(
+                bus, topics.OPERATOR_CONFIG_SAVE
+            ),
             self.statuses,
             clock=self.clock,
             sequence_clock=lambda: 1_000,
         )
 
-    def _send(self, saver: robot_config_save.RobotConfigSaver | None = None) -> int:
+    def _send(
+        self, saver: robot_config_save.RobotConfigSaver | None = None
+    ) -> int:
         return (saver or self.saver).send(
             robot_config_save.KIND_TASK,
             os.path.join("/c", ATLAS_IDENTITY),
@@ -288,7 +318,9 @@ class TestRobotConfigSaver(unittest.TestCase):
         self.assertEqual(first, 1_000)
         self.assertGreater(second, first)
         published = self.bus.messages_on(topics.OPERATOR_CONFIG_SAVE)
-        self.assertEqual([message.sequence for message in published], [first, second])
+        self.assertEqual(
+            [message.sequence for message in published], [first, second]
+        )
         self.assertEqual(published[0].text, "terrain_height: 0.0\n")
         self.assertEqual(published[0].config_path, ATLAS_IDENTITY)
         self.assertEqual(self._state(first), SaveState.SAVING)
@@ -306,7 +338,9 @@ class TestRobotConfigSaver(unittest.TestCase):
                 other = self._send()
                 self.statuses.put(_status(sequence, result, "the message"))
                 changed = self.saver.poll(self.clock())
-                self.assertEqual([outcome.sequence for outcome in changed], [sequence])
+                self.assertEqual(
+                    [outcome.sequence for outcome in changed], [sequence]
+                )
                 outcome = self.saver.outcome(sequence)
                 assert outcome is not None
                 self.assertEqual(
@@ -329,7 +363,9 @@ class TestRobotConfigSaver(unittest.TestCase):
         self.assertEqual(self.saver.poll(self.clock()), [])
         self.clock.sleep(0.2)
         changed = self.saver.poll(self.clock())
-        self.assertEqual([outcome.state for outcome in changed], [SaveState.TIMED_OUT])
+        self.assertEqual(
+            [outcome.state for outcome in changed], [SaveState.TIMED_OUT]
+        )
         timed_out = self.saver.outcome(sequence)
         assert timed_out is not None
         self.assertTrue(timed_out.waiting)
@@ -350,7 +386,9 @@ class TestRobotConfigSaver(unittest.TestCase):
         outcome = saver.outcome(sequence)
         assert outcome is not None
         self.assertEqual(outcome.state, SaveState.NOT_SENT)
-        self.assertIn("not sent to the robot", robot_config_save.describe(outcome))
+        self.assertIn(
+            "not sent to the robot", robot_config_save.describe(outcome)
+        )
         self.assertEqual(dropping.published, [])
         self.assertTrue(saver.resend(sequence))
         repeated = saver.outcome(sequence)
@@ -380,7 +418,9 @@ class TestRobotConfigSaver(unittest.TestCase):
 
 
 class TestTheStatusLines(unittest.TestCase):
-    def _line(self, state: SaveState, message: str = "", stored_path: str = "") -> str:
+    def _line(
+        self, state: SaveState, message: str = "", stored_path: str = ""
+    ) -> str:
         return robot_config_save.describe(
             robot_config_save.SaveOutcome(
                 sequence=1,
@@ -394,25 +434,30 @@ class TestTheStatusLines(unittest.TestCase):
 
     def test_every_state_has_its_line(self):
         self.assertEqual(
-            self._line(SaveState.SAVING), "Saved on the laptop · saving on the robot…"
+            self._line(SaveState.SAVING),
+            "Saved on the laptop · saving on the robot…",
         )
         self.assertEqual(
             self._line(SaveState.SAVED, stored_path=STORED),
             f"Saved on the laptop and on the robot ({STORED})",
         )
         self.assertIn(
-            "robot unchanged", self._line(SaveState.UNCHANGED, stored_path=STORED)
+            "robot unchanged",
+            self._line(SaveState.UNCHANGED, stored_path=STORED),
         )
         self.assertEqual(
             self._line(SaveState.REFUSED, "robot_name 'g1' is not 'atlas'"),
-            "Saved on the laptop · the robot refused it: robot_name 'g1' is not 'atlas'",
+            "Saved on the laptop · the robot refused it: robot_name 'g1' is not"
+            " 'atlas'",
         )
         self.assertIn(
-            "could not store it: disk full", self._line(SaveState.FAILED, "disk full")
+            "could not store it: disk full",
+            self._line(SaveState.FAILED, "disk full"),
         )
         self.assertEqual(
             self._line(SaveState.NOT_STORED, stored_path=STORED),
-            f"Saved on the laptop · the robot has no store: it reads {STORED} in place; this Save did not change it",
+            "Saved on the laptop · the robot has no store: it reads"
+            f" {STORED} in place; this Save did not change it",
         )
         self.assertEqual(
             self._line(SaveState.NOT_SENT, "the bus dropped it"),
@@ -420,9 +465,13 @@ class TestTheStatusLines(unittest.TestCase):
         )
         for state in SaveState:
             with self.subTest(state=state):
-                self.assertTrue(self._line(state).startswith("Saved on the laptop"))
+                self.assertTrue(
+                    self._line(state).startswith("Saved on the laptop")
+                )
 
-    def test_not_stored_is_in_sync_only_when_the_robot_reads_the_laptops_file(self):
+    def test_not_stored_is_in_sync_only_when_the_robot_reads_the_laptops_file(
+        self,
+    ):
         directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, directory, ignore_errors=True)
         laptop = os.path.join(directory, "task.textproto")
@@ -468,7 +517,9 @@ class TestSaveTracker(unittest.TestCase):
     def test_without_a_saver_nothing_is_sent_and_the_line_says_so(self):
         tracker = robot_config_save.SaveTracker(None)
         outcome = tracker.send(
-            robot_config_save.KIND_TASK, operator_test_support.ATLAS_TASK_FILE, "x"
+            robot_config_save.KIND_TASK,
+            operator_test_support.ATLAS_TASK_FILE,
+            "x",
         )
         self.assertEqual(outcome.state, SaveState.NOT_SENT)
         self.assertIn("not connected", outcome.message)
@@ -477,12 +528,16 @@ class TestSaveTracker(unittest.TestCase):
     def test_a_file_whose_robot_cannot_be_read_is_not_sent(self):
         bus = operator_test_support.RecordingBus()
         saver = robot_config_save.RobotConfigSaver(
-            operator_bus.TopicPublisher.for_topic(bus, topics.OPERATOR_CONFIG_SAVE),
+            operator_bus.TopicPublisher.for_topic(
+                bus, topics.OPERATOR_CONFIG_SAVE
+            ),
             operator_bus.ConfigSaveStatusMailbox(),
         )
         directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, directory, ignore_errors=True)
-        lonely = os.path.join(directory, "controller", "joint_pd_gains.textproto")
+        lonely = os.path.join(
+            directory, "controller", "joint_pd_gains.textproto"
+        )
         outcome = robot_config_save.SaveTracker(saver).send(
             robot_config_save.KIND_JOINT_PD_GAINS, lonely, "x"
         )
@@ -495,13 +550,17 @@ class TestSaveTracker(unittest.TestCase):
         clock = FakeClock()
         bus = operator_test_support.RecordingBus()
         saver = robot_config_save.RobotConfigSaver(
-            operator_bus.TopicPublisher.for_topic(bus, topics.OPERATOR_CONFIG_SAVE),
+            operator_bus.TopicPublisher.for_topic(
+                bus, topics.OPERATOR_CONFIG_SAVE
+            ),
             statuses,
             clock=clock,
         )
         tracker = robot_config_save.SaveTracker(saver)
         sent = tracker.send(
-            robot_config_save.KIND_TASK, operator_test_support.ATLAS_TASK_FILE, "x"
+            robot_config_save.KIND_TASK,
+            operator_test_support.ATLAS_TASK_FILE,
+            "x",
         )
         self.assertEqual(sent.state, SaveState.SAVING)
         (message,) = bus.messages_on(topics.OPERATOR_CONFIG_SAVE)
@@ -549,7 +608,9 @@ class TestPushRobotConfig(unittest.TestCase):
         messages = publisher.messages
         self.assertEqual(len(messages), 3)
         # The repeats are the save itself: one sequence, the same bytes.
-        self.assertEqual(len({message.SerializeToString() for message in messages}), 1)
+        self.assertEqual(
+            len({message.SerializeToString() for message in messages}), 1
+        )
         self.assertEqual(messages[0].sequence, outcome.sequence)
 
     def test_without_an_answer_it_gives_up_after_the_timeout(self):
@@ -562,14 +623,18 @@ class TestPushRobotConfig(unittest.TestCase):
             / push_robot_config.RESEND_PERIOD_SECONDS
         )
         self.assertEqual(len(publisher.messages), expected)
-        self.assertEqual(len({message.sequence for message in publisher.messages}), 1)
+        self.assertEqual(
+            len({message.sequence for message in publisher.messages}), 1
+        )
 
     def test_a_refusal_ends_it_at_once(self):
         statuses = operator_bus.ConfigSaveStatusMailbox()
         publisher = AnsweringPublisher(
             statuses, answer_at=1, result=_Status.RESULT_REFUSED
         )
-        self.assertEqual(self._push(publisher, statuses).state, SaveState.REFUSED)
+        self.assertEqual(
+            self._push(publisher, statuses).state, SaveState.REFUSED
+        )
         self.assertEqual(len(publisher.messages), 1)
 
     def test_the_file_decides_the_kind_and_must_parse(self):
@@ -578,7 +643,9 @@ class TestPushRobotConfig(unittest.TestCase):
         )
         self.assertEqual(entry.kind, robot_config_save.KIND_JOINT_PD_GAINS)
         with open(
-            operator_test_support.ATLAS_PD_GAINS_FILE, encoding="utf-8", newline=""
+            operator_test_support.ATLAS_PD_GAINS_FILE,
+            encoding="utf-8",
+            newline="",
         ) as file:
             self.assertEqual(text, file.read())
         nproto_textproto.parse_textproto(
@@ -588,7 +655,9 @@ class TestPushRobotConfig(unittest.TestCase):
         self.addCleanup(shutil.rmtree, directory, ignore_errors=True)
         planner = os.path.join(directory, "contact_planning.textproto")
         with open(planner, "w", encoding="utf-8") as file:
-            file.write("# proto-message: humanoid_mpc_config.ContactPlanningFile\n")
+            file.write(
+                "# proto-message: humanoid_mpc_config.ContactPlanningFile\n"
+            )
         with self.assertRaisesRegex(
             push_robot_config.PushError, "names no file the robot stores"
         ):
@@ -596,18 +665,25 @@ class TestPushRobotConfig(unittest.TestCase):
         broken = os.path.join(directory, "task.textproto")
         with open(broken, "w", encoding="utf-8") as file:
             file.write(
-                "# proto-message: humanoid_mpc_config.TaskFile\nterrainHeight: 0.1\n"
+                "# proto-message: humanoid_mpc_config.TaskFile\nterrainHeight:"
+                " 0.1\n"
             )
-        with self.assertRaisesRegex(push_robot_config.PushError, "task.textproto:2"):
+        with self.assertRaisesRegex(
+            push_robot_config.PushError, "task.textproto:2"
+        ):
             push_robot_config.read_file(broken)
         with self.assertRaises(push_robot_config.PushError):
-            push_robot_config.read_file(os.path.join(directory, "missing.textproto"))
+            push_robot_config.read_file(
+                os.path.join(directory, "missing.textproto")
+            )
 
     def test_a_file_it_cannot_send_exits_two_without_a_bus(self):
         directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, directory, ignore_errors=True)
         self.assertEqual(
-            push_robot_config.main([os.path.join(directory, "missing.textproto")]),
+            push_robot_config.main(
+                [os.path.join(directory, "missing.textproto")]
+            ),
             push_robot_config.EXIT_CANNOT_SEND,
         )
 

@@ -42,9 +42,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::visualization {
 
-absl::StatusOr<VisualizationConfig> loadVisualizationConfig(const std::string& taskFile, const ModelSettings& modelSettings) {
+absl::StatusOr<VisualizationConfig> loadVisualizationConfig(
+    const std::string& taskFile, const ModelSettings& modelSettings) {
   ASSIGN_OR_RETURN(const mpc_config::TaskFile task, loadTaskFile(taskFile));
-  absl::StatusOr<VisualizationConfig> config = visualizationConfigFromConfig(task, modelSettings.contactNames);
+  absl::StatusOr<VisualizationConfig> config =
+      visualizationConfigFromConfig(task, modelSettings.contactNames);
   if (!config.ok()) {
     return withConfigFile(config.status(), taskFile);
   }
@@ -52,10 +54,13 @@ absl::StatusOr<VisualizationConfig> loadVisualizationConfig(const std::string& t
 }
 
 std::string describeVisualizationConfig(const VisualizationConfig& config) {
-  return absl::StrCat("viz/scene at ", config.sceneFrequency, " Hz (", kRerunSceneFrequencyField,
-                      config.sceneFrequencyIsDefault ? ", the default" : "", "), viz/telemetry once per robot/state sample; ",
-                      kTelemetryFramesField, ": ", absl::StrJoin(config.telemetryFrames, ", "), "; ", kRerunPlanFramesField, ": ",
-                      absl::StrJoin(config.planFrames, ", "));
+  return absl::StrCat(
+      "viz/scene at ", config.sceneFrequency, " Hz (",
+      kRerunSceneFrequencyField,
+      config.sceneFrequencyIsDefault ? ", the default" : "",
+      "), viz/telemetry once per robot/state sample; ", kTelemetryFramesField,
+      ": ", absl::StrJoin(config.telemetryFrames, ", "), "; ",
+      kRerunPlanFramesField, ": ", absl::StrJoin(config.planFrames, ", "));
 }
 
 }  // namespace ocs2::humanoid::visualization

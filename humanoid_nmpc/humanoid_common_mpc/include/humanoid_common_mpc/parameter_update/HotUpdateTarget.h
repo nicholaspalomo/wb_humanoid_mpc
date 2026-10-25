@@ -49,20 +49,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * What one hot reload of a task file writes into: the reloaded file, the SqpSolver whose per-worker problems and settings
- * the hot-field appliers (HotFieldApplier.h) update, the reference manager and the coordinates the file's weights are
- * addressed on. MpcParameterUpdaterModule builds one per reload and hands it to every applier in turn.
+ * What one hot reload of a task file writes into: the reloaded file, the
+ * SqpSolver whose per-worker problems and settings the hot-field appliers
+ * (HotFieldApplier.h) update, the reference manager and the coordinates the
+ * file's weights are addressed on. MpcParameterUpdaterModule builds one per
+ * reload and hands it to every applier in turn.
  *
- * It also converts, once per reload, the blocks that several appliers read (footConstraint(), terminalCostScaling()), so
- * that a refused block is reported once rather than by every applier that needs it.
+ * It also converts, once per reload, the blocks that several appliers read
+ * (footConstraint(), terminalCostScaling()), so that a refused block is
+ * reported once rather than by every applier that needs it.
  *
- * Not thread-safe: built and used on the solver thread, between two solves, when no worker of the solver runs.
+ * Not thread-safe: built and used on the solver thread, between two solves,
+ * when no worker of the solver runs.
  */
 class HotUpdateTarget {
  public:
   /**
-   * The target of a reload of `task`, applied to `solver` and, when not null, `referenceManager`, with the weights
-   * addressed on `layout` and an OCP input of `inputDim`. All four are kept and must outlive this object (it lives for
+   * The target of a reload of `task`, applied to `solver` and, when not null,
+   * `referenceManager`, with the weights addressed on `layout` and an OCP input
+   * of `inputDim`. All four are kept and must outlive this object (it lives for
    * one reload). `source` names where the file came from, for the log.
    */
   HotUpdateTarget(const mpc_config::TaskFile* absl_nonnull task,
@@ -79,50 +84,69 @@ class HotUpdateTarget {
   /** The reloaded task file. */
   const mpc_config::TaskFile& task() const { return *task_; }
 
-  /** Every worker's clone of the running problem (SqpSolver::getOcpDefinitions()), each of which a reload writes. */
-  std::vector<OptimalControlProblem>& problems() { return solver_->getOcpDefinitions(); }
+  /** Every worker's clone of the running problem
+   * (SqpSolver::getOcpDefinitions()), each of which a reload writes. */
+  std::vector<OptimalControlProblem>& problems() {
+    return solver_->getOcpDefinitions();
+  }
 
   /**
-   * The first worker's problem, which says which terms the running problem carries: that is structural, decided when the
-   * problem was assembled, and a reload never changes it. Precondition: problems() is not empty (the module checks it).
+   * The first worker's problem, which says which terms the running problem
+   * carries: that is structural, decided when the problem was assembled, and a
+   * reload never changes it. Precondition: problems() is not empty (the module
+   * checks it).
    */
-  const OptimalControlProblem& runningProblem() const { return solver_->getOcpDefinitions().front(); }
+  const OptimalControlProblem& runningProblem() const {
+    return solver_->getOcpDefinitions().front();
+  }
 
   SqpSolver& solver() { return *solver_; }
 
-  /** The reference manager, or null when the updater has none (its swing planner and ground are then not reloaded). */
-  SwitchedModelReferenceManager* absl_nullable referenceManager() { return referenceManager_; }
+  /** The reference manager, or null when the updater has none (its swing
+   * planner and ground are then not reloaded). */
+  SwitchedModelReferenceManager* absl_nullable referenceManager() {
+    return referenceManager_;
+  }
 
-  /** The coordinates the task file's weights are addressed on (the MPC's model settings). */
+  /** The coordinates the task file's weights are addressed on (the MPC's model
+   * settings). */
   const StateInputLayout& layout() const { return *layout_; }
   /** The contacts of the layout, in input order. */
-  const std::vector<std::string>& contactNames() const { return layout_->contactNames; }
+  const std::vector<std::string>& contactNames() const {
+    return layout_->contactNames;
+  }
   /**
-   * Rows of the task file's state_weights and final_state_weights: tuningDimension() of the layout. The quadratic state
-   * costs' setters compare a converted Q with the running problem's tuning dimension, the robot model's
-   * getStateTangentDim().
+   * Rows of the task file's state_weights and final_state_weights:
+   * tuningDimension() of the layout. The quadratic state costs' setters compare
+   * a converted Q with the running problem's tuning dimension, the robot
+   * model's getStateTangentDim().
    */
   size_t tuningDim() const { return tuningDim_; }
-  /** The dimension of the OCP input: with basis-vector contact inputs the basis-space one, not the wrench-space one. */
+  /** The dimension of the OCP input: with basis-vector contact inputs the
+   * basis-space one, not the wrench-space one. */
   size_t inputDim() const { return inputDim_; }
 
   /** Where the reloaded file came from, for the log. */
   absl::string_view source() const { return source_; }
 
   /**
-   * model_settings.foot_constraint of the reloaded file, converted on the first call; nullopt when its conversion
-   * refused it, which the first call reports by the field.
+   * model_settings.foot_constraint of the reloaded file, converted on the first
+   * call; nullopt when its conversion refused it, which the first call reports
+   * by the field.
    */
   const std::optional<ModelSettings::FootConstraintConfig>& footConstraint();
 
   /**
-   * terminal_cost_scaling of the reloaded file, converted on the first call; nullopt when it was refused, which the
-   * first call reports. It weighs both final_state_weights and the terminal CoM + ACoM cost.
+   * terminal_cost_scaling of the reloaded file, converted on the first call;
+   * nullopt when it was refused, which the first call reports. It weighs both
+   * final_state_weights and the terminal CoM + ACoM cost.
    */
   const std::optional<scalar_t>& terminalCostScaling();
 
-  /** Logs that `what` of this reload was refused, `status`, and the running values kept (reportNotApplied()). */
-  void reportNotApplied(absl::string_view what, const absl::Status& status) const;
+  /** Logs that `what` of this reload was refused, `status`, and the running
+   * values kept (reportNotApplied()). */
+  void reportNotApplied(absl::string_view what,
+                        const absl::Status& status) const;
 
  private:
   const mpc_config::TaskFile* absl_nonnull task_;
@@ -132,7 +156,8 @@ class HotUpdateTarget {
   size_t tuningDim_ = 0;
   size_t inputDim_ = 0;
   std::string source_;
-  // The blocks converted on first use: whether each was converted, and its value (nullopt: refused).
+  // The blocks converted on first use: whether each was converted, and its
+  // value (nullopt: refused).
   bool footConstraintConverted_ = false;
   std::optional<ModelSettings::FootConstraintConfig> footConstraint_;
   bool terminalCostScalingConverted_ = false;

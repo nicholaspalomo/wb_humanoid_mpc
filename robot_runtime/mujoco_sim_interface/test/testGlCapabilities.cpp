@@ -37,10 +37,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "mujoco_sim_interface/viewer/WebViewerOptions.h"
 
 /*
- * The GL preflight of the web viewer on synthetic capabilities: every condition under which MuJoCo would end the process
- * while creating or resizing its offscreen buffer or its shadow map is refused first, with a message that names the
- * limit and the fix.
- * The live case (a real context asked for too many samples) is testWebMujocoViewer.cpp's.
+ * The GL preflight of the web viewer on synthetic capabilities: every condition
+ * under which MuJoCo would end the process while creating or resizing its
+ * offscreen buffer or its shadow map is refused first, with a message that
+ * names the limit and the fix. The live case (a real context asked for too many
+ * samples) is testWebMujocoViewer.cpp's.
  */
 
 namespace robot::mujoco_sim_interface {
@@ -57,7 +58,8 @@ GlCapabilities capable() {
   capabilities.vendor = "Mesa";
   capabilities.renderer = "llvmpipe (LLVM 20.1.2, 256 bits)";
   capabilities.version = "4.5 (Compatibility Profile) Mesa 25.2.8";
-  capabilities.extensions = "GL_ARB_multisample GL_ARB_framebuffer_object GL_EXT_texture";
+  capabilities.extensions =
+      "GL_ARB_multisample GL_ARB_framebuffer_object GL_EXT_texture";
   capabilities.maxRenderbufferSize = 16384;
   capabilities.maxSamples = 8;
   capabilities.maxTextureSize = 16384;
@@ -77,21 +79,26 @@ TEST(GlCapabilities, OpenGl14IsRefused) {
   GlCapabilities capabilities = capable();
   capabilities.version = "1.4 Mesa 6.5";
   EXPECT_THAT(checkGlCapabilities(capabilities, WebViewerOptions{}),
-              StatusIs(absl::StatusCode::kFailedPrecondition, AllOf(HasSubstr("OpenGL 1.5 or newer"), HasSubstr("1.4"), namesTheFix())));
+              StatusIs(absl::StatusCode::kFailedPrecondition,
+                       AllOf(HasSubstr("OpenGL 1.5 or newer"), HasSubstr("1.4"),
+                             namesTheFix())));
 }
 
 TEST(GlCapabilities, AVersionThatDoesNotParseIsRefused) {
   GlCapabilities capabilities = capable();
   capabilities.version = "";
-  EXPECT_THAT(checkGlCapabilities(capabilities, WebViewerOptions{}), StatusIs(absl::StatusCode::kFailedPrecondition));
+  EXPECT_THAT(checkGlCapabilities(capabilities, WebViewerOptions{}),
+              StatusIs(absl::StatusCode::kFailedPrecondition));
 }
 
 TEST(GlCapabilities, OpenGl15NeedsTheFramebufferObjectExtension) {
   GlCapabilities capabilities = capable();
   capabilities.version = "1.5.0 NVIDIA 1.0";
   capabilities.extensions = "GL_ARB_multisample GL_ARB_framebuffer_object_ish";
-  EXPECT_THAT(checkGlCapabilities(capabilities, WebViewerOptions{}),
-              StatusIs(absl::StatusCode::kFailedPrecondition, AllOf(HasSubstr("GL_ARB_framebuffer_object"), namesTheFix())));
+  EXPECT_THAT(
+      checkGlCapabilities(capabilities, WebViewerOptions{}),
+      StatusIs(absl::StatusCode::kFailedPrecondition,
+               AllOf(HasSubstr("GL_ARB_framebuffer_object"), namesTheFix())));
   capabilities.extensions = "GL_ARB_multisample GL_ARB_framebuffer_object";
   EXPECT_THAT(checkGlCapabilities(capabilities, WebViewerOptions{}), IsOk());
 }
@@ -111,10 +118,13 @@ TEST(GlCapabilities, AnOffscreenBufferPastTheRenderbufferLimitIsRefused) {
   options.maxHeight = 2160;
   EXPECT_THAT(checkGlCapabilities(capabilities, options),
               StatusIs(absl::StatusCode::kFailedPrecondition,
-                       AllOf(HasSubstr("maxWidth"), HasSubstr("3840"), HasSubstr("GL_MAX_RENDERBUFFER_SIZE of 2048"), namesTheFix())));
+                       AllOf(HasSubstr("maxWidth"), HasSubstr("3840"),
+                             HasSubstr("GL_MAX_RENDERBUFFER_SIZE of 2048"),
+                             namesTheFix())));
   options.maxWidth = 2048;
   EXPECT_THAT(checkGlCapabilities(capabilities, options),
-              StatusIs(absl::StatusCode::kFailedPrecondition, AllOf(HasSubstr("maxHeight"), HasSubstr("2160"))));
+              StatusIs(absl::StatusCode::kFailedPrecondition,
+                       AllOf(HasSubstr("maxHeight"), HasSubstr("2160"))));
   options.maxHeight = 2048;
   EXPECT_THAT(checkGlCapabilities(capabilities, options), IsOk());
 }
@@ -124,26 +134,31 @@ TEST(GlCapabilities, MoreSamplesThanTheContextOffersAreRefused) {
   options.msaaSamples = 9;
   EXPECT_THAT(checkGlCapabilities(capable(), options),
               StatusIs(absl::StatusCode::kFailedPrecondition,
-                       AllOf(HasSubstr("msaaSamples of 9"), HasSubstr("GL_MAX_SAMPLES of 8"), namesTheFix())));
+                       AllOf(HasSubstr("msaaSamples of 9"),
+                             HasSubstr("GL_MAX_SAMPLES of 8"), namesTheFix())));
   options.msaaSamples = 8;
   EXPECT_THAT(checkGlCapabilities(capable(), options), IsOk());
-  // No multisampling needs none, even from a context that reports no GL_MAX_SAMPLES at all.
+  // No multisampling needs none, even from a context that reports no
+  // GL_MAX_SAMPLES at all.
   GlCapabilities noSamples = capable();
   noSamples.maxSamples = 0;
   options.msaaSamples = 0;
   EXPECT_THAT(checkGlCapabilities(noSamples, options), IsOk());
 }
 
-// MuJoCo makes the shadow map a depth texture of shadowSize x shadowSize and ends the process ("Shadow framebuffer is
-// not complete") when the context cannot make one that large; the preflight did not look at it.
+// MuJoCo makes the shadow map a depth texture of shadowSize x shadowSize and
+// ends the process ("Shadow framebuffer is not complete") when the context
+// cannot make one that large; the preflight did not look at it.
 TEST(GlCapabilities, AShadowMapPastTheTextureLimitIsRefused) {
   GlCapabilities capabilities = capable();
   capabilities.maxTextureSize = 4096;
   WebViewerOptions options;
   options.shadowSize = 8192;
-  EXPECT_THAT(checkGlCapabilities(capabilities, options),
-              StatusIs(absl::StatusCode::kFailedPrecondition,
-                       AllOf(HasSubstr("shadowSize of 8192"), HasSubstr("GL_MAX_TEXTURE_SIZE of 4096"), namesTheFix())));
+  EXPECT_THAT(
+      checkGlCapabilities(capabilities, options),
+      StatusIs(absl::StatusCode::kFailedPrecondition,
+               AllOf(HasSubstr("shadowSize of 8192"),
+                     HasSubstr("GL_MAX_TEXTURE_SIZE of 4096"), namesTheFix())));
   options.shadowSize = 4096;
   EXPECT_THAT(checkGlCapabilities(capabilities, options), IsOk());
   // No shadows need no texture, whatever the context reports.

@@ -47,36 +47,45 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::web_viewer {
 
 /**
- * The hand-over between the viewer's render thread and the web server's request threads: the newest frame, the newest
- * status, the render demand and the count of frame clients.
+ * The hand-over between the viewer's render thread and the web server's request
+ * threads: the newest frame, the newest status, the render demand and the count
+ * of frame clients.
  *
- * The render thread publishes each frame and status; it never waits on a socket, only on the mutex that a request
- * thread holds while it copies the frame into its response (about 10 us for 100 KB). Older frames are dropped: a
- * client that is slower than the renderer skips frames. The mailbox holds the frame by value, so a reader always copies
- * a whole frame and never sees one being replaced.
+ * The render thread publishes each frame and status; it never waits on a
+ * socket, only on the mutex that a request thread holds while it copies the
+ * frame into its response (about 10 us for 100 KB). Older frames are dropped: a
+ * client that is slower than the renderer skips frames. The mailbox holds the
+ * frame by value, so a reader always copies a whole frame and never sees one
+ * being replaced.
  *
- * Demand: waitForDemand() lets the render thread idle while nobody watches. A frame client counts as demand while it
- * is admitted (tryAcquireClient() to releaseClient()), and each frame request (noteFrameRequest()) for kDemandLease
- * after it. demandResumedAt() is when the last admission found no demand, so the renderer was idle or about to be: a
- * frame published before it is stale.
+ * Demand: waitForDemand() lets the render thread idle while nobody watches. A
+ * frame client counts as demand while it is admitted (tryAcquireClient() to
+ * releaseClient()), and each frame request (noteFrameRequest()) for
+ * kDemandLease after it. demandResumedAt() is when the last admission found no
+ * demand, so the renderer was idle or about to be: a frame published before it
+ * is stale.
  *
- * Viewers: each page names itself on its frame requests (noteViewer()); viewerCount() is the pages seen within
- * kDemandLease, at most kMaxTrackedViewers.
+ * Viewers: each page names itself on its frame requests (noteViewer());
+ * viewerCount() is the pages seen within kDemandLease, at most
+ * kMaxTrackedViewers.
  *
- * Every time is measured on the monotonic clock, so that a step of the wall clock (NTP, a VM resync) neither extends
- * the lease nor stretches a wait.
+ * Every time is measured on the monotonic clock, so that a step of the wall
+ * clock (NTP, a VM resync) neither extends the lease nor stretches a wait.
  *
- * Thread-safe: every method may be called from any thread. close() wakes every waiter for good.
+ * Thread-safe: every method may be called from any thread. close() wakes every
+ * waiter for good.
  */
 class ViewerFrameMailbox {
  public:
-  // How long a frame request keeps the renderer busy after it was made, and a page counts as a viewer.
+  // How long a frame request keeps the renderer busy after it was made, and a
+  // page counts as a viewer.
   static constexpr absl::Duration kDemandLease = absl::Seconds(1);
-  // The most page ids viewerCount() keeps; a request with a new id beyond them replaces the oldest, so that a client
-  // inventing ids cannot grow the map.
+  // The most page ids viewerCount() keeps; a request with a new id beyond them
+  // replaces the oldest, so that a client inventing ids cannot grow the map.
   static constexpr int kMaxTrackedViewers = 256;
 
-  /** Creates an empty mailbox that admits at most `maxClients` (>= 1) frame clients at a time. */
+  /** Creates an empty mailbox that admits at most `maxClients` (>= 1) frame
+   * clients at a time. */
   explicit ViewerFrameMailbox(int maxClients);
   ~ViewerFrameMailbox() = default;
 
@@ -84,53 +93,65 @@ class ViewerFrameMailbox {
   ViewerFrameMailbox& operator=(const ViewerFrameMailbox&) = delete;
 
   /**
-   * Replaces the newest frame with `frame` and wakes the requests waiting for it. Stamps `frame.sequence` (one more than
-   * the previous frame's, 1 for the first), `frame.publishTime` and `frame.publishSteadyTime` (now); the caller's values
-   * of these are ignored. The previous frame is freed after the mutex is released.
+   * Replaces the newest frame with `frame` and wakes the requests waiting for
+   * it. Stamps `frame.sequence` (one more than the previous frame's, 1 for the
+   * first), `frame.publishTime` and `frame.publishSteadyTime` (now); the
+   * caller's values of these are ignored. The previous frame is freed after the
+   * mutex is released.
    */
   void publish(EncodedFrame frame);
 
   /**
-   * Returns a copy of the newest frame once its sequence exceeds `afterSequence`: at once when it already does,
-   * otherwise when one is published within `timeout`. Returns nullopt on the timeout and once the mailbox is closed.
+   * Returns a copy of the newest frame once its sequence exceeds
+   * `afterSequence`: at once when it already does, otherwise when one is
+   * published within `timeout`. Returns nullopt on the timeout and once the
+   * mailbox is closed.
    */
-  std::optional<EncodedFrame> copyNewer(int64_t afterSequence, absl::Duration timeout) const;
+  std::optional<EncodedFrame> copyNewer(int64_t afterSequence,
+                                        absl::Duration timeout) const;
 
-  /** Returns the newest frame without its JPEG bytes (`jpeg` empty), or nullopt before the first one. Never waits. */
+  /** Returns the newest frame without its JPEG bytes (`jpeg` empty), or nullopt
+   * before the first one. Never waits. */
   std::optional<EncodedFrame> latestFrameMetadata() const;
 
   /** Replaces the newest status with `status`. */
   void publishStatus(ViewerStatus status);
 
-  /** Returns a copy of the newest status; a default-constructed one before the first publishStatus(). */
+  /** Returns a copy of the newest status; a default-constructed one before the
+   * first publishStatus(). */
   ViewerStatus status() const;
 
   /**
-   * Returns true as soon as somebody wants frames: a frame client is admitted, or a frame was requested less than
-   * kDemandLease ago. Returns false when `timeout` passes without demand, and at once once the mailbox is closed.
+   * Returns true as soon as somebody wants frames: a frame client is admitted,
+   * or a frame was requested less than kDemandLease ago. Returns false when
+   * `timeout` passes without demand, and at once once the mailbox is closed.
    */
   bool waitForDemand(absl::Duration timeout) const;
 
-  /** Records a frame request, which counts as demand for kDemandLease, and wakes waitForDemand(). */
+  /** Records a frame request, which counts as demand for kDemandLease, and
+   * wakes waitForDemand(). */
   void noteFrameRequest();
 
-  /** Records a frame request of the page `viewerId`, which counts as a viewer for kDemandLease. */
+  /** Records a frame request of the page `viewerId`, which counts as a viewer
+   * for kDemandLease. */
   void noteViewer(absl::string_view viewerId);
 
   /** Returns the number of distinct page ids noted within kDemandLease. */
   int viewerCount() const;
 
   /**
-   * Returns when tryAcquireClient() last admitted a client with no demand before it (none admitted, the lease lapsed),
-   * on the monotonic clock; nullopt before the first admission. Frames published before it were drawn before the
-   * renderer idled.
+   * Returns when tryAcquireClient() last admitted a client with no demand
+   * before it (none admitted, the lease lapsed), on the monotonic clock;
+   * nullopt before the first admission. Frames published before it were drawn
+   * before the renderer idled.
    */
   std::optional<std::chrono::steady_clock::time_point> demandResumedAt() const;
 
   /**
-   * Admits one more frame client if fewer than maxClients() are admitted and returns true; returns false otherwise. A
-   * client that was admitted calls releaseClient() exactly once when it leaves. An admission with no demand before it
-   * moves demandResumedAt().
+   * Admits one more frame client if fewer than maxClients() are admitted and
+   * returns true; returns false otherwise. A client that was admitted calls
+   * releaseClient() exactly once when it leaves. An admission with no demand
+   * before it moves demandResumedAt().
    */
   bool tryAcquireClient();
 
@@ -140,10 +161,12 @@ class ViewerFrameMailbox {
   /** Returns the number of frame clients admitted now. */
   int activeClients() const;
 
-  /** Returns the most frame clients admitted at a time, as given to the constructor. */
+  /** Returns the most frame clients admitted at a time, as given to the
+   * constructor. */
   int maxClients() const { return maxClients_; }
 
-  /** Closes the mailbox: every waiting copyNewer() and waitForDemand() returns at once, and every later one too. */
+  /** Closes the mailbox: every waiting copyNewer() and waitForDemand() returns
+   * at once, and every later one too. */
   void close();
 
   /** Returns true once close() was called. */
@@ -160,15 +183,20 @@ class ViewerFrameMailbox {
   EncodedFrame frame_ ABSL_GUARDED_BY(frameMutex_);
 
   // Whether a frame was requested less than kDemandLease before `now`.
-  bool leaseHolds(std::chrono::steady_clock::time_point now) const ABSL_EXCLUSIVE_LOCKS_REQUIRED(demandMutex_);
+  bool leaseHolds(std::chrono::steady_clock::time_point now) const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(demandMutex_);
 
   mutable absl::Mutex demandMutex_;
   mutable absl::CondVar demandCondition_;
   // Nullopt until the first frame request.
-  std::optional<std::chrono::steady_clock::time_point> lastFrameRequest_ ABSL_GUARDED_BY(demandMutex_) = std::nullopt;
-  std::optional<std::chrono::steady_clock::time_point> demandResumedAt_ ABSL_GUARDED_BY(demandMutex_) = std::nullopt;
-  // The last request of each page id, pruned to kDemandLease on every noteViewer().
-  absl::flat_hash_map<std::string, std::chrono::steady_clock::time_point> viewers_ ABSL_GUARDED_BY(demandMutex_);
+  std::optional<std::chrono::steady_clock::time_point> lastFrameRequest_
+      ABSL_GUARDED_BY(demandMutex_) = std::nullopt;
+  std::optional<std::chrono::steady_clock::time_point> demandResumedAt_
+      ABSL_GUARDED_BY(demandMutex_) = std::nullopt;
+  // The last request of each page id, pruned to kDemandLease on every
+  // noteViewer().
+  absl::flat_hash_map<std::string, std::chrono::steady_clock::time_point>
+      viewers_ ABSL_GUARDED_BY(demandMutex_);
 
   mutable absl::Mutex statusMutex_;
   ViewerStatus status_ ABSL_GUARDED_BY(statusMutex_);

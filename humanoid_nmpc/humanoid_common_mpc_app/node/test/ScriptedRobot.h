@@ -49,10 +49,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::node::test_support {
 
 /**
- * The robot process and the operator GUI as an MPC node's tests script them: two buses on the test process's DDS domain
- * (nodes "robot" and "operator", robot::ipc::isolatedTestNetwork()) that an MPC node's bus shares, the policies the robot
- * receives, and helpers that resend a message until its effect is seen (a sample written before DDS discovery matched
- * its writer with a reader is not delivered).
+ * The robot process and the operator GUI as an MPC node's tests script them:
+ * two buses on the test process's DDS domain (nodes "robot" and "operator",
+ * robot::ipc::isolatedTestNetwork()) that an MPC node's bus shares, the
+ * policies the robot receives, and helpers that resend a message until its
+ * effect is seen (a sample written before DDS discovery matched its writer with
+ * a reader is not delivered).
  */
 class ScriptedRobot {
  public:
@@ -65,20 +67,28 @@ class ScriptedRobot {
   /** Subscribes the robot to mpc/policy and starts both buses. */
   absl::Status start();
 
-  /** The MpcObservation message of `observation`, with its sequence number and the robot's reset counters. */
-  static humanoid_mpc_msgs::MpcObservation observationMessage(const SystemObservation& observation,
-                                                              uint64_t sequence,
-                                                              uint64_t requested = 0,
-                                                              uint64_t fullRequested = 0);
+  /** The MpcObservation message of `observation`, with its sequence number and
+   * the robot's reset counters. */
+  static humanoid_mpc_msgs::MpcObservation observationMessage(
+      const SystemObservation& observation,
+      uint64_t sequence,
+      uint64_t requested = 0,
+      uint64_t fullRequested = 0);
 
   /**
-   * Sends `observation` until the policy solved from it arrives (a repeated sequence number is not solved again) and
-   * returns that policy; nullopt when none arrives within `timeoutSeconds`.
+   * Sends `observation` until the policy solved from it arrives (a repeated
+   * sequence number is not solved again) and returns that policy; nullopt when
+   * none arrives within `timeoutSeconds`.
    */
-  std::optional<humanoid_mpc_msgs::MpcPolicy> solve(const humanoid_mpc_msgs::MpcObservation& observation, double timeoutSeconds = 30.0);
+  std::optional<humanoid_mpc_msgs::MpcPolicy> solve(
+      const humanoid_mpc_msgs::MpcObservation& observation,
+      double timeoutSeconds = 30.0);
 
-  /** Publishes `message` on `topic` as the operator until `received()` holds; false when it does not within 30 s. */
-  bool sendAsOperator(absl::string_view topic, const google::protobuf::Message& message, const std::function<bool()>& received);
+  /** Publishes `message` on `topic` as the operator until `received()` holds;
+   * false when it does not within 30 s. */
+  bool sendAsOperator(absl::string_view topic,
+                      const google::protobuf::Message& message,
+                      const std::function<bool()>& received);
 
   /** The newest policy solved from the observation at `time`. */
   std::optional<humanoid_mpc_msgs::MpcPolicy> policySolvedAt(double time) const;
@@ -92,7 +102,9 @@ class ScriptedRobot {
   std::vector<humanoid_mpc_msgs::MpcPolicy> policies_ ABSL_GUARDED_BY(mutex_);
 };
 
-/** Polls `condition` every millisecond until it holds or `timeoutSeconds` pass; returns whether it held. */
-bool waitFor(const std::function<bool()>& condition, double timeoutSeconds = 30.0);
+/** Polls `condition` every millisecond until it holds or `timeoutSeconds` pass;
+ * returns whether it held. */
+bool waitFor(const std::function<bool()>& condition,
+             double timeoutSeconds = 30.0);
 
 }  // namespace ocs2::humanoid::node::test_support

@@ -48,8 +48,9 @@ _REFERENCE_HEADER = (
     "# proto-message: humanoid_mpc_config.ReferenceFile\n"
 )
 _GAINS_HEADER = (
-    "# proto-file: humanoid_nmpc/humanoid_mpc_config/joint_pd_gains_file.proto\n"
-    "# proto-message: humanoid_mpc_config.JointPdGainsFile\n"
+    "# proto-file:"
+    " humanoid_nmpc/humanoid_mpc_config/joint_pd_gains_file.proto\n#"
+    " proto-message: humanoid_mpc_config.JointPdGainsFile\n"
 )
 
 
@@ -68,18 +69,22 @@ class TestReferenceDefaults(unittest.TestCase):
         text = (
             _REFERENCE_HEADER
             + "default_base_height: 0.8\n"
-            + 'default_joint_state { joint: "left_hip_pitch_joint" value: -0.15 }\n'
+            + 'default_joint_state { joint: "left_hip_pitch_joint" value:'
+            " -0.15 }\n"
             + 'default_joint_state { joint: "left_knee_joint" value: 0.3 }\n'
         )
         self.assertEqual(
-            self._read(text), {"left_hip_pitch_joint": -0.15, "left_knee_joint": 0.3}
+            self._read(text),
+            {"left_hip_pitch_joint": -0.15, "left_knee_joint": 0.3},
         )
 
     def test_no_file_is_no_defaults(self):
         self.assertEqual(config_files.read_default_joint_state(None), {})
         self.assertEqual(config_files.read_default_joint_state(""), {})
         self.assertEqual(
-            config_files.read_default_joint_state("/nonexistent/reference.textproto"),
+            config_files.read_default_joint_state(
+                "/nonexistent/reference.textproto"
+            ),
             {},
         )
 
@@ -89,7 +94,9 @@ class TestReferenceDefaults(unittest.TestCase):
     def test_a_file_that_does_not_parse_is_no_defaults(self):
         self.assertEqual(self._read("default_joint_state [unclosed\n"), {})
         # The retired YAML key is refused by the strict parser, not read.
-        self.assertEqual(self._read(f"{_REFERENCE_HEADER}defaultJointState {{}}\n"), {})
+        self.assertEqual(
+            self._read(f"{_REFERENCE_HEADER}defaultJointState {{}}\n"), {}
+        )
 
     def test_the_joints_of_the_gains_file_in_its_order(self):
         directory = tempfile.mkdtemp()
@@ -98,7 +105,8 @@ class TestReferenceDefaults(unittest.TestCase):
         with open(path, "w", encoding="utf-8") as handle:
             handle.write(
                 _GAINS_HEADER
-                + 'joint_gains { joint: "b_joint" kp: 1 }\njoint_gains { joint: "a_joint" kp: 2 }\n'
+                + 'joint_gains { joint: "b_joint" kp: 1 }\njoint_gains { joint:'
+                ' "a_joint" kp: 2 }\n'
             )
         self.assertEqual(
             config_files.read_pd_gains_joint_names(path), ["b_joint", "a_joint"]
@@ -110,7 +118,8 @@ class TestReferenceDefaults(unittest.TestCase):
 
     def test_joints_are_grouped_by_limb(self):
         self.assertEqual(
-            joint_targets_tab._classify_joint_section("left_knee_joint"), "Left Leg"
+            joint_targets_tab._classify_joint_section("left_knee_joint"),
+            "Left Leg",
         )
         self.assertEqual(
             joint_targets_tab._classify_joint_section("waist_yaw_joint"),

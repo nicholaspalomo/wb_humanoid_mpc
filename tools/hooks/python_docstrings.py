@@ -87,7 +87,9 @@ def _docstring_node(node: ast.AST) -> _Docstring | None:
     return None
 
 
-def _finding(path: str, node: ast.AST, name: str, message: str) -> check_types.Finding:
+def _finding(
+    path: str, node: ast.AST, name: str, message: str
+) -> check_types.Finding:
     return check_types.Finding(
         path,
         getattr(node, "lineno", 1),
@@ -106,7 +108,9 @@ def _starts_with_copyright(text: str) -> bool:
     return False
 
 
-def check_license_docstring(source: str, path: str) -> list[check_types.Finding]:
+def check_license_docstring(
+    source: str, path: str
+) -> list[check_types.Finding]:
     """A module docstring that holds the license."""
     tree = _parse(source)
     docstring = _docstring_node(tree) if tree is not None else None
@@ -117,7 +121,8 @@ def check_license_docstring(source: str, path: str) -> list[check_types.Finding]
             path,
             docstring.node,
             LICENSE_DOCSTRING,
-            "the license is a `#` comment block above the module docstring, not the docstring (Python style 3.8.2).",
+            "the license is a `#` comment block above the module docstring, not"
+            " the docstring (Python style 3.8.2).",
         )
     ]
 
@@ -130,7 +135,9 @@ def _leading_comment(source: str) -> tuple[list[str], int, int]:
     for number, line in enumerate(source.splitlines(), start=1):
         end = number
         stripped = line.strip()
-        if not lines and (not stripped or (number == 1 and stripped.startswith("#!"))):
+        if not lines and (
+            not stripped or (number == 1 and stripped.startswith("#!"))
+        ):
             continue
         if not stripped.startswith("#"):
             break
@@ -169,7 +176,9 @@ def _documented(tree: ast.Module) -> list[ast.AST]:
     return nodes
 
 
-def check_docstring_summary(source: str, path: str) -> list[check_types.Finding]:
+def check_docstring_summary(
+    source: str, path: str
+) -> list[check_types.Finding]:
     """Docstring summaries that are not one line ending in punctuation, followed by a blank line."""
     tree = _parse(source)
     if tree is None:
@@ -197,7 +206,9 @@ def check_docstring_summary(source: str, path: str) -> list[check_types.Finding]
                 else ""
             )
             if len(physical) > MAX_SUMMARY_COLUMNS:
-                problem = f"the summary line fits in {MAX_SUMMARY_COLUMNS} columns"
+                problem = (
+                    f"the summary line fits in {MAX_SUMMARY_COLUMNS} columns"
+                )
         if problem:
             findings.append(
                 _finding(
@@ -217,7 +228,8 @@ def _own_nodes(function: ast.AST) -> list[ast.AST]:
     while stack:
         node = stack.pop()
         if isinstance(
-            node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+            node,
+            (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef),
         ):
             continue
         found.append(node)
@@ -228,7 +240,8 @@ def _own_nodes(function: ast.AST) -> list[ast.AST]:
 def _parameters(function: ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]:
     arguments = function.args
     names = [
-        a.arg for a in arguments.posonlyargs + arguments.args + arguments.kwonlyargs
+        a.arg
+        for a in arguments.posonlyargs + arguments.args + arguments.kwonlyargs
     ]
     if arguments.vararg:
         names.append(arguments.vararg.arg)
@@ -248,7 +261,9 @@ def _is_property(function: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
     )
 
 
-def check_docstring_sections(source: str, path: str) -> list[check_types.Finding]:
+def check_docstring_sections(
+    source: str, path: str
+) -> list[check_types.Finding]:
     """Multi-line function docstrings without their Args:, Returns: or Yields: sections."""
     tree = _parse(source)
     if tree is None:
@@ -265,7 +280,8 @@ def check_docstring_sections(source: str, path: str) -> list[check_types.Finding
         text = docstring.text
         if (
             not text.strip()
-            or len([line for line in text.strip().split("\n") if line.strip()]) <= 1
+            or len([line for line in text.strip().split("\n") if line.strip()])
+            <= 1
         ):
             continue  # a one-line docstring
         length = (node.end_lineno or node.lineno) - node.lineno + 1
@@ -277,8 +293,14 @@ def check_docstring_sections(source: str, path: str) -> list[check_types.Finding
             missing.append("Args:")
         own = _own_nodes(node)
         yields = any(isinstance(n, (ast.Yield, ast.YieldFrom)) for n in own)
-        returns = any(isinstance(n, ast.Return) and n.value is not None for n in own)
-        if yields and not _YIELDS.search(text) and not summary.startswith("Yield"):
+        returns = any(
+            isinstance(n, ast.Return) and n.value is not None for n in own
+        )
+        if (
+            yields
+            and not _YIELDS.search(text)
+            and not summary.startswith("Yield")
+        ):
             missing.append("Yields:")
         elif (
             returns
@@ -293,14 +315,17 @@ def check_docstring_sections(source: str, path: str) -> list[check_types.Finding
                     path,
                     node,
                     DOCSTRING_SECTIONS,
-                    f"the docstring of `{node.name}` has no {' or '.join(missing)} section; each says something the "
-                    "signature does not (Python style 3.8.3).",
+                    f"the docstring of `{node.name}` has no"
+                    f" {' or '.join(missing)} section; each says something the"
+                    " signature does not (Python style 3.8.3).",
                 )
             )
     return findings
 
 
-def check_property_docstring(source: str, path: str) -> list[check_types.Finding]:
+def check_property_docstring(
+    source: str, path: str
+) -> list[check_types.Finding]:
     """Property docstrings written like a getter's."""
     tree = _parse(source)
     if tree is None:
@@ -320,8 +345,9 @@ def check_property_docstring(source: str, path: str) -> list[check_types.Finding
                     path,
                     docstring.node,
                     PROPERTY_DOCSTRING,
-                    f'the property `{node.name}` describes the attribute ("The robot\'s name."), not a getter '
-                    '("Returns ...") (Python style 3.8.3).',
+                    f'the property `{node.name}` describes the attribute ("The'
+                    ' robot\'s name."), not a getter ("Returns ...") (Python'
+                    " style 3.8.3).",
                 )
             )
     return findings

@@ -39,9 +39,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-TaskFileWatcher::TaskFileWatcher(absl::string_view file,
-                                 std::optional<std::filesystem::file_time_type> readAt,
-                                 std::function<void(const std::string& file)> onChange)
+TaskFileWatcher::TaskFileWatcher(
+    absl::string_view file,
+    std::optional<std::filesystem::file_time_type> readAt,
+    std::function<void(const std::string& file)> onChange)
     : file_(file), onChange_(std::move(onChange)) {
   if (!readAt.has_value()) readAt = writeTimeOf(file_);
   if (readAt.has_value()) {
@@ -50,21 +51,27 @@ TaskFileWatcher::TaskFileWatcher(absl::string_view file,
   }
 }
 
-TaskFileWatcher::TaskFileWatcher(absl::string_view file, std::function<void(const std::string& file)> onChange)
+TaskFileWatcher::TaskFileWatcher(
+    absl::string_view file,
+    std::function<void(const std::string& file)> onChange)
     : TaskFileWatcher(file, /*readAt=*/std::nullopt, std::move(onChange)) {}
 
-std::optional<std::filesystem::file_time_type> TaskFileWatcher::writeTimeOf(absl::string_view file) {
+std::optional<std::filesystem::file_time_type> TaskFileWatcher::writeTimeOf(
+    absl::string_view file) {
   std::error_code error;
-  const std::filesystem::file_time_type writeTime = std::filesystem::last_write_time(std::string(file), error);
+  const std::filesystem::file_time_type writeTime =
+      std::filesystem::last_write_time(std::string(file), error);
   if (error) return std::nullopt;
   return writeTime;
 }
 
 bool TaskFileWatcher::poll() {
   std::error_code error;
-  const std::filesystem::file_time_type writeTime = std::filesystem::last_write_time(file_, error);
+  const std::filesystem::file_time_type writeTime =
+      std::filesystem::last_write_time(file_, error);
   if (error) {
-    return false;  // gone for the moment (an editor that saves by renaming); the next poll sees the new file
+    return false;  // gone for the moment (an editor that saves by renaming);
+                   // the next poll sees the new file
   }
   if (haveWriteTime_ && writeTime == lastWriteTime_) {
     return false;

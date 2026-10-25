@@ -133,7 +133,9 @@ def is_fixture(path: str) -> bool:
 def is_ocs2(path: str) -> bool:
     """True for the OCS2 fork in lib/ocs2, not counting its lib/ocs2/thirdparty copies."""
     path = normalize(path)
-    return path.startswith(OCS2_DIR) and not path.startswith(OCS2_THIRDPARTY_DIR)
+    return path.startswith(OCS2_DIR) and not path.startswith(
+        OCS2_THIRDPARTY_DIR
+    )
 
 
 def is_first_party(path: str) -> bool:
@@ -161,7 +163,10 @@ def is_test_path(path: str) -> bool:
       Whether the file is test code.
     """
     parts = normalize(path).split("/")
-    if any(part in _TEST_DIRECTORIES or part.endswith("_test") for part in parts[:-1]):
+    if any(
+        part in _TEST_DIRECTORIES or part.endswith("_test")
+        for part in parts[:-1]
+    ):
         return True
     return _TEST_BASENAME.search(parts[-1]) is not None
 
@@ -186,7 +191,10 @@ def in_scope(path: str, scope: Scope) -> bool:
 
 def _git(repository: str, *args: str) -> str:
     return subprocess.run(
-        ["git", "-C", repository, *args], capture_output=True, text=True, check=True
+        ["git", "-C", repository, *args],
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout
 
 
@@ -217,7 +225,9 @@ def repository_files(root: str) -> list[str]:
                     if d not in _OUTPUT_DIRS and not d.startswith("bazel-")
                 ]
             for name in files:
-                listed.append(os.path.relpath(os.path.join(directory, name), root))
+                listed.append(
+                    os.path.relpath(os.path.join(directory, name), root)
+                )
     return sorted(
         {
             normalize(path)
@@ -230,7 +240,12 @@ def repository_files(root: str) -> list[str]:
 def staged_files(repository: str) -> list[str]:
     """The paths staged for commit (added, copied, modified or renamed; deletions are not), relative to the root."""
     staged = _git(
-        repository, "diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z"
+        repository,
+        "diff",
+        "--cached",
+        "--name-only",
+        "--diff-filter=ACMR",
+        "-z",
     ).split("\0")
     return [normalize(path) for path in staged if path]
 
@@ -263,7 +278,9 @@ def python_import_roots(root: str) -> list[str]:
         if name not in ("BUILD", "BUILD.bazel") or not is_first_party(path):
             continue
         package = path.rsplit("/", 1)[0] if "/" in path else ""
-        with open(os.path.join(root, path), encoding="utf-8", errors="ignore") as f:
+        with open(
+            os.path.join(root, path), encoding="utf-8", errors="ignore"
+        ) as f:
             source = f.read()
         for attribute in _IMPORTS_ATTRIBUTE.finditer(source):
             for entry in _STRING.finditer(attribute.group(1)):
@@ -315,7 +332,11 @@ def cpp_top_level_dirs(root: str) -> list[str]:
     """The top-level directories that hold first-party C++ (the clang-tidy header filter must cover each)."""
     directories = set()
     for path in repository_files(root):
-        if "/" in path and path.endswith(CPP_EXTENSIONS) and is_first_party(path):
+        if (
+            "/" in path
+            and path.endswith(CPP_EXTENSIONS)
+            and is_first_party(path)
+        ):
             directories.add(path.split("/", 1)[0])
     return sorted(directories)
 

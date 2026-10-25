@@ -4,6 +4,7 @@ package humanoid_mpc_config;
 
 import "humanoid_mpc_config/acom_weights.proto";
 import "humanoid_mpc_config/arm_swing_config.proto";
+import "humanoid_mpc_config/collision_cbf_constraint_config.proto";
 import "humanoid_mpc_config/collision_constraint_config.proto";
 import "humanoid_mpc_config/com_weights.proto";
 import "humanoid_mpc_config/config_options.proto";
@@ -44,7 +45,7 @@ import "nproto/retired_field_options.proto";
 // Named components are strings that their registries resolve (costs, constraints, estimators, sinks, visualizations,
 // parameterizations, the centroidal model), never booleans or int codes; the retired booleans, int codes and blocks
 // below are refused with what replaced them.
-// Next ID: 60
+// Next ID: 61
 message TaskFile {
   option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::TaskFile";
   // LINT.IfChange(retired_formulation_keys)
@@ -124,7 +125,7 @@ message TaskFile {
     replacement: "the centroidal model is selected by name: centroidal_model: \"full_centroidal_dynamics\" where it was 0, \"single_rigid_body_dynamics\" where it was 1"
   };
 
-  reserved 60 to max;
+  reserved 61 to max;
   // 19 was centroidal_model_type, OCS2's int code of the centroidal model, now the name centroidal_model.
   reserved 19;
   // 44 was icp_cost_weights, the weight of the removed icp_cost.
@@ -445,6 +446,8 @@ message TaskFile {
   // Formerly jointLimits.
   JointLimitsConfig joint_limits = 51 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT minimum: 0 }];
   CollisionConstraintConfig collision_constraint = 52 [(humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP minimum: 0 }];
+  // The rate and the barrier of the soft constraint foot_collision_cbf, on the spheres of collision_constraint.
+  CollisionCbfConstraintConfig collision_cbf_constraint = 60 [(humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP minimum: 0 }];
   // Formerly mimicJoints.
   MimicJointsConfig mimic_joints = 53 [(humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP }];
 }

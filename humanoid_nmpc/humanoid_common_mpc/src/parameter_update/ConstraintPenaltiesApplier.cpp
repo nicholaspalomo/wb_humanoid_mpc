@@ -50,6 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/config/costs/JointLimitsFromConfig.h"
 #include "humanoid_common_mpc/constraint/ContactMomentXYConstraintCppAd.h"
 #include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
+#include "humanoid_common_mpc/constraint/FootCollisionCbfConstraint.h"
 #include "humanoid_common_mpc/constraint/FrictionForceConeConstraint.h"
 #include "humanoid_common_mpc/constraint/JointLimitsSoftConstraint.h"
 #include "humanoid_common_mpc/parameter_update/OcpTermUpdates.h"
@@ -59,7 +60,7 @@ namespace ocs2::humanoid {
 namespace {
 
 // LINT.IfChange(constraint_penalties_fields)
-constexpr std::array<absl::string_view, 8> kFields = {
+constexpr std::array<absl::string_view, 11> kFields = {
     "contacts.contact_wrench_cone_soft_constraint.mu",
     "contacts.contact_wrench_cone_soft_constraint.delta",
     "contacts.friction_force_cone_soft_constraint.mu",
@@ -68,57 +69,88 @@ constexpr std::array<absl::string_view, 8> kFields = {
     "joint_limits",
     "collision_constraint.mu",
     "collision_constraint.delta",
+    "collision_cbf_constraint.gamma",
+    "collision_cbf_constraint.mu",
+    "collision_cbf_constraint.delta",
 };
 // clang-format off
-// LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/task_file.proto, //humanoid_nmpc/humanoid_mpc_config/contacts_config.proto, //humanoid_nmpc/humanoid_mpc_config/collision_constraint_config.proto)
+// LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/task_file.proto, //humanoid_nmpc/humanoid_mpc_config/contacts_config.proto, //humanoid_nmpc/humanoid_mpc_config/collision_constraint_config.proto, //humanoid_nmpc/humanoid_mpc_config/collision_cbf_constraint_config.proto)
 // clang-format on
 
-/** Whether any foot of `contactNames` carries the soft constraint with `suffix` in `ocp`. */
-bool carriesContactTerm(const OptimalControlProblem& ocp, const std::vector<std::string>& contactNames, absl::string_view suffix) {
+/** Whether any foot of `contactNames` carries the soft constraint with `suffix`
+ * in `ocp`. */
+bool carriesContactTerm(const OptimalControlProblem& ocp,
+                        const std::vector<std::string>& contactNames,
+                        absl::string_view suffix) {
   for (const std::string& footName : contactNames) {
-    if (carriesTerm(*ocp.softConstraintPtr, contact_term::name(footName, suffix))) return true;
+    if (carriesTerm(*ocp.softConstraintPtr,
+                    contact_term::name(footName, suffix)))
+      return true;
   }
   return false;
 }
 
-/** The penalties a reload writes; each is empty when its term is not carried or its block was refused (reported). */
+/** The penalties a reload writes; each is empty when its term is not carried or
+ * its block was refused (reported). */
 struct Penalties {
   std::optional<RelaxedBarrierPenalty::Config> wrenchCone;
   std::optional<RelaxedBarrierPenalty::Config> frictionCone;
   std::optional<RelaxedBarrierPenalty::Config> contactMoment;
   std::optional<PieceWisePolynomialBarrierPenalty::Config> jointLimits;
   std::optional<PieceWisePolynomialBarrierPenalty::Config> collision;
+  std::optional<PieceWisePolynomialBarrierPenalty::Config> collisionCbf;
+  // The rate of the collision barrier function, with its barrier.
+  std::optional<scalar_t> collisionCbfRate;
 };
 
-/** The penalties of `target`'s file for the terms its running problem carries. */
+/** The penalties of `target`'s file for the terms its running problem carries.
+ */
 Penalties penaltiesOf(HotUpdateTarget& target) {
   const mpc_config::TaskFile& task = target.task();
   const OptimalControlProblem& running = target.runningProblem();
   const std::vector<std::string>& contactNames = target.contactNames();
   Penalties penalties;
-  if (carriesContactTerm(running, contactNames, contact_term::kContactWrenchCone)) {
-    penalties.wrenchCone = convertedOrReported(contactWrenchConeBarrierFromConfig(task.contacts), target.source(),
-                                               "the barrier of contacts.contact_wrench_cone_soft_constraint");
+  if (carriesContactTerm(running, contactNames,
+                         contact_term::kContactWrenchCone)) {
+    penalties.wrenchCone = convertedOrReported(
+        contactWrenchConeBarrierFromConfig(task.contacts), target.source(),
+        "the barrier of contacts.contact_wrench_cone_soft_constraint");
   }
-  if (carriesContactTerm(running, contactNames, contact_term::kFrictionForceCone)) {
-    penalties.frictionCone = convertedOrReported(frictionForceConeBarrierFromConfig(task.contacts), target.source(),
-                                                 "the barrier of contacts.friction_force_cone_soft_constraint");
+  if (carriesContactTerm(running, contactNames,
+                         contact_term::kFrictionForceCone)) {
+    penalties.frictionCone = convertedOrReported(
+        frictionForceConeBarrierFromConfig(task.contacts), target.source(),
+        "the barrier of contacts.friction_force_cone_soft_constraint");
   }
-  if (carriesContactTerm(running, contactNames, contact_term::kContactMomentXY)) {
-    penalties.contactMoment =
-        convertedOrReported(contactMomentXyBarrierFromConfig(task.contacts), target.source(), "contacts.contact_moment_xy_soft_constraint");
+  if (carriesContactTerm(running, contactNames,
+                         contact_term::kContactMomentXY)) {
+    penalties.contactMoment = convertedOrReported(
+        contactMomentXyBarrierFromConfig(task.contacts), target.source(),
+        "contacts.contact_moment_xy_soft_constraint");
   }
   if (carriesTerm(*running.stateSoftConstraintPtr, kJointLimitsTerm)) {
-    penalties.jointLimits = convertedOrReported(jointLimitsBarrierFromConfig(task.joint_limits), target.source(), "joint_limits");
+    penalties.jointLimits =
+        convertedOrReported(jointLimitsBarrierFromConfig(task.joint_limits),
+                            target.source(), "joint_limits");
   }
   if (carriesTerm(*running.stateSoftConstraintPtr, kFootCollisionTerm)) {
-    penalties.collision = convertedOrReported(footCollisionBarrierFromConfig(task.collision_constraint), target.source(),
-                                              "the barrier of collision_constraint");
+    penalties.collision = convertedOrReported(
+        footCollisionBarrierFromConfig(task.collision_constraint),
+        target.source(), "the barrier of collision_constraint");
+  }
+  if (carriesTerm(*running.softConstraintPtr, kFootCollisionCbfTerm)) {
+    penalties.collisionCbf = convertedOrReported(
+        footCollisionCbfBarrierFromConfig(task.collision_cbf_constraint),
+        target.source(), "the barrier of collision_cbf_constraint");
+    penalties.collisionCbfRate = convertedOrReported(
+        footCollisionCbfRateFromConfig(task.collision_cbf_constraint),
+        target.source(), "collision_cbf_constraint.gamma");
   }
   return penalties;
 }
 
-/** Writes the cone barrier `barrier` into the soft constraint `<foot><suffix>` of every foot, as a Cone. */
+/** Writes the cone barrier `barrier` into the soft constraint `<foot><suffix>`
+ * of every foot, as a Cone. */
 template <typename Cone>
 void setConePenalty(OptimalControlProblem& ocp,
                     const std::vector<std::string>& contactNames,
@@ -126,8 +158,13 @@ void setConePenalty(OptimalControlProblem& ocp,
                     const RelaxedBarrierPenalty::Config& barrier) {
   for (const std::string& footName : contactNames) {
     updateTermIfPresent<StateInputSoftConstraint>(
-        *ocp.softConstraintPtr, contact_term::name(footName, suffix), [&](StateInputSoftConstraint& softCon) {
-          setPenaltyParameters(softCon, contactConePenaltyParameters(barrier, contactConeGatingOf(softCon.get<Cone>().isScheduleGated())));
+        *ocp.softConstraintPtr, contact_term::name(footName, suffix),
+        [&](StateInputSoftConstraint& softCon) {
+          setPenaltyParameters(
+              softCon,
+              contactConePenaltyParameters(
+                  barrier,
+                  contactConeGatingOf(softCon.get<Cone>().isScheduleGated())));
         });
   }
 }
@@ -143,23 +180,57 @@ void ConstraintPenaltiesApplier::apply(HotUpdateTarget& target) {
   const std::vector<std::string>& contactNames = target.contactNames();
   for (OptimalControlProblem& ocp : target.problems()) {
     if (penalties.wrenchCone.has_value()) {
-      setConePenalty<ContactWrenchConeConstraint>(ocp, contactNames, contact_term::kContactWrenchCone, *penalties.wrenchCone);
+      setConePenalty<ContactWrenchConeConstraint>(
+          ocp, contactNames, contact_term::kContactWrenchCone,
+          *penalties.wrenchCone);
     }
     if (penalties.frictionCone.has_value()) {
-      setConePenalty<FrictionForceConeConstraint>(ocp, contactNames, contact_term::kFrictionForceCone, *penalties.frictionCone);
+      setConePenalty<FrictionForceConeConstraint>(
+          ocp, contactNames, contact_term::kFrictionForceCone,
+          *penalties.frictionCone);
     }
     if (penalties.contactMoment.has_value()) {
-      setConePenalty<ContactMomentXYConstraintCppAd>(ocp, contactNames, contact_term::kContactMomentXY, *penalties.contactMoment);
+      setConePenalty<ContactMomentXYConstraintCppAd>(
+          ocp, contactNames, contact_term::kContactMomentXY,
+          *penalties.contactMoment);
     }
     if (penalties.jointLimits.has_value()) {
-      updateTermIfPresent<JointLimitsSoftConstraint>(*ocp.stateSoftConstraintPtr, kJointLimitsTerm, [&](JointLimitsSoftConstraint& term) {
-        term.setGains(penalties.jointLimits->mu, penalties.jointLimits->delta);
-      });
+      updateTermIfPresent<JointLimitsSoftConstraint>(
+          *ocp.stateSoftConstraintPtr, kJointLimitsTerm,
+          [&](JointLimitsSoftConstraint& term) {
+            term.setGains(penalties.jointLimits->mu,
+                          penalties.jointLimits->delta);
+          });
     }
     if (penalties.collision.has_value()) {
-      const vector_t collisionParams = (vector_t(kMuDeltaParameterCount) << penalties.collision->mu, penalties.collision->delta).finished();
-      updateTermIfPresent<StateSoftConstraint>(*ocp.stateSoftConstraintPtr, kFootCollisionTerm,
-                                               [&](StateSoftConstraint& softCon) { setPenaltyParameters(softCon, collisionParams); });
+      const vector_t collisionParams =
+          (vector_t(kMuDeltaParameterCount) << penalties.collision->mu,
+           penalties.collision->delta)
+              .finished();
+      updateTermIfPresent<StateSoftConstraint>(
+          *ocp.stateSoftConstraintPtr, kFootCollisionTerm,
+          [&](StateSoftConstraint& softCon) {
+            setPenaltyParameters(softCon, collisionParams);
+          });
+    }
+    if (penalties.collisionCbf.has_value()) {
+      const vector_t cbfParams =
+          (vector_t(kMuDeltaParameterCount) << penalties.collisionCbf->mu,
+           penalties.collisionCbf->delta)
+              .finished();
+      updateTermIfPresent<StateInputSoftConstraint>(
+          *ocp.softConstraintPtr, kFootCollisionCbfTerm,
+          [&](StateInputSoftConstraint& softCon) {
+            setPenaltyParameters(softCon, cbfParams);
+          });
+    }
+    if (penalties.collisionCbfRate.has_value()) {
+      updateTermIfPresent<StateInputSoftConstraint>(
+          *ocp.softConstraintPtr, kFootCollisionCbfTerm,
+          [&](StateInputSoftConstraint& softCon) {
+            softCon.get<FootCollisionCbfConstraint>().setGamma(
+                *penalties.collisionCbfRate);
+          });
     }
   }
 }

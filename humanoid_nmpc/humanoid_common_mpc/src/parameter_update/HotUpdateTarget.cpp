@@ -43,12 +43,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-HotUpdateTarget::HotUpdateTarget(const mpc_config::TaskFile* absl_nonnull task,
-                                 SqpSolver* absl_nonnull solver,
-                                 SwitchedModelReferenceManager* absl_nullable referenceManager,
-                                 const StateInputLayout* absl_nonnull layout,
-                                 size_t inputDim,
-                                 absl::string_view source)
+HotUpdateTarget::HotUpdateTarget(
+    const mpc_config::TaskFile* absl_nonnull task,
+    SqpSolver* absl_nonnull solver,
+    SwitchedModelReferenceManager* absl_nullable referenceManager,
+    const StateInputLayout* absl_nonnull layout,
+    size_t inputDim,
+    absl::string_view source)
     : task_(task),
       solver_(solver),
       referenceManager_(referenceManager),
@@ -57,11 +58,13 @@ HotUpdateTarget::HotUpdateTarget(const mpc_config::TaskFile* absl_nonnull task,
       inputDim_(inputDim),
       source_(source) {}
 
-const std::optional<ModelSettings::FootConstraintConfig>& HotUpdateTarget::footConstraint() {
+const std::optional<ModelSettings::FootConstraintConfig>&
+HotUpdateTarget::footConstraint() {
   if (!footConstraintConverted_) {
     footConstraintConverted_ = true;
-    footConstraint_ =
-        convertedOrReported(footConstraintFromConfig(task_->model_settings.foot_constraint), source_, "model_settings.foot_constraint");
+    footConstraint_ = convertedOrReported(
+        footConstraintFromConfig(task_->model_settings.foot_constraint),
+        source_, "model_settings.foot_constraint");
   }
   return footConstraint_;
 }
@@ -70,12 +73,14 @@ const std::optional<scalar_t>& HotUpdateTarget::terminalCostScaling() {
   if (!terminalCostScalingConverted_) {
     terminalCostScalingConverted_ = true;
     terminalCostScaling_ =
-        convertedOrReported(terminalCostScalingFromConfig(*task_), source_, "the terminal weights (terminal_cost_scaling)");
+        convertedOrReported(terminalCostScalingFromConfig(*task_), source_,
+                            "the terminal weights (terminal_cost_scaling)");
   }
   return terminalCostScaling_;
 }
 
-void HotUpdateTarget::reportNotApplied(absl::string_view what, const absl::Status& status) const {
+void HotUpdateTarget::reportNotApplied(absl::string_view what,
+                                       const absl::Status& status) const {
   ::ocs2::humanoid::reportNotApplied(source_, what, status);
 }
 

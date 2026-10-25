@@ -47,13 +47,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::teleop {
 namespace {
 
-/** Writes the reference file's `field` into `target`; InvalidArgument naming it when it is absent or not finite. */
-absl::Status readRequired(absl::string_view field, std::optional<double> value, scalar_t* absl_nonnull target) {
+/** Writes the reference file's `field` into `target`; InvalidArgument naming it
+ * when it is absent or not finite. */
+absl::Status readRequired(absl::string_view field,
+                          std::optional<double> value,
+                          scalar_t* absl_nonnull target) {
   if (!value.has_value()) {
-    return absl::InvalidArgumentError(absl::StrCat(field, " is absent; the keyboard command needs it"));
+    return absl::InvalidArgumentError(
+        absl::StrCat(field, " is absent; the keyboard command needs it"));
   }
   if (!std::isfinite(*value)) {
-    return absl::InvalidArgumentError(absl::StrCat(field, " is ", *value, "; it must be a finite number"));
+    return absl::InvalidArgumentError(
+        absl::StrCat(field, " is ", *value, "; it must be a finite number"));
   }
   *target = *value;
   return absl::OkStatus();
@@ -61,9 +66,11 @@ absl::Status readRequired(absl::string_view field, std::optional<double> value, 
 
 }  // namespace
 
-absl::StatusOr<KeyboardCommandLimits> keyboardCommandLimitsFromConfig(const mpc_config::ReferenceFile& file) {
+absl::StatusOr<KeyboardCommandLimits> keyboardCommandLimitsFromConfig(
+    const mpc_config::ReferenceFile& file) {
   KeyboardCommandLimits limits;
-  // [v_x, v_y, pelvis height change, yaw rate], the order of KeyboardCommandLimits::limits.
+  // [v_x, v_y, pelvis height change, yaw rate], the order of
+  // KeyboardCommandLimits::limits.
   const std::pair<absl::string_view, std::optional<double>> fields[] = {
       {"max_displacement_velocity_x", file.max_displacement_velocity_x},
       {"max_displacement_velocity_y", file.max_displacement_velocity_y},
@@ -71,16 +78,24 @@ absl::StatusOr<KeyboardCommandLimits> keyboardCommandLimitsFromConfig(const mpc_
       {"max_rotation_velocity", file.max_rotation_velocity},
   };
   for (Eigen::Index i = 0; i < limits.limits.size(); ++i) {
-    const std::pair<absl::string_view, std::optional<double>>& field = fields[i];
-    if (absl::Status read = readRequired(field.first, field.second, &limits.limits(i)); !read.ok()) {
+    const std::pair<absl::string_view, std::optional<double>>& field =
+        fields[i];
+    if (absl::Status read =
+            readRequired(field.first, field.second, &limits.limits(i));
+        !read.ok()) {
       return read;
     }
     if (limits.limits(i) <= 0.0) {
       return absl::InvalidArgumentError(
-          absl::StrCat(field.first, " is ", limits.limits(i), "; it must be positive, since the keyboard command is normalized by it"));
+          absl::StrCat(field.first, " is ", limits.limits(i),
+                       "; it must be positive, since the keyboard command is "
+                       "normalized by it"));
     }
   }
-  if (absl::Status read = readRequired("default_base_height", file.default_base_height, &limits.defaultBaseHeight); !read.ok()) {
+  if (absl::Status read =
+          readRequired("default_base_height", file.default_base_height,
+                       &limits.defaultBaseHeight);
+      !read.ok()) {
     return read;
   }
   return limits;

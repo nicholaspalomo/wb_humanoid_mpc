@@ -43,35 +43,46 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::validation {
 
 /** The `schema` member of every solve benchmark document. */
-inline constexpr absl::string_view kSolveBenchmarkSchemaName = "humanoid_mpc_validation.solve_benchmark.v1";
+inline constexpr absl::string_view kSolveBenchmarkSchemaName =
+    "humanoid_mpc_validation.solve_benchmark.v1";
 
 /** How the solve benchmark runs. */
 struct SolveBenchmarkOptions {
-  ClosedLoopDriverOptions driver;  ///< the task file's threads unless overridden: the real-time gate uses the configured ones
-  size_t warmupSolves = 25;        ///< solves after each start that are not timed: the plan converges from the reset
-  size_t repeats = 3;              ///< passes over the recording, each from a fresh start
+  ClosedLoopDriverOptions
+      driver;  ///< the task file's threads unless overridden: the real-time
+               ///< gate uses the configured ones
+  size_t warmupSolves = 25;  ///< solves after each start that are not timed:
+                             ///< the plan converges from the reset
+  size_t repeats = 3;  ///< passes over the recording, each from a fresh start
 };
 
 /**
- * The real-time benchmark of the quaternion design's section 4.6: the recorded robot states (RecordedRobotStates, from a
- * lockstep walking run) are replayed through the formulation's MRT joint controller in WB_MPC, which turns each into its
- * observation exactly as in the closed loop, and the controller's solver iteration runs once per record. Reported, over
- * the timed solves of every pass:
- *  - the wall time of the solver iteration [ms] (mean, p50, p99, max) and its share of the MPC period;
+ * The real-time benchmark of the quaternion design's section 4.6: the recorded
+ * robot states (RecordedRobotStates, from a lockstep walking run) are replayed
+ * through the formulation's MRT joint controller in WB_MPC, which turns each
+ * into its observation exactly as in the closed loop, and the controller's
+ * solver iteration runs once per record. Reported, over the timed solves of
+ * every pass:
+ *  - the wall time of the solver iteration [ms] (mean, p50, p99, max) and its
+ * share of the MPC period;
  *  - each SQP phase (SqpSolver::getBenchmarks()) [ms];
- *  - the tape operation count of every CppAD library the problem builds (CppAdInterface::getTapeOperationCount()),
- *    machine independent, and their sum.
- * InvalidArgument when the recording does not fit the configuration's robot.
+ *  - the tape operation count of every CppAD library the problem builds
+ * (CppAdInterface::getTapeOperationCount()), machine independent, and their
+ * sum. InvalidArgument when the recording does not fit the configuration's
+ * robot.
  */
-absl::StatusOr<JsonValue> runSolveBenchmark(const RobotConfiguration& configuration,
-                                            const RecordedRobotStates& states,
-                                            const SolveBenchmarkOptions& options,
-                                            const std::string& label,
-                                            JsonValue provenance);
+absl::StatusOr<JsonValue> runSolveBenchmark(
+    const RobotConfiguration& configuration,
+    const RecordedRobotStates& states,
+    const SolveBenchmarkOptions& options,
+    const std::string& label,
+    JsonValue provenance);
 
 /**
- * A library's name in the benchmark document: its folder without the "cppad_code_gen/" every robot's libraries live in
- * and without CppAdInterface's "/cppad_generated", e.g. "cppad_centroidal_mpc_atlas/FlowMap".
+ * A library's name in the benchmark document: its folder without the
+ * "cppad_code_gen/" every robot's libraries live in and without
+ * CppAdInterface's "/cppad_generated", e.g.
+ * "cppad_centroidal_mpc_atlas/FlowMap".
  */
 std::string libraryNameOfFolder(absl::string_view libraryFolder);
 

@@ -38,19 +38,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 std::string FootMotionInSwingOnlyConstraint::describe() const {
-  return absl::StrCat("+-dp_{ij} + M c_i <= M on the running nodes (a foot only moves while it is not in contact), M = ", bigM_);
+  return absl::StrCat(
+      "+-dp_{ij} + M c_i <= M on the running nodes (a foot only moves while it "
+      "is not in contact), M = ",
+      bigM_);
 }
 
-void FootMotionInSwingOnlyConstraint::configure(const ContactPlanningConfig& config) {
+void FootMotionInSwingOnlyConstraint::configure(
+    const ContactPlanningConfig& config) {
   bigM_ = config.shared.bigM;
 }
 
-void FootMotionInSwingOnlyConstraint::addRows(const ContactPlanningContext& ctx, int /*node*/, RowBuilder& rows) const {
+void FootMotionInSwingOnlyConstraint::addRows(const ContactPlanningContext& ctx,
+                                              int /*node*/,
+                                              RowBuilder& rows) const {
   const scalar_t M = ctx.bigM;
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
     for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
       for (const scalar_t sign : {1.0, -1.0}) {
-        rows.addHard(/*xCoefficients=*/{}, {{idx_.footDelta[foot][axis], sign}, {idx_.contact[foot], M}}, -kLipLooseBound, M);
+        rows.addHard(
+            /*xCoefficients=*/{},
+            {{idx_.footDelta[foot][axis], sign}, {idx_.contact[foot], M}},
+            -kLipLooseBound, M);
       }
     }
   }

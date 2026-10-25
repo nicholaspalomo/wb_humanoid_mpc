@@ -37,32 +37,42 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `height_compensation`: H_z(v) = a2 v^2 + a1 v + a0 (Bledt, Appendix C, Table C.2).
+ * `height_compensation`: H_z(v) = a2 v^2 + a1 v + a0 (Bledt, Appendix C, Table
+ * C.2).
  *
- * The base height the robot wants as a function of how fast it is being asked to go, quadratic in the speed.
+ * The base height the robot wants as a function of how fast it is being asked
+ * to go, quadratic in the speed.
  *
- * Bledt reports this one as having made the motion "smoother and more consistent" and as having marginally reduced
- * the solve time without by itself enlarging the viable operating region (section 4.3, table 4.1) - which is a fair
- * description of what a well-chosen regularization does when it is not fixing a failure: it shapes the cost space so
- * that the optimizer converges sooner on something it was going to find anyway.
+ * Bledt reports this one as having made the motion "smoother and more
+ * consistent" and as having marginally reduced the solve time without by itself
+ * enlarging the viable operating region (section 4.3, table 4.1) - which is a
+ * fair description of what a well-chosen regularization does when it is not
+ * fixing a failure: it shapes the cost space so that the optimizer converges
+ * sooner on something it was going to find anyway.
  *
- * On a humanoid it also buys something a quadruped needs less of: lowering the base shortens the leg and gives the
- * swing more vertical room within the same joint range, at the cost of knee torque headroom. Which way that trade
- * goes is a question for simulation, which is why `heightPerSpeed` ships at zero.
+ * On a humanoid it also buys something a quadruped needs less of: lowering the
+ * base shortens the leg and gives the swing more vertical room within the same
+ * joint range, at the cost of knee torque headroom. Which way that trade goes
+ * is a question for simulation, which is why `heightPerSpeed` ships at zero.
  *
- * The result is an OFFSET to the reference height and never an absolute height, because the same channel is what
- * adaptToCurrentGroundHeight() writes the terrain into.
+ * The result is an OFFSET to the reference height and never an absolute height,
+ * because the same channel is what adaptToCurrentGroundHeight() writes the
+ * terrain into.
  *
- * Like every LocomotionHeuristic, its const methods are safe to call concurrently; configure() is not, and must not run
- * while they do.
+ * Like every LocomotionHeuristic, its const methods are safe to call
+ * concurrently; configure() is not, and must not run while they do.
  */
 class HeightCompensationHeuristic final : public BasePoseHeuristic {
  public:
   HeightCompensationHeuristic() = default;
   ~HeightCompensationHeuristic() override = default;
 
-  absl::string_view name() const override { return heuristic::kHeightCompensation; }
-  absl::Status configure(const LocomotionHeuristicConfig& config, const LocomotionHeuristicModelParameters& model) override;
+  absl::string_view name() const override {
+    return heuristic::kHeightCompensation;
+  }
+  absl::Status configure(
+      const LocomotionHeuristicConfig& config,
+      const LocomotionHeuristicModelParameters& model) override;
   std::string describe() const override;
 
   BasePoseOffset offset(const BasePoseHeuristicContext& context) const override;

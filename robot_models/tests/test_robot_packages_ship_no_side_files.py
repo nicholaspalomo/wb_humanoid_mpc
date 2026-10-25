@@ -66,7 +66,9 @@ class TestRobotPackagesShipNoSideFiles(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         # This file's directory in the runfiles is robot_models/tests; its parent holds every robot package listed as data.
-        cls.root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+        cls.root = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), ".."
+        )
 
     def test_the_patterns_recognize_the_side_files(self):
         # Positive control of the matcher on the names the GUI's Save writes.
@@ -88,12 +90,16 @@ class TestRobotPackagesShipNoSideFiles(unittest.TestCase):
         side_files = []
         for dirpath, _, filenames in os.walk(self.root):
             for filename in filenames:
-                relative = os.path.relpath(os.path.join(dirpath, filename), self.root)
+                relative = os.path.relpath(
+                    os.path.join(dirpath, filename), self.root
+                )
                 shipped.append(relative)
                 if is_side_file(filename):
                     side_files.append(relative)
         self.assertGreater(len(shipped), len(EXPECTED_FILES))
-        self.assertEqual(side_files, [], "git-ignored side files were shipped as data")
+        self.assertEqual(
+            side_files, [], "git-ignored side files were shipped as data"
+        )
 
 
 if __name__ == "__main__":

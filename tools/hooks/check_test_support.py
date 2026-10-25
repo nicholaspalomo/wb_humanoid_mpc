@@ -53,7 +53,9 @@ def repository_file(relative_path: str) -> str:
     roots = []
     if "TEST_SRCDIR" in os.environ:
         roots.append(os.path.join(os.environ["TEST_SRCDIR"], "_main"))
-    roots.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+    roots.append(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
+    )
     for root in roots:
         candidate = os.path.join(root, relative_path)
         if os.path.exists(candidate):
@@ -120,7 +122,10 @@ class StagedRepository:
     def git(self, *args: str) -> str:
         """Runs git in the repository and returns what it printed."""
         return subprocess.run(
-            ["git", "-C", self.root, *args], check=True, capture_output=True, text=True
+            ["git", "-C", self.root, *args],
+            check=True,
+            capture_output=True,
+            text=True,
         ).stdout
 
     def write(self, path: str, text: str) -> None:
@@ -164,9 +169,13 @@ def assert_hook_runs_the_linter(test: unittest.TestCase) -> None:
     hook = read_repository_file("tools/hooks/pre-commit")
     command = "python3 -m tools.hooks.lint_code --git-staged"
     test.assertIn(f"if ! {command}; then", hook)
-    test.assertLess(hook.index('git add "$file"'), hook.index(f"if ! {command}"))
+    test.assertLess(
+        hook.index('git add "$file"'), hook.index(f"if ! {command}")
+    )
     after = hook[hook.index(f"if ! {command}") :]
-    test.assertLess(after.index("exit 1"), after.index("completed successfully"))
+    test.assertLess(
+        after.index("exit 1"), after.index("completed successfully")
+    )
 
 
 def assert_check_behaves(
@@ -201,12 +210,16 @@ def assert_check_behaves(
     # NOLINT with a reason on the line, and NOLINTNEXTLINE above it, suppress the finding.
     suppressed = _with_marker(flagged, line, f"NOLINT({name}): a test", path)
     test.assertEqual(findings(name, suppressed, path), [])
-    above = _with_marker_above(flagged, line, f"NOLINTNEXTLINE({name}): a test", path)
+    above = _with_marker_above(
+        flagged, line, f"NOLINTNEXTLINE({name}): a test", path
+    )
     test.assertEqual(findings(name, above, path), [])
     # A marker without a reason suppresses nothing, and is reported.
     reasonless = _with_marker(flagged, line, f"NOLINT({name})", path)
     test.assertEqual(len(findings(name, reasonless, path)), 1)
-    if check_types.language_of(path) is not None and lint_files.is_first_party(path):
+    if check_types.language_of(path) is not None and lint_files.is_first_party(
+        path
+    ):
         test.assertEqual(
             [f.check for f in findings("nolint-reason", reasonless, path)],
             ["nolint-reason"],
@@ -237,5 +250,7 @@ def assert_check_behaves(
             findings(name, fixed, path), [], f"{name}'s fix leaves findings"
         )
         test.assertEqual(
-            check.fix_source(fixed, path), fixed, f"{name}'s fix is not a fixed point"
+            check.fix_source(fixed, path),
+            fixed,
+            f"{name}'s fix is not a fixed point",
         )

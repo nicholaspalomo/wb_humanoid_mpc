@@ -71,7 +71,8 @@ ContactPlanningConfig makeConfig() {
   return config;
 }
 
-/** A robot standing in double support, with the feet symmetric about the origin. */
+/** A robot standing in double support, with the feet symmetric about the
+ * origin. */
 ContactPlannerInput makeStandingInput(const vector2_t& velocityCommand) {
   ContactPlannerInput input;
   input.time = 0.0;
@@ -109,7 +110,8 @@ Eigen::Matrix<scalar_t, 2, 2> rotationOf(scalar_t yaw) {
   return matrix;
 }
 
-/** A swing of the plan: which foot, the interval it lifts off and the interval it is down again. */
+/** A swing of the plan: which foot, the interval it lifts off and the interval
+ * it is down again. */
 struct PlannedSwing {
   size_t foot;
   int liftOffInterval;
@@ -122,43 +124,59 @@ std::vector<PlannedSwing> plannedSwings(const ContactPlan& plan) {
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
     int liftOff = -1;
     for (int interval = 1; interval < plan.numIntervals(); ++interval) {
-      const bool wasDown = plan.contacts[static_cast<size_t>(interval - 1)][foot];
+      const bool wasDown =
+          plan.contacts[static_cast<size_t>(interval - 1)][foot];
       const bool isDown = plan.contacts[static_cast<size_t>(interval)][foot];
       if (wasDown && !isDown) liftOff = interval;
       if (!wasDown && isDown && liftOff >= 0) {
-        swings.push_back(PlannedSwing{.foot = foot, .liftOffInterval = liftOff, .touchDownInterval = interval});
+        swings.push_back(PlannedSwing{.foot = foot,
+                                      .liftOffInterval = liftOff,
+                                      .touchDownInterval = interval});
         liftOff = -1;
       }
     }
   }
   std::sort(swings.begin(), swings.end(),
-            [](const PlannedSwing& first, const PlannedSwing& second) { return first.liftOffInterval < second.liftOffInterval; });
+            [](const PlannedSwing& first, const PlannedSwing& second) {
+              return first.liftOffInterval < second.liftOffInterval;
+            });
   return swings;
 }
 
-/** The planner of a configuration the test knows to be valid; ends the test binary otherwise. */
-std::unique_ptr<HlipContactPlanner> createPlanner(const ContactPlanningConfig& config) {
-  absl::StatusOr<std::unique_ptr<HlipContactPlanner>> planner = HlipContactPlanner::Create(config);
+/** The planner of a configuration the test knows to be valid; ends the test
+ * binary otherwise. */
+std::unique_ptr<HlipContactPlanner> createPlanner(
+    const ContactPlanningConfig& config) {
+  absl::StatusOr<std::unique_ptr<HlipContactPlanner>> planner =
+      HlipContactPlanner::Create(config);
   ABSL_CHECK_OK(planner.status());
   return *std::move(planner);
 }
 
 /**
- * The planner closed around its own reduced model at the MPC rate, with the executed schedule in between kept the way
- * ContactPlanningReferenceManager keeps it. Every cycle builds the planner input from that schedule exactly as
- * makePlannerInput does (commit boundary extended to the touch-down of a swing in flight, committed contacts and their
- * event times sampled with committedContactsForPlanner / committedPhaseStartsForPlanner), plans, merges the plan past
- * the commit boundary with mergeModeSchedules, and flows the H-LIP through the executed contacts to the next cycle,
- * landing each swing where the plan active at its touch-down put it. A foot in flight is reported where its latest
- * plan sends it, as if the swing reference were tracked perfectly. The touch-downs of one plan are therefore off the
- * node grid of the next, as they are at runtime. What it leaves out is the whole-body MPC: the center of mass follows
- * the reduced model exactly, and its double support drifts at constant velocity - except under a standing plan, which
- * asks the MPC to bring the center of mass to rest over the feet, and which the MPC can do with both feet down; there
- * the harness moves the center-of-mass velocity towards the plan's reference with a first-order lag
- * (kStandingTimeConstant). Without that the reduced model would keep sliding sideways at the orbit's 0.165 m/s for ever
- * after the robot stood, which no standing controller allows. The lag is deliberately not zero: a controller that
- * stopped the center of mass instantly would hide the double supports in which the robot is still slowing down from
- * the orbit's sway, and those are the ones the blend has to read as rest (HlipContactPlanner::blendVelocity).
+ * The planner closed around its own reduced model at the MPC rate, with the
+ * executed schedule in between kept the way ContactPlanningReferenceManager
+ * keeps it. Every cycle builds the planner input from that schedule exactly as
+ * makePlannerInput does (commit boundary extended to the touch-down of a swing
+ * in flight, committed contacts and their event times sampled with
+ * committedContactsForPlanner / committedPhaseStartsForPlanner), plans, merges
+ * the plan past the commit boundary with mergeModeSchedules, and flows the
+ * H-LIP through the executed contacts to the next cycle, landing each swing
+ * where the plan active at its touch-down put it. A foot in flight is reported
+ * where its latest plan sends it, as if the swing reference were tracked
+ * perfectly. The touch-downs of one plan are therefore off the node grid of the
+ * next, as they are at runtime. What it leaves out is the whole-body MPC: the
+ * center of mass follows the reduced model exactly, and its double support
+ * drifts at constant velocity - except under a standing plan, which asks the
+ * MPC to bring the center of mass to rest over the feet, and which the MPC can
+ * do with both feet down; there the harness moves the center-of-mass velocity
+ * towards the plan's reference with a first-order lag (kStandingTimeConstant).
+ * Without that the reduced model would keep sliding sideways at the orbit's
+ * 0.165 m/s for ever after the robot stood, which no standing controller
+ * allows. The lag is deliberately not zero: a controller that stopped the
+ * center of mass instantly would hide the double supports in which the robot is
+ * still slowing down from the orbit's sway, and those are the ones the blend
+ * has to read as rest (HlipContactPlanner::blendVelocity).
  */
 class ReducedModelLoop {
  public:
@@ -166,9 +184,11 @@ class ReducedModelLoop {
     size_t foot;
     scalar_t time;
     bool touchDown;
-    vector2_t step = vector2_t::Zero();  // at a touch-down: the landed foot minus the stance foot
-    // At a touch-down: the center of mass relative to the stance foot at the impact, and the blend weight and command
-    // of the plan the foot was landed from.
+    vector2_t step = vector2_t::Zero();  // at a touch-down: the landed foot
+                                         // minus the stance foot
+    // At a touch-down: the center of mass relative to the stance foot at the
+    // impact, and the blend weight and command of the plan the foot was landed
+    // from.
     HlipModel::State preImpactX = HlipModel::State::Zero();
     HlipModel::State preImpactY = HlipModel::State::Zero();
     scalar_t alpha = 0.0;
@@ -190,8 +210,10 @@ class ReducedModelLoop {
   void setCommand(const vector2_t& command) { command_ = command; }
 
   /**
-   * Builds the executed schedule from the plans' node grid alone, as it was built before plans carried their gait in
-   * continuous time (ContactPlan::phaseStartTimes): the positive control of the closed-loop timing tests.
+   * Builds the executed schedule from the plans' node grid alone, as it was
+   * built before plans carried their gait in continuous time
+   * (ContactPlan::phaseStartTimes): the positive control of the closed-loop
+   * timing tests.
    */
   void useNodeGridSchedule() { useNodeGridSchedule_ = true; }
 
@@ -207,15 +229,20 @@ class ReducedModelLoop {
     }
     const bool walking = planner_->isWalking(input);
     activeAlpha_ = planner_->blendWeight(input);
-    applied_ = mergeModeSchedules(applied_, plan.toModeSchedule(), input.committedUntil, time_ - 2.0, plan.endTime());
+    applied_ =
+        mergeModeSchedules(applied_, plan.toModeSchedule(),
+                           input.committedUntil, time_ - 2.0, plan.endTime());
     activePlan_ = plan;
     activePlanWalks_ = walking;
-    // A foot in flight follows its swing reference to the landing spot of the plan now active.
+    // A foot in flight follows its swing reference to the landing spot of the
+    // plan now active.
     for (size_t foot = 0; foot < kNumContacts; ++foot) {
       if (contacts_[foot]) continue;
-      const std::optional<size_t> touchDown = touchDownEventIndex(applied_, foot, time_);
+      const std::optional<size_t> touchDown =
+          touchDownEventIndex(applied_, foot, time_);
       if (!touchDown.has_value()) continue;
-      const std::optional<vector2_t> target = plan.footholdAtTime(foot, applied_.eventTimes[*touchDown]);
+      const std::optional<vector2_t> target =
+          plan.footholdAtTime(foot, applied_.eventTimes[*touchDown]);
       if (target.has_value()) feet_[foot] = *target;
     }
     advanceTo(cycleStart_ + cyclePeriod_ * static_cast<scalar_t>(++numCycles_));
@@ -224,11 +251,13 @@ class ReducedModelLoop {
 
   scalar_t time() const { return time_; }
   const std::vector<Event>& events() const { return events_; }
-  /** The executed schedule; it keeps two seconds of history, as the reference manager keeps one horizon. */
+  /** The executed schedule; it keeps two seconds of history, as the reference
+   * manager keeps one horizon. */
   const ModeSchedule& executedSchedule() const { return applied_; }
   const HlipContactPlanner& planner() const { return *planner_; }
 
-  /** The planner input at `time_`, read off the executed schedule as ContactPlanningReferenceManager::makePlannerInput does. */
+  /** The planner input at `time_`, read off the executed schedule as
+   * ContactPlanningReferenceManager::makePlannerInput does. */
   ContactPlannerInput makeInput() {
     ContactPlannerInput input;
     input.time = time_;
@@ -236,26 +265,35 @@ class ReducedModelLoop {
     input.comVelocity = comVelocity_;
     input.footPositions = feet_;
     input.velocityCommand = command_;
-    input.committedUntil = commitBoundaryForSchedule(applied_, time_, config_.planner.commitTime, config_.planner.maxCommitExtension);
-    fillPlannerInputFromSchedule(applied_, config_.planner.dt, std::max(0, config_.planner.numNodes - 1), liftOffHistory_, input);
+    input.committedUntil =
+        commitBoundaryForSchedule(applied_, time_, config_.planner.commitTime,
+                                  config_.planner.maxCommitExtension);
+    fillPlannerInputFromSchedule(applied_, config_.planner.dt,
+                                 std::max(0, config_.planner.numNodes - 1),
+                                 liftOffHistory_, input);
     return input;
   }
 
  private:
-  /** Applies the contact events of the executed schedule at `time_`: lands swings, records lift-offs. */
+  /** Applies the contact events of the executed schedule at `time_`: lands
+   * swings, records lift-offs. */
   void applyEvents() {
-    const contact_flag_t now = contactFlagsAtTime(applied_, time_ + kEventTolerance);
+    const contact_flag_t now =
+        contactFlagsAtTime(applied_, time_ + kEventTolerance);
     for (size_t foot = 0; foot < kNumContacts; ++foot) {
       if (contacts_[foot] == now[foot]) continue;
       Event event{.foot = foot, .time = time_, .touchDown = now[foot]};
       if (now[foot]) {
-        const std::optional<vector2_t> landing = activePlan_.footholdAtTime(foot, time_);
+        const std::optional<vector2_t> landing =
+            activePlan_.footholdAtTime(foot, time_);
         EXPECT_TRUE(landing.has_value());
         if (landing.has_value()) feet_[foot] = *landing;
         const vector2_t stance = feet_[otherFootOf(foot)];
         event.step = feet_[foot] - stance;
-        event.preImpactX = HlipModel::State(comPosition_.x() - stance.x(), comVelocity_.x());
-        event.preImpactY = HlipModel::State(comPosition_.y() - stance.y(), comVelocity_.y());
+        event.preImpactX =
+            HlipModel::State(comPosition_.x() - stance.x(), comVelocity_.x());
+        event.preImpactY =
+            HlipModel::State(comPosition_.y() - stance.y(), comVelocity_.y());
         event.alpha = activeAlpha_;
         event.command = command_;
       }
@@ -280,36 +318,48 @@ class ReducedModelLoop {
     }
   }
 
-  /** The H-LIP through `duration` of the current contact state: the pendulum in single support, a drift otherwise. */
+  /** The H-LIP through `duration` of the current contact state: the pendulum in
+   * single support, a drift otherwise. */
   void flow(scalar_t duration) {
     const bool left = contacts_[kContactLeftIndex];
     const bool right = contacts_[kContactRightIndex];
     if (left == right) {
-      const std::optional<vector2_t> reference = activePlanWalks_ ? std::nullopt : activePlan_.comVelocityAtTime(time_);
+      const std::optional<vector2_t> reference =
+          activePlanWalks_ ? std::nullopt
+                           : activePlan_.comVelocityAtTime(time_);
       if (reference.has_value()) {
-        // A first-order approach to the standing reference, integrated exactly over `duration`.
+        // A first-order approach to the standing reference, integrated exactly
+        // over `duration`.
         const scalar_t decay = std::exp(-duration / kStandingTimeConstant);
         const vector2_t offset = comVelocity_ - *reference;
-        comPosition_ += duration * *reference + kStandingTimeConstant * (1.0 - decay) * offset;
+        comPosition_ += duration * *reference +
+                        kStandingTimeConstant * (1.0 - decay) * offset;
         comVelocity_ = *reference + decay * offset;
         return;
       }
       comPosition_ += duration * comVelocity_;
       return;
     }
-    const vector2_t stance = feet_[left ? kContactLeftIndex : kContactRightIndex];
+    const vector2_t stance =
+        feet_[left ? kContactLeftIndex : kContactRightIndex];
     const HlipModel& model = planner_->getModel();
-    const HlipModel::State x = model.flowSingleSupport(HlipModel::State(comPosition_.x() - stance.x(), comVelocity_.x()), duration);
-    const HlipModel::State y = model.flowSingleSupport(HlipModel::State(comPosition_.y() - stance.y(), comVelocity_.y()), duration);
+    const HlipModel::State x = model.flowSingleSupport(
+        HlipModel::State(comPosition_.x() - stance.x(), comVelocity_.x()),
+        duration);
+    const HlipModel::State y = model.flowSingleSupport(
+        HlipModel::State(comPosition_.y() - stance.y(), comVelocity_.y()),
+        duration);
     comPosition_ = stance + vector2_t(x(0), y(0));
     comVelocity_ = vector2_t(x(1), y(1));
   }
 
-  // [s] events this close to the current time have happened: the node times of successive plans are sums of dt and
-  // land a few ulp either side of each other.
+  // [s] events this close to the current time have happened: the node times of
+  // successive plans are sums of dt and land a few ulp either side of each
+  // other.
   static constexpr scalar_t kEventTolerance = 1.0e-9;
-  // [s] time constant of the harness's standing controller: how quickly the center of mass approaches a standing plan's
-  // velocity reference with both feet down. Deliberately not instantaneous (see the class comment).
+  // [s] time constant of the harness's standing controller: how quickly the
+  // center of mass approaches a standing plan's velocity reference with both
+  // feet down. Deliberately not instantaneous (see the class comment).
   static constexpr scalar_t kStandingTimeConstant = 0.15;
 
   ContactPlanningConfig config_;
@@ -332,25 +382,34 @@ class ReducedModelLoop {
   std::vector<Event> events_;
 };
 
-// [s] about 58 Hz. A period that shares no small multiple with the planner's 0.025 s grid or the 0.3 s step, so the
-// touch-downs of one plan fall at a different fraction of a node of every later plan.
+// [s] about 58 Hz. A period that shares no small multiple with the planner's
+// 0.025 s grid or the 0.3 s step, so the touch-downs of one plan fall at a
+// different fraction of a node of every later plan.
 constexpr scalar_t kMpcCyclePeriod = 0.0173;
 
-// The factory validates: a configuration that does not validate, or whose H-LIP cannot be built, is refused as a
-// Status instead of building a planner (or ending the process) from it.
+// The factory validates: a configuration that does not validate, or whose H-LIP
+// cannot be built, is refused as a Status instead of building a planner (or
+// ending the process) from it.
 TEST(HlipContactPlanner, createRefusesAConfigurationThatDoesNotValidate) {
   EXPECT_TRUE(HlipContactPlanner::Create(makeConfig()).ok());
-  for (const scalar_t sspDuration : {0.0, -0.3, std::numeric_limits<scalar_t>::quiet_NaN()}) {
+  for (const scalar_t sspDuration :
+       {0.0, -0.3, std::numeric_limits<scalar_t>::quiet_NaN()}) {
     ContactPlanningConfig config = makeConfig();
     config.hlip.sspDuration = sspDuration;
-    EXPECT_EQ(HlipContactPlanner::Create(config).status().code(), absl::StatusCode::kInvalidArgument) << sspDuration;
-    EXPECT_FALSE(HlipContactPlanner::startUpLateralStep(config).ok()) << sspDuration;
-    EXPECT_FALSE(HlipContactPlanner::formulationSummary(config).ok()) << sspDuration;
+    EXPECT_EQ(HlipContactPlanner::Create(config).status().code(),
+              absl::StatusCode::kInvalidArgument)
+        << sspDuration;
+    EXPECT_FALSE(HlipContactPlanner::startUpLateralStep(config).ok())
+        << sspDuration;
+    EXPECT_FALSE(HlipContactPlanner::formulationSummary(config).ok())
+        << sspDuration;
   }
 }
 
 TEST(HlipContactPlanner, standsAtZeroCommand) {
-  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<HlipContactPlanner> planner, HlipContactPlanner::Create(makeConfig()));
+  HUMANOID_ASSERT_OK_AND_ASSIGN(
+      const std::unique_ptr<HlipContactPlanner> planner,
+      HlipContactPlanner::Create(makeConfig()));
   const ContactPlan plan = planner->plan(makeStandingInput(vector2_t::Zero()));
 
   ASSERT_TRUE(plan.valid);
@@ -358,7 +417,8 @@ TEST(HlipContactPlanner, standsAtZeroCommand) {
     EXPECT_TRUE(contacts[kContactLeftIndex]);
     EXPECT_TRUE(contacts[kContactRightIndex]);
   }
-  // Standing keeps the feet exactly where they are: there is no stepping-in-place at rest.
+  // Standing keeps the feet exactly where they are: there is no
+  // stepping-in-place at rest.
   for (const feet_array_t<vector2_t>& footholds : plan.footholds) {
     EXPECT_NEAR(footholds[kContactLeftIndex].y(), 0.5 * kStepWidth, 1.0e-12);
     EXPECT_NEAR(footholds[kContactRightIndex].y(), -0.5 * kStepWidth, 1.0e-12);
@@ -366,32 +426,46 @@ TEST(HlipContactPlanner, standsAtZeroCommand) {
 }
 
 TEST(HlipContactPlanner, standingAsksForACenterOfMassAtRest) {
-  // A standing plan must not hand the controller the measured drift as its reference: the reduced model's double
-  // support drifts at constant velocity and can never decelerate, so a plan that simply rolled it out would ask the
-  // robot to keep sliding. The blend against the static standing reference (the paper's equation 14) is what stops it.
-  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<HlipContactPlanner> planner, HlipContactPlanner::Create(makeConfig()));
+  // A standing plan must not hand the controller the measured drift as its
+  // reference: the reduced model's double support drifts at constant velocity
+  // and can never decelerate, so a plan that simply rolled it out would ask the
+  // robot to keep sliding. The blend against the static standing reference (the
+  // paper's equation 14) is what stops it.
+  HUMANOID_ASSERT_OK_AND_ASSIGN(
+      const std::unique_ptr<HlipContactPlanner> planner,
+      HlipContactPlanner::Create(makeConfig()));
   ContactPlannerInput input = makeStandingInput(vector2_t::Zero());
   input.comPosition = vector2_t(0.03, 0.01);
-  input.comVelocity = vector2_t(0.02, -0.01);  // a small drift, well below the blend's half point
+  input.comVelocity = vector2_t(
+      0.02, -0.01);  // a small drift, well below the blend's half point
 
   const ContactPlan plan = planner->plan(input);
   ASSERT_TRUE(plan.valid);
   ASSERT_FALSE(planner->isWalking(input));
 
-  // The reference is the blend itself: alpha of the rolled-out drift and (1 - alpha) of standing still. The reduced
-  // model's double support cannot decelerate, so every bit of the drift that survives is alpha's doing and no more.
+  // The reference is the blend itself: alpha of the rolled-out drift and (1 -
+  // alpha) of standing still. The reduced model's double support cannot
+  // decelerate, so every bit of the drift that survives is alpha's doing and no
+  // more.
   const scalar_t blendWeight = planner->blendWeight(input);
   ASSERT_LT(blendWeight, 0.5);
   const vector2_t expectedVelocity = blendWeight * input.comVelocity;
-  EXPECT_NEAR(plan.comVelocity.back().x(), expectedVelocity.x(), 1.0e-9) << "standing must ask for a stop, not a drift";
-  EXPECT_NEAR(plan.comVelocity.back().y(), expectedVelocity.y(), 1.0e-9) << "standing must ask for a stop, not a drift";
+  EXPECT_NEAR(plan.comVelocity.back().x(), expectedVelocity.x(), 1.0e-9)
+      << "standing must ask for a stop, not a drift";
+  EXPECT_NEAR(plan.comVelocity.back().y(), expectedVelocity.y(), 1.0e-9)
+      << "standing must ask for a stop, not a drift";
 
-  const vector2_t supportCenter = 0.5 * (input.footPositions[kContactLeftIndex] + input.footPositions[kContactRightIndex]);
-  EXPECT_LT((plan.comPosition.back() - supportCenter).norm(), 0.02) << "standing must ask for the center of the support";
+  const vector2_t supportCenter =
+      0.5 * (input.footPositions[kContactLeftIndex] +
+             input.footPositions[kContactRightIndex]);
+  EXPECT_LT((plan.comPosition.back() - supportCenter).norm(), 0.02)
+      << "standing must ask for the center of the support";
 }
 
 TEST(HlipContactPlanner, walksAtACommandAndAlternatesFeet) {
-  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<HlipContactPlanner> planner, HlipContactPlanner::Create(makeConfig()));
+  HUMANOID_ASSERT_OK_AND_ASSIGN(
+      const std::unique_ptr<HlipContactPlanner> planner,
+      HlipContactPlanner::Create(makeConfig()));
   const ContactPlannerInput input = makeStandingInput(vector2_t(0.5, 0.0));
   ASSERT_TRUE(planner->isWalking(input));
   const ContactPlan plan = planner->plan(input);
@@ -400,9 +474,11 @@ TEST(HlipContactPlanner, walksAtACommandAndAlternatesFeet) {
   const std::vector<size_t> order = swingOrder(plan);
   ASSERT_GE(order.size(), 2U);
   for (size_t index = 1; index < order.size(); ++index) {
-    EXPECT_NE(order[index], order[index - 1]) << "a foot may not swing twice in a row";
+    EXPECT_NE(order[index], order[index - 1])
+        << "a foot may not swing twice in a row";
   }
-  // Exactly one foot is ever off the ground: the nominal gait has no flight phase.
+  // Exactly one foot is ever off the ground: the nominal gait has no flight
+  // phase.
   for (const contact_flag_t& contacts : plan.contacts) {
     EXPECT_TRUE(contacts[kContactLeftIndex] || contacts[kContactRightIndex]);
   }
@@ -410,9 +486,12 @@ TEST(HlipContactPlanner, walksAtACommandAndAlternatesFeet) {
 
 TEST(HlipContactPlanner, singleSupportPhasesLastTheConfiguredDuration) {
   const ContactPlanningConfig config = makeConfig();
-  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<HlipContactPlanner> planner, HlipContactPlanner::Create(config));
+  HUMANOID_ASSERT_OK_AND_ASSIGN(
+      const std::unique_ptr<HlipContactPlanner> planner,
+      HlipContactPlanner::Create(config));
   const std::vector<HlipContactPlanner::GaitPhase> gait =
-      planner->buildGait(makeStandingInput(vector2_t(0.5, 0.0)), HlipContactPlanner::GaitKind::kWalking);
+      planner->buildGait(makeStandingInput(vector2_t(0.5, 0.0)),
+                         HlipContactPlanner::GaitKind::kWalking);
 
   ASSERT_GE(gait.size(), 2U);
   for (const HlipContactPlanner::GaitPhase& phase : gait) {
@@ -420,128 +499,177 @@ TEST(HlipContactPlanner, singleSupportPhasesLastTheConfiguredDuration) {
       EXPECT_NEAR(phase.duration(), config.hlip.sspDuration, 1.0e-12);
     }
   }
-  // The gait is contiguous and covers the horizon, and every phase ends on a node no earlier than the one before.
+  // The gait is contiguous and covers the horizon, and every phase ends on a
+  // node no earlier than the one before.
   for (size_t index = 1; index < gait.size(); ++index) {
     EXPECT_NEAR(gait[index].startTime, gait[index - 1].endTime, 1.0e-12);
     EXPECT_GE(gait[index].endNode, gait[index - 1].endNode);
   }
-  EXPECT_GE(gait.back().endTime, gait.front().startTime + config.horizon() - 1.0e-12);
+  EXPECT_GE(gait.back().endTime,
+            gait.front().startTime + config.horizon() - 1.0e-12);
   EXPECT_EQ(gait.back().endNode, config.planner.numNodes);
 }
 
 TEST(HlipContactPlanner, continuesTheSwingInFlight) {
   const ContactPlanningConfig config = makeConfig();
-  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<HlipContactPlanner> planner, HlipContactPlanner::Create(config));
+  HUMANOID_ASSERT_OK_AND_ASSIGN(
+      const std::unique_ptr<HlipContactPlanner> planner,
+      HlipContactPlanner::Create(config));
   ContactPlannerInput input = makeStandingInput(vector2_t(0.5, 0.0));
-  input.contacts[kContactLeftIndex] = false;  // the left foot is in flight, a third of the way through its swing
+  input.contacts[kContactLeftIndex] =
+      false;  // the left foot is in flight, a third of the way through its
+              // swing
   input.phaseElapsedTime[kContactLeftIndex] = 0.1;
   input.phaseElapsedTime[kContactRightIndex] = 0.1;
 
-  const std::vector<HlipContactPlanner::GaitPhase> gait = planner->buildGait(input, HlipContactPlanner::GaitKind::kWalking);
+  const std::vector<HlipContactPlanner::GaitPhase> gait =
+      planner->buildGait(input, HlipContactPlanner::GaitKind::kWalking);
   ASSERT_FALSE(gait.empty());
   EXPECT_EQ(gait.front().swingFoot, static_cast<int>(kContactLeftIndex));
   EXPECT_NEAR(gait.front().duration(), config.hlip.sspDuration - 0.1, 1.0e-12);
-  // With a non-zero double support the next single support is not the next phase: the hand-over comes first.
+  // With a non-zero double support the next single support is not the next
+  // phase: the hand-over comes first.
   ASSERT_GE(gait.size(), 2U);
-  const std::vector<HlipContactPlanner::GaitPhase>::const_iterator nextSingleSupport =
-      std::find_if(gait.begin() + 1, gait.end(), [](const HlipContactPlanner::GaitPhase& phase) { return phase.isSingleSupport(); });
+  const std::vector<HlipContactPlanner::GaitPhase>::const_iterator
+      nextSingleSupport =
+          std::find_if(gait.begin() + 1, gait.end(),
+                       [](const HlipContactPlanner::GaitPhase& phase) {
+                         return phase.isSingleSupport();
+                       });
   ASSERT_NE(nextSingleSupport, gait.end());
-  EXPECT_EQ(nextSingleSupport->swingFoot, static_cast<int>(kContactRightIndex)) << "the feet must alternate";
+  EXPECT_EQ(nextSingleSupport->swingFoot, static_cast<int>(kContactRightIndex))
+      << "the feet must alternate";
 }
 
 TEST(HlipContactPlanner, stepsAdvanceByTheCommandedVelocityOnTheOrbit) {
-  // The steady state of the deadbeat law is the period-one orbit, whose step is v * T. Start the reduced model exactly
-  // on that orbit and the planner must ask for exactly that step.
+  // The steady state of the deadbeat law is the period-one orbit, whose step is
+  // v * T. Start the reduced model exactly on that orbit and the planner must
+  // ask for exactly that step.
   const ContactPlanningConfig config = makeConfig();
-  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<HlipContactPlanner> planner, HlipContactPlanner::Create(config));
+  HUMANOID_ASSERT_OK_AND_ASSIGN(
+      const std::unique_ptr<HlipContactPlanner> planner,
+      HlipContactPlanner::Create(config));
   const HlipModel& model = planner->getModel();
   const scalar_t velocity = 0.5;
   const scalar_t stepDuration = model.stepDuration();
   const scalar_t nominalStep = velocity * stepDuration;
   const HlipModel::State orbit = model.periodOneOrbit(nominalStep);
-  const HlipModel::PeriodTwoOrbit lateralOrbit = model.periodTwoOrbit(config.hlip.stepWidth, -config.hlip.stepWidth);
+  const HlipModel::PeriodTwoOrbit lateralOrbit =
+      model.periodTwoOrbit(config.hlip.stepWidth, -config.hlip.stepWidth);
 
-  // Place the robot at the post-impact state of that orbit, standing on the right foot with the left about to swing.
+  // Place the robot at the post-impact state of that orbit, standing on the
+  // right foot with the left about to swing.
   ContactPlannerInput input = makeStandingInput(vector2_t(velocity, 0.0));
   input.contacts[kContactLeftIndex] = false;
   input.phaseElapsedTime = makeFeetArray(0.0);
-  // The state a single support actually begins from is the post-impact state carried through the double support, which
-  // the reduced model drifts at constant velocity.
-  const HlipModel::State postImpactX =
-      HlipModel::flowDoubleSupport(HlipModel::applyStepTransition(orbit, nominalStep), config.hlip.dspDuration);
+  // The state a single support actually begins from is the post-impact state
+  // carried through the double support, which the reduced model drifts at
+  // constant velocity.
+  const HlipModel::State postImpactX = HlipModel::flowDoubleSupport(
+      HlipModel::applyStepTransition(orbit, nominalStep),
+      config.hlip.dspDuration);
   const HlipModel::State postImpactY = HlipModel::flowDoubleSupport(
-      HlipModel::applyStepTransition(lateralOrbit.beforeSecondStep, -config.hlip.stepWidth), config.hlip.dspDuration);
+      HlipModel::applyStepTransition(lateralOrbit.beforeSecondStep,
+                                     -config.hlip.stepWidth),
+      config.hlip.dspDuration);
   const vector2_t stanceFoot = input.footPositions[kContactRightIndex];
   input.comPosition = stanceFoot + vector2_t(postImpactX(0), postImpactY(0));
   input.comVelocity = vector2_t(postImpactX(1), postImpactY(1));
-  // The blend must not scale the command down, or the step would be shorter than the orbit's.
+  // The blend must not scale the command down, or the step would be shorter
+  // than the orbit's.
   ASSERT_GE(planner->blendWeight(input), 0.999);
 
   const ContactPlan plan = planner->plan(input);
   ASSERT_TRUE(plan.valid);
   EXPECT_EQ(plan.numClippedSteps, 0);
-  const std::optional<vector2_t> landing = plan.footholdAtTime(kContactLeftIndex, config.hlip.sspDuration);
+  const std::optional<vector2_t> landing =
+      plan.footholdAtTime(kContactLeftIndex, config.hlip.sspDuration);
   if (!landing.has_value()) GTEST_FAIL();
   EXPECT_NEAR(landing->x() - stanceFoot.x(), nominalStep, 1.0e-6);
   EXPECT_NEAR(landing->y() - stanceFoot.y(), config.hlip.stepWidth, 1.0e-6);
 }
 
-TEST(HlipContactPlanner, aLateralCommandShiftsBothStepsOfTheLateralOrbitByTheCommandedDrift) {
-  // Laterally the nominal gait is the period-two orbit of u_L = +stepWidth + v_y T and u_R = -stepWidth + v_y T, so on
-  // that orbit the two steps of a stride sum to exactly 2 v_y T and the robot drifts sideways at the commanded rate,
-  // in the direction of the command. Nothing else tested the lateral drift term: every other test commands v_y = 0, or
-  // checks only an equivariance that holds whatever its sign.
+TEST(HlipContactPlanner,
+     aLateralCommandShiftsBothStepsOfTheLateralOrbitByTheCommandedDrift) {
+  // Laterally the nominal gait is the period-two orbit of u_L = +stepWidth +
+  // v_y T and u_R = -stepWidth + v_y T, so on that orbit the two steps of a
+  // stride sum to exactly 2 v_y T and the robot drifts sideways at the
+  // commanded rate, in the direction of the command. Nothing else tested the
+  // lateral drift term: every other test commands v_y = 0, or checks only an
+  // equivariance that holds whatever its sign.
   const ContactPlanningConfig config = makeConfig();
-  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<HlipContactPlanner> planner, HlipContactPlanner::Create(config));
+  HUMANOID_ASSERT_OK_AND_ASSIGN(
+      const std::unique_ptr<HlipContactPlanner> planner,
+      HlipContactPlanner::Create(config));
   const HlipModel& model = planner->getModel();
   const scalar_t stepDuration = model.stepDuration();
   for (const scalar_t lateralCommand : {0.2, -0.2}) {
-    const scalar_t leftStep = config.hlip.stepWidth + lateralCommand * stepDuration;
-    const scalar_t rightStep = -config.hlip.stepWidth + lateralCommand * stepDuration;
-    const HlipModel::PeriodTwoOrbit orbit = model.periodTwoOrbit(leftStep, rightStep);
+    const scalar_t leftStep =
+        config.hlip.stepWidth + lateralCommand * stepDuration;
+    const scalar_t rightStep =
+        -config.hlip.stepWidth + lateralCommand * stepDuration;
+    const HlipModel::PeriodTwoOrbit orbit =
+        model.periodTwoOrbit(leftStep, rightStep);
 
-    // On the orbit at the lift-off of the left foot: the right step's impact carried through the double support.
-    ContactPlannerInput input = makeStandingInput(vector2_t(0.0, lateralCommand));
+    // On the orbit at the lift-off of the left foot: the right step's impact
+    // carried through the double support.
+    ContactPlannerInput input =
+        makeStandingInput(vector2_t(0.0, lateralCommand));
     input.contacts[kContactLeftIndex] = false;
     input.phaseElapsedTime = makeFeetArray(0.0);
-    const HlipModel::State atLiftOff =
-        HlipModel::flowDoubleSupport(HlipModel::applyStepTransition(orbit.beforeSecondStep, rightStep), config.hlip.dspDuration);
+    const HlipModel::State atLiftOff = HlipModel::flowDoubleSupport(
+        HlipModel::applyStepTransition(orbit.beforeSecondStep, rightStep),
+        config.hlip.dspDuration);
     const vector2_t stanceFoot = input.footPositions[kContactRightIndex];
     input.comPosition = stanceFoot + vector2_t(0.0, atLiftOff(0));
     input.comVelocity = vector2_t(0.0, atLiftOff(1));
-    ASSERT_DOUBLE_EQ(planner->blendWeight(input), 1.0) << "the command must not be scaled down, or this is not the commanded orbit";
+    ASSERT_DOUBLE_EQ(planner->blendWeight(input), 1.0)
+        << "the command must not be scaled down, or this is not the commanded "
+           "orbit";
 
     const ContactPlan plan = planner->plan(input);
     ASSERT_TRUE(plan.valid);
-    EXPECT_EQ(plan.numClippedSteps, 0) << "the commanded orbit must fit inside the step-width clip";
+    EXPECT_EQ(plan.numClippedSteps, 0)
+        << "the commanded orbit must fit inside the step-width clip";
     const std::vector<PlannedSwing> swings = plannedSwings(plan);
     ASSERT_GE(swings.size(), 2U);
-    // The first swing is the left foot already in flight, so its touch-down is the first left touch-down.
-    const std::optional<vector2_t> left = plan.footholdAtTime(kContactLeftIndex, config.hlip.sspDuration);
+    // The first swing is the left foot already in flight, so its touch-down is
+    // the first left touch-down.
+    const std::optional<vector2_t> left =
+        plan.footholdAtTime(kContactLeftIndex, config.hlip.sspDuration);
     if (!left.has_value()) GTEST_FAIL();
     const scalar_t placedLeft = left->y() - stanceFoot.y();
     EXPECT_NEAR(placedLeft, leftStep, 1.0e-9) << "v_y = " << lateralCommand;
 
     // The next swing places the right foot from the left one.
-    const PlannedSwing& rightSwing = swings.front().foot == kContactRightIndex ? swings.front() : swings[1];
+    const PlannedSwing& rightSwing =
+        swings.front().foot == kContactRightIndex ? swings.front() : swings[1];
     ASSERT_EQ(rightSwing.foot, kContactRightIndex);
-    const vector2_t right = plan.footholds[static_cast<size_t>(rightSwing.touchDownInterval)][kContactRightIndex];
+    const vector2_t right =
+        plan.footholds[static_cast<size_t>(rightSwing.touchDownInterval)]
+                      [kContactRightIndex];
     const scalar_t placedRight = right.y() - left->y();
     EXPECT_NEAR(placedRight, rightStep, 1.0e-9) << "v_y = " << lateralCommand;
 
-    EXPECT_NEAR(placedLeft + placedRight, 2.0 * lateralCommand * stepDuration, 1.0e-9);
-    EXPECT_GT((placedLeft + placedRight) * lateralCommand, 0.0) << "the robot must drift the way it is commanded to";
+    EXPECT_NEAR(placedLeft + placedRight, 2.0 * lateralCommand * stepDuration,
+                1.0e-9);
+    EXPECT_GT((placedLeft + placedRight) * lateralCommand, 0.0)
+        << "the robot must drift the way it is commanded to";
   }
 }
 
 TEST(HlipContactPlanner, aYawRateTurnsEveryFootholdByTheIntegratedHeading) {
-  // With a yaw-rate command the heading of the gait advances by alpha * rate * t, and each foothold is placed in the
-  // frame of the heading at its own touch-down. Nothing exercised this with a non-zero rate: a sign flip of the heading
-  // integration turned the robot the wrong way and every test still passed.
+  // With a yaw-rate command the heading of the gait advances by alpha * rate *
+  // t, and each foothold is placed in the frame of the heading at its own
+  // touch-down. Nothing exercised this with a non-zero rate: a sign flip of the
+  // heading integration turned the robot the wrong way and every test still
+  // passed.
   for (const bool headingModel : {false, true}) {
     ContactPlanningConfig config = makeConfig();
     config.setHeadingModel(headingModel);
-    HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<HlipContactPlanner> planner, HlipContactPlanner::Create(config));
+    HUMANOID_ASSERT_OK_AND_ASSIGN(
+        const std::unique_ptr<HlipContactPlanner> planner,
+        HlipContactPlanner::Create(config));
     ContactPlannerInput input = makeStandingInput(vector2_t::Zero());
     input.headingRateCommand = 0.6;  // [rad/s] in place, no translation
     const scalar_t alpha = planner->blendWeight(input);
@@ -556,35 +684,59 @@ TEST(HlipContactPlanner, aYawRateTurnsEveryFootholdByTheIntegratedHeading) {
     scalar_t previousHeading = input.yaw;
     for (const PlannedSwing& swing : swings) {
       const size_t node = static_cast<size_t>(swing.touchDownInterval);
-      const scalar_t touchDown = plan.startTime + plan.dt * static_cast<scalar_t>(node);
-      // The phase heading the foot was placed in, within the half node the touch-down is rounded by.
-      const scalar_t expectedHeading = input.yaw + alpha * input.headingRateCommand * (touchDown - input.time);
-      const vector2_t step = plan.footholds[node][swing.foot] - plan.footholds[node][otherFootOf(swing.foot)];
-      const vector2_t stepInHeading = rotationOf(expectedHeading).transpose() * step;
+      const scalar_t touchDown =
+          plan.startTime + plan.dt * static_cast<scalar_t>(node);
+      // The phase heading the foot was placed in, within the half node the
+      // touch-down is rounded by.
+      const scalar_t expectedHeading =
+          input.yaw +
+          alpha * input.headingRateCommand * (touchDown - input.time);
+      const vector2_t step = plan.footholds[node][swing.foot] -
+                             plan.footholds[node][otherFootOf(swing.foot)];
+      const vector2_t stepInHeading =
+          rotationOf(expectedHeading).transpose() * step;
       const scalar_t side = swing.foot == kContactLeftIndex ? 1.0 : -1.0;
-      const scalar_t tolerance = alpha * input.headingRateCommand * 0.5 * plan.dt * step.norm() + 1.0e-9;
-      // In its own heading frame the placed foot is on its own side, at least minStepWidth out: a foot placed in the
-      // frame of the opposite rotation would be swung round by twice the turn and fail this by a wide margin.
-      EXPECT_GE(side * stepInHeading.y(), config.hlip.minStepWidth - tolerance) << "foot " << swing.foot << " at " << touchDown;
-      EXPECT_LE(std::abs(stepInHeading.x()), config.hlip.maxStepLength + tolerance) << "foot " << swing.foot << " at " << touchDown;
-      EXPECT_GT(expectedHeading, previousHeading) << "a positive rate turns the gait counter-clockwise";
+      const scalar_t tolerance =
+          alpha * input.headingRateCommand * 0.5 * plan.dt * step.norm() +
+          1.0e-9;
+      // In its own heading frame the placed foot is on its own side, at least
+      // minStepWidth out: a foot placed in the frame of the opposite rotation
+      // would be swung round by twice the turn and fail this by a wide margin.
+      EXPECT_GE(side * stepInHeading.y(), config.hlip.minStepWidth - tolerance)
+          << "foot " << swing.foot << " at " << touchDown;
+      EXPECT_LE(std::abs(stepInHeading.x()),
+                config.hlip.maxStepLength + tolerance)
+          << "foot " << swing.foot << " at " << touchDown;
+      EXPECT_GT(expectedHeading, previousHeading)
+          << "a positive rate turns the gait counter-clockwise";
       previousHeading = expectedHeading;
     }
-    ASSERT_GT(previousHeading - input.yaw, 0.5) << "the horizon must turn far enough for the frame to matter";
+    ASSERT_GT(previousHeading - input.yaw, 0.5)
+        << "the horizon must turn far enough for the frame to matter";
 
     if (headingModel) {
       ASSERT_EQ(plan.heading.size(), plan.footholds.size());
       for (size_t node = 0; node < plan.heading.size(); ++node) {
-        const scalar_t nodeTime = plan.startTime + plan.dt * static_cast<scalar_t>(node);
-        EXPECT_NEAR(plan.heading[node], input.yaw + alpha * input.headingRateCommand * (nodeTime - input.time), 1.0e-12);
-        EXPECT_NEAR(plan.headingRate[node], alpha * input.headingRateCommand, 1.0e-12);
+        const scalar_t nodeTime =
+            plan.startTime + plan.dt * static_cast<scalar_t>(node);
+        EXPECT_NEAR(plan.heading[node],
+                    input.yaw + alpha * input.headingRateCommand *
+                                    (nodeTime - input.time),
+                    1.0e-12);
+        EXPECT_NEAR(plan.headingRate[node], alpha * input.headingRateCommand,
+                    1.0e-12);
       }
-      // A placed foot is yawed to the heading of its touch-down, so the landing yaws advance with the turn.
+      // A placed foot is yawed to the heading of its touch-down, so the landing
+      // yaws advance with the turn.
       for (const PlannedSwing& swing : swings) {
         const size_t node = static_cast<size_t>(swing.touchDownInterval);
-        const scalar_t touchDown = plan.startTime + plan.dt * static_cast<scalar_t>(node);
-        const scalar_t expectedHeading = input.yaw + alpha * input.headingRateCommand * (touchDown - input.time);
-        EXPECT_NEAR(plan.footYaws[node][swing.foot], expectedHeading, alpha * input.headingRateCommand * 0.5 * plan.dt + 1.0e-12);
+        const scalar_t touchDown =
+            plan.startTime + plan.dt * static_cast<scalar_t>(node);
+        const scalar_t expectedHeading =
+            input.yaw +
+            alpha * input.headingRateCommand * (touchDown - input.time);
+        EXPECT_NEAR(plan.footYaws[node][swing.foot], expectedHeading,
+                    alpha * input.headingRateCommand * 0.5 * plan.dt + 1.0e-12);
       }
     } else {
       EXPECT_TRUE(plan.heading.empty());
@@ -593,61 +745,84 @@ TEST(HlipContactPlanner, aYawRateTurnsEveryFootholdByTheIntegratedHeading) {
 }
 
 TEST(HlipContactPlanner, theStrideIsScaledByAlpha) {
-  // "Above the half point the commanded velocity used for u* is scaled by alpha, so the stride grows continuously out of
-  // standing." On the period-one orbit of alpha * v the step is exactly alpha * v * T, not v * T. Every other stride
-  // test runs at alpha = 1, where dropping the scaling changes nothing.
+  // "Above the half point the commanded velocity used for u* is scaled by
+  // alpha, so the stride grows continuously out of standing." On the period-one
+  // orbit of alpha * v the step is exactly alpha * v * T, not v * T. Every
+  // other stride test runs at alpha = 1, where dropping the scaling changes
+  // nothing.
   ContactPlanningConfig config = makeConfig();
-  // Normalize the measured velocity away, so that alpha is set by the command alone and the orbit below is not chased
-  // by an alpha that depends on it.
+  // Normalize the measured velocity away, so that alpha is set by the command
+  // alone and the orbit below is not chased by an alpha that depends on it.
   config.hlip.blend.maxComVelocityX = 1.0e3;
   config.hlip.blend.maxComVelocityY = 1.0e3;
-  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<HlipContactPlanner> planner, HlipContactPlanner::Create(config));
+  HUMANOID_ASSERT_OK_AND_ASSIGN(
+      const std::unique_ptr<HlipContactPlanner> planner,
+      HlipContactPlanner::Create(config));
   const HlipModel& model = planner->getModel();
-  const scalar_t command = 0.12;  // [m/s] a little above the half point of the 0.7 m/s range
+  const scalar_t command =
+      0.12;  // [m/s] a little above the half point of the 0.7 m/s range
 
   ContactPlannerInput input = makeStandingInput(vector2_t(command, 0.0));
   input.contacts[kContactLeftIndex] = false;
   input.phaseElapsedTime = makeFeetArray(0.0);
   const vector2_t stanceFoot = input.footPositions[kContactRightIndex];
-  const HlipModel::PeriodTwoOrbit lateralOrbit = model.periodTwoOrbit(config.hlip.stepWidth, -config.hlip.stepWidth);
+  const HlipModel::PeriodTwoOrbit lateralOrbit =
+      model.periodTwoOrbit(config.hlip.stepWidth, -config.hlip.stepWidth);
   const HlipModel::State atLiftOffY = HlipModel::flowDoubleSupport(
-      HlipModel::applyStepTransition(lateralOrbit.beforeSecondStep, -config.hlip.stepWidth), config.hlip.dspDuration);
-  scalar_t alpha = planner->getBlend().weight(vector2_t(command, 0.0), /*yawRateCommand=*/0.0, vector2_t::Zero());
-  for (int iteration = 0; iteration < 5; ++iteration) {  // the measured velocity still enters alpha, if negligibly
+      HlipModel::applyStepTransition(lateralOrbit.beforeSecondStep,
+                                     -config.hlip.stepWidth),
+      config.hlip.dspDuration);
+  scalar_t alpha = planner->getBlend().weight(
+      vector2_t(command, 0.0), /*yawRateCommand=*/0.0, vector2_t::Zero());
+  for (int iteration = 0; iteration < 5;
+       ++iteration) {  // the measured velocity still enters alpha, if
+                       // negligibly
     const scalar_t scaledStep = alpha * command * model.stepDuration();
-    const HlipModel::State atLiftOffX =
-        HlipModel::flowDoubleSupport(HlipModel::applyStepTransition(model.periodOneOrbit(scaledStep), scaledStep), config.hlip.dspDuration);
+    const HlipModel::State atLiftOffX = HlipModel::flowDoubleSupport(
+        HlipModel::applyStepTransition(model.periodOneOrbit(scaledStep),
+                                       scaledStep),
+        config.hlip.dspDuration);
     input.comPosition = stanceFoot + vector2_t(atLiftOffX(0), atLiftOffY(0));
     input.comVelocity = vector2_t(atLiftOffX(1), atLiftOffY(1));
     alpha = planner->blendWeight(input);
   }
-  ASSERT_GT(alpha, 0.6) << "this test needs a stepping plan with alpha well inside (0.5, 1)";
+  ASSERT_GT(alpha, 0.6)
+      << "this test needs a stepping plan with alpha well inside (0.5, 1)";
   ASSERT_LT(alpha, 0.9);
 
   const ContactPlan plan = planner->plan(input);
   ASSERT_TRUE(plan.valid);
-  const std::optional<vector2_t> landing = plan.footholdAtTime(kContactLeftIndex, config.hlip.sspDuration);
+  const std::optional<vector2_t> landing =
+      plan.footholdAtTime(kContactLeftIndex, config.hlip.sspDuration);
   if (!landing.has_value()) GTEST_FAIL();
   const scalar_t step = landing->x() - stanceFoot.x();
   EXPECT_NEAR(step, alpha * command * model.stepDuration(), 1.0e-9);
-  ASSERT_GT(command * model.stepDuration() - step, 0.005) << "the unscaled stride must be distinguishable from the scaled one";
+  ASSERT_GT(command * model.stepDuration() - step, 0.005)
+      << "the unscaled stride must be distinguishable from the scaled one";
 }
 
 TEST(HlipContactPlanner, aYawCommandAloneStartsTheGait) {
-  // Turning on the spot is walking: the yaw rate is one of the blend's five terms, and a robot at rest asked only to
-  // turn must get a stepping plan, not a standing one.
-  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<HlipContactPlanner> planner, HlipContactPlanner::Create(makeConfig()));
+  // Turning on the spot is walking: the yaw rate is one of the blend's five
+  // terms, and a robot at rest asked only to turn must get a stepping plan, not
+  // a standing one.
+  HUMANOID_ASSERT_OK_AND_ASSIGN(
+      const std::unique_ptr<HlipContactPlanner> planner,
+      HlipContactPlanner::Create(makeConfig()));
   ContactPlannerInput input = makeStandingInput(vector2_t::Zero());
-  ASSERT_FALSE(planner->isWalking(input)) << "positive control: at rest with no command the robot stands";
+  ASSERT_FALSE(planner->isWalking(input))
+      << "positive control: at rest with no command the robot stands";
   input.headingRateCommand = 0.3;
   EXPECT_TRUE(planner->isWalking(input));
   const ContactPlan plan = planner->plan(input);
-  EXPECT_FALSE(swingOrder(plan).empty()) << "a yaw command must produce a swing";
+  EXPECT_FALSE(swingOrder(plan).empty())
+      << "a yaw command must produce a swing";
 }
 
 TEST(HlipContactPlanner, honorsTheCommittedContacts) {
   const ContactPlanningConfig config = makeConfig();
-  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<HlipContactPlanner> planner, HlipContactPlanner::Create(config));
+  HUMANOID_ASSERT_OK_AND_ASSIGN(
+      const std::unique_ptr<HlipContactPlanner> planner,
+      HlipContactPlanner::Create(config));
   ContactPlannerInput input = makeStandingInput(vector2_t(0.5, 0.0));
   input.committedUntil = 0.1;
   input.committedContacts.assign(4, makeFeetArray(true));
@@ -655,34 +830,42 @@ TEST(HlipContactPlanner, honorsTheCommittedContacts) {
 
   const ContactPlan plan = planner->plan(input);
   ASSERT_TRUE(plan.valid);
-  for (size_t interval = 0; interval < input.committedContacts.size(); ++interval) {
+  for (size_t interval = 0; interval < input.committedContacts.size();
+       ++interval) {
     EXPECT_EQ(plan.contacts[interval], input.committedContacts[interval]);
   }
 }
 
 TEST(HlipContactPlanner, planIsWellFormed) {
   const ContactPlanningConfig config = makeConfig();
-  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<HlipContactPlanner> planner, HlipContactPlanner::Create(config));
-  const ContactPlan plan = planner->plan(makeStandingInput(vector2_t(0.4, 0.1)));
+  HUMANOID_ASSERT_OK_AND_ASSIGN(
+      const std::unique_ptr<HlipContactPlanner> planner,
+      HlipContactPlanner::Create(config));
+  const ContactPlan plan =
+      planner->plan(makeStandingInput(vector2_t(0.4, 0.1)));
 
   ASSERT_TRUE(plan.valid);
   EXPECT_EQ(plan.numIntervals(), config.planner.numNodes);
-  EXPECT_EQ(plan.footholds.size(), static_cast<size_t>(config.planner.numNodes) + 1);
+  EXPECT_EQ(plan.footholds.size(),
+            static_cast<size_t>(config.planner.numNodes) + 1);
   EXPECT_EQ(plan.comPosition.size(), plan.footholds.size());
   EXPECT_EQ(plan.zmp.size(), plan.contacts.size());
   EXPECT_NEAR(plan.endTime(), config.horizon(), 1.0e-12);
 
   const ModeSchedule schedule = plan.toModeSchedule();
   EXPECT_FALSE(schedule.modeSequence.empty());
-  EXPECT_TRUE(std::is_sorted(schedule.eventTimes.begin(), schedule.eventTimes.end()));
+  EXPECT_TRUE(
+      std::is_sorted(schedule.eventTimes.begin(), schedule.eventTimes.end()));
 }
 
-/** The inputs the reduced-model tests below plan from: a walk off a standstill, and a swing in flight under a standing plan. */
+/** The inputs the reduced-model tests below plan from: a walk off a standstill,
+ * and a swing in flight under a standing plan. */
 std::vector<ContactPlannerInput> reducedModelInputs() {
   ContactPlannerInput walking = makeStandingInput(vector2_t(0.4, 0.1));
   walking.comVelocity = vector2_t(0.1, -0.05);
   ContactPlannerInput standingInFlight = makeStandingInput(vector2_t::Zero());
-  standingInFlight.contacts[kContactLeftIndex] = false;  // a swing in flight, its touch-down off the node grid
+  standingInFlight.contacts[kContactLeftIndex] =
+      false;  // a swing in flight, its touch-down off the node grid
   standingInFlight.phaseElapsedTime[kContactLeftIndex] = 0.087;
   standingInFlight.phaseElapsedTime[kContactRightIndex] = 0.087;
   standingInFlight.comPosition = vector2_t(0.02, -0.03);
@@ -691,9 +874,11 @@ std::vector<ContactPlannerInput> reducedModelInputs() {
 }
 
 /**
- * Audit finding CP-1. Between nodes the plan's center of mass is the planner's continuous-time roll-out, not an
- * interpolation of its nodes: a plan on a five times finer grid samples the same roll-out at the coarse plan's off-grid
- * times, and lipReferenceState(), comPositionAtTime() and comVelocityAtTime() must all reproduce those samples.
+ * Audit finding CP-1. Between nodes the plan's center of mass is the planner's
+ * continuous-time roll-out, not an interpolation of its nodes: a plan on a five
+ * times finer grid samples the same roll-out at the coarse plan's off-grid
+ * times, and lipReferenceState(), comPositionAtTime() and comVelocityAtTime()
+ * must all reproduce those samples.
  */
 TEST(HlipContactPlanner, theReducedModelBetweenNodesIsTheRollOutItself) {
   constexpr int kRefinement = 5;
@@ -703,63 +888,93 @@ TEST(HlipContactPlanner, theReducedModelBetweenNodesIsTheRollOutItself) {
   fineConfig.planner.numNodes = coarseConfig.planner.numNodes * kRefinement;
   ASSERT_EQ(fineConfig.validateStatus(), absl::OkStatus());
   for (const ContactPlannerInput& input : reducedModelInputs()) {
-    HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<HlipContactPlanner> coarsePlanner, HlipContactPlanner::Create(coarseConfig));
-    HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<HlipContactPlanner> finePlanner, HlipContactPlanner::Create(fineConfig));
+    HUMANOID_ASSERT_OK_AND_ASSIGN(
+        const std::unique_ptr<HlipContactPlanner> coarsePlanner,
+        HlipContactPlanner::Create(coarseConfig));
+    HUMANOID_ASSERT_OK_AND_ASSIGN(
+        const std::unique_ptr<HlipContactPlanner> finePlanner,
+        HlipContactPlanner::Create(fineConfig));
     const ContactPlan coarse = coarsePlanner->plan(input);
     const ContactPlan fine = finePlanner->plan(input);
     ASSERT_TRUE(coarse.valid && fine.valid);
     ASSERT_EQ(coarse.phaseZmp.size(), coarse.phaseStartTimes.size());
     for (size_t node = 0; node < fine.comPosition.size(); ++node) {
-      const scalar_t time = fine.startTime + fine.dt * static_cast<scalar_t>(node);
-      const std::optional<LipState> state = lipReferenceState(coarse, coarse.omega, time);
+      const scalar_t time =
+          fine.startTime + fine.dt * static_cast<scalar_t>(node);
+      const std::optional<LipState> state =
+          lipReferenceState(coarse, coarse.omega, time);
       const std::optional<vector2_t> position = coarse.comPositionAtTime(time);
       const std::optional<vector2_t> velocity = coarse.comVelocityAtTime(time);
-      if (!(state.has_value() && position.has_value() && velocity.has_value())) {
+      if (!(state.has_value() && position.has_value() &&
+            velocity.has_value())) {
         FAIL() << "t=" << time;
       }
-      EXPECT_LT((state->com - fine.comPosition[node]).norm(), 1.0e-9) << "t=" << time;
-      EXPECT_LT((state->comVelocity - fine.comVelocity[node]).norm(), 1.0e-9) << "t=" << time;
+      EXPECT_LT((state->com - fine.comPosition[node]).norm(), 1.0e-9)
+          << "t=" << time;
+      EXPECT_LT((state->comVelocity - fine.comVelocity[node]).norm(), 1.0e-9)
+          << "t=" << time;
       EXPECT_LT((*position - state->com).norm(), 1.0e-12) << "t=" << time;
-      EXPECT_LT((*velocity - state->comVelocity).norm(), 1.0e-12) << "t=" << time;
+      EXPECT_LT((*velocity - state->comVelocity).norm(), 1.0e-12)
+          << "t=" << time;
     }
   }
 }
 
 /**
- * Audit finding CP-1. The ZMP lipReferenceState() publishes is the one the plan's CoM motion implies: in double support
- * the roll-out moves at constant velocity, so the ZMP is the CoM itself (it used to be the midpoint of the feet), and
- * everywhere the LIP equation c'' = omega^2 (c - zmp) holds against a central difference of the published velocity.
+ * Audit finding CP-1. The ZMP lipReferenceState() publishes is the one the
+ * plan's CoM motion implies: in double support the roll-out moves at constant
+ * velocity, so the ZMP is the CoM itself (it used to be the midpoint of the
+ * feet), and everywhere the LIP equation c'' = omega^2 (c - zmp) holds against
+ * a central difference of the published velocity.
  */
-TEST(HlipContactPlanner, thePublishedZmpIsTheOneThePlannedCenterOfMassMotionImplies) {
+TEST(HlipContactPlanner,
+     thePublishedZmpIsTheOneThePlannedCenterOfMassMotionImplies) {
   constexpr int kSamples = 400;
   constexpr scalar_t kDifferenceStep = 1.0e-5;  // [s]
   const ContactPlanningConfig config = makeConfig();
   for (const ContactPlannerInput& input : reducedModelInputs()) {
-    HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<HlipContactPlanner> planner, HlipContactPlanner::Create(config));
+    HUMANOID_ASSERT_OK_AND_ASSIGN(
+        const std::unique_ptr<HlipContactPlanner> planner,
+        HlipContactPlanner::Create(config));
     const ContactPlan plan = planner->plan(input);
     ASSERT_TRUE(plan.valid);
     const scalar_t omega = plan.omega;
     int doubleSupportSamples = 0;
     int singleSupportSamples = 0;
     for (int sample = 0; sample < kSamples; ++sample) {
-      // A deterministic, irrational stride through the horizon, off the node grid.
-      const scalar_t fraction = std::fmod(0.5 + std::sqrt(2.0) * static_cast<scalar_t>(sample), 1.0);
-      const scalar_t time = plan.startTime + kDifferenceStep + fraction * (plan.endTime() - plan.startTime - 2.0 * kDifferenceStep);
+      // A deterministic, irrational stride through the horizon, off the node
+      // grid.
+      const scalar_t fraction =
+          std::fmod(0.5 + std::sqrt(2.0) * static_cast<scalar_t>(sample), 1.0);
+      const scalar_t time =
+          plan.startTime + kDifferenceStep +
+          fraction * (plan.endTime() - plan.startTime - 2.0 * kDifferenceStep);
       // Keep the difference inside one phase.
       bool nearEvent = false;
-      for (scalar_t start : plan.phaseStartTimes) nearEvent = nearEvent || std::abs(time - start) < 2.0 * kDifferenceStep;
+      for (scalar_t start : plan.phaseStartTimes)
+        nearEvent = nearEvent || std::abs(time - start) < 2.0 * kDifferenceStep;
       if (nearEvent) continue;
-      const std::optional<LipState> state = lipReferenceState(plan, omega, time);
-      const std::optional<LipState> before = lipReferenceState(plan, omega, time - kDifferenceStep);
-      const std::optional<LipState> after = lipReferenceState(plan, omega, time + kDifferenceStep);
+      const std::optional<LipState> state =
+          lipReferenceState(plan, omega, time);
+      const std::optional<LipState> before =
+          lipReferenceState(plan, omega, time - kDifferenceStep);
+      const std::optional<LipState> after =
+          lipReferenceState(plan, omega, time + kDifferenceStep);
       ASSERT_TRUE(state.has_value() && before.has_value() && after.has_value());
-      const vector2_t acceleration = (after->comVelocity - before->comVelocity) / (2.0 * kDifferenceStep);
-      const vector2_t velocity = (after->com - before->com) / (2.0 * kDifferenceStep);
+      const vector2_t acceleration =
+          (after->comVelocity - before->comVelocity) / (2.0 * kDifferenceStep);
+      const vector2_t velocity =
+          (after->com - before->com) / (2.0 * kDifferenceStep);
       EXPECT_LT((velocity - state->comVelocity).norm(), 1.0e-6) << "t=" << time;
-      EXPECT_LT((acceleration - omega * omega * (state->com - state->zmp)).norm(), 1.0e-4) << "t=" << time;
+      EXPECT_LT(
+          (acceleration - omega * omega * (state->com - state->zmp)).norm(),
+          1.0e-4)
+          << "t=" << time;
       const contact_flag_t contacts = plan.contactsAtTime(time);
       if (contacts[kContactLeftIndex] && contacts[kContactRightIndex]) {
-        EXPECT_LT((state->zmp - state->com).norm(), 1.0e-12) << "a constant-velocity double support has its ZMP at the CoM, t=" << time;
+        EXPECT_LT((state->zmp - state->com).norm(), 1.0e-12)
+            << "a constant-velocity double support has its ZMP at the CoM, t="
+            << time;
         ++doubleSupportSamples;
       } else {
         ++singleSupportSamples;
@@ -771,10 +986,13 @@ TEST(HlipContactPlanner, thePublishedZmpIsTheOneThePlannedCenterOfMassMotionImpl
 }
 
 TEST(HlipContactPlanner, closedLoopTracksTheCommandedVelocity) {
-  // Roll the planner and its own reduced model forward: from standing, the deadbeat steps must bring the average
-  // velocity of the model to the command within a few steps, which is the property the whole planner rests on.
+  // Roll the planner and its own reduced model forward: from standing, the
+  // deadbeat steps must bring the average velocity of the model to the command
+  // within a few steps, which is the property the whole planner rests on.
   const ContactPlanningConfig config = makeConfig();
-  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<HlipContactPlanner> planner, HlipContactPlanner::Create(config));
+  HUMANOID_ASSERT_OK_AND_ASSIGN(
+      const std::unique_ptr<HlipContactPlanner> planner,
+      HlipContactPlanner::Create(config));
   const HlipModel& model = planner->getModel();
   const scalar_t command = 0.5;
 
@@ -785,16 +1003,24 @@ TEST(HlipContactPlanner, closedLoopTracksTheCommandedVelocity) {
   scalar_t previousStanceX = input.footPositions[kContactRightIndex].x();
   scalar_t lastStepLength = 0.0;
   for (int step = 0; step < 8; ++step) {
-    const size_t swingFoot = input.contacts[kContactLeftIndex] ? kContactRightIndex : kContactLeftIndex;
-    const size_t stanceFoot = swingFoot == kContactLeftIndex ? kContactRightIndex : kContactLeftIndex;
+    const size_t swingFoot = input.contacts[kContactLeftIndex]
+                                 ? kContactRightIndex
+                                 : kContactLeftIndex;
+    const size_t stanceFoot =
+        swingFoot == kContactLeftIndex ? kContactRightIndex : kContactLeftIndex;
     const ContactPlan plan = planner->plan(input);
     ASSERT_TRUE(plan.valid);
-    const std::optional<vector2_t> landing = plan.footholdAtTime(swingFoot, input.time + config.hlip.sspDuration);
+    const std::optional<vector2_t> landing =
+        plan.footholdAtTime(swingFoot, input.time + config.hlip.sspDuration);
     if (!landing.has_value()) GTEST_FAIL();
 
     // Advance the reduced model to the touch-down of that step.
-    HlipModel::State stateX(input.comPosition.x() - input.footPositions[stanceFoot].x(), input.comVelocity.x());
-    HlipModel::State stateY(input.comPosition.y() - input.footPositions[stanceFoot].y(), input.comVelocity.y());
+    HlipModel::State stateX(
+        input.comPosition.x() - input.footPositions[stanceFoot].x(),
+        input.comVelocity.x());
+    HlipModel::State stateY(
+        input.comPosition.y() - input.footPositions[stanceFoot].y(),
+        input.comVelocity.y());
     stateX = model.flowSingleSupport(stateX, config.hlip.sspDuration);
     stateY = model.flowSingleSupport(stateY, config.hlip.sspDuration);
 
@@ -803,14 +1029,17 @@ TEST(HlipContactPlanner, closedLoopTracksTheCommandedVelocity) {
 
     input.time += config.hlip.sspDuration;
     input.footPositions[swingFoot] = *landing;
-    input.comPosition = input.footPositions[stanceFoot] + vector2_t(stateX(0), stateY(0));
+    input.comPosition =
+        input.footPositions[stanceFoot] + vector2_t(stateX(0), stateY(0));
     input.comVelocity = vector2_t(stateX(1), stateY(1));
-    // The double support that follows: the reduced model drifts through it at constant velocity. Leaving it out makes
-    // the rolled-out step shorter than the one the planner's own step duration is built on.
+    // The double support that follows: the reduced model drifts through it at
+    // constant velocity. Leaving it out makes the rolled-out step shorter than
+    // the one the planner's own step duration is built on.
     input.comPosition += config.hlip.dspDuration * input.comVelocity;
     input.time += config.hlip.dspDuration;
     input.contacts = makeFeetArray(true);
-    input.contacts[stanceFoot] = false;  // the roles swap: the old stance foot swings next
+    input.contacts[stanceFoot] =
+        false;  // the roles swap: the old stance foot swings next
     input.phaseElapsedTime = makeFeetArray(0.0);
     input.lastSwungFoot = static_cast<int>(swingFoot);
     input.committedUntil = input.time;
@@ -820,44 +1049,58 @@ TEST(HlipContactPlanner, closedLoopTracksTheCommandedVelocity) {
 }
 
 /**
- * The planner's own lateral start-up out of a standstill, rolled forward step by step as the closed loop does: the
- * lateral distance between the feet after each step, and the clipped steps each plan reported.
+ * The planner's own lateral start-up out of a standstill, rolled forward step
+ * by step as the closed loop does: the lateral distance between the feet after
+ * each step, and the clipped steps each plan reported.
  */
 struct StartUpRollOut {
   std::vector<scalar_t> widths;
   std::vector<int> numClippedSteps;
 };
 
-StartUpRollOut rollOutTheStartUp(const ContactPlanningConfig& config, int numSteps) {
+StartUpRollOut rollOutTheStartUp(const ContactPlanningConfig& config,
+                                 int numSteps) {
   const std::unique_ptr<HlipContactPlanner> planner = createPlanner(config);
   const HlipModel& model = planner->getModel();
   ContactPlannerInput input = makeStandingInput(vector2_t(0.3, 0.0));
-  input.footPositions[kContactLeftIndex] = vector2_t(0.0, 0.5 * config.hlip.stepWidth);
-  input.footPositions[kContactRightIndex] = vector2_t(0.0, -0.5 * config.hlip.stepWidth);
-  input.contacts[kContactLeftIndex] = false;  // standing on the right, the left about to swing
+  input.footPositions[kContactLeftIndex] =
+      vector2_t(0.0, 0.5 * config.hlip.stepWidth);
+  input.footPositions[kContactRightIndex] =
+      vector2_t(0.0, -0.5 * config.hlip.stepWidth);
+  input.contacts[kContactLeftIndex] =
+      false;  // standing on the right, the left about to swing
   input.phaseElapsedTime = makeFeetArray(0.0);
 
   StartUpRollOut result;
   for (int step = 0; step < numSteps; ++step) {
-    const size_t swingFoot = input.contacts[kContactLeftIndex] ? kContactRightIndex : kContactLeftIndex;
+    const size_t swingFoot = input.contacts[kContactLeftIndex]
+                                 ? kContactRightIndex
+                                 : kContactLeftIndex;
     const size_t stanceFoot = otherFootOf(swingFoot);
     const ContactPlan plan = planner->plan(input);
     EXPECT_TRUE(plan.valid);
     result.numClippedSteps.push_back(plan.numClippedSteps);
-    const std::optional<vector2_t> landing = plan.footholdAtTime(swingFoot, input.time + config.hlip.sspDuration);
+    const std::optional<vector2_t> landing =
+        plan.footholdAtTime(swingFoot, input.time + config.hlip.sspDuration);
     EXPECT_TRUE(landing.has_value());
     if (!landing.has_value()) break;
 
-    HlipModel::State stateX(input.comPosition.x() - input.footPositions[stanceFoot].x(), input.comVelocity.x());
-    HlipModel::State stateY(input.comPosition.y() - input.footPositions[stanceFoot].y(), input.comVelocity.y());
+    HlipModel::State stateX(
+        input.comPosition.x() - input.footPositions[stanceFoot].x(),
+        input.comVelocity.x());
+    HlipModel::State stateY(
+        input.comPosition.y() - input.footPositions[stanceFoot].y(),
+        input.comVelocity.y());
     stateX = model.flowSingleSupport(stateX, config.hlip.sspDuration);
     stateY = model.flowSingleSupport(stateY, config.hlip.sspDuration);
 
     input.time += config.hlip.sspDuration;
     input.footPositions[swingFoot] = *landing;
-    input.comPosition = input.footPositions[stanceFoot] + vector2_t(stateX(0), stateY(0));
+    input.comPosition =
+        input.footPositions[stanceFoot] + vector2_t(stateX(0), stateY(0));
     input.comVelocity = vector2_t(stateX(1), stateY(1));
-    // The double support: the reduced model drifts at constant velocity through it.
+    // The double support: the reduced model drifts at constant velocity through
+    // it.
     input.comPosition += config.hlip.dspDuration * input.comVelocity;
     input.time += config.hlip.dspDuration;
     input.contacts = makeFeetArray(true);
@@ -866,70 +1109,91 @@ StartUpRollOut rollOutTheStartUp(const ContactPlanningConfig& config, int numSte
     input.lastSwungFoot = static_cast<int>(swingFoot);
     input.committedUntil = input.time;
 
-    result.widths.push_back(input.footPositions[kContactLeftIndex].y() - input.footPositions[kContactRightIndex].y());
+    result.widths.push_back(input.footPositions[kContactLeftIndex].y() -
+                            input.footPositions[kContactRightIndex].y());
   }
   return result;
 }
 
-TEST(HlipContactPlanner, theLateralGaitConvergesFromAStandstillWithoutClipping) {
-  // The regression this guards. Starting to walk from a standstill demands a first lateral step far wider than the
-  // nominal one: the center of mass is half a step width from the stance foot with no lateral velocity, so it falls
-  // sideways fast once the foot lifts. If that step does not fit inside maxStepWidth it is clipped, and a clipped step
-  // is not the deadbeat step - at some cadences the widths then lock into an alternating wide / narrow limit cycle: the
-  // feet come together and the robot walks itself sideways.
+TEST(HlipContactPlanner,
+     theLateralGaitConvergesFromAStandstillWithoutClipping) {
+  // The regression this guards. Starting to walk from a standstill demands a
+  // first lateral step far wider than the nominal one: the center of mass is
+  // half a step width from the stance foot with no lateral velocity, so it
+  // falls sideways fast once the foot lifts. If that step does not fit inside
+  // maxStepWidth it is clipped, and a clipped step is not the deadbeat step -
+  // at some cadences the widths then lock into an alternating wide / narrow
+  // limit cycle: the feet come together and the robot walks itself sideways.
   const ContactPlanningConfig config = makeConfig();
 
-  HUMANOID_ASSERT_OK_AND_ASSIGN(const scalar_t startUpStep, HlipContactPlanner::startUpLateralStep(config));
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const scalar_t startUpStep,
+                                HlipContactPlanner::startUpLateralStep(config));
   EXPECT_LT(startUpStep, config.hlip.maxStepWidth)
-      << "the first step out of a standstill must fit inside the reach, or the gait cannot start; shorten sspDuration";
+      << "the first step out of a standstill must fit inside the reach, or the "
+         "gait cannot start; shorten sspDuration";
 
-  // Roll the planner and its own reduced model forward laterally, exactly as the closed loop does. The widths alone
-  // cannot see a clipped first step - a gait whose first step is clipped can still settle at the nominal width - so
+  // Roll the planner and its own reduced model forward laterally, exactly as
+  // the closed loop does. The widths alone cannot see a clipped first step - a
+  // gait whose first step is clipped can still settle at the nominal width - so
   // every plan must also report that it clipped nothing.
   const StartUpRollOut rollOut = rollOutTheStartUp(config, /*numSteps=*/6);
   ASSERT_EQ(rollOut.widths.size(), 6U);
   for (size_t step = 0; step < rollOut.numClippedSteps.size(); ++step) {
-    EXPECT_EQ(rollOut.numClippedSteps[step], 0) << "the plan made before step " << step << " clipped a step";
+    EXPECT_EQ(rollOut.numClippedSteps[step], 0)
+        << "the plan made before step " << step << " clipped a step";
   }
 
-  // The deadbeat law reaches the nominal width and stays there; the limit cycle would alternate the two clips forever.
-  EXPECT_NEAR(rollOut.widths.back(), config.hlip.stepWidth, 1.0e-3) << "the lateral gait must settle at the nominal step width";
-  EXPECT_NEAR(rollOut.widths[rollOut.widths.size() - 2], config.hlip.stepWidth, 1.0e-3) << "and stay there, rather than alternating";
+  // The deadbeat law reaches the nominal width and stays there; the limit cycle
+  // would alternate the two clips forever.
+  EXPECT_NEAR(rollOut.widths.back(), config.hlip.stepWidth, 1.0e-3)
+      << "the lateral gait must settle at the nominal step width";
+  EXPECT_NEAR(rollOut.widths[rollOut.widths.size() - 2], config.hlip.stepWidth,
+              1.0e-3)
+      << "and stay there, rather than alternating";
 }
 
 TEST(HlipContactPlanner, theStartUpWidthsOfTheSummaryAreThePlannersOwn) {
-  // formulationSummary decides whether a clipped first step recovers or locks from startUpLateralWidths(), a lateral
-  // roll-out of the reduced model under the planner's step law and clip. That verdict is only true of the planner if
-  // the roll-out is what the planner itself does, so compare it with the planner closed around its own model, at a
-  // cadence that fits, one that clips and recovers, and one that clips and locks.
+  // formulationSummary decides whether a clipped first step recovers or locks
+  // from startUpLateralWidths(), a lateral roll-out of the reduced model under
+  // the planner's step law and clip. That verdict is only true of the planner
+  // if the roll-out is what the planner itself does, so compare it with the
+  // planner closed around its own model, at a cadence that fits, one that clips
+  // and recovers, and one that clips and locks.
   struct Case {
     scalar_t sspDuration;
     scalar_t dspDuration;
     scalar_t maxStepWidth;
   };
-  for (const Case& testCase : {Case{.sspDuration = 0.25, .dspDuration = 0.05, .maxStepWidth = 0.45},
-                               Case{.sspDuration = 0.35, .dspDuration = 0.0, .maxStepWidth = 0.45},
-                               Case{.sspDuration = 0.35, .dspDuration = 0.05, .maxStepWidth = 0.45}}) {
+  for (const Case& testCase :
+       {Case{.sspDuration = 0.25, .dspDuration = 0.05, .maxStepWidth = 0.45},
+        Case{.sspDuration = 0.35, .dspDuration = 0.0, .maxStepWidth = 0.45},
+        Case{.sspDuration = 0.35, .dspDuration = 0.05, .maxStepWidth = 0.45}}) {
     ContactPlanningConfig config = makeConfig();
     config.hlip.sspDuration = testCase.sspDuration;
     config.hlip.dspDuration = testCase.dspDuration;
     config.hlip.maxStepWidth = testCase.maxStepWidth;
     const StartUpRollOut planned = rollOutTheStartUp(config, /*numSteps=*/8);
-    HUMANOID_ASSERT_OK_AND_ASSIGN(const std::vector<scalar_t> modeled, HlipContactPlanner::startUpLateralWidths(config, /*numSteps=*/8));
+    HUMANOID_ASSERT_OK_AND_ASSIGN(
+        const std::vector<scalar_t> modeled,
+        HlipContactPlanner::startUpLateralWidths(config, /*numSteps=*/8));
     ASSERT_EQ(planned.widths.size(), modeled.size());
     for (size_t step = 0; step < modeled.size(); ++step) {
       EXPECT_NEAR(planned.widths[step], modeled[step], 1.0e-9)
-          << "ssp " << testCase.sspDuration << " dsp " << testCase.dspDuration << " step " << step;
+          << "ssp " << testCase.sspDuration << " dsp " << testCase.dspDuration
+          << " step " << step;
     }
   }
 }
 
-TEST(HlipContactPlanner, theStartUpBannerSaysWhetherTheFirstStepFitsAndWhatAClipDoes) {
-  // "DOES NOT FIT" exactly when the first-step demand exceeds maxStepWidth, and "locks" exactly when the planner's own
-  // start-up then never settles. The banner used to say that every clipped first step locks the gait, which the
-  // library defaults themselves contradict: at 0.35 s with no double support the first step is clipped (0.49 m against
-  // 0.45 m) and the gait still settles within three steps, so an operator reading the banner would retune a cadence
-  // that works.
+TEST(HlipContactPlanner,
+     theStartUpBannerSaysWhetherTheFirstStepFitsAndWhatAClipDoes) {
+  // "DOES NOT FIT" exactly when the first-step demand exceeds maxStepWidth, and
+  // "locks" exactly when the planner's own start-up then never settles. The
+  // banner used to say that every clipped first step locks the gait, which the
+  // library defaults themselves contradict: at 0.35 s with no double support
+  // the first step is clipped (0.49 m against 0.45 m) and the gait still
+  // settles within three steps, so an operator reading the banner would retune
+  // a cadence that works.
   struct Case {
     scalar_t sspDuration;
     scalar_t dspDuration;
@@ -938,30 +1202,44 @@ TEST(HlipContactPlanner, theStartUpBannerSaysWhetherTheFirstStepFitsAndWhatAClip
   int sawFits = 0;
   int sawRecovers = 0;
   int sawLocks = 0;
-  for (const Case& testCase : {Case{.sspDuration = 0.25, .dspDuration = 0.05, .maxStepWidth = 0.45},
-                               Case{.sspDuration = 0.35, .dspDuration = 0.0, .maxStepWidth = 0.45},
-                               Case{.sspDuration = 0.35, .dspDuration = 0.05, .maxStepWidth = 0.45},
-                               Case{.sspDuration = 0.5, .dspDuration = 0.05, .maxStepWidth = 0.45},
-                               Case{.sspDuration = 0.25, .dspDuration = 0.05, .maxStepWidth = 0.35}}) {
+  for (const Case& testCase :
+       {Case{.sspDuration = 0.25, .dspDuration = 0.05, .maxStepWidth = 0.45},
+        Case{.sspDuration = 0.35, .dspDuration = 0.0, .maxStepWidth = 0.45},
+        Case{.sspDuration = 0.35, .dspDuration = 0.05, .maxStepWidth = 0.45},
+        Case{.sspDuration = 0.5, .dspDuration = 0.05, .maxStepWidth = 0.45},
+        Case{.sspDuration = 0.25, .dspDuration = 0.05, .maxStepWidth = 0.35}}) {
     ContactPlanningConfig config = makeConfig();
     config.hlip.sspDuration = testCase.sspDuration;
     config.hlip.dspDuration = testCase.dspDuration;
     config.hlip.maxStepWidth = testCase.maxStepWidth;
-    HUMANOID_ASSERT_OK_AND_ASSIGN(const std::string summary, HlipContactPlanner::formulationSummary(config));
-    HUMANOID_ASSERT_OK_AND_ASSIGN(const scalar_t startUpStep, HlipContactPlanner::startUpLateralStep(config));
+    HUMANOID_ASSERT_OK_AND_ASSIGN(
+        const std::string summary,
+        HlipContactPlanner::formulationSummary(config));
+    HUMANOID_ASSERT_OK_AND_ASSIGN(
+        const scalar_t startUpStep,
+        HlipContactPlanner::startUpLateralStep(config));
     const bool fits = startUpStep <= config.hlip.maxStepWidth;
     const StartUpRollOut planned = rollOutTheStartUp(config, /*numSteps=*/12);
-    const bool settles = std::abs(planned.widths.back() - config.hlip.stepWidth) < 1.0e-3 &&
-                         std::abs(planned.widths[planned.widths.size() - 2] - config.hlip.stepWidth) < 1.0e-3;
-    const std::string label = absl::StrCat("ssp ", testCase.sspDuration, " dsp ", testCase.dspDuration, " max ", testCase.maxStepWidth);
-    EXPECT_EQ(!absl::StrContains(summary, "DOES NOT FIT"), fits) << label << "\n" << summary;
-    EXPECT_EQ(absl::StrContains(summary, "locks"), !settles) << label << "\n" << summary;
-    EXPECT_EQ(planned.numClippedSteps.front() > 0, !fits) << label << ": the first plan must count the clipped first step";
+    const bool settles =
+        std::abs(planned.widths.back() - config.hlip.stepWidth) < 1.0e-3 &&
+        std::abs(planned.widths[planned.widths.size() - 2] -
+                 config.hlip.stepWidth) < 1.0e-3;
+    const std::string label =
+        absl::StrCat("ssp ", testCase.sspDuration, " dsp ",
+                     testCase.dspDuration, " max ", testCase.maxStepWidth);
+    EXPECT_EQ(!absl::StrContains(summary, "DOES NOT FIT"), fits)
+        << label << "\n"
+        << summary;
+    EXPECT_EQ(absl::StrContains(summary, "locks"), !settles) << label << "\n"
+                                                             << summary;
+    EXPECT_EQ(planned.numClippedSteps.front() > 0, !fits)
+        << label << ": the first plan must count the clipped first step";
     sawFits += fits ? 1 : 0;
     sawRecovers += !fits && settles ? 1 : 0;
     sawLocks += !settles ? 1 : 0;
   }
-  // The cases must cover all three outcomes, or the assertions above prove less than they seem to.
+  // The cases must cover all three outcomes, or the assertions above prove less
+  // than they seem to.
   EXPECT_GT(sawFits, 0);
   EXPECT_GT(sawRecovers, 0);
   EXPECT_GT(sawLocks, 0);
@@ -970,49 +1248,68 @@ TEST(HlipContactPlanner, theStartUpBannerSaysWhetherTheFirstStepFitsAndWhatAClip
 TEST(HlipContactPlanner, clipsStepsToTheReachableRegion) {
   ContactPlanningConfig config = makeConfig();
   config.hlip.maxStepLength = 0.2;
-  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<HlipContactPlanner> planner, HlipContactPlanner::Create(config));
+  HUMANOID_ASSERT_OK_AND_ASSIGN(
+      const std::unique_ptr<HlipContactPlanner> planner,
+      HlipContactPlanner::Create(config));
 
-  ContactPlannerInput input = makeStandingInput(vector2_t(1.5, 0.0));  // far beyond what one step can deliver
+  ContactPlannerInput input = makeStandingInput(
+      vector2_t(1.5, 0.0));  // far beyond what one step can deliver
   input.contacts[kContactLeftIndex] = false;
   input.comVelocity = vector2_t(1.5, 0.0);
   input.phaseElapsedTime = makeFeetArray(0.0);
 
   const ContactPlan plan = planner->plan(input);
   ASSERT_TRUE(plan.valid);
-  const std::optional<vector2_t> landing = plan.footholdAtTime(kContactLeftIndex, config.hlip.sspDuration);
+  const std::optional<vector2_t> landing =
+      plan.footholdAtTime(kContactLeftIndex, config.hlip.sspDuration);
   if (!landing.has_value()) GTEST_FAIL();
-  const scalar_t step = landing->x() - input.footPositions[kContactRightIndex].x();
+  const scalar_t step =
+      landing->x() - input.footPositions[kContactRightIndex].x();
   EXPECT_LE(step, config.hlip.maxStepLength + 1.0e-9);
-  const scalar_t width = landing->y() - input.footPositions[kContactRightIndex].y();
+  const scalar_t width =
+      landing->y() - input.footPositions[kContactRightIndex].y();
   EXPECT_GE(width, config.hlip.minStepWidth - 1.0e-9);
   EXPECT_LE(width, config.hlip.maxStepWidth + 1.0e-9);
 
-  // And the clip is reported: a clipped step is no longer the deadbeat step, which is what the counter and the log
-  // line exist to say.
+  // And the clip is reported: a clipped step is no longer the deadbeat step,
+  // which is what the counter and the log line exist to say.
   EXPECT_GT(plan.numClippedSteps, 0);
-  EXPECT_NE(plan.describe().find("CLIPPED-STEPS"), std::string::npos) << plan.describe();
+  EXPECT_NE(plan.describe().find("CLIPPED-STEPS"), std::string::npos)
+      << plan.describe();
 
-  // Positive control: the same input at a command one step can deliver clips nothing.
+  // Positive control: the same input at a command one step can deliver clips
+  // nothing.
   ContactPlanningConfig roomy = makeConfig();
-  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<HlipContactPlanner> roomyPlanner, HlipContactPlanner::Create(roomy));
+  HUMANOID_ASSERT_OK_AND_ASSIGN(
+      const std::unique_ptr<HlipContactPlanner> roomyPlanner,
+      HlipContactPlanner::Create(roomy));
   ContactPlannerInput reachable = makeStandingInput(vector2_t(0.3, 0.0));
   reachable.contacts[kContactLeftIndex] = false;
   reachable.phaseElapsedTime = makeFeetArray(0.0);
-  const HlipModel::PeriodTwoOrbit lateralOrbit = roomyPlanner->getModel().periodTwoOrbit(roomy.hlip.stepWidth, -roomy.hlip.stepWidth);
+  const HlipModel::PeriodTwoOrbit lateralOrbit =
+      roomyPlanner->getModel().periodTwoOrbit(roomy.hlip.stepWidth,
+                                              -roomy.hlip.stepWidth);
   const HlipModel::State atLiftOffY = HlipModel::flowDoubleSupport(
-      HlipModel::applyStepTransition(lateralOrbit.beforeSecondStep, -roomy.hlip.stepWidth), roomy.hlip.dspDuration);
-  reachable.comPosition = reachable.footPositions[kContactRightIndex] + vector2_t(0.0, atLiftOffY(0));
+      HlipModel::applyStepTransition(lateralOrbit.beforeSecondStep,
+                                     -roomy.hlip.stepWidth),
+      roomy.hlip.dspDuration);
+  reachable.comPosition = reachable.footPositions[kContactRightIndex] +
+                          vector2_t(0.0, atLiftOffY(0));
   reachable.comVelocity = vector2_t(0.3, atLiftOffY(1));
   const ContactPlan reachablePlan = roomyPlanner->plan(reachable);
   EXPECT_EQ(reachablePlan.numClippedSteps, 0);
-  EXPECT_EQ(reachablePlan.describe().find("CLIPPED-STEPS"), std::string::npos) << reachablePlan.describe();
+  EXPECT_EQ(reachablePlan.describe().find("CLIPPED-STEPS"), std::string::npos)
+      << reachablePlan.describe();
 }
 
 TEST(HlipContactPlanner, isPlannedInTheHeadingFrame) {
-  // Rotating the whole problem must rotate the whole plan: the geometry is planned in the frame of `yaw`, and that
-  // frame has to come from `yaw` even when the heading model is off and `heading` is therefore never filled.
+  // Rotating the whole problem must rotate the whole plan: the geometry is
+  // planned in the frame of `yaw`, and that frame has to come from `yaw` even
+  // when the heading model is off and `heading` is therefore never filled.
   const ContactPlanningConfig config = makeConfig();
-  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<HlipContactPlanner> planner, HlipContactPlanner::Create(config));
+  HUMANOID_ASSERT_OK_AND_ASSIGN(
+      const std::unique_ptr<HlipContactPlanner> planner,
+      HlipContactPlanner::Create(config));
   ASSERT_FALSE(config.usesHeadingModel());
 
   const scalar_t yaw = 0.5 * M_PI;
@@ -1037,54 +1334,72 @@ TEST(HlipContactPlanner, isPlannedInTheHeadingFrame) {
   ASSERT_TRUE(straightPlan.valid && turnedPlan.valid);
   ASSERT_EQ(straightPlan.footholds.size(), turnedPlan.footholds.size());
   for (size_t node = 0; node < straightPlan.footholds.size(); ++node) {
-    EXPECT_EQ(straightPlan.contacts[std::min(node, straightPlan.contacts.size() - 1)],
-              turnedPlan.contacts[std::min(node, turnedPlan.contacts.size() - 1)]);
+    EXPECT_EQ(
+        straightPlan.contacts[std::min(node, straightPlan.contacts.size() - 1)],
+        turnedPlan.contacts[std::min(node, turnedPlan.contacts.size() - 1)]);
     for (size_t foot = 0; foot < kNumContacts; ++foot) {
-      const vector2_t expected = world_R_heading * straightPlan.footholds[node][foot];
-      EXPECT_NEAR(turnedPlan.footholds[node][foot].x(), expected.x(), 1.0e-9) << "node " << node << " foot " << foot;
-      EXPECT_NEAR(turnedPlan.footholds[node][foot].y(), expected.y(), 1.0e-9) << "node " << node << " foot " << foot;
+      const vector2_t expected =
+          world_R_heading * straightPlan.footholds[node][foot];
+      EXPECT_NEAR(turnedPlan.footholds[node][foot].x(), expected.x(), 1.0e-9)
+          << "node " << node << " foot " << foot;
+      EXPECT_NEAR(turnedPlan.footholds[node][foot].y(), expected.y(), 1.0e-9)
+          << "node " << node << " foot " << foot;
     }
   }
 }
 
-TEST(HlipContactPlanner, summaryNamesThePlannerItsCadenceAndTheExecutionRulesThatStillRun) {
+TEST(HlipContactPlanner,
+     summaryNamesThePlannerItsCadenceAndTheExecutionRulesThatStillRun) {
   ContactPlanningConfig config = makeConfig();
   config.formulation.execution = {"planned_com_override"};
-  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::string summary, HlipContactPlanner::formulationSummary(config));
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::string summary,
+                                HlipContactPlanner::formulationSummary(config));
   EXPECT_NE(summary.find("H-LIP"), std::string::npos);
   EXPECT_NE(summary.find("deadbeat"), std::string::npos);
   EXPECT_NE(summary.find("no optimization"), std::string::npos);
-  // The execution list is not gated by planner.type, and planned_com_override is required under hlip: the start-up
-  // print used to end "no execution rules", which is how an operator comes to empty the list.
+  // The execution list is not gated by planner.type, and planned_com_override
+  // is required under hlip: the start-up print used to end "no execution
+  // rules", which is how an operator comes to empty the list.
   EXPECT_EQ(summary.find("no execution rules"), std::string::npos) << summary;
-  EXPECT_NE(summary.find("execution    : planned_com_override"), std::string::npos) << summary;
+  EXPECT_NE(summary.find("execution    : planned_com_override"),
+            std::string::npos)
+      << summary;
 
   config.formulation.execution.clear();
-  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::string withoutExecution, HlipContactPlanner::formulationSummary(config));
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::string withoutExecution,
+                                HlipContactPlanner::formulationSummary(config));
   EXPECT_NE(withoutExecution.find("execution    : none"), std::string::npos);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// The planner closed around its reduced model at the MPC rate (ReducedModelLoop).
+// The planner closed around its reduced model at the MPC rate
+// (ReducedModelLoop).
 // ---------------------------------------------------------------------------------------------------------------
 
 TEST(HlipContactPlanner, aWalkThatIsReleasedComesBackToStanding) {
-  // After any walk the robot must be able to stop. At a zero command the deadbeat law regulates the lateral motion onto
-  // the period-two orbit at +-stepWidth, which crosses every touch-down at 0.165 m/s at this cadence - three times the
-  // blend's half point for the lateral center-of-mass velocity. The blend used to measure that sway raw, so alpha was
-  // one through every double support, the next lift-off was planned and committed at every touch-down, and a released
-  // stick left the robot marching in place for ever. The start-from-rest tests could not see it. Both phases the blend
-  // measures the sway in are exercised: the last cycles of a swing, whose plan decides whether the next lift-off is
-  // committed at the touch-down, and the standing double support after it, in which the harness only gradually slows
-  // the center of mass from the orbit's sway (ReducedModelLoop), so a blend that read that sway as motion would step
-  // again. Removing either phase from HlipContactPlanner::zeroCommandOrbitLateralVelocity fails this test.
+  // After any walk the robot must be able to stop. At a zero command the
+  // deadbeat law regulates the lateral motion onto the period-two orbit at
+  // +-stepWidth, which crosses every touch-down at 0.165 m/s at this cadence -
+  // three times the blend's half point for the lateral center-of-mass velocity.
+  // The blend used to measure that sway raw, so alpha was one through every
+  // double support, the next lift-off was planned and committed at every
+  // touch-down, and a released stick left the robot marching in place for ever.
+  // The start-from-rest tests could not see it. Both phases the blend measures
+  // the sway in are exercised: the last cycles of a swing, whose plan decides
+  // whether the next lift-off is committed at the touch-down, and the standing
+  // double support after it, in which the harness only gradually slows the
+  // center of mass from the orbit's sway (ReducedModelLoop), so a blend that
+  // read that sway as motion would step again. Removing either phase from
+  // HlipContactPlanner::zeroCommandOrbitLateralVelocity fails this test.
   const ContactPlanningConfig config = makeConfig();
   ReducedModelLoop loop(config, kMpcCyclePeriod);
   loop.setCommand(vector2_t(0.3, 0.0));
   while (loop.time() < 3.0) loop.cycle();
   int touchDowns = 0;
-  for (const ReducedModelLoop::Event& event : loop.events()) touchDowns += event.touchDown ? 1 : 0;
-  ASSERT_GE(touchDowns, 6) << "positive control: the robot must have been walking before the release";
+  for (const ReducedModelLoop::Event& event : loop.events())
+    touchDowns += event.touchDown ? 1 : 0;
+  ASSERT_GE(touchDowns, 6) << "positive control: the robot must have been "
+                              "walking before the release";
 
   const scalar_t releasedAt = loop.time();
   loop.setCommand(vector2_t::Zero());
@@ -1097,10 +1412,14 @@ TEST(HlipContactPlanner, aWalkThatIsReleasedComesBackToStanding) {
       standingSince = loop.time();
     }
   }
-  if (!standingSince.has_value()) GTEST_FAIL() << "the planner was still stepping 3 s after the stick was released";
-  EXPECT_LT(*standingSince - releasedAt, 1.5) << "the robot must stand within a few steps of the release";
+  if (!standingSince.has_value())
+    GTEST_FAIL()
+        << "the planner was still stepping 3 s after the stick was released";
+  EXPECT_LT(*standingSince - releasedAt, 1.5)
+      << "the robot must stand within a few steps of the release";
 
-  // Standing means no further lift-off: only the swings already committed when the plans turned to standing run out.
+  // Standing means no further lift-off: only the swings already committed when
+  // the plans turned to standing run out.
   for (const ReducedModelLoop::Event& event : loop.events()) {
     if (!event.touchDown) {
       EXPECT_LE(event.time, *standingSince + config.planner.commitTime + 1.0e-9)
@@ -1109,16 +1428,22 @@ TEST(HlipContactPlanner, aWalkThatIsReleasedComesBackToStanding) {
   }
 }
 
-TEST(HlipContactPlanner, everyExecutedStepIsTheDeadbeatStepForItsExecutedTouchDown) {
-  // At runtime every touch-down comes from an earlier plan's grid, so it is off the node grid of the plan that has to
-  // place it. The deadbeat step of the swing in flight used to be evaluated at the start of the node the executed
-  // touch-down falls in - up to a node early, always early - and the double support after it was counted from that node
-  // start, so the next lift-off came up to a node early too. The property that must hold instead: the step the robot
-  // lands with is the deadbeat step, u = u* + K (x - x*), of the state it is actually in at the impact it executes.
-  // Several MPC periods, so that the touch-downs sample many fractions of a node.
+TEST(HlipContactPlanner,
+     everyExecutedStepIsTheDeadbeatStepForItsExecutedTouchDown) {
+  // At runtime every touch-down comes from an earlier plan's grid, so it is off
+  // the node grid of the plan that has to place it. The deadbeat step of the
+  // swing in flight used to be evaluated at the start of the node the executed
+  // touch-down falls in - up to a node early, always early - and the double
+  // support after it was counted from that node start, so the next lift-off
+  // came up to a node early too. The property that must hold instead: the step
+  // the robot lands with is the deadbeat step, u = u* + K (x - x*), of the
+  // state it is actually in at the impact it executes. Several MPC periods, so
+  // that the touch-downs sample many fractions of a node.
   const ContactPlanningConfig config = makeConfig();
-  HUMANOID_ASSERT_OK_AND_ASSIGN(const HlipModel model, HlipModel::Create(config.hlip.sspDuration, config.hlip.dspDuration,
-                                                                         config.pendulumHeight(), config.shared.gravity));
+  HUMANOID_ASSERT_OK_AND_ASSIGN(
+      const HlipModel model,
+      HlipModel::Create(config.hlip.sspDuration, config.hlip.dspDuration,
+                        config.pendulumHeight(), config.shared.gravity));
   const scalar_t stepDuration = model.stepDuration();
   for (const scalar_t cyclePeriod : {0.01, 0.0173, 0.02, 0.021, 0.025, 0.033}) {
     ReducedModelLoop loop(config, cyclePeriod);
@@ -1129,42 +1454,61 @@ TEST(HlipContactPlanner, everyExecutedStepIsTheDeadbeatStepForItsExecutedTouchDo
     int doubleSupports = 0;
     int swings = 0;
     std::optional<scalar_t> lastTouchDown;
-    feet_array_t<std::optional<scalar_t>> liftOffs = makeFeetArray(std::optional<scalar_t>());
+    feet_array_t<std::optional<scalar_t>> liftOffs =
+        makeFeetArray(std::optional<scalar_t>());
     for (const ReducedModelLoop::Event& event : loop.events()) {
       if (!event.touchDown) {
         liftOffs[event.foot] = event.time;
         if (lastTouchDown.has_value()) {
-          // The executed double support is hlip.dspDuration exactly - the duration the deadbeat gain K = [1, T_dsp +
-          // coth(omega T_ssp) / omega] assumes - whatever the MPC period. It used to be the node grid of whichever plan
-          // last re-decided the lift-off that set it: anywhere in dspDuration +- dt / 2, and one systematic value at a
-          // fixed period (theExecutedDoubleSupportWasRoundedToTheGridWithoutContinuousEvents is the control).
-          EXPECT_NEAR(event.time - *lastTouchDown, config.hlip.dspDuration, 1.0e-9) << "period " << cyclePeriod << ", at " << event.time;
+          // The executed double support is hlip.dspDuration exactly - the
+          // duration the deadbeat gain K = [1, T_dsp + coth(omega T_ssp) /
+          // omega] assumes - whatever the MPC period. It used to be the node
+          // grid of whichever plan last re-decided the lift-off that set it:
+          // anywhere in dspDuration +- dt / 2, and one systematic value at a
+          // fixed period
+          // (theExecutedDoubleSupportWasRoundedToTheGridWithoutContinuousEvents
+          // is the control).
+          EXPECT_NEAR(event.time - *lastTouchDown, config.hlip.dspDuration,
+                      1.0e-9)
+              << "period " << cyclePeriod << ", at " << event.time;
           ++doubleSupports;
         }
         continue;
       }
       lastTouchDown = event.time;
-      if (const std::optional<scalar_t>& liftOff = liftOffs[event.foot]; liftOff.has_value()) {
+      if (const std::optional<scalar_t>& liftOff = liftOffs[event.foot];
+          liftOff.has_value()) {
         // And so is every single support, which the gain assumes as well.
-        EXPECT_NEAR(event.time - *liftOff, config.hlip.sspDuration, 1.0e-9) << "period " << cyclePeriod << ", at " << event.time;
+        EXPECT_NEAR(event.time - *liftOff, config.hlip.sspDuration, 1.0e-9)
+            << "period " << cyclePeriod << ", at " << event.time;
         ++swings;
       }
-      // The deadbeat step of the planner's own law, computed here from the executed pre-impact state.
+      // The deadbeat step of the planner's own law, computed here from the
+      // executed pre-impact state.
       const vector2_t command = event.alpha * event.command;
       const scalar_t nominalX = command.x() * stepDuration;
-      const scalar_t expectedX = model.deadbeatStepLength(event.preImpactX, model.periodOneOrbit(nominalX), nominalX);
-      const scalar_t leftStep = config.hlip.stepWidth + command.y() * stepDuration;
-      const scalar_t rightStep = -config.hlip.stepWidth + command.y() * stepDuration;
-      const HlipModel::PeriodTwoOrbit orbitY = model.periodTwoOrbit(leftStep, rightStep);
+      const scalar_t expectedX = model.deadbeatStepLength(
+          event.preImpactX, model.periodOneOrbit(nominalX), nominalX);
+      const scalar_t leftStep =
+          config.hlip.stepWidth + command.y() * stepDuration;
+      const scalar_t rightStep =
+          -config.hlip.stepWidth + command.y() * stepDuration;
+      const HlipModel::PeriodTwoOrbit orbitY =
+          model.periodTwoOrbit(leftStep, rightStep);
       const bool left = event.foot == kContactLeftIndex;
-      const scalar_t expectedY =
-          model.deadbeatStepLength(event.preImpactY, left ? orbitY.beforeFirstStep : orbitY.beforeSecondStep, left ? leftStep : rightStep);
-      if (std::abs(expectedX) > config.hlip.maxStepLength || (left ? expectedY : -expectedY) < config.hlip.minStepWidth ||
+      const scalar_t expectedY = model.deadbeatStepLength(
+          event.preImpactY,
+          left ? orbitY.beforeFirstStep : orbitY.beforeSecondStep,
+          left ? leftStep : rightStep);
+      if (std::abs(expectedX) > config.hlip.maxStepLength ||
+          (left ? expectedY : -expectedY) < config.hlip.minStepWidth ||
           (left ? expectedY : -expectedY) > config.hlip.maxStepWidth) {
         continue;  // clipped (the start-up): not the deadbeat step by design
       }
-      EXPECT_NEAR(event.step.x(), expectedX, 1.0e-9) << "period " << cyclePeriod << ", touch-down at " << event.time;
-      EXPECT_NEAR(event.step.y(), expectedY, 1.0e-9) << "period " << cyclePeriod << ", touch-down at " << event.time;
+      EXPECT_NEAR(event.step.x(), expectedX, 1.0e-9)
+          << "period " << cyclePeriod << ", touch-down at " << event.time;
+      EXPECT_NEAR(event.step.y(), expectedY, 1.0e-9)
+          << "period " << cyclePeriod << ", touch-down at " << event.time;
       ++checkedSteps;
     }
     EXPECT_GE(checkedSteps, 10) << "period " << cyclePeriod;
@@ -1174,12 +1518,14 @@ TEST(HlipContactPlanner, everyExecutedStepIsTheDeadbeatStepForItsExecutedTouchDo
 }
 
 /**
- * The positive control of the exact timing above: the same loop with the executed schedule built from the plans' node
- * grid alone, as it was before plans carried their gait in continuous time. At an MPC period that shares no multiple
- * with the planner's grid the double supports it executes are not hlip.dspDuration, though each stays within half a
- * node of it.
+ * The positive control of the exact timing above: the same loop with the
+ * executed schedule built from the plans' node grid alone, as it was before
+ * plans carried their gait in continuous time. At an MPC period that shares no
+ * multiple with the planner's grid the double supports it executes are not
+ * hlip.dspDuration, though each stays within half a node of it.
  */
-TEST(HlipContactPlanner, theExecutedDoubleSupportWasRoundedToTheGridWithoutContinuousEvents) {
+TEST(HlipContactPlanner,
+     theExecutedDoubleSupportWasRoundedToTheGridWithoutContinuousEvents) {
   const ContactPlanningConfig config = makeConfig();
   ReducedModelLoop loop(config, kMpcCyclePeriod);
   loop.useNodeGridSchedule();
@@ -1192,22 +1538,28 @@ TEST(HlipContactPlanner, theExecutedDoubleSupportWasRoundedToTheGridWithoutConti
     if (event.touchDown) {
       lastTouchDown = event.time;
     } else if (lastTouchDown.has_value()) {
-      const scalar_t error = std::abs(event.time - *lastTouchDown - config.hlip.dspDuration);
+      const scalar_t error =
+          std::abs(event.time - *lastTouchDown - config.hlip.dspDuration);
       EXPECT_LE(error, 0.5 * config.planner.dt + 1.0e-9) << "at " << event.time;
       largestError = std::max(largestError, error);
       ++doubleSupports;
     }
   }
   EXPECT_GE(doubleSupports, 10);
-  EXPECT_GT(largestError, 1.0e-3) << "the node grid alone executed every double support exactly: the exact-timing test proves nothing";
+  EXPECT_GT(largestError, 1.0e-3)
+      << "the node grid alone executed every double support exactly: the "
+         "exact-timing test proves nothing";
 }
 
 /**
- * The last swung foot outlives the executed schedule's history. The schedule keeps its past only one window deep (the
- * reference manager one horizon, this harness two seconds), so a robot that has stood for longer than that has no
- * lift-off left in it. The planner input used to read the last swung foot off the schedule alone, and it became -1:
- * the blend lost the zero-command orbit it measures the lateral velocity against in double support, and the first step
- * of the next walk was chosen by phase timing instead of alternating with the last one.
+ * The last swung foot outlives the executed schedule's history. The schedule
+ * keeps its past only one window deep (the reference manager one horizon, this
+ * harness two seconds), so a robot that has stood for longer than that has no
+ * lift-off left in it. The planner input used to read the last swung foot off
+ * the schedule alone, and it became -1: the blend lost the zero-command orbit
+ * it measures the lateral velocity against in double support, and the first
+ * step of the next walk was chosen by phase timing instead of alternating with
+ * the last one.
  */
 TEST(HlipContactPlanner, theLastSwungFootOutlivesTheScheduleHistory) {
   const ContactPlanningConfig config = makeConfig();
@@ -1224,65 +1576,90 @@ TEST(HlipContactPlanner, theLastSwungFootOutlivesTheScheduleHistory) {
     lastLiftOffFoot = static_cast<int>(event.foot);
     lastLiftOffTime = event.time;
   }
-  ASSERT_GE(lastLiftOffFoot, 0) << "positive control: the robot must have walked";
-  ASSERT_LT(lastLiftOffTime, loop.time() - 3.0) << "positive control: the robot must have stood for longer than the schedule reaches back";
-  // Positive control: the executed schedule alone no longer holds that lift-off.
+  ASSERT_GE(lastLiftOffFoot, 0)
+      << "positive control: the robot must have walked";
+  ASSERT_LT(lastLiftOffTime, loop.time() - 3.0)
+      << "positive control: the robot must have stood for longer than the "
+         "schedule reaches back";
+  // Positive control: the executed schedule alone no longer holds that
+  // lift-off.
   LiftOffHistory scheduleOnly;
   scheduleOnly.record(loop.executedSchedule(), loop.time());
   EXPECT_EQ(scheduleOnly.lastSwungFoot(), -1);
 
   const ContactPlannerInput input = loop.makeInput();
   EXPECT_EQ(input.lastSwungFoot, lastLiftOffFoot);
-  // And with it the zero-command orbit the blend reads the lateral velocity against while standing.
-  EXPECT_TRUE(loop.planner().zeroCommandOrbitLateralVelocity(input).has_value());
+  // And with it the zero-command orbit the blend reads the lateral velocity
+  // against while standing.
+  EXPECT_TRUE(
+      loop.planner().zeroCommandOrbitLateralVelocity(input).has_value());
   // The next walk starts with the other foot.
-  EXPECT_EQ(static_cast<int>(HlipContactPlanner::nextSwingFoot(input)), 1 - lastLiftOffFoot);
+  EXPECT_EQ(static_cast<int>(HlipContactPlanner::nextSwingFoot(input)),
+            1 - lastLiftOffFoot);
 }
 
-/** The history forgets a lift-off later than the time it is asked at: time ran backwards, as it does on a reset. */
+/** The history forgets a lift-off later than the time it is asked at: time ran
+ * backwards, as it does on a reset. */
 TEST(HlipContactPlanner, theLiftOffHistoryForgetsTheFutureAfterAReset) {
   contact_flag_t leftSwinging = makeFeetArray(true);
   leftSwinging[kContactLeftIndex] = false;
-  const ModeSchedule walked({5.0, 5.25}, {ModeNumber::kStance, stanceLeg2ModeNumber(leftSwinging), ModeNumber::kStance});
+  const ModeSchedule walked(
+      {5.0, 5.25}, {ModeNumber::kStance, stanceLeg2ModeNumber(leftSwinging),
+                    ModeNumber::kStance});
   LiftOffHistory history;
   history.record(walked, /*time=*/4.9);
-  EXPECT_EQ(history.lastSwungFoot(), -1) << "a lift-off after the query time has not happened";
+  EXPECT_EQ(history.lastSwungFoot(), -1)
+      << "a lift-off after the query time has not happened";
   history.record(walked, /*time=*/6.0);
   EXPECT_EQ(history.lastSwungFoot(), static_cast<int>(kContactLeftIndex));
-  history.record(ModeSchedule(/*eventTimesInput=*/{}, {ModeNumber::kStance}), /*time=*/0.5);
-  EXPECT_EQ(history.lastSwungFoot(), -1) << "after the reset the lift-off at 5 s lies in the future";
+  history.record(ModeSchedule(/*eventTimesInput=*/{}, {ModeNumber::kStance}),
+                 /*time=*/0.5);
+  EXPECT_EQ(history.lastSwungFoot(), -1)
+      << "after the reset the lift-off at 5 s lies in the future";
 }
 
 /**
- * A plan records the pendulum it was made on (ContactPlan::omega): the terminal DCM cost takes the plan's DCM, and the
- * robot's, with that omega, so that a reload of shared.comHeight cannot re-interpret a plan already made. And a
- * configuration the H-LIP cannot run is refused by its key, keeping the running one: the model CHECK-fails on it, which
- * on the planner's worker thread used to take the controller down.
+ * A plan records the pendulum it was made on (ContactPlan::omega): the terminal
+ * DCM cost takes the plan's DCM, and the robot's, with that omega, so that a
+ * reload of shared.comHeight cannot re-interpret a plan already made. And a
+ * configuration the H-LIP cannot run is refused by its key, keeping the running
+ * one: the model CHECK-fails on it, which on the planner's worker thread used
+ * to take the controller down.
  */
-TEST(HlipContactPlanner, aPlanCarriesItsPendulumAndARefusedReloadKeepsTheRunningConfiguration) {
+TEST(HlipContactPlanner,
+     aPlanCarriesItsPendulumAndARefusedReloadKeepsTheRunningConfiguration) {
   ContactPlanningConfig config = makeConfig();
   config.shared.comHeight = 1.05;
-  HUMANOID_ASSERT_OK_AND_ASSIGN(const std::unique_ptr<HlipContactPlanner> planner, HlipContactPlanner::Create(config));
+  HUMANOID_ASSERT_OK_AND_ASSIGN(
+      const std::unique_ptr<HlipContactPlanner> planner,
+      HlipContactPlanner::Create(config));
   const ContactPlan plan = planner->plan(makeStandingInput(vector2_t::Zero()));
   ASSERT_TRUE(plan.valid);
-  EXPECT_NEAR(plan.omega, std::sqrt(config.shared.gravity / 1.05), 1.0e-12) << "a plan must record the pendulum it was made on";
+  EXPECT_NEAR(plan.omega, std::sqrt(config.shared.gravity / 1.05), 1.0e-12)
+      << "a plan must record the pendulum it was made on";
 
-  // A reload that moves the pendulum: the next plan is made, and recorded, on the new one.
+  // A reload that moves the pendulum: the next plan is made, and recorded, on
+  // the new one.
   ContactPlanningConfig lower = config;
   lower.shared.comHeight = 0.8;
   ASSERT_EQ(planner->setConfig(lower), absl::OkStatus());
   const scalar_t lowerOmega = std::sqrt(lower.shared.gravity / 0.8);
-  ASSERT_GT(std::abs(lowerOmega - plan.omega), 0.3) << "the reload must move the pendulum, or the check below proves nothing";
-  EXPECT_NEAR(planner->plan(makeStandingInput(vector2_t::Zero())).omega, lowerOmega, 1.0e-12);
+  ASSERT_GT(std::abs(lowerOmega - plan.omega), 0.3)
+      << "the reload must move the pendulum, or the check below proves nothing";
+  EXPECT_NEAR(planner->plan(makeStandingInput(vector2_t::Zero())).omega,
+              lowerOmega, 1.0e-12);
 
   ContactPlanningConfig broken = lower;
   broken.shared.comHeight = -1.0;
   const absl::Status refused = planner->setConfig(broken);
   EXPECT_EQ(refused.code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(absl::StrContains(refused.message(), "shared.com_height")) << refused;
-  EXPECT_DOUBLE_EQ(planner->getConfig().pendulumHeight(), 0.8) << "a refused reload must keep the running configuration";
+  EXPECT_TRUE(absl::StrContains(refused.message(), "shared.com_height"))
+      << refused;
+  EXPECT_DOUBLE_EQ(planner->getConfig().pendulumHeight(), 0.8)
+      << "a refused reload must keep the running configuration";
   EXPECT_NEAR(planner->getModel().naturalFrequency(), lowerOmega, 1.0e-12);
-  EXPECT_NEAR(planner->plan(makeStandingInput(vector2_t::Zero())).omega, lowerOmega, 1.0e-12);
+  EXPECT_NEAR(planner->plan(makeStandingInput(vector2_t::Zero())).omega,
+              lowerOmega, 1.0e-12);
 }
 
 }  // namespace

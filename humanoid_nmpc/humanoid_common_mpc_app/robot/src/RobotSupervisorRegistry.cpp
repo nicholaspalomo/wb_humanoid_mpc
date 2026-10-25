@@ -46,40 +46,58 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-absl::StatusOr<RobotSupervisor> createSimSupervisor(const RobotSupervisorContext& context) {
-  robot::mujoco_sim_interface::MujocoSimInterface* absl_nullable const simulator = context.backend->simulator();
+absl::StatusOr<RobotSupervisor> createSimSupervisor(
+    const RobotSupervisorContext& context) {
+  robot::mujoco_sim_interface::MujocoSimInterface* absl_nullable const
+      simulator = context.backend->simulator();
   if (simulator == nullptr) {
-    return absl::InvalidArgumentError(absl::StrCat("the '", kSimSupervisorName,
-                                                   "' supervisor drives a simulator's gantry and torque switch, and the robot backend '",
-                                                   context.backend->name(), "' is not a simulator; a hardware backend names the '",
-                                                   kHardwareSupervisorName, "' supervisor (RobotBackend::supervisorName())"));
+    return absl::InvalidArgumentError(
+        absl::StrCat("the '", kSimSupervisorName,
+                     "' supervisor drives a simulator's gantry and torque "
+                     "switch, and the robot backend '",
+                     context.backend->name(),
+                     "' is not a simulator; a hardware backend names the '",
+                     kHardwareSupervisorName,
+                     "' supervisor (RobotBackend::supervisorName())"));
   }
   RobotSupervisor supervisor;
-  supervisor.fsmBridge = std::make_unique<SimFsmBridge>(*context.description, *context.initialState, context.commands, context.fsmStates,
-                                                        simulator, context.eventLog);
-  supervisor.fallRecovery = std::make_unique<SimFallRecovery>(context.fallRecovery, simulator, context.restJointIndices, context.eventLog);
+  supervisor.fsmBridge = std::make_unique<SimFsmBridge>(
+      *context.description, *context.initialState, context.commands,
+      context.fsmStates, simulator, context.eventLog);
+  supervisor.fallRecovery = std::make_unique<SimFallRecovery>(
+      context.fallRecovery, simulator, context.restJointIndices,
+      context.eventLog);
   return supervisor;
 }
 
-absl::StatusOr<RobotSupervisor> createHardwareSupervisor(const RobotSupervisorContext& context) {
+absl::StatusOr<RobotSupervisor> createHardwareSupervisor(
+    const RobotSupervisorContext& context) {
   RobotSupervisor supervisor;
-  supervisor.fsmBridge = std::make_unique<HardwareFsmBridge>(*context.description, *context.initialState, context.commands,
-                                                             context.fsmStates, context.backend, context.eventLog);
-  supervisor.fallRecovery =
-      std::make_unique<HardwareFallRecovery>(context.fallRecovery.maxBaseTiltAngle, context.backend, context.eventLog);
+  supervisor.fsmBridge = std::make_unique<HardwareFsmBridge>(
+      *context.description, *context.initialState, context.commands,
+      context.fsmStates, context.backend, context.eventLog);
+  supervisor.fallRecovery = std::make_unique<HardwareFallRecovery>(
+      context.fallRecovery.maxBaseTiltAngle, context.backend, context.eventLog);
   return supervisor;
 }
 
 }  // namespace
 
 RobotSupervisorRegistry::RobotSupervisorRegistry() {
-  add(std::string(kSimSupervisorName), "the simulator's torque switch, gantry, dodgeballs and fall recovery", createSimSupervisor);
-  add(std::string(kHardwareSupervisorName), "the backend's torque switch, no gantry, torques off past the tilt limit",
+  add(std::string(kSimSupervisorName),
+      "the simulator's torque switch, gantry, dodgeballs and fall recovery",
+      createSimSupervisor);
+  add(std::string(kHardwareSupervisorName),
+      "the backend's torque switch, no gantry, torques off past the tilt limit",
       createHardwareSupervisor);
 }
 
-void RobotSupervisorRegistry::add(std::string name, std::string description, Factory factory) {
-  entries_.push_back(Entry{.name = std::move(name), .description = std::move(description), .factory = std::move(factory)});
+void RobotSupervisorRegistry::add(std::string name,
+                                  std::string description,
+                                  Factory factory) {
+  entries_.push_back(Entry{.name = std::move(name),
+                           .description = std::move(description),
+                           .factory = std::move(factory)});
 }
 
 bool RobotSupervisorRegistry::has(absl::string_view name) const {
@@ -99,18 +117,21 @@ std::vector<std::string> RobotSupervisorRegistry::names() const {
 std::string RobotSupervisorRegistry::availableNames() const {
   std::string names;
   for (const Entry& entry : entries_) {
-    absl::StrAppend(&names, names.empty() ? "" : ", ", entry.name, " (", entry.description, ")");
+    absl::StrAppend(&names, names.empty() ? "" : ", ", entry.name, " (",
+                    entry.description, ")");
   }
   return names;
 }
 
-absl::StatusOr<RobotSupervisor> RobotSupervisorRegistry::create(absl::string_view name, const RobotSupervisorContext& context) const {
+absl::StatusOr<RobotSupervisor> RobotSupervisorRegistry::create(
+    absl::string_view name, const RobotSupervisorContext& context) const {
   for (const Entry& entry : entries_) {
     if (entry.name == name) return entry.factory(context);
   }
-  return absl::InvalidArgumentError(absl::StrCat("There is no robot supervisor '", name,
-                                                 "' (RobotBackend::supervisorName() of the backend '", context.backend->name(),
-                                                 "'). Available: ", availableNames(), "."));
+  return absl::InvalidArgumentError(absl::StrCat(
+      "There is no robot supervisor '", name,
+      "' (RobotBackend::supervisorName() of the backend '",
+      context.backend->name(), "'). Available: ", availableNames(), "."));
 }
 
 }  // namespace ocs2::humanoid

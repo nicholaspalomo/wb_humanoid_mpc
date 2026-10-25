@@ -52,18 +52,23 @@ namespace ocs2::humanoid {
 
 namespace {
 
-// The blocks the model starts with, lip_com and foothold_integrator, which own the layout.
+// The blocks the model starts with, lip_com and foothold_integrator, which own
+// the layout.
 constexpr int kLeadingModelBlocks = 2;
 // The propagation runs at most this many passes per node to reach its fixpoint.
 constexpr int kMaxPropagationPassesPerNode = 4;
 
 template <typename T>
-absl::Status checkRequiredBlocks(const TermCollection<T>& collection, const TermCollection<LipModelBlock>& model, absl::string_view what) {
+absl::Status checkRequiredBlocks(const TermCollection<T>& collection,
+                                 const TermCollection<LipModelBlock>& model,
+                                 absl::string_view what) {
   for (size_t i = 0; i < collection.size(); ++i) {
     for (const std::string& block : collection.termAt(i).requiredBlocks()) {
       if (!model.has(block)) {
-        return absl::InvalidArgumentError(absl::StrCat("[ContactPlanningProblem] ", what, " '", collection.nameAt(i),
-                                                       "' needs the model block '", block, "', which is not part of the formulation"));
+        return absl::InvalidArgumentError(
+            absl::StrCat("[ContactPlanningProblem] ", what, " '",
+                         collection.nameAt(i), "' needs the model block '",
+                         block, "', which is not part of the formulation"));
       }
     }
   }
@@ -71,11 +76,14 @@ absl::Status checkRequiredBlocks(const TermCollection<T>& collection, const Term
 }
 
 absl::Status notFinalized(absl::string_view operation) {
-  return absl::FailedPreconditionError(absl::StrCat("[ContactPlanningProblem] ", operation, "() before finalize()"));
+  return absl::FailedPreconditionError(absl::StrCat(
+      "[ContactPlanningProblem] ", operation, "() before finalize()"));
 }
 
 template <typename T>
-void bindAndConfigure(TermCollection<T>& collection, const Layout& layout, const ContactPlanningConfig& config) {
+void bindAndConfigure(TermCollection<T>& collection,
+                      const Layout& layout,
+                      const ContactPlanningConfig& config) {
   for (std::unique_ptr<T>& term : collection) {
     term->bind(layout);
     term->configure(config);
@@ -83,35 +91,47 @@ void bindAndConfigure(TermCollection<T>& collection, const Layout& layout, const
 }
 
 template <typename T>
-void configureAll(TermCollection<T>& collection, const ContactPlanningConfig& config) {
+void configureAll(TermCollection<T>& collection,
+                  const ContactPlanningConfig& config) {
   for (std::unique_ptr<T>& term : collection) term->configure(config);
 }
 
 template <typename T>
-void describeAll(std::string& out, absl::string_view title, const TermCollection<T>& collection) {
+void describeAll(std::string& out,
+                 absl::string_view title,
+                 const TermCollection<T>& collection) {
   absl::StrAppend(&out, title, " (", collection.size(), "):\n");
   for (size_t i = 0; i < collection.size(); ++i) {
-    absl::StrAppend(&out, "  - ", collection.nameAt(i), ": ", collection.termAt(i).describe(), "\n");
+    absl::StrAppend(&out, "  - ", collection.nameAt(i), ": ",
+                    collection.termAt(i).describe(), "\n");
   }
 }
 
 }  // namespace
 
-absl::Status ContactPlanningProblem::finalize(const ContactPlanningConfig& config) {
-  if (model.size() < kLeadingModelBlocks || !model.has(term::kLipCom) || !model.has(term::kFootholdIntegrator) ||
-      model.nameAt(0) != term::kLipCom || model.nameAt(1) != term::kFootholdIntegrator) {
-    return absl::InvalidArgumentError(absl::StrCat("[ContactPlanningProblem] the model must start with the '", term::kLipCom, "' and '",
-                                                   term::kFootholdIntegrator, "' blocks"));
+absl::Status ContactPlanningProblem::finalize(
+    const ContactPlanningConfig& config) {
+  if (model.size() < kLeadingModelBlocks || !model.has(term::kLipCom) ||
+      !model.has(term::kFootholdIntegrator) ||
+      model.nameAt(0) != term::kLipCom ||
+      model.nameAt(1) != term::kFootholdIntegrator) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[ContactPlanningProblem] the model must start with the '",
+        term::kLipCom, "' and '", term::kFootholdIntegrator, "' blocks"));
   }
   LayoutBuilder builder;
-  for (const std::unique_ptr<LipModelBlock>& block : model) block->declareVariables(builder);
+  for (const std::unique_ptr<LipModelBlock>& block : model)
+    block->declareVariables(builder);
   layout_ = builder.build();
 
   RETURN_IF_ERROR(checkRequiredBlocks(costs, model, "cost"));
-  RETURN_IF_ERROR(checkRequiredBlocks(softConstraints, model, "soft constraint"));
-  RETURN_IF_ERROR(checkRequiredBlocks(hardConstraints, model, "hard constraint"));
+  RETURN_IF_ERROR(
+      checkRequiredBlocks(softConstraints, model, "soft constraint"));
+  RETURN_IF_ERROR(
+      checkRequiredBlocks(hardConstraints, model, "hard constraint"));
   RETURN_IF_ERROR(checkRequiredBlocks(logicRules, model, "logic rule"));
-  RETURN_IF_ERROR(checkRequiredBlocks(assignmentCosts, model, "assignment cost"));
+  RETURN_IF_ERROR(
+      checkRequiredBlocks(assignmentCosts, model, "assignment cost"));
 
   bindAndConfigure(model, layout_, config);
   bindAndConfigure(costs, layout_, config);
@@ -123,7 +143,8 @@ absl::Status ContactPlanningProblem::finalize(const ContactPlanningConfig& confi
   return absl::OkStatus();
 }
 
-absl::Status ContactPlanningProblem::configure(const ContactPlanningConfig& config) {
+absl::Status ContactPlanningProblem::configure(
+    const ContactPlanningConfig& config) {
   if (!finalized_) return notFinalized("configure");
   configureAll(model, config);
   configureAll(costs, config);
@@ -134,7 +155,8 @@ absl::Status ContactPlanningProblem::configure(const ContactPlanningConfig& conf
   return absl::OkStatus();
 }
 
-absl::StatusOr<OcpQpProblem> ContactPlanningProblem::assemble(const ContactPlanningContext& ctx) const {
+absl::StatusOr<OcpQpProblem> ContactPlanningProblem::assemble(
+    const ContactPlanningContext& ctx) const {
   if (!finalized_) return notFinalized("assemble");
   const int N = ctx.numNodes;
   const int nx = layout_.nx;
@@ -142,55 +164,70 @@ absl::StatusOr<OcpQpProblem> ContactPlanningProblem::assemble(const ContactPlann
 
   OcpQpProblem problem;
   problem.x0 = vector_t::Zero(nx);
-  for (const std::unique_ptr<LipModelBlock>& block : model) block->setInitialState(ctx, problem.x0);
+  for (const std::unique_ptr<LipModelBlock>& block : model)
+    block->setInitialState(ctx, problem.x0);
 
   problem.stages.resize(static_cast<size_t>(N) + 1);
   for (int k = 0; k <= N; ++k) {
     const bool terminal = (k == N);
     OcpQpStage& s = problem.stages[static_cast<size_t>(k)];
-    s = OcpQpStage::Zero(nx, terminal ? 0 : nu, terminal ? OcpQpStageKind::kTerminal : OcpQpStageKind::kIntermediate);
+    s = OcpQpStage::Zero(
+        nx, terminal ? 0 : nu,
+        terminal ? OcpQpStageKind::kTerminal : OcpQpStageKind::kIntermediate);
 
-    // Costs, in collection order (the accumulation order of the stage matrices).
+    // Costs, in collection order (the accumulation order of the stage
+    // matrices).
     StageAccumulator accumulator(&s);
     for (const std::unique_ptr<LipCost>& cost : costs) {
-      if (nodeSetContains(cost->nodeSet(), k, N)) cost->addToStage(ctx, k, accumulator);
+      if (nodeSetContains(cost->nodeSet(), k, N))
+        cost->addToStage(ctx, k, accumulator);
     }
 
     // Dynamics and input bounds of the running nodes, block by block.
     if (!terminal) {
-      for (const std::unique_ptr<LipModelBlock>& block : model) block->addDynamics(ctx, k, s);
+      for (const std::unique_ptr<LipModelBlock>& block : model)
+        block->addDynamics(ctx, k, s);
       InputBoundsBuilder bounds;
-      for (const std::unique_ptr<LipModelBlock>& block : model) block->addInputBounds(ctx, k, bounds);
+      for (const std::unique_ptr<LipModelBlock>& block : model)
+        block->addInputBounds(ctx, k, bounds);
       bounds.writeTo(s);
     }
 
-    // General rows: the hard constraints, then the soft ones with their penalties.
+    // General rows: the hard constraints, then the soft ones with their
+    // penalties.
     RowBuilder rows(nx, terminal ? 0 : nu);
     for (const std::unique_ptr<LipConstraint>& constraint : hardConstraints) {
-      if (nodeSetContains(constraint->nodeSet(), k, N)) constraint->addRows(ctx, k, rows);
+      if (nodeSetContains(constraint->nodeSet(), k, N))
+        constraint->addRows(ctx, k, rows);
     }
     for (const std::unique_ptr<LipConstraint>& constraint : softConstraints) {
-      if (nodeSetContains(constraint->nodeSet(), k, N)) constraint->addRows(ctx, k, rows);
+      if (nodeSetContains(constraint->nodeSet(), k, N))
+        constraint->addRows(ctx, k, rows);
     }
     rows.writeTo(s);
   }
   return problem;
 }
 
-std::vector<MiqpBinaryVariable> ContactPlanningProblem::binaryVariables(int numNodes) const {
+std::vector<MiqpBinaryVariable> ContactPlanningProblem::binaryVariables(
+    int numNodes) const {
   std::vector<MiqpBinaryVariable> binaries;
   for (int k = 0; k < numNodes; ++k) {
     for (const std::unique_ptr<LipModelBlock>& block : model) {
-      for (const int index : block->binaryInputs()) binaries.push_back({k, index});
+      for (const int index : block->binaryInputs())
+        binaries.push_back({k, index});
     }
   }
   return binaries;
 }
 
-bool ContactPlanningProblem::propagate(const ContactLogicState& state, MiqpAssignment& a) const {
-  // The rules are run to a fixpoint. Every rule reads the live assignment, so it sees what the others - and the same
-  // rule earlier in the same pass - have already fixed; a pass that fixes nothing ends the propagation.
-  for (int pass = 0; pass < kMaxPropagationPassesPerNode * state.numNodes; ++pass) {
+bool ContactPlanningProblem::propagate(const ContactLogicState& state,
+                                       MiqpAssignment& a) const {
+  // The rules are run to a fixpoint. Every rule reads the live assignment, so
+  // it sees what the others - and the same rule earlier in the same pass - have
+  // already fixed; a pass that fixes nothing ends the propagation.
+  for (int pass = 0; pass < kMaxPropagationPassesPerNode * state.numNodes;
+       ++pass) {
     bool changed = false;
     for (const std::unique_ptr<ContactLogicRule>& rule : logicRules) {
       if (!rule->propagate(state, a, changed)) return false;
@@ -200,23 +237,31 @@ bool ContactPlanningProblem::propagate(const ContactLogicState& state, MiqpAssig
   return true;
 }
 
-scalar_t ContactPlanningProblem::assignmentCost(const ContactLogicState& state, const MiqpAssignment& a) const {
+scalar_t ContactPlanningProblem::assignmentCost(const ContactLogicState& state,
+                                                const MiqpAssignment& a) const {
   scalar_t total = 0.0;
-  for (const std::unique_ptr<AssignmentCost>& cost : assignmentCosts) total += cost->cost(state, a);
+  for (const std::unique_ptr<AssignmentCost>& cost : assignmentCosts)
+    total += cost->cost(state, a);
   return total;
 }
 
-void ContactPlanningProblem::decode(const ContactPlanningContext& ctx, const MiqpResult& result, ContactPlan& plan) const {
-  for (const std::unique_ptr<LipModelBlock>& block : model) block->decode(ctx, result, plan);
+void ContactPlanningProblem::decode(const ContactPlanningContext& ctx,
+                                    const MiqpResult& result,
+                                    ContactPlan& plan) const {
+  for (const std::unique_ptr<LipModelBlock>& block : model)
+    block->decode(ctx, result, plan);
 }
 
-absl::StatusOr<ContactPlanningProblem::GeneralRowCounts> ContactPlanningProblem::countRows(const ContactPlanningContext& ctx) const {
+absl::StatusOr<ContactPlanningProblem::GeneralRowCounts>
+ContactPlanningProblem::countRows(const ContactPlanningContext& ctx) const {
   ASSIGN_OR_RETURN(const OcpQpProblem problem, assemble(ctx));
-  return GeneralRowCounts{.running = problem.stages.front().numGeneralConstraints(),
-                          .terminal = problem.stages.back().numGeneralConstraints()};
+  return GeneralRowCounts{
+      .running = problem.stages.front().numGeneralConstraints(),
+      .terminal = problem.stages.back().numGeneralConstraints()};
 }
 
-std::string ContactPlanningProblem::summary(const ContactPlanningContext* absl_nullable ctx) const {
+std::string ContactPlanningProblem::summary(
+    const ContactPlanningContext* absl_nullable ctx) const {
   std::string out = absl::StrCat("layout: ", layout_.describe(), "\n");
   describeAll(out, "dynamics", model);
   describeAll(out, "costs", costs);
@@ -227,7 +272,9 @@ std::string ContactPlanningProblem::summary(const ContactPlanningContext* absl_n
   if (ctx != nullptr && finalized_) {
     const absl::StatusOr<GeneralRowCounts> rows = countRows(*ctx);
     if (rows.ok()) {
-      absl::StrAppend(&out, "general rows: ", rows->running, " per running node, ", rows->terminal, " at the terminal node\n");
+      absl::StrAppend(&out, "general rows: ", rows->running,
+                      " per running node, ", rows->terminal,
+                      " at the terminal node\n");
     } else {
       absl::StrAppend(&out, "general rows: ", rows.status().message(), "\n");
     }

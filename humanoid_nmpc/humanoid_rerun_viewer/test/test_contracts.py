@@ -68,7 +68,8 @@ class PanelTabsTest(unittest.TestCase):
             for panel in tab.panels():
                 with self.subTest(panel=panel.title):
                     self.assertTrue(
-                        panel.curves, "a panel of the panel tabs names its curves"
+                        panel.curves,
+                        "a panel of the panel tabs names its curves",
                     )
                     for curve in panel.curves:
                         group = telemetry_contract.find_group(curve.path)
@@ -113,25 +114,37 @@ class BaseOrientationPanelsTest(unittest.TestCase):
             [
                 [(f"base_pose/position_{axis}",) for axis in ("x", "y", "z")],
                 [(f"base_pose/{angle}",) for angle in ("roll", "pitch", "yaw")],
-                [(f"base_pose/{angle}_rate",) for angle in ("roll", "pitch", "yaw")],
-                [(f"base_pose/angular_velocity_{axis}",) for axis in ("x", "y", "z")],
+                [
+                    (f"base_pose/{angle}_rate",)
+                    for angle in ("roll", "pitch", "yaw")
+                ],
+                [
+                    (f"base_pose/angular_velocity_{axis}",)
+                    for axis in ("x", "y", "z")
+                ],
             ],
         )
         for row, unit in zip(tab.rows[1:], ("rad", "rad/s", "rad/s")):
             for panel in row:
                 group = telemetry_contract.find_group(panel.paths[0])
                 assert group is not None
-                self.assertEqual(group.names, telemetry_contract.MEASURED_VS_REFERENCE)
+                self.assertEqual(
+                    group.names, telemetry_contract.MEASURED_VS_REFERENCE
+                )
                 self.assertEqual(group.unit, unit)
 
-    def test_the_euler_rates_say_they_are_display_values_with_a_gap(self) -> None:
+    def test_the_euler_rates_say_they_are_display_values_with_a_gap(
+        self,
+    ) -> None:
         for angle in ("roll", "pitch", "yaw"):
             group = telemetry_contract.find_group(f"base_pose/{angle}_rate")
             assert group is not None
             self.assertIn("for display", group.description)
             self.assertIn("NaN", group.description)
         for axis in ("x", "y", "z"):
-            body = telemetry_contract.find_group(f"base_pose/angular_velocity_{axis}")
+            body = telemetry_contract.find_group(
+                f"base_pose/angular_velocity_{axis}"
+            )
             world = telemetry_contract.find_group(f"base_twist/angular_{axis}")
             assert body is not None and world is not None
             self.assertIn("base frame", body.description)
@@ -147,7 +160,9 @@ class BaseOrientationPanelsTest(unittest.TestCase):
             self.assertIn("(world)", panel.title)
             self.assertNotIn("Rate", panel.title)
 
-    def test_coordinates_name_euler_angles_and_velocities_the_body_rates(self) -> None:
+    def test_coordinates_name_euler_angles_and_velocities_the_body_rates(
+        self,
+    ) -> None:
         for path in (
             "dofs/position/measured",
             "dofs/position/reference",
@@ -155,7 +170,9 @@ class BaseOrientationPanelsTest(unittest.TestCase):
         ):
             group = telemetry_contract.find_group(path)
             assert group is not None
-            self.assertEqual(group.names_rule, telemetry_contract.DOF_NAMES_RULE)
+            self.assertEqual(
+                group.names_rule, telemetry_contract.DOF_NAMES_RULE
+            )
         for path in (
             "dofs/velocity/measured",
             "dofs/velocity/reference",
@@ -209,7 +226,8 @@ class TelemetryGroupsTest(unittest.TestCase):
                 panel_paths.extend(panel.paths)
         for group in self.all_groups():
             self.assertTrue(
-                any(plotted_by(path, group.path) for path in panel_paths), group.path
+                any(plotted_by(path, group.path) for path in panel_paths),
+                group.path,
             )
 
     def test_every_panel_plots_groups_of_the_contract(self) -> None:
@@ -270,7 +288,9 @@ class ReadmeTest(unittest.TestCase):
             cls.text = readme.read()
 
     def assert_tabulated(self, path: str) -> None:
-        self.assertIn(f"`{path}`", self.text, f"README.md does not list `{path}`")
+        self.assertIn(
+            f"`{path}`", self.text, f"README.md does not list `{path}`"
+        )
 
     def test_every_static_group_is_listed(self) -> None:
         for group in telemetry_contract.STATIC_GROUPS:
@@ -300,10 +320,20 @@ class ReadmeTest(unittest.TestCase):
             r"(\d+) panel groups and (\d+) \+ (\d+) n complete groups"
         )
         self.assertEqual(panel_count, panel)
-        self.assertEqual(static_complete, len(telemetry_contract.STATIC_GROUPS) - panel)
-        self.assertEqual(per_frame, len(telemetry_contract.frame_groups(SAMPLE_FRAME)))
+        self.assertEqual(
+            static_complete, len(telemetry_contract.STATIC_GROUPS) - panel
+        )
+        self.assertEqual(
+            per_frame, len(telemetry_contract.frame_groups(SAMPLE_FRAME))
+        )
         for frames, pattern in (
-            (4, r"with the four of [^,]+, (\d+) complete groups and (\d+) in all"),
+            (
+                4,
+                (
+                    r"with the four of [^,]+, (\d+) complete groups and (\d+)"
+                    r" in all"
+                ),
+            ),
             (3, r"with the three of SA01's, (\d+) and (\d+)"),
         ):
             with self.subTest(frames=frames):
@@ -335,7 +365,9 @@ class ReadmeTest(unittest.TestCase):
     def test_every_marker_instance_and_status_entity_is_listed(self) -> None:
         for marker in scene_contract.MARKERS:
             self.assert_tabulated(
-                scene_contract.entity_path(scene_contract.WORLD_ROOT, marker.path)
+                scene_contract.entity_path(
+                    scene_contract.WORLD_ROOT, marker.path
+                )
             )
         for style in scene_contract.ROBOT_INSTANCES:
             self.assert_tabulated(scene_contract.instance_path(style.name))
@@ -359,7 +391,9 @@ class SceneContractTest(unittest.TestCase):
             self.assertGreater(marker.default_radius, 0.0)
             self.assertTrue(marker.default_colors)
 
-    def test_what_is_clutter_most_of_the_time_is_hidden_by_default(self) -> None:
+    def test_what_is_clutter_most_of_the_time_is_hidden_by_default(
+        self,
+    ) -> None:
         self.assertEqual(
             set(scene_contract.hidden_by_default()),
             {
@@ -374,7 +408,9 @@ class SceneContractTest(unittest.TestCase):
         self.assertAlmostEqual(scene_contract.ARROW_RADIUS, 0.01)
         self.assertAlmostEqual(2 * scene_contract.TRAJECTORY_RADIUS, 0.01)
 
-    def test_unknown_instances_get_the_default_style_under_their_name(self) -> None:
+    def test_unknown_instances_get_the_default_style_under_their_name(
+        self,
+    ) -> None:
         style = scene_contract.instance_style("ghost")
         self.assertEqual(style.name, "ghost")
         self.assertNotIn(style, scene_contract.ROBOT_INSTANCES)

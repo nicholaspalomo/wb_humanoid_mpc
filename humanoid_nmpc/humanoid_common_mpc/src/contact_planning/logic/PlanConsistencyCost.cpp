@@ -37,22 +37,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 std::string PlanConsistencyCost::describe() const {
-  return absl::StrCat(cost_, " per decided node whose contact differs from the previous plan");
+  return absl::StrCat(
+      cost_, " per decided node whose contact differs from the previous plan");
 }
 
 void PlanConsistencyCost::configure(const ContactPlanningConfig& config) {
   cost_ = config.planConsistency.cost;
 }
 
-scalar_t PlanConsistencyCost::cost(const ContactLogicState& s, const MiqpAssignment& a) const {
+scalar_t PlanConsistencyCost::cost(const ContactLogicState& s,
+                                   const MiqpAssignment& a) const {
   using S = ContactLogicState;
   int numInconsistent = 0;
-  if (s.previousPlanShift.has_value() && s.previousAssignment != nullptr && cost_ > 0.0) {
+  if (s.previousPlanShift.has_value() && s.previousAssignment != nullptr &&
+      cost_ > 0.0) {
     for (int k = 0; k < s.numNodes; ++k) {
       const int source = std::min(k + *s.previousPlanShift, s.numNodes - 1);
       for (size_t foot = 0; foot < kNumContacts; ++foot) {
-        const int8_t value = a[static_cast<size_t>(S::contactBinaryIndex(k, foot))];
-        if (value != kMiqpFree && value != (*s.previousAssignment)[static_cast<size_t>(S::contactBinaryIndex(source, foot))]) {
+        const int8_t value =
+            a[static_cast<size_t>(S::contactBinaryIndex(k, foot))];
+        if (value != kMiqpFree &&
+            value != (*s.previousAssignment)[static_cast<size_t>(
+                         S::contactBinaryIndex(source, foot))]) {
           ++numInconsistent;
         }
       }

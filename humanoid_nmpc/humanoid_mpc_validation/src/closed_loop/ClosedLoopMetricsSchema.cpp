@@ -44,7 +44,9 @@ namespace {
 
 std::vector<JsonSchemaField> makeSchema() {
   std::vector<JsonSchemaField> fields;
-  const std::vector<std::string> phases = {"total", "lq_approximation", "solve_qp", "linesearch", "compute_controller"};
+  const std::vector<std::string> phases = {"total", "lq_approximation",
+                                           "solve_qp", "linesearch",
+                                           "compute_controller"};
   // LINT.IfChange(metrics_schema)
   fields.push_back({"schema", JsonFieldKind::kString});
   fields.push_back({"label", JsonFieldKind::kString});
@@ -66,37 +68,56 @@ std::vector<JsonSchemaField> makeSchema() {
   fields.push_back({"tilt.rms_rad", JsonFieldKind::kNullableNumber});
   fields.push_back({"tilt.max_rad", JsonFieldKind::kNullableNumber});
   fields.push_back({"velocity.rms_error_mps", JsonFieldKind::kNullableNumber});
-  fields.push_back({"yaw_rate.rms_error_radps", JsonFieldKind::kNullableNumber});
-  fields.push_back({"heading.cumulative_final_rad", JsonFieldKind::kNullableNumber});
-  fields.push_back({"heading.cumulative_max_rad", JsonFieldKind::kNullableNumber});
-  fields.push_back({"heading.cumulative_min_rad", JsonFieldKind::kNullableNumber});
+  fields.push_back(
+      {"yaw_rate.rms_error_radps", JsonFieldKind::kNullableNumber});
+  fields.push_back(
+      {"heading.cumulative_final_rad", JsonFieldKind::kNullableNumber});
+  fields.push_back(
+      {"heading.cumulative_max_rad", JsonFieldKind::kNullableNumber});
+  fields.push_back(
+      {"heading.cumulative_min_rad", JsonFieldKind::kNullableNumber});
   fields.push_back({"stance_foot_slip.max_m", JsonFieldKind::kNullableNumber});
   fields.push_back({"stance_foot_slip.rms_m", JsonFieldKind::kNullableNumber});
   fields.push_back({"stance_foot_slip.stance_phases", JsonFieldKind::kNumber});
   fields.push_back({"joint_torque.rms_nm", JsonFieldKind::kNullableNumber});
-  fields.push_back({"initial_state_gap.max_rotation_rad", JsonFieldKind::kNullableNumber});
-  fields.push_back({"initial_state_gap.max_rotation_time_s", JsonFieldKind::kNullableNumber});
-  fields.push_back({"initial_state_gap.max_norm", JsonFieldKind::kNullableNumber});
-  fields.push_back({"quaternion_norm.max_deviation", JsonFieldKind::kNullableNumber});
-  fields.push_back({"quaternion_norm.non_finite_solves", JsonFieldKind::kNumber});
+  fields.push_back(
+      {"initial_state_gap.max_rotation_rad", JsonFieldKind::kNullableNumber});
+  fields.push_back({"initial_state_gap.max_rotation_time_s",
+                    JsonFieldKind::kNullableNumber});
+  fields.push_back(
+      {"initial_state_gap.max_norm", JsonFieldKind::kNullableNumber});
+  fields.push_back(
+      {"quaternion_norm.max_deviation", JsonFieldKind::kNullableNumber});
+  fields.push_back(
+      {"quaternion_norm.non_finite_solves", JsonFieldKind::kNumber});
   fields.push_back({"non_finite_values", JsonFieldKind::kNumber});
   for (const std::string& phase : phases) {
-    for (const std::string& statistic : {std::string("mean"), std::string("p50"), std::string("p99"), std::string("max")}) {
-      fields.push_back({absl::StrCat("solve_time_ms.", phase, ".", statistic), JsonFieldKind::kNullableNumber});
+    for (const std::string& statistic :
+         {std::string("mean"), std::string("p50"), std::string("p99"),
+          std::string("max")}) {
+      fields.push_back({absl::StrCat("solve_time_ms.", phase, ".", statistic),
+                        JsonFieldKind::kNullableNumber});
     }
   }
   fields.push_back({"sqp_step.steps", JsonFieldKind::kNumber});
   fields.push_back({"sqp_step.full_steps", JsonFieldKind::kNumber});
   fields.push_back({"sqp_step.reduced_steps", JsonFieldKind::kNumber});
   fields.push_back({"sqp_step.zero_steps", JsonFieldKind::kNumber});
-  fields.push_back({"sqp_step.full_steps_refused_above_g_max", JsonFieldKind::kNumber});
+  fields.push_back(
+      {"sqp_step.full_steps_refused_above_g_max", JsonFieldKind::kNumber});
   fields.push_back({"sqp_step.accepted_by.constraint", JsonFieldKind::kNumber});
   fields.push_back({"sqp_step.accepted_by.dual", JsonFieldKind::kNumber});
   fields.push_back({"sqp_step.accepted_by.cost", JsonFieldKind::kNumber});
-  fields.push_back({"sqp_step.longest_violation_growth", JsonFieldKind::kNumber});
-  for (const std::string& sample : {std::string("constraint_violation"), std::string("swing_normal_velocity_residual")}) {
-    for (const std::string& statistic : {std::string("mean"), std::string("p50"), std::string("p99"), std::string("max")}) {
-      fields.push_back({absl::StrCat("sqp_step.", sample, ".", statistic), JsonFieldKind::kNullableNumber});
+  fields.push_back(
+      {"sqp_step.longest_violation_growth", JsonFieldKind::kNumber});
+  for (const std::string& sample :
+       {std::string("constraint_violation"),
+        std::string("swing_normal_velocity_residual")}) {
+    for (const std::string& statistic :
+         {std::string("mean"), std::string("p50"), std::string("p99"),
+          std::string("max")}) {
+      fields.push_back({absl::StrCat("sqp_step.", sample, ".", statistic),
+                        JsonFieldKind::kNullableNumber});
     }
   }
   fields.push_back({"failures.failed_solves", JsonFieldKind::kNumber});
@@ -126,37 +147,50 @@ bool hasKind(const JsonValue& value, JsonFieldKind kind) {
   return false;
 }
 
-/** Collects the paths of `value` the schema does not know: leaves, and objects that are neither listed nor open. */
-void collectUnknown(const JsonValue& value,
-                    const std::string& path,
-                    const absl::flat_hash_map<std::string, JsonFieldKind>& known,
-                    std::vector<std::string>& unknown) {
+/** Collects the paths of `value` the schema does not know: leaves, and objects
+ * that are neither listed nor open. */
+void collectUnknown(
+    const JsonValue& value,
+    const std::string& path,
+    const absl::flat_hash_map<std::string, JsonFieldKind>& known,
+    std::vector<std::string>& unknown) {
   if (!path.empty()) {
-    const absl::flat_hash_map<std::string, JsonFieldKind>::const_iterator field = known.find(path);
-    if (field != known.end()) return;  // a listed field, checked by kind; an open object's members are free
+    const absl::flat_hash_map<std::string, JsonFieldKind>::const_iterator
+        field = known.find(path);
+    if (field != known.end())
+      return;  // a listed field, checked by kind; an open object's members are
+               // free
   }
   if (!value.isObject()) {
     unknown.push_back(path.empty() ? "<document>" : path);
     return;
   }
   for (size_t i = 0; i < value.size(); ++i) {
-    collectUnknown(value.valueAt(i), path.empty() ? value.keyAt(i) : absl::StrCat(path, ".", value.keyAt(i)), known, unknown);
+    collectUnknown(
+        value.valueAt(i),
+        path.empty() ? value.keyAt(i) : absl::StrCat(path, ".", value.keyAt(i)),
+        known, unknown);
   }
 }
 
 }  // namespace
 
 const std::vector<JsonSchemaField>& closedLoopMetricsSchema() {
-  static const absl::NoDestructor<std::vector<JsonSchemaField>> kSchema(makeSchema());
+  static const absl::NoDestructor<std::vector<JsonSchemaField>> kSchema(
+      makeSchema());
   return *kSchema;
 }
 
 absl::Status validateClosedLoopMetrics(const JsonValue& document) {
-  if (!document.isObject()) return absl::InvalidArgumentError("[validateClosedLoopMetrics] the document is not a JSON object");
+  if (!document.isObject())
+    return absl::InvalidArgumentError(
+        "[validateClosedLoopMetrics] the document is not a JSON object");
   std::vector<std::string> problems;
   const JsonValue* absl_nullable schema = document.find("schema");
-  if (schema == nullptr || !schema->isString() || schema->asString() != kClosedLoopMetricsSchemaName) {
-    problems.push_back(absl::StrCat("schema is not '", kClosedLoopMetricsSchemaName, "'"));
+  if (schema == nullptr || !schema->isString() ||
+      schema->asString() != kClosedLoopMetricsSchemaName) {
+    problems.push_back(
+        absl::StrCat("schema is not '", kClosedLoopMetricsSchemaName, "'"));
   }
   absl::flat_hash_map<std::string, JsonFieldKind> known;
   for (const JsonSchemaField& field : closedLoopMetricsSchema()) {
@@ -170,9 +204,11 @@ absl::Status validateClosedLoopMetrics(const JsonValue& document) {
   }
   std::vector<std::string> unknown;
   collectUnknown(document, /*path=*/"", known, unknown);
-  for (const std::string& path : unknown) problems.push_back(absl::StrCat(path, " is not in the schema"));
+  for (const std::string& path : unknown)
+    problems.push_back(absl::StrCat(path, " is not in the schema"));
   if (problems.empty()) return absl::OkStatus();
-  return absl::InvalidArgumentError(absl::StrCat("[validateClosedLoopMetrics] ", absl::StrJoin(problems, "; ")));
+  return absl::InvalidArgumentError(absl::StrCat(
+      "[validateClosedLoopMetrics] ", absl::StrJoin(problems, "; ")));
 }
 
 }  // namespace ocs2::humanoid::validation

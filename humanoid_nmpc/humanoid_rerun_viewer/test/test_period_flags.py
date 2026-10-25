@@ -56,10 +56,14 @@ class BusBridgePeriodTest(unittest.TestCase):
         for period in INVALID_PERIODS:
             with self.subTest(option="flush_period", period=period):
                 with self.assertRaisesRegex(ValueError, "must be positive"):
-                    bus_bridge.BusBridge(the_bridge, _network(), flush_period=period)
+                    bus_bridge.BusBridge(
+                        the_bridge, _network(), flush_period=period
+                    )
             with self.subTest(option="report_period", period=period):
                 with self.assertRaisesRegex(ValueError, "must be positive"):
-                    bus_bridge.BusBridge(the_bridge, _network(), report_period=period)
+                    bus_bridge.BusBridge(
+                        the_bridge, _network(), report_period=period
+                    )
 
     def test_bus_bridge_without_telemetry(self) -> None:
         the_bridge = mock.create_autospec(bridge.RerunBridge, instance=True)
@@ -79,7 +83,9 @@ class FlushPeriodFlagTest(unittest.TestCase):
                     with self.assertRaises(SystemExit) as raised:
                         cli.main(["--flush_period", str(period)])
                 self.assertEqual(raised.exception.code, 2)
-                self.assertIn("--flush_period must be positive", errors.getvalue())
+                self.assertIn(
+                    "--flush_period must be positive", errors.getvalue()
+                )
 
 
 class MaxSceneFrequencyFlagTest(unittest.TestCase):
@@ -92,7 +98,8 @@ class MaxSceneFrequencyFlagTest(unittest.TestCase):
                         cli.main(["--max_scene_frequency", str(frequency)])
                 self.assertEqual(raised.exception.code, 2)
                 self.assertIn(
-                    "--max_scene_frequency must be non-negative", errors.getvalue()
+                    "--max_scene_frequency must be non-negative",
+                    errors.getvalue(),
                 )
 
 
@@ -165,7 +172,9 @@ class TerminalStateFlagTest(unittest.TestCase):
     def test_flag_can_be_enabled_and_disabled(self) -> None:
         parser = cli.build_parser()
         self.assertTrue(parser.parse_args(["--terminal_state"]).terminal_state)
-        self.assertFalse(parser.parse_args(["--no-terminal_state"]).terminal_state)
+        self.assertFalse(
+            parser.parse_args(["--no-terminal_state"]).terminal_state
+        )
 
 
 class RobotInstancesFlagTest(unittest.TestCase):
@@ -176,7 +185,9 @@ class RobotInstancesFlagTest(unittest.TestCase):
 
     def test_flag_parses_comma_separated_instances(self) -> None:
         parser = cli.build_parser()
-        args = parser.parse_args(["--robot_instances", "measured,terminal_state"])
+        args = parser.parse_args(
+            ["--robot_instances", "measured,terminal_state"]
+        )
         self.assertEqual(args.robot_instances, "measured,terminal_state")
 
 
@@ -189,7 +200,9 @@ class PlotConfigFlagTest(unittest.TestCase):
     def test_flag_can_be_custom_or_none(self) -> None:
         parser = cli.build_parser()
         self.assertEqual(
-            parser.parse_args(["--plot_config", "custom.textproto"]).plot_config,
+            parser.parse_args(
+                ["--plot_config", "custom.textproto"]
+            ).plot_config,
             "custom.textproto",
         )
         self.assertEqual(

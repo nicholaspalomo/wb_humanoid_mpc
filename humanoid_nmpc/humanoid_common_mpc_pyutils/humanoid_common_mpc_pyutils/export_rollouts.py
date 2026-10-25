@@ -56,7 +56,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--input_path",
         type=str,
         default=".",
-        help="Path to CSV file or directory containing mpc_observation_*.csv files",
+        help=(
+            "Path to CSV file or directory containing mpc_observation_*.csv"
+            " files"
+        ),
     )
     parser.add_argument(
         "--output_path",
@@ -69,14 +72,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=str,
         nargs="*",
         default=None,
-        help="Specific observation columns to extract (defaults to the MPC state columns x0, x1, ...)",
+        help=(
+            "Specific observation columns to extract (defaults to the MPC state"
+            " columns x0, x1, ...)"
+        ),
     )
     parser.add_argument(
         "--act_cols",
         type=str,
         nargs="*",
         default=None,
-        help="Specific action columns to extract (defaults to the MPC input columns u0, u1, ...)",
+        help=(
+            "Specific action columns to extract (defaults to the MPC input"
+            " columns u0, u1, ...)"
+        ),
     )
     return parser.parse_args(argv)
 
@@ -103,7 +112,8 @@ def _columns(
 ) -> list[int]:
     if not names:
         raise ValueError(
-            f"{file_path} has no {what} columns: name them with --obs_cols and --act_cols"
+            f"{file_path} has no {what} columns: name them with --obs_cols and"
+            " --act_cols"
         )
     missing = [name for name in names if name not in header]
     if missing:
@@ -123,7 +133,8 @@ def export_csv_to_h5(
     except ImportError:
         h5py = None
         print(
-            "⚠️ h5py is not installed in the current environment. Saving as npz instead."
+            "⚠️ h5py is not installed in the current environment. Saving as npz"
+            " instead."
         )
         output_path = output_path.replace(".h5", ".npz")
 
@@ -137,10 +148,16 @@ def export_csv_to_h5(
             continue
         default_obs, default_acts = default_columns(header)
         obs_indices = _columns(
-            header, obs_cols or default_obs, file_path, "MPC state (x0, x1, ...)"
+            header,
+            obs_cols or default_obs,
+            file_path,
+            "MPC state (x0, x1, ...)",
         )
         act_indices = _columns(
-            header, act_cols or default_acts, file_path, "MPC input (u0, u1, ...)"
+            header,
+            act_cols or default_acts,
+            file_path,
+            "MPC input (u0, u1, ...)",
         )
         all_obs.append(values[:, obs_indices].astype(np.float32))
         all_acts.append(values[:, act_indices].astype(np.float32))
@@ -157,17 +174,23 @@ def export_csv_to_h5(
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
     if h5py is not None and output_path.endswith(".h5"):
         with h5py.File(output_path, "w") as f:
-            f.create_dataset("observations", data=merged_obs, compression="gzip")
+            f.create_dataset(
+                "observations", data=merged_obs, compression="gzip"
+            )
             f.create_dataset("actions", data=merged_acts, compression="gzip")
             if len(all_times) == len(all_obs):
                 f.create_dataset(
-                    "times", data=np.concatenate(all_times, axis=0), compression="gzip"
+                    "times",
+                    data=np.concatenate(all_times, axis=0),
+                    compression="gzip",
                 )
             f.attrs["num_samples"] = merged_obs.shape[0]
             f.attrs["obs_dim"] = merged_obs.shape[1]
             f.attrs["act_dim"] = merged_acts.shape[1]
     else:
-        np.savez_compressed(output_path, observations=merged_obs, actions=merged_acts)
+        np.savez_compressed(
+            output_path, observations=merged_obs, actions=merged_acts
+        )
 
     print("=" * 60)
     print(f"✅ Successfully exported MPC demonstrations to: {output_path}")
@@ -181,7 +204,9 @@ def export_csv_to_h5(
 def find_csv_files(input_path: str) -> list[str]:
     """The logs at `input_path`: the file itself, or the mpc_observation_*.csv files of a directory."""
     if os.path.isdir(input_path):
-        return sorted(glob.glob(os.path.join(input_path, "mpc_observation_*.csv")))
+        return sorted(
+            glob.glob(os.path.join(input_path, "mpc_observation_*.csv"))
+        )
     if os.path.isfile(input_path):
         return [input_path]
     return []
@@ -193,16 +218,25 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     if not csv_files:
         print(f"ℹ️ No CSV log files found at {args.input_path}.")
-        print("Generating synthetic demonstration dataset for imitation pretraining...")
+        print(
+            "Generating synthetic demonstration dataset for imitation"
+            " pretraining..."
+        )
         synthetic_obs = np.random.randn(500, 25).astype(np.float32)
         synthetic_act = np.random.randn(500, 12).astype(np.float32)
-        os.makedirs(os.path.dirname(os.path.abspath(args.output_path)), exist_ok=True)
+        os.makedirs(
+            os.path.dirname(os.path.abspath(args.output_path)), exist_ok=True
+        )
         try:
             import h5py  # pylint: disable=import-outside-toplevel  # An optional dependency.
 
             with h5py.File(args.output_path, "w") as f:
-                f.create_dataset("observations", data=synthetic_obs, compression="gzip")
-                f.create_dataset("actions", data=synthetic_act, compression="gzip")
+                f.create_dataset(
+                    "observations", data=synthetic_obs, compression="gzip"
+                )
+                f.create_dataset(
+                    "actions", data=synthetic_act, compression="gzip"
+                )
                 f.attrs["num_samples"] = 500
                 f.attrs["obs_dim"] = 25
                 f.attrs["act_dim"] = 12

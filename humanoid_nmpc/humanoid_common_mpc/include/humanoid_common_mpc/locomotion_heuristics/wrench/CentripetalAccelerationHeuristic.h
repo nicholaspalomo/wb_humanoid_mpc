@@ -37,50 +37,67 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `centripetal_acceleration`: H_f(Theta x pdot) = m omega x pdot (Bledt, Appendix C, Table C.1).
+ * `centripetal_acceleration`: H_f(Theta x pdot) = m omega x pdot (Bledt,
+ * Appendix C, Table C.1).
  *
- * The horizontal force that holds the robot on a circular path, clamped in magnitude as a total and then shared
- * equally over the stance feet, so that the clamp is the same fraction of each foot's friction budget whatever the
+ * The horizontal force that holds the robot on a circular path, clamped in
+ * magnitude as a total and then shared equally over the stance feet, so that
+ * the clamp is the same fraction of each foot's friction budget whatever the
  * number of feet on the ground.
  *
- * Analytic, and the companion of the `high_speed_turning` foot placement: one says where to put the foot for a turn
- * at speed, the other says which way to push once it is there. With omega = psidot e_z and a horizontal velocity the
- * cross product is (-psidot v_y, psidot v_x, 0), a force pointing towards the center of the turn.
+ * Analytic, and the companion of the `high_speed_turning` foot placement: one
+ * says where to put the foot for a turn at speed, the other says which way to
+ * push once it is there. With omega = psidot e_z and a horizontal velocity the
+ * cross product is (-psidot v_y, psidot v_x, 0), a force pointing towards the
+ * center of the turn.
  *
  * TWO THINGS TO KNOW BEFORE LISTING IT.
  *
- * First, it is the only heuristic of the ten whose force is horizontal, so it is the only one whose expression
- * depends on the foot's orientation. Under `contactInputParameterization: basis_vectors` the input is parameterized in
- * the local contact frame, so the layer has to route the whole reference through the state-aware
- * setContactForceInWorldFrame() and pay a forward-kinematics pass per shooting node. The layer switches paths by
- * itself when this is listed; the cost is real and is the reason the other nine do not pay it.
+ * First, it is the only heuristic of the ten whose force is horizontal, so it
+ * is the only one whose expression depends on the foot's orientation. Under
+ * `contactInputParameterization: basis_vectors` the input is parameterized in
+ * the local contact frame, so the layer has to route the whole reference
+ * through the state-aware setContactForceInWorldFrame() and pay a
+ * forward-kinematics pass per shooting node. The layer switches paths by itself
+ * when this is listed; the cost is real and is the reason the other nine do not
+ * pay it.
  *
- * Second, and more important: this may well be the wrong thing to want on THIS controller. Bledt's control model is a
- * single rigid body over a short horizon, and its force reference is the only thing telling the QP how hard to push.
- * The dynamics here are full centroidal and the state cost already tracks the commanded linear and angular momentum,
- * so m omega x v is the derivative of a momentum the problem is already regulating - an output the optimizer has to
- * produce, not information the reference lacks. Supplying it again at lower fidelity can only help where the
- * optimizer would have been slow to find it, and can fight the momentum cost wherever the two disagree, which they do
- * in double support and wherever the friction cone binds. It is implemented because it is one of Bledt's ten and the
- * seam for it is clean; whether it earns its place here is a question for simulation, and `scale` is the knob.
+ * Second, and more important: this may well be the wrong thing to want on THIS
+ * controller. Bledt's control model is a single rigid body over a short
+ * horizon, and its force reference is the only thing telling the QP how hard to
+ * push. The dynamics here are full centroidal and the state cost already tracks
+ * the commanded linear and angular momentum, so m omega x v is the derivative
+ * of a momentum the problem is already regulating - an output the optimizer has
+ * to produce, not information the reference lacks. Supplying it again at lower
+ * fidelity can only help where the optimizer would have been slow to find it,
+ * and can fight the momentum cost wherever the two disagree, which they do in
+ * double support and wherever the friction cone binds. It is implemented
+ * because it is one of Bledt's ten and the seam for it is clean; whether it
+ * earns its place here is a question for simulation, and `scale` is the knob.
  *
- * Like every LocomotionHeuristic, its const methods are safe to call concurrently; configure() is not, and must not run
- * while they do.
+ * Like every LocomotionHeuristic, its const methods are safe to call
+ * concurrently; configure() is not, and must not run while they do.
  */
 class CentripetalAccelerationHeuristic final : public WrenchHeuristic {
  public:
   CentripetalAccelerationHeuristic() = default;
   ~CentripetalAccelerationHeuristic() override = default;
 
-  absl::string_view name() const override { return heuristic::kCentripetalAcceleration; }
-  absl::Status configure(const LocomotionHeuristicConfig& config, const LocomotionHeuristicModelParameters& model) override;
+  absl::string_view name() const override {
+    return heuristic::kCentripetalAcceleration;
+  }
+  absl::Status configure(
+      const LocomotionHeuristicConfig& config,
+      const LocomotionHeuristicModelParameters& model) override;
   std::string describe() const override;
 
-  vector3_t forceOffset(const WrenchHeuristicContext& context, size_t contactIndex) const override;
+  vector3_t forceOffset(const WrenchHeuristicContext& context,
+                        size_t contactIndex) const override;
   bool producesHorizontalForce() const override { return true; }
 
  private:
-  /** [N] The clamp on the magnitude of the total horizontal force, before it is shared over the stance feet. */
+  /** [N] The clamp on the magnitude of the total horizontal force, before it is
+   * shared over the stance feet. */
   scalar_t totalForceLimit() const;
 
   CentripetalAccelerationParameters parameters_;

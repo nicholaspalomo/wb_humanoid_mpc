@@ -34,7 +34,9 @@ from tools.hooks import python_docstrings as docstrings
 
 # This file's own license block: the complete one, as every Python file carries it.
 with open(__file__, encoding="utf-8") as _self:
-    LICENSE = "".join(line for line in _self.readlines()[:26] if line.startswith("#"))
+    LICENSE = "".join(
+        line for line in _self.readlines()[:26] if line.startswith("#")
+    )
 
 
 def _count(check, source: str) -> int:
@@ -51,7 +53,10 @@ class LicenseTest(unittest.TestCase):
             1,
         )
         self.assertEqual(
-            _count(docstrings.check_license_docstring, f'{LICENSE}"""The module."""\n'),
+            _count(
+                docstrings.check_license_docstring,
+                f'{LICENSE}"""The module."""\n',
+            ),
             0,
         )
 
@@ -60,11 +65,15 @@ class LicenseTest(unittest.TestCase):
             _count(docstrings.check_license_header, '"""The module."""\n'), 1
         )
         self.assertEqual(
-            _count(docstrings.check_license_header, f'{LICENSE}"""The module."""\n'), 0
+            _count(
+                docstrings.check_license_header, f'{LICENSE}"""The module."""\n'
+            ),
+            0,
         )
         self.assertEqual(
             _count(
-                docstrings.check_license_header, f"#!/usr/bin/env python3\n{LICENSE}"
+                docstrings.check_license_header,
+                f"#!/usr/bin/env python3\n{LICENSE}",
             ),
             0,
         )
@@ -82,13 +91,17 @@ class LicenseTest(unittest.TestCase):
         findings = docstrings.check_license_header(holder_only, "src/a.py")
         self.assertEqual(len(findings), 1, findings)
         self.assertIn("lacks the preamble", findings[0].message)
-        holderless = f'{LICENSE.replace(", Nicholas Palomo.", ".", 1)}"""Doc."""\n'
+        holderless = (
+            f'{LICENSE.replace(", Nicholas Palomo.", ".", 1)}"""Doc."""\n'
+        )
         findings = docstrings.check_license_header(holderless, "src/a.py")
         self.assertEqual(len(findings), 1, findings)
         self.assertIn("name the holder", findings[0].message)
         self.assertEqual(findings[0].line, 1)
         two_clause = (
-            LICENSE.replace("# * Neither the name of the copyright holder", "# * Nor")
+            LICENSE.replace(
+                "# * Neither the name of the copyright holder", "# * Nor"
+            )
             + '"""Doc."""\n'
         )
         self.assertIn(
@@ -107,7 +120,9 @@ class SummaryTest(unittest.TestCase):
             f'"""{"x" * 140}."""\n',
         ]:
             with self.subTest(source=source):
-                self.assertEqual(_count(docstrings.check_docstring_summary, source), 1)
+                self.assertEqual(
+                    _count(docstrings.check_docstring_summary, source), 1
+                )
 
     def test_accepted(self):
         for source in [
@@ -117,11 +132,15 @@ class SummaryTest(unittest.TestCase):
             "def f():\n    pass\n",
         ]:
             with self.subTest(source=source):
-                self.assertEqual(_count(docstrings.check_docstring_summary, source), 0)
+                self.assertEqual(
+                    _count(docstrings.check_docstring_summary, source), 0
+                )
 
 
 def _function(docstring: str, body: str, parameters: str = "x") -> str:
-    padding = "".join("    y = 1\n" for _ in range(docstrings.DOCSTRING_MIN_LENGTH))
+    padding = "".join(
+        "    y = 1\n" for _ in range(docstrings.DOCSTRING_MIN_LENGTH)
+    )
     return f'def f({parameters}):\n    """{docstring}"""\n{padding}{body}'
 
 
@@ -137,13 +156,17 @@ class SectionsTest(unittest.TestCase):
         self.assertIn(
             "Args: or Returns:",
             docstrings.check_docstring_sections(
-                _function("Does it.\n\n    Details.\n    ", "    return 1\n"), "a.py"
+                _function("Does it.\n\n    Details.\n    ", "    return 1\n"),
+                "a.py",
             )[0].message,
         )
         self.assertIn(
             "Yields:",
             docstrings.check_docstring_sections(
-                _function("Does it.\n\n    Details.\n    ", "    yield 1\n", ""), "a.py"
+                _function(
+                    "Does it.\n\n    Details.\n    ", "    yield 1\n", ""
+                ),
+                "a.py",
             )[0].message,
         )
 
@@ -151,25 +174,37 @@ class SectionsTest(unittest.TestCase):
         for source in [
             _function("Does it.", "    return 1\n"),
             _function(
-                "Does it.\n\n    Args:\n      x: The x.\n\n    Returns:\n      One.\n    ",
+                "Does it.\n\n    Args:\n      x: The x.\n\n    Returns:\n     "
+                " One.\n    ",
                 "    return 1\n",
             ),
             _function(
-                "Returns one.\n\n    Args:\n      x: The x.\n    ", "    return 1\n"
+                "Returns one.\n\n    Args:\n      x: The x.\n    ",
+                "    return 1\n",
             ),
             _function("Does it.\n\n    Details.\n    ", "    pass\n", ""),
             _function(
-                "Does it.\n\n    Details.\n    ", "    def g():\n        return 1\n", ""
+                "Does it.\n\n    Details.\n    ",
+                "    def g():\n        return 1\n",
+                "",
             ),
-            'def f(x):\n    """Does it.\n\n    Details.\n    """\n    return 1\n',
+            (
+                'def f(x):\n    """Does it.\n\n    Details.\n    """\n   '
+                " return 1\n"
+            ),
         ]:
             with self.subTest(source=source):
-                self.assertEqual(_count(docstrings.check_docstring_sections, source), 0)
+                self.assertEqual(
+                    _count(docstrings.check_docstring_sections, source), 0
+                )
 
 
 class PropertyTest(unittest.TestCase):
     def test_a_property_describes_the_attribute(self):
-        source = 'class A:\n    @property\n    def name(self):\n        """Returns the name."""\n        return 1\n'
+        source = (
+            'class A:\n    @property\n    def name(self):\n        """Returns'
+            ' the name."""\n        return 1\n'
+        )
         self.assertEqual(_count(docstrings.check_property_docstring, source), 1)
         self.assertEqual(
             _count(
@@ -192,7 +227,9 @@ class RegistryTest(unittest.TestCase):
         check_test_support.assert_registered(self, "py-license-header")
         self.assertEqual(
             len(
-                check_test_support.findings("py-license-header", "x = 1\n", "src/a.py")
+                check_test_support.findings(
+                    "py-license-header", "x = 1\n", "src/a.py"
+                )
             ),
             1,
         )
@@ -219,7 +256,8 @@ class RegistryTest(unittest.TestCase):
         check_test_support.assert_check_behaves(
             self,
             "py-property-docstring",
-            'class A:\n    @property\n    def name(self):\n        """Returns the name."""\n        return 1\n',
+            'class A:\n    @property\n    def name(self):\n        """Returns'
+            ' the name."""\n        return 1\n',
             "src/a.py",
         )
 

@@ -41,15 +41,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::model {
 
 /**
- * Contact estimators by name, the way the task file selects one (`contact_estimator: "<name>"`), like the costs and
- * constraints of the MPC formulation or the viewer's visualizations.
+ * Contact estimators by name, the way the task file selects one
+ * (`contact_estimator: "<name>"`), like the costs and constraints of the MPC
+ * formulation or the viewer's visualizations.
  *
- * The registry starts with the estimators that need nothing but the robot state (`robot_state`, `always_in_contact`);
- * an interface that can offer more registers it under its own name (the MuJoCo simulator adds `cheater_sim`, see
- * mujoco_sim_interface/CheaterSimContactEstimator.h). Names are matched case-insensitively with surrounding blanks
- * removed. A name from a file is the caller's to validate with has(), reporting availableNames() for one that is not
- * registered; create() of an unregistered name is a programming error. Not thread-safe: register everything before
- * sharing the registry, which is then read-only.
+ * The registry starts with the estimators that need nothing but the robot state
+ * (`robot_state`, `always_in_contact`); an interface that can offer more
+ * registers it under its own name (the MuJoCo simulator adds `cheater_sim`, see
+ * mujoco_sim_interface/CheaterSimContactEstimator.h). Names are matched
+ * case-insensitively with surrounding blanks removed. A name from a file is the
+ * caller's to validate with has(), reporting availableNames() for one that is
+ * not registered; create() of an unregistered name is a programming error. Not
+ * thread-safe: register everything before sharing the registry, which is then
+ * read-only.
  */
 class ContactEstimatorRegistry {
  public:
@@ -67,14 +71,17 @@ class ContactEstimatorRegistry {
   ContactEstimatorRegistry();
 
   /**
-   * Adds an estimator. An empty name, an empty factory or a name already registered is a programming error, which ends
-   * the process.
+   * Adds an estimator. An empty name, an empty factory or a name already
+   * registered is a programming error, which ends the process.
    */
-  void add(absl::string_view name, absl::string_view description, Factory factory);
+  void add(absl::string_view name,
+           absl::string_view description,
+           Factory factory);
 
   /**
-   * A new estimator of the one registered under `name`, which must be registered (has()); an unregistered name ends the
-   * process with the available ones.
+   * A new estimator of the one registered under `name`, which must be
+   * registered (has()); an unregistered name ends the process with the
+   * available ones.
    */
   std::shared_ptr<ContactEstimator> create(absl::string_view name) const;
 

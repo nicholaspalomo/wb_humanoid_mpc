@@ -46,17 +46,23 @@ class FirstPartyTreeTest(unittest.TestCase):
         for path, text in {
             "pkg/BUILD.bazel": 'py_library(name = "a", imports = ["."])\n',
             "pkg/remote_control/__init__.py": "",
-            "pkg/remote_control/operator_bus.py": "class TopicPublisher: pass\n",
+            "pkg/remote_control/operator_bus.py": (
+                "class TopicPublisher: pass\n"
+            ),
             "tools/hooks/checks.py": "",
         }.items():
-            os.makedirs(os.path.dirname(os.path.join(root, path)), exist_ok=True)
+            os.makedirs(
+                os.path.dirname(os.path.join(root, path)), exist_ok=True
+            )
             with open(os.path.join(root, path), "w", encoding="utf-8") as f:
                 f.write(text)
         python_imports._roots.cache_clear()
         self.patch = mock.patch.object(python_imports, "ROOT", root)
         self.patch.start()
         self.git = mock.patch.object(
-            python_imports.lint_files.subprocess, "run", side_effect=OSError("no git")
+            python_imports.lint_files.subprocess,
+            "run",
+            side_effect=OSError("no git"),
         )
         self.git.start()
 
@@ -73,30 +79,38 @@ class FirstPartyTreeTest(unittest.TestCase):
         ]
 
     def test_first_party_modules_and_names(self):
-        self.assertEqual(self.names("from remote_control import operator_bus\n"), [])
+        self.assertEqual(
+            self.names("from remote_control import operator_bus\n"), []
+        )
         self.assertEqual(self.names("from tools.hooks import checks\n"), [])
         self.assertEqual(
-            self.names("from remote_control.operator_bus import TopicPublisher\n"),
+            self.names(
+                "from remote_control.operator_bus import TopicPublisher\n"
+            ),
             ["from remote_control.operator_bus import TopicPublisher"],
         )
 
     def test_the_standard_library(self):
         self.assertEqual(
             self.names(
-                "from os import path\nfrom unittest import mock\nfrom collections import abc\n"
+                "from os import path\nfrom unittest import mock\nfrom"
+                " collections import abc\n"
             ),
             [],
         )
         self.assertEqual(
-            self.names("from dataclasses import dataclass\nfrom os import getcwd\n"),
+            self.names(
+                "from dataclasses import dataclass\nfrom os import getcwd\n"
+            ),
             ["from dataclasses import dataclass", "from os import getcwd"],
         )
 
     def test_exempt_and_generated_modules(self):
         source = (
-            "from __future__ import annotations\nfrom typing import List\nfrom collections.abc import Callable\n"
-            "from typing_extensions import override\nfrom humanoid_mpc_msgs import mpc_policy_pb2\n"
-            "from google.protobuf import text_format\n"
+            "from __future__ import annotations\nfrom typing import List\nfrom"
+            " collections.abc import Callable\nfrom typing_extensions import"
+            " override\nfrom humanoid_mpc_msgs import mpc_policy_pb2\nfrom"
+            " google.protobuf import text_format\n"
         )
         self.assertEqual(self.names(source), [])
 
@@ -155,7 +169,8 @@ class RelativeAliasSysPathTest(unittest.TestCase):
         self.assertEqual(
             len(
                 python_imports.check_sys_path(
-                    "import sys\nsys.path.insert(0, 'x')\nsys.path.append('y')\n",
+                    "import sys\nsys.path.insert(0,"
+                    " 'x')\nsys.path.append('y')\n",
                     "x.py",
                 )
             ),
@@ -169,7 +184,8 @@ class RelativeAliasSysPathTest(unittest.TestCase):
         )
         check = check_test_support.assert_registered(self, "py-sys-path")
         self.assertFalse(
-            check.applies_to("tools/hooks/test_x.py"), "tests may change sys.path"
+            check.applies_to("tools/hooks/test_x.py"),
+            "tests may change sys.path",
         )
 
     def test_the_registry_runs_them(self):

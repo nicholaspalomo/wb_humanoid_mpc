@@ -81,16 +81,21 @@ bool hasTerm(const Collection<Term>& collection, const std::string& name) {
 }
 
 /**
- * The contact-implicit formulation, assembled end to end by CentroidalMpcInterface.
+ * The contact-implicit formulation, assembled end to end by
+ * CentroidalMpcInterface.
  *
- * It ships DISABLED (the task file lists zero_wrench / zero_velocity / normal_velocity and comments the three
- * contact-implicit terms out), which is correct - it changes the closed loop and has not been validated in simulation.
- * But it also meant the entire assembly path had NO coverage whatsoever: the one test that reached for these terms, a
- * hot-reload test of MpcParameterUpdaterModule, called GTEST_SKIP() because they were not in the shipped configuration.
- * That is how every one of the defects this file now pins went unnoticed.
+ * It ships DISABLED (the task file lists zero_wrench / zero_velocity /
+ * normal_velocity and comments the three contact-implicit terms out), which is
+ * correct - it changes the closed loop and has not been validated in
+ * simulation. But it also meant the entire assembly path had NO coverage
+ * whatsoever: the one test that reached for these terms, a hot-reload test of
+ * MpcParameterUpdaterModule, called GTEST_SKIP() because they were not in the
+ * shipped configuration. That is how every one of the defects this file now
+ * pins went unnoticed.
  *
- * So these tests write a task file with the formulation switched ON and build the real interface from it, as the
- * hot-reload tests of testMpcParameterUpdaterModule now do too.
+ * So these tests write a task file with the formulation switched ON and build
+ * the real interface from it, as the hot-reload tests of
+ * testMpcParameterUpdaterModule now do too.
  */
 class ContactImplicitFormulationTest : public ::testing::Test {
  protected:
@@ -102,12 +107,14 @@ class ContactImplicitFormulationTest : public ::testing::Test {
   }
 
   /**
-   * The shipped task file with its two constraint lists REPLACED. The lists are set whole rather than edited entry by
-   * entry, deliberately: these tests have to work while an engineer is mid-experiment with the formulation toggled on in
-   * the working tree.
+   * The shipped task file with its two constraint lists REPLACED. The lists are
+   * set whole rather than edited entry by entry, deliberately: these tests have
+   * to work while an engineer is mid-experiment with the formulation toggled on
+   * in the working tree.
    */
-  mpc_config::TaskFile taskWithLists(const std::vector<std::string>& hardConstraints,
-                                     const std::vector<std::string>& softConstraints) const {
+  mpc_config::TaskFile taskWithLists(
+      const std::vector<std::string>& hardConstraints,
+      const std::vector<std::string>& softConstraints) const {
     mpc_config::TaskFile task = shipped_.task;
     task.hard_constraints = hardConstraints;
     task.soft_constraints = softConstraints;
@@ -115,19 +122,25 @@ class ContactImplicitFormulationTest : public ::testing::Test {
   }
 
   /** The formulation `task` lists, or the refusal of its combination. */
-  static absl::StatusOr<MpcFormulationTasks> formulationOf(const mpc_config::TaskFile& task) {
+  static absl::StatusOr<MpcFormulationTasks> formulationOf(
+      const mpc_config::TaskFile& task) {
     return mpcFormulationTasksFromConfig(task, FormulationLogging::kQuiet);
   }
 
-  /** The interface of the shipped configuration with `task` as its task file. */
-  absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> create(const mpc_config::TaskFile& task) const {
+  /** The interface of the shipped configuration with `task` as its task file.
+   */
+  absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> create(
+      const mpc_config::TaskFile& task) const {
     CentroidalMpcConfig config = shipped_;
     config.task = task;
     return CentroidalMpcInterface::Create(config, files_.urdfFile);
   }
 
-  /** The soft constraints the shipped robot always needs, whatever the contact formulation. */
-  static std::vector<std::string> baseSoftConstraints() { return {"joint_limits", "foot_collision", "contact_wrench_cone"}; }
+  /** The soft constraints the shipped robot always needs, whatever the contact
+   * formulation. */
+  static std::vector<std::string> baseSoftConstraints() {
+    return {"joint_limits", "foot_collision", "contact_wrench_cone"};
+  }
 
   static std::vector<std::string> contactImplicitSoftConstraints() {
     std::vector<std::string> soft = baseSoftConstraints();
@@ -138,23 +151,28 @@ class ContactImplicitFormulationTest : public ::testing::Test {
     return soft;
   }
 
-  /** A ground height away from the shipped default of zero, so a comparison of two terrain heights compares something. */
+  /** A ground height away from the shipped default of zero, so a comparison of
+   * two terrain heights compares something. */
   static constexpr scalar_t kTestTerrainHeight = 0.037;
 
   /**
-   * A soft normal_velocity weight that is neither the shipped value nor ModelSettings' default, so that a test reading
-   * it back from the built problem can tell the task file's value from a default or a hard-coded one.
+   * A soft normal_velocity weight that is neither the shipped value nor
+   * ModelSettings' default, so that a test reading it back from the built
+   * problem can tell the task file's value from a default or a hard-coded one.
    */
   static constexpr scalar_t kTestNormalVelocityWeight = 437.25;
 
   /**
-   * The whole formulation switched on: no schedule-gated hard constraints; the three contact-implicit terms and the soft
-   * normal_velocity in, the latter at kTestNormalVelocityWeight; the ground at kTestTerrainHeight.
+   * The whole formulation switched on: no schedule-gated hard constraints; the
+   * three contact-implicit terms and the soft normal_velocity in, the latter at
+   * kTestNormalVelocityWeight; the ground at kTestTerrainHeight.
    */
   mpc_config::TaskFile contactImplicitTask() const {
-    mpc_config::TaskFile task = taskWithLists(/*hardConstraints=*/{}, contactImplicitSoftConstraints());
+    mpc_config::TaskFile task =
+        taskWithLists(/*hardConstraints=*/{}, contactImplicitSoftConstraints());
     task.terrain_height = kTestTerrainHeight;
-    task.model_settings.foot_constraint.normal_velocity_soft_constraint_weight = kTestNormalVelocityWeight;
+    task.model_settings.foot_constraint.normal_velocity_soft_constraint_weight =
+        kTestNormalVelocityWeight;
     return task;
   }
 
@@ -166,205 +184,304 @@ class ContactImplicitFormulationTest : public ::testing::Test {
 // The formulation loader refuses every half-way combination.
 // ---------------------------------------------------------------------------------------------------------------
 
-TEST_F(ContactImplicitFormulationTest, theHardNormalVelocityConstraintIsRefusedAlongsideTheContactImplicitTerms) {
-  // normal_velocity is a HARD equality on the swing foot's vertical velocity, so it fixes the entire height profile of
-  // the swing and the solver cannot move a touch-down it is being asked to choose. It was the one schedule-gated hard
-  // constraint the loader did not refuse, and the README explicitly left it listed.
-  // zero_wrench and zero_velocity ARE dropped, and the soft normal_velocity is NOT listed, so every earlier check
-  // passes and this one is reached: with the soft one listed too the hard-and-soft duplicate check would refuse the
-  // file first, and the test would prove nothing about this rule.
+TEST_F(
+    ContactImplicitFormulationTest,
+    theHardNormalVelocityConstraintIsRefusedAlongsideTheContactImplicitTerms) {
+  // normal_velocity is a HARD equality on the swing foot's vertical velocity,
+  // so it fixes the entire height profile of the swing and the solver cannot
+  // move a touch-down it is being asked to choose. It was the one
+  // schedule-gated hard constraint the loader did not refuse, and the README
+  // explicitly left it listed. zero_wrench and zero_velocity ARE dropped, and
+  // the soft normal_velocity is NOT listed, so every earlier check passes and
+  // this one is reached: with the soft one listed too the hard-and-soft
+  // duplicate check would refuse the file first, and the test would prove
+  // nothing about this rule.
   std::vector<std::string> soft = contactImplicitSoftConstraints();
-  soft.erase(std::remove(soft.begin(), soft.end(), std::string("normal_velocity")), soft.end());
+  soft.erase(
+      std::remove(soft.begin(), soft.end(), std::string("normal_velocity")),
+      soft.end());
   const mpc_config::TaskFile task = taskWithLists({"normal_velocity"}, soft);
   const absl::StatusOr<MpcFormulationTasks> tasks = formulationOf(task);
-  ASSERT_FALSE(tasks.ok()) << "normal_velocity fixes the whole height profile of the swing and must be refused";
-  EXPECT_TRUE(absl::StrContains(tasks.status().message(), "the hard 'normal_velocity' constraint are mutually exclusive"))
+  ASSERT_FALSE(tasks.ok()) << "normal_velocity fixes the whole height profile "
+                              "of the swing and must be refused";
+  EXPECT_TRUE(absl::StrContains(
+      tasks.status().message(),
+      "the hard 'normal_velocity' constraint are mutually exclusive"))
       << tasks.status().message();
 }
 
-TEST_F(ContactImplicitFormulationTest, complementarityWithoutTheSlipTermIsRefused) {
-  // The three relaxed complementarity conditions are a set. The complementarity product and the penetration hinge are
-  // both POSITIONAL - one forbids load above the ground, the other the foot below it - so with force_weighted_slip
-  // missing nothing holds a loaded foot still and a foot carrying full body weight may slide frictionlessly. The
-  // loader already refused complementarity without ground_penetration; this is the same argument for the third term.
+TEST_F(ContactImplicitFormulationTest,
+       complementarityWithoutTheSlipTermIsRefused) {
+  // The three relaxed complementarity conditions are a set. The complementarity
+  // product and the penetration hinge are both POSITIONAL - one forbids load
+  // above the ground, the other the foot below it - so with force_weighted_slip
+  // missing nothing holds a loaded foot still and a foot carrying full body
+  // weight may slide frictionlessly. The loader already refused complementarity
+  // without ground_penetration; this is the same argument for the third term.
   std::vector<std::string> soft = contactImplicitSoftConstraints();
-  soft.erase(std::remove(soft.begin(), soft.end(), std::string("force_weighted_slip")), soft.end());
+  soft.erase(
+      std::remove(soft.begin(), soft.end(), std::string("force_weighted_slip")),
+      soft.end());
   const mpc_config::TaskFile task = taskWithLists(/*hardConstraints=*/{}, soft);
   const absl::StatusOr<MpcFormulationTasks> tasks = formulationOf(task);
   ASSERT_FALSE(tasks.ok()) << "a loaded foot would be free to slide";
-  EXPECT_NE(std::string(tasks.status().message()).find("force_weighted_slip"), std::string::npos) << tasks.status().message();
+  EXPECT_NE(std::string(tasks.status().message()).find("force_weighted_slip"),
+            std::string::npos)
+      << tasks.status().message();
 }
 
-TEST_F(ContactImplicitFormulationTest, complementarityCannotBePairedWithAScheduleGatedStanceConstraint) {
-  // Reached transitively: requiring force_weighted_slip above makes the existing force_weighted_slip / zero_velocity
-  // exclusion fire, so complementarity alongside a schedule-gated zero_velocity is now refused as well. Before that
-  // rule it was accepted, which left the solver told to choose contact by one term and told it by the schedule by
-  // another.
-  const mpc_config::TaskFile task = taskWithLists({"zero_velocity"}, contactImplicitSoftConstraints());
-  const absl::StatusOr<MpcFormulationTasks> tasks = formulationOf(task);
-  ASSERT_FALSE(tasks.ok());
-  EXPECT_NE(std::string(tasks.status().message()).find("zero_velocity"), std::string::npos) << tasks.status().message();
-}
-
-TEST_F(ContactImplicitFormulationTest, groundPenetrationOnItsOwnIsRefusedAsAPartialFormulation) {
-  // The three terms are listed together or not at all, which is what usesContactImplicitFormulation() and every caller
-  // of it assume. A lone ground_penetration used to load - this test once recorded that as deliberate - and beside the
-  // shipped hard normal_velocity it was then refused by a check whose message, about a touch-down the solver is asked
-  // to choose, had nothing to do with it. It is now refused up front, with a message that names what is missing.
+TEST_F(ContactImplicitFormulationTest,
+       complementarityCannotBePairedWithAScheduleGatedStanceConstraint) {
+  // Reached transitively: requiring force_weighted_slip above makes the
+  // existing force_weighted_slip / zero_velocity exclusion fire, so
+  // complementarity alongside a schedule-gated zero_velocity is now refused as
+  // well. Before that rule it was accepted, which left the solver told to
+  // choose contact by one term and told it by the schedule by another.
   const mpc_config::TaskFile task =
-      taskWithLists({"zero_wrench", "normal_velocity", "zero_velocity"}, {"joint_limits", "contact_wrench_cone", "ground_penetration"});
+      taskWithLists({"zero_velocity"}, contactImplicitSoftConstraints());
   const absl::StatusOr<MpcFormulationTasks> tasks = formulationOf(task);
   ASSERT_FALSE(tasks.ok());
-  EXPECT_TRUE(absl::StrContains(tasks.status().message(), "together or not at all")) << tasks.status().message();
-  EXPECT_FALSE(absl::StrContains(tasks.status().message(), "touch-down")) << tasks.status().message();
+  EXPECT_NE(std::string(tasks.status().message()).find("zero_velocity"),
+            std::string::npos)
+      << tasks.status().message();
 }
 
-TEST_F(ContactImplicitFormulationTest, theTaskFileInTheWorkingTreeIsSelfConsistent) {
-  // Whatever the file is currently set to - the formulation ships off, but an engineer testing it has it on - the
-  // loader must accept it and the contact-constraint gate must agree with it. That the COMMITTED file keeps the
-  // formulation off is a separate rule, pinned by humanoid_common_mpc:testMpcFormulationConfig over every robot's
-  // task file, so that an experiment in the working tree turns that one target red rather than this whole suite.
-  const absl::StatusOr<MpcFormulationTasks> tasks = formulationOf(shipped_.task);
+TEST_F(ContactImplicitFormulationTest,
+       groundPenetrationOnItsOwnIsRefusedAsAPartialFormulation) {
+  // The three terms are listed together or not at all, which is what
+  // usesContactImplicitFormulation() and every caller of it assume. A lone
+  // ground_penetration used to load - this test once recorded that as
+  // deliberate - and beside the shipped hard normal_velocity it was then
+  // refused by a check whose message, about a touch-down the solver is asked to
+  // choose, had nothing to do with it. It is now refused up front, with a
+  // message that names what is missing.
+  const mpc_config::TaskFile task = taskWithLists(
+      {"zero_wrench", "normal_velocity", "zero_velocity"},
+      {"joint_limits", "contact_wrench_cone", "ground_penetration"});
+  const absl::StatusOr<MpcFormulationTasks> tasks = formulationOf(task);
+  ASSERT_FALSE(tasks.ok());
+  EXPECT_TRUE(
+      absl::StrContains(tasks.status().message(), "together or not at all"))
+      << tasks.status().message();
+  EXPECT_FALSE(absl::StrContains(tasks.status().message(), "touch-down"))
+      << tasks.status().message();
+}
+
+TEST_F(ContactImplicitFormulationTest,
+       theTaskFileInTheWorkingTreeIsSelfConsistent) {
+  // Whatever the file is currently set to - the formulation ships off, but an
+  // engineer testing it has it on - the loader must accept it and the
+  // contact-constraint gate must agree with it. That the COMMITTED file keeps
+  // the formulation off is a separate rule, pinned by
+  // humanoid_common_mpc:testMpcFormulationConfig over every robot's task file,
+  // so that an experiment in the working tree turns that one target red rather
+  // than this whole suite.
+  const absl::StatusOr<MpcFormulationTasks> tasks =
+      formulationOf(shipped_.task);
   ASSERT_TRUE(tasks.ok()) << tasks.status().message();
 
   // The gate follows `zero_wrench`, and nothing else.
-  EXPECT_EQ(contactConstraintsAreScheduleGated(*tasks), tasks->hasHardConstraint(MpcHardConstraintType::kZeroWrench));
+  EXPECT_EQ(contactConstraintsAreScheduleGated(*tasks),
+            tasks->hasHardConstraint(MpcHardConstraintType::kZeroWrench));
 
-  // And the combinations the loader refuses really are absent, since it accepted the file.
+  // And the combinations the loader refuses really are absent, since it
+  // accepted the file.
   if (usesContactImplicitFormulation(*tasks)) {
     EXPECT_FALSE(tasks->hasHardConstraint(MpcHardConstraintType::kZeroWrench));
-    EXPECT_FALSE(tasks->hasHardConstraint(MpcHardConstraintType::kZeroVelocity));
-    EXPECT_FALSE(tasks->hasHardConstraint(MpcHardConstraintType::kNormalVelocity));
-    EXPECT_TRUE(tasks->hasSoftConstraint(MpcSoftConstraintType::kNormalVelocity));
+    EXPECT_FALSE(
+        tasks->hasHardConstraint(MpcHardConstraintType::kZeroVelocity));
+    EXPECT_FALSE(
+        tasks->hasHardConstraint(MpcHardConstraintType::kNormalVelocity));
+    EXPECT_TRUE(
+        tasks->hasSoftConstraint(MpcSoftConstraintType::kNormalVelocity));
   }
 }
 
-TEST_F(ContactImplicitFormulationTest, theFormulationWithoutTheSoftNormalVelocityIsRefused) {
-  // README section 3 and the task file call the soft servo "not optional": with the hard one refused it is the only
-  // term that can lift a swing foot, and without it the robot shuffled. The loader used to accept the omission.
+TEST_F(ContactImplicitFormulationTest,
+       theFormulationWithoutTheSoftNormalVelocityIsRefused) {
+  // README section 3 and the task file call the soft servo "not optional": with
+  // the hard one refused it is the only term that can lift a swing foot, and
+  // without it the robot shuffled. The loader used to accept the omission.
   std::vector<std::string> soft = contactImplicitSoftConstraints();
-  soft.erase(std::remove(soft.begin(), soft.end(), std::string("normal_velocity")), soft.end());
+  soft.erase(
+      std::remove(soft.begin(), soft.end(), std::string("normal_velocity")),
+      soft.end());
   const mpc_config::TaskFile task = taskWithLists(/*hardConstraints=*/{}, soft);
   const absl::StatusOr<MpcFormulationTasks> tasks = formulationOf(task);
   ASSERT_FALSE(tasks.ok());
-  EXPECT_TRUE(absl::StrContains(tasks.status().message(), "needs 'normal_velocity' in soft_constraints")) << tasks.status().message();
+  EXPECT_TRUE(absl::StrContains(tasks.status().message(),
+                                "needs 'normal_velocity' in soft_constraints"))
+      << tasks.status().message();
 
-  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface = create(task);
+  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface =
+      create(task);
   EXPECT_FALSE(interface.ok());
 }
 
-TEST_F(ContactImplicitFormulationTest, anOutOfRangeContactImplicitValueIsAStatusNamingItsKey) {
-  // The contact_implicit values are divisors and penalty weights. A zero gap smoothing used to reach the complementarity
-  // term's constructor, whose CHECK aborted the process from inside the Status-returning Create(); it is refused before
-  // any term is built, with a message naming the field to change.
+TEST_F(ContactImplicitFormulationTest,
+       anOutOfRangeContactImplicitValueIsAStatusNamingItsKey) {
+  // The contact_implicit values are divisors and penalty weights. A zero gap
+  // smoothing used to reach the complementarity term's constructor, whose CHECK
+  // aborted the process from inside the Status-returning Create(); it is
+  // refused before any term is built, with a message naming the field to
+  // change.
   mpc_config::TaskFile task = contactImplicitTask();
   task.contact_implicit.gap_smoothing = 0.0;
-  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface = create(task);
+  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface =
+      create(task);
   ASSERT_FALSE(interface.ok());
   EXPECT_EQ(interface.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(absl::StrContains(interface.status().message(), "contact_implicit.gap")) << interface.status();
+  EXPECT_TRUE(
+      absl::StrContains(interface.status().message(), "contact_implicit.gap"))
+      << interface.status();
 }
 
-TEST_F(ContactImplicitFormulationTest, aNegativePenetrationWeightIsAStatusNamingItsKey) {
-  // A negative weight turns the hinge into a reward for a foot that goes through the floor; nothing aborts on it, so
-  // without the check it would simply have run.
+TEST_F(ContactImplicitFormulationTest,
+       aNegativePenetrationWeightIsAStatusNamingItsKey) {
+  // A negative weight turns the hinge into a reward for a foot that goes
+  // through the floor; nothing aborts on it, so without the check it would
+  // simply have run.
   mpc_config::TaskFile task = contactImplicitTask();
   task.contact_implicit.penetration_weight = -5.0e4;
-  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface = create(task);
+  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface =
+      create(task);
   ASSERT_FALSE(interface.ok());
   EXPECT_EQ(interface.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(absl::StrContains(interface.status().message(), "contact_implicit.penetration")) << interface.status();
+  EXPECT_TRUE(absl::StrContains(interface.status().message(),
+                                "contact_implicit.penetration"))
+      << interface.status();
 }
 
-TEST_F(ContactImplicitFormulationTest, aContactImplicitKeyNothingReadsIsRefusedWhetherOrNotTheFormulationIsListed) {
-  // Audit findings A11/A22. A key renamed in the task file but not in the code used to be skipped: its term ran on the
-  // default and its tuning slider reached nothing. The strict parser refuses it, with the shipped, formulation-off lists,
-  // naming the field it was probably meant to be.
-  std::string text = taskFileText(taskWithLists({"zero_wrench", "normal_velocity", "zero_velocity"}, baseSoftConstraints()));
+TEST_F(
+    ContactImplicitFormulationTest,
+    aContactImplicitKeyNothingReadsIsRefusedWhetherOrNotTheFormulationIsListed) {
+  // Audit findings A11/A22. A key renamed in the task file but not in the code
+  // used to be skipped: its term ran on the default and its tuning slider
+  // reached nothing. The strict parser refuses it, with the shipped,
+  // formulation-off lists, naming the field it was probably meant to be.
+  std::string text = taskFileText(
+      taskWithLists({"zero_wrench", "normal_velocity", "zero_velocity"},
+                    baseSoftConstraints()));
   const std::string block = "contact_implicit {\n";
   const size_t blockStart = text.find(block);
-  ASSERT_NE(blockStart, std::string::npos) << "the task file's text has no contact_implicit block";
+  ASSERT_NE(blockStart, std::string::npos)
+      << "the task file's text has no contact_implicit block";
   text.insert(blockStart + block.size(), "  gapSmoothing: 0.001\n");
-  absl::StatusOr<CentroidalRobotFiles> files =
-      writeConfig(absl::StrCat(testing::TempDir(), "/contact_implicit_renamed_key"), shipped_, files_.urdfFile);
+  absl::StatusOr<CentroidalRobotFiles> files = writeConfig(
+      absl::StrCat(testing::TempDir(), "/contact_implicit_renamed_key"),
+      shipped_, files_.urdfFile);
   ASSERT_TRUE(files.ok()) << files.status();
   ASSERT_TRUE(writeTextFile(files->taskFile, text).ok());
   const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface =
-      CentroidalMpcInterface::Create(files->taskFile, files->urdfFile, files->referenceFile);
+      CentroidalMpcInterface::Create(files->taskFile, files->urdfFile,
+                                     files->referenceFile);
   ASSERT_FALSE(interface.ok());
   EXPECT_EQ(interface.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(absl::StrContains(interface.status().message(), "gapSmoothing")) << interface.status();
-  EXPECT_TRUE(absl::StrContains(interface.status().message(), "gap_smoothing")) << "the parser names the field it may have meant";
+  EXPECT_TRUE(absl::StrContains(interface.status().message(), "gapSmoothing"))
+      << interface.status();
+  EXPECT_TRUE(absl::StrContains(interface.status().message(), "gap_smoothing"))
+      << "the parser names the field it may have meant";
 }
 
 TEST_F(ContactImplicitFormulationTest, theContactImplicitTaskFileLoadsCleanly) {
-  const absl::StatusOr<MpcFormulationTasks> tasks = formulationOf(contactImplicitTask());
+  const absl::StatusOr<MpcFormulationTasks> tasks =
+      formulationOf(contactImplicitTask());
   ASSERT_TRUE(tasks.ok()) << tasks.status().message();
   EXPECT_TRUE(usesContactImplicitFormulation(*tasks));
   EXPECT_FALSE(contactConstraintsAreScheduleGated(*tasks));
-  EXPECT_FALSE(tasks->hasHardConstraint(MpcHardConstraintType::kNormalVelocity));
+  EXPECT_FALSE(
+      tasks->hasHardConstraint(MpcHardConstraintType::kNormalVelocity));
 }
 
-TEST_F(ContactImplicitFormulationTest, noConeAtAllIsRefusedWhateverTheInputParameterization) {
-  // f_n >= 0 is the FIRST of the three conditions of rigid contact, and the formulation supplies only the other two:
-  // `ground_penetration` gives h >= 0 and `contact_complementarity` gives f_n h = 0, which at h = 0 is satisfied by
-  // any f_n at all, a negative one included. So a foot resting on the floor could pull on it for free. The bound is
-  // the cone's, and the cones stop bounding anything the moment `zero_wrench` goes, because that is what they gate
-  // themselves on. This is refused at the LOADER, before any parameterization-specific reasoning.
+TEST_F(ContactImplicitFormulationTest,
+       noConeAtAllIsRefusedWhateverTheInputParameterization) {
+  // f_n >= 0 is the FIRST of the three conditions of rigid contact, and the
+  // formulation supplies only the other two: `ground_penetration` gives h >= 0
+  // and `contact_complementarity` gives f_n h = 0, which at h = 0 is satisfied
+  // by any f_n at all, a negative one included. So a foot resting on the floor
+  // could pull on it for free. The bound is the cone's, and the cones stop
+  // bounding anything the moment `zero_wrench` goes, because that is what they
+  // gate themselves on. This is refused at the LOADER, before any
+  // parameterization-specific reasoning.
   std::vector<std::string> soft = contactImplicitSoftConstraints();
-  soft.erase(std::remove(soft.begin(), soft.end(), std::string("contact_wrench_cone")), soft.end());
+  soft.erase(
+      std::remove(soft.begin(), soft.end(), std::string("contact_wrench_cone")),
+      soft.end());
   const mpc_config::TaskFile task = taskWithLists(/*hardConstraints=*/{}, soft);
 
   const absl::StatusOr<MpcFormulationTasks> tasks = formulationOf(task);
   ASSERT_FALSE(tasks.ok()) << "nothing would bound any foot's wrench";
-  EXPECT_NE(std::string(tasks.status().message()).find("friction_force_cone"), std::string::npos) << tasks.status().message();
+  EXPECT_NE(std::string(tasks.status().message()).find("friction_force_cone"),
+            std::string::npos)
+      << tasks.status().message();
 
   // And the interface refuses it too, since it loads through the same function.
-  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface = create(task);
+  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface =
+      create(task);
   EXPECT_FALSE(interface.ok());
 }
 
-TEST_F(ContactImplicitFormulationTest, basisVectorInputsBoundTheScalingsWhicheverConeIsListed) {
-  // Findings A76/A84. The loader accepts EITHER cone, because either bounds the normal force below. Under basis-vector
-  // inputs neither is what bounds the individual scalings: `friction_force_cone` bounds the assembled wrench only, and
-  // lambda >= 0 is the whole of the cone there. The interface used to build that barrier only when
-  // `contact_wrench_cone` was listed, and so refused this combination rather than leave the scalings free. The barrier
-  // now belongs to the parameterization, so the combination is sound and is built - with the barrier, un-gated here
-  // because zero_wrench is gone, beside the friction cone the file asked for.
+TEST_F(ContactImplicitFormulationTest,
+       basisVectorInputsBoundTheScalingsWhicheverConeIsListed) {
+  // Findings A76/A84. The loader accepts EITHER cone, because either bounds the
+  // normal force below. Under basis-vector inputs neither is what bounds the
+  // individual scalings: `friction_force_cone` bounds the assembled wrench
+  // only, and lambda >= 0 is the whole of the cone there. The interface used to
+  // build that barrier only when `contact_wrench_cone` was listed, and so
+  // refused this combination rather than leave the scalings free. The barrier
+  // now belongs to the parameterization, so the combination is sound and is
+  // built - with the barrier, un-gated here because zero_wrench is gone, beside
+  // the friction cone the file asked for.
   std::vector<std::string> soft = contactImplicitSoftConstraints();
-  std::replace(soft.begin(), soft.end(), std::string("contact_wrench_cone"), std::string("friction_force_cone"));
+  std::replace(soft.begin(), soft.end(), std::string("contact_wrench_cone"),
+               std::string("friction_force_cone"));
   const mpc_config::TaskFile task = taskWithLists(/*hardConstraints=*/{}, soft);
 
   // The loader is satisfied: a friction cone does bound f_n below.
   const absl::StatusOr<MpcFormulationTasks> tasks = formulationOf(task);
   ASSERT_TRUE(tasks.ok()) << tasks.status().message();
-  ASSERT_FALSE(tasks->hasSoftConstraint(MpcSoftConstraintType::kContactWrenchCone));
+  ASSERT_FALSE(
+      tasks->hasSoftConstraint(MpcSoftConstraintType::kContactWrenchCone));
 
   // This robot runs contactInputParameterization: basis_vectors.
-  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface = create(task);
+  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface =
+      create(task);
   ASSERT_TRUE(interface.ok()) << interface.status().message();
   ASSERT_TRUE((*interface)->usesContactBasisVectorInputs());
   OptimalControlProblem& problem = (*interface)->getOptimalControlProblemRef();
-  for (const std::string& footName : (*interface)->modelSettings().contactNames) {
+  for (const std::string& footName :
+       (*interface)->modelSettings().contactNames) {
     SCOPED_TRACE(footName);
     size_t index = 0;
-    ASSERT_TRUE(problem.costPtr->getTermIndex(absl::StrCat(footName, "_basisNonNegativity"), index))
+    ASSERT_TRUE(problem.costPtr->getTermIndex(
+        absl::StrCat(footName, "_basisNonNegativity"), index))
         << "basis-vector contact inputs without their lambda >= 0 barrier";
-    EXPECT_FALSE(problem.costPtr->get<BasisScalingNonNegativityConstraint>(absl::StrCat(footName, "_basisNonNegativity")).isScheduleGated())
-        << "zero_wrench is gone, so the barrier must act on a foot the schedule calls a swing foot too";
-    ASSERT_TRUE(problem.softConstraintPtr->getTermIndex(absl::StrCat(footName, "_frictionForceCone"), index));
-    // Audit finding A15, at the interface: the friction cone it asked the factory for is the UN-gated one, wrapped in a
-    // squared hinge whose zero sits on the cone - silent at zero force, where a foot in flight lies - and not in the
-    // relaxed barrier of a schedule-gated cone, which would pay the solver to load that foot.
+    EXPECT_FALSE(problem.costPtr
+                     ->get<BasisScalingNonNegativityConstraint>(
+                         absl::StrCat(footName, "_basisNonNegativity"))
+                     .isScheduleGated())
+        << "zero_wrench is gone, so the barrier must act on a foot the "
+           "schedule calls a swing foot too";
+    ASSERT_TRUE(problem.softConstraintPtr->getTermIndex(
+        absl::StrCat(footName, "_frictionForceCone"), index));
+    // Audit finding A15, at the interface: the friction cone it asked the
+    // factory for is the UN-gated one, wrapped in a squared hinge whose zero
+    // sits on the cone - silent at zero force, where a foot in flight lies -
+    // and not in the relaxed barrier of a schedule-gated cone, which would pay
+    // the solver to load that foot.
     StateInputSoftConstraint& frictionCone =
-        problem.softConstraintPtr->get<StateInputSoftConstraint>(absl::StrCat(footName, "_frictionForceCone"));
-    EXPECT_FALSE(frictionCone.get<FrictionForceConeConstraint>().isScheduleGated());
-    for (const std::unique_ptr<PenaltyBase>& penalty : frictionCone.getPenalty().getPenaltyPtrArray()) {
+        problem.softConstraintPtr->get<StateInputSoftConstraint>(
+            absl::StrCat(footName, "_frictionForceCone"));
+    EXPECT_FALSE(
+        frictionCone.get<FrictionForceConeConstraint>().isScheduleGated());
+    for (const std::unique_ptr<PenaltyBase>& penalty :
+         frictionCone.getPenalty().getPenaltyPtrArray()) {
       EXPECT_EQ(penalty->name(), "SquaredHingePenalty");
       vector_t parameters;
       penalty->getParameters(parameters);
       ASSERT_EQ(parameters.size(), 2);
-      EXPECT_DOUBLE_EQ(parameters(1), 0.0) << "the hinge's zero must sit on the cone";
+      EXPECT_DOUBLE_EQ(parameters(1), 0.0)
+          << "the hinge's zero must sit on the cone";
       EXPECT_DOUBLE_EQ(penalty->getValue(/*t=*/0.0, /*h=*/0.0), 0.0);
       EXPECT_DOUBLE_EQ(penalty->getDerivative(/*t=*/0.0, /*h=*/0.0), 0.0);
     }
@@ -379,46 +496,66 @@ class ContactImplicitProblemTest : public ContactImplicitFormulationTest {
  protected:
   void SetUp() override {
     ContactImplicitFormulationTest::SetUp();
-    absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> created = create(contactImplicitTask());
+    absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> created =
+        create(contactImplicitTask());
     ASSERT_TRUE(created.ok()) << created.status().message();
     interface_ = *std::move(created);
   }
 
-  OptimalControlProblem& problem() const { return interface_->getOptimalControlProblemRef(); }
-  const std::vector<std::string>& contactNames() const { return interface_->modelSettings().contactNames; }
-
-  /** State index of a foot's ankle pitch joint, looked up by name so the test cannot tilt the wrong joint. */
-  Eigen::Index anklePitchStateIndex(size_t contactIndex) const {
-    const std::string jointName = contactIndex == kContactLeftIndex ? "l_leg_aky" : "r_leg_aky";
-    const std::vector<std::string>& jointNames = interface_->modelSettings().mpcModelJointNames;
-    const std::vector<std::string>::const_iterator found = std::find(jointNames.begin(), jointNames.end(), jointName);
-    EXPECT_NE(found, jointNames.end()) << "no joint named " << jointName;
-    return static_cast<Eigen::Index>(interface_->getMpcRobotModel().getJointStartindex() +
-                                     static_cast<size_t>(std::distance(jointNames.begin(), found)));
+  OptimalControlProblem& problem() const {
+    return interface_->getOptimalControlProblemRef();
+  }
+  const std::vector<std::string>& contactNames() const {
+    return interface_->modelSettings().contactNames;
   }
 
-  /** [m] the world height of a frame at a state, from the numeric Pinocchio model the interface was built on. */
-  scalar_t frameHeight(const std::string& frameName, const vector_t& state) const {
-    const pinocchio::Model& model = interface_->getPinocchioInterface().getModel();
+  /** State index of a foot's ankle pitch joint, looked up by name so the test
+   * cannot tilt the wrong joint. */
+  Eigen::Index anklePitchStateIndex(size_t contactIndex) const {
+    const std::string jointName =
+        contactIndex == kContactLeftIndex ? "l_leg_aky" : "r_leg_aky";
+    const std::vector<std::string>& jointNames =
+        interface_->modelSettings().mpcModelJointNames;
+    const std::vector<std::string>::const_iterator found =
+        std::find(jointNames.begin(), jointNames.end(), jointName);
+    EXPECT_NE(found, jointNames.end()) << "no joint named " << jointName;
+    return static_cast<Eigen::Index>(
+        interface_->getMpcRobotModel().getJointStartindex() +
+        static_cast<size_t>(std::distance(jointNames.begin(), found)));
+  }
+
+  /** [m] the world height of a frame at a state, from the numeric Pinocchio
+   * model the interface was built on. */
+  scalar_t frameHeight(const std::string& frameName,
+                       const vector_t& state) const {
+    const pinocchio::Model& model =
+        interface_->getPinocchioInterface().getModel();
     pinocchio::Data data(model);
-    updateFramePlacements(interface_->getMpcRobotModel().getGeneralizedCoordinates(state), model, data);
+    updateFramePlacements(
+        interface_->getMpcRobotModel().getGeneralizedCoordinates(state), model,
+        data);
     return data.oMf[model.getFrameId(frameName)].translation().z();
   }
 
   /**
-   * Replaces the mode schedule with one in which `swingFoot` swings over [kSwingStart, kSwingEnd] between two stance
-   * phases, and runs the reference manager over it so the swing trajectories are planned. The brackets far outside the
-   * window keep the gait schedule from tiling its template over it.
+   * Replaces the mode schedule with one in which `swingFoot` swings over
+   * [kSwingStart, kSwingEnd] between two stance phases, and runs the reference
+   * manager over it so the swing trajectories are planned. The brackets far
+   * outside the window keep the gait schedule from tiling its template over it.
    */
   void scheduleOneSwing(size_t swingFoot) const {
     contact_flag_t swingFlags = makeFeetArray(true);
     swingFlags[swingFoot] = false;
-    const ModeSchedule schedule(
-        {-10.0, kSwingStart, kSwingEnd, 10.0},
-        {ModeNumber::kStance, ModeNumber::kStance, stanceLeg2ModeNumber(swingFlags), ModeNumber::kStance, ModeNumber::kStance});
-    SwitchedModelReferenceManager& referenceManager = *interface_->getSwitchedModelReferenceManagerPtr();
+    const ModeSchedule schedule({-10.0, kSwingStart, kSwingEnd, 10.0},
+                                {ModeNumber::kStance, ModeNumber::kStance,
+                                 stanceLeg2ModeNumber(swingFlags),
+                                 ModeNumber::kStance, ModeNumber::kStance});
+    SwitchedModelReferenceManager& referenceManager =
+        *interface_->getSwitchedModelReferenceManagerPtr();
     referenceManager.getGaitSchedule()->updateModeSchedule(schedule);
-    referenceManager.preSolverRun(kSwingStart - 0.2, kSwingEnd + 0.5, interface_->getInitialState(), ModeNumber::kStance);
+    referenceManager.preSolverRun(kSwingStart - 0.2, kSwingEnd + 0.5,
+                                  interface_->getInitialState(),
+                                  ModeNumber::kStance);
   }
 
   static constexpr scalar_t kSwingStart = 0.0;
@@ -427,59 +564,86 @@ class ContactImplicitProblemTest : public ContactImplicitFormulationTest {
   std::unique_ptr<CentroidalMpcInterface> interface_;
 };
 
-TEST_F(ContactImplicitProblemTest, allThreeContactImplicitTermsAreBuiltForEveryFoot) {
+TEST_F(ContactImplicitProblemTest,
+       allThreeContactImplicitTermsAreBuiltForEveryFoot) {
   for (const std::string& footName : contactNames()) {
-    EXPECT_NO_THROW(problem().softConstraintPtr->get<StateInputSoftConstraint>(absl::StrCat(footName, "_contactComplementarity")))
+    EXPECT_NO_THROW(problem().softConstraintPtr->get<StateInputSoftConstraint>(
+        absl::StrCat(footName, "_contactComplementarity")))
         << footName;
-    EXPECT_NO_THROW(problem().softConstraintPtr->get<StateInputSoftConstraint>(absl::StrCat(footName, "_forceWeightedSlip"))) << footName;
-    EXPECT_NO_THROW(problem().stateSoftConstraintPtr->get<StateSoftConstraint>(absl::StrCat(footName, "_groundPenetration"))) << footName;
+    EXPECT_NO_THROW(problem().softConstraintPtr->get<StateInputSoftConstraint>(
+        absl::StrCat(footName, "_forceWeightedSlip")))
+        << footName;
+    EXPECT_NO_THROW(problem().stateSoftConstraintPtr->get<StateSoftConstraint>(
+        absl::StrCat(footName, "_groundPenetration")))
+        << footName;
   }
 }
 
 TEST_F(ContactImplicitProblemTest, theScheduleGatedContactConstraintsAreGone) {
-  // Nothing may force the swing foot's wrench or velocity from the mode schedule any more.
+  // Nothing may force the swing foot's wrench or velocity from the mode
+  // schedule any more.
   for (const std::string& footName : contactNames()) {
-    EXPECT_FALSE(hasTerm(*problem().equalityConstraintPtr, absl::StrCat(footName, "_zeroWrench"))) << footName;
-    EXPECT_FALSE(hasTerm(*problem().equalityConstraintPtr, absl::StrCat(footName, "_zeroVelocity"))) << footName;
-    EXPECT_FALSE(hasTerm(*problem().equalityConstraintPtr, absl::StrCat(footName, "_normalVelocity"))) << footName;
+    EXPECT_FALSE(hasTerm(*problem().equalityConstraintPtr,
+                         absl::StrCat(footName, "_zeroWrench")))
+        << footName;
+    EXPECT_FALSE(hasTerm(*problem().equalityConstraintPtr,
+                         absl::StrCat(footName, "_zeroVelocity")))
+        << footName;
+    EXPECT_FALSE(hasTerm(*problem().equalityConstraintPtr,
+                         absl::StrCat(footName, "_normalVelocity")))
+        << footName;
   }
 }
 
-TEST_F(ContactImplicitProblemTest, theBasisScalingBarrierIsNotGatedOnTheModeSchedule) {
-  // On the shipped DRC Atlas (contactInputParameterization: basis_vectors) this term is the ONLY lower bound on the contact
-  // wrench, because the explicit wrench cone is skipped in favor of the structural guarantee of lambda >= 0. Gated, a
-  // foot the schedule calls a swing foot had no bound at all.
-  ASSERT_TRUE(interface_->getBasisDecoratorPtr() != nullptr) << "this robot is expected to run basis-vector inputs";
+TEST_F(ContactImplicitProblemTest,
+       theBasisScalingBarrierIsNotGatedOnTheModeSchedule) {
+  // On the shipped DRC Atlas (contactInputParameterization: basis_vectors) this
+  // term is the ONLY lower bound on the contact wrench, because the explicit
+  // wrench cone is skipped in favor of the structural guarantee of lambda >= 0.
+  // Gated, a foot the schedule calls a swing foot had no bound at all.
+  ASSERT_TRUE(interface_->getBasisDecoratorPtr() != nullptr)
+      << "this robot is expected to run basis-vector inputs";
   for (const std::string& footName : contactNames()) {
     const BasisScalingNonNegativityConstraint& barrier =
-        problem().costPtr->get<BasisScalingNonNegativityConstraint>(absl::StrCat(footName, "_basisNonNegativity"));
+        problem().costPtr->get<BasisScalingNonNegativityConstraint>(
+            absl::StrCat(footName, "_basisNonNegativity"));
     EXPECT_FALSE(barrier.isScheduleGated()) << footName;
   }
 }
 
-TEST_F(ContactImplicitProblemTest, groundPenetrationIsCheckedAtEveryCornerOfTheFootprint) {
-  // The sole CENTER alone is not enough: this formulation deliberately leaves the foot's rocking rates free, so a foot
-  // pitched about a center held at ground level buries its toe for nothing. The DRC Atlas footprint has four corners
-  // 0.12 m fore and aft of the center.
+TEST_F(ContactImplicitProblemTest,
+       groundPenetrationIsCheckedAtEveryCornerOfTheFootprint) {
+  // The sole CENTER alone is not enough: this formulation deliberately leaves
+  // the foot's rocking rates free, so a foot pitched about a center held at
+  // ground level buries its toe for nothing. The DRC Atlas footprint has four
+  // corners 0.12 m fore and aft of the center.
   for (const std::string& footName : contactNames()) {
     const GroundPenetrationConstraint& penetration =
         problem()
-            .stateSoftConstraintPtr->get<StateSoftConstraint>(absl::StrCat(footName, "_groundPenetration"))
+            .stateSoftConstraintPtr
+            ->get<StateSoftConstraint>(
+                absl::StrCat(footName, "_groundPenetration"))
             .get<GroundPenetrationConstraint>();
-    EXPECT_EQ(penetration.getNumPoints(), 4U) << footName << ": one row per corner of the contact polygon";
+    EXPECT_EQ(penetration.getNumPoints(), 4U)
+        << footName << ": one row per corner of the contact polygon";
     EXPECT_EQ(penetration.getNumConstraints(0.0), 4U) << footName;
   }
 }
 
-TEST_F(ContactImplicitProblemTest, theComplementarityGapAndThePenetrationRowsAreMeasuredAtTheSamePoints) {
-  // The two terms are the two halves of one condition, so the assembled problem must not contain two different ideas
-  // of where the foot is. It did: the hinge was moved to the footprint corners while the product was left reading the
-  // sole center, and a foot rocked onto its heel was then "airborne" to one and "touching" to the other.
+TEST_F(ContactImplicitProblemTest,
+       theComplementarityGapAndThePenetrationRowsAreMeasuredAtTheSamePoints) {
+  // The two terms are the two halves of one condition, so the assembled problem
+  // must not contain two different ideas of where the foot is. It did: the
+  // hinge was moved to the footprint corners while the product was left reading
+  // the sole center, and a foot rocked onto its heel was then "airborne" to one
+  // and "touching" to the other.
   //
-  // Checked on PITCHED feet. At the initial state the soles are flat, every corner sits at the sole center's height,
-  // and a gap measured at the center satisfies the bracket below exactly - so a flat foot cannot tell the wiring this
-  // test is named after from the regression it guards against.
-  const ModelSettings::ContactImplicitConfig& config = interface_->modelSettings().contactImplicitConfig;
+  // Checked on PITCHED feet. At the initial state the soles are flat, every
+  // corner sits at the sole center's height, and a gap measured at the center
+  // satisfies the bracket below exactly - so a flat foot cannot tell the wiring
+  // this test is named after from the regression it guards against.
+  const ModelSettings::ContactImplicitConfig& config =
+      interface_->modelSettings().contactImplicitConfig;
   vector_t state = interface_->getInitialState();
   for (size_t foot = 0; foot < contactNames().size(); ++foot) {
     state(anklePitchStateIndex(foot)) += 0.25;
@@ -488,162 +652,253 @@ TEST_F(ContactImplicitProblemTest, theComplementarityGapAndThePenetrationRowsAre
   for (const std::string& footName : contactNames()) {
     const ContactComplementarityConstraint& complementarity =
         problem()
-            .softConstraintPtr->get<StateInputSoftConstraint>(absl::StrCat(footName, "_contactComplementarity"))
+            .softConstraintPtr
+            ->get<StateInputSoftConstraint>(
+                absl::StrCat(footName, "_contactComplementarity"))
             .get<ContactComplementarityConstraint>();
     const GroundPenetrationConstraint& penetration =
         problem()
-            .stateSoftConstraintPtr->get<StateSoftConstraint>(absl::StrCat(footName, "_groundPenetration"))
+            .stateSoftConstraintPtr
+            ->get<StateSoftConstraint>(
+                absl::StrCat(footName, "_groundPenetration"))
             .get<GroundPenetrationConstraint>();
-    EXPECT_NEAR(complementarity.getGapSmoothing(), config.gapSmoothing, 1.0e-12) << footName;
+    EXPECT_NEAR(complementarity.getGapSmoothing(), config.gapSmoothing, 1.0e-12)
+        << footName;
 
-    // The penetration rows are the corner clearances; the gap is their smoothed minimum, so it is bracketed by the
-    // smallest of them and that value plus log(N) * gapSmoothing. Measured at the sole center it would not be.
-    const vector_t clearances = penetration.getValue(/*time=*/0.0, state, preComp);
-    ASSERT_EQ(clearances.size(), static_cast<Eigen::Index>(penetration.getNumPoints())) << footName;
-    const scalar_t bound = std::log(static_cast<scalar_t>(penetration.getNumPoints())) * config.gapSmoothing;
-    EXPECT_GE(complementarity.getGap(state), clearances.minCoeff() - 1.0e-12) << footName;
-    EXPECT_LE(complementarity.getGap(state), clearances.minCoeff() + bound + 1.0e-12) << footName;
+    // The penetration rows are the corner clearances; the gap is their smoothed
+    // minimum, so it is bracketed by the smallest of them and that value plus
+    // log(N) * gapSmoothing. Measured at the sole center it would not be.
+    const vector_t clearances =
+        penetration.getValue(/*time=*/0.0, state, preComp);
+    ASSERT_EQ(clearances.size(),
+              static_cast<Eigen::Index>(penetration.getNumPoints()))
+        << footName;
+    const scalar_t bound =
+        std::log(static_cast<scalar_t>(penetration.getNumPoints())) *
+        config.gapSmoothing;
+    EXPECT_GE(complementarity.getGap(state), clearances.minCoeff() - 1.0e-12)
+        << footName;
+    EXPECT_LE(complementarity.getGap(state),
+              clearances.minCoeff() + bound + 1.0e-12)
+        << footName;
 
-    // Positive control: the pitched sole's center is well above its lowest corner, so a gap taken at the contact frame
-    // would sit outside the bracket and fail it.
-    const scalar_t soleCenterClearance = frameHeight(footName, state) - complementarity.getTerrainHeight();
-    ASSERT_GT(soleCenterClearance - clearances.minCoeff(), 0.01) << footName << ": the ankle pitch must actually tilt the sole";
-    EXPECT_LT(complementarity.getGap(state), soleCenterClearance - bound - 0.005) << footName;
+    // Positive control: the pitched sole's center is well above its lowest
+    // corner, so a gap taken at the contact frame would sit outside the bracket
+    // and fail it.
+    const scalar_t soleCenterClearance =
+        frameHeight(footName, state) - complementarity.getTerrainHeight();
+    ASSERT_GT(soleCenterClearance - clearances.minCoeff(), 0.01)
+        << footName << ": the ankle pitch must actually tilt the sole";
+    EXPECT_LT(complementarity.getGap(state),
+              soleCenterClearance - bound - 0.005)
+        << footName;
   }
 }
 
 TEST_F(ContactImplicitProblemTest, groundPenetrationIsAHingeAndNotALogBarrier) {
-  // A relaxed log barrier never reaches zero: at h = 0 its derivative is -2*mu/delta, constant and upward, so it pushes
-  // every foot off the ground and the complementarity term has to hold it down. Balancing those two put a foot at half
-  // body weight - i.e. both feet, throughout double support - a centimeter above the floor.
+  // A relaxed log barrier never reaches zero: at h = 0 its derivative is
+  // -2*mu/delta, constant and upward, so it pushes every foot off the ground
+  // and the complementarity term has to hold it down. Balancing those two put a
+  // foot at half body weight - i.e. both feet, throughout double support - a
+  // centimeter above the floor.
   for (const std::string& footName : contactNames()) {
     StateSoftConstraint& softConstraint =
-        problem().stateSoftConstraintPtr->get<StateSoftConstraint>(absl::StrCat(footName, "_groundPenetration"));
-    for (const std::unique_ptr<PenaltyBase>& penalty : softConstraint.getPenalty().getPenaltyPtrArray()) {
+        problem().stateSoftConstraintPtr->get<StateSoftConstraint>(
+            absl::StrCat(footName, "_groundPenetration"));
+    for (const std::unique_ptr<PenaltyBase>& penalty :
+         softConstraint.getPenalty().getPenaltyPtrArray()) {
       ASSERT_NE(penalty, nullptr);
-      // Zero cost AND zero gradient for a foot resting exactly on the ground, and for one above it.
-      EXPECT_DOUBLE_EQ(penalty->getValue(/*t=*/0.0, /*h=*/0.0), 0.0) << footName;
-      EXPECT_DOUBLE_EQ(penalty->getDerivative(/*t=*/0.0, /*h=*/0.0), 0.0) << footName;
-      EXPECT_DOUBLE_EQ(penalty->getValue(/*t=*/0.0, /*h=*/0.05), 0.0) << footName;
+      // Zero cost AND zero gradient for a foot resting exactly on the ground,
+      // and for one above it.
+      EXPECT_DOUBLE_EQ(penalty->getValue(/*t=*/0.0, /*h=*/0.0), 0.0)
+          << footName;
+      EXPECT_DOUBLE_EQ(penalty->getDerivative(/*t=*/0.0, /*h=*/0.0), 0.0)
+          << footName;
+      EXPECT_DOUBLE_EQ(penalty->getValue(/*t=*/0.0, /*h=*/0.05), 0.0)
+          << footName;
       // And a real cost below it.
       EXPECT_GT(penalty->getValue(/*t=*/0.0, /*h=*/-0.01), 0.0) << footName;
-      EXPECT_LT(penalty->getDerivative(/*t=*/0.0, /*h=*/-0.01), 0.0) << footName;
+      EXPECT_LT(penalty->getDerivative(/*t=*/0.0, /*h=*/-0.01), 0.0)
+          << footName;
     }
   }
 }
 
-TEST_F(ContactImplicitProblemTest, theTerrainHeightIsTheSameEverywhereItIsUsed) {
+TEST_F(ContactImplicitProblemTest,
+       theTerrainHeightIsTheSameEverywhereItIsUsed) {
   const scalar_t terrainHeight = interface_->modelSettings().terrainHeight;
   ASSERT_NEAR(terrainHeight, kTestTerrainHeight, 1.0e-12)
-      << "the test is vacuous unless the configured ground is away from the default of zero";
+      << "the test is vacuous unless the configured ground is away from the "
+         "default of zero";
   for (const std::string& footName : contactNames()) {
     const ContactComplementarityConstraint& complementarity =
         problem()
-            .softConstraintPtr->get<StateInputSoftConstraint>(absl::StrCat(footName, "_contactComplementarity"))
+            .softConstraintPtr
+            ->get<StateInputSoftConstraint>(
+                absl::StrCat(footName, "_contactComplementarity"))
             .get<ContactComplementarityConstraint>();
     const GroundPenetrationConstraint& penetration =
         problem()
-            .stateSoftConstraintPtr->get<StateSoftConstraint>(absl::StrCat(footName, "_groundPenetration"))
+            .stateSoftConstraintPtr
+            ->get<StateSoftConstraint>(
+                absl::StrCat(footName, "_groundPenetration"))
             .get<GroundPenetrationConstraint>();
-    // One says a foot may not carry load above the ground and the other that it may not go below it. Two definitions
-    // of where the ground is would make the pair incoherent, and there used to be two: this and the reference
+    // One says a foot may not carry load above the ground and the other that it
+    // may not go below it. Two definitions of where the ground is would make
+    // the pair incoherent, and there used to be two: this and the reference
     // manager's, which computed an estimate and discarded it.
-    EXPECT_DOUBLE_EQ(complementarity.getTerrainHeight(), terrainHeight) << footName;
+    EXPECT_DOUBLE_EQ(complementarity.getTerrainHeight(), terrainHeight)
+        << footName;
     EXPECT_DOUBLE_EQ(penetration.getTerrainHeight(), terrainHeight) << footName;
   }
-  // And the reference manager, which owns the ground from start-up on and builds the swing trajectories on it, starts
-  // from the same one. (That the two keep agreeing after a hot reload is testMpcParameterUpdaterModule's to show.)
-  EXPECT_DOUBLE_EQ(interface_->getSwitchedModelReferenceManagerPtr()->getTerrainHeight(), terrainHeight);
-  EXPECT_DOUBLE_EQ(interface_->getSwitchedModelReferenceManagerPtr()->getAppliedTerrainHeight(), terrainHeight);
+  // And the reference manager, which owns the ground from start-up on and
+  // builds the swing trajectories on it, starts from the same one. (That the
+  // two keep agreeing after a hot reload is testMpcParameterUpdaterModule's to
+  // show.)
+  EXPECT_DOUBLE_EQ(
+      interface_->getSwitchedModelReferenceManagerPtr()->getTerrainHeight(),
+      terrainHeight);
+  EXPECT_DOUBLE_EQ(interface_->getSwitchedModelReferenceManagerPtr()
+                       ->getAppliedTerrainHeight(),
+                   terrainHeight);
 }
 
-TEST_F(ContactImplicitProblemTest, theSlipTermUsesTheConfiguredReferencesInTheirOwnUnits) {
-  const ModelSettings::ContactImplicitConfig& config = interface_->modelSettings().contactImplicitConfig;
+TEST_F(ContactImplicitProblemTest,
+       theSlipTermUsesTheConfiguredReferencesInTheirOwnUnits) {
+  const ModelSettings::ContactImplicitConfig& config =
+      interface_->modelSettings().contactImplicitConfig;
   for (const std::string& footName : contactNames()) {
     const ForceWeightedSlipConstraint& slip =
         problem()
-            .softConstraintPtr->get<StateInputSoftConstraint>(absl::StrCat(footName, "_forceWeightedSlip"))
+            .softConstraintPtr
+            ->get<StateInputSoftConstraint>(
+                absl::StrCat(footName, "_forceWeightedSlip"))
             .get<ForceWeightedSlipConstraint>();
     const vector3_t inverseReferences = slip.getInverseTwistReference();
-    EXPECT_NEAR(inverseReferences(0), 1.0 / config.velocityReference, 1.0e-9) << footName;
-    EXPECT_NEAR(inverseReferences(1), 1.0 / config.velocityReference, 1.0e-9) << footName;
-    // The yaw row is a rate, and must be normalized by the ANGULAR reference: sharing the linear one declared one
-    // rad/s to be exactly as bad as one m/s, which is a statement about SI units rather than about the robot.
-    EXPECT_NEAR(inverseReferences(2), 1.0 / config.angularVelocityReference, 1.0e-9) << footName;
-    EXPECT_NE(config.velocityReference, config.angularVelocityReference) << "the test is vacuous if the two agree";
+    EXPECT_NEAR(inverseReferences(0), 1.0 / config.velocityReference, 1.0e-9)
+        << footName;
+    EXPECT_NEAR(inverseReferences(1), 1.0 / config.velocityReference, 1.0e-9)
+        << footName;
+    // The yaw row is a rate, and must be normalized by the ANGULAR reference:
+    // sharing the linear one declared one rad/s to be exactly as bad as one
+    // m/s, which is a statement about SI units rather than about the robot.
+    EXPECT_NEAR(inverseReferences(2), 1.0 / config.angularVelocityReference,
+                1.0e-9)
+        << footName;
+    EXPECT_NE(config.velocityReference, config.angularVelocityReference)
+        << "the test is vacuous if the two agree";
   }
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// The soft `normal_velocity` term: the swing-foot vertical servo, priced instead of imposed.
+// The soft `normal_velocity` term: the swing-foot vertical servo, priced
+// instead of imposed.
 //
-// Removing the HARD constraint is necessary - it fixes the whole height profile of a scheduled swing, so the solver
-// can neither land early nor late - but removing it with nothing in its place leaves no term with the authority to
-// lift a foot at all. The only remaining vertical term is task_space_foot_cost.weights.pos_z at 150, against the
-// leg-joint entries of Q whose reference posture is the foot ON THE FLOOR. The robot shuffles.
+// Removing the HARD constraint is necessary - it fixes the whole height profile
+// of a scheduled swing, so the solver can neither land early nor late - but
+// removing it with nothing in its place leaves no term with the authority to
+// lift a foot at all. The only remaining vertical term is
+// task_space_foot_cost.weights.pos_z at 150, against the leg-joint entries of Q
+// whose reference posture is the foot ON THE FLOOR. The robot shuffles.
 // ---------------------------------------------------------------------------------------------------------------
 
-TEST_F(ContactImplicitFormulationTest, normalVelocityMayBeHardOrSoftButNotBoth) {
-  const mpc_config::TaskFile task = taskWithLists({"normal_velocity"}, {"joint_limits", "normal_velocity"});
+TEST_F(ContactImplicitFormulationTest,
+       normalVelocityMayBeHardOrSoftButNotBoth) {
+  const mpc_config::TaskFile task =
+      taskWithLists({"normal_velocity"}, {"joint_limits", "normal_velocity"});
   const absl::StatusOr<MpcFormulationTasks> tasks = formulationOf(task);
   ASSERT_FALSE(tasks.ok());
-  EXPECT_NE(std::string(tasks.status().message()).find("normal_velocity"), std::string::npos) << tasks.status().message();
+  EXPECT_NE(std::string(tasks.status().message()).find("normal_velocity"),
+            std::string::npos)
+      << tasks.status().message();
 }
 
-TEST_F(ContactImplicitFormulationTest, theSoftNormalVelocityIsAcceptedAlongsideTheContactImplicitTerms) {
-  // The hard form is refused with the contact-implicit terms; the soft form is exactly what should replace it, so the
-  // loader must NOT refuse it. Getting this backwards would leave the formulation with no way to lift a foot.
-  const mpc_config::TaskFile task = taskWithLists(/*hardConstraints=*/{}, contactImplicitSoftConstraints());
+TEST_F(ContactImplicitFormulationTest,
+       theSoftNormalVelocityIsAcceptedAlongsideTheContactImplicitTerms) {
+  // The hard form is refused with the contact-implicit terms; the soft form is
+  // exactly what should replace it, so the loader must NOT refuse it. Getting
+  // this backwards would leave the formulation with no way to lift a foot.
+  const mpc_config::TaskFile task =
+      taskWithLists(/*hardConstraints=*/{}, contactImplicitSoftConstraints());
   const absl::StatusOr<MpcFormulationTasks> tasks = formulationOf(task);
   ASSERT_TRUE(tasks.ok()) << tasks.status().message();
   EXPECT_TRUE(tasks->hasSoftConstraint(MpcSoftConstraintType::kNormalVelocity));
-  EXPECT_FALSE(tasks->hasHardConstraint(MpcHardConstraintType::kNormalVelocity));
+  EXPECT_FALSE(
+      tasks->hasHardConstraint(MpcHardConstraintType::kNormalVelocity));
   EXPECT_TRUE(usesContactImplicitFormulation(*tasks));
 }
 
-TEST_F(ContactImplicitProblemTest, theSoftNormalVelocityTermIsBuiltAndTheHardOneIsNot) {
+TEST_F(ContactImplicitProblemTest,
+       theSoftNormalVelocityTermIsBuiltAndTheHardOneIsNot) {
   for (const std::string& footName : contactNames()) {
-    EXPECT_NO_THROW(problem().softConstraintPtr->get<StateInputSoftConstraint>(absl::StrCat(footName, "_normalVelocitySoft"))) << footName;
-    // The same row must NOT also be an equality, or the swing height is pinned again.
-    EXPECT_FALSE(hasTerm(*problem().equalityConstraintPtr, absl::StrCat(footName, "_normalVelocity"))) << footName;
+    EXPECT_NO_THROW(problem().softConstraintPtr->get<StateInputSoftConstraint>(
+        absl::StrCat(footName, "_normalVelocitySoft")))
+        << footName;
+    // The same row must NOT also be an equality, or the swing height is pinned
+    // again.
+    EXPECT_FALSE(hasTerm(*problem().equalityConstraintPtr,
+                         absl::StrCat(footName, "_normalVelocity")))
+        << footName;
   }
 }
 
-TEST_F(ContactImplicitProblemTest, theSoftNormalVelocityPricesAFootThatFailsToLeaveTheGroundAndOnlyDuringItsSwing) {
-  // The residual is v_z - zdot_ref - positionErrorGain_z * (z_ref - z). A foot sitting still on the ground during a
-  // scheduled swing therefore carries a non-zero residual, which is precisely the pressure to lift that removing the
-  // hard constraint took away. The term must also be swing-only, so it never fights a planted stance foot, and its
-  // weight must be the one the task file configures - here a value that is neither the shipped one nor the default.
+TEST_F(
+    ContactImplicitProblemTest,
+    theSoftNormalVelocityPricesAFootThatFailsToLeaveTheGroundAndOnlyDuringItsSwing) {
+  // The residual is v_z - zdot_ref - positionErrorGain_z * (z_ref - z). A foot
+  // sitting still on the ground during a scheduled swing therefore carries a
+  // non-zero residual, which is precisely the pressure to lift that removing
+  // the hard constraint took away. The term must also be swing-only, so it
+  // never fights a planted stance foot, and its weight must be the one the task
+  // file configures - here a value that is neither the shipped one nor the
+  // default.
   scheduleOneSwing(kContactLeftIndex);
   const scalar_t swingTime = 0.5 * (kSwingStart + kSwingEnd);
   const scalar_t stanceTime = kSwingEnd + 0.3;
   const vector_t& state = interface_->getInitialState();
-  // No joint motion and, from the initial state, no base motion: both feet are planted.
-  const vector_t input = vector_t::Zero(interface_->getEffectiveMpcRobotModel().getInputDim());
+  // No joint motion and, from the initial state, no base motion: both feet are
+  // planted.
+  const vector_t input =
+      vector_t::Zero(interface_->getEffectiveMpcRobotModel().getInputDim());
   const TargetTrajectories noTarget;
 
-  ASSERT_DOUBLE_EQ(interface_->modelSettings().footConstraintConfig.normalVelocitySoftConstraintWeight, kTestNormalVelocityWeight)
+  ASSERT_DOUBLE_EQ(interface_->modelSettings()
+                       .footConstraintConfig.normalVelocitySoftConstraintWeight,
+                   kTestNormalVelocityWeight)
       << "the test task file's weight did not reach ModelSettings";
 
   StateInputSoftConstraint& swingFootTerm =
-      problem().softConstraintPtr->get<StateInputSoftConstraint>(absl::StrCat(contactNames()[kContactLeftIndex], "_normalVelocitySoft"));
+      problem().softConstraintPtr->get<StateInputSoftConstraint>(absl::StrCat(
+          contactNames()[kContactLeftIndex], "_normalVelocitySoft"));
   StateInputSoftConstraint& stanceFootTerm =
-      problem().softConstraintPtr->get<StateInputSoftConstraint>(absl::StrCat(contactNames()[kContactRightIndex], "_normalVelocitySoft"));
-  EXPECT_EQ(swingFootTerm.get<NormalVelocityConstraintCppAd>().getNumConstraints(swingTime), 1U) << "one row, the vertical servo";
+      problem().softConstraintPtr->get<StateInputSoftConstraint>(absl::StrCat(
+          contactNames()[kContactRightIndex], "_normalVelocitySoft"));
+  EXPECT_EQ(
+      swingFootTerm.get<NormalVelocityConstraintCppAd>().getNumConstraints(
+          swingTime),
+      1U)
+      << "one row, the vertical servo";
 
-  // Gated on the schedule: active for the foot the plan wants in the air, and only while it does.
+  // Gated on the schedule: active for the foot the plan wants in the air, and
+  // only while it does.
   EXPECT_TRUE(swingFootTerm.isActive(swingTime));
   EXPECT_FALSE(swingFootTerm.isActive(stanceTime));
   EXPECT_FALSE(stanceFootTerm.isActive(swingTime));
 
-  // Priced: the planted swing foot has a residual, and the cost is the CONFIGURED weight's quadratic in it.
-  problem().preComputationPtr->request(Request::Cost + Request::SoftConstraint, swingTime, state, input);
+  // Priced: the planted swing foot has a residual, and the cost is the
+  // CONFIGURED weight's quadratic in it.
+  problem().preComputationPtr->request(Request::Cost + Request::SoftConstraint,
+                                       swingTime, state, input);
   const vector_t residual =
-      swingFootTerm.get<NormalVelocityConstraintCppAd>().getValue(swingTime, state, input, *problem().preComputationPtr);
+      swingFootTerm.get<NormalVelocityConstraintCppAd>().getValue(
+          swingTime, state, input, *problem().preComputationPtr);
   ASSERT_EQ(residual.size(), 1);
-  EXPECT_GT(std::abs(residual(0)), 1.0e-2) << "a foot that stays down mid-swing must be told to lift";
-  EXPECT_NEAR(swingFootTerm.getValue(swingTime, state, input, noTarget, *problem().preComputationPtr),
-              0.5 * kTestNormalVelocityWeight * residual(0) * residual(0), 1.0e-9 * (1.0 + kTestNormalVelocityWeight));
+  EXPECT_GT(std::abs(residual(0)), 1.0e-2)
+      << "a foot that stays down mid-swing must be told to lift";
+  EXPECT_NEAR(swingFootTerm.getValue(swingTime, state, input, noTarget,
+                                     *problem().preComputationPtr),
+              0.5 * kTestNormalVelocityWeight * residual(0) * residual(0),
+              1.0e-9 * (1.0 + kTestNormalVelocityWeight));
 }
 
 }  // namespace

@@ -52,22 +52,28 @@ constexpr float kNextSwingAlpha = 0.45f;
 constexpr float kNextSwingEmission = 0.4f;
 constexpr float kStanceAlpha = 0.35f;
 constexpr float kStanceEmission = 0.2f;
-// A polygon: a contact point with fewer configured corners draws the default patch.
+// A polygon: a contact point with fewer configured corners draws the default
+// patch.
 constexpr int kMinConfiguredCorners = 3;
 }  // namespace
 
-ContactPatchStyle TargetContactPatchVisualization::styleFor(size_t contact, const TargetContactPatch& patch) {
-  const std::array<float, kRgbChannels>& hue = kPatchHues[contact % kPatchHues.size()];
+ContactPatchStyle TargetContactPatchVisualization::styleFor(
+    size_t contact, const TargetContactPatch& patch) {
+  const std::array<float, kRgbChannels>& hue =
+      kPatchHues[contact % kPatchHues.size()];
   ContactPatchStyle style;
   switch (patch.kind) {
-    case TargetContactPatch::Kind::kSwingInFlight:  // the step being executed: bright and filled
-      style.rgba = {hue[kRedChannel], hue[kGreenChannel], hue[kBlueChannel], kSwingInFlightAlpha};
+    case TargetContactPatch::Kind::kSwingInFlight:  // the step being executed:
+                                                    // bright and filled
+      style.rgba = {hue[kRedChannel], hue[kGreenChannel], hue[kBlueChannel],
+                    kSwingInFlightAlpha};
       style.fill = true;
       style.arrow = true;
       style.emission = kSwingInFlightEmission;
       return style;
     case TargetContactPatch::Kind::kNextSwing:  // the step after: translucent
-      style.rgba = {hue[kRedChannel], hue[kGreenChannel], hue[kBlueChannel], kNextSwingAlpha};
+      style.rgba = {hue[kRedChannel], hue[kGreenChannel], hue[kBlueChannel],
+                    kNextSwingAlpha};
       style.fill = true;
       style.arrow = true;
       style.emission = kNextSwingEmission;
@@ -75,25 +81,31 @@ ContactPatchStyle TargetContactPatchVisualization::styleFor(size_t contact, cons
     case TargetContactPatch::Kind::kStance:
       break;
   }
-  // Where the foot is held: a faint outline. Also a kind outside the enumerators, which a patch decoded from a newer
-  // controller can carry.
-  style.rgba = {hue[kRedChannel], hue[kGreenChannel], hue[kBlueChannel], kStanceAlpha};
+  // Where the foot is held: a faint outline. Also a kind outside the
+  // enumerators, which a patch decoded from a newer controller can carry.
+  style.rgba = {hue[kRedChannel], hue[kGreenChannel], hue[kBlueChannel],
+                kStanceAlpha};
   style.fill = false;
   style.arrow = false;
   style.emission = kStanceEmission;
   return style;
 }
 
-void TargetContactPatchVisualization::addSceneGeoms(const VisualizationFrame& frame) {
+void TargetContactPatchVisualization::addSceneGeoms(
+    const VisualizationFrame& frame) {
   if (frame.sim == nullptr || frame.scene == nullptr) return;
   frame.sim->copyTargetContactPatches(scratch_);
-  const std::vector<ContactPatchCorners>& configured = frame.sim->getConfig().contactPatchCorners;
+  const std::vector<ContactPatchCorners>& configured =
+      frame.sim->getConfig().contactPatchCorners;
   const ContactPatchCorners fallback = defaultContactPatchCorners();
   for (size_t contact = 0; contact < scratch_.size(); ++contact) {
     const TargetContactPatch& patch = scratch_[contact];
     if (!patch.valid) continue;
-    const bool hasCorners = contact < configured.size() && configured[contact].size() >= kMinConfiguredCorners;
-    addContactPatchGeoms(frame.scene, patch, hasCorners ? configured[contact] : fallback, styleFor(contact, patch));
+    const bool hasCorners = contact < configured.size() &&
+                            configured[contact].size() >= kMinConfiguredCorners;
+    addContactPatchGeoms(frame.scene, patch,
+                         hasCorners ? configured[contact] : fallback,
+                         styleFor(contact, patch));
   }
 }
 

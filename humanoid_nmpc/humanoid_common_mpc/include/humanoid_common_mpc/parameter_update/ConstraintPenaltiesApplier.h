@@ -38,35 +38,49 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Applies the penalties of the soft constraints: the mu and delta of the contact wrench cone, the friction force cone and
- * the contact moment of every foot, and of the joint limits and the foot collision. Only these are hot: the geometric
- * coefficients beside them (friction_coefficient, min_normal_force, ...) are baked into the constraints when the
- * problem is built.
+ * Applies the penalties of the soft constraints: the mu and delta of the
+ * contact wrench cone, the friction force cone and the contact moment of every
+ * foot, and of the joint limits, the foot collision and its barrier function
+ * (with the barrier function's rate gamma, a parameter of its generated
+ * library). Only these are hot: the geometric coefficients beside them
+ * (friction_coefficient, min_normal_force, ...) are baked into the constraints
+ * when the problem is built.
  *
- * WHICH delta is written into a cone depends on the penalty that is actually installed, not on the file, and the
- * factory's own contactConePenaltyParameters() - the function it built the penalty with - decides it. A schedule-gated
- * cone is wrapped in a RelaxedBarrierPenalty, whose `delta` is the width of its quadratic relaxation and is read straight
- * from the file. An UN-gated cone - the contact-implicit formulation - is wrapped in a SquaredHingePenalty built with
- * delta = 0, because a hinge's delta is the OFFSET of its zero, and the whole point of the hinge there is that its zero
- * sits exactly on the cone that a foot at zero wrench lies on. Writing the barrier's delta into it would move that zero
- * into the interior and reinstate the very force floor that dropping `min_normal_force` and the friction cone's parabolic
- * margin exists to remove.
+ * WHICH delta is written into a cone depends on the penalty that is actually
+ * installed, not on the file, and the factory's own
+ * contactConePenaltyParameters() - the function it built the penalty with -
+ * decides it. A schedule-gated cone is wrapped in a RelaxedBarrierPenalty,
+ * whose `delta` is the width of its quadratic relaxation and is read straight
+ * from the file. An UN-gated cone - the contact-implicit formulation - is
+ * wrapped in a SquaredHingePenalty built with delta = 0, because a hinge's
+ * delta is the OFFSET of its zero, and the whole point of the hinge there is
+ * that its zero sits exactly on the cone that a foot at zero wrench lies on.
+ * Writing the barrier's delta into it would move that zero into the interior
+ * and reinstate the very force floor that dropping `min_normal_force` and the
+ * friction cone's parabolic margin exists to remove.
  *
  * Not thread-safe (HotFieldApplier).
  */
 class ConstraintPenaltiesApplier final : public HotFieldApplier {
  public:
   /**
-   * The fields it applies: the mu and delta of contacts.contact_wrench_cone_soft_constraint and
-   * contacts.friction_force_cone_soft_constraint, contacts.contact_moment_xy_soft_constraint, joint_limits and the mu and
-   * delta of collision_constraint.
+   * The fields it applies: the mu and delta of
+   * contacts.contact_wrench_cone_soft_constraint and
+   * contacts.friction_force_cone_soft_constraint,
+   * contacts.contact_moment_xy_soft_constraint, joint_limits, the mu and delta
+   * of collision_constraint, and the gamma, mu and delta of
+   * collision_cbf_constraint.
    */
   static absl::Span<const absl::string_view> staticFields();
 
   ConstraintPenaltiesApplier() = default;
 
-  absl::string_view name() const override { return "ConstraintPenaltiesApplier"; }
-  absl::Span<const absl::string_view> fields() const final { return staticFields(); }
+  absl::string_view name() const override {
+    return "ConstraintPenaltiesApplier";
+  }
+  absl::Span<const absl::string_view> fields() const final {
+    return staticFields();
+  }
   void apply(HotUpdateTarget& target) override;
 };
 

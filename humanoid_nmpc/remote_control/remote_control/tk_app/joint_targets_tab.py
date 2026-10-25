@@ -45,14 +45,21 @@ def _classify_joint_section(joint_name: str) -> str:
     name_lower = joint_name.lower()
     if re.search(r"waist|spine|torso|back", name_lower):
         return "Torso & Spine"
-    if re.search(r"left.*leg|l_leg|left.*hip|left.*knee|left.*ankle", name_lower):
+    if re.search(
+        r"left.*leg|l_leg|left.*hip|left.*knee|left.*ankle", name_lower
+    ):
         return "Left Leg"
-    if re.search(r"right.*leg|r_leg|right.*hip|right.*knee|right.*ankle", name_lower):
+    if re.search(
+        r"right.*leg|r_leg|right.*hip|right.*knee|right.*ankle", name_lower
+    ):
         return "Right Leg"
-    if re.search(r"left.*arm|l_arm|left.*shoulder|left.*elbow|left.*wrist", name_lower):
+    if re.search(
+        r"left.*arm|l_arm|left.*shoulder|left.*elbow|left.*wrist", name_lower
+    ):
         return "Left Arm"
     if re.search(
-        r"right.*arm|r_arm|right.*shoulder|right.*elbow|right.*wrist", name_lower
+        r"right.*arm|r_arm|right.*shoulder|right.*elbow|right.*wrist",
+        name_lower,
     ):
         return "Right Arm"
     if re.search(r"neck|head", name_lower):
@@ -115,7 +122,9 @@ class JointTargetsTab(ttk.Frame):
         self.scroll_container = scrollable_frame.ScrollableFrame(
             self, bg_color="#2c2c2c"
         )
-        self.scroll_container.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        self.scroll_container.pack(
+            fill="both", expand=True, padx=10, pady=(0, 10)
+        )
 
         # Load joint names from PD gains file and defaults from reference
         self._load_joint_data()
@@ -163,9 +172,9 @@ class JointTargetsTab(ttk.Frame):
         search_frame = ttk.Frame(self)
         search_frame.pack(fill="x", padx=10, pady=(0, 6))
 
-        ttk.Label(search_frame, text="🔍 Filter:", font=("Helvetica", 9, "bold")).pack(
-            side="left", padx=(0, 4)
-        )
+        ttk.Label(
+            search_frame, text="🔍 Filter:", font=("Helvetica", 9, "bold")
+        ).pack(side="left", padx=(0, 4))
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", self._on_search_filter)
         search_entry = ttk.Entry(
@@ -176,7 +185,10 @@ class JointTargetsTab(ttk.Frame):
         search_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
 
         clear_btn = ttk.Button(
-            search_frame, text="Clear", width=6, command=lambda: self.search_var.set("")
+            search_frame,
+            text="Clear",
+            width=6,
+            command=lambda: self.search_var.set(""),
         )
         clear_btn.pack(side="left")
 
@@ -191,7 +203,9 @@ class JointTargetsTab(ttk.Frame):
 
     def _load_joint_data(self) -> None:
         """The joints of the PD gains file, and their default positions in the reference file."""
-        self.joint_names = config_files.read_pd_gains_joint_names(self.pd_gains_file)
+        self.joint_names = config_files.read_pd_gains_joint_names(
+            self.pd_gains_file
+        )
         self.default_positions = config_files.read_default_joint_state(
             self.reference_file
         )
@@ -265,7 +279,8 @@ class JointTargetsTab(ttk.Frame):
     def _update_enabled_state(self) -> None:
         """Enable sliders only in JOINT_PD mode."""
         is_joint_pd = (
-            self.fsm_mode_var is not None and self.fsm_mode_var.get() == "JOINT_PD"
+            self.fsm_mode_var is not None
+            and self.fsm_mode_var.get() == "JOINT_PD"
         )
 
         if is_joint_pd:
@@ -305,7 +320,8 @@ class JointTargetsTab(ttk.Frame):
 
         try:
             targets = {
-                jname: row.get_value() for jname, row in self.slider_rows.items()
+                jname: row.get_value()
+                for jname, row in self.slider_rows.items()
             }
             self.param_publisher.publish(operator_bus.joint_targets(targets))
         # pylint: disable-next=broad-exception-caught  # Shown to the operator: a Tk callback must not raise.

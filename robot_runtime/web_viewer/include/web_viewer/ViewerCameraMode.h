@@ -35,17 +35,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace robot::web_viewer {
 
-// How the viewer's camera moves: with the mouse only, or following the robot's floating base (MuJoCo's
-// mjCAMERA_FREE and mjCAMERA_TRACKING).
+// How the viewer's camera moves: with the mouse only, or following the robot's
+// floating base (MuJoCo's mjCAMERA_FREE and mjCAMERA_TRACKING).
 enum class ViewerCameraMode {
   kFree,
   kTracking,
 };
 
-/** Returns the name the page and /state use for `mode`: "free" or "tracking". */
+/** Returns the name the page and /state use for `mode`: "free" or "tracking".
+ */
 absl::string_view viewerCameraModeName(ViewerCameraMode mode);
 
-/** Returns the mode `name` (viewerCameraModeName()) names, or nullopt for any other string. */
+/** Returns the mode `name` (viewerCameraModeName()) names, or nullopt for any
+ * other string. */
 std::optional<ViewerCameraMode> parseViewerCameraMode(absl::string_view name);
 
 }  // namespace robot::web_viewer

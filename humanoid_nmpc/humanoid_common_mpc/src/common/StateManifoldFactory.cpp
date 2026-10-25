@@ -47,38 +47,49 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-absl::StatusOr<std::shared_ptr<const StateManifold>> stateManifoldOf(const TuningLayout& placedLayout, size_t stateDim) {
+absl::StatusOr<std::shared_ptr<const StateManifold>> stateManifoldOf(
+    const TuningLayout& placedLayout, size_t stateDim) {
   size_t stateStart = 0;
   std::vector<StateManifoldSegment> segments;
   segments.reserve(placedLayout.segments.size());
   for (const TuningSegment& segment : placedLayout.segments) {
     if (segment.stateStart != stateStart) {
-      return absl::InvalidArgumentError(absl::StrCat("[stateManifoldOf] the block '", segment.name, "' of the ",
-                                                     describeTuningLayout(placedLayout), " starts at state row ", segment.stateStart,
-                                                     ", not at ", stateStart, ": the layout is not placed (placeTuningLayout())."));
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[stateManifoldOf] the block '", segment.name, "' of the ",
+          describeTuningLayout(placedLayout), " starts at state row ",
+          segment.stateStart, ", not at ", stateStart,
+          ": the layout is not placed (placeTuningLayout())."));
     }
     stateStart += segment.stateDim;
     if (segment.kind != TuningSegmentKind::kEulerZyxOrientation) {
-      if (segment.stateDim > 0) segments.push_back(StateManifoldSegment::euclidean(segment.stateDim));
+      if (segment.stateDim > 0)
+        segments.push_back(StateManifoldSegment::euclidean(segment.stateDim));
       continue;
     }
     if (segment.stateDim != kQuaternionOrientationStateDim) {
-      return absl::InvalidArgumentError(absl::StrCat("[stateManifoldOf] the orientation block '", segment.name, "' of the ",
-                                                     describeTuningLayout(placedLayout), " is placed on ", segment.stateDim,
-                                                     " state rows; the state stores the base orientation as a quaternion, on ",
-                                                     kQuaternionOrientationStateDim, " rows."));
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[stateManifoldOf] the orientation block '", segment.name,
+          "' of the ", describeTuningLayout(placedLayout), " is placed on ",
+          segment.stateDim,
+          " state rows; the state stores the base orientation as a quaternion, "
+          "on ",
+          kQuaternionOrientationStateDim, " rows."));
     }
     segments.push_back(StateManifoldSegment::unitQuaternion());
   }
   if (stateStart != stateDim) {
-    return absl::InvalidArgumentError(absl::StrCat("[stateManifoldOf] the ", describeTuningLayout(placedLayout), " is placed on ",
-                                                   stateStart, " state rows, but the state has ", stateDim, "."));
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[stateManifoldOf] the ", describeTuningLayout(placedLayout),
+        " is placed on ", stateStart, " state rows, but the state has ",
+        stateDim, "."));
   }
-  ASSIGN_OR_RETURN(std::shared_ptr<const ProductStateManifold> manifold, ProductStateManifold::create(std::move(segments)));
+  ASSIGN_OR_RETURN(std::shared_ptr<const ProductStateManifold> manifold,
+                   ProductStateManifold::create(std::move(segments)));
   return std::shared_ptr<const StateManifold>(std::move(manifold));
 }
 
-absl::StatusOr<std::shared_ptr<const StateManifold>> stateManifoldOf(const MpcRobotModelBase<scalar_t>& model) {
+absl::StatusOr<std::shared_ptr<const StateManifold>> stateManifoldOf(
+    const MpcRobotModelBase<scalar_t>& model) {
   return stateManifoldOf(model.getTuningLayout(), model.getStateDim());
 }
 

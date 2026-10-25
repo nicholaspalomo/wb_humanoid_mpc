@@ -37,16 +37,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The configuration of the DCM terminal cost from the task file's dcm_terminal_cost block: each field becomes the member
- * of the same name (weight_x and weight_y the two weights), and the schema's defaults are DcmTerminalCost::Config's, so
- * an absent field gives the member's default.
- * com_height is optional: absent, it is the model's pendulum, which the configuration leaves unset (comHeight nullopt)
- * for DcmTerminalCost::resolveConfig() to resolve; a height the file gives must be positive.
+ * The configuration of the DCM terminal cost from the task file's
+ * dcm_terminal_cost block: each field becomes the member of the same name
+ * (weight_x and weight_y the two weights), and the schema's defaults are
+ * DcmTerminalCost::Config's, so an absent field gives the member's default.
+ * com_height is optional: absent, it is the model's pendulum, which the
+ * configuration leaves unset (comHeight nullopt) for
+ * DcmTerminalCost::resolveConfig() to resolve; a height the file gives must be
+ * positive.
  *
- * @return The configuration; InvalidArgument for a com_height that is given but not positive (0 included, which used
- *         to stand for the model's) and for every rejection of DcmTerminalCost::Config::validate(), which a value that
- *         is not finite is among.
+ * @return The configuration; InvalidArgument for a com_height that is given but
+ * not positive (0 included, which used to stand for the model's) and for every
+ * rejection of DcmTerminalCost::Config::validate(), which a value that is not
+ * finite is among.
  */
-absl::StatusOr<DcmTerminalCost::Config> dcmTerminalCostConfigFromConfig(const mpc_config::DcmTerminalCostConfig& dcmTerminalCost);
+absl::StatusOr<DcmTerminalCost::Config> dcmTerminalCostConfigFromConfig(
+    const mpc_config::DcmTerminalCostConfig& dcmTerminalCost);
 
 }  // namespace ocs2::humanoid

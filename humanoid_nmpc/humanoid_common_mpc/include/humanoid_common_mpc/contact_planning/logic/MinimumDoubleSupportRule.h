@@ -36,17 +36,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `minimum_double_support`: after a touch-down at node k the other foot may not lift off before k + n_ds, the node of
- * the touch-down itself included (a lift-off at the very node the other foot lands would be a weight transfer with no
- * double support at all).
+ * `minimum_double_support`: after a touch-down at node k the other foot may not
+ * lift off before k + n_ds, the node of the touch-down itself included (a
+ * lift-off at the very node the other foot lands would be a weight transfer
+ * with no double support at all).
  *
- * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
  */
 class MinimumDoubleSupportRule final : public ContactLogicRule {
  public:
   std::string describe() const override;
   void configure(const ContactPlanningConfig& config) override;
-  bool propagate(const ContactLogicState& state, MiqpAssignment& a, bool& changed) const override;
+  bool propagate(const ContactLogicState& state,
+                 MiqpAssignment& a,
+                 bool& changed) const override;
 
  private:
   scalar_t minDoubleSupportDuration_ = 0.0;

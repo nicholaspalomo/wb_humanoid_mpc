@@ -51,19 +51,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-/** InvalidArgument naming `path` unless `value` is a gain: a finite non-negative number. */
+/** InvalidArgument naming `path` unless `value` is a gain: a finite
+ * non-negative number. */
 absl::Status checkGain(double value, absl::string_view path) {
   // LINT.IfChange(non_negative_pd_gains)
   if (!std::isfinite(value) || value < 0.0) {
     return absl::InvalidArgumentError(
-        absl::StrCat("[JointPdGains] ", path, " is ", value, "; a gain must be a finite non-negative number."));
+        absl::StrCat("[JointPdGains] ", path, " is ", value,
+                     "; a gain must be a finite non-negative number."));
   }
   // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/joint_pd_gains_file.proto:non_negative_pd_gains)
   return absl::OkStatus();
 }
 
-/** `value` when the file sets it, else `fallback`; InvalidArgument naming `path` for a value that is not a gain. */
-absl::StatusOr<scalar_t> gainOrFallback(std::optional<double> value, absl::string_view path, scalar_t fallback) {
+/** `value` when the file sets it, else `fallback`; InvalidArgument naming
+ * `path` for a value that is not a gain. */
+absl::StatusOr<scalar_t> gainOrFallback(std::optional<double> value,
+                                        absl::string_view path,
+                                        scalar_t fallback) {
   if (!value.has_value()) {
     return fallback;
   }
@@ -71,92 +76,130 @@ absl::StatusOr<scalar_t> gainOrFallback(std::optional<double> value, absl::strin
   return *value;
 }
 
-/** `value`, which default_gains must set; InvalidArgument naming `path` when it is absent or not a gain. */
-absl::StatusOr<scalar_t> requiredGain(std::optional<double> value, absl::string_view path) {
+/** `value`, which default_gains must set; InvalidArgument naming `path` when it
+ * is absent or not a gain. */
+absl::StatusOr<scalar_t> requiredGain(std::optional<double> value,
+                                      absl::string_view path) {
   if (!value.has_value()) {
-    return absl::InvalidArgumentError(absl::StrCat("[JointPdGains] ", path,
-                                                   " is not set; default_gains sets kp, kd and torque_limit, as the controllers "
-                                                   "have no gains of their own."));
+    return absl::InvalidArgumentError(
+        absl::StrCat("[JointPdGains] ", path,
+                     " is not set; default_gains sets kp, kd and torque_limit, "
+                     "as the controllers "
+                     "have no gains of their own."));
   }
   RETURN_IF_ERROR(checkGain(*value, path));
   return *value;
 }
 
-/** The gains kp, kd and torque limit of a joint_gains entry over `fallback` (default_gains). */
-absl::StatusOr<JointPdGainsDefaults> gainSet(std::optional<double> kp,
-                                             std::optional<double> kd,
-                                             std::optional<double> torqueLimit,
-                                             absl::string_view path,
-                                             const JointPdGainsDefaults& fallback) {
+/** The gains kp, kd and torque limit of a joint_gains entry over `fallback`
+ * (default_gains). */
+absl::StatusOr<JointPdGainsDefaults> gainSet(
+    std::optional<double> kp,
+    std::optional<double> kd,
+    std::optional<double> torqueLimit,
+    absl::string_view path,
+    const JointPdGainsDefaults& fallback) {
   JointPdGainsDefaults gains;
-  ASSIGN_OR_RETURN(gains.kp, gainOrFallback(kp, absl::StrCat(path, ".kp"), fallback.kp));
-  ASSIGN_OR_RETURN(gains.kd, gainOrFallback(kd, absl::StrCat(path, ".kd"), fallback.kd));
-  ASSIGN_OR_RETURN(gains.torqueLimit, gainOrFallback(torqueLimit, absl::StrCat(path, ".torque_limit"), fallback.torqueLimit));
+  ASSIGN_OR_RETURN(gains.kp,
+                   gainOrFallback(kp, absl::StrCat(path, ".kp"), fallback.kp));
+  ASSIGN_OR_RETURN(gains.kd,
+                   gainOrFallback(kd, absl::StrCat(path, ".kd"), fallback.kd));
+  ASSIGN_OR_RETURN(
+      gains.torqueLimit,
+      gainOrFallback(torqueLimit, absl::StrCat(path, ".torque_limit"),
+                     fallback.torqueLimit));
   return gains;
 }
 
-/** The controller constants of `file` into `gains`; InvalidArgument naming the field for one out of its range. */
-absl::Status readControllerConstants(const mpc_config::JointPdGainsFile& file, JointPdGains& gains) {
+/** The controller constants of `file` into `gains`; InvalidArgument naming the
+ * field for one out of its range. */
+absl::Status readControllerConstants(const mpc_config::JointPdGainsFile& file,
+                                     JointPdGains& gains) {
   // LINT.IfChange(controller_constants)
   // Negated comparisons, so that NaN is refused too.
-  if (!(file.gravity_comp_damping_fraction >= 0.0 && file.gravity_comp_damping_fraction <= 1.0)) {
-    return absl::InvalidArgumentError(absl::StrCat("[JointPdGains] gravity_comp_damping_fraction is ", file.gravity_comp_damping_fraction,
-                                                   "; it is a fraction of kd, in [0, 1]."));
+  if (!(file.gravity_comp_damping_fraction >= 0.0 &&
+        file.gravity_comp_damping_fraction <= 1.0)) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("[JointPdGains] gravity_comp_damping_fraction is ",
+                     file.gravity_comp_damping_fraction,
+                     "; it is a fraction of kd, in [0, 1]."));
   }
-  if (!std::isfinite(file.max_policy_joint_error) || !(file.max_policy_joint_error > 0.0)) {
-    return absl::InvalidArgumentError(absl::StrCat("[JointPdGains] max_policy_joint_error is ", file.max_policy_joint_error,
-                                                   " rad; it must be a finite positive angle."));
+  if (!std::isfinite(file.max_policy_joint_error) ||
+      !(file.max_policy_joint_error > 0.0)) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("[JointPdGains] max_policy_joint_error is ",
+                     file.max_policy_joint_error,
+                     " rad; it must be a finite positive angle."));
   }
-  if (!std::isfinite(file.diverged_policy_joint_target_bound) || !(file.diverged_policy_joint_target_bound >= 0.0)) {
-    return absl::InvalidArgumentError(absl::StrCat("[JointPdGains] diverged_policy_joint_target_bound is ",
-                                                   file.diverged_policy_joint_target_bound,
-                                                   " rad; it must be a finite non-negative angle."));
+  if (!std::isfinite(file.diverged_policy_joint_target_bound) ||
+      !(file.diverged_policy_joint_target_bound >= 0.0)) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("[JointPdGains] diverged_policy_joint_target_bound is ",
+                     file.diverged_policy_joint_target_bound,
+                     " rad; it must be a finite non-negative angle."));
   }
   // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/joint_pd_gains_file.proto:controller_constants)
   gains.gravityCompDampingFraction = file.gravity_comp_damping_fraction;
   gains.maxPolicyJointError = file.max_policy_joint_error;
-  gains.divergedPolicyJointTargetBound = file.diverged_policy_joint_target_bound;
+  gains.divergedPolicyJointTargetBound =
+      file.diverged_policy_joint_target_bound;
   return absl::OkStatus();
 }
 
 }  // namespace
 
-absl::StatusOr<JointPdGains> jointPdGainsFromConfig(const mpc_config::JointPdGainsFile& file,
-                                                    const std::vector<std::string>& mpcJointNames,
-                                                    const std::vector<std::string>& otherJointNames) {
+absl::StatusOr<JointPdGains> jointPdGainsFromConfig(
+    const mpc_config::JointPdGainsFile& file,
+    const std::vector<std::string>& mpcJointNames,
+    const std::vector<std::string>& otherJointNames) {
   const mpc_config::JointPdGainsFile::Gains& fileDefaults = file.default_gains;
   JointPdGainsDefaults resolvedDefaults;
-  ASSIGN_OR_RETURN(resolvedDefaults.kp, requiredGain(fileDefaults.kp, "default_gains.kp"));
-  ASSIGN_OR_RETURN(resolvedDefaults.kd, requiredGain(fileDefaults.kd, "default_gains.kd"));
-  ASSIGN_OR_RETURN(resolvedDefaults.torqueLimit, requiredGain(fileDefaults.torque_limit, "default_gains.torque_limit"));
+  ASSIGN_OR_RETURN(resolvedDefaults.kp,
+                   requiredGain(fileDefaults.kp, "default_gains.kp"));
+  ASSIGN_OR_RETURN(resolvedDefaults.kd,
+                   requiredGain(fileDefaults.kd, "default_gains.kd"));
+  ASSIGN_OR_RETURN(
+      resolvedDefaults.torqueLimit,
+      requiredGain(fileDefaults.torque_limit, "default_gains.torque_limit"));
 
-  absl::flat_hash_set<absl::string_view> robotJoints(mpcJointNames.begin(), mpcJointNames.end());
+  absl::flat_hash_set<absl::string_view> robotJoints(mpcJointNames.begin(),
+                                                     mpcJointNames.end());
   robotJoints.insert(otherJointNames.begin(), otherJointNames.end());
   std::vector<std::string> notThisRobots;
   absl::flat_hash_map<std::string, JointPdGainsDefaults> named;
   for (size_t i = 0; i < file.joint_gains.size(); ++i) {
     const mpc_config::JointPdGainsFile::JointGains& entry = file.joint_gains[i];
     if (entry.joint.empty()) {
-      return absl::InvalidArgumentError(absl::StrCat("[JointPdGains] joint_gains[", i, "] names no joint."));
+      return absl::InvalidArgumentError(
+          absl::StrCat("[JointPdGains] joint_gains[", i, "] names no joint."));
     }
-    const std::string path = absl::StrCat("joint_gains[joint=", entry.joint, "]");
-    ASSIGN_OR_RETURN(const JointPdGainsDefaults gains, gainSet(entry.kp, entry.kd, entry.torque_limit, path, resolvedDefaults));
+    const std::string path =
+        absl::StrCat("joint_gains[joint=", entry.joint, "]");
+    ASSIGN_OR_RETURN(const JointPdGainsDefaults gains,
+                     gainSet(entry.kp, entry.kd, entry.torque_limit, path,
+                             resolvedDefaults));
     if (!named.emplace(entry.joint, gains).second) {
       return absl::InvalidArgumentError(
-          absl::StrCat("[JointPdGains] joint_gains names the joint ", entry.joint, " twice; a joint is named at most once."));
+          absl::StrCat("[JointPdGains] joint_gains names the joint ",
+                       entry.joint, " twice; a joint is named at most once."));
     }
-    if (!robotJoints.contains(entry.joint)) notThisRobots.push_back(entry.joint);
+    if (!robotJoints.contains(entry.joint))
+      notThisRobots.push_back(entry.joint);
   }
   if (!notThisRobots.empty()) {
-    return absl::InvalidArgumentError(absl::StrCat("[JointPdGains] joint_gains names ", absl::StrJoin(notThisRobots, ", "),
-                                                   ", which this robot does not have: the gains file is another robot's"));
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[JointPdGains] joint_gains names ", absl::StrJoin(notThisRobots, ", "),
+        ", which this robot does not have: the gains file is another robot's"));
   }
 
-  // The gains of every joint the file does not name, then the named ones over them.
-  JointPdGains gains = defaultJointPdGains(resolvedDefaults, mpcJointNames, otherJointNames);
+  // The gains of every joint the file does not name, then the named ones over
+  // them.
+  JointPdGains gains =
+      defaultJointPdGains(resolvedDefaults, mpcJointNames, otherJointNames);
   RETURN_IF_ERROR(readControllerConstants(file, gains));
   for (size_t i = 0; i < mpcJointNames.size(); ++i) {
-    const absl::flat_hash_map<std::string, JointPdGainsDefaults>::const_iterator it = named.find(mpcJointNames[i]);
+    const absl::flat_hash_map<std::string, JointPdGainsDefaults>::const_iterator
+        it = named.find(mpcJointNames[i]);
     if (it == named.end()) continue;
     const Eigen::Index index = static_cast<Eigen::Index>(i);
     gains.mpcJointKp[index] = it->second.kp;
@@ -164,7 +207,8 @@ absl::StatusOr<JointPdGains> jointPdGainsFromConfig(const mpc_config::JointPdGai
     gains.mpcJointTorqueLimit[index] = it->second.torqueLimit;
   }
   for (size_t i = 0; i < otherJointNames.size(); ++i) {
-    const absl::flat_hash_map<std::string, JointPdGainsDefaults>::const_iterator it = named.find(otherJointNames[i]);
+    const absl::flat_hash_map<std::string, JointPdGainsDefaults>::const_iterator
+        it = named.find(otherJointNames[i]);
     if (it == named.end()) continue;
     const Eigen::Index index = static_cast<Eigen::Index>(i);
     gains.otherJointKp[index] = it->second.kp;

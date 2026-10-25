@@ -50,55 +50,67 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::visualization {
 
 /**
- * Hands the visualization thread's messages (viz/telemetry, viz/scene) to the bus's IO thread, which publishes them
- * with Bus::publishFromIoThread(). The visualization thread runs under SCHED_IDLE; Bus::publish() would take the bus's
- * queue and counter mutexes, which the solver thread's own Bus::publish() takes too, and a SCHED_IDLE thread preempted
- * while it holds one holds up the solver until a core is idle. Through the outbox it takes no lock: a lock-free queue of
- * preallocated messages, drained by a periodic callback of the bus.
+ * Hands the visualization thread's messages (viz/telemetry, viz/scene) to the
+ * bus's IO thread, which publishes them with Bus::publishFromIoThread(). The
+ * visualization thread runs under SCHED_IDLE; Bus::publish() would take the
+ * bus's queue and counter mutexes, which the solver thread's own Bus::publish()
+ * takes too, and a SCHED_IDLE thread preempted while it holds one holds up the
+ * solver until a core is idle. Through the outbox it takes no lock: a lock-free
+ * queue of preallocated messages, drained by a periodic callback of the bus.
  *
  * Usage, before bus.start():
  *
- *   ASSIGN_OR_RETURN(std::shared_ptr<IoThreadOutbox> outbox, IoThreadOutbox::Attach(bus, period, capacity));
- *   outbox->post(topic, message);  // the visualization thread
+ *   ASSIGN_OR_RETURN(std::shared_ptr<IoThreadOutbox> outbox,
+ * IoThreadOutbox::Attach(bus, period, capacity)); outbox->post(topic, message);
+ * // the visualization thread
  *
- * THREADS. post() on one thread at a time (the visualization thread); drain() on the bus's IO thread only (Attach()
- * registers it). publishFailures() on any thread. Shared: the bus's callback and the poster each hold it, so it lives as
- * long as the longer of the two (the reason for std::shared_ptr: Bus::addPeriodicCallback() keeps a copyable
- * std::function).
+ * THREADS. post() on one thread at a time (the visualization thread); drain()
+ * on the bus's IO thread only (Attach() registers it). publishFailures() on any
+ * thread. Shared: the bus's callback and the poster each hold it, so it lives
+ * as long as the longer of the two (the reason for std::shared_ptr:
+ * Bus::addPeriodicCallback() keeps a copyable std::function).
  */
 class IoThreadOutbox {
  public:
-  /** How many messages may wait for the IO thread: a few polls' worth of the visualization's messages. */
+  /** How many messages may wait for the IO thread: a few polls' worth of the
+   * visualization's messages. */
   static constexpr size_t kDefaultCapacity = 32;
 
   /**
-   * An outbox of `capacity` messages that `bus` drains every `period` on its IO thread. `bus` must not be running, and
-   * must outlive every post() that is to be published (the callback runs only while the bus does).
+   * An outbox of `capacity` messages that `bus` drains every `period` on its IO
+   * thread. `bus` must not be running, and must outlive every post() that is to
+   * be published (the callback runs only while the bus does).
    *
-   * @return the errors of Bus::addPeriodicCallback() (a running bus, a non-positive period); InvalidArgument for a zero
-   *         capacity.
+   * @return the errors of Bus::addPeriodicCallback() (a running bus, a
+   * non-positive period); InvalidArgument for a zero capacity.
    */
-  static absl::StatusOr<std::shared_ptr<IoThreadOutbox>> Attach(robot::ipc::Bus& bus, absl::Duration period, size_t capacity);
+  static absl::StatusOr<std::shared_ptr<IoThreadOutbox>> Attach(
+      robot::ipc::Bus& bus, absl::Duration period, size_t capacity);
 
   IoThreadOutbox(const IoThreadOutbox&) = delete;
   IoThreadOutbox& operator=(const IoThreadOutbox&) = delete;
   ~IoThreadOutbox() = default;
 
   /**
-   * Copies `message` into the queue for `topic`; the copy reuses its slot's storage, so it allocates only when a message
-   * outgrows what the slot held. ResourceExhausted when the queue is full (the message is dropped); InvalidArgument for
-   * a message that is neither a TelemetrySeries nor a VisualizationScene.
+   * Copies `message` into the queue for `topic`; the copy reuses its slot's
+   * storage, so it allocates only when a message outgrows what the slot held.
+   * ResourceExhausted when the queue is full (the message is dropped);
+   * InvalidArgument for a message that is neither a TelemetrySeries nor a
+   * VisualizationScene.
    */
-  absl::Status post(absl::string_view topic, const google::protobuf::Message& message);
+  absl::Status post(absl::string_view topic,
+                    const google::protobuf::Message& message);
 
   /**
-   * Publishes the queued messages on the bus, oldest first, at most a queue's worth; IO thread only. A message the bus
-   * refuses is counted and logged.
+   * Publishes the queued messages on the bus, oldest first, at most a queue's
+   * worth; IO thread only. A message the bus refuses is counted and logged.
    */
   void drain();
 
   /** Messages the bus refused in drain(). */
-  uint64_t publishFailures() const { return publishFailures_.load(std::memory_order_relaxed); }
+  uint64_t publishFailures() const {
+    return publishFailures_.load(std::memory_order_relaxed);
+  }
 
  private:
   /** One queued message: `topic` and the message of `kind`. */
@@ -115,7 +127,8 @@ class IoThreadOutbox {
   /** Publishes one queued message from the IO thread. */
   void publish(const Slot& slot);
 
-  // The bus whose IO thread calls drain(); it outlives every drain(), which only it calls.
+  // The bus whose IO thread calls drain(); it outlives every drain(), which
+  // only it calls.
   robot::ipc::Bus* absl_nonnull bus_;
   robot::realtime::SpscQueue<Slot> queue_;
   std::atomic<uint64_t> publishFailures_{0};

@@ -75,8 +75,10 @@ const std::vector<std::string>& termList(const File& file, TermKind kind) {
   return file.execution;
 }
 
-/** The formulation of `file`: its eight lists as they are, an absent one empty; InvalidArgument for an empty name. */
-absl::StatusOr<ContactPlanningFormulation> formulationFromConfig(const File& file) {
+/** The formulation of `file`: its eight lists as they are, an absent one empty;
+ * InvalidArgument for an empty name. */
+absl::StatusOr<ContactPlanningFormulation> formulationFromConfig(
+    const File& file) {
   ContactPlanningFormulation formulation;
   for (const TermKind kind : allTermKinds()) {
     const std::vector<std::string>& names = termList(file, kind);
@@ -84,7 +86,8 @@ absl::StatusOr<ContactPlanningFormulation> formulationFromConfig(const File& fil
       if (names[i].empty()) {
         return absl::InvalidArgumentError(
             absl::StrCat("[ContactPlanningConfig] ", termKindName(kind), "[", i,
-                         "] is empty: every entry of a term list names a term (ContactPlanningFormulation.h)"));
+                         "] is empty: every entry of a term list names a term "
+                         "(ContactPlanningFormulation.h)"));
       }
     }
     formulation.list(kind) = names;
@@ -92,8 +95,10 @@ absl::StatusOr<ContactPlanningFormulation> formulationFromConfig(const File& fil
   return formulation;
 }
 
-/** The penalty of a soft constraint whose block has `slack`: the shared penalty with the halves the block sets. */
-std::optional<SlackPenalty> termSlack(std::optional<File::TermSlackConfig> slack, const SlackPenalty& shared) {
+/** The penalty of a soft constraint whose block has `slack`: the shared penalty
+ * with the halves the block sets. */
+std::optional<SlackPenalty> termSlack(
+    std::optional<File::TermSlackConfig> slack, const SlackPenalty& shared) {
   if (!slack.has_value()) return std::nullopt;
   SlackPenalty penalty = shared;
   if (slack->quadratic.has_value()) penalty.quadratic = *slack->quadratic;
@@ -101,39 +106,49 @@ std::optional<SlackPenalty> termSlack(std::optional<File::TermSlackConfig> slack
   return penalty;
 }
 
-/** Whether planner.threading `name` runs the planner on a worker thread; InvalidArgument listing the names otherwise. */
+/** Whether planner.threading `name` runs the planner on a worker thread;
+ * InvalidArgument listing the names otherwise. */
 absl::StatusOr<bool> runsInBackgroundThread(absl::string_view name) {
   if (name == kBackgroundThreadPlannerThreading) return true;
   if (name == kPreSolveHookPlannerThreading) return false;
   return absl::InvalidArgumentError(
       absl::StrCat("[ContactPlanningConfig] planner.threading is '", name,
-                   "', which is not where a planner runs; valid names are: ", absl::StrJoin(plannerThreadingNames(), ", "), "."));
+                   "', which is not where a planner runs; valid names are: ",
+                   absl::StrJoin(plannerThreadingNames(), ", "), "."));
 }
 
-/** Whether terminal_dcm.target `name` tracks the commanded velocity; InvalidArgument listing the names otherwise. */
+/** Whether terminal_dcm.target `name` tracks the commanded velocity;
+ * InvalidArgument listing the names otherwise. */
 absl::StatusOr<bool> tracksCommandedVelocity(absl::string_view name) {
   if (name == kRestTerminalDcmTarget) return false;
   if (name == kCommandedVelocityTerminalDcmTarget) return true;
-  return absl::InvalidArgumentError(
-      absl::StrCat("[ContactPlanningConfig] terminal_dcm.target is '", name,
-                   "', which is not a target of the terminal DCM; valid names are: ", absl::StrJoin(terminalDcmTargetNames(), ", "), "."));
+  return absl::InvalidArgumentError(absl::StrCat(
+      "[ContactPlanningConfig] terminal_dcm.target is '", name,
+      "', which is not a target of the terminal DCM; valid names are: ",
+      absl::StrJoin(terminalDcmTargetNames(), ", "), "."));
 }
 
 /**
- * The LIP height of shared.com_height: unset, for the model's pendulum, where the file leaves it out; the height where
- * it gives a positive one; InvalidArgument otherwise, also for the 0 that used to stand for the model's.
+ * The LIP height of shared.com_height: unset, for the model's pendulum, where
+ * the file leaves it out; the height where it gives a positive one;
+ * InvalidArgument otherwise, also for the 0 that used to stand for the model's.
  */
-absl::StatusOr<std::optional<scalar_t>> comHeightFromConfig(std::optional<double> comHeight) {
+absl::StatusOr<std::optional<scalar_t>> comHeightFromConfig(
+    std::optional<double> comHeight) {
   if (!comHeight.has_value()) return std::nullopt;
   if (!std::isfinite(*comHeight) || *comHeight <= 0.0) {
-    return absl::InvalidArgumentError(absl::StrCat("[ContactPlanningConfig] shared.com_height is ", *comHeight,
-                                                   ", which is not a pendulum height: give a positive height, or leave shared.com_height ",
-                                                   "out for the model's center of mass above its feet at the task file's initial_state."));
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[ContactPlanningConfig] shared.com_height is ", *comHeight,
+        ", which is not a pendulum height: give a positive height, or leave "
+        "shared.com_height ",
+        "out for the model's center of mass above its feet at the task file's "
+        "initial_state."));
   }
   return comHeight;
 }
 
-absl::StatusOr<PlannerSettings> plannerFromConfig(const File::PlannerConfig& from) {
+absl::StatusOr<PlannerSettings> plannerFromConfig(
+    const File::PlannerConfig& from) {
   PlannerSettings to;
   to.type = from.type;
   to.dt = from.dt;
@@ -143,14 +158,16 @@ absl::StatusOr<PlannerSettings> plannerFromConfig(const File::PlannerConfig& fro
   to.maxBranchAndBoundNodes = from.max_branch_and_bound_nodes;
   to.maxSolveTime = from.max_solve_time;
   to.maxQpIterations = from.max_qp_iterations;
-  ASSIGN_OR_RETURN(to.runInBackgroundThread, runsInBackgroundThread(from.threading));
+  ASSIGN_OR_RETURN(to.runInBackgroundThread,
+                   runsInBackgroundThread(from.threading));
   to.planningFrequency = from.planning_frequency;
   to.verbose = from.verbose;
   to.logPlans = from.log_plans;
   return to;
 }
 
-absl::StatusOr<SharedParameters> sharedFromConfig(const File::SharedConfig& from) {
+absl::StatusOr<SharedParameters> sharedFromConfig(
+    const File::SharedConfig& from) {
   SharedParameters to;
   ASSIGN_OR_RETURN(to.comHeight, comHeightFromConfig(from.com_height));
   to.bigM = from.big_m;
@@ -160,7 +177,8 @@ absl::StatusOr<SharedParameters> sharedFromConfig(const File::SharedConfig& from
   to.gaitLimits.maxSwingDuration = from.gait_limits.max_swing_duration;
   to.gaitLimits.minContactDuration = from.gait_limits.min_contact_duration;
   to.gaitLimits.maxContactDuration = from.gait_limits.max_contact_duration;
-  to.gaitLimits.minDoubleSupportDuration = from.gait_limits.min_double_support_duration;
+  to.gaitLimits.minDoubleSupportDuration =
+      from.gait_limits.min_double_support_duration;
   return to;
 }
 
@@ -182,11 +200,13 @@ HlipParameters hlipFromConfig(const File::HlipConfig& from) {
   return to;
 }
 
-/** The cost blocks, in the order of the file; InvalidArgument for a terminal_dcm.target that is none of its names. */
+/** The cost blocks, in the order of the file; InvalidArgument for a
+ * terminal_dcm.target that is none of its names. */
 absl::Status copyCosts(const File& from, ContactPlanningConfig& to) {
   to.regularization.state = from.regularization.state;
   to.regularization.input = from.regularization.input;
-  to.previousFootholdConsistency.weight = from.previous_foothold_consistency.weight;
+  to.previousFootholdConsistency.weight =
+      from.previous_foothold_consistency.weight;
   to.velocityTracking.weight = from.velocity_tracking.weight;
   to.stepWidth.weight = from.step_width.weight;
   to.stepWidth.nominalStepWidth = from.step_width.nominal_step_width;
@@ -199,11 +219,13 @@ absl::Status copyCosts(const File& from, ContactPlanningConfig& to) {
   to.footholdRegularization.weight = from.foothold_regularization.weight;
   to.stepLength.weight = from.step_length.weight;
   to.terminalDcm.weight = from.terminal_dcm.weight;
-  ASSIGN_OR_RETURN(to.terminalDcm.trackCommandedVelocity, tracksCommandedVelocity(from.terminal_dcm.target));
+  ASSIGN_OR_RETURN(to.terminalDcm.trackCommandedVelocity,
+                   tracksCommandedVelocity(from.terminal_dcm.target));
   return absl::OkStatus();
 }
 
-/** The soft-constraint blocks; their slack falls back on `to.shared.slackPenalty`, so the shared block comes first. */
+/** The soft-constraint blocks; their slack falls back on
+ * `to.shared.slackPenalty`, so the shared block comes first. */
 void copySoftConstraints(const File& from, ContactPlanningConfig& to) {
   const SlackPenalty& shared = to.shared.slackPenalty;
   to.zmpSupportRegion.halfWidthX = from.zmp_support_region.half_width_x;
@@ -220,23 +242,31 @@ void copySoftConstraints(const File& from, ContactPlanningConfig& to) {
   to.hipYawRange.slack = termSlack(from.hip_yaw_range.slack, shared);
 }
 
-/** The blocks of the assignment costs, the search stages and the execution rules. */
+/** The blocks of the assignment costs, the search stages and the execution
+ * rules. */
 void copyBinaryTerms(const File& from, ContactPlanningConfig& to) {
   to.contactSwitch.cost = from.contact_switch.cost;
   to.planConsistency.cost = from.plan_consistency.cost;
   to.doubleSupportPenalty.cost = from.double_support_penalty.cost;
   to.diving.maxDiveIterations = from.diving.max_dive_iterations;
-  to.eventShiftLocalSearch.iterations = from.event_shift_local_search.iterations;
+  to.eventShiftLocalSearch.iterations =
+      from.event_shift_local_search.iterations;
   to.eventShiftLocalSearch.maxTime = from.event_shift_local_search.max_time;
   to.cadenceStretch.samples = from.cadence_stretch.samples;
   to.cadenceStretch.maxStretch = from.cadence_stretch.max_stretch;
   to.headingRelinearization.passes = from.heading_relinearization.passes;
-  to.phaseResetting.earlyTouchdownMinSwingRatio = from.phase_resetting.early_touchdown_min_swing_ratio;
-  to.phaseResetting.earlyTouchdownMinContactDuration = from.phase_resetting.early_touchdown_min_contact_duration;
-  to.phaseResetting.earlyTouchdownMinAdvance = from.phase_resetting.early_touchdown_min_advance;
-  to.phaseResetting.maxLateTouchdownExtension = from.phase_resetting.max_late_touchdown_extension;
-  to.phaseResetting.lateTouchdownExtensionStep = from.phase_resetting.late_touchdown_extension_step;
-  to.phaseResetting.lateTouchdownSearchVelocity = from.phase_resetting.late_touchdown_search_velocity;
+  to.phaseResetting.earlyTouchdownMinSwingRatio =
+      from.phase_resetting.early_touchdown_min_swing_ratio;
+  to.phaseResetting.earlyTouchdownMinContactDuration =
+      from.phase_resetting.early_touchdown_min_contact_duration;
+  to.phaseResetting.earlyTouchdownMinAdvance =
+      from.phase_resetting.early_touchdown_min_advance;
+  to.phaseResetting.maxLateTouchdownExtension =
+      from.phase_resetting.max_late_touchdown_extension;
+  to.phaseResetting.lateTouchdownExtensionStep =
+      from.phase_resetting.late_touchdown_extension_step;
+  to.phaseResetting.lateTouchdownSearchVelocity =
+      from.phase_resetting.late_touchdown_search_velocity;
   to.energyCadenceModulation.gain = from.energy_cadence_modulation.gain;
   to.energyCadenceModulation.deadband = from.energy_cadence_modulation.deadband;
   to.dcmStepAdjustment.gain = from.dcm_step_adjustment.gain;
@@ -246,15 +276,18 @@ void copyBinaryTerms(const File& from, ContactPlanningConfig& to) {
 }  // namespace
 
 std::vector<std::string> plannerThreadingNames() {
-  return {std::string(kBackgroundThreadPlannerThreading), std::string(kPreSolveHookPlannerThreading)};
+  return {std::string(kBackgroundThreadPlannerThreading),
+          std::string(kPreSolveHookPlannerThreading)};
 }
 
 std::vector<std::string> terminalDcmTargetNames() {
-  return {std::string(kRestTerminalDcmTarget), std::string(kCommandedVelocityTerminalDcmTarget)};
+  return {std::string(kRestTerminalDcmTarget),
+          std::string(kCommandedVelocityTerminalDcmTarget)};
 }
 
-absl::StatusOr<ContactPlanningConfig> contactPlanningConfigFromConfig(const mpc_config::ContactPlanningFile& file,
-                                                                      ContactPlanningValidation validation) {
+absl::StatusOr<ContactPlanningConfig> contactPlanningConfigFromConfig(
+    const mpc_config::ContactPlanningFile& file,
+    ContactPlanningValidation validation) {
   ContactPlanningConfig config;
   ASSIGN_OR_RETURN(config.planner, plannerFromConfig(file.planner));
   ASSIGN_OR_RETURN(config.shared, sharedFromConfig(file.shared));
@@ -269,8 +302,9 @@ absl::StatusOr<ContactPlanningConfig> contactPlanningConfigFromConfig(const mpc_
   return config;
 }
 
-absl::StatusOr<ContactPlanningConfig> contactPlanningConfigFromOptionalFile(const mpc_config::ContactPlanningFile* absl_nullable file,
-                                                                            ContactPlanningValidation validation) {
+absl::StatusOr<ContactPlanningConfig> contactPlanningConfigFromOptionalFile(
+    const mpc_config::ContactPlanningFile* absl_nullable file,
+    ContactPlanningValidation validation) {
   if (file != nullptr) {
     return contactPlanningConfigFromConfig(*file, validation);
   }

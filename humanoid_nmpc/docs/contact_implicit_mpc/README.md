@@ -468,6 +468,7 @@ In the robot's `config/mpc/task.textproto`:
 soft_constraints: "normal_velocity"          # ...and normal_velocity re-listed HERE, as a cost
 soft_constraints: "joint_limits"
 soft_constraints: "foot_collision"
+soft_constraints: "foot_collision_cbf"
 soft_constraints: "contact_wrench_cone"      # a cone is REQUIRED once zero_wrench is gone; see section 2a
 soft_constraints: "contact_complementarity"
 soft_constraints: "force_weighted_slip"

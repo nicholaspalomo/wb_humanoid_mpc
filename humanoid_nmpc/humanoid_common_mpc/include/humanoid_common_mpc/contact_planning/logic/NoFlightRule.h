@@ -36,15 +36,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `no_flight`: c_L + c_R >= 1 at every node (also a hard row of the QP under the same name).
+ * `no_flight`: c_L + c_R >= 1 at every node (also a hard row of the QP under
+ * the same name).
  *
- * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
  */
 class NoFlightRule final : public ContactLogicRule {
  public:
   std::string describe() const override;
   void configure(const ContactPlanningConfig& /*config*/) override {}
-  bool propagate(const ContactLogicState& state, MiqpAssignment& a, bool& changed) const override;
+  bool propagate(const ContactLogicState& state,
+                 MiqpAssignment& a,
+                 bool& changed) const override;
 };
 
 }  // namespace ocs2::humanoid

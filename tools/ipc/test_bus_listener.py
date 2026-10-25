@@ -82,19 +82,27 @@ class ParseNetworkConfigTest(unittest.TestCase):
         }
         for case, (text, expected) in cases.items():
             with self.subTest(case=case):
-                with self.assertRaises(bus_listener.NetworkConfigError) as raised:
+                with self.assertRaises(
+                    bus_listener.NetworkConfigError
+                ) as raised:
                     bus_listener.parse_network_config(text, "network.textproto")
                 message = str(raised.exception)
-                self.assertTrue(message.startswith("network.textproto"), message)
+                self.assertTrue(
+                    message.startswith("network.textproto"), message
+                )
                 self.assertIn(expected, message)
-                with self.assertRaises(robot_ipc.NetworkConfigError) as bus_raised:
+                with self.assertRaises(
+                    robot_ipc.NetworkConfigError
+                ) as bus_raised:
                     robot_ipc.parse_network_config(text, "network.textproto")
                 self.assertEqual(message, str(bus_raised.exception))
 
 
 class LoadNetworkConfigTest(unittest.TestCase):
 
-    def test_missing_and_malformed_files_raise_a_network_config_error(self) -> None:
+    def test_missing_and_malformed_files_raise_a_network_config_error(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             absent = os.path.join(directory, "absent.textproto")
             with self.assertRaises(bus_listener.NetworkConfigError) as raised:
@@ -124,14 +132,18 @@ class ShippedNetworkFileTest(unittest.TestCase):
         environment = {
             key: value
             for key, value in os.environ.items()
-            if key not in ("BUILD_WORKING_DIRECTORY", "BUILD_WORKSPACE_DIRECTORY")
+            if key
+            not in ("BUILD_WORKING_DIRECTORY", "BUILD_WORKSPACE_DIRECTORY")
         }
         with mock.patch.dict(os.environ, environment, clear=True):
-            path = bus_listener.resolve_input_path(bus_listener.DEFAULT_NETWORK_CONFIG)
+            path = bus_listener.resolve_input_path(
+                bus_listener.DEFAULT_NETWORK_CONFIG
+            )
         self.assertTrue(os.path.isfile(path), path)
         network = bus_listener.load_network_config(path)
         self.assertEqual(
-            network.node_names(), ["robot", "mpc", "operator", "teleop", "config_push"]
+            network.node_names(),
+            ["robot", "mpc", "operator", "teleop", "config_push"],
         )
         self.assertEqual(network.domain_id, 0)
 
@@ -143,7 +155,9 @@ class ResolveInputPathTest(unittest.TestCase):
     ) -> None:
         with tempfile.TemporaryDirectory() as working, tempfile.TemporaryDirectory() as workspace:
             os.makedirs(os.path.join(workspace, "config", "ipc"))
-            in_workspace = os.path.join(workspace, "config", "ipc", "network.textproto")
+            in_workspace = os.path.join(
+                workspace, "config", "ipc", "network.textproto"
+            )
             pathlib.Path(in_workspace).touch()
             environment = {
                 "BUILD_WORKING_DIRECTORY": working,
@@ -159,7 +173,8 @@ class ResolveInputPathTest(unittest.TestCase):
                 in_working = os.path.join(working, "network.textproto")
                 pathlib.Path(in_working).touch()
                 self.assertEqual(
-                    bus_listener.resolve_input_path("network.textproto"), in_working
+                    bus_listener.resolve_input_path("network.textproto"),
+                    in_working,
                 )
                 # Nothing exists: the error names the path relative to where the tool was started.
                 self.assertEqual(
@@ -179,9 +194,13 @@ class BusListenerTest(unittest.TestCase):
         with bus_test_publisher.MessagePublisher(
             "robot"
         ) as robot, bus_test_publisher.MessagePublisher("mpc") as mpc:
-            robot.start([bus_test_publisher.message(robot_topic, TYPE_NAME, b"r")])
+            robot.start(
+                [bus_test_publisher.message(robot_topic, TYPE_NAME, b"r")]
+            )
             mpc.start([bus_test_publisher.message(mpc_topic, TYPE_NAME, b"m")])
-            with bus_listener.BusListener(bus_test_publisher.network()) as listener:
+            with bus_listener.BusListener(
+                bus_test_publisher.network()
+            ) as listener:
                 seen: dict[str, bytes] = {}
 
                 def both_seen() -> bool:
@@ -202,7 +221,9 @@ class BusListenerTest(unittest.TestCase):
         with bus_test_publisher.MessagePublisher() as publisher:
             publisher.start(
                 [
-                    bus_test_publisher.message(topic + "_estimate", TYPE_NAME, b"no"),
+                    bus_test_publisher.message(
+                        topic + "_estimate", TYPE_NAME, b"no"
+                    ),
                     bus_test_publisher.message(topic, TYPE_NAME, b"yes"),
                 ]
             )
@@ -221,7 +242,9 @@ class BusListenerTest(unittest.TestCase):
             len(pending), 0, "receive_pending() hands over what has arrived"
         )
 
-    def test_another_wire_protocol_version_is_counted_as_malformed(self) -> None:
+    def test_another_wire_protocol_version_is_counted_as_malformed(
+        self,
+    ) -> None:
         topic = bus_test_publisher.unique_topic("malformed")
         with bus_listener.BusListener(
             bus_test_publisher.network(), topic=topic
@@ -229,7 +252,9 @@ class BusListenerTest(unittest.TestCase):
             writer = bus_test_publisher.RawEnvelopeWriter(topic)
             self.assertTrue(wait_for(writer.matched))
             writer.write(
-                robot_ipc.WIRE_PROTOCOL_VERSION + 1, TYPE_NAME, b"from the future"
+                robot_ipc.WIRE_PROTOCOL_VERSION + 1,
+                TYPE_NAME,
+                b"from the future",
             )
             writer.write(robot_ipc.WIRE_PROTOCOL_VERSION, TYPE_NAME, b"ok")
             received = listener.receive(RECEIVE_TIMEOUT_S)
@@ -250,7 +275,9 @@ class BusListenerTest(unittest.TestCase):
 
     def test_a_topic_that_is_no_dds_name_is_refused(self) -> None:
         with self.assertRaises(ValueError):
-            bus_listener.BusListener(bus_test_publisher.network(), topic="robot-state")
+            bus_listener.BusListener(
+                bus_test_publisher.network(), topic="robot-state"
+            )
 
 
 if __name__ == "__main__":

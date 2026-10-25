@@ -52,7 +52,8 @@ namespace ocs2::humanoid {
 namespace {
 
 // LINT.IfChange(whole_body_cost_weights_fields)
-// The foot cost's weights and phases: its swing_velocity_reference_weight is the centroidal foot cost's alone.
+// The foot cost's weights and phases: its swing_velocity_reference_weight is
+// the centroidal foot cost's alone.
 constexpr std::array<absl::string_view, 3> kFields = {
     "task_space_foot_cost.weights",
     "task_space_foot_cost.active_phases",
@@ -65,7 +66,8 @@ constexpr char kJointTorqueField[] = "joint_torque_weights";
 
 }  // namespace
 
-absl::Span<const absl::string_view> WholeBodyCostWeightsApplier::staticFields() {
+absl::Span<const absl::string_view>
+WholeBodyCostWeightsApplier::staticFields() {
   return absl::MakeConstSpan(kFields);
 }
 
@@ -74,13 +76,17 @@ void WholeBodyCostWeightsApplier::apply(HotUpdateTarget& target) {
   applyJointTorqueWeights(target);
 }
 
-void WholeBodyCostWeightsApplier::applyFootCostWeights(HotUpdateTarget& target) {
+void WholeBodyCostWeightsApplier::applyFootCostWeights(
+    HotUpdateTarget& target) {
   bool carried = false;
   for (const std::string& footName : target.contactNames()) {
-    carried = carried || carriesTerm(*target.runningProblem().costPtr, EndEffectorDynamicsFootCost::termName(footName));
+    carried =
+        carried || carriesTerm(*target.runningProblem().costPtr,
+                               EndEffectorDynamicsFootCost::termName(footName));
   }
   if (!carried) return;
-  const absl::StatusOr<EndEffectorDynamicsWeights> weights = wholeBodyFootCostWeightsFromConfig(target.task().task_space_foot_cost);
+  const absl::StatusOr<EndEffectorDynamicsWeights> weights =
+      wholeBodyFootCostWeightsFromConfig(target.task().task_space_foot_cost);
   if (!weights.ok()) {
     target.reportNotApplied(kFootCostField, weights.status());
     return;
@@ -90,8 +96,11 @@ void WholeBodyCostWeightsApplier::applyFootCostWeights(HotUpdateTarget& target) 
       absl::Status written;
       updateTermIfPresent<EndEffectorDynamicsFootCost>(
           *problem.costPtr, EndEffectorDynamicsFootCost::termName(footName),
-          [&weights, &written](EndEffectorDynamicsFootCost& cost) { written = cost.setWeights(*weights); });
-      // Every foot cost checks the same weights: a refusal refuses them all, before any was written.
+          [&weights, &written](EndEffectorDynamicsFootCost& cost) {
+            written = cost.setWeights(*weights);
+          });
+      // Every foot cost checks the same weights: a refusal refuses them all,
+      // before any was written.
       if (!written.ok()) {
         target.reportNotApplied(kFootCostField, written);
         return;
@@ -100,19 +109,26 @@ void WholeBodyCostWeightsApplier::applyFootCostWeights(HotUpdateTarget& target) 
   }
 }
 
-void WholeBodyCostWeightsApplier::applyJointTorqueWeights(HotUpdateTarget& target) {
-  if (!carriesTerm(*target.runningProblem().costPtr, JointTorqueCostCppAd::kTermName)) return;
-  const absl::StatusOr<vector_t> weights =
-      jointTorqueWeightsFromConfig(target.task().joint_torque_weights, target.layout(), kJointTorqueField);
+void WholeBodyCostWeightsApplier::applyJointTorqueWeights(
+    HotUpdateTarget& target) {
+  if (!carriesTerm(*target.runningProblem().costPtr,
+                   JointTorqueCostCppAd::kTermName))
+    return;
+  const absl::StatusOr<vector_t> weights = jointTorqueWeightsFromConfig(
+      target.task().joint_torque_weights, target.layout(), kJointTorqueField);
   if (!weights.ok()) {
     target.reportNotApplied(kJointTorqueField, weights.status());
     return;
   }
   for (OptimalControlProblem& problem : target.problems()) {
     absl::Status written;
-    updateTermIfPresent<JointTorqueCostCppAd>(*problem.costPtr, JointTorqueCostCppAd::kTermName,
-                                              [&weights, &written](JointTorqueCostCppAd& cost) { written = cost.setWeights(*weights); });
-    // Every worker's cost has the size of the first: a refusal refuses them all, before any was written.
+    updateTermIfPresent<JointTorqueCostCppAd>(
+        *problem.costPtr, JointTorqueCostCppAd::kTermName,
+        [&weights, &written](JointTorqueCostCppAd& cost) {
+          written = cost.setWeights(*weights);
+        });
+    // Every worker's cost has the size of the first: a refusal refuses them
+    // all, before any was written.
     if (!written.ok()) {
       target.reportNotApplied(kJointTorqueField, written);
       return;

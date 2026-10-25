@@ -38,9 +38,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/Types.h"
 
 /*
- * The subdivision of a pose command's two knots (TargetTrajectoriesCalculatorBase::subdivideYawKnots(), design section
- * 2.9): the fewest equal parts in time for which consecutive knots are at most a quarter turn apart in yaw, every
- * coordinate interpolated linearly, the end knots exactly the commanded poses, a turn past kMaxSegmentYawChange clamped
+ * The subdivision of a pose command's two knots
+ * (TargetTrajectoriesCalculatorBase::subdivideYawKnots(), design section 2.9):
+ * the fewest equal parts in time for which consecutive knots are at most a
+ * quarter turn apart in yaw, every coordinate interpolated linearly, the end
+ * knots exactly the commanded poses, a turn past kMaxSegmentYawChange clamped
  * and a turn that is not finite left in one part. Builds no model.
  */
 
@@ -60,9 +62,11 @@ TEST(SubdivideYawKnots, AQuarterTurnOrLessKeepsTheTwoKnots) {
   for (const scalar_t yawChange : {0.0, 0.3, -0.5 * M_PI, 0.5 * M_PI}) {
     SCOPED_TRACE(yawChange);
     const vector6_t start = pose(0.1, -0.2, 0.9, 3.0);
-    const vector6_t target = pose(/*x=*/0.5, /*y=*/0.4, /*z=*/0.95, 3.0 + yawChange);
+    const vector6_t target =
+        pose(/*x=*/0.5, /*y=*/0.4, /*z=*/0.95, 3.0 + yawChange);
     const std::vector<Calculator::PoseCommandKnot> knots =
-        Calculator::subdivideYawKnots(/*startTime=*/1.0, start, /*targetTime=*/3.0, target);
+        Calculator::subdivideYawKnots(/*startTime=*/1.0, start,
+                                      /*targetTime=*/3.0, target);
     ASSERT_EQ(knots.size(), 2u);
     EXPECT_EQ(knots.front().time, 1.0);
     EXPECT_EQ(knots.back().time, 3.0);
@@ -71,26 +75,36 @@ TEST(SubdivideYawKnots, AQuarterTurnOrLessKeepsTheTwoKnots) {
   }
 }
 
-TEST(SubdivideYawKnots, ALargerTurnIsCutIntoQuarterTurnsOnTheLineBetweenThePoses) {
-  for (const scalar_t yawChange : {0.5 * M_PI + 1.0e-9, M_PI, -1.5 * M_PI, 3.5, -4.0 * M_PI, 20.0}) {
+TEST(SubdivideYawKnots,
+     ALargerTurnIsCutIntoQuarterTurnsOnTheLineBetweenThePoses) {
+  for (const scalar_t yawChange :
+       {0.5 * M_PI + 1.0e-9, M_PI, -1.5 * M_PI, 3.5, -4.0 * M_PI, 20.0}) {
     SCOPED_TRACE(yawChange);
     const vector6_t start = pose(1.0, 2.0, 0.8, -2.5);
-    const vector6_t target = pose(/*x=*/-1.0, /*y=*/0.5, /*z=*/0.85, -2.5 + yawChange);
+    const vector6_t target =
+        pose(/*x=*/-1.0, /*y=*/0.5, /*z=*/0.85, -2.5 + yawChange);
     const scalar_t startTime = 0.25;
     const scalar_t targetTime = 4.25;
-    const std::vector<Calculator::PoseCommandKnot> knots = Calculator::subdivideYawKnots(startTime, start, targetTime, target);
-    const size_t parts = static_cast<size_t>(std::ceil(std::abs(yawChange) / Calculator::kMaxKnotYawSpacing));
+    const std::vector<Calculator::PoseCommandKnot> knots =
+        Calculator::subdivideYawKnots(startTime, start, targetTime, target);
+    const size_t parts = static_cast<size_t>(
+        std::ceil(std::abs(yawChange) / Calculator::kMaxKnotYawSpacing));
     ASSERT_EQ(knots.size(), parts + 1);
     EXPECT_EQ(knots.front().basePose, start);
     EXPECT_EQ(knots.back().basePose, target);
     EXPECT_EQ(knots.back().time, targetTime);
     for (size_t k = 0; k < knots.size(); ++k) {
-      const scalar_t fraction = static_cast<scalar_t>(k) / static_cast<scalar_t>(parts);
-      EXPECT_NEAR(knots[k].time, startTime + fraction * (targetTime - startTime), 1.0e-12);
-      EXPECT_LT((knots[k].basePose - (start + fraction * (target - start))).norm(), 1.0e-12);
+      const scalar_t fraction =
+          static_cast<scalar_t>(k) / static_cast<scalar_t>(parts);
+      EXPECT_NEAR(knots[k].time,
+                  startTime + fraction * (targetTime - startTime), 1.0e-12);
+      EXPECT_LT(
+          (knots[k].basePose - (start + fraction * (target - start))).norm(),
+          1.0e-12);
       if (k > 0) {
         EXPECT_GT(knots[k].time, knots[k - 1].time);
-        EXPECT_LE(std::abs(knots[k].basePose(3) - knots[k - 1].basePose(3)), Calculator::kMaxKnotYawSpacing + 1.0e-12);
+        EXPECT_LE(std::abs(knots[k].basePose(3) - knots[k - 1].basePose(3)),
+                  Calculator::kMaxKnotYawSpacing + 1.0e-12);
       }
     }
   }
@@ -101,21 +115,27 @@ TEST(SubdivideYawKnots, ATurnBeyondTheLargestSegmentTurnIsClampedToIt) {
   for (const scalar_t sign : {1.0, -1.0}) {
     SCOPED_TRACE(sign);
     const std::vector<Calculator::PoseCommandKnot> knots =
-        Calculator::subdivideYawKnots(/*startTime=*/0.0, start, /*targetTime=*/10.0, pose(/*x=*/1.0, /*y=*/0.0, /*z=*/0.9, sign * 1.0e3));
+        Calculator::subdivideYawKnots(
+            /*startTime=*/0.0, start, /*targetTime=*/10.0,
+            pose(/*x=*/1.0, /*y=*/0.0, /*z=*/0.9, sign * 1.0e3));
     ASSERT_EQ(knots.size(), Calculator::kMaxKnotSubdivisions + 1);
-    EXPECT_NEAR(knots.back().basePose(3), sign * Calculator::kMaxSegmentYawChange, 1.0e-12);
+    EXPECT_NEAR(knots.back().basePose(3),
+                sign * Calculator::kMaxSegmentYawChange, 1.0e-12);
     EXPECT_EQ(knots.back().basePose(0), 1.0);
     for (size_t k = 1; k < knots.size(); ++k) {
-      EXPECT_LE(std::abs(knots[k].basePose(3) - knots[k - 1].basePose(3)), Calculator::kMaxKnotYawSpacing + 1.0e-12);
+      EXPECT_LE(std::abs(knots[k].basePose(3) - knots[k - 1].basePose(3)),
+                Calculator::kMaxKnotYawSpacing + 1.0e-12);
     }
   }
 }
 
 TEST(SubdivideYawKnots, ATurnThatIsNotFiniteStaysInOnePart) {
   const vector6_t start = pose(0.0, 0.0, 0.9, 0.0);
-  const vector6_t target = pose(/*x=*/1.0, /*y=*/0.0, /*z=*/0.9, std::numeric_limits<scalar_t>::quiet_NaN());
+  const vector6_t target = pose(/*x=*/1.0, /*y=*/0.0, /*z=*/0.9,
+                                std::numeric_limits<scalar_t>::quiet_NaN());
   const std::vector<Calculator::PoseCommandKnot> knots =
-      Calculator::subdivideYawKnots(/*startTime=*/0.0, start, /*targetTime=*/1.0, target);
+      Calculator::subdivideYawKnots(/*startTime=*/0.0, start,
+                                    /*targetTime=*/1.0, target);
   ASSERT_EQ(knots.size(), 2u);
   EXPECT_TRUE(std::isnan(knots.back().basePose(3)));
 }

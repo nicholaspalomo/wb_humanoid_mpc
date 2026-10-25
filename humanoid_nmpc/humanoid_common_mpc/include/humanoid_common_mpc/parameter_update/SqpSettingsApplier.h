@@ -38,20 +38,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Applies the settings of the SQP solver that may change between two solves: multiple_shooting.sqp_iteration,
- * delta_tol, g_max and g_min, through SqpSolver::setLiveSettings(), which also hands g_max and g_min to the line search.
- * Every other setting of the block built an object of the solver at construction and is reported by the start-up check
- * instead. A block that does not convert is refused by its field. Not thread-safe (HotFieldApplier).
+ * Applies the settings of the SQP solver that may change between two solves:
+ * multiple_shooting.sqp_iteration, delta_tol, g_max and g_min, through
+ * SqpSolver::setLiveSettings(), which also hands g_max and g_min to the line
+ * search. Every other setting of the block built an object of the solver at
+ * construction and is reported by the start-up check instead. A block that does
+ * not convert is refused by its field. Not thread-safe (HotFieldApplier).
  */
 class SqpSettingsApplier final : public HotFieldApplier {
  public:
-  /** The fields it applies: multiple_shooting.{sqp_iteration, delta_tol, g_max, g_min}. */
+  /** The fields it applies: multiple_shooting.{sqp_iteration, delta_tol, g_max,
+   * g_min}. */
   static absl::Span<const absl::string_view> staticFields();
 
   SqpSettingsApplier() = default;
 
   absl::string_view name() const override { return "SqpSettingsApplier"; }
-  absl::Span<const absl::string_view> fields() const final { return staticFields(); }
+  absl::Span<const absl::string_view> fields() const final {
+    return staticFields();
+  }
   void apply(HotUpdateTarget& target) override;
 };
 

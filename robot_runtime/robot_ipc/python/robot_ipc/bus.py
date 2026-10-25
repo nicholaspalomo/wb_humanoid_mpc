@@ -123,7 +123,9 @@ def parse_delivery(value: str | Delivery) -> Delivery:
         return Delivery(value)
     except ValueError:
         valid = ", ".join(delivery.value for delivery in Delivery)
-        raise ValueError(f"unknown delivery '{value}' (valid: {valid})") from None
+        raise ValueError(
+            f"unknown delivery '{value}' (valid: {valid})"
+        ) from None
 
 
 # LINT.IfChange(topic_statistics)
@@ -206,8 +208,10 @@ class _DomainRegistry:
             if entry is not None:
                 if entry[1] != config:
                     raise BusError(
-                        f"DDS domain {domain_id} is configured differently by another bus of this process (a bus of "
-                        "another node or network); use one network file and node per process"
+                        f"DDS domain {domain_id} is configured differently by"
+                        " another bus of this process (a bus of another node"
+                        " or network); use one network file and node per"
+                        " process"
                     )
                 entry[2] += 1
                 return
@@ -215,7 +219,8 @@ class _DomainRegistry:
                 created = cyclonedds.domain.Domain(domain_id, config)
             except cyclonedds.core.DDSException as error:
                 raise BusError(
-                    f"cannot create DDS domain {domain_id}: {error} (configuration: {config})"
+                    f"cannot create DDS domain {domain_id}:"
+                    f" {error} (configuration: {config})"
                 ) from error
             self._domains[domain_id] = [created, config, 1]
 
@@ -300,7 +305,10 @@ def _qos(
     profile: qos_profile.QosProfile, depth: int, *policies: Any
 ) -> cyclonedds.qos.Qos:
     """The QoS of a reader or writer of `profile` with a KEEP_LAST history of `depth`, plus `policies`."""
-    if qos_profile.qos_policy(profile).reliability is qos_profile.Reliability.RELIABLE:
+    if (
+        qos_profile.qos_policy(profile).reliability
+        is qos_profile.Reliability.RELIABLE
+    ):
         reliability = cyclonedds.qos.Policy.Reliability.Reliable(
             max_blocking_time=_RELIABLE_WRITE_BLOCKING_TIME_NS
         )
@@ -351,18 +359,24 @@ class Bus:
         network_config.validate_network_config(network)
         if node_name and network.find(node_name) is None:
             raise ValueError(
-                f"node '{node_name}' is not in the network (nodes: {', '.join(network.node_names())})"
+                f"node '{node_name}' is not in the network (nodes:"
+                f" {', '.join(network.node_names())})"
             )
         # The float check is negated, so that NaN fails it too (AGENTS.md, Python: negated float comparisons).
         if not io_poll_period > 0:
             raise ValueError("io_poll_period must be positive")
         if publish_queue_capacity <= 0 or max_messages_per_drain <= 0:
             raise ValueError(
-                "publish_queue_capacity and max_messages_per_drain must be positive"
+                "publish_queue_capacity and max_messages_per_drain must be"
+                " positive"
             )
-        if latest_delivery_history_depth <= 0 or all_delivery_history_depth <= 0:
+        if (
+            latest_delivery_history_depth <= 0
+            or all_delivery_history_depth <= 0
+        ):
             raise ValueError(
-                "latest_delivery_history_depth and all_delivery_history_depth must be positive"
+                "latest_delivery_history_depth and all_delivery_history_depth"
+                " must be positive"
             )
 
         self._node_name = node_name
@@ -388,14 +402,18 @@ class Bus:
         self._periodic_callback_errors = 0
 
         self._queue_lock = threading.Lock()
-        self._queue: collections.deque[tuple[str, str, bytes]] = collections.deque()
+        self._queue: collections.deque[tuple[str, str, bytes]] = (
+            collections.deque()
+        )
         self._statistics_lock = threading.Lock()
         self._statistics: dict[str, TopicStatistics] = {}
         self._log = _RateLimitedLog()
         self._last_source_timestamp = 0
         self._next_status_refresh = 0.0
 
-        self._domain_config = domain_config.cyclone_domain_config(network, node_name)
+        self._domain_config = domain_config.cyclone_domain_config(
+            network, node_name
+        )
         _DOMAINS.acquire(network.domain_id, self._domain_config)
         self._topics: dict[str, Any] = {}
         self._writers: dict[str, _Writer] = {}
@@ -413,15 +431,21 @@ class Bus:
                 ),
             )
             self._waitset = cyclonedds.core.WaitSet(self._participant)
-            self._wake_condition = cyclonedds.core.GuardCondition(self._participant)
+            self._wake_condition = cyclonedds.core.GuardCondition(
+                self._participant
+            )
             self._waitset.attach(self._wake_condition)
             # The writers of the topics this node publishes exist from the start, so that the subscribers have
             # discovered them before the first sample (a VOLATILE reader gets only what is written after it matched).
-            for name in network.topics_published_by(node_name) if node_name else []:
+            for name in (
+                network.topics_published_by(node_name) if node_name else []
+            ):
                 self._writer_for(name)
         except cyclonedds.core.DDSException as error:
             self._release_dds()
-            raise BusError(f"cannot set up the DDS entities: {error}") from error
+            raise BusError(
+                f"cannot set up the DDS entities: {error}"
+            ) from error
         except BaseException:
             self._release_dds()
             raise
@@ -447,7 +471,9 @@ class Bus:
         problem = network_config.topic_name_problem(name)
         if problem is not None:
             raise ValueError(problem)
-        created = cyclonedds.topic.Topic(self._participant, name, envelope.Envelope)
+        created = cyclonedds.topic.Topic(
+            self._participant, name, envelope.Envelope
+        )
         self._topics[name] = created
         return created
 
@@ -489,7 +515,8 @@ class Bus:
                 self._network.qos_profile_of(name),
                 depth,
                 cyclonedds.qos.Policy.DataRepresentation(
-                    use_cdrv0_representation=True, use_xcdrv2_representation=True
+                    use_cdrv0_representation=True,
+                    use_xcdrv2_representation=True,
                 ),
             ),
         )
@@ -524,7 +551,9 @@ class Bus:
         """
         descriptor = getattr(message_class, "DESCRIPTOR", None)
         if descriptor is None:
-            raise ValueError(f"{message_class!r} is not a generated protobuf message")
+            raise ValueError(
+                f"{message_class!r} is not a generated protobuf message"
+            )
         self._add_subscription(
             _Subscription(
                 topic=topic,
@@ -574,12 +603,17 @@ class Bus:
         with self._lifecycle_lock:
             self._check_configurable("subscribe to every topic")
             if self._all_topics_callback is not None:
-                raise ValueError("the bus already has a subscription to every topic")
+                raise ValueError(
+                    "the bus already has a subscription to every topic"
+                )
             self._publications_reader = cyclonedds.builtin.BuiltinDataReader(
-                self._participant, cyclonedds.builtin.BuiltinTopicDcpsPublication
+                self._participant,
+                cyclonedds.builtin.BuiltinTopicDcpsPublication,
             )
             self._waitset.attach(
-                cyclonedds.core.ReadCondition(self._publications_reader, _ANY_STATE)
+                cyclonedds.core.ReadCondition(
+                    self._publications_reader, _ANY_STATE
+                )
             )
             self._all_topics_callback = callback
 
@@ -597,7 +631,8 @@ class Bus:
             self._check_configurable(f"subscribe to '{subscription.topic}'")
             if subscription.topic in self._subscriptions:
                 raise ValueError(
-                    f"the topic '{subscription.topic}' already has a subscription"
+                    f"the topic '{subscription.topic}' already has a"
+                    " subscription"
                 )
             try:
                 subscription.reader = self._create_reader(
@@ -605,7 +640,8 @@ class Bus:
                 )
             except cyclonedds.core.DDSException as error:
                 raise BusError(
-                    f"cannot create the DDS reader of '{subscription.topic}': {error}"
+                    f"cannot create the DDS reader of '{subscription.topic}':"
+                    f" {error}"
                 ) from error
             with self._statistics_lock:
                 subscription.statistics = self._statistics.setdefault(
@@ -645,7 +681,8 @@ class Bus:
         """
         if self.is_io_thread():
             raise BusError(
-                f"cannot {action} while the bus runs; do it before start() or after stop()"
+                f"cannot {action} while the bus runs; do it before start() or"
+                " after stop()"
             )
 
     def _check_configurable(self, action: str) -> None:
@@ -653,7 +690,8 @@ class Bus:
             raise BusError(f"cannot {action}: the bus is closed")
         if self.is_io_thread() or self._thread is not None:
             raise BusError(
-                f"cannot {action} while the bus runs; do it before start() or after stop()"
+                f"cannot {action} while the bus runs; do it before start() or"
+                " after stop()"
             )
 
     # ------------------------------------------------------------------------------------------------------------------
@@ -738,7 +776,8 @@ class Bus:
                 self._statistics_of(topic).send_dropped += 1
         self._log.warning(
             "close",
-            f"close() discarded {len(discarded)} queued message(s) that the bus was not running to send",
+            f"close() discarded {len(discarded)} queued message(s) that the bus"
+            " was not running to send",
         )
 
     def __enter__(self) -> "Bus":
@@ -790,7 +829,9 @@ class Bus:
         self._check_can_publish(topic)
         with self._queue_lock:
             if self._closed:
-                raise BusError(f"cannot publish on '{topic}': the bus is closed")
+                raise BusError(
+                    f"cannot publish on '{topic}': the bus is closed"
+                )
             if len(self._queue) >= self._publish_queue_capacity:
                 with self._statistics_lock:
                     self._statistics_of(topic).send_dropped += 1
@@ -816,17 +857,21 @@ class Bus:
         """
         if not self.is_io_thread():
             raise BusError(
-                "publish_from_io_thread() outside the bus's receive thread; call publish()"
+                "publish_from_io_thread() outside the bus's receive thread;"
+                " call publish()"
             )
         self._check_can_publish(topic)
         # What publish() queued before goes first, so that the messages of one thread keep their order.
         self._send_queued()
-        self._send(topic, message.DESCRIPTOR.full_name, message.SerializeToString())
+        self._send(
+            topic, message.DESCRIPTOR.full_name, message.SerializeToString()
+        )
 
     def _check_can_publish(self, topic: str) -> None:
         if not self._node_name:
             raise BusError(
-                "this bus has no node name, so it only subscribes and cannot publish"
+                "this bus has no node name, so it only subscribes and cannot"
+                " publish"
             )
         if not isinstance(topic, str):
             raise ValueError("the topic is not a string")
@@ -876,7 +921,11 @@ class Bus:
         """The counters of one topic (all zero for a topic the bus has not seen)."""
         with self._statistics_lock:
             statistics = self._statistics.get(topic)
-            return dataclasses.replace(statistics) if statistics else TopicStatistics()
+            return (
+                dataclasses.replace(statistics)
+                if statistics
+                else TopicStatistics()
+            )
 
     def statistics(self) -> dict[str, TopicStatistics]:
         """The counters of every topic the bus has published or subscribed."""
@@ -915,7 +964,9 @@ class Bus:
                 except Exception:
                     # Nothing escapes the receive thread.
                     self._log.warning(
-                        "loop", "the receive thread caught an exception", exc_info=True
+                        "loop",
+                        "the receive thread caught an exception",
+                        exc_info=True,
                     )
             try:
                 self._send_queued()
@@ -974,7 +1025,9 @@ class Bus:
         except cyclonedds.core.DDSException as error:
             with self._statistics_lock:
                 self._statistics_of(topic).send_dropped += 1
-            self._log.warning(f"send:{topic}", f"writing on '{topic}' failed: {error}")
+            self._log.warning(
+                f"send:{topic}", f"writing on '{topic}' failed: {error}"
+            )
             return
         writer.last_sequence = sample.sequence_number
         with self._statistics_lock:
@@ -984,7 +1037,9 @@ class Bus:
         """Creates a reader for each envelope topic a newly discovered publication writes (subscribe_all_topics())."""
         if self._publications_reader is None:
             return
-        for publication in self._publications_reader.take(self._max_messages_per_drain):
+        for publication in self._publications_reader.take(
+            self._max_messages_per_drain
+        ):
             name = getattr(publication, "topic_name", None)
             if (
                 name is None
@@ -1000,7 +1055,8 @@ class Bus:
                     qos_profile.QosProfile.LATEST,
                     self._all_delivery_history_depth,
                     cyclonedds.qos.Policy.DataRepresentation(
-                        use_cdrv0_representation=True, use_xcdrv2_representation=True
+                        use_cdrv0_representation=True,
+                        use_xcdrv2_representation=True,
                     ),
                 ),
             )
@@ -1028,7 +1084,10 @@ class Bus:
                 if sample.protocol_version == envelope.WIRE_PROTOCOL_VERSION:
                     pending.append(
                         _PendingMessage(
-                            sample.sample_info.source_timestamp, None, topic, sample
+                            sample.sample_info.source_timestamp,
+                            None,
+                            topic,
+                            sample,
                         )
                     )
                 continue
@@ -1045,7 +1104,10 @@ class Bus:
             if accepted:
                 pending.append(
                     _PendingMessage(
-                        sample.sample_info.source_timestamp, subscription, topic, sample
+                        sample.sample_info.source_timestamp,
+                        subscription,
+                        topic,
+                        sample,
                     )
                 )
         return len(samples)
@@ -1060,13 +1122,17 @@ class Bus:
             with self._statistics_lock:
                 subscription.statistics.missed += sequence - last - 1
 
-    def _accepts(self, subscription: _Subscription, sample: envelope.Envelope) -> bool:
+    def _accepts(
+        self, subscription: _Subscription, sample: envelope.Envelope
+    ) -> bool:
         """Whether `sample` is of this bus's wire protocol and of the subscription's type; logs why not."""
         if sample.protocol_version != envelope.WIRE_PROTOCOL_VERSION:
             self._log.warning(
                 f"protocol:{subscription.topic}",
-                f"a sample on '{subscription.topic}' speaks wire protocol {sample.protocol_version}, but this bus "
-                f"speaks {envelope.WIRE_PROTOCOL_VERSION}; rebuild both from the same checkout",
+                f"a sample on '{subscription.topic}' speaks wire protocol"
+                f" {sample.protocol_version}, but this bus speaks"
+                f" {envelope.WIRE_PROTOCOL_VERSION}; rebuild both from the same"
+                " checkout",
             )
             return False
         if (
@@ -1075,8 +1141,8 @@ class Bus:
         ):
             self._log.warning(
                 f"type:{subscription.topic}",
-                f"'{subscription.topic}' carries a {sample.type_name}, but its subscription takes a "
-                f"{subscription.expected_type}",
+                f"'{subscription.topic}' carries a {sample.type_name}, but its"
+                f" subscription takes a {subscription.expected_type}",
             )
             return False
         return True
@@ -1093,7 +1159,11 @@ class Bus:
             if budget <= 0:
                 break
             budget -= self._take(
-                subscription.reader, budget, subscription.topic, subscription, pending
+                subscription.reader,
+                budget,
+                subscription.topic,
+                subscription,
+                pending,
             )
         for name, reader in self._all_topics_readers.items():
             if budget <= 0:
@@ -1130,15 +1200,21 @@ class Bus:
             return
         try:
             callback(
-                message.topic, message.sample.type_name, bytes(message.sample.payload)
+                message.topic,
+                message.sample.type_name,
+                bytes(message.sample.payload),
             )
         # pylint: disable-next=broad-exception-caught  # A raising callback must not end the receive thread.
         except Exception:
             self._log.warning(
-                "all_topics", "the callback of every topic raised", exc_info=True
+                "all_topics",
+                "the callback of every topic raised",
+                exc_info=True,
             )
 
-    def _dispatch(self, subscription: _Subscription, sample: envelope.Envelope) -> None:
+    def _dispatch(
+        self, subscription: _Subscription, sample: envelope.Envelope
+    ) -> None:
         """Parses one sample of `subscription` and hands it to its callback, counting a rejection or a raise."""
         statistics = subscription.statistics
         payload = bytes(sample.payload)
@@ -1151,7 +1227,8 @@ class Bus:
                     statistics.rejected += 1
                 self._log.warning(
                     f"parse:{subscription.topic}",
-                    f"a sample on '{subscription.topic}' does not parse as a {subscription.expected_type}",
+                    f"a sample on '{subscription.topic}' does not parse as a"
+                    f" {subscription.expected_type}",
                 )
                 return
         else:
@@ -1180,7 +1257,9 @@ class Bus:
             reader = subscription.reader
             lost = reader.get_sample_lost_status().total_count
             rejected = reader.get_sample_rejected_status().total_count
-            incompatible = reader.get_requested_incompatible_qos_status().total_count
+            incompatible = (
+                reader.get_requested_incompatible_qos_status().total_count
+            )
             matched = reader.get_subscription_matched_status().current_count
             requested[subscription.topic] = incompatible
             with self._statistics_lock:
@@ -1191,8 +1270,12 @@ class Bus:
                 statistics.incompatible_qos = incompatible
                 statistics.matched_writers = matched
         for name, writer in self._writers.items():
-            offered = writer.writer.get_offered_incompatible_qos_status().total_count
-            matched = writer.writer.get_publication_matched_status().current_count
+            offered = (
+                writer.writer.get_offered_incompatible_qos_status().total_count
+            )
+            matched = (
+                writer.writer.get_publication_matched_status().current_count
+            )
             with self._statistics_lock:
                 statistics = writer.statistics
                 statistics.incompatible_qos = requested.get(name, 0) + offered
@@ -1216,7 +1299,9 @@ class Bus:
             after = time.monotonic()
             periodic.next_deadline += periodic.period
             if periodic.next_deadline <= after:
-                missed = math.floor((after - periodic.next_deadline) / periodic.period)
+                missed = math.floor(
+                    (after - periodic.next_deadline) / periodic.period
+                )
                 periodic.next_deadline += (missed + 1) * periodic.period
 
 

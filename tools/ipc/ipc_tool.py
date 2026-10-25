@@ -103,13 +103,16 @@ def _receive_until(
 def _warn_malformed(listener: bus_listener.BusListener, err: TextIO) -> None:
     if listener.malformed_messages:
         err.write(
-            f"ipc_tool: dropped {listener.malformed_messages} message(s) of another wire protocol version "
-            "or that did not parse\n"
+            f"ipc_tool: dropped {listener.malformed_messages} message(s) of"
+            " another wire protocol version or that did not parse\n"
         )
 
 
 def run_list(
-    listener: bus_listener.BusListener, duration_s: float, out: TextIO, err: TextIO
+    listener: bus_listener.BusListener,
+    duration_s: float,
+    out: TextIO,
+    err: TextIO,
 ) -> int:
     """Listens to every topic for `duration_s` seconds and prints the topics seen, with type and rate."""
     census = topic_statistics.TopicCensus()
@@ -118,14 +121,17 @@ def run_list(
         while _remaining(deadline) > 0.0:
             received = _receive_until(listener, deadline)
             if received is not None:
-                census.add(received.topic, received.type_name, received.receive_time)
+                census.add(
+                    received.topic, received.type_name, received.receive_time
+                )
     except KeyboardInterrupt:
         pass
     _warn_malformed(listener, err)
     summaries = census.summaries()
     if not summaries:
         err.write(
-            f"ipc_tool: no messages within {duration_s:g} s from {', '.join(listener.endpoints)}\n"
+            f"ipc_tool: no messages within {duration_s:g} s from"
+            f" {', '.join(listener.endpoints)}\n"
         )
         return EXIT_NO_MESSAGES
     out.write(topic_statistics.format_census(summaries) + "\n")
@@ -152,9 +158,15 @@ def render_message(
     try:
         decoded = message_decoding.decode(received.type_name, received.payload)
     except message_decoding.UnknownMessageTypeError:
-        return f"# {received.type_name}: unknown message type, {len(received.payload)} bytes"
+        return (
+            f"# {received.type_name}: unknown message type,"
+            f" {len(received.payload)} bytes"
+        )
     except message.DecodeError:
-        return f"# {received.type_name}: payload does not parse, {len(received.payload)} bytes"
+        return (
+            f"# {received.type_name}: payload does not parse,"
+            f" {len(received.payload)} bytes"
+        )
     return message_decoding.format_fields(decoded, fields, output_format)
 
 
@@ -194,7 +206,8 @@ def run_echo(
             pending = listener.receive_pending()
             if pending:
                 err.write(
-                    f"# skipped {len(pending)} message(s) on {listener.topic} to keep up\n"
+                    f"# skipped {len(pending)} message(s) on"
+                    f" {listener.topic} to keep up\n"
                 )
                 received = pending[-1]
             try:
@@ -261,7 +274,9 @@ def run_hz(
         while _remaining(deadline) > 0.0:
             wait = max(
                 min(
-                    POLL_PERIOD_S, _remaining(deadline), next_report - time.monotonic()
+                    POLL_PERIOD_S,
+                    _remaining(deadline),
+                    next_report - time.monotonic(),
                 ),
                 0.0,
             )
@@ -282,7 +297,8 @@ def run_hz(
     _warn_malformed(listener, err)
     if statistics.total_count < 2:
         err.write(
-            f"ipc_tool: received {statistics.total_count} message(s) on {topic}; a rate needs two\n"
+            f"ipc_tool: received {statistics.total_count} message(s) on"
+            f" {topic}; a rate needs two\n"
         )
         return EXIT_NO_MESSAGES
     return EXIT_OK
@@ -328,7 +344,10 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument(
         "--network_config",
         default=bus_listener.DEFAULT_NETWORK_CONFIG,
-        help="the network file of the bus: its DDS domain and nodes (default: %(default)s)",
+        help=(
+            "the network file of the bus: its DDS domain and nodes (default:"
+            " %(default)s)"
+        ),
     )
 
     parser = argparse.ArgumentParser(
@@ -338,17 +357,24 @@ def build_parser() -> argparse.ArgumentParser:
     subcommands = parser.add_subparsers(dest="command", required=True)
 
     list_parser = subcommands.add_parser(
-        "list", parents=[common], help="the topics seen on the bus, with type and rate"
+        "list",
+        parents=[common],
+        help="the topics seen on the bus, with type and rate",
     )
     list_parser.add_argument(
         "--duration",
         type=_positive_float,
         default=DEFAULT_LIST_DURATION_S,
-        help="seconds to listen (default: %(default)s); slower topics may be missed",
+        help=(
+            "seconds to listen (default: %(default)s); slower topics may be"
+            " missed"
+        ),
     )
 
     echo_parser = subcommands.add_parser(
-        "echo", parents=[common], help="decode and print the messages of a topic"
+        "echo",
+        parents=[common],
+        help="decode and print the messages of a topic",
     )
     echo_parser.add_argument("topic")
     echo_parser.add_argument(
@@ -361,8 +387,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--fields",
         type=_field_paths,
         default=[],
-        help="comma-separated dotted field paths to print instead of the whole message, e.g. "
-        "solver_status.healthy,state_trajectory.0.data",
+        help=(
+            "comma-separated dotted field paths to print instead of the whole"
+            " message, e.g. solver_status.healthy,state_trajectory.0.data"
+        ),
     )
     echo_parser.add_argument(
         "--format",
@@ -379,7 +407,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     hz_parser = subcommands.add_parser(
-        "hz", parents=[common], help="rate, period jitter and payload size of a topic"
+        "hz",
+        parents=[common],
+        help="rate, period jitter and payload size of a topic",
     )
     hz_parser.add_argument("topic")
     hz_parser.add_argument(

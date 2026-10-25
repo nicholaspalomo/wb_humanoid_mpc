@@ -126,14 +126,19 @@ def substep_count(control_dt: float, physics_dt: float) -> int:
             policy would otherwise run at another rate than the one configured.
     """
     if not (math.isfinite(control_dt) and control_dt > 0.0):
-        raise ValueError(f"control_dt must be positive and finite, got {control_dt}")
+        raise ValueError(
+            f"control_dt must be positive and finite, got {control_dt}"
+        )
     if not (math.isfinite(physics_dt) and physics_dt > 0.0):
-        raise ValueError(f"physics_dt must be positive and finite, got {physics_dt}")
+        raise ValueError(
+            f"physics_dt must be positive and finite, got {physics_dt}"
+        )
     ratio = control_dt / physics_dt
     count = round(ratio)
     if count < 1 or abs(ratio - count) > _SUBSTEP_RATIO_TOLERANCE * ratio:
         raise ValueError(
-            f"control_dt {control_dt} is not a whole multiple of physics_dt {physics_dt} (ratio {ratio})"
+            f"control_dt {control_dt} is not a whole multiple of physics_dt"
+            f" {physics_dt} (ratio {ratio})"
         )
     return count
 
@@ -147,9 +152,21 @@ def rotation_matrix(quaternion_wxyz: jax.Array) -> jax.Array:
     w, x, y, z = _normalized(quaternion_wxyz)
     return jnp.array(
         [
-            [1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y - w * z), 2.0 * (x * z + w * y)],
-            [2.0 * (x * y + w * z), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z - w * x)],
-            [2.0 * (x * z - w * y), 2.0 * (y * z + w * x), 1.0 - 2.0 * (x * x + y * y)],
+            [
+                1.0 - 2.0 * (y * y + z * z),
+                2.0 * (x * y - w * z),
+                2.0 * (x * z + w * y),
+            ],
+            [
+                2.0 * (x * y + w * z),
+                1.0 - 2.0 * (x * x + z * z),
+                2.0 * (y * z - w * x),
+            ],
+            [
+                2.0 * (x * z - w * y),
+                2.0 * (y * z + w * x),
+                1.0 - 2.0 * (x * x + y * y),
+            ],
         ]
     )
 
@@ -165,7 +182,9 @@ def yaw_quaternion(psi: jax.Array) -> jax.Array:
     return jnp.array([jnp.cos(0.5 * psi), 0.0, 0.0, jnp.sin(0.5 * psi)])
 
 
-def quaternion_product(left_wxyz: jax.Array, right_wxyz: jax.Array) -> jax.Array:
+def quaternion_product(
+    left_wxyz: jax.Array, right_wxyz: jax.Array
+) -> jax.Array:
     """Returns the Hamilton product left * right of two quaternions (w, x, y, z): right's rotation, then left's."""
     w1, x1, y1, z1 = left_wxyz
     w2, x2, y2, z2 = right_wxyz
@@ -179,13 +198,17 @@ def quaternion_product(left_wxyz: jax.Array, right_wxyz: jax.Array) -> jax.Array
     )
 
 
-def heading_frame_linear_velocity(qpos: jax.Array, qvel: jax.Array) -> jax.Array:
+def heading_frame_linear_velocity(
+    qpos: jax.Array, qvel: jax.Array
+) -> jax.Array:
     """Returns the base's linear velocity in the heading frame, R_z(-psi) v_world: forward, lateral, vertical [m/s]."""
     psi = heading(qpos[_BASE_POSITION_END:_BASE_QUATERNION_END])
     cos_psi = jnp.cos(psi)
     sin_psi = jnp.sin(psi)
     vx, vy, vz = qvel[:_BASE_LINEAR_VELOCITY_END]
-    return jnp.array([cos_psi * vx + sin_psi * vy, -sin_psi * vx + cos_psi * vy, vz])
+    return jnp.array(
+        [cos_psi * vx + sin_psi * vy, -sin_psi * vx + cos_psi * vy, vz]
+    )
 
 
 def world_yaw_rate(qpos: jax.Array, qvel: jax.Array) -> jax.Array:
@@ -212,7 +235,9 @@ class HumanoidMpxEnv(brax_base.PipelineEnv):
     key is the same initial state.
     """
 
-    def __init__(self, config: HumanoidEnvConfig | None = None, **kwargs: Any) -> None:
+    def __init__(
+        self, config: HumanoidEnvConfig | None = None, **kwargs: Any
+    ) -> None:
         self.config = config or HumanoidEnvConfig()
 
         if self.config.xml_string is not None:
@@ -226,9 +251,13 @@ class HumanoidMpxEnv(brax_base.PipelineEnv):
             or mj_model.jnt_type[0] != mujoco.mjtJoint.mjJNT_FREE
             or mj_model.jnt_qposadr[0] != 0
         ):
-            raise ValueError("the robot's first joint must be its root free joint")
+            raise ValueError(
+                "the robot's first joint must be its root free joint"
+            )
 
-        n_substeps = substep_count(self.config.control_dt, self.config.physics_dt)
+        n_substeps = substep_count(
+            self.config.control_dt, self.config.physics_dt
+        )
         self.mj_model = mj_model
         self.mj_model.opt.timestep = self.config.physics_dt
         mjx_model = mjx.put_model(self.mj_model)
@@ -245,7 +274,11 @@ class HumanoidMpxEnv(brax_base.PipelineEnv):
 
     def _command(self) -> jax.Array:
         return jnp.array(
-            [self.config.target_vx, self.config.target_vy, self.config.target_wz]
+            [
+                self.config.target_vx,
+                self.config.target_vy,
+                self.config.target_wz,
+            ]
         )
 
     def reset(self, rng: jax.Array) -> brax_base.State:
@@ -253,11 +286,16 @@ class HumanoidMpxEnv(brax_base.PipelineEnv):
         rng_heading, rng_joints, rng_velocity = jax.random.split(rng, 3)
         qpos = jnp.array(self.sys.qpos0)
         if self.config.randomize_heading:
-            psi = jax.random.uniform(rng_heading, (), minval=-jnp.pi, maxval=jnp.pi)
-            base_quaternion = quaternion_product(
-                yaw_quaternion(psi), qpos[_BASE_POSITION_END:_BASE_QUATERNION_END]
+            psi = jax.random.uniform(
+                rng_heading, (), minval=-jnp.pi, maxval=jnp.pi
             )
-            qpos = qpos.at[_BASE_POSITION_END:_BASE_QUATERNION_END].set(base_quaternion)
+            base_quaternion = quaternion_product(
+                yaw_quaternion(psi),
+                qpos[_BASE_POSITION_END:_BASE_QUATERNION_END],
+            )
+            qpos = qpos.at[_BASE_POSITION_END:_BASE_QUATERNION_END].set(
+                base_quaternion
+            )
         noise = self.config.reset_joint_position_noise
         joint_noise = jax.random.uniform(
             rng_joints,
@@ -268,7 +306,10 @@ class HumanoidMpxEnv(brax_base.PipelineEnv):
         qpos = qpos.at[_BASE_QUATERNION_END:].add(joint_noise)
         velocity_noise = self.config.reset_velocity_noise
         qvel = jax.random.uniform(
-            rng_velocity, (self.sys.nv,), minval=-velocity_noise, maxval=velocity_noise
+            rng_velocity,
+            (self.sys.nv,),
+            minval=-velocity_noise,
+            maxval=velocity_noise,
         )
         pipeline_state = self.pipeline_init(qpos, qvel)
 
@@ -276,11 +317,15 @@ class HumanoidMpxEnv(brax_base.PipelineEnv):
         obs = self._get_obs(pipeline_state, cmd)
         reward = jnp.zeros(())
         done = jnp.zeros(())
-        _, metrics = self._compute_reward(pipeline_state, cmd, jnp.zeros(self.sys.nu))
+        _, metrics = self._compute_reward(
+            pipeline_state, cmd, jnp.zeros(self.sys.nu)
+        )
         metrics = {key: jnp.zeros(()) for key in metrics}
         return brax_base.State(pipeline_state, obs, reward, done, metrics)
 
-    def step(self, state: brax_base.State, action: jax.Array) -> brax_base.State:
+    def step(
+        self, state: brax_base.State, action: jax.Array
+    ) -> brax_base.State:
         """Simulates one control step with n_substeps physics steps."""
         # Brax PPO's actions are tanh-squashed into (-1, 1); the actuators' ctrlrange bounds the control.
         ctrl = action * self.config.action_scale

@@ -40,7 +40,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 std::string StepWidthCost::describe() const {
-  return weightLine(absl::StrCat("w (e_y . (p_L - p_R) - ", nominalStepWidth_, ")^2 at every node (first-order in the heading)"));
+  return weightLine(
+      absl::StrCat("w (e_y . (p_L - p_R) - ", nominalStepWidth_,
+                   ")^2 at every node (first-order in the heading)"));
 }
 
 void StepWidthCost::configure(const ContactPlanningConfig& config) {
@@ -48,7 +50,9 @@ void StepWidthCost::configure(const ContactPlanningConfig& config) {
   nominalStepWidth_ = config.stepWidth.nominalStepWidth;
 }
 
-void StepWidthCost::addToStage(const ContactPlanningContext& ctx, int node, StageAccumulator& stage) const {
+void StepWidthCost::addToStage(const ContactPlanningContext& ctx,
+                               int node,
+                               StageAccumulator& stage) const {
   const vector2_t& ey = ctx.axesAt(node)[1];
   Coefficients xc;
   for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
@@ -56,13 +60,17 @@ void StepWidthCost::addToStage(const ContactPlanningContext& ctx, int node, Stag
     xc.emplace_back(idx_.foot[1][axis], -ey(axis));
   }
   const vector2_t dNominal =
-      ctx.hasHeading() ? vector2_t(ctx.nominal->feet[static_cast<size_t>(node)][0] - ctx.nominal->feet[static_cast<size_t>(node)][1])
-                       : vector2_t(vector2_t::Zero());
-  const ContactPlanningContext::HeadingFrameTerm frameTerm = ctx.frameTerm(node, /*axis=*/1, dNominal);
+      ctx.hasHeading()
+          ? vector2_t(ctx.nominal->feet[static_cast<size_t>(node)][0] -
+                      ctx.nominal->feet[static_cast<size_t>(node)][1])
+          : vector2_t(vector2_t::Zero());
+  const ContactPlanningContext::HeadingFrameTerm frameTerm =
+      ctx.frameTerm(node, /*axis=*/1, dNominal);
   const scalar_t g = frameTerm.gain;
   const scalar_t offset = frameTerm.offset;
   if (ctx.hasHeading()) xc.emplace_back(idx_.heading, g);
-  stage.addQuadraticResidual(xc, /*uCoefficients=*/{}, -nominalStepWidth_ + offset, weight_);
+  stage.addQuadraticResidual(xc, /*uCoefficients=*/{},
+                             -nominalStepWidth_ + offset, weight_);
 }
 
 }  // namespace ocs2::humanoid

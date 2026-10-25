@@ -43,7 +43,8 @@ absl::string_view viewerCameraModeName(ViewerCameraMode mode) {
     case ViewerCameraMode::kTracking:
       return "tracking";
   }
-  LOG(ERROR) << "viewerCameraModeName(): unknown camera mode " << static_cast<int>(mode);
+  LOG(ERROR) << "viewerCameraModeName(): unknown camera mode "
+             << static_cast<int>(mode);
   return "unknown";
 }
 

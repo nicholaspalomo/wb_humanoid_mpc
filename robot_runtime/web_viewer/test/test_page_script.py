@@ -60,7 +60,8 @@ class PageScriptTest(unittest.TestCase):
         node = _node()
         self.assertTrue(
             os.access(node, os.X_OK),
-            f"node is not installed at {node}: install the nodejs package (dependencies.txt)",
+            f"node is not installed at {node}: install the nodejs package"
+            " (dependencies.txt)",
         )
         result = subprocess.run(
             [node, _HARNESS, _PAGE, scenario],
@@ -94,7 +95,9 @@ class PageScriptTest(unittest.TestCase):
     def test_the_settings_controls_show_the_renderers_settings(self) -> None:
         self._run_scenario("theSettingsControlsShowTheRenderersSettings")
 
-    def test_a_clamped_or_refused_setting_still_follows_the_renderer(self) -> None:
+    def test_a_clamped_or_refused_setting_still_follows_the_renderer(
+        self,
+    ) -> None:
         self._run_scenario("aClampedOrRefusedSettingStillFollowsTheRenderer")
 
     def test_drags_are_fractions_of_the_displayed_height(self) -> None:

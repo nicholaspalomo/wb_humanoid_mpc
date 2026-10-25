@@ -118,7 +118,9 @@ def _python_comment_lines(source: str) -> list[str]:
                 row, column = token.start
                 line = lines[row - 1]
                 lines[row - 1] = (
-                    line[:column] + token.string + line[column + len(token.string) :]
+                    line[:column]
+                    + token.string
+                    + line[column + len(token.string) :]
                 )
     except (tokenize.TokenError, IndentationError, SyntaxError):
         return [hash_comment_text(line) for line in source.split("\n")]
@@ -204,11 +206,15 @@ def parse(source: str, style: str) -> list[Marker]:
                 # Only cpplint and clang-tidy read a bare NOLINT, and they read C++: elsewhere the word is prose.
                 continue
             categories = tuple(
-                c.strip() for c in (categories_text or "").split(",") if c.strip()
+                c.strip()
+                for c in (categories_text or "").split(",")
+                if c.strip()
             )
             rest = match.group("rest").split("*/", 1)[0].rstrip()
             reason_match = _REASON.match(rest)
-            reason = reason_match.group("reason").strip() if reason_match else ""
+            reason = (
+                reason_match.group("reason").strip() if reason_match else ""
+            )
             markers.append(
                 Marker(
                     line=number,
@@ -262,7 +268,8 @@ class Suppressions:
                             "nolint-unbalanced",
                             marker.line,
                             marker.column,
-                            f"`NOLINTEND({category})` closes no NOLINTBEGIN({category}).",
+                            f"`NOLINTEND({category})` closes no"
+                            f" NOLINTBEGIN({category}).",
                         )
                     )
         for category, indices in open_blocks.items():
@@ -273,8 +280,8 @@ class Suppressions:
                         "nolint-unbalanced",
                         marker.line,
                         marker.column,
-                        f"`NOLINTBEGIN({category})` is never closed by a NOLINTEND({category}), so it exempts "
-                        "nothing.",
+                        f"`NOLINTBEGIN({category})` is never closed by a"
+                        f" NOLINTEND({category}), so it exempts nothing.",
                     )
                 )
 
@@ -284,7 +291,9 @@ class Suppressions:
     def suppresses(self, check: str, line: int) -> bool:
         """True when a marker with a reason exempts `line` from `check`; that marker then counts as used."""
         indices = [
-            i for i in self._exempt.get((check, line), []) if self.markers[i].reason
+            i
+            for i in self._exempt.get((check, line), [])
+            if self.markers[i].reason
         ]
         self._used.update(indices)
         return bool(indices)
@@ -321,8 +330,9 @@ def marker_problems(
                     "nolint-category",
                     marker.line,
                     marker.column,
-                    f"`{marker.text}` names no check, so it would silence every cpplint and clang-tidy check on the "
-                    "line: write `NOLINT(<check>): <reason>`.",
+                    f"`{marker.text}` names no check, so it would silence every"
+                    " cpplint and clang-tidy check on the line: write"
+                    " `NOLINT(<check>): <reason>`.",
                 )
             )
             continue
@@ -332,8 +342,9 @@ def marker_problems(
                     "nolint-reason",
                     marker.line,
                     marker.column,
-                    f"`{marker.text}` gives no reason: write `{marker.text}: <why the rule is wrong here>`. A marker "
-                    "without a reason exempts nothing.",
+                    f"`{marker.text}` gives no reason: write `{marker.text}:"
+                    " <why the rule is wrong here>`. A marker without a reason"
+                    " exempts nothing.",
                 )
             )
         for category in marker.categories:
@@ -343,8 +354,9 @@ def marker_problems(
                         "nolint-unknown",
                         marker.line,
                         marker.column,
-                        f"`{category}` in `{marker.text}` is no check of tools/hooks/checks.py, no cpplint category "
-                        "and no clang-tidy check of .clang-tidy.",
+                        f"`{category}` in `{marker.text}` is no check of"
+                        " tools/hooks/checks.py, no cpplint category and no"
+                        " clang-tidy check of .clang-tidy.",
                     )
                 )
     return problems

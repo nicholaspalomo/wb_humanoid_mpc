@@ -163,32 +163,58 @@ class LanguageTest(unittest.TestCase):
             language.check_pragma_reason,
             [
                 "x = f()  # type: ignore[attr-defined]\n",
-                "x = f()  # type: ignore[attr-defined]  # NOLINT(py-type-comment)\n",
+                (
+                    "x = f()  # type: ignore[attr-defined]  #"
+                    " NOLINT(py-type-comment)\n"
+                ),
                 "except Exception:  # pylint: disable=broad-exception-caught\n",
                 "import h5py  # pylint: disable=import-outside-toplevel\n",
                 "\n# pylint: disable=wrong-import-position\nimport a\n",
-                "# pylint: disable-next=consider-using-with\nproc = subprocess.Popen(cmd)\n",
+                (
+                    "# pylint: disable-next=consider-using-with\nproc ="
+                    " subprocess.Popen(cmd)\n"
+                ),
                 "# pylint: skip-file\n",
                 "# pylint: skip-file  # A generated file.\n",
             ],
             [
                 "x = f()  # type: ignore[attr-defined]  # The stub lacks it.\n",
-                "except Exception:  # pylint: disable=broad-exception-caught  # A Tk callback must not raise.\n",
-                "# pylint: disable=wrong-import-position  # JAX_PLATFORMS is set above.\nimport a\n",
-                "# JAX_PLATFORMS is set above, before JAX is imported.\n# pylint: disable=wrong-import-position\nimport a\n",
+                (
+                    "except Exception:  # pylint:"
+                    " disable=broad-exception-caught  # A Tk callback must not"
+                    " raise.\n"
+                ),
+                (
+                    "# pylint: disable=wrong-import-position  # JAX_PLATFORMS"
+                    " is set above.\nimport a\n"
+                ),
+                (
+                    "# JAX_PLATFORMS is set above, before JAX is imported.\n#"
+                    " pylint: disable=wrong-import-position\nimport a\n"
+                ),
                 # The black-split form: the pragma above a statement black wrapped onto several lines.
-                "# pylint: disable-next=consider-using-with  # tearDown() deletes it.\nproc = subprocess.Popen(\n    cmd,\n)\n",
+                (
+                    "# pylint: disable-next=consider-using-with  # tearDown()"
+                    " deletes it.\nproc = subprocess.Popen(\n    cmd,\n)\n"
+                ),
                 "x = 1  # pylint: enable=invalid-name\n",
                 's = "# type: ignore[x] in a string"\n',
-                "x = f()  # type: ignore[attr-defined, arg-type]  # Both are the stub's.\n",
-                "x = 1  # pylint: disable=invalid-name,protected-access  # The paper's notation.\n",
+                (
+                    "x = f()  # type: ignore[attr-defined, arg-type]  # Both"
+                    " are the stub's.\n"
+                ),
+                (
+                    "x = 1  # pylint: disable=invalid-name,protected-access  #"
+                    " The paper's notation.\n"
+                ),
             ],
         )
         # A pragma is not the reason of the pragma below it.
         self.assertEqual(
             _count(
                 language.check_pragma_reason,
-                "# pylint: disable-next=protected-access\n# pylint: disable-next=invalid-name\nx = a._b\n",
+                "# pylint: disable-next=protected-access\n# pylint:"
+                " disable-next=invalid-name\nx = a._b\n",
             ),
             2,
         )
@@ -198,7 +224,10 @@ class LanguageTest(unittest.TestCase):
             language.check_main_guard,
             ['if __name__ == "__main__":\n    run()\n', "print('at import')\n"],
             [
-                'def main():\n    pass\n\n\nif __name__ == "__main__":\n    main()\n',
+                (
+                    'def main():\n    pass\n\n\nif __name__ == "__main__":\n   '
+                    " main()\n"
+                ),
                 'if __name__ == "__main__":\n    sys.exit(main())\n',
                 'if __name__ == "__main__":\n    unittest.main()\n',
                 'if __name__ == "__main__":\n    app.run(main)\n',
@@ -237,26 +266,39 @@ class ShebangTest(unittest.TestCase):
     def test_a_shebang_exactly_on_executables(self):
         self.assertEqual(
             _count(
-                language.check_shebang, "x = 1\n", self.write("a.py", "x = 1\n", False)
+                language.check_shebang,
+                "x = 1\n",
+                self.write("a.py", "x = 1\n", False),
             ),
             0,
         )
         good = "#!/usr/bin/env python3\nx = 1\n"
         self.assertEqual(
-            _count(language.check_shebang, good, self.write("b.py", good, True)), 0
-        )
-        self.assertEqual(
-            _count(language.check_shebang, good, self.write("c.py", good, False)), 1
+            _count(
+                language.check_shebang, good, self.write("b.py", good, True)
+            ),
+            0,
         )
         self.assertEqual(
             _count(
-                language.check_shebang, "x = 1\n", self.write("d.py", "x = 1\n", True)
+                language.check_shebang, good, self.write("c.py", good, False)
+            ),
+            1,
+        )
+        self.assertEqual(
+            _count(
+                language.check_shebang,
+                "x = 1\n",
+                self.write("d.py", "x = 1\n", True),
             ),
             1,
         )
         other = "#!/usr/bin/python3\nx = 1\n"
         self.assertEqual(
-            _count(language.check_shebang, other, self.write("e.py", other, True)), 1
+            _count(
+                language.check_shebang, other, self.write("e.py", other, True)
+            ),
+            1,
         )
         self.assertEqual(
             _count(language.check_shebang, good, "missing.py"),
@@ -275,7 +317,10 @@ class RegistryTest(unittest.TestCase):
                 "py-staticmethod",
                 "class A:\n    @staticmethod\n    def f():\n        pass\n",
             ),
-            ("py-complex-comprehension", "x = [a for row in rows for a in row]\n"),
+            (
+                "py-complex-comprehension",
+                "x = [a for row in rows for a in row]\n",
+            ),
             ("py-long-lambda", f'f = lambda x: {" + ".join(["x"] * 30)}\n'),
             ("py-length-test", "if len(x) == 0:\n    pass\n"),
             ("py-assert", "assert x\n"),
@@ -286,7 +331,9 @@ class RegistryTest(unittest.TestCase):
             ("py-main-guard", "print('at import')\n"),
         ]:
             with self.subTest(check=name):
-                check_test_support.assert_check_behaves(self, name, flagged, "src/a.py")
+                check_test_support.assert_check_behaves(
+                    self, name, flagged, "src/a.py"
+                )
 
     def test_a_long_ternary_behaves(self):
         check_test_support.assert_check_behaves(

@@ -44,15 +44,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::validation {
 
-std::string metricsFileName(absl::string_view robot, absl::string_view scenario) {
+std::string metricsFileName(absl::string_view robot,
+                            absl::string_view scenario) {
   return absl::StrCat(robot, "_", scenario, ".json");
 }
 
-std::string timeSeriesFileName(absl::string_view robot, absl::string_view scenario) {
+std::string timeSeriesFileName(absl::string_view robot,
+                               absl::string_view scenario) {
   return absl::StrCat(robot, "_", scenario, "_timeseries.txt");
 }
 
-std::string recordedStatesFileName(absl::string_view robot, absl::string_view scenario) {
+std::string recordedStatesFileName(absl::string_view robot,
+                                   absl::string_view scenario) {
   return absl::StrCat(robot, "_", scenario, "_states.txt");
 }
 
@@ -62,18 +65,23 @@ absl::Status writeLockstepOutputs(const LockstepResult& result,
                                   const std::string& scenario,
                                   const GoldenProvenance& provenance) {
   const std::filesystem::path directory(outputDir);
-  RETURN_IF_ERROR(writeJsonFile((directory / metricsFileName(robot, scenario)).string(), result.metrics));
+  RETURN_IF_ERROR(writeJsonFile(
+      (directory / metricsFileName(robot, scenario)).string(), result.metrics));
   GoldenFile timeSeries = result.timeSeries;
   GoldenProvenance seriesProvenance = provenance;
-  for (const std::pair<std::string, std::string>& note : timeSeries.provenance.notes) seriesProvenance.notes.push_back(note);
+  for (const std::pair<std::string, std::string>& note :
+       timeSeries.provenance.notes)
+    seriesProvenance.notes.push_back(note);
   timeSeries.provenance = std::move(seriesProvenance);
-  RETURN_IF_ERROR(writeGoldenFile((directory / timeSeriesFileName(robot, scenario)).string(), timeSeries));
+  RETURN_IF_ERROR(writeGoldenFile(
+      (directory / timeSeriesFileName(robot, scenario)).string(), timeSeries));
   if (!result.recordedStates.records.empty()) {
     GoldenProvenance statesProvenance = provenance;
     statesProvenance.notes.emplace_back("robot", robot);
     statesProvenance.notes.emplace_back("scenario", scenario);
-    RETURN_IF_ERROR(writeGoldenFile((directory / recordedStatesFileName(robot, scenario)).string(),
-                                    toGoldenFile(result.recordedStates, std::move(statesProvenance))));
+    RETURN_IF_ERROR(writeGoldenFile(
+        (directory / recordedStatesFileName(robot, scenario)).string(),
+        toGoldenFile(result.recordedStates, std::move(statesProvenance))));
   }
   return absl::OkStatus();
 }

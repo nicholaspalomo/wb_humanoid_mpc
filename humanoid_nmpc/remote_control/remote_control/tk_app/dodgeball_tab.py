@@ -259,7 +259,8 @@ class DodgeballTab(ttk.Frame):
         )
         arrival = math.hypot(*dodgeball.arrival_velocity(throw))
         return (
-            "%s  |  %.1f m/s launch%s  |  %.2f s  |  %.2f kg x %.1f m/s = %.2f N s"
+            "%s  |  %.1f m/s launch%s  |  %.2f s  |  %.2f kg x %.1f m/s ="
+            " %.2f N s"
             % (
                 direction,
                 speed,
@@ -309,7 +310,8 @@ class DodgeballTab(ttk.Frame):
             return payload
 
         self._show_status(
-            "Thrown: %.2f kg from %+.0f / %+.0f deg at %.1f m, launched at %.1f m/s - arrives in %.2f s."
+            "Thrown: %.2f kg from %+.0f / %+.0f deg at %.1f m, launched at %.1f"
+            " m/s - arrives in %.2f s."
             % (
                 throw.mass_kg,
                 throw.azimuth_deg,

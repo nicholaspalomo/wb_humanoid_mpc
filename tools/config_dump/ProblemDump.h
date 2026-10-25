@@ -42,14 +42,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::config_dump {
 
 /**
- * The optimal control problem `problem` as the solver sees it, with its weights pinned without an accessor of their
- * own: the names of the terms of every collection, and on a walking schedule with a forward-moving target (set on
- * `referenceManager`, the problem's), at three points of the horizon with a fixed perturbed state and input, every cost
- * and soft-constraint term's value and quadratic approximation (the diagonals of its Hessians element by element, the
- * rest as fingerprints) and the linear-quadratic approximation of the whole problem (cost, dynamics, equality
- * constraints), then the same of the final cost. The terms are evaluated on a copy of `problem`. `robotModel` is the
- * robot model whose state and input the problem has (for the centroidal MPC the effective one): the target moves its base
- * through MpcRobotModelBase::setBasePosition(), and the inputs have its getInputDim() entries.
+ * The optimal control problem `problem` as the solver sees it, with its weights
+ * pinned without an accessor of their own: the names of the terms of every
+ * collection, and on a walking schedule with a forward-moving target (set on
+ * `referenceManager`, the problem's), at three points of the horizon with a
+ * fixed perturbed state and input, every cost and soft-constraint term's value
+ * and quadratic approximation (the diagonals of its Hessians element by
+ * element, the rest as fingerprints) and the linear-quadratic approximation of
+ * the whole problem (cost, dynamics, equality constraints), then the same of
+ * the final cost. The terms are evaluated on a copy of `problem`. `robotModel`
+ * is the robot model whose state and input the problem has (for the centroidal
+ * MPC the effective one): the target moves its base through
+ * MpcRobotModelBase::setBasePosition(), and the inputs have its getInputDim()
+ * entries.
  */
 void dumpProblem(ValueDump& dump,
                  absl::string_view path,

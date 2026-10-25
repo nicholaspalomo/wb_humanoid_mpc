@@ -48,7 +48,9 @@ message MyFile {
   reserved 1 to max;
 }
 """
-HEADER = "# proto-file: config/my_file.proto\n# proto-message: my_config.MyFile\n"
+HEADER = (
+    "# proto-file: config/my_file.proto\n# proto-message: my_config.MyFile\n"
+)
 
 
 class TextprotoHeaderTest(unittest.TestCase):
@@ -57,7 +59,9 @@ class TextprotoHeaderTest(unittest.TestCase):
         self.root = self.enterContext(tempfile.TemporaryDirectory())
         os.makedirs(os.path.join(self.root, "config"))
         with open(
-            os.path.join(self.root, "config", "my_file.proto"), "w", encoding="utf-8"
+            os.path.join(self.root, "config", "my_file.proto"),
+            "w",
+            encoding="utf-8",
         ) as f:
             f.write(PROTO)
 
@@ -68,7 +72,9 @@ class TextprotoHeaderTest(unittest.TestCase):
         ]
 
     def test_a_file_with_its_header_passes(self):
-        self.assertEqual(self.texts(f"{HEADER}#\n# What it is.\n\nvalue: 1\n"), [])
+        self.assertEqual(
+            self.texts(f"{HEADER}#\n# What it is.\n\nvalue: 1\n"), []
+        )
         # Header lines further down the leading comment block count too.
         self.assertEqual(self.texts(f"# A title.\n{HEADER}"), [])
 
@@ -76,9 +82,12 @@ class TextprotoHeaderTest(unittest.TestCase):
         found = self.texts("value: 1\n")
         self.assertEqual(len(found), 1)
         self.assertEqual(found[0][0], 1)
-        self.assertIn("no # proto-file: and no # proto-message: line", found[0][1])
         self.assertIn(
-            "e.g. '# proto-file: humanoid_nmpc/humanoid_mpc_config/task_file.proto'",
+            "no # proto-file: and no # proto-message: line", found[0][1]
+        )
+        self.assertIn(
+            "e.g. '# proto-file:"
+            " humanoid_nmpc/humanoid_mpc_config/task_file.proto'",
             found[0][1],
         )
 
@@ -94,33 +103,40 @@ class TextprotoHeaderTest(unittest.TestCase):
 
     def test_a_proto_file_that_does_not_exist(self):
         found = self.texts(
-            "# proto-file: config/gone.proto\n# proto-message: my_config.MyFile\n"
+            "# proto-file: config/gone.proto\n# proto-message:"
+            " my_config.MyFile\n"
         )
         self.assertEqual(
             found,
             [
                 (
                     1,
-                    "'# proto-file: config/gone.proto' names no file of the repository (the path is from its root)",
+                    (
+                        "'# proto-file: config/gone.proto' names no file of the"
+                        " repository (the path is from its root)"
+                    ),
                 )
             ],
         )
 
     def test_a_message_the_file_does_not_define(self):
         found = self.texts(
-            "# proto-file: config/my_file.proto\n# proto-message: my_config.Other\n"
+            "# proto-file: config/my_file.proto\n# proto-message:"
+            " my_config.Other\n"
         )
         self.assertEqual(len(found), 1)
         self.assertEqual(found[0][0], 2)
         self.assertIn(
-            "not a top-level message of config/my_file.proto, which defines my_config.MyFile",
+            "not a top-level message of config/my_file.proto, which defines"
+            " my_config.MyFile",
             found[0][1],
         )
         # The package is part of the name.
         self.assertEqual(
             len(
                 self.texts(
-                    "# proto-file: config/my_file.proto\n# proto-message: MyFile\n"
+                    "# proto-file: config/my_file.proto\n# proto-message:"
+                    " MyFile\n"
                 )
             ),
             1,
@@ -130,8 +146,12 @@ class TextprotoHeaderTest(unittest.TestCase):
         self.assertEqual(self.texts("value: 1\n", path="config/my.txt"), [])
 
     def test_schema_messages_reads_the_package(self):
-        self.assertEqual(textproto_headers.schema_messages(PROTO), ["my_config.MyFile"])
-        self.assertEqual(textproto_headers.schema_messages("message A {}\n"), ["A"])
+        self.assertEqual(
+            textproto_headers.schema_messages(PROTO), ["my_config.MyFile"]
+        )
+        self.assertEqual(
+            textproto_headers.schema_messages("message A {}\n"), ["A"]
+        )
 
 
 class ShippedFilesTest(unittest.TestCase):
@@ -156,7 +176,8 @@ class WiringTest(unittest.TestCase):
         check_test_support.assert_check_behaves(
             self,
             textproto_headers.NAME,
-            "# proto-file: config/no_such_schema.proto\n# proto-message: my_config.MyFile\n\nvalue: 1\n",
+            "# proto-file: config/no_such_schema.proto\n# proto-message:"
+            " my_config.MyFile\n\nvalue: 1\n",
             "config/my.textproto",
         )
 

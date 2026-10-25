@@ -39,37 +39,58 @@ namespace ocs2::humanoid {
 
 absl::Status requireFinite(absl::string_view path, double value) {
   if (std::isfinite(value)) return absl::OkStatus();
-  return absl::InvalidArgumentError(absl::StrCat(path, ": ", value, " is not finite"));
+  return absl::InvalidArgumentError(
+      absl::StrCat(path, ": ", value, " is not finite"));
 }
 
 absl::Status requirePositive(absl::string_view path, double value) {
   if (std::isfinite(value) && !(value <= 0.0)) return absl::OkStatus();
-  return absl::InvalidArgumentError(absl::StrCat(path, ": ", value, " is not a finite positive number"));
+  return absl::InvalidArgumentError(
+      absl::StrCat(path, ": ", value, " is not a finite positive number"));
 }
 
 absl::Status requireNonNegative(absl::string_view path, double value) {
   if (std::isfinite(value) && !(value < 0.0)) return absl::OkStatus();
-  return absl::InvalidArgumentError(absl::StrCat(path, ": ", value, " is not a finite number of at least 0"));
+  return absl::InvalidArgumentError(
+      absl::StrCat(path, ": ", value, " is not a finite number of at least 0"));
 }
 
-absl::Status requireInOpenInterval(absl::string_view path, double value, double low, double high) {
+absl::Status requireInOpenInterval(absl::string_view path,
+                                   double value,
+                                   double low,
+                                   double high) {
   if (value > low && value < high) return absl::OkStatus();
-  return absl::InvalidArgumentError(absl::StrCat(path, ": ", value, " is not in the open interval (", low, ", ", high, ")"));
+  return absl::InvalidArgumentError(
+      absl::StrCat(path, ": ", value, " is not in the open interval (", low,
+                   ", ", high, ")"));
 }
 
-absl::Status requireInHalfOpenInterval(absl::string_view path, double value, double low, double high) {
+absl::Status requireInHalfOpenInterval(absl::string_view path,
+                                       double value,
+                                       double low,
+                                       double high) {
   if (value >= low && value < high) return absl::OkStatus();
-  return absl::InvalidArgumentError(absl::StrCat(path, ": ", value, " is not in the interval [", low, ", ", high, ")"));
+  return absl::InvalidArgumentError(absl::StrCat(
+      path, ": ", value, " is not in the interval [", low, ", ", high, ")"));
 }
 
-absl::Status requireInLeftOpenInterval(absl::string_view path, double value, double low, double high) {
+absl::Status requireInLeftOpenInterval(absl::string_view path,
+                                       double value,
+                                       double low,
+                                       double high) {
   if (value > low && value <= high) return absl::OkStatus();
-  return absl::InvalidArgumentError(absl::StrCat(path, ": ", value, " is not in the interval (", low, ", ", high, "]"));
+  return absl::InvalidArgumentError(absl::StrCat(
+      path, ": ", value, " is not in the interval (", low, ", ", high, "]"));
 }
 
-absl::Status requireOrdered(absl::string_view lowerPath, double lower, absl::string_view upperPath, double upper) {
+absl::Status requireOrdered(absl::string_view lowerPath,
+                            double lower,
+                            absl::string_view upperPath,
+                            double upper) {
   if (lower <= upper) return absl::OkStatus();
-  return absl::InvalidArgumentError(absl::StrCat(lowerPath, " (", lower, ") is greater than ", upperPath, " (", upper, ")"));
+  return absl::InvalidArgumentError(absl::StrCat(lowerPath, " (", lower,
+                                                 ") is greater than ",
+                                                 upperPath, " (", upper, ")"));
 }
 
 }  // namespace ocs2::humanoid

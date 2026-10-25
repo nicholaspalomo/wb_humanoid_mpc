@@ -37,19 +37,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-absl::Status checkControllerRobot(const RobotController& controller, const robot::model::RobotDescription& robotDescription) {
-  const std::vector<std::string>& controllerJoints = controller.robotJointNames();
-  const std::vector<std::string>& robotJoints = robotDescription.getJointNames();
+absl::Status checkControllerRobot(
+    const RobotController& controller,
+    const robot::model::RobotDescription& robotDescription) {
+  const std::vector<std::string>& controllerJoints =
+      controller.robotJointNames();
+  const std::vector<std::string>& robotJoints =
+      robotDescription.getJointNames();
   if (controllerJoints.size() != robotJoints.size()) {
-    return absl::InvalidArgumentError(absl::StrCat("the controller was built for a robot of ", controllerJoints.size(),
-                                                   " joints, but the robot backend's (", robotDescription.getURDFName(), ") has ",
-                                                   robotJoints.size(), ": build both from the same URDF"));
+    return absl::InvalidArgumentError(absl::StrCat(
+        "the controller was built for a robot of ", controllerJoints.size(),
+        " joints, but the robot backend's (", robotDescription.getURDFName(),
+        ") has ", robotJoints.size(), ": build both from the same URDF"));
   }
   for (size_t joint = 0; joint < robotJoints.size(); ++joint) {
     if (controllerJoints[joint] != robotJoints[joint]) {
-      return absl::InvalidArgumentError(absl::StrCat("joint ", joint, " of the controller is '", controllerJoints[joint],
-                                                     "', but of the robot backend's description (", robotDescription.getURDFName(), ") '",
-                                                     robotJoints[joint], "': build both from the same URDF"));
+      return absl::InvalidArgumentError(absl::StrCat(
+          "joint ", joint, " of the controller is '", controllerJoints[joint],
+          "', but of the robot backend's description (",
+          robotDescription.getURDFName(), ") '", robotJoints[joint],
+          "': build both from the same URDF"));
     }
   }
   return absl::OkStatus();

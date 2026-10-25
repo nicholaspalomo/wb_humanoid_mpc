@@ -45,9 +45,12 @@ void VelocityTrackingCost::configure(const ContactPlanningConfig& config) {
   weight_ = config.velocityTracking.weight;
 }
 
-void VelocityTrackingCost::addToStage(const ContactPlanningContext& ctx, int /*node*/, StageAccumulator& stage) const {
+void VelocityTrackingCost::addToStage(const ContactPlanningContext& ctx,
+                                      int /*node*/,
+                                      StageAccumulator& stage) const {
   for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
-    stage.addQuadraticResidual({{idx_.vel[axis], 1.0}}, /*uCoefficients=*/{}, -ctx.input->velocityCommand(axis), weight_);
+    stage.addQuadraticResidual({{idx_.vel[axis], 1.0}}, /*uCoefficients=*/{},
+                               -ctx.input->velocityCommand(axis), weight_);
   }
 }
 

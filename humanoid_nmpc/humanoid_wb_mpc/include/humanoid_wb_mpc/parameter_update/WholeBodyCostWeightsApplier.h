@@ -38,30 +38,40 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Applies the weights of the whole-body MPC's CppAD-taped costs, which enter the generated code as parameters, so that
- * an update is a parameter write and nothing is taped again: task_space_foot_cost to the swing-foot cost of every foot
- * (EndEffectorDynamicsFootCost::setWeights(), converted with wholeBodyFootCostWeightsFromConfig(), which refuses what
- * the start-up refuses, such as active_phases "swing_and_stance"), and joint_torque_weights to the joint torque cost
- * (JointTorqueCostCppAd::setWeights(), converted with jointTorqueWeightsFromConfig() on the whole-body layout). A block
- * whose term the running problem does not carry is not converted.
+ * Applies the weights of the whole-body MPC's CppAD-taped costs, which enter
+ * the generated code as parameters, so that an update is a parameter write and
+ * nothing is taped again: task_space_foot_cost to the swing-foot cost of every
+ * foot (EndEffectorDynamicsFootCost::setWeights(), converted with
+ * wholeBodyFootCostWeightsFromConfig(), which refuses what the start-up
+ * refuses, such as active_phases "swing_and_stance"), and joint_torque_weights
+ * to the joint torque cost (JointTorqueCostCppAd::setWeights(), converted with
+ * jointTorqueWeightsFromConfig() on the whole-body layout). A block whose term
+ * the running problem does not carry is not converted.
  *
  * Not thread-safe (HotFieldApplier).
  */
 class WholeBodyCostWeightsApplier final : public HotFieldApplier {
  public:
-  /** Returns the fields it applies: task_space_foot_cost and joint_torque_weights. */
+  /** Returns the fields it applies: task_space_foot_cost and
+   * joint_torque_weights. */
   static absl::Span<const absl::string_view> staticFields();
 
   WholeBodyCostWeightsApplier() = default;
 
-  absl::string_view name() const override { return "WholeBodyCostWeightsApplier"; }
-  absl::Span<const absl::string_view> fields() const final { return staticFields(); }
+  absl::string_view name() const override {
+    return "WholeBodyCostWeightsApplier";
+  }
+  absl::Span<const absl::string_view> fields() const final {
+    return staticFields();
+  }
   void apply(HotUpdateTarget& target) override;
 
  private:
-  /** Writes task_space_foot_cost into the foot cost of every foot of every worker's problem. */
+  /** Writes task_space_foot_cost into the foot cost of every foot of every
+   * worker's problem. */
   static void applyFootCostWeights(HotUpdateTarget& target);
-  /** Writes joint_torque_weights into the joint torque cost of every worker's problem. */
+  /** Writes joint_torque_weights into the joint torque cost of every worker's
+   * problem. */
   static void applyJointTorqueWeights(HotUpdateTarget& target);
 };
 

@@ -49,10 +49,13 @@ struct StateEstimatorContext {
   /** The robot's URDF: the leg kinematics. */
   std::string urdfFile;
   /**
-   * The contact points, in contact order: the MPC's contact frames (model_settings), and the joints they hang from. A
-   * contact frame the URDF does not have (the MPC adds its contact frames from the contact rectangles of the task file)
-   * is replaced by its parent joint's frame, whose origin is the contact point then: kalman_state_estimator's
-   * contact_height is that joint's height while its foot stands. Empty parent names: the contact frames only.
+   * The contact points, in contact order: the MPC's contact frames
+   * (model_settings), and the joints they hang from. A contact frame the URDF
+   * does not have (the MPC adds its contact frames from the contact rectangles
+   * of the task file) is replaced by its parent joint's frame, whose origin is
+   * the contact point then: kalman_state_estimator's contact_height is that
+   * joint's height while its foot stands. Empty parent names: the contact
+   * frames only.
    */
   std::vector<std::string> contactFrameNames;
   std::vector<std::string> contactParentJointNames;
@@ -63,8 +66,10 @@ struct StateEstimatorContext {
 };
 
 /**
- * The state estimators of the robot process by name (the task file's state_estimator): `ground_truth` and `kalman`. An
- * unknown name is refused with the list of the available ones. Immutable once built; its const methods are thread-safe.
+ * The state estimators of the robot process by name (the task file's
+ * state_estimator): `ground_truth` and `kalman`. An unknown name is refused
+ * with the list of the available ones. Immutable once built; its const methods
+ * are thread-safe.
  */
 class StateEstimatorRegistry {
  public:
@@ -77,10 +82,12 @@ class StateEstimatorRegistry {
   bool has(absl::string_view name) const;
 
   /**
-   * The estimator `name` names, built from `context`. InvalidArgument listing the available names for an unknown one,
-   * and the errors of building it (a URDF without the contact frames, a noise model out of range).
+   * The estimator `name` names, built from `context`. InvalidArgument listing
+   * the available names for an unknown one, and the errors of building it (a
+   * URDF without the contact frames, a noise model out of range).
    */
-  absl::StatusOr<std::unique_ptr<StateEstimator>> create(absl::string_view name, const StateEstimatorContext& context) const;
+  absl::StatusOr<std::unique_ptr<StateEstimator>> create(
+      absl::string_view name, const StateEstimatorContext& context) const;
 };
 
 }  // namespace ocs2::humanoid::estimation

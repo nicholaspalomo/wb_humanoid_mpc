@@ -37,9 +37,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `diving`: after the root relaxation the solver dives (fix integral values, round the first fractional one) for an early incumbent.
+ * `diving`: after the root relaxation the solver dives (fix integral values,
+ * round the first fractional one) for an early incumbent.
  *
- * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
  */
 class DivingStage final : public SearchStage {
  public:

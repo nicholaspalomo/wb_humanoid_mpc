@@ -40,51 +40,65 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The supervisory FSM of the robot process, on its realtime thread: it takes the operator's commands from the
- * OperatorCommandMailbox, switches the robot's torques (and, in simulation, its gantry), and hands the FSM state to the
- * FsmStateMailbox, which the communication thread publishes on robot/fsm_state. Selected with the fall recovery by the
- * backend's supervisor (RobotSupervisorRegistry): SimFsmBridge drives the simulator's torque switch, gantry and
- * dodgeballs; HardwareFsmBridge the backend's torque switch only. Every call is for the realtime thread: no bus, no
- * parsing, no log line (reports go to a RealtimeEventLog) and no allocation.
+ * The supervisory FSM of the robot process, on its realtime thread: it takes
+ * the operator's commands from the OperatorCommandMailbox, switches the robot's
+ * torques (and, in simulation, its gantry), and hands the FSM state to the
+ * FsmStateMailbox, which the communication thread publishes on robot/fsm_state.
+ * Selected with the fall recovery by the backend's supervisor
+ * (RobotSupervisorRegistry): SimFsmBridge drives the simulator's torque switch,
+ * gantry and dodgeballs; HardwareFsmBridge the backend's torque switch only.
+ * Every call is for the realtime thread: no bus, no parsing, no log line
+ * (reports go to a RealtimeEventLog) and no allocation.
  *
  * Every bridge keeps:
- * 1. the nominal posture of JOINT_PD, with the operator's joint targets merged in (applyJointTargetUpdates());
- * 2. the FSM commands, one per cycle in the order they were sent (processCommands());
- * 3. the FSM state: the mode, the gantry, the number of controller resets and the MPC's health.
+ * 1. the nominal posture of JOINT_PD, with the operator's joint targets merged
+ * in (applyJointTargetUpdates());
+ * 2. the FSM commands, one per cycle in the order they were sent
+ * (processCommands());
+ * 3. the FSM state: the mode, the gantry, the number of controller resets and
+ * the MPC's health.
  */
 class FsmBridge {
  public:
   virtual ~FsmBridge() = default;
 
-  /** Takes the operator's newest joint targets into the nominal posture, if new ones have arrived. */
+  /** Takes the operator's newest joint targets into the nominal posture, if new
+   * ones have arrived. */
   virtual void applyJointTargetUpdates() = 0;
 
-  /** The nominal joint positions of JOINT_PD, indexed like the robot's joints. */
+  /** The nominal joint positions of JOINT_PD, indexed like the robot's joints.
+   */
   virtual const std::vector<scalar_t>& getNominalJointPositions() const = 0;
 
   /**
-   * Processes the oldest FSM command, if any, switching the robot as it asks and updating `currentModeName`, and
-   * publishes the new FSM state. True if a command changed something.
+   * Processes the oldest FSM command, if any, switching the robot as it asks
+   * and updating `currentModeName`, and publishes the new FSM state. True if a
+   * command changed something.
    */
   virtual bool processCommands(std::string& currentModeName) = 0;
 
-  /** Whether a gantry holds the robot's base; false on a robot without one the process drives. */
+  /** Whether a gantry holds the robot's base; false on a robot without one the
+   * process drives. */
   virtual bool isGantryLocked() const = 0;
 
-  /** Writes the FSM state: `modeName`, the gantry, the controller resets so far and the MPC's health. */
+  /** Writes the FSM state: `modeName`, the gantry, the controller resets so far
+   * and the MPC's health. */
   virtual void publishFsmState(absl::string_view modeName) = 0;
 
   /**
-   * Counts one controller reset (a discontinuity after which the controller starts again from where the robot is,
-   * FallRecovery::Cycle::discontinuity) and publishes the state with the new count: the remote control re-centers its
-   * joysticks on every change of the count.
+   * Counts one controller reset (a discontinuity after which the controller
+   * starts again from where the robot is, FallRecovery::Cycle::discontinuity)
+   * and publishes the state with the new count: the remote control re-centers
+   * its joysticks on every change of the count.
    */
   virtual void publishControllerReset(absl::string_view modeName) = 0;
 
-  /** Records the MPC's health (false: the controller holds JOINT_PD), and publishes the state when it changed. */
+  /** Records the MPC's health (false: the controller holds JOINT_PD), and
+   * publishes the state when it changed. */
   virtual void setMpcHealthy(bool mpcHealthy, absl::string_view modeName) = 0;
 
-  /** The controller resets counted so far, the controller_resets of every state published. */
+  /** The controller resets counted so far, the controller_resets of every state
+   * published. */
   virtual uint64_t controllerResets() const = 0;
   virtual bool mpcHealthy() const = 0;
 };

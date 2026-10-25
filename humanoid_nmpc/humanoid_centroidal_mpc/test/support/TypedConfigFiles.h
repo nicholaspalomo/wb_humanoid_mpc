@@ -49,71 +49,91 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** The files of a shipped robot configuration of the centroidal MPC in the test's runfiles: textprotos and the URDF. */
+/** The files of a shipped robot configuration of the centroidal MPC in the
+ * test's runfiles: textprotos and the URDF. */
 struct CentroidalRobotFiles {
   std::string taskFile;
   std::string referenceFile;
   std::string urdfFile;
 };
 
-/** The DRC Atlas files (robot_models/drc_atlas); a missing one fails the calling test and is empty. */
+/** The DRC Atlas files (robot_models/drc_atlas); a missing one fails the
+ * calling test and is empty. */
 CentroidalRobotFiles atlasFiles();
 
-/** The EngineAI SA01 files (robot_models/engineai_sa01); a missing one fails the calling test and is empty. */
+/** The EngineAI SA01 files (robot_models/engineai_sa01); a missing one fails
+ * the calling test and is empty. */
 CentroidalRobotFiles sa01Files();
 
-/** The Unitree G1 files (robot_models/unitree_g1, the 29-DoF URDF); a missing one fails the calling test and is empty. */
+/** The Unitree G1 files (robot_models/unitree_g1, the 29-DoF URDF); a missing
+ * one fails the calling test and is empty. */
 CentroidalRobotFiles g1Files();
 
-/** The Unitree R1 files (robot_models/unitree_r1); a missing one fails the calling test and is empty. */
+/** The Unitree R1 files (robot_models/unitree_r1); a missing one fails the
+ * calling test and is empty. */
 CentroidalRobotFiles r1Files();
 
 /** The typed configuration of `files` (loadCentroidalMpcConfig()). */
-absl::StatusOr<CentroidalMpcConfig> loadConfigOf(const CentroidalRobotFiles& files);
+absl::StatusOr<CentroidalMpcConfig> loadConfigOf(
+    const CentroidalRobotFiles& files);
 
 /**
- * The joint state of the reference file's default_joint_state on the MPC joints of `modelSettings`
- * (defaultJointStateFromConfig()), the one CentroidalMpcInterface builds its centroidal model with.
+ * The joint state of the reference file's default_joint_state on the MPC joints
+ * of `modelSettings` (defaultJointStateFromConfig()), the one
+ * CentroidalMpcInterface builds its centroidal model with.
  */
-absl::StatusOr<vector_t> defaultJointStateOf(const mpc_config::ReferenceFile& reference, const ModelSettings& modelSettings);
+absl::StatusOr<vector_t> defaultJointStateOf(
+    const mpc_config::ReferenceFile& reference,
+    const ModelSettings& modelSettings);
 
 /**
- * The task file's initial_state in the centroidal tuning layout of `modelSettings` (stateValuesFromConfig()): the vector
- * a robot model's stateFromTuning() maps onto its state (the orientation rows, (yaw, pitch, roll), onto the base
- * quaternion).
+ * The task file's initial_state in the centroidal tuning layout of
+ * `modelSettings` (stateValuesFromConfig()): the vector a robot model's
+ * stateFromTuning() maps onto its state (the orientation rows, (yaw, pitch,
+ * roll), onto the base quaternion).
  */
-absl::StatusOr<vector_t> initialTuningVectorOf(const mpc_config::TaskFile& task, const ModelSettings& modelSettings);
+absl::StatusOr<vector_t> initialTuningVectorOf(
+    const mpc_config::TaskFile& task, const ModelSettings& modelSettings);
 
 /**
- * The task file's initial_state on the state of `model`, as CentroidalMpcInterface builds its initial state:
- * initialTuningVectorOf() of the model's settings, mapped by its stateFromTuning().
+ * The task file's initial_state on the state of `model`, as
+ * CentroidalMpcInterface builds its initial state: initialTuningVectorOf() of
+ * the model's settings, mapped by its stateFromTuning().
  */
-absl::StatusOr<vector_t> initialStateOnModel(const mpc_config::TaskFile& task, const MpcRobotModelBase<scalar_t>& model);
+absl::StatusOr<vector_t> initialStateOnModel(
+    const mpc_config::TaskFile& task, const MpcRobotModelBase<scalar_t>& model);
 
 /**
- * The centroidal model info of `config` on `pinocchioInterface` and `modelSettings`, as CentroidalMpcInterface builds it:
- * the task file's centroidal_model and the reference file's default_joint_state. Keeps no reference to its
- * arguments.
+ * The centroidal model info of `config` on `pinocchioInterface` and
+ * `modelSettings`, as CentroidalMpcInterface builds it: the task file's
+ * centroidal_model and the reference file's default_joint_state. Keeps no
+ * reference to its arguments.
  */
-absl::StatusOr<CentroidalModelInfo> centroidalModelInfoOf(const CentroidalMpcConfig& config,
-                                                          const PinocchioInterface& pinocchioInterface,
-                                                          const ModelSettings& modelSettings);
+absl::StatusOr<CentroidalModelInfo> centroidalModelInfoOf(
+    const CentroidalMpcConfig& config,
+    const PinocchioInterface& pinocchioInterface,
+    const ModelSettings& modelSettings);
 
-/** The textprotos of the typed files, headers included, as the strict file parser reads them back (nproto::WriteTextprotoFile()). */
+/** The textprotos of the typed files, headers included, as the strict file
+ * parser reads them back (nproto::WriteTextprotoFile()). */
 std::string taskFileText(const mpc_config::TaskFile& task);
 std::string referenceFileText(const mpc_config::ReferenceFile& reference);
-std::string contactPlanningFileText(const mpc_config::ContactPlanningFile& contactPlanning);
+std::string contactPlanningFileText(
+    const mpc_config::ContactPlanningFile& contactPlanning);
 
-/** Writes `text` to `path`, replacing the file; Internal naming the path when it cannot be written. */
+/** Writes `text` to `path`, replacing the file; Internal naming the path when
+ * it cannot be written. */
 absl::Status writeTextFile(const std::string& path, absl::string_view text);
 
 /**
- * Writes the configuration `config` into the directory `directory` (created if needed) as a robot's files are laid out
- * beside each other: task.textproto, reference.textproto and, when `config` has one, contact_planning.textproto. Returns
- * the paths of the task and reference files with `urdfFile`.
+ * Writes the configuration `config` into the directory `directory` (created if
+ * needed) as a robot's files are laid out beside each other: task.textproto,
+ * reference.textproto and, when `config` has one, contact_planning.textproto.
+ * Returns the paths of the task and reference files with `urdfFile`.
  */
-absl::StatusOr<CentroidalRobotFiles> writeConfig(const std::string& directory,
-                                                 const CentroidalMpcConfig& config,
-                                                 const std::string& urdfFile);
+absl::StatusOr<CentroidalRobotFiles> writeConfig(
+    const std::string& directory,
+    const CentroidalMpcConfig& config,
+    const std::string& urdfFile);
 
 }  // namespace ocs2::humanoid

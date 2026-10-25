@@ -41,14 +41,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The reference-file reloaders of an MPC node or driver of either formulation (MpcParameterUpdaterModule::
- * addReferenceFileReloader()): the command limits of a reloaded reference file go to the target trajectories
- * calculator `calculator` and to the procedural motion manager `motionManager` (an OCS2 synchronized module, hence
- * shared), the two consumers that read them at construction, so that the Command Limits tab of the remote control
- * changes them on the running MPC. `calculator` is kept and must outlive the updater the reloaders are registered with;
- * both hold their limits in atomics, so the reloaders may run on the solver thread while targets are built on another.
+ * The reference-file reloaders of an MPC node or driver of either formulation
+ * (MpcParameterUpdaterModule:: addReferenceFileReloader()): the command limits
+ * of a reloaded reference file go to the target trajectories calculator
+ * `calculator` and to the procedural motion manager `motionManager` (an OCS2
+ * synchronized module, hence shared), the two consumers that read them at
+ * construction, so that the Command Limits tab of the remote control changes
+ * them on the running MPC. `calculator` is kept and must outlive the updater
+ * the reloaders are registered with; both hold their limits in atomics, so the
+ * reloaders may run on the solver thread while targets are built on another.
  */
-std::vector<MpcParameterUpdaterModule::ReferenceFileReloader> makeCommandLimitsReloaders(
-    TargetTrajectoriesCalculatorBase* absl_nonnull calculator, std::shared_ptr<ProceduralMpcMotionManager> motionManager);
+std::vector<MpcParameterUpdaterModule::ReferenceFileReloader>
+makeCommandLimitsReloaders(
+    TargetTrajectoriesCalculatorBase* absl_nonnull calculator,
+    std::shared_ptr<ProceduralMpcMotionManager> motionManager);
 
 }  // namespace ocs2::humanoid

@@ -59,76 +59,100 @@ constexpr char kContactFlags[] = "contact_flags";
 constexpr char kGuiCommand[] = "gui_command";
 // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/README.md:recorded_state_labels)
 
-// The columns of a recording's matrices, one row per record: the sizes of the RobotStateRecord fields they hold. The
-// contact flags have RobotStateRecord::kNumRecordedContacts columns, the joint vectors one per joint.
+// The columns of a recording's matrices, one row per record: the sizes of the
+// RobotStateRecord fields they hold. The contact flags have
+// RobotStateRecord::kNumRecordedContacts columns, the joint vectors one per
+// joint.
 constexpr int kPositionColumns = kPositionDim;               // (x, y, z)
 constexpr int kQuaternionColumns = kQuaternionCoefficients;  // (x, y, z, w)
-constexpr int kVelocityColumns = kPositionDim;               // a linear velocity, or an angular velocity of as many
-static_assert(kVelocityColumns == kRotationTangentDim, "a linear and an angular velocity have as many columns");
+constexpr int kVelocityColumns =
+    kPositionDim;  // a linear velocity, or an angular velocity of as many
+static_assert(kVelocityColumns == kRotationTangentDim,
+              "a linear and an angular velocity have as many columns");
 constexpr int kGuiCommandColumns = 4;  // GuiVelocityCommand::message
 
-absl::StatusOr<const golden_matrix_t* absl_nonnull> requireMatrix(const GoldenFile& golden,
-                                                                  absl::string_view label,
-                                                                  Eigen::Index rows,
-                                                                  Eigen::Index cols) {
+absl::StatusOr<const golden_matrix_t* absl_nonnull> requireMatrix(
+    const GoldenFile& golden,
+    absl::string_view label,
+    Eigen::Index rows,
+    Eigen::Index cols) {
   const golden_matrix_t* absl_nullable matrix = golden.find(label);
-  if (matrix == nullptr) return absl::InvalidArgumentError(absl::StrCat("[fromGoldenFile] no matrix '", label, "'"));
+  if (matrix == nullptr)
+    return absl::InvalidArgumentError(
+        absl::StrCat("[fromGoldenFile] no matrix '", label, "'"));
   if (matrix->rows() != rows || matrix->cols() != cols) {
     return absl::InvalidArgumentError(
-        absl::StrCat("[fromGoldenFile] '", label, "' is ", matrix->rows(), " x ", matrix->cols(), ", expected ", rows, " x ", cols));
+        absl::StrCat("[fromGoldenFile] '", label, "' is ", matrix->rows(),
+                     " x ", matrix->cols(), ", expected ", rows, " x ", cols));
   }
   return matrix;
 }
 
 }  // namespace
 
-RobotStateRecord recordRobotState(const robot::model::RobotState& state,
-                                  const robot::model::RobotDescription& description,
-                                  const Eigen::Vector4d& guiCommand) {
+RobotStateRecord recordRobotState(
+    const robot::model::RobotState& state,
+    const robot::model::RobotDescription& description,
+    const Eigen::Vector4d& guiCommand) {
   RobotStateRecord record;
   record.time = state.getTime();
   record.basePosition = state.getRootPositionInWorldFrame();
   record.baseQuaternion = state.getRootRotationLocalToWorldFrame().coeffs();
   record.baseLinearVelocityLocal = state.getRootLinearVelocityInLocalFrame();
   record.baseAngularVelocityLocal = state.getRootAngularVelocityInLocalFrame();
-  const std::vector<robot::joint_index_t>& joints = description.getJointIndices();
+  const std::vector<robot::joint_index_t>& joints =
+      description.getJointIndices();
   record.jointPositions.resize(static_cast<Eigen::Index>(joints.size()));
   record.jointVelocities.resize(static_cast<Eigen::Index>(joints.size()));
   for (size_t i = 0; i < joints.size(); ++i) {
-    record.jointPositions(static_cast<Eigen::Index>(i)) = state.getJointPosition(joints[i]);
-    record.jointVelocities(static_cast<Eigen::Index>(i)) = state.getJointVelocity(joints[i]);
+    record.jointPositions(static_cast<Eigen::Index>(i)) =
+        state.getJointPosition(joints[i]);
+    record.jointVelocities(static_cast<Eigen::Index>(i)) =
+        state.getJointVelocity(joints[i]);
   }
   const std::vector<bool>& flags = state.getContactFlags();
-  for (size_t contact = 0; contact < RobotStateRecord::kNumRecordedContacts && contact < flags.size(); ++contact) {
+  for (size_t contact = 0; contact < RobotStateRecord::kNumRecordedContacts &&
+                           contact < flags.size();
+       ++contact) {
     record.contactFlags[contact] = flags[contact];
   }
   record.guiCommand = guiCommand;
   return record;
 }
 
-absl::StatusOr<robot::model::RobotState> toRobotState(const RobotStateRecord& record,
-                                                      const std::vector<std::string>& jointNames,
-                                                      const robot::model::RobotDescription& description) {
-  // The joints are matched by name: the order of a RobotDescription's joints is not the same in every process.
+absl::StatusOr<robot::model::RobotState> toRobotState(
+    const RobotStateRecord& record,
+    const std::vector<std::string>& jointNames,
+    const robot::model::RobotDescription& description) {
+  // The joints are matched by name: the order of a RobotDescription's joints is
+  // not the same in every process.
   if (jointNames.size() != description.getNumJoints()) {
-    return absl::InvalidArgumentError(absl::StrCat("[toRobotState] the recording has ", jointNames.size(), " joints, ",
-                                                   description.getURDFPath(), " has ", description.getNumJoints()));
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[toRobotState] the recording has ", jointNames.size(), " joints, ",
+        description.getURDFPath(), " has ", description.getNumJoints()));
   }
-  if (record.jointPositions.size() != static_cast<Eigen::Index>(jointNames.size()) ||
-      record.jointVelocities.size() != static_cast<Eigen::Index>(jointNames.size())) {
-    return absl::InvalidArgumentError("[toRobotState] the record's joint vectors do not match its joint names");
+  if (record.jointPositions.size() !=
+          static_cast<Eigen::Index>(jointNames.size()) ||
+      record.jointVelocities.size() !=
+          static_cast<Eigen::Index>(jointNames.size())) {
+    return absl::InvalidArgumentError(
+        "[toRobotState] the record's joint vectors do not match its joint "
+        "names");
   }
   absl::flat_hash_set<std::string> seen;
   for (const std::string& name : jointNames) {
     if (!description.containsJoint(name)) {
-      return absl::InvalidArgumentError(absl::StrCat("[toRobotState] ", description.getURDFPath(), " has no joint '", name,
-                                                     "' of the recording (", absl::StrJoin(jointNames, ","), ")"));
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[toRobotState] ", description.getURDFPath(), " has no joint '", name,
+          "' of the recording (", absl::StrJoin(jointNames, ","), ")"));
     }
     if (!seen.insert(name).second) {
-      return absl::InvalidArgumentError(absl::StrCat("[toRobotState] the joint '", name, "' is recorded twice"));
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[toRobotState] the joint '", name, "' is recorded twice"));
     }
   }
-  robot::model::RobotState state(description, /*contactSize=*/RobotStateRecord::kNumRecordedContacts);
+  robot::model::RobotState state(
+      description, /*contactSize=*/RobotStateRecord::kNumRecordedContacts);
   state.setTime(record.time);
   state.setRootPositionInWorldFrame(record.basePosition);
   Eigen::Quaterniond rotation;
@@ -138,17 +162,21 @@ absl::StatusOr<robot::model::RobotState> toRobotState(const RobotStateRecord& re
   state.setRootAngularVelocityInLocalFrame(record.baseAngularVelocityLocal);
   for (size_t i = 0; i < jointNames.size(); ++i) {
     const robot::joint_index_t joint = description.getJointIndex(jointNames[i]);
-    state.setJointPosition(joint, record.jointPositions(static_cast<Eigen::Index>(i)));
-    state.setJointVelocity(joint, record.jointVelocities(static_cast<Eigen::Index>(i)));
+    state.setJointPosition(joint,
+                           record.jointPositions(static_cast<Eigen::Index>(i)));
+    state.setJointVelocity(
+        joint, record.jointVelocities(static_cast<Eigen::Index>(i)));
   }
   state.setContactFlag(/*index=*/0, record.contactFlags[0]);
   state.setContactFlag(/*index=*/1, record.contactFlags[1]);
   return state;
 }
 
-GoldenFile toGoldenFile(const RecordedRobotStates& states, GoldenProvenance provenance) {
+GoldenFile toGoldenFile(const RecordedRobotStates& states,
+                        GoldenProvenance provenance) {
   const Eigen::Index rows = static_cast<Eigen::Index>(states.records.size());
-  const Eigen::Index numJoints = static_cast<Eigen::Index>(states.jointNames.size());
+  const Eigen::Index numJoints =
+      static_cast<Eigen::Index>(states.jointNames.size());
   golden_matrix_t time(rows, 1);
   golden_matrix_t position(rows, kPositionColumns);
   golden_matrix_t quaternion(rows, kQuaternionColumns);
@@ -173,7 +201,8 @@ GoldenFile toGoldenFile(const RecordedRobotStates& states, GoldenProvenance prov
   }
   GoldenFile golden;
   golden.provenance = std::move(provenance);
-  golden.provenance.notes.emplace_back(kJointNamesNote, absl::StrJoin(states.jointNames, ","));
+  golden.provenance.notes.emplace_back(kJointNamesNote,
+                                       absl::StrJoin(states.jointNames, ","));
   golden.entries = {{kTime, time},
                     {kBasePosition, position},
                     {kBaseQuaternion, quaternion},
@@ -189,28 +218,45 @@ GoldenFile toGoldenFile(const RecordedRobotStates& states, GoldenProvenance prov
 absl::StatusOr<RecordedRobotStates> fromGoldenFile(const GoldenFile& golden) {
   RecordedRobotStates states;
   bool haveJointNames = false;
-  for (const std::pair<std::string, std::string>& note : golden.provenance.notes) {
+  for (const std::pair<std::string, std::string>& note :
+       golden.provenance.notes) {
     if (note.first != kJointNamesNote) continue;
-    const std::vector<std::string> names = absl::StrSplit(note.second, ',', absl::SkipEmpty());
+    const std::vector<std::string> names =
+        absl::StrSplit(note.second, ',', absl::SkipEmpty());
     states.jointNames = names;
     haveJointNames = true;
   }
-  if (!haveJointNames) return absl::InvalidArgumentError(absl::StrCat("[fromGoldenFile] no '", kJointNamesNote, "' note"));
+  if (!haveJointNames)
+    return absl::InvalidArgumentError(
+        absl::StrCat("[fromGoldenFile] no '", kJointNamesNote, "' note"));
   const golden_matrix_t* absl_nullable time = golden.find(kTime);
-  if (time == nullptr || time->cols() != 1) return absl::InvalidArgumentError(absl::StrCat("[fromGoldenFile] no '", kTime, "' column"));
+  if (time == nullptr || time->cols() != 1)
+    return absl::InvalidArgumentError(
+        absl::StrCat("[fromGoldenFile] no '", kTime, "' column"));
   const Eigen::Index rows = time->rows();
-  const Eigen::Index numJoints = static_cast<Eigen::Index>(states.jointNames.size());
-  absl::StatusOr<const golden_matrix_t* absl_nonnull> position = requireMatrix(golden, kBasePosition, rows, kPositionColumns);
-  absl::StatusOr<const golden_matrix_t* absl_nonnull> quaternion = requireMatrix(golden, kBaseQuaternion, rows, kQuaternionColumns);
-  absl::StatusOr<const golden_matrix_t* absl_nonnull> linearVelocity = requireMatrix(golden, kBaseLinearVelocity, rows, kVelocityColumns);
-  absl::StatusOr<const golden_matrix_t* absl_nonnull> angularVelocity = requireMatrix(golden, kBaseAngularVelocity, rows, kVelocityColumns);
-  absl::StatusOr<const golden_matrix_t* absl_nonnull> jointPositions = requireMatrix(golden, kJointPositions, rows, numJoints);
-  absl::StatusOr<const golden_matrix_t* absl_nonnull> jointVelocities = requireMatrix(golden, kJointVelocities, rows, numJoints);
+  const Eigen::Index numJoints =
+      static_cast<Eigen::Index>(states.jointNames.size());
+  absl::StatusOr<const golden_matrix_t* absl_nonnull> position =
+      requireMatrix(golden, kBasePosition, rows, kPositionColumns);
+  absl::StatusOr<const golden_matrix_t* absl_nonnull> quaternion =
+      requireMatrix(golden, kBaseQuaternion, rows, kQuaternionColumns);
+  absl::StatusOr<const golden_matrix_t* absl_nonnull> linearVelocity =
+      requireMatrix(golden, kBaseLinearVelocity, rows, kVelocityColumns);
+  absl::StatusOr<const golden_matrix_t* absl_nonnull> angularVelocity =
+      requireMatrix(golden, kBaseAngularVelocity, rows, kVelocityColumns);
+  absl::StatusOr<const golden_matrix_t* absl_nonnull> jointPositions =
+      requireMatrix(golden, kJointPositions, rows, numJoints);
+  absl::StatusOr<const golden_matrix_t* absl_nonnull> jointVelocities =
+      requireMatrix(golden, kJointVelocities, rows, numJoints);
   absl::StatusOr<const golden_matrix_t* absl_nonnull> contactFlags =
-      requireMatrix(golden, kContactFlags, rows, RobotStateRecord::kNumRecordedContacts);
-  absl::StatusOr<const golden_matrix_t* absl_nonnull> guiCommand = requireMatrix(golden, kGuiCommand, rows, kGuiCommandColumns);
-  for (const absl::StatusOr<const golden_matrix_t* absl_nonnull>* absl_nonnull matrix :
-       {&position, &quaternion, &linearVelocity, &angularVelocity, &jointPositions, &jointVelocities, &contactFlags, &guiCommand}) {
+      requireMatrix(golden, kContactFlags, rows,
+                    RobotStateRecord::kNumRecordedContacts);
+  absl::StatusOr<const golden_matrix_t* absl_nonnull> guiCommand =
+      requireMatrix(golden, kGuiCommand, rows, kGuiCommandColumns);
+  for (const absl::StatusOr<const golden_matrix_t* absl_nonnull>* absl_nonnull
+       matrix :
+       {&position, &quaternion, &linearVelocity, &angularVelocity,
+        &jointPositions, &jointVelocities, &contactFlags, &guiCommand}) {
     if (!matrix->ok()) return matrix->status();
   }
   states.records.resize(static_cast<size_t>(rows));
@@ -223,7 +269,8 @@ absl::StatusOr<RecordedRobotStates> fromGoldenFile(const GoldenFile& golden) {
     record.baseAngularVelocityLocal = (*angularVelocity)->row(row).transpose();
     record.jointPositions = (*jointPositions)->row(row).transpose();
     record.jointVelocities = (*jointVelocities)->row(row).transpose();
-    record.contactFlags = {(**contactFlags)(row, /*col=*/0) != 0.0, (**contactFlags)(row, /*col=*/1) != 0.0};
+    record.contactFlags = {(**contactFlags)(row, /*col=*/0) != 0.0,
+                           (**contactFlags)(row, /*col=*/1) != 0.0};
     record.guiCommand = (*guiCommand)->row(row).transpose();
   }
   return states;

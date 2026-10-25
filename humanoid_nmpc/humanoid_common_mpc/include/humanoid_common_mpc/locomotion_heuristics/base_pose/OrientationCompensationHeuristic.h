@@ -37,30 +37,39 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `orientation_compensation`: H_Theta(pdot) = a1 pdot + a0 (Bledt, Appendix C, Table C.2).
+ * `orientation_compensation`: H_Theta(pdot) = a1 pdot + a0 (Bledt, Appendix C,
+ * Table C.2).
  *
- * Roll from the commanded LATERAL velocity and pitch from the commanded FORWARD velocity, each an affine function of
- * one component of the command in the base's own yaw frame.
+ * Roll from the commanded LATERAL velocity and pitch from the commanded FORWARD
+ * velocity, each an affine function of one component of the command in the
+ * base's own yaw frame.
  *
- * Bledt did not design this one; he found it. Running the optimizer offline over a sweep of velocity commands and
- * regressing the orientation it chose against the command produced two relationships with R^2 of 0.98 and 0.95
- * (section 4.2, figure 4-5), and injecting them back as regularization both enlarged the viable operating region and
- * made the resulting motion smoother - partly because the simplified orientation dynamics the control model assumes
- * are a better approximation when the body is closer to level at speed (section 4.3, figure 4-12).
+ * Bledt did not design this one; he found it. Running the optimizer offline
+ * over a sweep of velocity commands and regressing the orientation it chose
+ * against the command produced two relationships with R^2 of 0.98 and 0.95
+ * (section 4.2, figure 4-5), and injecting them back as regularization both
+ * enlarged the viable operating region and made the resulting motion smoother -
+ * partly because the simplified orientation dynamics the control model assumes
+ * are a better approximation when the body is closer to level at speed
+ * (section 4.3, figure 4-12).
  *
- * On this controller it is shaping a reference that is currently a hard zero at every speed, so it is the first thing
- * in the layer worth sweeping.
+ * On this controller it is shaping a reference that is currently a hard zero at
+ * every speed, so it is the first thing in the layer worth sweeping.
  *
- * Like every LocomotionHeuristic, its const methods are safe to call concurrently; configure() is not, and must not run
- * while they do.
+ * Like every LocomotionHeuristic, its const methods are safe to call
+ * concurrently; configure() is not, and must not run while they do.
  */
 class OrientationCompensationHeuristic final : public BasePoseHeuristic {
  public:
   OrientationCompensationHeuristic() = default;
   ~OrientationCompensationHeuristic() override = default;
 
-  absl::string_view name() const override { return heuristic::kOrientationCompensation; }
-  absl::Status configure(const LocomotionHeuristicConfig& config, const LocomotionHeuristicModelParameters& model) override;
+  absl::string_view name() const override {
+    return heuristic::kOrientationCompensation;
+  }
+  absl::Status configure(
+      const LocomotionHeuristicConfig& config,
+      const LocomotionHeuristicModelParameters& model) override;
   std::string describe() const override;
 
   BasePoseOffset offset(const BasePoseHeuristicContext& context) const override;

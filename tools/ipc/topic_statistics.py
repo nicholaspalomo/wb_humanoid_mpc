@@ -85,7 +85,9 @@ class RateStatistics:
         if span <= 0.0:
             return None
         mean_period = span / len(periods)
-        variance = sum((period - mean_period) ** 2 for period in periods) / len(periods)
+        variance = sum((period - mean_period) ** 2 for period in periods) / len(
+            periods
+        )
         return RateSnapshot(
             window_count=len(self._samples),
             rate_hz=1.0 / mean_period,
@@ -113,11 +115,14 @@ def format_bytes(size: float) -> str:
 def format_snapshot(topic: str, snapshot: RateSnapshot) -> str:
     """Three lines: the average rate, then the periods and the window, then the message size and the bandwidth."""
     return (
-        f"{topic}: average rate {snapshot.rate_hz:.3f} Hz\n"
-        f"  period min {snapshot.min_period_s * 1e3:.3f} ms  max {snapshot.max_period_s * 1e3:.3f} ms  "
-        f"jitter (std dev) {snapshot.jitter_s * 1e3:.3f} ms  window {snapshot.window_count}\n"
-        f"  size mean {format_bytes(snapshot.mean_size_bytes)}  min {format_bytes(snapshot.min_size_bytes)}  "
-        f"max {format_bytes(snapshot.max_size_bytes)}  bandwidth {format_bytes(snapshot.bandwidth_bytes_per_s)}/s"
+        f"{topic}: average rate {snapshot.rate_hz:.3f} Hz\n  period min"
+        f" {snapshot.min_period_s * 1e3:.3f} ms  max"
+        f" {snapshot.max_period_s * 1e3:.3f} ms  jitter (std dev)"
+        f" {snapshot.jitter_s * 1e3:.3f} ms  window {snapshot.window_count}\n "
+        f" size mean {format_bytes(snapshot.mean_size_bytes)}  min"
+        f" {format_bytes(snapshot.min_size_bytes)}  max"
+        f" {format_bytes(snapshot.max_size_bytes)}  bandwidth"
+        f" {format_bytes(snapshot.bandwidth_bytes_per_s)}/s"
     )
 
 
@@ -180,8 +185,12 @@ def format_census(summaries: list[TopicSummary]) -> str:
                 "-" if rate is None else f"{rate:.1f} Hz",
             )
         )
-    widths = [max(len(row[column]) for row in rows) for column in range(len(rows[0]))]
+    widths = [
+        max(len(row[column]) for row in rows) for column in range(len(rows[0]))
+    ]
     return "\n".join(
-        "  ".join(cell.ljust(width) for cell, width in zip(row, widths)).rstrip()
+        "  ".join(
+            cell.ljust(width) for cell, width in zip(row, widths)
+        ).rstrip()
         for row in rows
     )

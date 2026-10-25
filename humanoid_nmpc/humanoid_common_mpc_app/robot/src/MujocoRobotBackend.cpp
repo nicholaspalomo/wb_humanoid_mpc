@@ -47,15 +47,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-absl::StatusOr<robot::mujoco_sim_interface::MujocoSimConfig> MujocoRobotBackend::makeConfig(const RobotBackendOptions& options) {
+absl::StatusOr<robot::mujoco_sim_interface::MujocoSimConfig>
+MujocoRobotBackend::makeConfig(const RobotBackendOptions& options) {
   if (options.mjcfFile.empty()) {
-    return absl::InvalidArgumentError("the mujoco backend needs the robot's MuJoCo scene (--mjcf_file)");
+    return absl::InvalidArgumentError(
+        "the mujoco backend needs the robot's MuJoCo scene (--mjcf_file)");
   }
   if (!options.initialState.has_value()) {
-    return absl::InvalidArgumentError("the mujoco backend needs the state the robot starts in");
+    return absl::InvalidArgumentError(
+        "the mujoco backend needs the state the robot starts in");
   }
   const absl::StatusOr<robot::mujoco_sim_interface::GantryHold> gantryHold =
-      robot::mujoco_sim_interface::gantryHoldFromName(options.simulator.gantryHold);
+      robot::mujoco_sim_interface::gantryHoldFromName(
+          options.simulator.gantryHold);
   if (!gantryHold.ok()) {
     return gantryHold.status();
   }
@@ -63,8 +67,12 @@ absl::StatusOr<robot::mujoco_sim_interface::MujocoSimConfig> MujocoRobotBackend:
   config.scenePath = options.mjcfFile;
   config.verbose = true;
   config.viewer = options.viewer;
-  if (const absl::Status viewer = robot::mujoco_sim_interface::validateViewerSettings(config.viewer); !viewer.ok()) {
-    return absl::Status(viewer.code(), absl::StrCat("the mujoco backend's viewer: ", viewer.message()));
+  if (const absl::Status viewer =
+          robot::mujoco_sim_interface::validateViewerSettings(config.viewer);
+      !viewer.ok()) {
+    return absl::Status(
+        viewer.code(),
+        absl::StrCat("the mujoco backend's viewer: ", viewer.message()));
   }
   config.initialState = *options.initialState;
   config.contactFrameNames = options.contactFrameNames;
@@ -82,29 +90,41 @@ absl::StatusOr<robot::mujoco_sim_interface::MujocoSimConfig> MujocoRobotBackend:
   return config;
 }
 
-absl::Status MujocoRobotBackend::checkOptions(const RobotBackendOptions& options) {
-  if (const absl::StatusOr<robot::mujoco_sim_interface::MujocoSimConfig> config = makeConfig(options); !config.ok()) {
+absl::Status MujocoRobotBackend::checkOptions(
+    const RobotBackendOptions& options) {
+  if (const absl::StatusOr<robot::mujoco_sim_interface::MujocoSimConfig>
+          config = makeConfig(options);
+      !config.ok()) {
     return config.status();
   }
   if (options.simulator.projectile.empty()) return absl::OkStatus();
-  return robot::mujoco_sim_interface::projectileFromName(options.simulator.projectile).status();
+  return robot::mujoco_sim_interface::projectileFromName(
+             options.simulator.projectile)
+      .status();
 }
 
-absl::StatusOr<std::unique_ptr<MujocoRobotBackend>> MujocoRobotBackend::Create(const RobotBackendOptions& options) {
-  absl::StatusOr<robot::mujoco_sim_interface::MujocoSimConfig> config = makeConfig(options);
+absl::StatusOr<std::unique_ptr<MujocoRobotBackend>> MujocoRobotBackend::Create(
+    const RobotBackendOptions& options) {
+  absl::StatusOr<robot::mujoco_sim_interface::MujocoSimConfig> config =
+      makeConfig(options);
   if (!config.ok()) {
     return config.status();
   }
-  absl::StatusOr<std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface>> simulator =
-      robot::mujoco_sim_interface::MujocoSimInterface::Create(*config, options.urdfFile);
+  absl::StatusOr<
+      std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface>>
+      simulator = robot::mujoco_sim_interface::MujocoSimInterface::Create(
+          *config, options.urdfFile);
   if (!simulator.ok()) {
-    return absl::Status(simulator.status().code(),
-                        absl::StrCat("the MuJoCo simulator did not start on ", options.mjcfFile, ": ", simulator.status().message()));
+    return absl::Status(
+        simulator.status().code(),
+        absl::StrCat("the MuJoCo simulator did not start on ", options.mjcfFile,
+                     ": ", simulator.status().message()));
   }
   return absl::WrapUnique(new MujocoRobotBackend(*std::move(simulator)));
 }
 
-MujocoRobotBackend::MujocoRobotBackend(std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface> simulator)
+MujocoRobotBackend::MujocoRobotBackend(
+    std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface> simulator)
     : simulator_(std::move(simulator)) {}
 
 absl::string_view MujocoRobotBackend::name() const {
@@ -123,19 +143,28 @@ absl::Status MujocoRobotBackend::initialize() {
 absl::Status MujocoRobotBackend::start(const std::vector<int>& cores) {
   simulator_->startSim();
   if (!cores.empty() &&
-      !setThreadCpuAffinity(cores, simulator_->getSimulationThread().native_handle(), /*threadName=*/"MuJoCo Simulation")) {
-    return absl::FailedPreconditionError("the MuJoCo physics thread could not be pinned to its cores; it runs unpinned");
+      !setThreadCpuAffinity(cores,
+                            simulator_->getSimulationThread().native_handle(),
+                            /*threadName=*/"MuJoCo Simulation")) {
+    return absl::FailedPreconditionError(
+        "the MuJoCo physics thread could not be pinned to its cores; it runs "
+        "unpinned");
   }
   return absl::OkStatus();
 }
 
-void MujocoRobotBackend::readMeasuredContactForces(std::array<vector3_t, kNumContacts>& forces) {
-  static_assert(kNumContacts == kBipedFootCount, "the simulator has a force sensor in each of two feet (takeMeasuredFootForces())");
+void MujocoRobotBackend::readMeasuredContactForces(
+    std::array<vector3_t, kNumContacts>& forces) {
+  static_assert(kNumContacts == kBipedFootCount,
+                "the simulator has a force sensor in each of two feet "
+                "(takeMeasuredFootForces())");
   simulator_->takeMeasuredFootForces(forces[0], forces[1]);
 }
 
-void MujocoRobotBackend::registerContactEstimators(robot::model::ContactEstimatorRegistry& registry) const {
-  robot::mujoco_sim_interface::registerCheaterSimContactEstimator(registry, simulator_.get());
+void MujocoRobotBackend::registerContactEstimators(
+    robot::model::ContactEstimatorRegistry& registry) const {
+  robot::mujoco_sim_interface::registerCheaterSimContactEstimator(
+      registry, simulator_.get());
 }
 
 }  // namespace ocs2::humanoid

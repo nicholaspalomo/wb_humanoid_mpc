@@ -99,9 +99,13 @@ def _first_party_files(root: str) -> list[str]:
 
 def _context_of(argv: list[str]) -> lint_code.Context:
     """The context lint_code.main() builds for `argv`, without linting anything."""
-    with mock.patch.object(lint_code, "run", return_value=0) as run, mock.patch.object(
+    with mock.patch.object(
+        lint_code, "run", return_value=0
+    ) as run, mock.patch.object(
         lint_code, "_select_files", return_value=[]
-    ), contextlib.redirect_stdout(io.StringIO()):
+    ), contextlib.redirect_stdout(
+        io.StringIO()
+    ):
         lint_code.main(argv)
     run.assert_called_once()
     context = run.call_args.args[0]
@@ -113,14 +117,17 @@ class NoPendingListTest(unittest.TestCase):
     def test_the_registry_has_no_pending_set(self):
         self.assertFalse(hasattr(checks, "PENDING"))
         self.assertFalse(
-            hasattr(checks, "enforced"), "every check is enforced: use checks.names()"
+            hasattr(checks, "enforced"),
+            "every check is enforced: use checks.names()",
         )
 
     def test_no_lint_module_or_test_keeps_one(self):
         root = check_test_support.source_tree_root()
         assignment = re.compile(r"^\s*PENDING\b\s*(:[^=]*)?=", re.MULTILINE)
         for path in _first_party_files(root):
-            if not (path.startswith(_LINT_DIRECTORIES) and path.endswith(".py")):
+            if not (
+                path.startswith(_LINT_DIRECTORIES) and path.endswith(".py")
+            ):
                 continue
             with self.subTest(path=path):
                 with open(os.path.join(root, path), encoding="utf-8") as f:
@@ -132,7 +139,9 @@ class NoPendingListTest(unittest.TestCase):
             check_test_support.assert_check_behaves,
         ):
             with self.subTest(helper=helper.__name__):
-                self.assertNotIn("pending", inspect.signature(helper).parameters)
+                self.assertNotIn(
+                    "pending", inspect.signature(helper).parameters
+                )
 
 
 class NoSweepConfigurationTest(unittest.TestCase):
@@ -145,12 +154,16 @@ class NoSweepConfigurationTest(unittest.TestCase):
     def test_nothing_names_the_sweep_configuration_any_more(self):
         root = check_test_support.source_tree_root()
         self.assertFalse(
-            os.path.exists(os.path.join(root, "tools/clang_tidy/sweep.clang-tidy"))
+            os.path.exists(
+                os.path.join(root, "tools/clang_tidy/sweep.clang-tidy")
+            )
         )
         for path in _first_party_files(root):
             if path in _NAMING_THE_SWEEP or not check_types.is_text(path):
                 continue
-            with open(os.path.join(root, path), encoding="utf-8", errors="ignore") as f:
+            with open(
+                os.path.join(root, path), encoding="utf-8", errors="ignore"
+            ) as f:
                 found = _SWEEP_NAMES.findall(f.read())
             with self.subTest(path=path):
                 self.assertEqual(found, [])
@@ -168,20 +181,28 @@ class NoSweepConfigurationTest(unittest.TestCase):
 
     def test_every_clang_tidy_build_uses_the_one_aspect(self):
         bazelrc = check_test_support.read_repository_file(".bazelrc")
-        aspects = re.findall(r"^build:(\S+) --aspects=(\S+)$", bazelrc, re.MULTILINE)
+        aspects = re.findall(
+            r"^build:(\S+) --aspects=(\S+)$", bazelrc, re.MULTILINE
+        )
         self.assertEqual(
             sorted(aspects),
             [
-                ("clang-tidy", "//tools/clang_tidy:clang_tidy.bzl%clang_tidy_aspect"),
+                (
+                    "clang-tidy",
+                    "//tools/clang_tidy:clang_tidy.bzl%clang_tidy_aspect",
+                ),
                 (
                     "clang-tidy-fix",
                     "//tools/clang_tidy:clang_tidy.bzl%clang_tidy_aspect",
                 ),
             ],
         )
-        bzl = check_test_support.read_repository_file("tools/clang_tidy/clang_tidy.bzl")
+        bzl = check_test_support.read_repository_file(
+            "tools/clang_tidy/clang_tidy.bzl"
+        )
         self.assertEqual(
-            re.findall(r"^(\w+) = aspect\(", bzl, re.MULTILINE), ["clang_tidy_aspect"]
+            re.findall(r"^(\w+) = aspect\(", bzl, re.MULTILINE),
+            ["clang_tidy_aspect"],
         )
 
     def test_the_lint_machinery_keeps_no_baseline_file(self):
@@ -197,7 +218,9 @@ class NoSweepConfigurationTest(unittest.TestCase):
 class NoRelaxedConfigurationTest(unittest.TestCase):
     def test_mypy_holds_every_module_to_the_global_options(self):
         parser = configparser.ConfigParser()
-        parser.read(check_test_support.repository_file("mypy.ini"), encoding="utf-8")
+        parser.read(
+            check_test_support.repository_file("mypy.ini"), encoding="utf-8"
+        )
         self.assertTrue(parser.getboolean("mypy", "disallow_untyped_defs"))
         self.assertTrue(parser.getboolean("mypy", "disallow_incomplete_defs"))
         self.assertTrue(parser.getboolean("mypy", "check_untyped_defs"))
@@ -207,18 +230,27 @@ class NoRelaxedConfigurationTest(unittest.TestCase):
             for option, relaxed in _RELAXING_MYPY_OPTIONS.items():
                 with self.subTest(section=section, option=option):
                     self.assertNotEqual(
-                        parser.get(section, option, fallback="").strip().lower(),
+                        parser.get(section, option, fallback="")
+                        .strip()
+                        .lower(),
                         relaxed,
                     )
         # lint_code's mypy step fails on any module section at all.
         self.assertEqual(
-            lint_code.mypy_config_problems(check_test_support.source_tree_root()), []
+            lint_code.mypy_config_problems(
+                check_test_support.source_tree_root()
+            ),
+            [],
         )
 
     def test_every_cpplint_filter_says_why(self):
-        lines = check_test_support.read_repository_file("CPPLINT.cfg").splitlines()
+        lines = check_test_support.read_repository_file(
+            "CPPLINT.cfg"
+        ).splitlines()
         filters = [
-            number for number, line in enumerate(lines) if line.startswith("filter=")
+            number
+            for number, line in enumerate(lines)
+            if line.startswith("filter=")
         ]
         self.assertTrue(filters)
         for number in filters:
@@ -248,8 +280,12 @@ class EveryCheckRunsTest(unittest.TestCase):
         # CI's format job.
         callers = {
             "Makefile": r"^lint:\n\t@?python3 -m tools\.hooks\.lint_code$",
-            "tools/hooks/pre-commit": r"^if ! python3 -m tools\.hooks\.lint_code --git-staged; then$",
-            ".github/workflows/format_test.yml": r"^\s+run: python3 -m tools\.hooks\.lint_code$",
+            "tools/hooks/pre-commit": (
+                r"^if ! python3 -m tools\.hooks\.lint_code --git-staged; then$"
+            ),
+            ".github/workflows/format_test.yml": (
+                r"^\s+run: python3 -m tools\.hooks\.lint_code$"
+            ),
         }
         for path, command in callers.items():
             with self.subTest(caller=path):

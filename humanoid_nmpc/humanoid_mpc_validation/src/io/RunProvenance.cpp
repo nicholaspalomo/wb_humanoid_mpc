@@ -54,12 +54,14 @@ namespace {
 /** The kibibytes (KiB, what /proc/meminfo counts in as "kB") of a gibibyte. */
 constexpr double kKibibytesPerGibibyte = 1024.0 * 1024.0;
 
-std::string environmentOr(const char* absl_nonnull name, const std::string& fallback) {
+std::string environmentOr(const char* absl_nonnull name,
+                          const std::string& fallback) {
   const char* absl_nullable value = std::getenv(name);
   return value != nullptr && value[0] != '\0' ? std::string(value) : fallback;
 }
 
-/** The value after the first "<key>:" line of `file`, trimmed; empty when there is none. */
+/** The value after the first "<key>:" line of `file`, trimmed; empty when there
+ * is none. */
 std::string firstValue(const std::string& file, const std::string& key) {
   std::ifstream stream(file);
   std::string line;
@@ -73,7 +75,8 @@ std::string firstValue(const std::string& file, const std::string& key) {
 }
 
 // LINT.IfChange(toolchain_fields)
-/** The members of a provenance's `toolchain` object, with the RunToolchain field each holds. */
+/** The members of a provenance's `toolchain` object, with the RunToolchain
+ * field each holds. */
 struct ToolchainField {
   const char* absl_nonnull key;
   std::string RunToolchain::*absl_nonnull field;
@@ -94,36 +97,52 @@ std::string compilerVersion() {
 
 std::string describeMachine() {
   const std::string cpu = firstValue("/proc/cpuinfo", "model name");
-  const std::string memory = firstValue("/proc/meminfo", "MemTotal");  // "32768000 kB"
+  const std::string memory =
+      firstValue("/proc/meminfo", "MemTotal");  // "32768000 kB"
   std::string description = cpu.empty() ? "unknown CPU" : cpu;
-  absl::StrAppend(&description, ", ", std::thread::hardware_concurrency(), " logical cores");
-  const std::vector<absl::string_view> memoryFields = absl::StrSplit(memory, ' ', absl::SkipEmpty());
+  absl::StrAppend(&description, ", ", std::thread::hardware_concurrency(),
+                  " logical cores");
+  const std::vector<absl::string_view> memoryFields =
+      absl::StrSplit(memory, ' ', absl::SkipEmpty());
   double kibibytes = 0.0;
   if (!memoryFields.empty() && absl::SimpleAtod(memoryFields[0], &kibibytes)) {
-    absl::StrAppend(&description, ", ", absl::StrFormat("%.1f", kibibytes / kKibibytesPerGibibyte), " GiB");
+    absl::StrAppend(&description, ", ",
+                    absl::StrFormat("%.1f", kibibytes / kKibibytesPerGibibyte),
+                    " GiB");
   }
   return description;
 }
 
 RunEnvironment runEnvironmentFromEnvironment() {
   RunEnvironment environment;
-  environment.gitCommit = environmentOr("WB_VALIDATION_GIT_COMMIT", environment.gitCommit);
-  environment.worktreeState = environmentOr("WB_VALIDATION_WORKTREE_STATE", environment.worktreeState);
-  environment.machine = environmentOr("WB_VALIDATION_MACHINE", describeMachine());
+  environment.gitCommit =
+      environmentOr("WB_VALIDATION_GIT_COMMIT", environment.gitCommit);
+  environment.worktreeState =
+      environmentOr("WB_VALIDATION_WORKTREE_STATE", environment.worktreeState);
+  environment.machine =
+      environmentOr("WB_VALIDATION_MACHINE", describeMachine());
   environment.toolchain.compiler = compilerVersion();
-  environment.toolchain.hpipmTarget = environmentOr("WB_VALIDATION_HPIPM_TARGET", environment.toolchain.hpipmTarget);
-  environment.toolchain.containerImage = environmentOr("WB_VALIDATION_CONTAINER_IMAGE", environment.toolchain.containerImage);
+  environment.toolchain.hpipmTarget = environmentOr(
+      "WB_VALIDATION_HPIPM_TARGET", environment.toolchain.hpipmTarget);
+  environment.toolchain.containerImage = environmentOr(
+      "WB_VALIDATION_CONTAINER_IMAGE", environment.toolchain.containerImage);
   return environment;
 }
 
-absl::StatusOr<JsonValue> makeRunProvenanceJson(const RunEnvironment& environment, const std::vector<std::string>& configurationFiles) {
+absl::StatusOr<JsonValue> makeRunProvenanceJson(
+    const RunEnvironment& environment,
+    const std::vector<std::string>& configurationFiles) {
   JsonValue provenance = JsonValue::object();
   provenance.set("git_commit", JsonValue::string(environment.gitCommit));
-  provenance.set("worktree_state", JsonValue::string(environment.worktreeState));
+  provenance.set("worktree_state",
+                 JsonValue::string(environment.worktreeState));
   provenance.set("machine", JsonValue::string(environment.machine));
   JsonValue& toolchain = provenance.set("toolchain", JsonValue::object());
-  for (const ToolchainField& field : kToolchainFields) toolchain.set(field.key, JsonValue::string(environment.toolchain.*field.field));
-  JsonValue& hashes = provenance.set("configuration_sha256", JsonValue::object());
+  for (const ToolchainField& field : kToolchainFields)
+    toolchain.set(field.key,
+                  JsonValue::string(environment.toolchain.*field.field));
+  JsonValue& hashes =
+      provenance.set("configuration_sha256", JsonValue::object());
   for (const std::string& file : configurationFiles) {
     absl::StatusOr<std::string> hash = sha256HexOfFile(file);
     if (!hash.ok()) return hash.status();
@@ -132,34 +151,45 @@ absl::StatusOr<JsonValue> makeRunProvenanceJson(const RunEnvironment& environmen
   return provenance;
 }
 
-absl::StatusOr<RunToolchain> toolchainFromProvenance(const JsonValue& provenance) {
+absl::StatusOr<RunToolchain> toolchainFromProvenance(
+    const JsonValue& provenance) {
   const JsonValue* absl_nullable toolchain = provenance.find("toolchain");
-  if (toolchain == nullptr) return absl::NotFoundError("[toolchainFromProvenance] the provenance has no toolchain");
+  if (toolchain == nullptr)
+    return absl::NotFoundError(
+        "[toolchainFromProvenance] the provenance has no toolchain");
   RunToolchain result;
   for (const ToolchainField& field : kToolchainFields) {
     const JsonValue* absl_nullable value = toolchain->find(field.key);
     if (value == nullptr || !value->isString()) {
-      return absl::InvalidArgumentError(absl::StrCat("[toolchainFromProvenance] toolchain.", field.key, " is missing or not a string"));
+      return absl::InvalidArgumentError(
+          absl::StrCat("[toolchainFromProvenance] toolchain.", field.key,
+                       " is missing or not a string"));
     }
     result.*field.field = value->asString();
   }
   return result;
 }
 
-std::vector<std::pair<std::string, std::string>> toolchainNotes(const RunToolchain& toolchain) {
+std::vector<std::pair<std::string, std::string>> toolchainNotes(
+    const RunToolchain& toolchain) {
   std::vector<std::pair<std::string, std::string>> notes;
   notes.reserve(std::size(kToolchainFields));
-  for (const ToolchainField& field : kToolchainFields) notes.emplace_back(field.key, toolchain.*field.field);
+  for (const ToolchainField& field : kToolchainFields)
+    notes.emplace_back(field.key, toolchain.*field.field);
   return notes;
 }
 
-absl::StatusOr<GoldenProvenance> makeRunGoldenProvenance(const RunEnvironment& environment,
-                                                         const std::vector<std::string>& configurationFiles) {
-  absl::StatusOr<GoldenProvenance> provenance = makeGoldenProvenance(environment.gitCommit, environment.worktreeState, configurationFiles);
+absl::StatusOr<GoldenProvenance> makeRunGoldenProvenance(
+    const RunEnvironment& environment,
+    const std::vector<std::string>& configurationFiles) {
+  absl::StatusOr<GoldenProvenance> provenance = makeGoldenProvenance(
+      environment.gitCommit, environment.worktreeState, configurationFiles);
   if (!provenance.ok()) return provenance;
   provenance->notes.emplace_back("machine", environment.machine);
-  const std::vector<std::pair<std::string, std::string>> toolchain = toolchainNotes(environment.toolchain);
-  provenance->notes.insert(provenance->notes.end(), toolchain.begin(), toolchain.end());
+  const std::vector<std::pair<std::string, std::string>> toolchain =
+      toolchainNotes(environment.toolchain);
+  provenance->notes.insert(provenance->notes.end(), toolchain.begin(),
+                           toolchain.end());
   return provenance;
 }
 

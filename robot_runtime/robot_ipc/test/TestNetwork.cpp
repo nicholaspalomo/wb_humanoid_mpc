@@ -44,7 +44,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::ipc {
 namespace {
 
-// The test domains: away from domain 0 of the shipped network file, and within the ports of NetworkConfig.
+// The test domains: away from domain 0 of the shipped network file, and within
+// the ports of NetworkConfig.
 constexpr int kFirstTestDomain = 100;
 constexpr int kTestDomains = 100;
 
@@ -58,21 +59,28 @@ const ProcessDomain& processDomain() {
     std::random_device entropy;
     const uint64_t draw = (static_cast<uint64_t>(entropy()) << 32) | entropy();
     const int64_t pid = ::getpid();
-    return ProcessDomain{.domainId = kFirstTestDomain + static_cast<int>(draw % kTestDomains),
-                         .tag = absl::StrCat("robot_ipc_test_", pid, "_", absl::Hex(draw))};
+    return ProcessDomain{
+        .domainId = kFirstTestDomain + static_cast<int>(draw % kTestDomains),
+        .tag = absl::StrCat("robot_ipc_test_", pid, "_", absl::Hex(draw))};
   }());
   return *kDomain;
 }
 
 }  // namespace
 
-NetworkConfig isolatedTestNetwork(const std::vector<std::string>& nodeNames, int domainIndex) {
+NetworkConfig isolatedTestNetwork(const std::vector<std::string>& nodeNames,
+                                  int domainIndex) {
   NetworkConfig network;
   for (const std::string& name : nodeNames) {
-    network.nodes.push_back(NodeEndpoint{.name = name, .host = std::string(kLoopbackHost)});
+    network.nodes.push_back(
+        NodeEndpoint{.name = name, .host = std::string(kLoopbackHost)});
   }
-  network.domainId = kFirstTestDomain + (processDomain().domainId - kFirstTestDomain + domainIndex) % kTestDomains;
-  network.domainTag = domainIndex == 0 ? processDomain().tag : absl::StrCat(processDomain().tag, "_", domainIndex);
+  network.domainId = kFirstTestDomain + (processDomain().domainId -
+                                         kFirstTestDomain + domainIndex) %
+                                            kTestDomains;
+  network.domainTag = domainIndex == 0
+                          ? processDomain().tag
+                          : absl::StrCat(processDomain().tag, "_", domainIndex);
   return network;
 }
 

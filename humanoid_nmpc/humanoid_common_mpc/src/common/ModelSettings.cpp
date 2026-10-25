@@ -56,53 +56,79 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 namespace {
 
-// The fields of the task file's `contact_implicit` block, for validateContactImplicitConfig() and the parameter updater.
+// The fields of the task file's `contact_implicit` block, for
+// validateContactImplicitConfig() and the parameter updater.
 constexpr ModelSettings::ContactImplicitKey kContactImplicitKeys[] = {
-    {.fieldName = "complementarity_weight", .field = &ModelSettings::ContactImplicitConfig::complementarityWeight, .isWeight = true},
-    {.fieldName = "slip_weight", .field = &ModelSettings::ContactImplicitConfig::slipWeight, .isWeight = true},
-    {.fieldName = "penetration_weight", .field = &ModelSettings::ContactImplicitConfig::penetrationWeight, .isWeight = true},
-    {.fieldName = "height_reference", .field = &ModelSettings::ContactImplicitConfig::heightReference, .isWeight = false},
-    {.fieldName = "velocity_reference", .field = &ModelSettings::ContactImplicitConfig::velocityReference, .isWeight = false},
+    {.fieldName = "complementarity_weight",
+     .field = &ModelSettings::ContactImplicitConfig::complementarityWeight,
+     .isWeight = true},
+    {.fieldName = "slip_weight",
+     .field = &ModelSettings::ContactImplicitConfig::slipWeight,
+     .isWeight = true},
+    {.fieldName = "penetration_weight",
+     .field = &ModelSettings::ContactImplicitConfig::penetrationWeight,
+     .isWeight = true},
+    {.fieldName = "height_reference",
+     .field = &ModelSettings::ContactImplicitConfig::heightReference,
+     .isWeight = false},
+    {.fieldName = "velocity_reference",
+     .field = &ModelSettings::ContactImplicitConfig::velocityReference,
+     .isWeight = false},
     {.fieldName = "angular_velocity_reference",
      .field = &ModelSettings::ContactImplicitConfig::angularVelocityReference,
      .isWeight = false},
-    {.fieldName = "gap_smoothing", .field = &ModelSettings::ContactImplicitConfig::gapSmoothing, .isWeight = false},
+    {.fieldName = "gap_smoothing",
+     .field = &ModelSettings::ContactImplicitConfig::gapSmoothing,
+     .isWeight = false},
 };
 
-// ContactImplicitConfig holds nothing but these scalars, so a field added to it without a key here - which would be
-// loaded by nothing, validated by nothing and hot-reloaded by nothing - changes its size and fails to compile.
-static_assert(sizeof(ModelSettings::ContactImplicitConfig) == std::size(kContactImplicitKeys) * sizeof(scalar_t),
-              "every field of ModelSettings::ContactImplicitConfig needs a key in kContactImplicitKeys");
+// ContactImplicitConfig holds nothing but these scalars, so a field added to it
+// without a key here - which would be loaded by nothing, validated by nothing
+// and hot-reloaded by nothing - changes its size and fails to compile.
+static_assert(sizeof(ModelSettings::ContactImplicitConfig) ==
+                  std::size(kContactImplicitKeys) * sizeof(scalar_t),
+              "every field of ModelSettings::ContactImplicitConfig needs a key "
+              "in kContactImplicitKeys");
 
-// The joints of a Pinocchio model before the URDF's own: the universe and the floating base's root joint, which the URDF's
-// first joint follows.
-constexpr int kNonUrdfJointCount = static_cast<int>(kFirstJointAfterFloatingBase);
+// The joints of a Pinocchio model before the URDF's own: the universe and the
+// floating base's root joint, which the URDF's first joint follows.
+constexpr int kNonUrdfJointCount =
+    static_cast<int>(kFirstJointAfterFloatingBase);
 
 }  // namespace
 
-absl::Span<const ModelSettings::ContactImplicitKey> ModelSettings::contactImplicitKeys() {
+absl::Span<const ModelSettings::ContactImplicitKey>
+ModelSettings::contactImplicitKeys() {
   return kContactImplicitKeys;
 }
 
-absl::StatusOr<ModelSettings> ModelSettings::Create(const std::string& configFile,
-                                                    const std::string& urdfFile,
-                                                    const std::string& mpcName,
-                                                    bool verbose) {
-  ASSIGN_OR_RETURN(const mpc_config::TaskFile taskFile, loadTaskFile(configFile));
-  absl::StatusOr<ModelSettings> settings = Create(taskFile, urdfFile, mpcName, verbose);
+absl::StatusOr<ModelSettings> ModelSettings::Create(
+    const std::string& configFile,
+    const std::string& urdfFile,
+    const std::string& mpcName,
+    bool verbose) {
+  ASSIGN_OR_RETURN(const mpc_config::TaskFile taskFile,
+                   loadTaskFile(configFile));
+  absl::StatusOr<ModelSettings> settings =
+      Create(taskFile, urdfFile, mpcName, verbose);
   if (!settings.ok()) {
     return withConfigFile(settings.status(), configFile);
   }
   return settings;
 }
 
-void ModelSettings::loadFullJointNames(const std::string& urdfFile, bool verbose) {
-  // Get full joint order from a full pinocchio interface, this removes any joints marked as fix in the urdf.
-  const PinocchioInterface fullPinocchioInterface = createDefaultPinocchioInterface(urdfFile);
+void ModelSettings::loadFullJointNames(const std::string& urdfFile,
+                                       bool verbose) {
+  // Get full joint order from a full pinocchio interface, this removes any
+  // joints marked as fix in the urdf.
+  const PinocchioInterface fullPinocchioInterface =
+      createDefaultPinocchioInterface(urdfFile);
   const pinocchio::Model& model = fullPinocchioInterface.getModel();
   if (verbose) LOG(INFO) << "Full URDF joints: ";
-  fullJointNames.reserve(model.njoints - kNonUrdfJointCount);  // Subtract universe and root joint
-  for (pinocchio::JointIndex joint_id = kFirstJointAfterFloatingBase; joint_id < static_cast<pinocchio::JointIndex>(model.njoints);
+  fullJointNames.reserve(
+      model.njoints - kNonUrdfJointCount);  // Subtract universe and root joint
+  for (pinocchio::JointIndex joint_id = kFirstJointAfterFloatingBase;
+       joint_id < static_cast<pinocchio::JointIndex>(model.njoints);
        ++joint_id) {
     if (verbose) LOG(INFO) << model.names[joint_id];
     fullJointNames.emplace_back(model.names[joint_id]);
@@ -112,7 +138,8 @@ void ModelSettings::loadFullJointNames(const std::string& urdfFile, bool verbose
 namespace {
 
 /**
- * FNV-1a 64 over words and length-prefixed strings, so that ("ab", "c") and ("a", "bc") differ: add, then read value().
+ * FNV-1a 64 over words and length-prefixed strings, so that ("ab", "c") and
+ * ("a", "bc") differ: add, then read value().
  *
  * Not thread-safe.
  */
@@ -151,7 +178,9 @@ uint64_t modelLayoutFingerprint(const ModelSettings& settings) {
   hash.addStrings(settings.contactNames3DoF);
   hash.addStrings(settings.contactNames6DoF);
   // The value an unstamped message carries is never a layout's.
-  return hash.value() == kUnstampedModelFingerprint ? kUnstampedModelFingerprint + 1 : hash.value();
+  return hash.value() == kUnstampedModelFingerprint
+             ? kUnstampedModelFingerprint + 1
+             : hash.value();
 }
 
 }  // namespace ocs2::humanoid

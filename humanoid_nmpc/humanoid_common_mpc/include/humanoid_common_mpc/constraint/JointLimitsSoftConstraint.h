@@ -42,27 +42,35 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * A soft joint position limit: a piecewise polynomial barrier on the distance of each MPC joint to its lower and upper
- * position limit, added as a state cost.
+ * A soft joint position limit: a piecewise polynomial barrier on the distance
+ * of each MPC joint to its lower and upper position limit, added as a state
+ * cost.
  *
- * The robot model must outlive it. setGains() retunes the barrier between solves. Like every OCS2 term it is cloned for
- * each solver thread, and a single instance is not thread-safe.
+ * The robot model must outlive it. setGains() retunes the barrier between
+ * solves. Like every OCS2 term it is cloned for each solver thread, and a
+ * single instance is not thread-safe.
  */
 class JointLimitsSoftConstraint final : public StateCost {
  public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
   /**
-   * @param positionLimits : the lower and upper position limits of the MPC joints.
-   * @param barrierSettings : Settings for the position barrier penalty function.
+   * @param positionLimits : the lower and upper position limits of the MPC
+   * joints.
+   * @param barrierSettings : Settings for the position barrier penalty
+   * function.
    */
-  JointLimitsSoftConstraint(JointPositionLimits positionLimits,
-                            ocs2::PieceWisePolynomialBarrierPenalty::Config barrierSettings,
-                            const MpcRobotModelBase<scalar_t>& mpcRobotModel);
+  JointLimitsSoftConstraint(
+      JointPositionLimits positionLimits,
+      ocs2::PieceWisePolynomialBarrierPenalty::Config barrierSettings,
+      const MpcRobotModelBase<scalar_t>& mpcRobotModel);
 
-  JointLimitsSoftConstraint* absl_nonnull clone() const override { return new JointLimitsSoftConstraint(*this); }
+  JointLimitsSoftConstraint* absl_nonnull clone() const override {
+    return new JointLimitsSoftConstraint(*this);
+  }
   ~JointLimitsSoftConstraint() override = default;
-  JointLimitsSoftConstraint& operator=(const JointLimitsSoftConstraint&) = delete;
+  JointLimitsSoftConstraint& operator=(const JointLimitsSoftConstraint&) =
+      delete;
   JointLimitsSoftConstraint(JointLimitsSoftConstraint&&) = delete;
   JointLimitsSoftConstraint& operator=(JointLimitsSoftConstraint&&) = delete;
 
@@ -71,13 +79,15 @@ class JointLimitsSoftConstraint final : public StateCost {
                     const ocs2::TargetTrajectories& targetTrajectories,
                     const ocs2::PreComputation& preComp) const override;
 
-  ScalarFunctionQuadraticApproximation getQuadraticApproximation(scalar_t time,
-                                                                 const vector_t& state,
-                                                                 const ocs2::TargetTrajectories& targetTrajectories,
-                                                                 const ocs2::PreComputation& preComp) const override;
+  ScalarFunctionQuadraticApproximation getQuadraticApproximation(
+      scalar_t time,
+      const vector_t& state,
+      const ocs2::TargetTrajectories& targetTrajectories,
+      const ocs2::PreComputation& preComp) const override;
 
   scalar_t getValue(const vector_t& jointPositions) const;
-  ScalarFunctionQuadraticApproximation getQuadraticApproximation(const vector_t& jointPositions) const;
+  ScalarFunctionQuadraticApproximation getQuadraticApproximation(
+      const vector_t& jointPositions) const;
 
   void setGains(scalar_t mu, scalar_t delta);
   /** The barrier's (mu, delta), as setGains() last set them. */

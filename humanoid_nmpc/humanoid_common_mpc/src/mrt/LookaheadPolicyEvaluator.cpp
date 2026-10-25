@@ -35,37 +35,56 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-LookaheadPolicyEvaluator::LookaheadPolicyEvaluator(const ipc::ModelDimensions& dimensions, const StateManifold* absl_nullable stateManifold)
+LookaheadPolicyEvaluator::LookaheadPolicyEvaluator(
+    const ipc::ModelDimensions& dimensions,
+    const StateManifold* absl_nullable stateManifold)
     : evaluator_(dimensions, stateManifold),
-      planStateNow_(vector_t::Zero(static_cast<Eigen::Index>(dimensions.stateDim))),
-      inputAtMeasurement_(vector_t::Zero(static_cast<Eigen::Index>(dimensions.inputDim))),
-      inputOnPlanNow_(vector_t::Zero(static_cast<Eigen::Index>(dimensions.inputDim))),
-      lookaheadPlanState_(vector_t::Zero(static_cast<Eigen::Index>(dimensions.stateDim))),
-      lookaheadInputOnPlan_(vector_t::Zero(static_cast<Eigen::Index>(dimensions.inputDim))),
-      discardedState_(vector_t::Zero(static_cast<Eigen::Index>(dimensions.stateDim))) {}
+      planStateNow_(
+          vector_t::Zero(static_cast<Eigen::Index>(dimensions.stateDim))),
+      inputAtMeasurement_(
+          vector_t::Zero(static_cast<Eigen::Index>(dimensions.inputDim))),
+      inputOnPlanNow_(
+          vector_t::Zero(static_cast<Eigen::Index>(dimensions.inputDim))),
+      lookaheadPlanState_(
+          vector_t::Zero(static_cast<Eigen::Index>(dimensions.stateDim))),
+      lookaheadInputOnPlan_(
+          vector_t::Zero(static_cast<Eigen::Index>(dimensions.inputDim))),
+      discardedState_(
+          vector_t::Zero(static_cast<Eigen::Index>(dimensions.stateDim))) {}
 
-LookaheadPolicyEvaluator::Outcome LookaheadPolicyEvaluator::evaluate(const PrimalSolution& policy,
-                                                                     scalar_t measurementTime,
-                                                                     scalar_t lookahead,
-                                                                     const vector_t& measuredState,
-                                                                     vector_t& plannedState,
-                                                                     vector_t& input,
-                                                                     size_t& mode) {
+LookaheadPolicyEvaluator::Outcome LookaheadPolicyEvaluator::evaluate(
+    const PrimalSolution& policy,
+    scalar_t measurementTime,
+    scalar_t lookahead,
+    const vector_t& measuredState,
+    vector_t& plannedState,
+    vector_t& input,
+    size_t& mode) {
   size_t discardedMode = 0;
-  // At the measurement: x*(t) and u(t, x). The first evaluation checks the policy and the state; the others evaluate
-  // the same policy on states of the same size, so their outcome is the same.
-  Outcome outcome = evaluator_.evaluate(policy, measurementTime, measuredState, planStateNow_, inputAtMeasurement_, discardedMode);
+  // At the measurement: x*(t) and u(t, x). The first evaluation checks the
+  // policy and the state; the others evaluate the same policy on states of the
+  // same size, so their outcome is the same.
+  Outcome outcome =
+      evaluator_.evaluate(policy, measurementTime, measuredState, planStateNow_,
+                          inputAtMeasurement_, discardedMode);
   if (outcome != Outcome::kEvaluated) return outcome;
   // u(t, x*(t)): the same law on the plan's own state at t.
-  outcome = evaluator_.evaluate(policy, measurementTime, planStateNow_, discardedState_, inputOnPlanNow_, discardedMode);
+  outcome =
+      evaluator_.evaluate(policy, measurementTime, planStateNow_,
+                          discardedState_, inputOnPlanNow_, discardedMode);
   if (outcome != Outcome::kEvaluated) return outcome;
-  // x*(t + delta) (the state argument only enters the input, which the next evaluation recomputes), then the
-  // feedforward u(t + delta, x*(t + delta)) on it.
+  // x*(t + delta) (the state argument only enters the input, which the next
+  // evaluation recomputes), then the feedforward u(t + delta, x*(t + delta)) on
+  // it.
   const scalar_t lookaheadTime = measurementTime + lookahead;
   size_t lookaheadMode = 0;
-  outcome = evaluator_.evaluate(policy, lookaheadTime, planStateNow_, lookaheadPlanState_, lookaheadInputOnPlan_, lookaheadMode);
+  outcome = evaluator_.evaluate(policy, lookaheadTime, planStateNow_,
+                                lookaheadPlanState_, lookaheadInputOnPlan_,
+                                lookaheadMode);
   if (outcome != Outcome::kEvaluated) return outcome;
-  outcome = evaluator_.evaluate(policy, lookaheadTime, lookaheadPlanState_, discardedState_, lookaheadInputOnPlan_, lookaheadMode);
+  outcome = evaluator_.evaluate(policy, lookaheadTime, lookaheadPlanState_,
+                                discardedState_, lookaheadInputOnPlan_,
+                                lookaheadMode);
   if (outcome != Outcome::kEvaluated) return outcome;
 
   plannedState = lookaheadPlanState_;

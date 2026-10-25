@@ -40,7 +40,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-// A new gait starts no earlier than 70 % of the way through the horizon: the weighted mean of its two ends (a heuristic).
+// A new gait starts no earlier than 70 % of the way through the horizon: the
+// weighted mean of its two ends (a heuristic).
 constexpr scalar_t kEarliestSwitchFinalTimeWeight = 0.7;
 constexpr scalar_t kEarliestSwitchInitTimeWeight = 0.3;
 // [horizons] How far ahead of now the new gait is tiled.
@@ -48,35 +49,51 @@ constexpr scalar_t kTilingHorizons = 1.5;
 
 }  // namespace
 
-scalar_t updateGaitSchedule(GaitSchedule& gaitSchedule, const ModeSequenceTemplate& updatedGait, scalar_t initTime, scalar_t finalTime) {
+scalar_t updateGaitSchedule(GaitSchedule& gaitSchedule,
+                            const ModeSequenceTemplate& updatedGait,
+                            scalar_t initTime,
+                            scalar_t finalTime) {
   LOG(INFO) << updatedGait;
   const scalar_t timeHorizon = finalTime - initTime;
-  const scalar_t earliestSwitchingTime = (kEarliestSwitchFinalTimeWeight * finalTime + kEarliestSwitchInitTimeWeight * initTime);
-  LOG(INFO) << "[updateGaitSchedule]: Setting new gait after time " << earliestSwitchingTime << "\n";
+  const scalar_t earliestSwitchingTime =
+      (kEarliestSwitchFinalTimeWeight * finalTime +
+       kEarliestSwitchInitTimeWeight * initTime);
+  LOG(INFO) << "[updateGaitSchedule]: Setting new gait after time "
+            << earliestSwitchingTime << "\n";
   // Find the first time that is greater than current_time
-  const ModeSchedule modeSchedule = gaitSchedule.getModeSchedule(initTime, finalTime + timeHorizon);
+  const ModeSchedule modeSchedule =
+      gaitSchedule.getModeSchedule(initTime, finalTime + timeHorizon);
 
   const std::vector<scalar_t>::const_iterator it =
-      std::upper_bound(modeSchedule.eventTimes.begin(), modeSchedule.eventTimes.end(), earliestSwitchingTime);
+      std::upper_bound(modeSchedule.eventTimes.begin(),
+                       modeSchedule.eventTimes.end(), earliestSwitchingTime);
   scalar_t nextEventTime = finalTime;
   if (it == modeSchedule.eventTimes.end()) {
     nextEventTime = finalTime;
-  } else if (modeSchedule.modeAtTime(*it) == ModeNumber::kLf && it != modeSchedule.eventTimes.begin()) {
-    // The phase that ends at this event is LF, the left foot in stance and the right one swinging (modeAtTime of an
-    // event time is the phase before it), so the new gait starts where that phase starts, at the event before. When the
-    // phase is the first of the schedule there is no event before it - the first event already lies past the switching
-    // time, as after a clock that ran backwards - and reading one was undefined: the gait then starts where it ends.
+  } else if (modeSchedule.modeAtTime(*it) == ModeNumber::kLf &&
+             it != modeSchedule.eventTimes.begin()) {
+    // The phase that ends at this event is LF, the left foot in stance and the
+    // right one swinging (modeAtTime of an event time is the phase before it),
+    // so the new gait starts where that phase starts, at the event before. When
+    // the phase is the first of the schedule there is no event before it - the
+    // first event already lies past the switching time, as after a clock that
+    // ran backwards - and reading one was undefined: the gait then starts where
+    // it ends.
     nextEventTime = *(it - 1);
   } else {
     nextEventTime = *it;
   }
 
-  // insertModeSequenceTemplate tiles the new gait up to an ABSOLUTE time, 1.5 horizons ahead of now. This passed
-  // 1.5 * timeHorizon, a duration: as soon as the new gait started later than that on the clock - about a second into
-  // any run - it was not tiled at all and the schedule stopped in stance where the gait was to begin. The next
-  // getModeSchedule() tiles from its last event again, so every solve still saw the new gait; only a reader of the
-  // schedule in between did not (testGaitScheduleUpdaterHorizon).
-  gaitSchedule.insertModeSequenceTemplate(updatedGait, nextEventTime, /*finalTime=*/initTime + kTilingHorizons * timeHorizon);
+  // insertModeSequenceTemplate tiles the new gait up to an ABSOLUTE time, 1.5
+  // horizons ahead of now. This passed 1.5 * timeHorizon, a duration: as soon
+  // as the new gait started later than that on the clock - about a second into
+  // any run - it was not tiled at all and the schedule stopped in stance where
+  // the gait was to begin. The next getModeSchedule() tiles from its last event
+  // again, so every solve still saw the new gait; only a reader of the schedule
+  // in between did not (testGaitScheduleUpdaterHorizon).
+  gaitSchedule.insertModeSequenceTemplate(
+      updatedGait, nextEventTime,
+      /*finalTime=*/initTime + kTilingHorizons * timeHorizon);
   return nextEventTime;
 }
 

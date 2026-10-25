@@ -34,13 +34,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace nproto {
 
 /*
- * FNV-1a, 64 bit (https://datatracker.ietf.org/doc/html/draft-eastlake-fnv): the hash of the values that must be the
- * same across processes and builds, which absl::Hash deliberately is not - the schema fingerprints (Schema.h), the
- * fingerprints of the configuration dumps (tools/config_dump) and the humanoid MPC's footprint fingerprints and
- * basis-library keys. A hash starts at kFnvOffsetBasis; each octet is XORed into it, and the hash is then multiplied by
- * kFnvPrime. A 64-bit word is folded in as its kFnvWordOctets octets, the least significant first, each the word shifted
- * down and masked with kFnvOctetMask. The constants are here, without the rest of nproto, because nproto is the lowest
- * of the libraries that hash (//tools/nproto:fnv1a64_constants has no dependencies).
+ * FNV-1a, 64 bit (https://datatracker.ietf.org/doc/html/draft-eastlake-fnv):
+ * the hash of the values that must be the same across processes and builds,
+ * which absl::Hash deliberately is not - the schema fingerprints (Schema.h),
+ * the fingerprints of the configuration dumps (tools/config_dump) and the
+ * humanoid MPC's footprint fingerprints and basis-library keys. A hash starts
+ * at kFnvOffsetBasis; each octet is XORed into it, and the hash is then
+ * multiplied by kFnvPrime. A 64-bit word is folded in as its kFnvWordOctets
+ * octets, the least significant first, each the word shifted down and masked
+ * with kFnvOctetMask. The constants are here, without the rest of nproto,
+ * because nproto is the lowest of the libraries that hash
+ * (//tools/nproto:fnv1a64_constants has no dependencies).
  */
 // LINT.IfChange(fnv1a)
 inline constexpr uint64_t kFnvOffsetBasis = 0xcbf29ce484222325ULL;

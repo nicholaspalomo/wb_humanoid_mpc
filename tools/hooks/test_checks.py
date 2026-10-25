@@ -37,16 +37,23 @@ from tools.hooks import check_types
 from tools.hooks import checks
 from tools.hooks import lint_code
 
-_BRITISH = "the centre\n"  # NOLINT(american-spelling): the British spelling is the test's input
+_BRITISH = (
+    # NOLINTNEXTLINE(american-spelling): the British spelling is the test's input
+    "the centre\n"
+)
 _AMERICAN = "the center\n"
-_MARKED = "the centre  NOLINT(american-spelling): a title\n"  # NOLINT(american-spelling): the test's input
+_MARKED = (
+    # NOLINTNEXTLINE(american-spelling): the test's input
+    "the centre  NOLINT(american-spelling): a title\n"
+)
 
 
 def _run(
     source: str, path: str, *names: str, root: str = "/nonexistent"
 ) -> list[tuple[str, int]]:
     return [
-        (f.check, f.line) for f in checks.run_file(source, path, frozenset(names), root)
+        (f.check, f.line)
+        for f in checks.run_file(source, path, frozenset(names), root)
     ]
 
 
@@ -66,7 +73,9 @@ class RegistryTest(unittest.TestCase):
 
     def test_no_check_shadows_a_step_or_a_cpplint_category(self):
         self.assertEqual(checks.names() & lint_code.STEP_NAMES, frozenset())
-        self.assertEqual(checks.names() & checks.CPPLINT_CATEGORIES, frozenset())
+        self.assertEqual(
+            checks.names() & checks.CPPLINT_CATEGORIES, frozenset()
+        )
 
     def test_every_check_module_is_registered(self):
         # A module with a CHECKS list that the registry does not concatenate would never run.
@@ -114,7 +123,8 @@ class EngineTest(unittest.TestCase):
             _run("void g() { f(a, 0); }\n", "src/a.py", "argument-comment"), []
         )
         self.assertEqual(
-            _run("void g() { f(a, 0); }\n", "lib/x/a.cpp", "argument-comment"), []
+            _run("void g() { f(a, 0); }\n", "lib/x/a.cpp", "argument-comment"),
+            [],
         )
 
     def test_a_marker_with_a_reason_suppresses(self):
@@ -133,7 +143,9 @@ class EngineTest(unittest.TestCase):
     def test_a_marker_without_a_reason_suppresses_nothing_and_is_reported(self):
         source = "void g() { f(a, 0); }  // NOLINT(argument-comment)\n"
         self.assertEqual(
-            sorted(_run(source, "src/a.cpp", "argument-comment", "nolint-reason")),
+            sorted(
+                _run(source, "src/a.cpp", "argument-comment", "nolint-reason")
+            ),
             [("argument-comment", 1), ("nolint-reason", 1)],
         )
 
@@ -160,7 +172,9 @@ class EngineTest(unittest.TestCase):
         # A marker for a cpplint or clang-tidy check is not the registry's to judge.
         self.assertEqual(
             _run(
-                "long x;  // NOLINT(runtime/int): POSIX\n", "src/a.cpp", "nolint-unused"
+                "long x;  // NOLINT(runtime/int): POSIX\n",
+                "src/a.cpp",
+                "nolint-unused",
             ),
             [],
         )
@@ -169,12 +183,15 @@ class EngineTest(unittest.TestCase):
         # A run narrowed with --only may leave the marker's check unreported; its marker is still used.
         source = "#include <boost/variant.hpp>  // NOLINT(boost): a test\n"
         self.assertEqual(_run(source, "src/a.cpp", "nolint-unused"), [])
-        self.assertEqual(_run(source, "src/a.cpp", "nolint-unused", "boost"), [])
+        self.assertEqual(
+            _run(source, "src/a.cpp", "nolint-unused", "boost"), []
+        )
 
     def test_unbalanced_blocks(self):
         source = "// NOLINTBEGIN(boost): a block\nint x;\n"
         self.assertEqual(
-            _run(source, "src/a.cpp", "nolint-unbalanced"), [("nolint-unbalanced", 1)]
+            _run(source, "src/a.cpp", "nolint-unbalanced"),
+            [("nolint-unbalanced", 1)],
         )
 
     def test_markers_of_text_files_are_whole_lines_and_not_judged(self):
@@ -210,9 +227,12 @@ class EngineTest(unittest.TestCase):
                 encoding="utf-8",
             ) as f:
                 f.write(
-                    'Checks:\n  - "-*"\n  - google-explicit-constructor  # G: Implicit conversions\n'
+                    'Checks:\n  - "-*"\n  - google-explicit-constructor  # G:'
+                    " Implicit conversions\n"
                 )
-            with open(os.path.join(root, ".clang-tidy"), "w", encoding="utf-8") as f:
+            with open(
+                os.path.join(root, ".clang-tidy"), "w", encoding="utf-8"
+            ) as f:
                 f.write("Checks: '-*,modernize-*'\n")
             checks._clang_tidy_checks_cached.cache_clear()
             self.assertEqual(
@@ -240,14 +260,43 @@ class EngineTest(unittest.TestCase):
             checks.fix_file(source, "a.md", frozenset({"american-spelling"})),
             _AMERICAN,
         )
-        self.assertEqual(checks.fix_file(source, "a.md", frozenset({"boost"})), source)
+        self.assertEqual(
+            checks.fix_file(source, "a.md", frozenset({"boost"})), source
+        )
+
+    def test_fix_file_keeps_the_lines_a_marker_exempts(self):
+        selected = frozenset({"american-spelling"})
+        for marker in (
+            "// NOLINTNEXTLINE(american-spelling): a title\n",
+            "// NOLINTBEGIN(american-spelling): a title\n",
+        ):
+            end = (
+                "// NOLINTEND(american-spelling)\n" if "BEGIN" in marker else ""
+            )
+            source = f"// {_BRITISH}{marker}// {_BRITISH}{end}"
+            self.assertEqual(
+                checks.fix_file(source, "a.cpp", selected),
+                f"// {_AMERICAN}{marker}// {_BRITISH}{end}",
+            )
+
+    def test_fix_file_leaves_a_marked_file_whose_fix_moves_lines(self):
+        source = "// NOLINTNEXTLINE(boost): a reason\nx\ny\n"
+        self.assertEqual(
+            checks._fix_outside_markers(
+                "boost", lambda *_: "x\n", source, "a.cpp"
+            ),
+            source,
+        )
 
     def test_clang_tidy_checks(self):
         with tempfile.TemporaryDirectory() as root:
-            with open(os.path.join(root, ".clang-tidy"), "w", encoding="utf-8") as f:
+            with open(
+                os.path.join(root, ".clang-tidy"), "w", encoding="utf-8"
+            ) as f:
                 f.write(
-                    '---\nChecks:\n  - "-*"\n  # Abseil\n  - abseil-str-cat-append   # ToTW #3\n  - bugprone-*\n'
-                    'WarningsAsErrors: "*"\n'
+                    '---\nChecks:\n  - "-*"\n  # Abseil\n  -'
+                    " abseil-str-cat-append   # ToTW #3\n  -"
+                    ' bugprone-*\nWarningsAsErrors: "*"\n'
                 )
             self.assertEqual(
                 checks.clang_tidy_checks(root),

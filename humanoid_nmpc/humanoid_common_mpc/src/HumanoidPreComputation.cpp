@@ -47,13 +47,15 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-HumanoidPreComputation::HumanoidPreComputation(PinocchioInterface pinocchioInterface,
-                                               const SwingTrajectoryPlanner& swingTrajectoryPlanner,
-                                               const MpcRobotModelBase<scalar_t>& mpcRobotModel)
+HumanoidPreComputation::HumanoidPreComputation(
+    PinocchioInterface pinocchioInterface,
+    const SwingTrajectoryPlanner& swingTrajectoryPlanner,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel)
     : pinocchioInterface_(std::move(pinocchioInterface)),
       swingTrajectoryPlannerPtr_(&swingTrajectoryPlanner),
       mpcRobotModelPtr_(&mpcRobotModel),
-      positionErrorGainZ_(mpcRobotModel.modelSettings.footConstraintConfig.positionErrorGain_z) {
+      positionErrorGainZ_(mpcRobotModel.modelSettings.footConstraintConfig
+                              .positionErrorGain_z) {
   eeNormalVelConConfigs_.resize(kNumContacts);
   footHeightReferences_.resize(kNumContacts);
   for (size_t i = 0; i < kNumContacts; ++i) {
@@ -65,14 +67,16 @@ HumanoidPreComputation::HumanoidPreComputation(PinocchioInterface pinocchioInter
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-HumanoidPreComputation::HumanoidPreComputation(const HumanoidPreComputation& rhs)
+HumanoidPreComputation::HumanoidPreComputation(
+    const HumanoidPreComputation& rhs)
     : pinocchioInterface_(rhs.pinocchioInterface_),
       swingTrajectoryPlannerPtr_(rhs.swingTrajectoryPlannerPtr_),
       mpcRobotModelPtr_(rhs.mpcRobotModelPtr_),
       eeNormalVelConConfigs_(rhs.eeNormalVelConConfigs_),
       footHeightReferences_(rhs.footHeightReferences_),
-      // Carried across the clone the SQP solver makes per worker thread; dropping it would reset every worker's gain
-      // to the launch value on the next retune, which is the class of bug this member exists to close.
+      // Carried across the clone the SQP solver makes per worker thread;
+      // dropping it would reset every worker's gain to the launch value on the
+      // next retune, which is the class of bug this member exists to close.
       positionErrorGainZ_(rhs.positionErrorGainZ_) {}
 
 /******************************************************************************************************/
@@ -98,41 +102,61 @@ void HumanoidPreComputation::updatePinocchioModelKinematics(const vector_t& q) {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void HumanoidPreComputation::request(RequestSet request, scalar_t t, const vector_t& x, const vector_t& /*u*/) {
-  if (!request.containsAny(Request::Cost + Request::Constraint + Request::SoftConstraint)) {
+void HumanoidPreComputation::request(RequestSet request,
+                                     scalar_t t,
+                                     const vector_t& x,
+                                     const vector_t& /*u*/) {
+  if (!request.containsAny(Request::Cost + Request::Constraint +
+                           Request::SoftConstraint)) {
     return;
   }
 
-  updatePinocchioModelKinematics(mpcRobotModelPtr_->getGeneralizedCoordinates(x));
+  updatePinocchioModelKinematics(
+      mpcRobotModelPtr_->getGeneralizedCoordinates(x));
 
   // lambda to set config for normal velocity constraints
-  const std::function<EndEffectorKinematicsLinearVelConstraint::Config(size_t)> eeNormalVelConConfig = [&](size_t footIndex) {
-    EndEffectorKinematicsLinearVelConstraint::Config config;
-    config.b = (vector_t(1) << -swingTrajectoryPlannerPtr_->getZvelocityConstraint(footIndex, t)).finished();
-    config.Av = (matrix_t(1, kPositionDim) << 0.0, 0.0, 1.0).finished();
-    // The gain comes from this object, not from the shared ModelSettings, so that the parameter updater can retune it
-    // per worker thread while the controller runs; see setNormalVelocityPositionErrorGain.
-    if (!numerics::almost_eq(positionErrorGainZ_, /*y=*/0.0)) {
-      config.b(0) -= positionErrorGainZ_ * swingTrajectoryPlannerPtr_->getZpositionConstraint(footIndex, t);
-      config.Ax = (matrix_t(1, kPositionDim) << 0.0, 0.0, positionErrorGainZ_).finished();
-    }
-    return config;
-  };
+  const std::function<EndEffectorKinematicsLinearVelConstraint::Config(size_t)>
+      eeNormalVelConConfig = [&](size_t footIndex) {
+        EndEffectorKinematicsLinearVelConstraint::Config config;
+        config.b =
+            (vector_t(1) << -swingTrajectoryPlannerPtr_->getZvelocityConstraint(
+                 footIndex, t))
+                .finished();
+        config.Av = (matrix_t(1, kPositionDim) << 0.0, 0.0, 1.0).finished();
+        // The gain comes from this object, not from the shared ModelSettings,
+        // so that the parameter updater can retune it per worker thread while
+        // the controller runs; see setNormalVelocityPositionErrorGain.
+        if (!numerics::almost_eq(positionErrorGainZ_, /*y=*/0.0)) {
+          config.b(0) -=
+              positionErrorGainZ_ *
+              swingTrajectoryPlannerPtr_->getZpositionConstraint(footIndex, t);
+          config.Ax =
+              (matrix_t(1, kPositionDim) << 0.0, 0.0, positionErrorGainZ_)
+                  .finished();
+        }
+        return config;
+      };
 
-  // Widened from `contains(Request::Constraint)` deliberately. Today every OCS2 call site that evaluates a
-  // state-input term - setupIntermediateNode, LinearQuadraticApproximator, MetricsComputation - requests
-  // Request::Constraint unconditionally as a `constexpr`, so the narrower gate was not actually leaving anything
-  // stale; the paths that omit it, setupTerminalNode and setupEventNode, go through requestFinal / requestPreJump,
-  // which this class does not override and where no state-input term is evaluated.
+  // Widened from `contains(Request::Constraint)` deliberately. Today every OCS2
+  // call site that evaluates a state-input term - setupIntermediateNode,
+  // LinearQuadraticApproximator, MetricsComputation - requests
+  // Request::Constraint unconditionally as a `constexpr`, so the narrower gate
+  // was not actually leaving anything stale; the paths that omit it,
+  // setupTerminalNode and setupEventNode, go through requestFinal /
+  // requestPreJump, which this class does not override and where no state-input
+  // term is evaluated.
   //
-  // It is widened anyway because the coupling is invisible and the formulation moved underneath it: the soft
-  // normal-velocity servo is a SOFT constraint that reads eeNormalVelConConfigs_, so a caller that one day asks for
-  // soft constraints alone would silently evaluate it against a stale swing reference rather than fail. One extra
-  // flag in the guard removes that trap for the cost of two swing references on a cost-only request.
+  // It is widened anyway because the coupling is invisible and the formulation
+  // moved underneath it: the soft normal-velocity servo is a SOFT constraint
+  // that reads eeNormalVelConConfigs_, so a caller that one day asks for soft
+  // constraints alone would silently evaluate it against a stale swing
+  // reference rather than fail. One extra flag in the guard removes that trap
+  // for the cost of two swing references on a cost-only request.
   if (request.containsAny(Request::Constraint + Request::SoftConstraint)) {
     for (size_t i = 0; i < kNumContacts; ++i) {
       eeNormalVelConConfigs_[i] = eeNormalVelConConfig(i);
-      footHeightReferences_[i] = swingTrajectoryPlannerPtr_->getZpositionConstraint(i, t);
+      footHeightReferences_[i] =
+          swingTrajectoryPlannerPtr_->getZpositionConstraint(i, t);
     }
   }
 }

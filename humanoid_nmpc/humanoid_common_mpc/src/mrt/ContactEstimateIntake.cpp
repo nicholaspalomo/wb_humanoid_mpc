@@ -39,19 +39,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-ContactEstimateIntake::ContactEstimateIntake(const char* absl_nonnull controller)
-    : refusal_(makeControllerEvent(ControllerEventCode::kContactEstimateRefused,
-                                   controller,
-                                   /*value0=*/0.0,
-                                   /*value1=*/static_cast<double>(kNumContacts))) {}
+ContactEstimateIntake::ContactEstimateIntake(
+    const char* absl_nonnull controller)
+    : refusal_(
+          makeControllerEvent(ControllerEventCode::kContactEstimateRefused,
+                              controller,
+                              /*value0=*/0.0,
+                              /*value1=*/static_cast<double>(kNumContacts))) {}
 
 void ContactEstimateIntake::resetEstimator(absl::string_view estimatorName) {
-  refusal_ = makeControllerEvent(ControllerEventCode::kContactEstimateRefused, refusal_.controller, /*value0=*/0.0,
-                                 /*value1=*/static_cast<double>(kNumContacts), estimatorName);
+  refusal_ = makeControllerEvent(ControllerEventCode::kContactEstimateRefused,
+                                 refusal_.controller, /*value0=*/0.0,
+                                 /*value1=*/static_cast<double>(kNumContacts),
+                                 estimatorName);
   refusalReported_ = false;
 }
 
-bool ContactEstimateIntake::take(const std::vector<bool>& estimated, contact_flag_t& measured, ControllerEventSink& sink) {
+bool ContactEstimateIntake::take(const std::vector<bool>& estimated,
+                                 contact_flag_t& measured,
+                                 ControllerEventSink& sink) {
   if (estimated.size() == kNumContacts) {
     std::copy(estimated.begin(), estimated.end(), measured.begin());
     refusalReported_ = false;
@@ -69,11 +75,13 @@ bool ContactEstimateIntake::take(const std::vector<bool>& estimated, contact_fla
 absl::Status checkContactEstimator(robot::model::ContactEstimator& estimator,
                                    const robot::model::RobotState& robotState,
                                    absl::string_view estimatorName) {
-  const std::vector<bool> flags = robot::model::estimateContactFlags(estimator, robotState);
+  const std::vector<bool> flags =
+      robot::model::estimateContactFlags(estimator, robotState);
   if (flags.size() != kNumContacts) {
-    return absl::InvalidArgumentError(absl::StrCat("the contact estimator '", estimatorName, "' reports ", flags.size(),
-                                                   " contact flags, but the controller has ", kNumContacts,
-                                                   " contact points: it would never be taken"));
+    return absl::InvalidArgumentError(
+        absl::StrCat("the contact estimator '", estimatorName, "' reports ",
+                     flags.size(), " contact flags, but the controller has ",
+                     kNumContacts, " contact points: it would never be taken"));
   }
   return absl::OkStatus();
 }

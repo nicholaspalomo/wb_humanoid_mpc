@@ -66,29 +66,39 @@ absl::Span<const absl::string_view> ReferenceManagerApplier::staticFields() {
 }
 
 void ReferenceManagerApplier::apply(HotUpdateTarget& target) {
-  SwitchedModelReferenceManager* absl_nullable referenceManager = target.referenceManager();
-  // Where the ground is: one field, shared with the swing trajectories. The reference manager owns it: the swing
-  // trajectories and the landing targets are rebuilt on it at the next solve, and the contact-implicit terms follow it in
-  // that same solve - not in this one, whose references were built before this reload. Without a reference manager there
-  // are no references to agree with, and the terms take the height at once.
+  SwitchedModelReferenceManager* absl_nullable referenceManager =
+      target.referenceManager();
+  // Where the ground is: one field, shared with the swing trajectories. The
+  // reference manager owns it: the swing trajectories and the landing targets
+  // are rebuilt on it at the next solve, and the contact-implicit terms follow
+  // it in that same solve - not in this one, whose references were built before
+  // this reload. Without a reference manager there are no references to agree
+  // with, and the terms take the height at once.
   const scalar_t terrainHeight = target.task().terrain_height;
   if (!std::isfinite(terrainHeight)) {
-    target.reportNotApplied("terrain_height",
-                            absl::InvalidArgumentError(absl::StrCat("terrain_height is ", terrainHeight, ", which is not finite.")));
+    target.reportNotApplied(
+        "terrain_height",
+        absl::InvalidArgumentError(absl::StrCat(
+            "terrain_height is ", terrainHeight, ", which is not finite.")));
   } else if (referenceManager != nullptr) {
     referenceManager->setTerrainHeight(terrainHeight);
   } else {
-    setContactImplicitTermsTerrainHeight(target.problems(), target.contactNames(), terrainHeight);
+    setContactImplicitTermsTerrainHeight(target.problems(),
+                                         target.contactNames(), terrainHeight);
   }
 
   if (referenceManager == nullptr) return;
-  if (const std::optional<SwingTrajectoryPlanner::Config> swingTrajectory = convertedOrReported(
-          swingTrajectorySettingsFromConfig(target.task().swing_trajectory_config), target.source(), "swing_trajectory_config")) {
+  if (const std::optional<SwingTrajectoryPlanner::Config> swingTrajectory =
+          convertedOrReported(swingTrajectorySettingsFromConfig(
+                                  target.task().swing_trajectory_config),
+                              target.source(), "swing_trajectory_config")) {
     referenceManager->getSwingTrajectoryPlanner()->setConfig(*swingTrajectory);
   }
-  // The arm swing's generator and tuning; the joint directions derived from the model at start-up stay.
-  if (const std::optional<ArmSwingSettings> armSwing =
-          convertedOrReported(armSwingSettingsFromConfig(target.task().arm_swing), target.source(), "arm_swing")) {
+  // The arm swing's generator and tuning; the joint directions derived from the
+  // model at start-up stay.
+  if (const std::optional<ArmSwingSettings> armSwing = convertedOrReported(
+          armSwingSettingsFromConfig(target.task().arm_swing), target.source(),
+          "arm_swing")) {
     referenceManager->setArmSwingSettings(*armSwing);
   }
 }

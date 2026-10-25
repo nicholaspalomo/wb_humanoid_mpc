@@ -45,35 +45,48 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::validation {
 
 /**
- * The centroidal MPC as its MPC node builds it (CentroidalMpcNode::Create()): the interface, the SQP MPC with the motion
- * manager, the contact planner module (contact_schedule_source: "contact_planner") and the parameter updater as synchronized
- * modules. And CentroidalMpcMrtJointController as its robot binary builds it (CentroidalMpcRobotMain.cpp), with the task
- * file's controller settings, behind MrtRobotController with the binary's CycleInputOrder.
+ * The centroidal MPC as its MPC node builds it (CentroidalMpcNode::Create()):
+ * the interface, the SQP MPC with the motion manager, the contact planner
+ * module (contact_schedule_source: "contact_planner") and the parameter updater
+ * as synchronized modules. And CentroidalMpcMrtJointController as its robot
+ * binary builds it (CentroidalMpcRobotMain.cpp), with the task file's
+ * controller settings, behind MrtRobotController with the binary's
+ * CycleInputOrder.
  *
  * Not thread-safe: one thread drives a run.
  */
 class CentroidalClosedLoopDriver final : public ClosedLoopDriver {
  public:
-  static absl::StatusOr<std::unique_ptr<CentroidalClosedLoopDriver>> create(const RobotConfiguration& configuration,
-                                                                            const ClosedLoopDriverOptions& options);
+  static absl::StatusOr<std::unique_ptr<CentroidalClosedLoopDriver>> create(
+      const RobotConfiguration& configuration,
+      const ClosedLoopDriverOptions& options);
 
   ~CentroidalClosedLoopDriver() override;
 
   CentroidalClosedLoopDriver(const CentroidalClosedLoopDriver&) = delete;
-  CentroidalClosedLoopDriver& operator=(const CentroidalClosedLoopDriver&) = delete;
+  CentroidalClosedLoopDriver& operator=(const CentroidalClosedLoopDriver&) =
+      delete;
 
-  bool isEnteringMpc() const override { return controller_->controller().isEnteringMpc(); }
-  const SystemObservation& currentObservation() const override { return controller_->controller().getCurrentObservation(); }
-  const vector_t& latestPolicyInput() const override { return controller_->controller().getLatestPolicyInput(); }
+  bool isEnteringMpc() const override {
+    return controller_->controller().isEnteringMpc();
+  }
+  const SystemObservation& currentObservation() const override {
+    return controller_->controller().getCurrentObservation();
+  }
+  const vector_t& latestPolicyInput() const override {
+    return controller_->controller().getLatestPolicyInput();
+  }
 
  private:
   CentroidalClosedLoopDriver() = default;
 
-  absl::Status initialize(const RobotConfiguration& configuration, const ClosedLoopDriverOptions& options);
+  absl::Status initialize(const RobotConfiguration& configuration,
+                          const ClosedLoopDriverOptions& options);
 
   std::unique_ptr<CentroidalMpcInterface> interface_;
   std::shared_ptr<MpcParameterUpdaterModule> parameterUpdater_;
-  MrtRobotController<CentroidalMpcMrtJointController>* absl_nullable controller_ = nullptr;  ///< robotController_, typed
+  MrtRobotController<CentroidalMpcMrtJointController>* absl_nullable
+  controller_ = nullptr;  ///< robotController_, typed
 };
 
 }  // namespace ocs2::humanoid::validation

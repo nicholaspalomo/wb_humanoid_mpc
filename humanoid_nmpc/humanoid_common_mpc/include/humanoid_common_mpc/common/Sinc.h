@@ -35,18 +35,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** Below this |x| sinc() is its two-term series, whose next term is below 1e-18 there. */
+/** Below this |x| sinc() is its two-term series, whose next term is below 1e-18
+ * there. */
 inline constexpr scalar_t kSincSeriesThreshold = 1.0e-4;
 /** 3!: the series sin(x) / x = 1 - x^2 / 3! + ... */
 inline constexpr scalar_t kSincSeriesQuadraticDivisor = 6.0;
 
 /**
- * Returns sin(x) / x, 1 at x = 0, and its two-term series below |x| = kSincSeriesThreshold, where the quotient loses
- * its precision: the factor of the chord of a constant planar twist (TargetTrajectoriesCalculatorBase, the velocity
- * command's arc; StrideMotionHistory, the displacement of a constant body twist). Allocates nothing.
+ * Returns sin(x) / x, 1 at x = 0, and its two-term series below |x| =
+ * kSincSeriesThreshold, where the quotient loses its precision: the factor of
+ * the chord of a constant planar twist (TargetTrajectoriesCalculatorBase, the
+ * velocity command's arc; StrideMotionHistory, the displacement of a constant
+ * body twist). Allocates nothing.
  */
 inline scalar_t sinc(scalar_t x) {
-  return std::abs(x) < kSincSeriesThreshold ? 1.0 - x * x / kSincSeriesQuadraticDivisor : std::sin(x) / x;
+  return std::abs(x) < kSincSeriesThreshold
+             ? 1.0 - x * x / kSincSeriesQuadraticDivisor
+             : std::sin(x) / x;
 }
 
 }  // namespace ocs2::humanoid

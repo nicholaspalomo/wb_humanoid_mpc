@@ -57,10 +57,12 @@ using google::protobuf::Reflection;
 // Moved on its own (appliedNumericLeaves()).
 constexpr char kTerrainHeight[] = "terrain_height";
 
-/** Whether the whole-body updater applies the field at `path` (the path without list indices): at or below one of `names`. */
+/** Whether the whole-body updater applies the field at `path` (the path without
+ * list indices): at or below one of `names`. */
 bool isApplied(absl::string_view path, const std::vector<std::string>& names) {
   for (const std::string& name : names) {
-    if (path == name || absl::StartsWith(path, absl::StrCat(name, "."))) return true;
+    if (path == name || absl::StartsWith(path, absl::StrCat(name, ".")))
+      return true;
   }
   return false;
 }
@@ -78,42 +80,66 @@ bool isNumeric(const FieldDescriptor& field) {
 }
 
 /**
- * A walk over the set leaves of a task file's message: collects the paths of the applied numeric ones and, with `move`,
- * moves those below `prefix` (`onlyLeaf`: that one alone). Not thread-safe; one walk per call.
+ * A walk over the set leaves of a task file's message: collects the paths of
+ * the applied numeric ones and, with `move`, moves those below `prefix`
+ * (`onlyLeaf`: that one alone). Not thread-safe; one walk per call.
  */
 class LeafWalk {
  public:
-  LeafWalk(absl::string_view prefix, LeafStep step, std::optional<std::string> onlyLeaf, bool move)
-      : names_(wholeBodyHotFieldNames()), prefix_(prefix), step_(step), onlyLeaf_(std::move(onlyLeaf)), move_(move) {}
+  LeafWalk(absl::string_view prefix,
+           LeafStep step,
+           std::optional<std::string> onlyLeaf,
+           bool move)
+      : names_(wholeBodyHotFieldNames()),
+        prefix_(prefix),
+        step_(step),
+        onlyLeaf_(std::move(onlyLeaf)),
+        move_(move) {}
 
-  void walk(Message& message, const std::string& path, const std::string& plainPath) {
+  void walk(Message& message,
+            const std::string& path,
+            const std::string& plainPath) {
     const Reflection& reflection = *message.GetReflection();
     std::vector<const FieldDescriptor* absl_nonnull> fields;
     reflection.ListFields(message, &fields);
     for (const FieldDescriptor* absl_nonnull field : fields) {
-      const std::string fieldPath = path.empty() ? std::string(field->name()) : absl::StrCat(path, ".", field->name());
-      const std::string fieldPlainPath = plainPath.empty() ? std::string(field->name()) : absl::StrCat(plainPath, ".", field->name());
+      const std::string fieldPath =
+          path.empty() ? std::string(field->name())
+                       : absl::StrCat(path, ".", field->name());
+      const std::string fieldPlainPath =
+          plainPath.empty() ? std::string(field->name())
+                            : absl::StrCat(plainPath, ".", field->name());
       if (field->cpp_type() == FieldDescriptor::CPPTYPE_MESSAGE) {
         if (field->is_repeated()) {
           for (int i = 0; i < reflection.FieldSize(message, field); ++i) {
-            walk(*reflection.MutableRepeatedMessage(&message, field, i), absl::StrCat(fieldPath, "[", i, "]"), fieldPlainPath);
+            walk(*reflection.MutableRepeatedMessage(&message, field, i),
+                 absl::StrCat(fieldPath, "[", i, "]"), fieldPlainPath);
           }
         } else {
-          walk(*reflection.MutableMessage(&message, field), fieldPath, fieldPlainPath);
+          walk(*reflection.MutableMessage(&message, field), fieldPath,
+               fieldPlainPath);
         }
         continue;
       }
-      if (field->is_repeated() || !isNumeric(*field) || fieldPlainPath == kTerrainHeight || !isApplied(fieldPlainPath, names_)) continue;
+      if (field->is_repeated() || !isNumeric(*field) ||
+          fieldPlainPath == kTerrainHeight ||
+          !isApplied(fieldPlainPath, names_))
+        continue;
       leaves_.push_back(fieldPath);
-      if (move_ && absl::StartsWith(fieldPath, prefix_) && (!onlyLeaf_.has_value() || *onlyLeaf_ == fieldPath)) moveLeaf(message, *field);
+      if (move_ && absl::StartsWith(fieldPath, prefix_) &&
+          (!onlyLeaf_.has_value() || *onlyLeaf_ == fieldPath))
+        moveLeaf(message, *field);
     }
   }
 
   const std::vector<std::string>& leaves() const { return leaves_; }
 
  private:
-  /** The factor of the next scaled leaf: 1.05 to 1.2 by leaf, so that two leaves are rarely scaled alike. */
-  double nextFactor() { return 1.05 + 0.01 * static_cast<double>(numMoved_++ % 16); }
+  /** The factor of the next scaled leaf: 1.05 to 1.2 by leaf, so that two
+   * leaves are rarely scaled alike. */
+  double nextFactor() {
+    return 1.05 + 0.01 * static_cast<double>(numMoved_++ % 16);
+  }
 
   double moved(double value) {
     if (step_ == LeafStep::kScaled) return value * nextFactor();
@@ -124,16 +150,21 @@ class LeafWalk {
     const Reflection& reflection = *message.GetReflection();
     switch (field.cpp_type()) {
       case FieldDescriptor::CPPTYPE_DOUBLE:
-        reflection.SetDouble(&message, &field, moved(reflection.GetDouble(message, &field)));
+        reflection.SetDouble(&message, &field,
+                             moved(reflection.GetDouble(message, &field)));
         break;
       case FieldDescriptor::CPPTYPE_FLOAT:
-        reflection.SetFloat(&message, &field, static_cast<float>(moved(reflection.GetFloat(message, &field))));
+        reflection.SetFloat(
+            &message, &field,
+            static_cast<float>(moved(reflection.GetFloat(message, &field))));
         break;
       case FieldDescriptor::CPPTYPE_INT32:
-        reflection.SetInt32(&message, &field, reflection.GetInt32(message, &field) + 1);
+        reflection.SetInt32(&message, &field,
+                            reflection.GetInt32(message, &field) + 1);
         break;
       case FieldDescriptor::CPPTYPE_INT64:
-        reflection.SetInt64(&message, &field, reflection.GetInt64(message, &field) + 1);
+        reflection.SetInt64(&message, &field,
+                            reflection.GetInt64(message, &field) + 1);
         break;
       default:
         ADD_FAILURE() << "not a numeric leaf: " << field.full_name();
@@ -158,9 +189,11 @@ humanoid_mpc_config::TaskFile toProto(const mpc_config::TaskFile& task) {
 
 }  // namespace
 
-std::vector<std::string> appliedNumericLeaves(const mpc_config::TaskFile& task) {
+std::vector<std::string> appliedNumericLeaves(
+    const mpc_config::TaskFile& task) {
   humanoid_mpc_config::TaskFile proto = toProto(task);
-  LeafWalk walk(/*prefix=*/"", LeafStep::kScaled, /*onlyLeaf=*/std::nullopt, /*move=*/false);
+  LeafWalk walk(/*prefix=*/"", LeafStep::kScaled, /*onlyLeaf=*/std::nullopt,
+                /*move=*/false);
   walk.walk(proto, /*path=*/"", /*plainPath=*/"");
   return walk.leaves();
 }

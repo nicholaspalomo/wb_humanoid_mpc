@@ -60,7 +60,9 @@ WALKING_COMMAND_RATE_HZ = 25.0
 # How long a publisher whose controller went away keeps publishing the stop command [s], and that many ticks at the
 # topic's rate: long enough that a dropped message cannot leave the robot walking, short enough to hand the topic back.
 STOP_COMMAND_DURATION = 1.0
-STOP_COMMAND_TICKS = max(1, round(STOP_COMMAND_DURATION * WALKING_COMMAND_RATE_HZ))
+STOP_COMMAND_TICKS = max(
+    1, round(STOP_COMMAND_DURATION * WALKING_COMMAND_RATE_HZ)
+)
 # How long close_after_stop() waits for the bus to hand its stop command to its DDS writer [s], and then before it closes
 # the bus [s]: operator/walking_velocity_command is BEST_EFFORT ("latest"), so nothing repairs a datagram that was still
 # on its way out when the writer was deleted, and the grace period lets the network carry it first.
@@ -75,12 +77,18 @@ def add_bus_flags(parser: argparse.ArgumentParser, default_node: str) -> None:
     parser.add_argument(
         "--network_config",
         default=operator_bus.DEFAULT_NETWORK_CONFIG,
-        help="the network file of the bus (default: %(default)s, found from the repository root as well)",
+        help=(
+            "the network file of the bus (default: %(default)s, found from the"
+            " repository root as well)"
+        ),
     )
     parser.add_argument(
         "--ipc_node",
         default=default_node,
-        help="the node of the network file this process publishes as (default: %(default)s)",
+        help=(
+            "the node of the network file this process publishes as (default:"
+            " %(default)s)"
+        ),
     )
 
 
@@ -89,8 +97,11 @@ def add_reference_file_flag(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--reference_file",
         default="",
-        help="the robot's config/command/reference.textproto: the pelvis height starts at its default_base_height "
-        f"(default: none, {config_files.DEFAULT_PELVIS_HEIGHT} m)",
+        help=(
+            "the robot's config/command/reference.textproto: the pelvis height"
+            " starts at its default_base_height (default: none,"
+            f" {config_files.DEFAULT_PELVIS_HEIGHT} m)"
+        ),
     )
 
 
@@ -106,7 +117,8 @@ def initial_pelvis_height(reference_file: str) -> float:
     """
     if not reference_file:
         _LOGGER.warning(
-            "No --reference_file: the pelvis height starts at %.2f m, not at the robot's default_base_height.",
+            "No --reference_file: the pelvis height starts at %.2f m, not at"
+            " the robot's default_base_height.",
             config_files.DEFAULT_PELVIS_HEIGHT,
         )
         return config_files.DEFAULT_PELVIS_HEIGHT
@@ -155,12 +167,16 @@ def close_after_stop(
             return False
         before = bus.topic_statistics(publisher.topic).written
         if not publisher.publish(stop_command(pelvis_height)):
-            _LOGGER.warning("The stop command was dropped: the bus's queue is full.")
+            _LOGGER.warning(
+                "The stop command was dropped: the bus's queue is full."
+            )
             return False
         deadline = time.monotonic() + timeout
         while bus.topic_statistics(publisher.topic).written <= before:
             if time.monotonic() >= deadline:
-                _LOGGER.warning("The stop command was not sent within %.1f s.", timeout)
+                _LOGGER.warning(
+                    "The stop command was not sent within %.1f s.", timeout
+                )
                 return False
             time.sleep(_SENT_POLL_PERIOD)
         time.sleep(grace_period)

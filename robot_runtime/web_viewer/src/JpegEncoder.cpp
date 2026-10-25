@@ -53,40 +53,62 @@ constexpr int kMaxJpegQuality = 100;
 absl::StatusOr<std::unique_ptr<JpegEncoder>> JpegEncoder::Create() {
   void* absl_nullable compressor = tj3Init(TJINIT_COMPRESS);
   if (compressor == nullptr) {
-    return absl::InternalError(absl::StrCat("libjpeg-turbo could not create a compressor: ", tj3GetErrorStr(/*handle=*/nullptr)));
+    return absl::InternalError(
+        absl::StrCat("libjpeg-turbo could not create a compressor: ",
+                     tj3GetErrorStr(/*handle=*/nullptr)));
   }
   return absl::WrapUnique(new JpegEncoder(compressor));
 }
 
-JpegEncoder::JpegEncoder(void* absl_nonnull compressor) : compressor_(compressor) {}
+JpegEncoder::JpegEncoder(void* absl_nonnull compressor)
+    : compressor_(compressor) {}
 
 JpegEncoder::~JpegEncoder() {
   tj3Free(output_);
   tj3Destroy(compressor_);
 }
 
-absl::StatusOr<std::string> JpegEncoder::encode(absl::Span<const uint8_t> rgb, int width, int height, int quality, RowOrder rowOrder) {
+absl::StatusOr<std::string> JpegEncoder::encode(absl::Span<const uint8_t> rgb,
+                                                int width,
+                                                int height,
+                                                int quality,
+                                                RowOrder rowOrder) {
   if (width <= 0 || height <= 0) {
-    return absl::InvalidArgumentError(absl::StrCat("JPEG encoding needs a positive size, not ", width, "x", height));
+    return absl::InvalidArgumentError(absl::StrCat(
+        "JPEG encoding needs a positive size, not ", width, "x", height));
   }
   const int64_t expectedBytes = int64_t{width} * height * kRgbBytesPerPixel;
   if (static_cast<int64_t>(rgb.size()) != expectedBytes) {
-    return absl::InvalidArgumentError(absl::StrCat("a ", width, "x", height, " RGB image has ", expectedBytes, " bytes, not ", rgb.size()));
+    return absl::InvalidArgumentError(
+        absl::StrCat("a ", width, "x", height, " RGB image has ", expectedBytes,
+                     " bytes, not ", rgb.size()));
   }
   if (quality < 1 || quality > kMaxJpegQuality) {
-    return absl::InvalidArgumentError(absl::StrCat("JPEG quality is 1 to ", kMaxJpegQuality, ", not ", quality));
+    return absl::InvalidArgumentError(absl::StrCat(
+        "JPEG quality is 1 to ", kMaxJpegQuality, ", not ", quality));
   }
-  const bool configured = tj3Set(compressor_, TJPARAM_QUALITY, quality) == 0 && tj3Set(compressor_, TJPARAM_SUBSAMP, TJSAMP_420) == 0 &&
-                          tj3Set(compressor_, TJPARAM_BOTTOMUP, rowOrder == RowOrder::kBottomUp ? 1 : 0) == 0;
-  if (!configured) return absl::InternalError(absl::StrCat("libjpeg-turbo refused the settings: ", tj3GetErrorStr(compressor_)));
+  const bool configured =
+      tj3Set(compressor_, TJPARAM_QUALITY, quality) == 0 &&
+      tj3Set(compressor_, TJPARAM_SUBSAMP, TJSAMP_420) == 0 &&
+      tj3Set(compressor_, TJPARAM_BOTTOMUP,
+             rowOrder == RowOrder::kBottomUp ? 1 : 0) == 0;
+  if (!configured)
+    return absl::InternalError(absl::StrCat(
+        "libjpeg-turbo refused the settings: ", tj3GetErrorStr(compressor_)));
 
-  // On input the capacity of the buffer that libjpeg-turbo may grow; on output the size of the image.
+  // On input the capacity of the buffer that libjpeg-turbo may grow; on output
+  // the size of the image.
   size_t size = outputCapacity_;
   unsigned char* absl_nullable const previousOutput = output_;
-  if (tj3Compress8(compressor_, rgb.data(), width, /*pitch=*/width * kRgbBytesPerPixel, height, TJPF_RGB, &output_, &size) != 0) {
-    return absl::InternalError(absl::StrCat("libjpeg-turbo could not encode the frame: ", tj3GetErrorStr(compressor_)));
+  if (tj3Compress8(compressor_, rgb.data(), width,
+                   /*pitch=*/width * kRgbBytesPerPixel, height, TJPF_RGB,
+                   &output_, &size) != 0) {
+    return absl::InternalError(
+        absl::StrCat("libjpeg-turbo could not encode the frame: ",
+                     tj3GetErrorStr(compressor_)));
   }
-  // A grown buffer holds at least the image; the next frame lets libjpeg-turbo grow it again if needed.
+  // A grown buffer holds at least the image; the next frame lets libjpeg-turbo
+  // grow it again if needed.
   if (output_ != previousOutput) outputCapacity_ = size;
   return std::string(reinterpret_cast<const char*>(output_), size);
 }

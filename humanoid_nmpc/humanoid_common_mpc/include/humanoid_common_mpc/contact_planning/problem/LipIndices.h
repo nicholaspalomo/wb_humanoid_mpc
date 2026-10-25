@@ -39,18 +39,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The indices of the LIP and heading variables a term uses, resolved once from the layout in ContactPlanningTerm::bind().
- * Every entry is -1 when its block is absent (the heading ones); the LIP and foothold entries are always present.
+ * The indices of the LIP and heading variables a term uses, resolved once from
+ * the layout in ContactPlanningTerm::bind(). Every entry is -1 when its block
+ * is absent (the heading ones); the LIP and foothold entries are always
+ * present.
  */
 struct LipIndices {
-  using PlanarIndices = std::array<int, kHorizontalPositionDim>;  // the (x, y) entries of a planar quantity
+  using PlanarIndices =
+      std::array<int, kHorizontalPositionDim>;  // the (x, y) entries of a
+                                                // planar quantity
 
-  PlanarIndices com{-1, -1};                                                     // c_x, c_y
-  PlanarIndices vel{-1, -1};                                                     // v_x, v_y
-  PlanarIndices zmp{-1, -1};                                                     // zmp_x, zmp_y (input)
-  feet_array_t<PlanarIndices> foot = makeFeetArray(PlanarIndices{-1, -1});       // p_i (x, y)
-  feet_array_t<PlanarIndices> footDelta = makeFeetArray(PlanarIndices{-1, -1});  // dp_i (input)
-  feet_array_t<int> contact = makeFeetArray(-1);                                 // c_i (binary input)
+  PlanarIndices com{-1, -1};  // c_x, c_y
+  PlanarIndices vel{-1, -1};  // v_x, v_y
+  PlanarIndices zmp{-1, -1};  // zmp_x, zmp_y (input)
+  feet_array_t<PlanarIndices> foot =
+      makeFeetArray(PlanarIndices{-1, -1});  // p_i (x, y)
+  feet_array_t<PlanarIndices> footDelta =
+      makeFeetArray(PlanarIndices{-1, -1});       // dp_i (input)
+  feet_array_t<int> contact = makeFeetArray(-1);  // c_i (binary input)
   bool hasHeading = false;
   int heading = -1;
   int headingRate = -1;

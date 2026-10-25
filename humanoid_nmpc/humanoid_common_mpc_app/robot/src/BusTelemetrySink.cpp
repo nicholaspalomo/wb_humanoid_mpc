@@ -47,11 +47,15 @@ absl::string_view BusTelemetrySink::name() const {
   return kBusTelemetrySinkName;
 }
 
-void BusTelemetrySink::write(const humanoid_mpc_msgs::RobotStateSample& sample) {
-  const absl::Status status = bus_->publishFromIoThread(ipc::topics::kRobotState, sample);
+void BusTelemetrySink::write(
+    const humanoid_mpc_msgs::RobotStateSample& sample) {
+  const absl::Status status =
+      bus_->publishFromIoThread(ipc::topics::kRobotState, sample);
   if (!status.ok()) {
     ++publishFailures_;
-    LOG_EVERY_N_SEC(WARNING, kPublishFailureLogPeriodSeconds) << "[BusTelemetrySink] Publishing robot/state failed: " << status.message();
+    LOG_EVERY_N_SEC(WARNING, kPublishFailureLogPeriodSeconds)
+        << "[BusTelemetrySink] Publishing robot/state failed: "
+        << status.message();
   }
 }
 

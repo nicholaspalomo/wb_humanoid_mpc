@@ -27,10 +27,11 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// The swing trajectory settings from the typed task file (SwingTrajectoryFromConfig.h): the schema's defaults are the
-// planner's, every field of the schema reaches its own setting, a value that is not finite or out of its range is refused,
-// and the old
-// camelCase spelling of a key is refused by the parser.
+// The swing trajectory settings from the typed task file
+// (SwingTrajectoryFromConfig.h): the schema's defaults are the planner's, every
+// field of the schema reaches its own setting, a value that is not finite or
+// out of its range is refused, and the old camelCase spelling of a key is
+// refused by the parser.
 
 #include <array>
 #include <bit>
@@ -65,15 +66,18 @@ namespace {
 using Settings = SwingTrajectoryPlanner::Config;
 
 /**
- * The bits of every member of `settings`, in declaration order. Settings holds nothing but scalar_t members, so its
- * bytes are those members one after the other; the test of every field checks that their number is the schema's.
+ * The bits of every member of `settings`, in declaration order. Settings holds
+ * nothing but scalar_t members, so its bytes are those members one after the
+ * other; the test of every field checks that their number is the schema's.
  */
 std::vector<uint64_t> memberBits(const Settings& settings) {
-  static_assert(std::is_trivially_copyable_v<Settings> && sizeof(Settings) % sizeof(double) == 0);
+  static_assert(std::is_trivially_copyable_v<Settings> &&
+                sizeof(Settings) % sizeof(double) == 0);
   std::array<double, sizeof(Settings) / sizeof(double)> members{};
   std::memcpy(members.data(), &settings, sizeof(Settings));
   std::vector<uint64_t> bits;
-  for (const double member : members) bits.push_back(std::bit_cast<uint64_t>(member));
+  for (const double member : members)
+    bits.push_back(std::bit_cast<uint64_t>(member));
   return bits;
 }
 
@@ -81,36 +85,48 @@ std::vector<uint64_t> memberBits(const Settings& settings) {
 Settings convert(const humanoid_mpc_config::SwingTrajectoryConfig& proto) {
   mpc_config::SwingTrajectoryConfig config;
   EXPECT_TRUE(mpc_config::FromProto(proto, &config).ok());
-  const absl::StatusOr<Settings> settings = swingTrajectorySettingsFromConfig(config);
+  const absl::StatusOr<Settings> settings =
+      swingTrajectorySettingsFromConfig(config);
   EXPECT_TRUE(settings.ok()) << settings.status();
   return settings.ok() ? *settings : Settings{};
 }
 
 TEST(SwingTrajectoryFromConfigTest, TheDefaultsAreThePlannersOwn) {
-  const absl::StatusOr<Settings> fromStruct = swingTrajectorySettingsFromConfig(mpc_config::SwingTrajectoryConfig{});
+  const absl::StatusOr<Settings> fromStruct =
+      swingTrajectorySettingsFromConfig(mpc_config::SwingTrajectoryConfig{});
   ASSERT_TRUE(fromStruct.ok()) << fromStruct.status();
   EXPECT_EQ(memberBits(*fromStruct), memberBits(Settings{}));
 
-  // A task file without the block, as the parser reads it: the defaults of the protobuf descriptor, not of the struct.
+  // A task file without the block, as the parser reads it: the defaults of the
+  // protobuf descriptor, not of the struct.
   const absl::StatusOr<humanoid_mpc_config::TaskFile> file =
-      nproto::ParseTextproto<humanoid_mpc_config::TaskFile>(/*text=*/"", "task.textproto");
+      nproto::ParseTextproto<humanoid_mpc_config::TaskFile>(/*text=*/"",
+                                                            "task.textproto");
   ASSERT_TRUE(file.ok()) << file.status();
-  EXPECT_EQ(memberBits(convert(file->swing_trajectory_config())), memberBits(Settings{}));
+  EXPECT_EQ(memberBits(convert(file->swing_trajectory_config())),
+            memberBits(Settings{}));
 }
 
 TEST(SwingTrajectoryFromConfigTest, EveryFieldReachesASettingOfItsOwn) {
-  const google::protobuf::Descriptor* absl_nonnull descriptor = humanoid_mpc_config::SwingTrajectoryConfig::descriptor();
+  const google::protobuf::Descriptor* absl_nonnull descriptor =
+      humanoid_mpc_config::SwingTrajectoryConfig::descriptor();
   const std::vector<uint64_t> defaults = memberBits(Settings{});
-  ASSERT_EQ(defaults.size(), static_cast<size_t>(descriptor->field_count())) << "one setting per field of the schema";
+  ASSERT_EQ(defaults.size(), static_cast<size_t>(descriptor->field_count()))
+      << "one setting per field of the schema";
 
   std::set<size_t> reached;
   for (int i = 0; i < descriptor->field_count(); ++i) {
-    const google::protobuf::FieldDescriptor* absl_nonnull field = descriptor->field(i);
-    ASSERT_EQ(field->cpp_type(), google::protobuf::FieldDescriptor::CPPTYPE_DOUBLE) << field->name();
+    const google::protobuf::FieldDescriptor* absl_nonnull field =
+        descriptor->field(i);
+    ASSERT_EQ(field->cpp_type(),
+              google::protobuf::FieldDescriptor::CPPTYPE_DOUBLE)
+        << field->name();
     humanoid_mpc_config::SwingTrajectoryConfig proto;
-    // Away from the default, and inside the field's range: the lift-off slope of the impact-proximity factor is 0 or
-    // negative.
-    const double offset = field->name() == "impact_proximity_factor_lift_off_velocity" ? -0.0625 : 0.0625;
+    // Away from the default, and inside the field's range: the lift-off slope
+    // of the impact-proximity factor is 0 or negative.
+    const double offset =
+        field->name() == "impact_proximity_factor_lift_off_velocity" ? -0.0625
+                                                                     : 0.0625;
     const double value = 0.5 * field->default_value_double() + offset;
     proto.GetReflection()->SetDouble(&proto, field, value);
 
@@ -119,25 +135,35 @@ TEST(SwingTrajectoryFromConfigTest, EveryFieldReachesASettingOfItsOwn) {
     for (size_t member = 0; member < bits.size(); ++member) {
       if (bits[member] != defaults[member]) changed.push_back(member);
     }
-    ASSERT_EQ(changed.size(), 1u) << field->name() << " must set exactly one setting";
-    EXPECT_EQ(bits[changed.front()], std::bit_cast<uint64_t>(value)) << field->name();
-    EXPECT_TRUE(reached.insert(changed.front()).second) << field->name() << " sets the setting of another field";
+    ASSERT_EQ(changed.size(), 1u)
+        << field->name() << " must set exactly one setting";
+    EXPECT_EQ(bits[changed.front()], std::bit_cast<uint64_t>(value))
+        << field->name();
+    EXPECT_TRUE(reached.insert(changed.front()).second)
+        << field->name() << " sets the setting of another field";
   }
 }
 
 TEST(SwingTrajectoryFromConfigTest, AValueThatIsNotFiniteIsRefusedByName) {
-  const google::protobuf::Descriptor* absl_nonnull descriptor = humanoid_mpc_config::SwingTrajectoryConfig::descriptor();
+  const google::protobuf::Descriptor* absl_nonnull descriptor =
+      humanoid_mpc_config::SwingTrajectoryConfig::descriptor();
   for (int i = 0; i < descriptor->field_count(); ++i) {
-    const google::protobuf::FieldDescriptor* absl_nonnull field = descriptor->field(i);
-    for (const double value :
-         {std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN()}) {
+    const google::protobuf::FieldDescriptor* absl_nonnull field =
+        descriptor->field(i);
+    for (const double value : {std::numeric_limits<double>::infinity(),
+                               -std::numeric_limits<double>::infinity(),
+                               std::numeric_limits<double>::quiet_NaN()}) {
       humanoid_mpc_config::SwingTrajectoryConfig proto;
       proto.GetReflection()->SetDouble(&proto, field, value);
       mpc_config::SwingTrajectoryConfig config;
       ASSERT_TRUE(mpc_config::FromProto(proto, &config).ok());
-      const absl::StatusOr<Settings> settings = swingTrajectorySettingsFromConfig(config);
-      ASSERT_EQ(settings.status().code(), absl::StatusCode::kInvalidArgument) << field->name() << " = " << value;
-      EXPECT_TRUE(absl::StrContains(settings.status().message(), absl::StrCat("swing_trajectory_config.", field->name(), " is ")))
+      const absl::StatusOr<Settings> settings =
+          swingTrajectorySettingsFromConfig(config);
+      ASSERT_EQ(settings.status().code(), absl::StatusCode::kInvalidArgument)
+          << field->name() << " = " << value;
+      EXPECT_TRUE(absl::StrContains(
+          settings.status().message(),
+          absl::StrCat("swing_trajectory_config.", field->name(), " is ")))
           << settings.status();
     }
   }
@@ -148,26 +174,41 @@ TEST(SwingTrajectoryFromConfigTest, AValueOutOfItsRangeIsRefusedByName) {
     const char* absl_nonnull field;
     double value;
   };
-  // swing_time_scale divides a swing's duration, a negative swing apex is below the ground, and the impact-proximity
-  // factor and the pitch ramps are documented in their ranges.
+  // swing_time_scale divides a swing's duration, a negative swing apex is below
+  // the ground, and the impact-proximity factor and the pitch ramps are
+  // documented in their ranges.
   for (const OutOfRange& refused :
-       {OutOfRange{.field = "swing_time_scale", .value = 0.0}, OutOfRange{.field = "swing_time_scale", .value = -0.1},
-        OutOfRange{.field = "swing_height", .value = -0.01}, OutOfRange{.field = "impact_proximity_factor_lift_off_velocity", .value = 0.1},
-        OutOfRange{.field = "impact_proximity_factor_touch_down_velocity", .value = -0.1},
-        OutOfRange{.field = "impact_proximity_factor_mid_point_value", .value = -0.1},
-        OutOfRange{.field = "impact_proximity_factor_mid_point_value", .value = 1.5},
-        OutOfRange{.field = "swing_pitch_rise_fraction", .value = -0.1}, OutOfRange{.field = "swing_pitch_fall_fraction", .value = 1.1}}) {
+       {OutOfRange{.field = "swing_time_scale", .value = 0.0},
+        OutOfRange{.field = "swing_time_scale", .value = -0.1},
+        OutOfRange{.field = "swing_height", .value = -0.01},
+        OutOfRange{.field = "impact_proximity_factor_lift_off_velocity",
+                   .value = 0.1},
+        OutOfRange{.field = "impact_proximity_factor_touch_down_velocity",
+                   .value = -0.1},
+        OutOfRange{.field = "impact_proximity_factor_mid_point_value",
+                   .value = -0.1},
+        OutOfRange{.field = "impact_proximity_factor_mid_point_value",
+                   .value = 1.5},
+        OutOfRange{.field = "swing_pitch_rise_fraction", .value = -0.1},
+        OutOfRange{.field = "swing_pitch_fall_fraction", .value = 1.1}}) {
     humanoid_mpc_config::SwingTrajectoryConfig proto;
-    const google::protobuf::FieldDescriptor* absl_nullable field = proto.GetDescriptor()->FindFieldByName(refused.field);
+    const google::protobuf::FieldDescriptor* absl_nullable field =
+        proto.GetDescriptor()->FindFieldByName(refused.field);
     ASSERT_NE(field, nullptr) << refused.field;
     proto.GetReflection()->SetDouble(&proto, field, refused.value);
     mpc_config::SwingTrajectoryConfig config;
     ASSERT_TRUE(mpc_config::FromProto(proto, &config).ok());
-    const absl::Status status = swingTrajectorySettingsFromConfig(config).status();
-    EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument) << refused.field << " = " << refused.value;
-    EXPECT_TRUE(absl::StrContains(status.message(), absl::StrCat("swing_trajectory_config.", refused.field, ": "))) << status;
+    const absl::Status status =
+        swingTrajectorySettingsFromConfig(config).status();
+    EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument)
+        << refused.field << " = " << refused.value;
+    EXPECT_TRUE(absl::StrContains(
+        status.message(),
+        absl::StrCat("swing_trajectory_config.", refused.field, ": ")))
+        << status;
   }
-  // The ends of the ranges are accepted: a flat swing, a slope of 0, a factor of 0 or 1.
+  // The ends of the ranges are accepted: a flat swing, a slope of 0, a factor
+  // of 0 or 1.
   mpc_config::SwingTrajectoryConfig ends;
   ends.swing_height = 0.0;
   ends.impact_proximity_factor_mid_point_value = 1.0;
@@ -175,17 +216,26 @@ TEST(SwingTrajectoryFromConfigTest, AValueOutOfItsRangeIsRefusedByName) {
   EXPECT_TRUE(swingTrajectorySettingsFromConfig(ends).ok());
 }
 
-TEST(SwingTrajectoryFromConfigTest, TheCamelCaseSpellingOfAKeyIsRefusedWithItsNewName) {
+TEST(SwingTrajectoryFromConfigTest,
+     TheCamelCaseSpellingOfAKeyIsRefusedWithItsNewName) {
   const absl::StatusOr<humanoid_mpc_config::TaskFile> file =
-      nproto::ParseTextproto<humanoid_mpc_config::TaskFile>("swing_trajectory_config {\n  swingTimeScale: 0.25\n}\n", "task.textproto");
+      nproto::ParseTextproto<humanoid_mpc_config::TaskFile>(
+          "swing_trajectory_config {\n  swingTimeScale: 0.25\n}\n",
+          "task.textproto");
   ASSERT_EQ(file.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(absl::StartsWith(file.status().message(), "task.textproto:2:3: ")) << file.status();
-  EXPECT_TRUE(absl::StrContains(file.status().message(), "Did you mean \"swing_time_scale\"?")) << file.status();
+  EXPECT_TRUE(absl::StartsWith(file.status().message(), "task.textproto:2:3: "))
+      << file.status();
+  EXPECT_TRUE(absl::StrContains(file.status().message(),
+                                "Did you mean \"swing_time_scale\"?"))
+      << file.status();
 }
 
 TEST(SwingTrajectoryFromConfigTest, AWrittenValueIsTheSetting) {
-  const absl::StatusOr<humanoid_mpc_config::TaskFile> file = nproto::ParseTextproto<humanoid_mpc_config::TaskFile>(
-      "swing_trajectory_config {\n  swing_height: 0.08\n  touch_down_velocity: -0.0\n}\n", "task.textproto");
+  const absl::StatusOr<humanoid_mpc_config::TaskFile> file =
+      nproto::ParseTextproto<humanoid_mpc_config::TaskFile>(
+          "swing_trajectory_config {\n  swing_height: 0.08\n  "
+          "touch_down_velocity: -0.0\n}\n",
+          "task.textproto");
   ASSERT_TRUE(file.ok()) << file.status();
   const Settings settings = convert(file->swing_trajectory_config());
   EXPECT_EQ(settings.swingHeight, 0.08);

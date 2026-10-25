@@ -34,7 +34,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-std::vector<std::string> jointNamesByIndex(const robot::model::RobotDescription& robotDescription) {
+std::vector<std::string> jointNamesByIndex(
+    const robot::model::RobotDescription& robotDescription) {
   std::vector<std::string> names(robotDescription.getNumJoints());
   for (size_t joint = 0; joint < names.size(); ++joint) {
     names[joint] = robotDescription.getJointName(joint);

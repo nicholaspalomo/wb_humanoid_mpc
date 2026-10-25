@@ -46,11 +46,12 @@ using ::ocs2::kYAxisIndex;
 using ::ocs2::kZAxisIndex;
 
 namespace {
-// Where each row of mjContact::frame (the contact normal and its two tangents in the world frame) starts; the force of
-// mj_contactForce is along these axes.
+// Where each row of mjContact::frame (the contact normal and its two tangents
+// in the world frame) starts; the force of mj_contactForce is along these axes.
 constexpr int kNormalRowOffset = kMjContactNormalRow * kPositionDim;
 constexpr int kFirstTangentRowOffset = kMjContactFirstTangentRow * kPositionDim;
-constexpr int kSecondTangentRowOffset = kMjContactSecondTangentRow * kPositionDim;
+constexpr int kSecondTangentRowOffset =
+    kMjContactSecondTangentRow * kPositionDim;
 // The arrow's length grows with the force.
 constexpr double kMinArrowLength = 0.02;         // [m]
 constexpr double kArrowLengthPerNewton = 0.002;  // [m/N]: 500 N draw 1 m
@@ -59,16 +60,21 @@ constexpr float kArrowAlpha = 0.8f;
 constexpr float kArrowEmission = 0.8f;
 constexpr double kMinDrawnForce = 1.0;  // [N] a weaker contact draws no arrow
 
-// Whether `bodyId` is the robot's: in the subtree of `robotRootBodyId`, or, for a model without a free joint (a fixed
-// base, robotRootBodyId < 0), any body but the world.
-bool isRobotBody(const mjModel* absl_nonnull model, int bodyId, int robotRootBodyId) {
+// Whether `bodyId` is the robot's: in the subtree of `robotRootBodyId`, or, for
+// a model without a free joint (a fixed base, robotRootBodyId < 0), any body
+// but the world.
+bool isRobotBody(const mjModel* absl_nonnull model,
+                 int bodyId,
+                 int robotRootBodyId) {
   if (robotRootBodyId < 0) return bodyId != 0;
   return isInBodySubtree(model, bodyId, robotRootBodyId);
 }
 }  // namespace
 
 void ContactForceVisualization::addSceneGeoms(const VisualizationFrame& frame) {
-  if (frame.model == nullptr || frame.state == nullptr || frame.scene == nullptr) return;
+  if (frame.model == nullptr || frame.state == nullptr ||
+      frame.scene == nullptr)
+    return;
   const mjModel* absl_nonnull model = frame.model;
   const mjData* absl_nullable data = frame.state->data;
   mjvScene& scene = *frame.scene;
@@ -77,10 +83,14 @@ void ContactForceVisualization::addSceneGeoms(const VisualizationFrame& frame) {
 
   for (int i = 0; i < data->ncon; ++i) {
     const mjContact* absl_nonnull contact = &data->contact[i];
-    if (contact->exclude != 0 || contact->efc_address < 0) continue;  // only active contacts
-    // Contacts with the robot on one side only: not the ball on the floor, nor the robot against itself.
-    const bool firstIsRobot = isRobotBody(model, model->geom_bodyid[contact->geom[0]], robotRootBodyId);
-    const bool secondIsRobot = isRobotBody(model, model->geom_bodyid[contact->geom[1]], robotRootBodyId);
+    if (contact->exclude != 0 || contact->efc_address < 0)
+      continue;  // only active contacts
+    // Contacts with the robot on one side only: not the ball on the floor, nor
+    // the robot against itself.
+    const bool firstIsRobot = isRobotBody(
+        model, model->geom_bodyid[contact->geom[0]], robotRootBodyId);
+    const bool secondIsRobot = isRobotBody(
+        model, model->geom_bodyid[contact->geom[1]], robotRootBodyId);
     if (firstIsRobot == secondIsRobot) continue;
 
     mjtNum force[kMjSpatialVectorSize];
@@ -88,22 +98,30 @@ void ContactForceVisualization::addSceneGeoms(const VisualizationFrame& frame) {
 
     // Force in the world frame
     const mjtNum* absl_nonnull normal = &contact->frame[kNormalRowOffset];
-    const mjtNum* absl_nonnull firstTangent = &contact->frame[kFirstTangentRowOffset];
-    const mjtNum* absl_nonnull secondTangent = &contact->frame[kSecondTangentRowOffset];
+    const mjtNum* absl_nonnull firstTangent =
+        &contact->frame[kFirstTangentRowOffset];
+    const mjtNum* absl_nonnull secondTangent =
+        &contact->frame[kSecondTangentRowOffset];
     const double normalForce = force[kMjContactNormalRow];
     const double firstTangentForce = force[kMjContactFirstTangentRow];
     const double secondTangentForce = force[kMjContactSecondTangentRow];
-    double fx =
-        normalForce * normal[kXAxisIndex] + firstTangentForce * firstTangent[kXAxisIndex] + secondTangentForce * secondTangent[kXAxisIndex];
-    double fy =
-        normalForce * normal[kYAxisIndex] + firstTangentForce * firstTangent[kYAxisIndex] + secondTangentForce * secondTangent[kYAxisIndex];
-    double fz =
-        normalForce * normal[kZAxisIndex] + firstTangentForce * firstTangent[kZAxisIndex] + secondTangentForce * secondTangent[kZAxisIndex];
+    double fx = normalForce * normal[kXAxisIndex] +
+                firstTangentForce * firstTangent[kXAxisIndex] +
+                secondTangentForce * secondTangent[kXAxisIndex];
+    double fy = normalForce * normal[kYAxisIndex] +
+                firstTangentForce * firstTangent[kYAxisIndex] +
+                secondTangentForce * secondTangent[kYAxisIndex];
+    double fz = normalForce * normal[kZAxisIndex] +
+                firstTangentForce * firstTangent[kZAxisIndex] +
+                secondTangentForce * secondTangent[kZAxisIndex];
 
-    // In the world frame this is the force on geom[1] from geom[0]: the contact normal points from geom[0] to geom[1],
-    // and mjData::cfrc_ext adds it to geom[1]'s body and subtracts it from geom[0]'s. It is drawn as it is when geom[1]
-    // is the robot's, and negated when geom[0] is: the arrow is always the force on the robot, whichever geom MuJoCo
-    // lists first (it orders a pair by geom type, so a ball, a sphere, comes before the robot's capsules and boxes).
+    // In the world frame this is the force on geom[1] from geom[0]: the contact
+    // normal points from geom[0] to geom[1], and mjData::cfrc_ext adds it to
+    // geom[1]'s body and subtracts it from geom[0]'s. It is drawn as it is when
+    // geom[1] is the robot's, and negated when geom[0] is: the arrow is always
+    // the force on the robot, whichever geom MuJoCo lists first (it orders a
+    // pair by geom type, so a ball, a sphere, comes before the robot's capsules
+    // and boxes).
     if (firstIsRobot) {
       fx = -fx;
       fy = -fy;
@@ -119,9 +137,13 @@ void ContactForceVisualization::addSceneGeoms(const VisualizationFrame& frame) {
 
     const double scale = kMinArrowLength + kArrowLengthPerNewton * magnitude;
 
-    const mjtNum from[kPositionDim] = {contact->pos[kXAxisIndex], contact->pos[kYAxisIndex], contact->pos[kZAxisIndex]};
-    const mjtNum to[kPositionDim] = {contact->pos[0] + scale * (fx / magnitude), contact->pos[1] + scale * (fy / magnitude),
-                                     contact->pos[kZAxisIndex] + scale * (fz / magnitude)};
+    const mjtNum from[kPositionDim] = {contact->pos[kXAxisIndex],
+                                       contact->pos[kYAxisIndex],
+                                       contact->pos[kZAxisIndex]};
+    const mjtNum to[kPositionDim] = {
+        contact->pos[0] + scale * (fx / magnitude),
+        contact->pos[1] + scale * (fy / magnitude),
+        contact->pos[kZAxisIndex] + scale * (fz / magnitude)};
     mjv_connector(arrow, mjGEOM_ARROW, kArrowWidth, from, to);
 
     arrow->rgba[kRedChannel] = 1.0f;

@@ -27,9 +27,10 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// The configuration files as text (ConfigFiles.h): parseTaskFile(), parseReferenceFile() and parseJointPdGainsFile()
-// read a text as strictly as the loaders read the file, and configFileIdentity() names a configuration file by its path
-// from robot_models/ on, wherever the tree lies.
+// The configuration files as text (ConfigFiles.h): parseTaskFile(),
+// parseReferenceFile() and parseJointPdGainsFile() read a text as strictly as
+// the loaders read the file, and configFileIdentity() names a configuration
+// file by its path from robot_models/ on, wherever the tree lies.
 
 #include <fstream>
 #include <string>
@@ -54,17 +55,22 @@ using ::testing::HasSubstr;
 
 // The leading comment blocks of the files, which name their schemas.
 constexpr char kTaskHeader[] =
-    "# proto-file: humanoid_nmpc/humanoid_mpc_config/task_file.proto\n# proto-message: humanoid_mpc_config.TaskFile\n";
+    "# proto-file: humanoid_nmpc/humanoid_mpc_config/task_file.proto\n# "
+    "proto-message: humanoid_mpc_config.TaskFile\n";
 constexpr char kGainsHeader[] =
-    "# proto-file: humanoid_nmpc/humanoid_mpc_config/joint_pd_gains_file.proto\n# proto-message: humanoid_mpc_config.JointPdGainsFile\n";
+    "# proto-file: "
+    "humanoid_nmpc/humanoid_mpc_config/joint_pd_gains_file.proto\n# "
+    "proto-message: humanoid_mpc_config.JointPdGainsFile\n";
 
-constexpr char kTaskText[] = R"(# proto-file: humanoid_nmpc/humanoid_mpc_config/task_file.proto
+constexpr char kTaskText[] =
+    R"(# proto-file: humanoid_nmpc/humanoid_mpc_config/task_file.proto
 # proto-message: humanoid_mpc_config.TaskFile
 model_settings { robot_name: "g1" }
 contact_estimator: "always_in_contact"
 )";
 
-/** Writes `content` to `name` in the test's scratch directory and returns its path. */
+/** Writes `content` to `name` in the test's scratch directory and returns its
+ * path. */
 std::string writeFile(absl::string_view name, absl::string_view content) {
   const std::string path = absl::StrCat(::testing::TempDir(), "/", name);
   std::ofstream(path) << content;
@@ -72,9 +78,11 @@ std::string writeFile(absl::string_view name, absl::string_view content) {
 }
 
 TEST(ConfigFileText, ATextParsesToWhatTheLoaderReadsFromTheSameFile) {
-  const absl::StatusOr<mpc_config::TaskFile> parsed = parseTaskFile(kTaskText, /*source=*/"saved task file");
+  const absl::StatusOr<mpc_config::TaskFile> parsed =
+      parseTaskFile(kTaskText, /*source=*/"saved task file");
   ASSERT_TRUE(parsed.ok()) << parsed.status();
-  const absl::StatusOr<mpc_config::TaskFile> loaded = loadTaskFile(writeFile("task.textproto", kTaskText));
+  const absl::StatusOr<mpc_config::TaskFile> loaded =
+      loadTaskFile(writeFile("task.textproto", kTaskText));
   ASSERT_TRUE(loaded.ok()) << loaded.status();
   EXPECT_TRUE(*parsed == *loaded);
   EXPECT_EQ(parsed->model_settings.robot_name, "g1");
@@ -82,68 +90,113 @@ TEST(ConfigFileText, ATextParsesToWhatTheLoaderReadsFromTheSameFile) {
 }
 
 TEST(ConfigFileText, AnErrorNamesTheSourceTheLineAndTheColumn) {
-  const absl::StatusOr<mpc_config::TaskFile> unknown =
-      parseTaskFile(absl::StrCat(kTaskHeader, "model_settings { robot_nam: \"g1\" }\n"), /*source=*/"from the bus");
+  const absl::StatusOr<mpc_config::TaskFile> unknown = parseTaskFile(
+      absl::StrCat(kTaskHeader, "model_settings { robot_nam: \"g1\" }\n"),
+      /*source=*/"from the bus");
   EXPECT_EQ(unknown.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_THAT(unknown.status().message(), AllOf(HasSubstr("from the bus:3:"), HasSubstr("robot_nam")));
+  EXPECT_THAT(unknown.status().message(),
+              AllOf(HasSubstr("from the bus:3:"), HasSubstr("robot_nam")));
   const absl::StatusOr<mpc_config::TaskFile> syntax =
-      parseTaskFile(absl::StrCat(kTaskHeader, "model_settings {\n"), /*source=*/"from the bus");
+      parseTaskFile(absl::StrCat(kTaskHeader, "model_settings {\n"),
+                    /*source=*/"from the bus");
   EXPECT_EQ(syntax.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_THAT(syntax.status().message(), HasSubstr("from the bus:"));
 }
 
 TEST(ConfigFileText, AFileOfAnotherMessageIsRefusedByItsHeader) {
-  // A reference file sent as a task file: its leading comment names its message, and the parser refuses it as the loader does.
-  const std::string reference = "# proto-message: humanoid_mpc_config.ReferenceFile\ntarget_displacement_velocity: 0.5\n";
-  const absl::StatusOr<mpc_config::TaskFile> asTask = parseTaskFile(reference, /*source=*/"saved task file");
+  // A reference file sent as a task file: its leading comment names its
+  // message, and the parser refuses it as the loader does.
+  const std::string reference =
+      "# proto-message: "
+      "humanoid_mpc_config.ReferenceFile\ntarget_displacement_velocity: 0.5\n";
+  const absl::StatusOr<mpc_config::TaskFile> asTask =
+      parseTaskFile(reference, /*source=*/"saved task file");
   EXPECT_EQ(asTask.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_THAT(asTask.status().message(), HasSubstr("humanoid_mpc_config.ReferenceFile"));
-  const absl::StatusOr<mpc_config::ReferenceFile> asReference = parseReferenceFile(reference, /*source=*/"saved reference file");
+  EXPECT_THAT(asTask.status().message(),
+              HasSubstr("humanoid_mpc_config.ReferenceFile"));
+  const absl::StatusOr<mpc_config::ReferenceFile> asReference =
+      parseReferenceFile(reference, /*source=*/"saved reference file");
   ASSERT_TRUE(asReference.ok()) << asReference.status();
   EXPECT_EQ(asReference->target_displacement_velocity, 0.5);
 }
 
 TEST(ConfigFileText, APdGainsTextParses) {
   const absl::StatusOr<mpc_config::JointPdGainsFile> gains =
-      parseJointPdGainsFile(absl::StrCat(kGainsHeader, "default_gains { kp: 100.0 kd: 2.0 }\n"), /*source=*/"saved gains");
+      parseJointPdGainsFile(
+          absl::StrCat(kGainsHeader, "default_gains { kp: 100.0 kd: 2.0 }\n"),
+          /*source=*/"saved gains");
   ASSERT_TRUE(gains.ok()) << gains.status();
   EXPECT_EQ(gains->default_gains.kp, 100.0);
-  EXPECT_FALSE(parseJointPdGainsFile(absl::StrCat(kGainsHeader, "default_gains { kq: 1.0 }\n"), /*source=*/"saved gains").ok());
+  EXPECT_FALSE(parseJointPdGainsFile(
+                   absl::StrCat(kGainsHeader, "default_gains { kq: 1.0 }\n"),
+                   /*source=*/"saved gains")
+                   .ok());
 }
 
 TEST(ConfigFileText, ATextOrFileThatNamesNoSchemaIsRefused) {
-  // A file is written and read again by path; one that names no message could be read as any message it matches.
+  // A file is written and read again by path; one that names no message could
+  // be read as any message it matches.
   constexpr char kBody[] = "model_settings { robot_name: \"g1\" }\n";
-  const absl::StatusOr<mpc_config::TaskFile> text = parseTaskFile(kBody, /*source=*/"saved task file");
+  const absl::StatusOr<mpc_config::TaskFile> text =
+      parseTaskFile(kBody, /*source=*/"saved task file");
   EXPECT_EQ(text.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_THAT(text.status().message(), AllOf(HasSubstr("saved task file:1:1: saved task file names no schema"),
-                                             HasSubstr("# proto-message: humanoid_mpc_config.TaskFile")));
+  EXPECT_THAT(
+      text.status().message(),
+      AllOf(HasSubstr("saved task file:1:1: saved task file names no schema"),
+            HasSubstr("# proto-message: humanoid_mpc_config.TaskFile")));
   const std::string path = writeFile("headerless_task.textproto", kBody);
   const absl::StatusOr<mpc_config::TaskFile> file = loadTaskFile(path);
   EXPECT_EQ(file.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_THAT(file.status().message(), HasSubstr(absl::StrCat(path, ":1:1: ", path, " names no schema")));
-  // A comment block without the message line names no schema either; with it, the same body parses.
+  EXPECT_THAT(
+      file.status().message(),
+      HasSubstr(absl::StrCat(path, ":1:1: ", path, " names no schema")));
+  // A comment block without the message line names no schema either; with it,
+  // the same body parses.
   EXPECT_FALSE(
-      parseTaskFile(absl::StrCat("# proto-file: humanoid_nmpc/humanoid_mpc_config/task_file.proto\n", kBody), /*source=*/"t").ok());
-  EXPECT_TRUE(parseTaskFile(absl::StrCat(kTaskHeader, kBody), /*source=*/"t").ok());
-  EXPECT_FALSE(parseJointPdGainsFile("default_gains { kp: 1.0 }\n", /*source=*/"saved gains").ok());
-  EXPECT_FALSE(parseReferenceFile("target_displacement_velocity: 0.5\n", /*source=*/"saved reference").ok());
+      parseTaskFile(
+          absl::StrCat("# proto-file: "
+                       "humanoid_nmpc/humanoid_mpc_config/task_file.proto\n",
+                       kBody),
+          /*source=*/"t")
+          .ok());
+  EXPECT_TRUE(
+      parseTaskFile(absl::StrCat(kTaskHeader, kBody), /*source=*/"t").ok());
+  EXPECT_FALSE(parseJointPdGainsFile("default_gains { kp: 1.0 }\n",
+                                     /*source=*/"saved gains")
+                   .ok());
+  EXPECT_FALSE(parseReferenceFile("target_displacement_velocity: 0.5\n",
+                                  /*source=*/"saved reference")
+                   .ok());
 }
 
 TEST(ConfigFileIdentity, IsThePathFromTheLastRobotModelsDirectoryOn) {
-  constexpr char kIdentity[] = "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto";
-  // The robot bundle, a checkout, a relative path and a runfiles tree whose root itself lies below a robot_models/.
-  EXPECT_EQ(configFileIdentity("/opt/wb-humanoid-robot/robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto"), kIdentity);
-  EXPECT_EQ(configFileIdentity("robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto"), kIdentity);
-  EXPECT_EQ(configFileIdentity("/x/robot_models/runfiles/_main/robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto"), kIdentity);
+  constexpr char kIdentity[] =
+      "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto";
+  // The robot bundle, a checkout, a relative path and a runfiles tree whose
+  // root itself lies below a robot_models/.
+  EXPECT_EQ(configFileIdentity("/opt/wb-humanoid-robot/robot_models/unitree_g1/"
+                               "g1_wb_mpc/config/mpc/task.textproto"),
+            kIdentity);
+  EXPECT_EQ(configFileIdentity(
+                "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto"),
+            kIdentity);
+  EXPECT_EQ(
+      configFileIdentity("/x/robot_models/runfiles/_main/robot_models/"
+                         "unitree_g1/g1_wb_mpc/config/mpc/task.textproto"),
+      kIdentity);
   // `.` and `..` are resolved before the directory is looked for.
-  EXPECT_EQ(configFileIdentity("/w/robot_models/unitree_g1/g1_wb_mpc/config/command/../mpc/./task.textproto"), kIdentity);
+  EXPECT_EQ(configFileIdentity("/w/robot_models/unitree_g1/g1_wb_mpc/config/"
+                               "command/../mpc/./task.textproto"),
+            kIdentity);
   // Two configurations of one robot are two identities.
-  EXPECT_NE(configFileIdentity("/w/robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto"), kIdentity);
+  EXPECT_NE(configFileIdentity("/w/robot_models/unitree_g1/g1_centroidal_mpc/"
+                               "config/mpc/task.textproto"),
+            kIdentity);
 }
 
 TEST(ConfigFileIdentity, APathWithoutRobotModelsIsItsNormalForm) {
-  EXPECT_EQ(configFileIdentity("/tmp/store/./mpc/task.textproto"), "/tmp/store/mpc/task.textproto");
+  EXPECT_EQ(configFileIdentity("/tmp/store/./mpc/task.textproto"),
+            "/tmp/store/mpc/task.textproto");
   EXPECT_EQ(configFileIdentity("/tmp/robot_models"), "/tmp/robot_models");
 }
 

@@ -44,24 +44,29 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-/** OK for a time of 0 or more; InvalidArgument naming the field of contact_wrench_gate otherwise (NaN included). */
+/** OK for a time of 0 or more; InvalidArgument naming the field of
+ * contact_wrench_gate otherwise (NaN included). */
 absl::Status nonNegativeTime(absl::string_view field, double value) {
   // Negated, so that NaN is refused too.
   if (!(value >= 0.0)) {
-    return absl::InvalidArgumentError(absl::StrCat("contact_wrench_gate.", field, " is ", value, " [s]; it must be a non-negative number"));
+    return absl::InvalidArgumentError(
+        absl::StrCat("contact_wrench_gate.", field, " is ", value,
+                     " [s]; it must be a non-negative number"));
   }
   return absl::OkStatus();
 }
 
 }  // namespace
 
-absl::StatusOr<ContactWrenchGate::Config> contactWrenchGateFromConfig(const mpc_config::ContactWrenchGateConfig& config) {
+absl::StatusOr<ContactWrenchGate::Config> contactWrenchGateFromConfig(
+    const mpc_config::ContactWrenchGateConfig& config) {
   RETURN_IF_ERROR(nonNegativeTime("debounce_time", config.debounce_time));
   RETURN_IF_ERROR(nonNegativeTime("ramp_time", config.ramp_time));
   ContactWrenchGate::Config gate;
   gate.debounceTime = config.debounce_time;
   gate.rampTime = config.ramp_time;
-  // The gate's own check, which refuses NaN too: ContactWrenchGate::setConfig() takes only a configuration it accepts.
+  // The gate's own check, which refuses NaN too: ContactWrenchGate::setConfig()
+  // takes only a configuration it accepts.
   absl::Status valid = ContactWrenchGate::validateConfig(gate);
   if (!valid.ok()) {
     return valid;
@@ -69,11 +74,13 @@ absl::StatusOr<ContactWrenchGate::Config> contactWrenchGateFromConfig(const mpc_
   return gate;
 }
 
-ControllerSideConfig controllerSideSettingsFromConfig(const mpc_config::TaskFile& task) {
+ControllerSideConfig controllerSideSettingsFromConfig(
+    const mpc_config::TaskFile& task) {
   ControllerSideConfig settings;
   settings.contactEstimator = task.contact_estimator;
   if (task.contact_wrench_gate.has_value()) {
-    const absl::StatusOr<ContactWrenchGate::Config> gate = contactWrenchGateFromConfig(*task.contact_wrench_gate);
+    const absl::StatusOr<ContactWrenchGate::Config> gate =
+        contactWrenchGateFromConfig(*task.contact_wrench_gate);
     if (gate.ok()) {
       settings.contactWrenchGate = *gate;
     } else {
@@ -83,12 +90,14 @@ ControllerSideConfig controllerSideSettingsFromConfig(const mpc_config::TaskFile
   return settings;
 }
 
-std::optional<ContactWrenchGate::Config> wholeFileContactWrenchGate(const ControllerSideConfig& settings) {
+std::optional<ContactWrenchGate::Config> wholeFileContactWrenchGate(
+    const ControllerSideConfig& settings) {
   if (settings.contactWrenchGate.has_value()) {
     return settings.contactWrenchGate;
   }
-  // No gate: either the file has no contact_wrench_gate block, which is the instantaneous gate as at start-up, or its
-  // block was refused, which keeps the gate in use.
+  // No gate: either the file has no contact_wrench_gate block, which is the
+  // instantaneous gate as at start-up, or its block was refused, which keeps
+  // the gate in use.
   if (settings.problems.empty()) {
     return ContactWrenchGate::Config{};
   }

@@ -52,9 +52,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_validation/io/Sha256.h"
 
 /*
- * The I/O of the measurement infrastructure: SHA-256 against the FIPS 180-4 test vectors, JSON documents that read back
- * to the same values, golden files whose doubles read back bit for bit with their provenance, and the provenance of a
- * recording with its machine and toolchain.
+ * The I/O of the measurement infrastructure: SHA-256 against the FIPS 180-4
+ * test vectors, JSON documents that read back to the same values, golden files
+ * whose doubles read back bit for bit with their provenance, and the provenance
+ * of a recording with its machine and toolchain.
  */
 
 namespace ocs2::humanoid::validation {
@@ -74,12 +75,17 @@ bool sameBits(double a, double b) {
 }
 
 TEST(Sha256, MatchesTheFipsTestVectors) {
-  EXPECT_EQ(sha256Hex(""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
-  EXPECT_EQ(sha256Hex("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
-  EXPECT_EQ(sha256Hex("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"),
-            "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1");
-  EXPECT_EQ(sha256Hex(std::string(1000000, 'a')), "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0");
-  // Lengths around the padding boundary (55, 56 and 64 bytes) take one, two and two blocks.
+  EXPECT_EQ(sha256Hex(""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+  EXPECT_EQ(sha256Hex("abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+  EXPECT_EQ(
+      sha256Hex("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"),
+      "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1");
+  EXPECT_EQ(sha256Hex(std::string(1000000, 'a')),
+            "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0");
+  // Lengths around the padding boundary (55, 56 and 64 bytes) take one, two and
+  // two blocks.
   EXPECT_NE(sha256Hex(std::string(55, 'x')), sha256Hex(std::string(56, 'x')));
   EXPECT_EQ(sha256Hex(std::string(64, 'x')).size(), 64u);
 }
@@ -95,12 +101,14 @@ TEST(Sha256, OfAFileIsOfItsBytes) {
   const absl::StatusOr<std::string> hash = sha256HexOfFile(path);
   ASSERT_TRUE(hash.ok()) << hash.status();
   EXPECT_EQ(*hash, sha256Hex(contents));
-  EXPECT_EQ(sha256HexOfFile(temporaryPath("does_not_exist")).status().code(), absl::StatusCode::kNotFound);
+  EXPECT_EQ(sha256HexOfFile(temporaryPath("does_not_exist")).status().code(),
+            absl::StatusCode::kNotFound);
 }
 
 TEST(JsonValue, ADocumentReadsBackToTheSameValues) {
   JsonValue document = JsonValue::object();
-  document.set("name", JsonValue::string("quote \" backslash \\ newline \n tab \t control \x01 unicode \xc3\xa9"));
+  document.set("name", JsonValue::string("quote \" backslash \\ newline \n tab "
+                                         "\t control \x01 unicode \xc3\xa9"));
   document.set("flag", JsonValue::boolean(/*value=*/true));
   document.set("nothing", JsonValue());
   JsonValue& nested = document.set("nested", JsonValue::object());
@@ -115,10 +123,12 @@ TEST(JsonValue, ADocumentReadsBackToTheSameValues) {
   objects.append(JsonValue::array());
   document.set("objects", objects);
 
-  const absl::StatusOr<JsonValue> parsed = JsonValue::parse(document.serialize());
+  const absl::StatusOr<JsonValue> parsed =
+      JsonValue::parse(document.serialize());
   ASSERT_TRUE(parsed.ok()) << parsed.status();
   EXPECT_EQ(*parsed, document);
-  EXPECT_EQ(parsed->serialize(), document.serialize()) << "writing is deterministic";
+  EXPECT_EQ(parsed->serialize(), document.serialize())
+      << "writing is deterministic";
   EXPECT_EQ(parsed->findPath("nested.pi")->asNumber(), M_PI);
   EXPECT_EQ(parsed->findPath("nested.missing"), nullptr);
   EXPECT_EQ(parsed->keyAt(0), "name") << "members keep their insertion order";
@@ -142,21 +152,30 @@ TEST(JsonValue, NumbersReadBackBitForBitWithTheFewestDigits) {
 }
 
 TEST(JsonValue, NumbersAndControlCharactersAreWrittenAsPrintfWrites) {
-  // The digits of the shortest of %.15g, %.16g and %.17g that reads back, and the \u escape of a control character, as
-  // std::snprintf wrote them for the documents recorded under data/ (glibc's output).
+  // The digits of the shortest of %.15g, %.16g and %.17g that reads back, and
+  // the \u escape of a control character, as std::snprintf wrote them for the
+  // documents recorded under data/ (glibc's output).
   EXPECT_EQ(JsonValue::number(1.0 / 3.0).serialize(), "0.3333333333333333");
-  EXPECT_EQ(JsonValue::number(std::nextafter(1.0, 2.0)).serialize(), "1.0000000000000002");
+  EXPECT_EQ(JsonValue::number(std::nextafter(1.0, 2.0)).serialize(),
+            "1.0000000000000002");
   EXPECT_EQ(JsonValue::number(-1.5e-7).serialize(), "-1.5e-07");
   EXPECT_EQ(JsonValue::number(1.0e21).serialize(), "1e+21");
-  EXPECT_EQ(JsonValue::number(std::numeric_limits<double>::denorm_min()).serialize(), "4.94065645841247e-324");
-  EXPECT_EQ(JsonValue::number(std::numeric_limits<double>::max()).serialize(), "1.7976931348623157e+308");
+  EXPECT_EQ(
+      JsonValue::number(std::numeric_limits<double>::denorm_min()).serialize(),
+      "4.94065645841247e-324");
+  EXPECT_EQ(JsonValue::number(std::numeric_limits<double>::max()).serialize(),
+            "1.7976931348623157e+308");
   EXPECT_EQ(JsonValue::number(-0.0).serialize(), "-0");
   EXPECT_EQ(JsonValue::string("\x01\x1f").serialize(), "\"\\u0001\\u001f\"");
 }
 
 TEST(JsonValue, ANumberThatIsNotFiniteIsWrittenAsNull) {
-  EXPECT_EQ(JsonValue::number(std::numeric_limits<double>::quiet_NaN()).serialize(), "null");
-  EXPECT_EQ(JsonValue::number(std::numeric_limits<double>::infinity()).serialize(), "null");
+  EXPECT_EQ(
+      JsonValue::number(std::numeric_limits<double>::quiet_NaN()).serialize(),
+      "null");
+  EXPECT_EQ(
+      JsonValue::number(std::numeric_limits<double>::infinity()).serialize(),
+      "null");
   EXPECT_EQ(JsonValue::optionalNumber(std::nullopt).serialize(), "null");
 }
 
@@ -172,14 +191,19 @@ TEST(JsonValue, SetReplacesAMemberInPlace) {
 
 TEST(JsonValue, MalformedDocumentsAreRejectedWithTheirOffset) {
   for (const std::string& text :
-       {std::string("{\"a\": 1,}"), std::string("[1, 2"), std::string(R"({"a": 1, "a": 2})"), std::string("01"),
-        std::string("\"unterminated"), std::string("{} extra"), std::string("tru"), std::string("1."), std::string(R"("\q")")}) {
+       {std::string("{\"a\": 1,}"), std::string("[1, 2"),
+        std::string(R"({"a": 1, "a": 2})"), std::string("01"),
+        std::string("\"unterminated"), std::string("{} extra"),
+        std::string("tru"), std::string("1."), std::string(R"("\q")")}) {
     const absl::StatusOr<JsonValue> parsed = JsonValue::parse(text);
     ASSERT_FALSE(parsed.ok()) << text;
-    EXPECT_EQ(parsed.status().code(), absl::StatusCode::kInvalidArgument) << text;
-    EXPECT_TRUE(absl::StrContains(parsed.status().message(), "at byte")) << parsed.status();
+    EXPECT_EQ(parsed.status().code(), absl::StatusCode::kInvalidArgument)
+        << text;
+    EXPECT_TRUE(absl::StrContains(parsed.status().message(), "at byte"))
+        << parsed.status();
   }
-  const absl::StatusOr<JsonValue> surrogate = JsonValue::parse(R"("\ud83d\ude00")");
+  const absl::StatusOr<JsonValue> surrogate =
+      JsonValue::parse(R"("\ud83d\ude00")");
   ASSERT_TRUE(surrogate.ok()) << surrogate.status();
   EXPECT_EQ(surrogate->asString(), "\xf0\x9f\x98\x80");
 }
@@ -193,20 +217,27 @@ TEST(JsonValue, AFileReadsBackToTheValueItWasWrittenFrom) {
   ASSERT_TRUE(read.ok()) << read.status();
   EXPECT_EQ(*read, document);
   std::ifstream file(path);
-  const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-  EXPECT_TRUE(absl::EndsWith(text, "}\n")) << "a final newline, for the repository's lint";
+  const std::string text((std::istreambuf_iterator<char>(file)),
+                         std::istreambuf_iterator<char>());
+  EXPECT_TRUE(absl::EndsWith(text, "}\n"))
+      << "a final newline, for the repository's lint";
 }
 
 GoldenFile makeGolden() {
   GoldenFile golden;
   golden.provenance.gitCommit = "c331ddd";
   golden.provenance.worktreeState = "dirty: diff sha256 0123";
-  golden.provenance.configurationHashes = {{"robot_models/a/task.textproto", sha256Hex("task")},
-                                           {"path with spaces.textproto", sha256Hex("x")}};
-  golden.provenance.notes = {{"robot", "unitree_g1"}, {"machine", "a CPU: 8 cores"}};
+  golden.provenance.configurationHashes = {
+      {"robot_models/a/task.textproto", sha256Hex("task")},
+      {"path with spaces.textproto", sha256Hex("x")}};
+  golden.provenance.notes = {{"robot", "unitree_g1"},
+                             {"machine", "a CPU: 8 cores"}};
   golden_matrix_t special(2, 4);
-  special << std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity(),
-      -0.0, std::numeric_limits<double>::denorm_min(), std::numeric_limits<double>::max(), std::nextafter(1.0, 2.0), -1.0e-310;
+  special << std::numeric_limits<double>::quiet_NaN(),
+      std::numeric_limits<double>::infinity(),
+      -std::numeric_limits<double>::infinity(), -0.0,
+      std::numeric_limits<double>::denorm_min(),
+      std::numeric_limits<double>::max(), std::nextafter(1.0, 2.0), -1.0e-310;
   golden.entries.push_back({"special_values", special});
   golden.entries.push_back({"random", golden_matrix_t::Random(7, 5)});
   golden.entries.push_back({"no_rows", golden_matrix_t(0, 3)});
@@ -223,7 +254,8 @@ TEST(GoldenIo, AGoldenFileReadsBackBitForBitWithItsProvenance) {
 
   EXPECT_EQ(parsed->provenance.gitCommit, golden.provenance.gitCommit);
   EXPECT_EQ(parsed->provenance.worktreeState, golden.provenance.worktreeState);
-  EXPECT_EQ(parsed->provenance.configurationHashes, golden.provenance.configurationHashes);
+  EXPECT_EQ(parsed->provenance.configurationHashes,
+            golden.provenance.configurationHashes);
   EXPECT_EQ(parsed->provenance.notes, golden.provenance.notes);
   ASSERT_EQ(parsed->entries.size(), golden.entries.size());
   for (size_t i = 0; i < golden.entries.size(); ++i) {
@@ -236,7 +268,8 @@ TEST(GoldenIo, AGoldenFileReadsBackBitForBitWithItsProvenance) {
       for (Eigen::Index col = 0; col < expected.value.cols(); ++col) {
         const double a = actual.value(row, col);
         const double b = expected.value(row, col);
-        EXPECT_TRUE(std::isnan(b) ? std::isnan(a) : sameBits(a, b)) << expected.label << "(" << row << ", " << col << ")";
+        EXPECT_TRUE(std::isnan(b) ? std::isnan(a) : sameBits(a, b))
+            << expected.label << "(" << row << ", " << col << ")";
       }
     }
   }
@@ -249,45 +282,59 @@ TEST(GoldenIo, AGoldenFileReadsBackBitForBitWithItsProvenance) {
 }
 
 TEST(GoldenIo, ValuesAreWrittenAsPrintfWritesThemWithSeventeenDigits) {
-  // %.17g as std::snprintf wrote it for the golden files recorded under data/ (glibc's output), and the non-finite
-  // values as strtod reads them back.
+  // %.17g as std::snprintf wrote it for the golden files recorded under data/
+  // (glibc's output), and the non-finite values as strtod reads them back.
   GoldenFile golden;
   golden_matrix_t values(1, 12);
-  values << 0.1, 1.0 / 3.0, 1.0e-310, std::numeric_limits<double>::denorm_min(), std::numeric_limits<double>::max(), -0.0, 1.0, 1.0e21,
-      -1.5e-7, std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity();
+  values << 0.1, 1.0 / 3.0, 1.0e-310, std::numeric_limits<double>::denorm_min(),
+      std::numeric_limits<double>::max(), -0.0, 1.0, 1.0e21, -1.5e-7,
+      std::numeric_limits<double>::quiet_NaN(),
+      std::numeric_limits<double>::infinity(),
+      -std::numeric_limits<double>::infinity();
   golden.entries.push_back({"values", values});
   const absl::StatusOr<std::string> text = formatGoldenFile(golden);
   ASSERT_TRUE(text.ok()) << text.status();
-  EXPECT_TRUE(absl::EndsWith(*text,
-                             "matrix values 1 12\n0.10000000000000001 0.33333333333333331 9.9999999999999694e-311 4.9406564584124654e-324 "
-                             "1.7976931348623157e+308 -0 1 1e+21 -1.4999999999999999e-07 nan inf -inf\n"))
+  EXPECT_TRUE(absl::EndsWith(
+      *text,
+      "matrix values 1 12\n0.10000000000000001 0.33333333333333331 "
+      "9.9999999999999694e-311 4.9406564584124654e-324 "
+      "1.7976931348623157e+308 -0 1 1e+21 -1.4999999999999999e-07 nan inf "
+      "-inf\n"))
       << *text;
 }
 
 TEST(ValidationIo, EveryRecordedFileFormatsBackToItsBytes) {
-  // The golden files and JSON documents recorded under data/ were written while std::snprintf printed their numbers:
-  // formatting what they parse to gives back their bytes, so absl::StrFormat prints every recorded value as it did. The
-  // golden files are the recorded states (.txt), the documents those of any label recorded under data/ (.json).
-  const std::filesystem::path directory("humanoid_nmpc/humanoid_mpc_validation/data");
-  ASSERT_TRUE(std::filesystem::is_directory(directory)) << "the recorded files are a data dependency of this test";
+  // The golden files and JSON documents recorded under data/ were written while
+  // std::snprintf printed their numbers: formatting what they parse to gives
+  // back their bytes, so absl::StrFormat prints every recorded value as it did.
+  // The golden files are the recorded states (.txt), the documents those of any
+  // label recorded under data/ (.json).
+  const std::filesystem::path directory(
+      "humanoid_nmpc/humanoid_mpc_validation/data");
+  ASSERT_TRUE(std::filesystem::is_directory(directory))
+      << "the recorded files are a data dependency of this test";
   size_t goldenFiles = 0;
   size_t documents = 0;
-  for (const std::filesystem::directory_entry& entry : std::filesystem::recursive_directory_iterator(directory)) {
+  for (const std::filesystem::directory_entry& entry :
+       std::filesystem::recursive_directory_iterator(directory)) {
     const std::filesystem::path& path = entry.path();
     if (path.extension() != ".txt" && path.extension() != ".json") continue;
     std::ifstream file(path, std::ios::binary);
-    const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    const std::string text((std::istreambuf_iterator<char>(file)),
+                           std::istreambuf_iterator<char>());
     if (path.extension() == ".txt") {
       const absl::StatusOr<GoldenFile> golden = parseGoldenFile(text);
       ASSERT_TRUE(golden.ok()) << path << ": " << golden.status();
       const absl::StatusOr<std::string> formatted = formatGoldenFile(*golden);
       ASSERT_TRUE(formatted.ok()) << path << ": " << formatted.status();
-      EXPECT_TRUE(*formatted == text) << path << " does not format back to its bytes";
+      EXPECT_TRUE(*formatted == text)
+          << path << " does not format back to its bytes";
       ++goldenFiles;
     } else {
       const absl::StatusOr<JsonValue> document = JsonValue::parse(text);
       ASSERT_TRUE(document.ok()) << path << ": " << document.status();
-      EXPECT_TRUE(document->serialize() + "\n" == text) << path << " does not format back to its bytes";
+      EXPECT_TRUE(document->serialize() + "\n" == text)
+          << path << " does not format back to its bytes";
       ++documents;
     }
   }
@@ -301,11 +348,16 @@ TEST(GoldenIo, AFileRoundTripsAndItsProvenanceHashesTheConfiguration) {
     std::ofstream file(configuration);
     file << "key: 1\n";
   }
-  const absl::StatusOr<GoldenProvenance> provenance = makeGoldenProvenance("abc123", "clean", {configuration});
+  const absl::StatusOr<GoldenProvenance> provenance =
+      makeGoldenProvenance("abc123", "clean", {configuration});
   ASSERT_TRUE(provenance.ok()) << provenance.status();
   ASSERT_EQ(provenance->configurationHashes.size(), 1u);
   EXPECT_EQ(provenance->configurationHashes[0].second, sha256Hex("key: 1\n"));
-  EXPECT_EQ(makeGoldenProvenance("abc123", "clean", {temporaryPath("missing.textproto")}).status().code(), absl::StatusCode::kNotFound);
+  EXPECT_EQ(makeGoldenProvenance("abc123", "clean",
+                                 {temporaryPath("missing.textproto")})
+                .status()
+                .code(),
+            absl::StatusCode::kNotFound);
 
   GoldenFile golden = makeGolden();
   golden.provenance = *provenance;
@@ -313,64 +365,85 @@ TEST(GoldenIo, AFileRoundTripsAndItsProvenanceHashesTheConfiguration) {
   ASSERT_TRUE(writeGoldenFile(path, golden).ok());
   const absl::StatusOr<GoldenFile> read = readGoldenFile(path);
   ASSERT_TRUE(read.ok()) << read.status();
-  EXPECT_EQ(read->provenance.configurationHashes, golden.provenance.configurationHashes);
+  EXPECT_EQ(read->provenance.configurationHashes,
+            golden.provenance.configurationHashes);
   EXPECT_EQ(read->entries.size(), golden.entries.size());
-  EXPECT_EQ(readGoldenFile(temporaryPath("absent.txt")).status().code(), absl::StatusCode::kNotFound);
+  EXPECT_EQ(readGoldenFile(temporaryPath("absent.txt")).status().code(),
+            absl::StatusCode::kNotFound);
 }
 
 TEST(GoldenIo, InvalidLabelsAndNotesAreRejected) {
   GoldenFile spaced;
   spaced.entries.push_back({"two words", golden_matrix_t::Zero(1, 1)});
-  EXPECT_EQ(formatGoldenFile(spaced).status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(formatGoldenFile(spaced).status().code(),
+            absl::StatusCode::kInvalidArgument);
   GoldenFile repeated;
   repeated.entries.push_back({"same", golden_matrix_t::Zero(1, 1)});
   repeated.entries.push_back({"same", golden_matrix_t::Zero(1, 1)});
-  EXPECT_EQ(formatGoldenFile(repeated).status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(formatGoldenFile(repeated).status().code(),
+            absl::StatusCode::kInvalidArgument);
   GoldenFile badNote;
   badNote.provenance.notes = {{"key:colon", "value"}};
-  EXPECT_EQ(formatGoldenFile(badNote).status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(formatGoldenFile(badNote).status().code(),
+            absl::StatusCode::kInvalidArgument);
   GoldenFile multiline;
   multiline.provenance.gitCommit = "a\nb";
-  EXPECT_EQ(formatGoldenFile(multiline).status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(formatGoldenFile(multiline).status().code(),
+            absl::StatusCode::kInvalidArgument);
 }
 
 TEST(GoldenIo, MalformedTextIsRejectedNamingTheLine) {
   const std::string header = "# wb_humanoid_mpc golden v1\n";
   for (const std::string& text :
-       {std::string("not a golden\n"), header + "matrix m 2 2\n1 2\n", header + "matrix m 1 2\n1 x\n", header + "matrix m 1 2\n1 2 3\n",
-        header + "matrix m two 2\n", header + "garbage\n", header + "matrix m 1 1\n1\nmatrix m 1 1\n2\n"}) {
+       {std::string("not a golden\n"), header + "matrix m 2 2\n1 2\n",
+        header + "matrix m 1 2\n1 x\n", header + "matrix m 1 2\n1 2 3\n",
+        header + "matrix m two 2\n", header + "garbage\n",
+        header + "matrix m 1 1\n1\nmatrix m 1 1\n2\n"}) {
     const absl::StatusOr<GoldenFile> parsed = parseGoldenFile(text);
     ASSERT_FALSE(parsed.ok()) << text;
-    EXPECT_EQ(parsed.status().code(), absl::StatusCode::kInvalidArgument) << text;
-    EXPECT_TRUE(absl::StrContains(parsed.status().message(), "line ")) << parsed.status();
+    EXPECT_EQ(parsed.status().code(), absl::StatusCode::kInvalidArgument)
+        << text;
+    EXPECT_TRUE(absl::StrContains(parsed.status().message(), "line "))
+        << parsed.status();
   }
 }
 
 TEST(RunProvenance, TheToolchainRoundTripsThroughADocumentAndAGoldenHeader) {
-  const std::string configuration = temporaryPath("provenance_config.textproto");
+  const std::string configuration =
+      temporaryPath("provenance_config.textproto");
   {
     std::ofstream file(configuration);
     file << "key: 2\n";
   }
-  const RunEnvironment environment{.gitCommit = "abc123",
-                                   .worktreeState = "clean",
-                                   .machine = "a machine",
-                                   .toolchain = {.compiler = "13.3.0", .hpipmTarget = "GENERIC", .containerImage = "sha256:99e8"}};
-  const absl::StatusOr<JsonValue> provenance = makeRunProvenanceJson(environment, {configuration});
+  const RunEnvironment environment{
+      .gitCommit = "abc123",
+      .worktreeState = "clean",
+      .machine = "a machine",
+      .toolchain = {.compiler = "13.3.0",
+                    .hpipmTarget = "GENERIC",
+                    .containerImage = "sha256:99e8"}};
+  const absl::StatusOr<JsonValue> provenance =
+      makeRunProvenanceJson(environment, {configuration});
   ASSERT_TRUE(provenance.ok()) << provenance.status();
-  const absl::StatusOr<JsonValue> parsed = JsonValue::parse(provenance->serialize());
+  const absl::StatusOr<JsonValue> parsed =
+      JsonValue::parse(provenance->serialize());
   ASSERT_TRUE(parsed.ok()) << parsed.status();
   EXPECT_EQ(*parsed, *provenance);
-  const absl::StatusOr<RunToolchain> toolchain = toolchainFromProvenance(*parsed);
+  const absl::StatusOr<RunToolchain> toolchain =
+      toolchainFromProvenance(*parsed);
   ASSERT_TRUE(toolchain.ok()) << toolchain.status();
   EXPECT_EQ(toolchain->compiler, "13.3.0");
   EXPECT_EQ(toolchain->hpipmTarget, "GENERIC");
   EXPECT_EQ(toolchain->containerImage, "sha256:99e8");
   EXPECT_EQ(parsed->find("machine")->asString(), "a machine");
-  EXPECT_EQ(parsed->findPath("configuration_sha256")->find(configuration)->asString(), sha256Hex("key: 2\n"));
+  EXPECT_EQ(
+      parsed->findPath("configuration_sha256")->find(configuration)->asString(),
+      sha256Hex("key: 2\n"));
 
-  // The golden header carries the machine and the toolchain as notes, and reads back with them.
-  const absl::StatusOr<GoldenProvenance> golden = makeRunGoldenProvenance(environment, {configuration});
+  // The golden header carries the machine and the toolchain as notes, and reads
+  // back with them.
+  const absl::StatusOr<GoldenProvenance> golden =
+      makeRunGoldenProvenance(environment, {configuration});
   ASSERT_TRUE(golden.ok()) << golden.status();
   GoldenFile file = makeGolden();
   file.provenance = *golden;
@@ -379,39 +452,51 @@ TEST(RunProvenance, TheToolchainRoundTripsThroughADocumentAndAGoldenHeader) {
   const absl::StatusOr<GoldenFile> read = readGoldenFile(path);
   ASSERT_TRUE(read.ok()) << read.status();
   const std::vector<std::pair<std::string, std::string>> notes = {
-      {"machine", "a machine"}, {"compiler", "13.3.0"}, {"hpipm_target", "GENERIC"}, {"container_image", "sha256:99e8"}};
+      {"machine", "a machine"},
+      {"compiler", "13.3.0"},
+      {"hpipm_target", "GENERIC"},
+      {"container_image", "sha256:99e8"}};
   EXPECT_EQ(read->provenance.notes, notes);
-  // The toolchain's notes alone, which a golden header carries after its machine note too (makeRunGoldenProvenance()).
-  const std::vector<std::pair<std::string, std::string>> toolchainOnly(notes.begin() + 1, notes.end());
+  // The toolchain's notes alone, which a golden header carries after its
+  // machine note too (makeRunGoldenProvenance()).
+  const std::vector<std::pair<std::string, std::string>> toolchainOnly(
+      notes.begin() + 1, notes.end());
   EXPECT_EQ(toolchainNotes(environment.toolchain), toolchainOnly);
 }
 
 TEST(RunProvenance, AProvenanceWithoutAToolchainOrWithAMalformedOneIsRefused) {
   JsonValue provenance = JsonValue::object();
   provenance.set("machine", JsonValue::string("a machine"));
-  EXPECT_EQ(toolchainFromProvenance(provenance).status().code(), absl::StatusCode::kNotFound) << "no toolchain";
+  EXPECT_EQ(toolchainFromProvenance(provenance).status().code(),
+            absl::StatusCode::kNotFound)
+      << "no toolchain";
   JsonValue& toolchain = provenance.set("toolchain", JsonValue::object());
   toolchain.set("compiler", JsonValue::string("13.3.0"));
   toolchain.set("hpipm_target", JsonValue::number(1.0));
   toolchain.set("container_image", JsonValue::string("unknown"));
   const absl::Status mistyped = toolchainFromProvenance(provenance).status();
   EXPECT_EQ(mistyped.code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(absl::StrContains(mistyped.message(), "hpipm_target")) << mistyped;
+  EXPECT_TRUE(absl::StrContains(mistyped.message(), "hpipm_target"))
+      << mistyped;
 }
 
 TEST(RunProvenance, TheEnvironmentNamesTheToolchainTheMakeTargetsPass) {
   ASSERT_EQ(setenv("WB_VALIDATION_HPIPM_TARGET", "GENERIC", /*replace=*/1), 0);
-  ASSERT_EQ(setenv("WB_VALIDATION_CONTAINER_IMAGE", "sha256:99e8", /*replace=*/1), 0);
+  ASSERT_EQ(
+      setenv("WB_VALIDATION_CONTAINER_IMAGE", "sha256:99e8", /*replace=*/1), 0);
   const RunEnvironment given = runEnvironmentFromEnvironment();
   EXPECT_EQ(given.toolchain.hpipmTarget, "GENERIC");
   EXPECT_EQ(given.toolchain.containerImage, "sha256:99e8");
-  EXPECT_EQ(given.toolchain.compiler, __VERSION__) << "the compiler of this build";
+  EXPECT_EQ(given.toolchain.compiler, __VERSION__)
+      << "the compiler of this build";
   EXPECT_EQ(compilerVersion(), __VERSION__);
   ASSERT_EQ(unsetenv("WB_VALIDATION_HPIPM_TARGET"), 0);
-  ASSERT_EQ(setenv("WB_VALIDATION_CONTAINER_IMAGE", /*value=*/"", /*replace=*/1), 0);
+  ASSERT_EQ(
+      setenv("WB_VALIDATION_CONTAINER_IMAGE", /*value=*/"", /*replace=*/1), 0);
   const RunEnvironment unset = runEnvironmentFromEnvironment();
   EXPECT_EQ(unset.toolchain.hpipmTarget, "unknown");
-  EXPECT_EQ(unset.toolchain.containerImage, "unknown") << "an empty value is no value";
+  EXPECT_EQ(unset.toolchain.containerImage, "unknown")
+      << "an empty value is no value";
   ASSERT_EQ(unsetenv("WB_VALIDATION_CONTAINER_IMAGE"), 0);
 }
 

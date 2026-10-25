@@ -39,7 +39,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 // LINT.IfChange(state_input_dimensions)
-StateInputLayout stateInputLayout(const ModelSettings& settings, StateInputLayout::Mpc mpc) {
+StateInputLayout stateInputLayout(const ModelSettings& settings,
+                                  StateInputLayout::Mpc mpc) {
   StateInputLayout layout;
   layout.mpc = mpc;
   layout.jointNames = settings.mpcModelJointNames;
@@ -57,11 +58,21 @@ TuningLayout tuningLayoutOf(const StateInputLayout& layout) {
           .name = "centroidal",
           .segments =
               {
-                  {.name = "normalized_linear_momentum", .kind = TuningSegmentKind::kEuclidean, .tuningDim = kPositionDim},
-                  {.name = "normalized_angular_momentum", .kind = TuningSegmentKind::kEuclidean, .tuningDim = kRotationTangentDim},
-                  {.name = "base_position", .kind = TuningSegmentKind::kEuclidean, .tuningDim = kPositionDim},
-                  {.name = "base_orientation", .kind = TuningSegmentKind::kEulerZyxOrientation, .tuningDim = kRotationTuningDim},
-                  {.name = "joint_positions", .kind = TuningSegmentKind::kEuclidean, .tuningDim = joints},
+                  {.name = "normalized_linear_momentum",
+                   .kind = TuningSegmentKind::kEuclidean,
+                   .tuningDim = kPositionDim},
+                  {.name = "normalized_angular_momentum",
+                   .kind = TuningSegmentKind::kEuclidean,
+                   .tuningDim = kRotationTangentDim},
+                  {.name = "base_position",
+                   .kind = TuningSegmentKind::kEuclidean,
+                   .tuningDim = kPositionDim},
+                  {.name = "base_orientation",
+                   .kind = TuningSegmentKind::kEulerZyxOrientation,
+                   .tuningDim = kRotationTuningDim},
+                  {.name = "joint_positions",
+                   .kind = TuningSegmentKind::kEuclidean,
+                   .tuningDim = joints},
               },
       };
     case StateInputLayout::Mpc::kWholeBody:
@@ -70,12 +81,24 @@ TuningLayout tuningLayoutOf(const StateInputLayout& layout) {
           .name = "whole-body",
           .segments =
               {
-                  {.name = "base_position", .kind = TuningSegmentKind::kEuclidean, .tuningDim = kPositionDim},
-                  {.name = "base_orientation", .kind = TuningSegmentKind::kEulerZyxOrientation, .tuningDim = kRotationTuningDim},
-                  {.name = "joint_positions", .kind = TuningSegmentKind::kEuclidean, .tuningDim = joints},
-                  {.name = "base_linear_velocity", .kind = TuningSegmentKind::kEuclidean, .tuningDim = kPositionDim},
-                  {.name = "base_angular_velocity", .kind = TuningSegmentKind::kZyxOrderedAngularVelocity, .tuningDim = kRotationTuningDim},
-                  {.name = "joint_velocities", .kind = TuningSegmentKind::kEuclidean, .tuningDim = joints},
+                  {.name = "base_position",
+                   .kind = TuningSegmentKind::kEuclidean,
+                   .tuningDim = kPositionDim},
+                  {.name = "base_orientation",
+                   .kind = TuningSegmentKind::kEulerZyxOrientation,
+                   .tuningDim = kRotationTuningDim},
+                  {.name = "joint_positions",
+                   .kind = TuningSegmentKind::kEuclidean,
+                   .tuningDim = joints},
+                  {.name = "base_linear_velocity",
+                   .kind = TuningSegmentKind::kEuclidean,
+                   .tuningDim = kPositionDim},
+                  {.name = "base_angular_velocity",
+                   .kind = TuningSegmentKind::kZyxOrderedAngularVelocity,
+                   .tuningDim = kRotationTuningDim},
+                  {.name = "joint_velocities",
+                   .kind = TuningSegmentKind::kEuclidean,
+                   .tuningDim = joints},
               },
       };
   }
@@ -87,7 +110,8 @@ size_t tuningDimension(const StateInputLayout& layout) {
 }
 
 size_t inputDimension(const StateInputLayout& layout) {
-  // The wrench of each contact (kWrenchDim: its force, then its moment), then the joints.
+  // The wrench of each contact (kWrenchDim: its force, then its moment), then
+  // the joints.
   return kWrenchDim * layout.contactNames.size() + layout.jointNames.size();
 }
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/config/weights/StateInputWeightsFromConfig.cpp:input_offsets)

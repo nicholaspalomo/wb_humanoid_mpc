@@ -46,23 +46,30 @@ namespace ocs2::humanoid::validation {
 namespace {
 
 /** The fields of GuiCommandScaling::commandLimits, in its order. */
-constexpr std::array<absl::string_view, 3> kCommandLimitFields = {"max_displacement_velocity_x", "max_displacement_velocity_y",
-                                                                  "max_rotation_velocity"};
+constexpr std::array<absl::string_view, 3> kCommandLimitFields = {
+    "max_displacement_velocity_x", "max_displacement_velocity_y",
+    "max_rotation_velocity"};
 
 }  // namespace
 
-absl::StatusOr<GuiCommandScaling> guiCommandScalingFromConfig(const mpc_config::ReferenceFile& file) {
-  ASSIGN_OR_RETURN(const ReferenceSettings reference, referenceSettingsFromConfig(file));
+absl::StatusOr<GuiCommandScaling> guiCommandScalingFromConfig(
+    const mpc_config::ReferenceFile& file) {
+  ASSIGN_OR_RETURN(const ReferenceSettings reference,
+                   referenceSettingsFromConfig(file));
   GuiCommandScaling scaling;
-  scaling.commandLimits =
-      Eigen::Vector3d(reference.maxDisplacementVelocityX, reference.maxDisplacementVelocityY, reference.maxRotationVelocity);
+  scaling.commandLimits = Eigen::Vector3d(reference.maxDisplacementVelocityX,
+                                          reference.maxDisplacementVelocityY,
+                                          reference.maxRotationVelocity);
   scaling.defaultPelvisHeight = reference.defaultBaseHeight;
-  // The GUI sends a command as its fraction of these: a limit that is not positive leaves no command to send. Every
-  // value is finite (referenceSettingsFromConfig()).
+  // The GUI sends a command as its fraction of these: a limit that is not
+  // positive leaves no command to send. Every value is finite
+  // (referenceSettingsFromConfig()).
   for (Eigen::Index i = 0; i < scaling.commandLimits.size(); ++i) {
     if (scaling.commandLimits(i) <= 0.0) {
-      return absl::InvalidArgumentError(absl::StrCat(kCommandLimitFields[static_cast<size_t>(i)], " is ", scaling.commandLimits(i),
-                                                     ", but the GUI's command limits must be positive."));
+      return absl::InvalidArgumentError(
+          absl::StrCat(kCommandLimitFields[static_cast<size_t>(i)], " is ",
+                       scaling.commandLimits(i),
+                       ", but the GUI's command limits must be positive."));
     }
   }
   return scaling;

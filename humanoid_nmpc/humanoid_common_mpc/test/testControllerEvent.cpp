@@ -40,9 +40,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_runtime/robot_realtime/test/AllocationCounter.h"
 
 /*
- * The MRT joint controllers report from the realtime thread through a ControllerEventSink instead of logging there: an
- * event is a few plain values, made without allocating, and the communication thread formats it into the line the
- * controller used to log.
+ * The MRT joint controllers report from the realtime thread through a
+ * ControllerEventSink instead of logging there: an event is a few plain values,
+ * made without allocating, and the communication thread formats it into the
+ * line the controller used to log.
  */
 
 namespace ocs2::humanoid {
@@ -73,10 +74,13 @@ class RecordingSink final : public ControllerEventSink {
 };
 
 TEST(ControllerEvent, IsPlainDataMadeWithoutAllocating) {
-  static_assert(std::is_trivially_copyable_v<ControllerEvent>, "an event is copied into a queue slot");
+  static_assert(std::is_trivially_copyable_v<ControllerEvent>,
+                "an event is copied into a queue slot");
   const size_t before = robot::realtime::heapAllocationCountOnThisThread();
-  const ControllerEvent event = makeControllerEvent(ControllerEventCode::kContactEstimatorChanged, "Controller", /*value0=*/1.0,
-                                                    /*value1=*/2.0, "CheaterSimContactEstimator");
+  const ControllerEvent event =
+      makeControllerEvent(ControllerEventCode::kContactEstimatorChanged,
+                          "Controller", /*value0=*/1.0,
+                          /*value1=*/2.0, "CheaterSimContactEstimator");
   EXPECT_EQ(robot::realtime::heapAllocationCountOnThisThread() - before, 0u);
   EXPECT_EQ(controllerEventText(event), "CheaterSimContactEstimator");
   EXPECT_EQ(event.values[1], 2.0);
@@ -85,49 +89,72 @@ TEST(ControllerEvent, IsPlainDataMadeWithoutAllocating) {
 TEST(ControllerEvent, ALongTextIsCutToFit) {
   std::string name;
   name.resize(100, 'x');
-  const ControllerEvent event = makeControllerEvent(ControllerEventCode::kContactEstimatorChanged, "Controller", /*value0=*/0.0,
-                                                    /*value1=*/0.0, name);
+  const ControllerEvent event =
+      makeControllerEvent(ControllerEventCode::kContactEstimatorChanged,
+                          "Controller", /*value0=*/0.0,
+                          /*value1=*/0.0, name);
   EXPECT_EQ(controllerEventText(event).size(), event.text.size() - 1);
 }
 
 TEST(ControllerEvent, EveryCodeFormatsToALineNamingItsController) {
   for (const ControllerEventCode code : kEveryCode) {
-    const std::string line = formatControllerEvent(makeControllerEvent(code, "WBMpcMrtJointController", /*value0=*/0.25));
+    const std::string line = formatControllerEvent(
+        makeControllerEvent(code, "WBMpcMrtJointController", /*value0=*/0.25));
     EXPECT_EQ(line.rfind("[WBMpcMrtJointController] ", 0), 0u) << line;
-    EXPECT_EQ(line.find("controller event"), std::string::npos) << "a code without its own line: " << line;
+    EXPECT_EQ(line.find("controller event"), std::string::npos)
+        << "a code without its own line: " << line;
   }
-  EXPECT_NE(formatControllerEvent(makeControllerEvent(ControllerEventCode::kPolicyDiverged, "C", /*value0=*/0.75)).find("0.75"),
+  EXPECT_NE(formatControllerEvent(
+                makeControllerEvent(ControllerEventCode::kPolicyDiverged, "C",
+                                    /*value0=*/0.75))
+                .find("0.75"),
             std::string::npos);
-  EXPECT_TRUE(isWarningControllerEvent(makeControllerEvent(ControllerEventCode::kSafetyEntered, "C")));
-  EXPECT_FALSE(isWarningControllerEvent(makeControllerEvent(ControllerEventCode::kContactWrenchGateChanged, "C")));
+  EXPECT_TRUE(isWarningControllerEvent(
+      makeControllerEvent(ControllerEventCode::kSafetyEntered, "C")));
+  EXPECT_FALSE(isWarningControllerEvent(makeControllerEvent(
+      ControllerEventCode::kContactWrenchGateChanged, "C")));
 }
 
 TEST(ControllerEvent, ARefusedPolicyIsAWarningSayingWhy) {
-  const ControllerEvent mismatched = makeControllerEvent(ControllerEventCode::kPolicyRefused, "C",
-                                                         /*value0=*/static_cast<double>(PolicyRefusal::kMismatchedPolicy));
-  const ControllerEvent unsupported = makeControllerEvent(ControllerEventCode::kPolicyRefused, "C",
-                                                          /*value0=*/static_cast<double>(PolicyRefusal::kUnsupportedController));
+  const ControllerEvent mismatched = makeControllerEvent(
+      ControllerEventCode::kPolicyRefused, "C",
+      /*value0=*/static_cast<double>(PolicyRefusal::kMismatchedPolicy));
+  const ControllerEvent unsupported = makeControllerEvent(
+      ControllerEventCode::kPolicyRefused, "C",
+      /*value0=*/static_cast<double>(PolicyRefusal::kUnsupportedController));
   EXPECT_TRUE(isWarningControllerEvent(mismatched));
-  EXPECT_NE(formatControllerEvent(mismatched).find("not of the model's dimensions"), std::string::npos)
+  EXPECT_NE(
+      formatControllerEvent(mismatched).find("not of the model's dimensions"),
+      std::string::npos)
       << formatControllerEvent(mismatched);
-  EXPECT_NE(formatControllerEvent(unsupported).find("a controller it does not evaluate"), std::string::npos)
+  EXPECT_NE(formatControllerEvent(unsupported)
+                .find("a controller it does not evaluate"),
+            std::string::npos)
       << formatControllerEvent(unsupported);
-  EXPECT_NE(formatControllerEvent(unsupported).find("JOINT_PD"), std::string::npos);
+  EXPECT_NE(formatControllerEvent(unsupported).find("JOINT_PD"),
+            std::string::npos);
 }
 
-TEST(ControllerEvent, ARefusedEstimateIsAWarningNamingTheEstimatorAndTheCounts) {
+TEST(ControllerEvent,
+     ARefusedEstimateIsAWarningNamingTheEstimatorAndTheCounts) {
   const ControllerEvent event =
-      makeControllerEvent(ControllerEventCode::kContactEstimateRefused, "C", /*value0=*/1.0, /*value1=*/2.0, "fixed");
+      makeControllerEvent(ControllerEventCode::kContactEstimateRefused, "C",
+                          /*value0=*/1.0, /*value1=*/2.0, "fixed");
   EXPECT_TRUE(isWarningControllerEvent(event));
   const std::string line = formatControllerEvent(event);
-  EXPECT_NE(line.find("'fixed' reported 1 contact flags, expected 2"), std::string::npos) << line;
-  EXPECT_TRUE(isWarningControllerEvent(makeControllerEvent(ControllerEventCode::kContactWrenchGateRefused, "C")));
+  EXPECT_NE(line.find("'fixed' reported 1 contact flags, expected 2"),
+            std::string::npos)
+      << line;
+  EXPECT_TRUE(isWarningControllerEvent(makeControllerEvent(
+      ControllerEventCode::kContactWrenchGateRefused, "C")));
 }
 
 TEST(ControllerEvent, ASinkGetsTheEventAsPosted) {
   RecordingSink sink;
   ControllerEventSink& base = sink;
-  EXPECT_TRUE(base.post(makeControllerEvent(ControllerEventCode::kClockRewind, "C", /*value0=*/0.5, /*value1=*/12.0)));
+  EXPECT_TRUE(
+      base.post(makeControllerEvent(ControllerEventCode::kClockRewind, "C",
+                                    /*value0=*/0.5, /*value1=*/12.0)));
   ASSERT_EQ(sink.events.size(), 1u);
   EXPECT_EQ(sink.events[0].code, ControllerEventCode::kClockRewind);
   EXPECT_EQ(sink.events[0].values[0], 0.5);

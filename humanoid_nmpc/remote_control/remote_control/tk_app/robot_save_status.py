@@ -68,7 +68,9 @@ class RobotSaveStatus:
         """The outcome the status line shows; None before the first send()."""
         return self._tracker.outcome()
 
-    def send(self, kind: int, path: str, text: str) -> robot_config_save.SaveOutcome:
+    def send(
+        self, kind: int, path: str, text: str
+    ) -> robot_config_save.SaveOutcome:
         """Sends a file the tab has just saved on the laptop to the robot, and shows and follows the outcome.
 
         Args:
@@ -102,5 +104,6 @@ class RobotSaveStatus:
 
     def _display(self, outcome: robot_config_save.SaveOutcome) -> None:
         self._show(
-            robot_config_save.describe(outcome, self._tracker.timeout), outcome.problem
+            robot_config_save.describe(outcome, self._tracker.timeout),
+            outcome.problem,
         )

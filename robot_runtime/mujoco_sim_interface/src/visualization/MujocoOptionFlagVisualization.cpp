@@ -37,38 +37,57 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace robot::mujoco_sim_interface {
 
-MujocoOptionFlagVisualization::MujocoOptionFlagVisualization(std::string name, std::string description, char hotkey, int flag)
-    : name_(std::move(name)), description_(std::move(description)), hotkey_(hotkey), flag_(flag) {
+MujocoOptionFlagVisualization::MujocoOptionFlagVisualization(
+    std::string name, std::string description, char hotkey, int flag)
+    : name_(std::move(name)),
+      description_(std::move(description)),
+      hotkey_(hotkey),
+      flag_(flag) {
   setEnabled(false);
 }
 
-std::unique_ptr<MujocoOptionFlagVisualization> MujocoOptionFlagVisualization::contactPoints() {
-  return std::make_unique<MujocoOptionFlagVisualization>("mj_contact_points", "MuJoCo's markers at the physical contact points",
-                                                         /*hotkey=*/'c', mjVIS_CONTACTPOINT);
-}
-std::unique_ptr<MujocoOptionFlagVisualization> MujocoOptionFlagVisualization::contactForces() {
-  return std::make_unique<MujocoOptionFlagVisualization>("mj_contact_forces", "MuJoCo's normal and friction force arrows at the contacts",
-                                                         /*hotkey=*/'f', mjVIS_CONTACTFORCE);
-}
-std::unique_ptr<MujocoOptionFlagVisualization> MujocoOptionFlagVisualization::centerOfMass() {
-  return std::make_unique<MujocoOptionFlagVisualization>("mj_com", "MuJoCo's center of mass markers of the bodies", /*hotkey=*/'m',
-                                                         mjVIS_COM);
-}
-std::unique_ptr<MujocoOptionFlagVisualization> MujocoOptionFlagVisualization::inertia() {
-  return std::make_unique<MujocoOptionFlagVisualization>("mj_inertia", "MuJoCo's equivalent inertia ellipsoids", /*hotkey=*/'i',
-                                                         mjVIS_INERTIA);
-}
-std::unique_ptr<MujocoOptionFlagVisualization> MujocoOptionFlagVisualization::convexHull() {
-  return std::make_unique<MujocoOptionFlagVisualization>("mj_convex_hull", "MuJoCo's convex hulls of the meshes", /*hotkey=*/'h',
-                                                         mjVIS_CONVEXHULL);
-}
-std::unique_ptr<MujocoOptionFlagVisualization> MujocoOptionFlagVisualization::transparency() {
+std::unique_ptr<MujocoOptionFlagVisualization>
+MujocoOptionFlagVisualization::contactPoints() {
   return std::make_unique<MujocoOptionFlagVisualization>(
-      "mj_transparent", "MuJoCo's x-ray view: the moving geoms at the model's map alpha (30% by default), the floor opaque",
+      "mj_contact_points", "MuJoCo's markers at the physical contact points",
+      /*hotkey=*/'c', mjVIS_CONTACTPOINT);
+}
+std::unique_ptr<MujocoOptionFlagVisualization>
+MujocoOptionFlagVisualization::contactForces() {
+  return std::make_unique<MujocoOptionFlagVisualization>(
+      "mj_contact_forces",
+      "MuJoCo's normal and friction force arrows at the contacts",
+      /*hotkey=*/'f', mjVIS_CONTACTFORCE);
+}
+std::unique_ptr<MujocoOptionFlagVisualization>
+MujocoOptionFlagVisualization::centerOfMass() {
+  return std::make_unique<MujocoOptionFlagVisualization>(
+      "mj_com", "MuJoCo's center of mass markers of the bodies", /*hotkey=*/'m',
+      mjVIS_COM);
+}
+std::unique_ptr<MujocoOptionFlagVisualization>
+MujocoOptionFlagVisualization::inertia() {
+  return std::make_unique<MujocoOptionFlagVisualization>(
+      "mj_inertia", "MuJoCo's equivalent inertia ellipsoids", /*hotkey=*/'i',
+      mjVIS_INERTIA);
+}
+std::unique_ptr<MujocoOptionFlagVisualization>
+MujocoOptionFlagVisualization::convexHull() {
+  return std::make_unique<MujocoOptionFlagVisualization>(
+      "mj_convex_hull", "MuJoCo's convex hulls of the meshes", /*hotkey=*/'h',
+      mjVIS_CONVEXHULL);
+}
+std::unique_ptr<MujocoOptionFlagVisualization>
+MujocoOptionFlagVisualization::transparency() {
+  return std::make_unique<MujocoOptionFlagVisualization>(
+      "mj_transparent",
+      "MuJoCo's x-ray view: the moving geoms at the model's map alpha (30% by "
+      "default), the floor opaque",
       /*hotkey=*/'t', mjVIS_TRANSPARENT);
 }
 
-void MujocoOptionFlagVisualization::beforeSceneUpdate(const VisualizationFrame& frame) {
+void MujocoOptionFlagVisualization::beforeSceneUpdate(
+    const VisualizationFrame& frame) {
   if (frame.options == nullptr || flag_ < 0 || flag_ >= mjNVISFLAG) return;
   frame.options->flags[flag_] = enabled() ? 1 : 0;
 }

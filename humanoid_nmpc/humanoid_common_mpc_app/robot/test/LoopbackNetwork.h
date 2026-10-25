@@ -43,16 +43,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::test_support {
 
 /**
- * Writes a network file at `path` that puts each of `nodes` on 127.0.0.1 in this test process's own DDS domain
- * (robot::ipc::isolatedTestNetwork()), with the shipped topics' QoS, and loads it back, as the child processes of a
- * test read it (--network_config).
+ * Writes a network file at `path` that puts each of `nodes` on 127.0.0.1 in
+ * this test process's own DDS domain (robot::ipc::isolatedTestNetwork()), with
+ * the shipped topics' QoS, and loads it back, as the child processes of a test
+ * read it (--network_config).
  */
-absl::StatusOr<robot::ipc::NetworkConfig> writeLoopbackNetworkFile(const std::string& path, const std::vector<std::string>& nodes);
+absl::StatusOr<robot::ipc::NetworkConfig> writeLoopbackNetworkFile(
+    const std::string& path, const std::vector<std::string>& nodes);
 
-/** A bus of `network` that publishes as `node`, with a short IO poll period. CHECK-fails when it cannot be created. */
-std::unique_ptr<robot::ipc::Bus> createBus(const robot::ipc::NetworkConfig& network, const std::string& node);
+/** A bus of `network` that publishes as `node`, with a short IO poll period.
+ * CHECK-fails when it cannot be created. */
+std::unique_ptr<robot::ipc::Bus> createBus(
+    const robot::ipc::NetworkConfig& network, const std::string& node);
 
-/** Polls `condition` every 5 ms until it holds or `timeout` passes; whether it held. */
+/** Polls `condition` every 5 ms until it holds or `timeout` passes; whether it
+ * held. */
 bool waitFor(const std::function<bool()>& condition, absl::Duration timeout);
 
 }  // namespace ocs2::humanoid::test_support

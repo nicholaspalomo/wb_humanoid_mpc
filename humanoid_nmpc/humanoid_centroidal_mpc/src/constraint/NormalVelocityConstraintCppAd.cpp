@@ -40,25 +40,30 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-NormalVelocityConstraintCppAd::NormalVelocityConstraintCppAd(const SwitchedModelReferenceManager& referenceManager,
-                                                             const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
-                                                             size_t contactPointIndex)
+NormalVelocityConstraintCppAd::NormalVelocityConstraintCppAd(
+    const SwitchedModelReferenceManager& referenceManager,
+    const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
+    size_t contactPointIndex)
     : StateInputConstraint(ConstraintOrder::Linear),
       referenceManagerPtr_(&referenceManager),
-      eeLinearConstraintPtr_(std::make_unique<EndEffectorKinematicsLinearVelConstraint>(endEffectorKinematics, /*numConstraints=*/1)),
+      eeLinearConstraintPtr_(
+          std::make_unique<EndEffectorKinematicsLinearVelConstraint>(
+              endEffectorKinematics, /*numConstraints=*/1)),
       contactPointIndex_(contactPointIndex) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-NormalVelocityConstraintCppAd::NormalVelocityConstraintCppAd(const NormalVelocityConstraintCppAd& rhs)
+NormalVelocityConstraintCppAd::NormalVelocityConstraintCppAd(
+    const NormalVelocityConstraintCppAd& rhs)
     : StateInputConstraint(rhs),
       referenceManagerPtr_(rhs.referenceManagerPtr_),
       eeLinearConstraintPtr_(rhs.eeLinearConstraintPtr_->clone()),
       contactPointIndex_(rhs.contactPointIndex_),
-      // isActive_ is copied deliberately: the SQP solver clones the whole problem once per worker thread,
-      // and a copy constructor that dropped this flag silently reverted a deactivated term to active.
+      // isActive_ is copied deliberately: the SQP solver clones the whole
+      // problem once per worker thread, and a copy constructor that dropped
+      // this flag silently reverted a deactivated term to active.
       isActive_(rhs.isActive_) {}
 
 /******************************************************************************************************/
@@ -72,25 +77,35 @@ bool NormalVelocityConstraintCppAd::isActive(scalar_t time) const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-vector_t NormalVelocityConstraintCppAd::getValue(scalar_t time,
-                                                 const vector_t& state,
-                                                 const vector_t& input,
-                                                 const PreComputation& preComp) const {
-  const HumanoidPreComputation& humanoidPreComp = cast<HumanoidPreComputation>(preComp);
-  eeLinearConstraintPtr_->configure(humanoidPreComp.getEeNormalVelocityConstraintConfigs()[contactPointIndex_]);
+vector_t NormalVelocityConstraintCppAd::getValue(
+    scalar_t time,
+    const vector_t& state,
+    const vector_t& input,
+    const PreComputation& preComp) const {
+  const HumanoidPreComputation& humanoidPreComp =
+      cast<HumanoidPreComputation>(preComp);
+  eeLinearConstraintPtr_->configure(
+      humanoidPreComp
+          .getEeNormalVelocityConstraintConfigs()[contactPointIndex_]);
   return eeLinearConstraintPtr_->getValue(time, state, input, preComp);
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-VectorFunctionLinearApproximation NormalVelocityConstraintCppAd::getLinearApproximation(scalar_t time,
-                                                                                        const vector_t& state,
-                                                                                        const vector_t& input,
-                                                                                        const PreComputation& preComp) const {
-  const HumanoidPreComputation& humanoidPreComp = cast<HumanoidPreComputation>(preComp);
-  eeLinearConstraintPtr_->configure(humanoidPreComp.getEeNormalVelocityConstraintConfigs()[contactPointIndex_]);
-  return eeLinearConstraintPtr_->getLinearApproximation(time, state, input, preComp);
+VectorFunctionLinearApproximation
+NormalVelocityConstraintCppAd::getLinearApproximation(
+    scalar_t time,
+    const vector_t& state,
+    const vector_t& input,
+    const PreComputation& preComp) const {
+  const HumanoidPreComputation& humanoidPreComp =
+      cast<HumanoidPreComputation>(preComp);
+  eeLinearConstraintPtr_->configure(
+      humanoidPreComp
+          .getEeNormalVelocityConstraintConfigs()[contactPointIndex_]);
+  return eeLinearConstraintPtr_->getLinearApproximation(time, state, input,
+                                                        preComp);
 }
 
 }  // namespace ocs2::humanoid

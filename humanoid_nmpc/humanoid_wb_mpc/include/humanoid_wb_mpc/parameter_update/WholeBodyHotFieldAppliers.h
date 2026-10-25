@@ -41,22 +41,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Returns the hot-field appliers of the whole-body MPC `interface` built, in the order a reload applies them (none keeps
- * the interface, and none is refused): the quadratic cost weights,
- * the soft-constraint penalties, the foot constraint's soft weights, the reference manager (the ground and the swing
- * trajectories), the SQP settings, the weights of the CppAD-taped costs and the foot constraints' gains
- * (WholeBodyCostWeightsApplier, StanceFootAccelerationGainsApplier). They are exactly what a fresh start of the
- * whole-body MPC reads of the task file's RELOAD_HOT fields: the blocks WBMpcInterface refuses or never builds a term for
- * (the CoM + ACoM, capture-point, link and leg torque costs, the contact-implicit terms, the basis-vector inputs and the
- * locomotion heuristics) have no applier here.
+ * Returns the hot-field appliers of the whole-body MPC `interface` built, in
+ * the order a reload applies them (none keeps the interface, and none is
+ * refused): the quadratic cost weights, the soft-constraint penalties, the foot
+ * constraint's soft weights, the reference manager (the ground and the swing
+ * trajectories), the SQP settings, the weights of the CppAD-taped costs and the
+ * foot constraints' gains (WholeBodyCostWeightsApplier,
+ * StanceFootAccelerationGainsApplier). They are exactly what a fresh start of
+ * the whole-body MPC reads of the task file's RELOAD_HOT fields: the blocks
+ * WBMpcInterface refuses or never builds a term for (the CoM + ACoM,
+ * capture-point, link and leg torque costs, the contact-implicit terms, the
+ * basis-vector inputs and the locomotion heuristics) have no applier here.
  */
-absl::StatusOr<std::vector<std::unique_ptr<HotFieldApplier>>> wholeBodyHotFieldAppliers(const WBMpcInterface& interface);
+absl::StatusOr<std::vector<std::unique_ptr<HotFieldApplier>>>
+wholeBodyHotFieldAppliers(const WBMpcInterface& interface);
 
 /**
- * Returns the task-file fields wholeBodyHotFieldAppliers() applies, by their path from the file message (a block's path
- * stands for every field below it), sorted and each once: the union of the appliers' staticFields(), read off the same
- * list the appliers are made from, without an MPC. MpcParameterUpdaterModule::appliedFields() of the whole-body
- * updater equals it.
+ * Returns the task-file fields wholeBodyHotFieldAppliers() applies, by their
+ * path from the file message (a block's path stands for every field below it),
+ * sorted and each once: the union of the appliers' staticFields(), read off the
+ * same list the appliers are made from, without an MPC.
+ * MpcParameterUpdaterModule::appliedFields() of the whole-body updater equals
+ * it.
  */
 std::vector<std::string> wholeBodyHotFieldNames();
 

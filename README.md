@@ -173,6 +173,9 @@ make format
 # Run linter and verify IFTTT directives
 make lint
 
+# Apply every automatic lint fix, then lint what is left to fix by hand (build and test afterwards)
+make fix
+
 # Clean build artifacts
 make clean        # Incremental clean
 make clean-all    # Deep clean including external caches

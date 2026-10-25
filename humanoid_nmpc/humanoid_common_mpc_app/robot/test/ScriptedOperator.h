@@ -50,7 +50,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::test_support {
 
-/** The lowest and highest base heights [m] of the robot/state samples received since ScriptedOperator::resetBaseHeightRange(). */
+/** The lowest and highest base heights [m] of the robot/state samples received
+ * since ScriptedOperator::resetBaseHeightRange(). */
 struct BaseHeightRange {
   double min = std::numeric_limits<double>::infinity();
   double max = -std::numeric_limits<double>::infinity();
@@ -58,13 +59,16 @@ struct BaseHeightRange {
 };
 
 /**
- * The operator of an end-to-end test: the remote control GUI as the test scripts it, as the bus node "operator" of the
- * test's network file. It keeps the newest robot/fsm_state, robot/state, robot/loop_timing and mpc/status, counts the
- * viz/scene messages, and sends FSM and walking velocity commands as the GUI does.
+ * The operator of an end-to-end test: the remote control GUI as the test
+ * scripts it, as the bus node "operator" of the test's network file. It keeps
+ * the newest robot/fsm_state, robot/state, robot/loop_timing and mpc/status,
+ * counts the viz/scene messages, and sends FSM and walking velocity commands as
+ * the GUI does.
  */
 class ScriptedOperator {
  public:
-  /** The operator's bus on `network` (which must name "operator") and its subscriptions; CHECK-fails on an error. */
+  /** The operator's bus on `network` (which must name "operator") and its
+   * subscriptions; CHECK-fails on an error. */
   explicit ScriptedOperator(const robot::ipc::NetworkConfig& network);
 
   /** stop(). */
@@ -85,19 +89,25 @@ class ScriptedOperator {
   uint64_t scenesReceived() const;
 
   /**
-   * Sends the FSM command `command` with the next sequence number, again every 50 ms (a sample written before DDS
-   * discovery matched the writers is not delivered; the robot drops the repeats by their sequence), until the robot's FSM state
-   * satisfies `reached`; false when it does not within `timeout`.
+   * Sends the FSM command `command` with the next sequence number, again every
+   * 50 ms (a sample written before DDS discovery matched the writers is not
+   * delivered; the robot drops the repeats by their sequence), until the
+   * robot's FSM state satisfies `reached`; false when it does not within
+   * `timeout`.
    */
-  bool sendFsmCommand(const std::string& command,
-                      const std::function<bool(const humanoid_mpc_msgs::FsmState&)>& reached,
-                      absl::Duration timeout = absl::Seconds(10));
+  bool sendFsmCommand(
+      const std::string& command,
+      const std::function<bool(const humanoid_mpc_msgs::FsmState&)>& reached,
+      absl::Duration timeout = absl::Seconds(10));
 
   /** sendFsmCommand(`mode`) until the robot reports that mode. */
   bool enterMode(const std::string& mode);
 
-  /** Publishes `command` on operator/walking_velocity_command every 40 ms (25 Hz, as the GUI) for `duration`. */
-  void sendVelocityCommand(const humanoid_mpc_msgs::WalkingVelocityCommand& command, absl::Duration duration);
+  /** Publishes `command` on operator/walking_velocity_command every 40 ms (25
+   * Hz, as the GUI) for `duration`. */
+  void sendVelocityCommand(
+      const humanoid_mpc_msgs::WalkingVelocityCommand& command,
+      absl::Duration duration);
 
   /** Starts a new BaseHeightRange. */
   void resetBaseHeightRange();
@@ -108,9 +118,11 @@ class ScriptedOperator {
   uint64_t sequence_ = 0;
   mutable absl::Mutex mutex_;
   std::optional<humanoid_mpc_msgs::FsmState> fsmState_ ABSL_GUARDED_BY(mutex_);
-  std::optional<humanoid_mpc_msgs::RobotStateSample> sample_ ABSL_GUARDED_BY(mutex_);
+  std::optional<humanoid_mpc_msgs::RobotStateSample> sample_
+      ABSL_GUARDED_BY(mutex_);
   std::optional<humanoid_mpc_msgs::LoopTiming> timing_ ABSL_GUARDED_BY(mutex_);
-  std::optional<humanoid_mpc_msgs::MpcStatus> mpcStatus_ ABSL_GUARDED_BY(mutex_);
+  std::optional<humanoid_mpc_msgs::MpcStatus> mpcStatus_
+      ABSL_GUARDED_BY(mutex_);
   uint64_t scenesReceived_ ABSL_GUARDED_BY(mutex_) = 0;
   BaseHeightRange baseHeightRange_ ABSL_GUARDED_BY(mutex_);
 };

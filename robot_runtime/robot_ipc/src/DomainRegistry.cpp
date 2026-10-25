@@ -42,19 +42,24 @@ absl::Status DomainRegistry::acquire(int domainId, const std::string& config) {
   const absl::flat_hash_map<int, Domain>::iterator it = domains_.find(domainId);
   if (it != domains_.end()) {
     if (it->second.config != config) {
-      return absl::FailedPreconditionError(absl::StrCat("robot_ipc: DDS domain ", domainId,
-                                                        " is configured differently by another bus of this process (a bus of "
-                                                        "another node or network); use one network file and node per process"));
+      return absl::FailedPreconditionError(absl::StrCat(
+          "robot_ipc: DDS domain ", domainId,
+          " is configured differently by another bus of this process (a bus of "
+          "another node or network); use one network file and node per "
+          "process"));
     }
     ++it->second.users;
     return absl::OkStatus();
   }
-  const dds_entity_t domain = dds_create_domain(static_cast<dds_domainid_t>(domainId), config.c_str());
+  const dds_entity_t domain =
+      dds_create_domain(static_cast<dds_domainid_t>(domainId), config.c_str());
   if (domain < 0) {
     return absl::InternalError(
-        absl::StrCat("robot_ipc: cannot create DDS domain ", domainId, ": ", dds_strretcode(domain), " (configuration: ", config, ")"));
+        absl::StrCat("robot_ipc: cannot create DDS domain ", domainId, ": ",
+                     dds_strretcode(domain), " (configuration: ", config, ")"));
   }
-  domains_.emplace(domainId, Domain{.entity = domain, .config = config, .users = 1});
+  domains_.emplace(domainId,
+                   Domain{.entity = domain, .config = config, .users = 1});
   return absl::OkStatus();
 }
 
@@ -69,7 +74,8 @@ void DomainRegistry::release(int domainId) {
   }
   const dds_return_t deleted = dds_delete(it->second.entity);
   if (deleted < 0) {
-    LOG(ERROR) << "robot_ipc: deleting DDS domain " << domainId << " failed: " << dds_strretcode(deleted);
+    LOG(ERROR) << "robot_ipc: deleting DDS domain " << domainId
+               << " failed: " << dds_strretcode(deleted);
   }
   domains_.erase(it);
 }

@@ -41,29 +41,42 @@ namespace {
 
 absl::Status checkFinite(absl::string_view field, double value) {
   if (std::isfinite(value)) return absl::OkStatus();
-  return absl::InvalidArgumentError(absl::StrCat("WalkingVelocityCommand.", field, " is ", value, "; every value must be finite"));
+  return absl::InvalidArgumentError(
+      absl::StrCat("WalkingVelocityCommand.", field, " is ", value,
+                   "; every value must be finite"));
 }
 
 }  // namespace
 
-WalkingVelocityCommand clampWalkingVelocityCommand(const WalkingVelocityCommand& command) {
+WalkingVelocityCommand clampWalkingVelocityCommand(
+    const WalkingVelocityCommand& command) {
   WalkingVelocityCommand clamped;
-  clamped.linear_velocity_x = std::clamp(command.linear_velocity_x, -kMaxNormalizedVelocity, kMaxNormalizedVelocity);
-  clamped.linear_velocity_y = std::clamp(command.linear_velocity_y, -kMaxNormalizedVelocity, kMaxNormalizedVelocity);
-  clamped.desired_pelvis_height = std::clamp(command.desired_pelvis_height, kMinPelvisHeight, kMaxPelvisHeight);
-  clamped.angular_velocity_z = std::clamp(command.angular_velocity_z, -kMaxNormalizedVelocity, kMaxNormalizedVelocity);
+  clamped.linear_velocity_x =
+      std::clamp(command.linear_velocity_x, -kMaxNormalizedVelocity,
+                 kMaxNormalizedVelocity);
+  clamped.linear_velocity_y =
+      std::clamp(command.linear_velocity_y, -kMaxNormalizedVelocity,
+                 kMaxNormalizedVelocity);
+  clamped.desired_pelvis_height = std::clamp(
+      command.desired_pelvis_height, kMinPelvisHeight, kMaxPelvisHeight);
+  clamped.angular_velocity_z =
+      std::clamp(command.angular_velocity_z, -kMaxNormalizedVelocity,
+                 kMaxNormalizedVelocity);
   return clamped;
 }
 
-absl::StatusOr<WalkingVelocityCommand> walkingVelocityCommandFromProto(const humanoid_mpc_msgs::WalkingVelocityCommand& message) {
+absl::StatusOr<WalkingVelocityCommand> walkingVelocityCommandFromProto(
+    const humanoid_mpc_msgs::WalkingVelocityCommand& message) {
   for (const absl::Status& status :
-       {checkFinite("linear_velocity_x", message.linear_velocity_x()), checkFinite("linear_velocity_y", message.linear_velocity_y()),
+       {checkFinite("linear_velocity_x", message.linear_velocity_x()),
+        checkFinite("linear_velocity_y", message.linear_velocity_y()),
         checkFinite("desired_pelvis_height", message.desired_pelvis_height()),
         checkFinite("angular_velocity_z", message.angular_velocity_z())}) {
     if (!status.ok()) return status;
   }
-  return clampWalkingVelocityCommand(WalkingVelocityCommand(message.linear_velocity_x(), message.linear_velocity_y(),
-                                                            message.desired_pelvis_height(), message.angular_velocity_z()));
+  return clampWalkingVelocityCommand(WalkingVelocityCommand(
+      message.linear_velocity_x(), message.linear_velocity_y(),
+      message.desired_pelvis_height(), message.angular_velocity_z()));
 }
 
 }  // namespace ocs2::humanoid::node

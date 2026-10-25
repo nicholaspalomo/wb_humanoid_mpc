@@ -82,9 +82,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_runtime/robot_ipc/test/TestNetwork.h"
 
 /*
- * The whole-body MPC node on the Unitree G1 task file, with the real SQP solver, served over loopback buses: to a robot
- * and an operator the test scripts, and to the dummy simulator for a few seconds. Builds the CppAD libraries of the G1
- * whole-body MPC on a cold cache (minutes); every node after the first loads them.
+ * The whole-body MPC node on the Unitree G1 task file, with the real SQP
+ * solver, served over loopback buses: to a robot and an operator the test
+ * scripts, and to the dummy simulator for a few seconds. Builds the CppAD
+ * libraries of the G1 whole-body MPC on a cold cache (minutes); every node
+ * after the first loads them.
  */
 
 namespace ocs2::humanoid {
@@ -95,11 +97,24 @@ using node::test_support::ScriptedRobot;
 
 node::MpcFiles g1Files() {
   node::MpcFiles files;
-  // A file missing from the runfiles throws here, naming the data dependency to add (robot::resolveResourcePath).
-  files.taskFile = robot::resolveResourcePath("robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto").value();
-  files.referenceFile = robot::resolveResourcePath("robot_models/unitree_g1/g1_wb_mpc/config/command/reference.textproto").value();
-  files.urdfFile = robot::resolveResourcePath("robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf").value();
-  files.gaitFile = robot::resolveResourcePath("humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto").value();
+  // A file missing from the runfiles throws here, naming the data dependency to
+  // add (robot::resolveResourcePath).
+  files.taskFile =
+      robot::resolveResourcePath(
+          "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto")
+          .value();
+  files.referenceFile = robot::resolveResourcePath(
+                            "robot_models/unitree_g1/g1_wb_mpc/config/command/"
+                            "reference.textproto")
+                            .value();
+  files.urdfFile =
+      robot::resolveResourcePath(
+          "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf")
+          .value();
+  files.gaitFile =
+      robot::resolveResourcePath(
+          "humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto")
+          .value();
   return files;
 }
 
@@ -107,7 +122,8 @@ std::unique_ptr<robot::ipc::Bus> loopbackBus(const std::string& name) {
   robot::ipc::BusOptions options;
   options.nodeName = name;
   options.network = robot::ipc::isolatedTestNetwork({name});
-  absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus = robot::ipc::Bus::Create(std::move(options));
+  absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus =
+      robot::ipc::Bus::Create(std::move(options));
   EXPECT_TRUE(bus.ok()) << bus.status();
   return *std::move(bus);
 }
@@ -117,7 +133,8 @@ class NodeHarness {
  public:
   NodeHarness() : files_(g1Files()) {
     std::unique_ptr<robot::ipc::Bus> mpcBus = loopbackBus("mpc");
-    absl::StatusOr<std::unique_ptr<WBMpcNode>> node = WBMpcNode::Create(files_, std::move(mpcBus), WBMpcNode::Options());
+    absl::StatusOr<std::unique_ptr<WBMpcNode>> node =
+        WBMpcNode::Create(files_, std::move(mpcBus), WBMpcNode::Options());
     EXPECT_TRUE(node.ok()) << node.status();
     node_ = *std::move(node);
     EXPECT_TRUE(robot_.start().ok());
@@ -133,15 +150,24 @@ class NodeHarness {
     SystemObservation observation;
     observation.time = time;
     observation.state = node_->interface().getInitialState();
-    observation.input = vector_t::Zero(node_->interface().getMpcRobotModel().getInputDim());
+    observation.input =
+        vector_t::Zero(node_->interface().getMpcRobotModel().getInputDim());
     observation.mode = ModeNumber::kStance;
     return observation;
   }
 
-  std::optional<humanoid_mpc_msgs::MpcPolicy> solve(scalar_t time, uint64_t sequence, uint64_t requested = 0, uint64_t fullRequested = 0) {
-    humanoid_mpc_msgs::MpcObservation message = ScriptedRobot::observationMessage(standing(time), sequence, requested, fullRequested);
-    // The robot of the node's model layout: the node refuses an observation of another, an unstamped one included.
-    message.set_model_fingerprint(modelLayoutFingerprint(node_->interface().modelSettings()));
+  std::optional<humanoid_mpc_msgs::MpcPolicy> solve(
+      scalar_t time,
+      uint64_t sequence,
+      uint64_t requested = 0,
+      uint64_t fullRequested = 0) {
+    humanoid_mpc_msgs::MpcObservation message =
+        ScriptedRobot::observationMessage(standing(time), sequence, requested,
+                                          fullRequested);
+    // The robot of the node's model layout: the node refuses an observation of
+    // another, an unstamped one included.
+    message.set_model_fingerprint(
+        modelLayoutFingerprint(node_->interface().modelSettings()));
     return robot_.solve(message, /*timeoutSeconds=*/60.0);
   }
 
@@ -155,44 +181,60 @@ class NodeHarness {
   std::unique_ptr<WBMpcNode> node_;
 };
 
-TEST(WBMpcNode, SolvesTheRobotsObservationsServesTheResetsTheyRequestAndDrawsThePolicies) {
+TEST(WBMpcNode,
+     SolvesTheRobotsObservationsServesTheResetsTheyRequestAndDrawsThePolicies) {
   NodeHarness harness;
   const ipc::ModelDimensions dimensions = harness.node().dimensions();
 
-  std::optional<humanoid_mpc_msgs::MpcPolicy> policy = harness.solve(/*time=*/0.0, /*sequence=*/1);
+  std::optional<humanoid_mpc_msgs::MpcPolicy> policy =
+      harness.solve(/*time=*/0.0, /*sequence=*/1);
   if (!policy.has_value()) GTEST_FAIL() << "the node served no policy";
   EXPECT_TRUE(policy->solver_status().healthy());
   ASSERT_GT(policy->time_trajectory_size(), 1);
   EXPECT_EQ(policy->time_trajectory(0), 0.0);
-  EXPECT_EQ(policy->state_trajectory(0).data_size(), static_cast<int>(dimensions.stateDim));
-  EXPECT_EQ(policy->input_trajectory(0).data_size(), static_cast<int>(dimensions.inputDim));
+  EXPECT_EQ(policy->state_trajectory(0).data_size(),
+            static_cast<int>(dimensions.stateDim));
+  EXPECT_EQ(policy->input_trajectory(0).data_size(),
+            static_cast<int>(dimensions.inputDim));
   EXPECT_EQ(policy->resets_served(), 0);
-  // The shipped whole-body G1 runs a feedforward policy, which travels as it is on the quaternion state too.
+  // The shipped whole-body G1 runs a feedforward policy, which travels as it is
+  // on the quaternion state too.
   ASSERT_FALSE(harness.node().interface().sqpSettings().useFeedbackPolicy)
       << "the shipped G1 runs no multiple_shooting.use_feedback_policy";
-  EXPECT_EQ(policy->controller_type(), humanoid_mpc_msgs::CONTROLLER_TYPE_FEEDFORWARD);
+  EXPECT_EQ(policy->controller_type(),
+            humanoid_mpc_msgs::CONTROLLER_TYPE_FEEDFORWARD);
 
-  // A solver reset, then a full one, requested through the observation's counters.
-  policy = harness.solve(/*time=*/0.02, /*sequence=*/2, /*requested=*/1, /*fullRequested=*/0);
+  // A solver reset, then a full one, requested through the observation's
+  // counters.
+  policy = harness.solve(/*time=*/0.02, /*sequence=*/2, /*requested=*/1,
+                         /*fullRequested=*/0);
   if (!policy.has_value()) GTEST_FAIL() << "the node served no policy";
   EXPECT_EQ(policy->resets_served(), 1);
   EXPECT_EQ(policy->full_resets_served(), 0);
-  policy = harness.solve(/*time=*/0.04, /*sequence=*/3, /*requested=*/2, /*fullRequested=*/1);
+  policy = harness.solve(/*time=*/0.04, /*sequence=*/3, /*requested=*/2,
+                         /*fullRequested=*/1);
   if (!policy.has_value()) GTEST_FAIL() << "the node served no policy";
   EXPECT_EQ(policy->resets_served(), 2);
   EXPECT_EQ(policy->full_resets_served(), 1);
 
-  const ipc::MpcServer::Statistics statistics = harness.node().runtime().statistics().server;
-  EXPECT_EQ(statistics.fullResets, 2);  // the start-up reset and the requested one
+  const ipc::MpcServer::Statistics statistics =
+      harness.node().runtime().statistics().server;
+  EXPECT_EQ(statistics.fullResets,
+            2);  // the start-up reset and the requested one
   EXPECT_EQ(statistics.solverResets, 1);
   EXPECT_EQ(statistics.failedAttempts, 0);
 
-  // Every published policy also feeds the node's visualization publisher, which draws a scene of it on the bus.
+  // Every published policy also feeds the node's visualization publisher, which
+  // draws a scene of it on the bus.
   EXPECT_TRUE(node::test_support::waitFor([&]() {
-    const visualization::VisualizationPublisherStatistics drawn = harness.node().visualization().statistics();
-    return drawn.policiesSet == harness.node().runtime().statistics().server.policiesPublished && drawn.scenesPublished > 0;
+    const visualization::VisualizationPublisherStatistics drawn =
+        harness.node().visualization().statistics();
+    return drawn.policiesSet ==
+               harness.node().runtime().statistics().server.policiesPublished &&
+           drawn.scenesPublished > 0;
   }));
-  const visualization::VisualizationPublisherStatistics drawn = harness.node().visualization().statistics();
+  const visualization::VisualizationPublisherStatistics drawn =
+      harness.node().visualization().statistics();
   EXPECT_GE(drawn.policiesSet, 3u);
   EXPECT_EQ(drawn.buildFailures, 0u);
   EXPECT_EQ(drawn.publishFailures, 0u);
@@ -206,124 +248,183 @@ TEST(WBMpcNode, TheVelocityCommandReachesTheMotionManager) {
   command.set_desired_pelvis_height(0.8);
   command.set_angular_velocity_z(-0.25);
   ProceduralMpcMotionManager& motionManager = harness.node().motionManager();
-  ASSERT_TRUE(harness.robot().sendAsOperator(topics::kOperatorWalkingVelocityCommand, command,
-                                             [&]() { return motionManager.getScaledWalkingVelocityCommand().linear_velocity_x > 0.0; }));
-  const WalkingVelocityCommand scaled = motionManager.getScaledWalkingVelocityCommand();
+  ASSERT_TRUE(harness.robot().sendAsOperator(
+      topics::kOperatorWalkingVelocityCommand, command, [&]() {
+        return motionManager.getScaledWalkingVelocityCommand()
+                   .linear_velocity_x > 0.0;
+      }));
+  const WalkingVelocityCommand scaled =
+      motionManager.getScaledWalkingVelocityCommand();
   EXPECT_LT(scaled.angular_velocity_z, 0.0);
   // The next policy carries it.
-  const std::optional<humanoid_mpc_msgs::MpcPolicy> policy = harness.solve(/*time=*/0.02, /*sequence=*/2);
+  const std::optional<humanoid_mpc_msgs::MpcPolicy> policy =
+      harness.solve(/*time=*/0.02, /*sequence=*/2);
   if (!policy.has_value()) GTEST_FAIL() << "the node served no policy";
-  EXPECT_EQ(policy->annotations().scaled_velocity_x(), scaled.linear_velocity_x);
+  EXPECT_EQ(policy->annotations().scaled_velocity_x(),
+            scaled.linear_velocity_x);
   EXPECT_EQ(policy->annotations().scaled_yaw_rate(), scaled.angular_velocity_z);
 }
 
-/** The tuning GUI's update of the task file at `taskFile` with its state weights scaled by `stateWeightScale`. */
-humanoid_mpc_config::MpcParameterUpdate stateWeightUpdate(const std::string& taskFile, double stateWeightScale) {
-  const absl::StatusOr<humanoid_mpc_config::TaskFile> task = nproto::ParseTextprotoFile<humanoid_mpc_config::TaskFile>(taskFile);
+/** The tuning GUI's update of the task file at `taskFile` with its state
+ * weights scaled by `stateWeightScale`. */
+humanoid_mpc_config::MpcParameterUpdate stateWeightUpdate(
+    const std::string& taskFile, double stateWeightScale) {
+  const absl::StatusOr<humanoid_mpc_config::TaskFile> task =
+      nproto::ParseTextprotoFile<humanoid_mpc_config::TaskFile>(taskFile);
   EXPECT_TRUE(task.ok()) << task.status();
   humanoid_mpc_config::MpcParameterUpdate update;
   if (!task.ok()) return update;
   *update.mutable_task() = *task;
-  update.mutable_task()->mutable_state_weights()->set_scaling(task->state_weights().scaling() * stateWeightScale);
+  update.mutable_task()->mutable_state_weights()->set_scaling(
+      task->state_weights().scaling() * stateWeightScale);
   update.set_schema_fingerprint(mpcParameterUpdateSchemaFingerprint());
   update.set_config_path(configFileIdentity(taskFile));
   return update;
 }
 
-/** The weights of the quadratic state cost of `task`'s state_weights, on the whole-body coordinates of `interface`. */
-matrix_t stateWeightsOf(const humanoid_mpc_config::TaskFile& task, const WBMpcInterface& interface) {
+/** The weights of the quadratic state cost of `task`'s state_weights, on the
+ * whole-body coordinates of `interface`. */
+matrix_t stateWeightsOf(const humanoid_mpc_config::TaskFile& task,
+                        const WBMpcInterface& interface) {
   mpc_config::TaskFile typed;
   EXPECT_TRUE(mpc_config::FromProto(task, &typed).ok());
   const absl::StatusOr<matrix_t> weights = stateWeightsFromConfig(
-      typed.state_weights, stateInputLayout(interface.modelSettings(), StateInputLayout::Mpc::kWholeBody), "state_weights");
+      typed.state_weights,
+      stateInputLayout(interface.modelSettings(),
+                       StateInputLayout::Mpc::kWholeBody),
+      "state_weights");
   EXPECT_TRUE(weights.ok()) << weights.status();
   return weights.ok() ? *weights : matrix_t();
 }
 
 /**
- * Expects every worker's running quadratic state cost to hold the state weights `expected` (Q of the tuning layout, which
- * the cost's TuningLayoutDeviation maps onto the quaternion state's tangent), and the swing foot's gains of every
- * worker's pre-computation to be the model settings'.
+ * Expects every worker's running quadratic state cost to hold the state weights
+ * `expected` (Q of the tuning layout, which the cost's TuningLayoutDeviation
+ * maps onto the quaternion state's tangent), and the swing foot's gains of
+ * every worker's pre-computation to be the model settings'.
  */
-void expectRunningStateWeightsAndShippedFootGains(WBMpcNode& node, const matrix_t& expected) {
+void expectRunningStateWeightsAndShippedFootGains(WBMpcNode& node,
+                                                  const matrix_t& expected) {
   const WBMpcInterface& interface = node.interface();
-  const ModelSettings::FootConstraintConfig& shipped = interface.modelSettings().footConstraintConfig;
-  // The solver thread waits for the next observation: the problems are not being solved.
-  for (OptimalControlProblem& problem : node.mpc().getSolverPtr()->getOcpDefinitions()) {
-    const matrix_t& weights = problem.costPtr->get<TuningQuadraticStateInputCost>(kStateQuadraticCostTerm).getStateWeights();
-    EXPECT_TRUE(weights == expected) << "the running state weights are not the expected ones";
-    const WBMpcPreComputation& preComputation = cast<WBMpcPreComputation>(*problem.preComputationPtr);
-    EXPECT_EQ(preComputation.getSwingFootGains().linearVelocityErrorGainZ, shipped.linearVelocityErrorGain_z);
-    EXPECT_EQ(preComputation.getSwingFootGains().linearAccelerationErrorGainZ, shipped.linearAccelerationErrorGain_z);
-    EXPECT_EQ(preComputation.getNormalVelocityPositionErrorGain(), shipped.positionErrorGain_z);
+  const ModelSettings::FootConstraintConfig& shipped =
+      interface.modelSettings().footConstraintConfig;
+  // The solver thread waits for the next observation: the problems are not
+  // being solved.
+  for (OptimalControlProblem& problem :
+       node.mpc().getSolverPtr()->getOcpDefinitions()) {
+    const matrix_t& weights =
+        problem.costPtr
+            ->get<TuningQuadraticStateInputCost>(kStateQuadraticCostTerm)
+            .getStateWeights();
+    EXPECT_TRUE(weights == expected)
+        << "the running state weights are not the expected ones";
+    const WBMpcPreComputation& preComputation =
+        cast<WBMpcPreComputation>(*problem.preComputationPtr);
+    EXPECT_EQ(preComputation.getSwingFootGains().linearVelocityErrorGainZ,
+              shipped.linearVelocityErrorGain_z);
+    EXPECT_EQ(preComputation.getSwingFootGains().linearAccelerationErrorGainZ,
+              shipped.linearAccelerationErrorGain_z);
+    EXPECT_EQ(preComputation.getNormalVelocityPositionErrorGain(),
+              shipped.positionErrorGain_z);
   }
 }
 
 TEST(WBMpcNode, AnMpcParameterUpdateIsAppliedBeforeTheNextSolve) {
   NodeHarness harness;
   ASSERT_TRUE(harness.solve(/*time=*/0.0, /*sequence=*/1).has_value());
-  // The tuning GUI's whole task file of this robot and configuration, its state weights doubled.
-  const humanoid_mpc_config::MpcParameterUpdate update = stateWeightUpdate(harness.files().taskFile, /*stateWeightScale=*/2.0);
-  ASSERT_TRUE(harness.robot().sendAsOperator(topics::kOperatorMpcParameters, update,
-                                             [&]() { return harness.node().runtime().statistics().parameterUpdatesReceived > 0; }));
+  // The tuning GUI's whole task file of this robot and configuration, its state
+  // weights doubled.
+  const humanoid_mpc_config::MpcParameterUpdate update =
+      stateWeightUpdate(harness.files().taskFile, /*stateWeightScale=*/2.0);
+  ASSERT_TRUE(harness.robot().sendAsOperator(
+      topics::kOperatorMpcParameters, update, [&]() {
+        return harness.node().runtime().statistics().parameterUpdatesReceived >
+               0;
+      }));
   EXPECT_EQ(harness.node().runtime().statistics().parameterUpdatesRejected, 0u);
-  // The update is applied by the solve after it arrived, before any worker runs.
+  // The update is applied by the solve after it arrived, before any worker
+  // runs.
   ASSERT_TRUE(harness.solve(/*time=*/0.02, /*sequence=*/2).has_value());
-  expectRunningStateWeightsAndShippedFootGains(harness.node(), stateWeightsOf(update.task(), harness.node().interface()));
+  expectRunningStateWeightsAndShippedFootGains(
+      harness.node(),
+      stateWeightsOf(update.task(), harness.node().interface()));
 }
 
 TEST(WBMpcNode, AnUpdateOfAnotherConfigurationIsRefused) {
   NodeHarness harness;
   ASSERT_TRUE(harness.solve(/*time=*/0.0, /*sequence=*/1).has_value());
-  // The centroidal G1's file: the same robot_name, another configuration. The GUI stamps its config_path.
+  // The centroidal G1's file: the same robot_name, another configuration. The
+  // GUI stamps its config_path.
   const std::string centroidalTaskFile =
-      robot::resolveResourcePath("robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto").value();
-  const humanoid_mpc_config::MpcParameterUpdate update = stateWeightUpdate(centroidalTaskFile, /*stateWeightScale=*/2.0);
-  ASSERT_EQ(update.task().model_settings().robot_name(), harness.node().interface().modelSettings().robotName);
-  const node::MpcNodeRuntime::Statistics before = harness.node().runtime().statistics();
-  ASSERT_TRUE(harness.robot().sendAsOperator(topics::kOperatorMpcParameters, update, [&]() {
-    return harness.node().runtime().statistics().parameterUpdatesRejected > before.parameterUpdatesRejected;
-  }));
-  EXPECT_EQ(harness.node().runtime().statistics().parameterUpdatesRejected, before.parameterUpdatesRejected + 1);
+      robot::resolveResourcePath(
+          "robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto")
+          .value();
+  const humanoid_mpc_config::MpcParameterUpdate update =
+      stateWeightUpdate(centroidalTaskFile, /*stateWeightScale=*/2.0);
+  ASSERT_EQ(update.task().model_settings().robot_name(),
+            harness.node().interface().modelSettings().robotName);
+  const node::MpcNodeRuntime::Statistics before =
+      harness.node().runtime().statistics();
+  ASSERT_TRUE(harness.robot().sendAsOperator(
+      topics::kOperatorMpcParameters, update, [&]() {
+        return harness.node().runtime().statistics().parameterUpdatesRejected >
+               before.parameterUpdatesRejected;
+      }));
+  EXPECT_EQ(harness.node().runtime().statistics().parameterUpdatesRejected,
+            before.parameterUpdatesRejected + 1);
   ASSERT_TRUE(harness.solve(/*time=*/0.02, /*sequence=*/2).has_value());
-  // Nothing of it reached the problem: the weights and the gains are this file's.
+  // Nothing of it reached the problem: the weights and the gains are this
+  // file's.
   const absl::StatusOr<humanoid_mpc_config::TaskFile> shipped =
-      nproto::ParseTextprotoFile<humanoid_mpc_config::TaskFile>(harness.files().taskFile);
+      nproto::ParseTextprotoFile<humanoid_mpc_config::TaskFile>(
+          harness.files().taskFile);
   ASSERT_TRUE(shipped.ok()) << shipped.status();
-  expectRunningStateWeightsAndShippedFootGains(harness.node(), stateWeightsOf(*shipped, harness.node().interface()));
+  expectRunningStateWeightsAndShippedFootGains(
+      harness.node(), stateWeightsOf(*shipped, harness.node().interface()));
 }
 
 TEST(WBMpcNode, TheUpdaterAppliesTheWholeBodyHotFields) {
   NodeHarness harness;
-  EXPECT_EQ(harness.node().parameterUpdater().appliedFields(), wholeBodyHotFieldNames());
+  EXPECT_EQ(harness.node().parameterUpdater().appliedFields(),
+            wholeBodyHotFieldNames());
 }
 
-void expectSameTarget(const TargetTrajectories& expected, const TargetTrajectories& actual) {
+void expectSameTarget(const TargetTrajectories& expected,
+                      const TargetTrajectories& actual) {
   ASSERT_EQ(expected.timeTrajectory, actual.timeTrajectory);
   ASSERT_EQ(expected.stateTrajectory.size(), actual.stateTrajectory.size());
   ASSERT_EQ(expected.inputTrajectory.size(), actual.inputTrajectory.size());
   for (size_t i = 0; i < expected.stateTrajectory.size(); ++i) {
-    EXPECT_EQ(expected.stateTrajectory[i], actual.stateTrajectory[i]) << "node " << i;
-    EXPECT_EQ(expected.inputTrajectory[i], actual.inputTrajectory[i]) << "node " << i;
+    EXPECT_EQ(expected.stateTrajectory[i], actual.stateTrajectory[i])
+        << "node " << i;
+    EXPECT_EQ(expected.inputTrajectory[i], actual.inputTrajectory[i])
+        << "node " << i;
   }
 }
 
 TEST(WBMpcNode, ResetsToTheTargetTheControllerHandsItsInProcessLink) {
   NodeHarness harness;
   WBMpcInterface& interface = harness.node().interface();
-  absl::StatusOr<robot::model::RobotDescription> descriptionOrStatus = robot::model::RobotDescription::Create(harness.files().urdfFile);
+  absl::StatusOr<robot::model::RobotDescription> descriptionOrStatus =
+      robot::model::RobotDescription::Create(harness.files().urdfFile);
   ASSERT_TRUE(descriptionOrStatus.ok()) << descriptionOrStatus.status();
   const robot::model::RobotDescription& description = *descriptionOrStatus;
-  // The controller as the robot process builds it, with a link that keeps the reset target the controller hands it.
-  mpc_test::ScriptedMpc scriptedMpc(interface.mpcSettings(), interface.getMpcRobotModel().getInputDim());
+  // The controller as the robot process builds it, with a link that keeps the
+  // reset target the controller hands it.
+  mpc_test::ScriptedMpc scriptedMpc(interface.mpcSettings(),
+                                    interface.getMpcRobotModel().getInputDim());
   MpcLink::ResetTargetFunction controllerResetTarget;
-  const MpcLinkFactory capturing = [&](MpcLink::ResetTargetFunction resetTarget) -> std::unique_ptr<MpcLink> {
+  const MpcLinkFactory capturing = [&](MpcLink::ResetTargetFunction resetTarget)
+      -> std::unique_ptr<MpcLink> {
     controllerResetTarget = resetTarget;
-    return std::make_unique<InProcessMpcLink>(scriptedMpc, std::move(resetTarget), InProcessMpcLink::Config());
+    return std::make_unique<InProcessMpcLink>(
+        scriptedMpc, std::move(resetTarget), InProcessMpcLink::Config());
   };
   const absl::StatusOr<std::unique_ptr<WBMpcMrtJointController>> controller =
-      WBMpcMrtJointController::Create(description, interface.modelSettings(), capturing, interface.getPinocchioInterface(),
-                                      jointPdGainsFileBeside(harness.files().taskFile));
+      WBMpcMrtJointController::Create(
+          description, interface.modelSettings(), capturing,
+          interface.getPinocchioInterface(),
+          jointPdGainsFileBeside(harness.files().taskFile));
   ASSERT_TRUE(controller.ok()) << controller.status();
   ASSERT_TRUE(controllerResetTarget);
   const MpcRobotModelBase<scalar_t>& model = interface.getMpcRobotModel();
@@ -336,25 +437,32 @@ TEST(WBMpcNode, ResetsToTheTargetTheControllerHandsItsInProcessLink) {
     eulerZyx(1) = 0.03;  // pitch
     model.setBaseOrientationEulerZyx(observation.state, eulerZyx);
     // The velocities v of Pinocchio's tangent, the state's tail.
-    observation.state.tail(static_cast<Eigen::Index>(model.getVelocityDim())).setConstant(0.1);
-    expectSameTarget(controllerResetTarget(observation), harness.node().resetTargetTrajectories(observation));
+    observation.state.tail(static_cast<Eigen::Index>(model.getVelocityDim()))
+        .setConstant(0.1);
+    expectSameTarget(controllerResetTarget(observation),
+                     harness.node().resetTargetTrajectories(observation));
   }
 }
 
-/** The dummy simulator against the node, on a bus of its own, playing the robot; run() on a thread of its own. */
+/** The dummy simulator against the node, on a bus of its own, playing the
+ * robot; run() on a thread of its own. */
 class DummySimRunner {
  public:
   explicit DummySimRunner(WBMpcNode& node) {
     std::unique_ptr<robot::ipc::Bus> robotBus = loopbackBus("robot");
     node::DummySimLoop::Config config;
     config.simulationFrequency = 80.0;  // as humanoid_wb_mpc_dummy_sim
-    config.mpcDesiredFrequency = node.interface().mpcSettings().mpcDesiredFrequency_;
+    config.mpcDesiredFrequency =
+        node.interface().mpcSettings().mpcDesiredFrequency_;
     config.link.dimensions = node.dimensions();
-    // The robot's link interpolates the node's policies on the MPC's state manifold, as the dummy-sim binary's.
+    // The robot's link interpolates the node's policies on the MPC's state
+    // manifold, as the dummy-sim binary's.
     config.link.stateManifold = node.interface().getStateManifold();
-    config.link.modelFingerprint = modelLayoutFingerprint(node.interface().modelSettings());
+    config.link.modelFingerprint =
+        modelLayoutFingerprint(node.interface().modelSettings());
     absl::StatusOr<std::unique_ptr<node::DummySimLoop>> loop =
-        node::DummySimLoop::Create(std::move(robotBus), node.interface().getRollout(), config);
+        node::DummySimLoop::Create(std::move(robotBus),
+                                   node.interface().getRollout(), config);
     EXPECT_TRUE(loop.ok()) << loop.status();
     loop_ = *std::move(loop);
     initialObservation_.time = 0.0;
@@ -363,20 +471,30 @@ class DummySimRunner {
     initialObservation_.mode = ModeNumber::kStance;
   }
 
-  /** Runs the loop for `duration` of wall time once its first policy has arrived, then stops it. */
+  /** Runs the loop for `duration` of wall time once its first policy has
+   * arrived, then stops it. */
   absl::Status runFor(absl::Duration duration) {
     absl::Status status;
-    std::thread runner([&]() { status = loop_->run(initialObservation_, [this]() { return stop_.load(); }); });
-    const bool started = node::test_support::waitFor([&]() { return loop_->statistics().steps > 0; }, /*timeoutSeconds=*/120.0);
+    std::thread runner([&]() {
+      status =
+          loop_->run(initialObservation_, [this]() { return stop_.load(); });
+    });
+    const bool started = node::test_support::waitFor(
+        [&]() { return loop_->statistics().steps > 0; },
+        /*timeoutSeconds=*/120.0);
     if (started) absl::SleepFor(duration);
     stop_.store(true);
     runner.join();
-    if (!started) return absl::DeadlineExceededError("the dummy simulator received no policy");
+    if (!started)
+      return absl::DeadlineExceededError(
+          "the dummy simulator received no policy");
     return status;
   }
 
   node::DummySimLoop& loop() { return *loop_; }
-  const SystemObservation& initialObservation() const { return initialObservation_; }
+  const SystemObservation& initialObservation() const {
+    return initialObservation_;
+  }
 
  private:
   std::unique_ptr<node::DummySimLoop> loop_;
@@ -387,15 +505,18 @@ class DummySimRunner {
 TEST(WBMpcNode, TheDummySimulatorStandsOnTheNodesPoliciesWithoutAReset) {
   const node::MpcFiles files = g1Files();
   std::unique_ptr<robot::ipc::Bus> mpcBus = loopbackBus("mpc");
-  absl::StatusOr<std::unique_ptr<WBMpcNode>> node = WBMpcNode::Create(files, std::move(mpcBus), WBMpcNode::Options());
+  absl::StatusOr<std::unique_ptr<WBMpcNode>> node =
+      WBMpcNode::Create(files, std::move(mpcBus), WBMpcNode::Options());
   ASSERT_TRUE(node.ok()) << node.status();
   DummySimRunner dummySim(**node);
   ASSERT_TRUE((*node)->start().ok());
   ASSERT_TRUE(dummySim.runFor(absl::Seconds(4)).ok());
   (*node)->stop();
 
-  const node::DummySimLoop::Statistics statistics = dummySim.loop().statistics();
-  const ipc::MpcServer::Statistics server = (*node)->runtime().statistics().server;
+  const node::DummySimLoop::Statistics statistics =
+      dummySim.loop().statistics();
+  const ipc::MpcServer::Statistics server =
+      (*node)->runtime().statistics().server;
   // Policies flowed: synchronized with the MPC, one per update of the plant.
   EXPECT_GT(statistics.steps, 20);
   EXPECT_GT(statistics.synchronizedPolicies, 10);
@@ -411,10 +532,13 @@ TEST(WBMpcNode, TheDummySimulatorStandsOnTheNodesPoliciesWithoutAReset) {
   EXPECT_EQ(statistics.link.invalidPoliciesRejected, 0);
   EXPECT_TRUE(statistics.link.solverHealthy);
 
-  // It stands: the base stays where it started, upright, within a few centimeters.
-  const MpcRobotModelBase<scalar_t>& model = (*node)->interface().getMpcRobotModel();
+  // It stands: the base stays where it started, upright, within a few
+  // centimeters.
+  const MpcRobotModelBase<scalar_t>& model =
+      (*node)->interface().getMpcRobotModel();
   const SystemObservation latest = dummySim.loop().latestObservation();
-  const vector3_t startPosition = model.getBasePosition(dummySim.initialObservation().state);
+  const vector3_t startPosition =
+      model.getBasePosition(dummySim.initialObservation().state);
   const vector3_t position = model.getBasePosition(latest.state);
   EXPECT_NEAR(position.z(), startPosition.z(), 0.05);
   EXPECT_LT((position - startPosition).head<2>().norm(), 0.05);
@@ -423,7 +547,11 @@ TEST(WBMpcNode, TheDummySimulatorStandsOnTheNodesPoliciesWithoutAReset) {
   EXPECT_LT(std::abs(orientation(2)), 0.1);  // roll
   EXPECT_TRUE(latest.state.allFinite());
   // The plant's rollout keeps the stored quaternion on the unit sphere.
-  EXPECT_NEAR(latest.state.segment<4>(static_cast<Eigen::Index>(model.getBaseOrientationStartIndex())).norm(), 1.0, 1.0e-9);
+  EXPECT_NEAR(latest.state
+                  .segment<4>(static_cast<Eigen::Index>(
+                      model.getBaseOrientationStartIndex()))
+                  .norm(),
+              1.0, 1.0e-9);
 }
 
 }  // namespace

@@ -46,24 +46,32 @@ absl::StatusOr<std::unique_ptr<StateQuadraticCost>> StateQuadraticCost::Create(
     const SwitchedModelReferenceManager* absl_nonnull referenceManager,
     const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModel) {
   // The constructor is private, so std::make_unique cannot reach it.
-  std::unique_ptr<StateQuadraticCost> cost = absl::WrapUnique(new StateQuadraticCost(referenceManager, mpcRobotModel));
+  std::unique_ptr<StateQuadraticCost> cost =
+      absl::WrapUnique(new StateQuadraticCost(referenceManager, mpcRobotModel));
   RETURN_IF_ERROR(cost->setStateWeights(std::move(stateWeights)));
-  const Eigen::Index inputDim = static_cast<Eigen::Index>(mpcRobotModel->getInputDim());
+  const Eigen::Index inputDim =
+      static_cast<Eigen::Index>(mpcRobotModel->getInputDim());
   RETURN_IF_ERROR(cost->setInputWeights(matrix_t::Zero(inputDim, inputDim)));
   return cost;
 }
 
-StateQuadraticCost::StateQuadraticCost(const SwitchedModelReferenceManager* absl_nonnull referenceManager,
-                                       const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModel)
-    : TuningQuadraticStateInputCost(mpcRobotModel), referenceManagerPtr_(ABSL_DIE_IF_NULL(referenceManager)) {}
+StateQuadraticCost::StateQuadraticCost(
+    const SwitchedModelReferenceManager* absl_nonnull referenceManager,
+    const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModel)
+    : TuningQuadraticStateInputCost(mpcRobotModel),
+      referenceManagerPtr_(ABSL_DIE_IF_NULL(referenceManager)) {}
 
-StateInputReference StateQuadraticCost::getReference(scalar_t time,
-                                                     const vector_t& state,
-                                                     const vector_t& input,
-                                                     const TargetTrajectories& targetTrajectories,
-                                                     const PreComputation& /*preComputation*/) const {
-  // The input deviation input - input is zero, as the zero deviation the cost had before it measured from references.
-  return StateInputReference{.state = referenceManagerPtr_->getDesiredState(targetTrajectories, state, time), .input = input};
+StateInputReference StateQuadraticCost::getReference(
+    scalar_t time,
+    const vector_t& state,
+    const vector_t& input,
+    const TargetTrajectories& targetTrajectories,
+    const PreComputation& /*preComputation*/) const {
+  // The input deviation input - input is zero, as the zero deviation the cost
+  // had before it measured from references.
+  return StateInputReference{.state = referenceManagerPtr_->getDesiredState(
+                                 targetTrajectories, state, time),
+                             .input = input};
 }
 
 }  // namespace ocs2::humanoid

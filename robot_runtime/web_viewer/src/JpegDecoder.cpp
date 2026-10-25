@@ -47,31 +47,44 @@ namespace robot::web_viewer {
 absl::StatusOr<std::unique_ptr<JpegDecoder>> JpegDecoder::Create() {
   void* absl_nullable decompressor = tj3Init(TJINIT_DECOMPRESS);
   if (decompressor == nullptr) {
-    return absl::InternalError(absl::StrCat("libjpeg-turbo could not create a decompressor: ", tj3GetErrorStr(/*handle=*/nullptr)));
+    return absl::InternalError(
+        absl::StrCat("libjpeg-turbo could not create a decompressor: ",
+                     tj3GetErrorStr(/*handle=*/nullptr)));
   }
   return absl::WrapUnique(new JpegDecoder(decompressor));
 }
 
-JpegDecoder::JpegDecoder(void* absl_nonnull decompressor) : decompressor_(decompressor) {}
+JpegDecoder::JpegDecoder(void* absl_nonnull decompressor)
+    : decompressor_(decompressor) {}
 
 JpegDecoder::~JpegDecoder() {
   tj3Destroy(decompressor_);
 }
 
 absl::StatusOr<JpegDecoder::Image> JpegDecoder::decode(absl::string_view jpeg) {
-  if (jpeg.empty()) return absl::InvalidArgumentError("not a JPEG image: no bytes");
-  const unsigned char* absl_nonnull data = reinterpret_cast<const unsigned char*>(jpeg.data());
+  if (jpeg.empty())
+    return absl::InvalidArgumentError("not a JPEG image: no bytes");
+  const unsigned char* absl_nonnull data =
+      reinterpret_cast<const unsigned char*>(jpeg.data());
   if (tj3DecompressHeader(decompressor_, data, jpeg.size()) != 0) {
-    return absl::InvalidArgumentError(absl::StrCat("not a JPEG image (", jpeg.size(), " bytes): ", tj3GetErrorStr(decompressor_)));
+    return absl::InvalidArgumentError(
+        absl::StrCat("not a JPEG image (", jpeg.size(),
+                     " bytes): ", tj3GetErrorStr(decompressor_)));
   }
-  Image image = {.width = tj3Get(decompressor_, TJPARAM_JPEGWIDTH), .height = tj3Get(decompressor_, TJPARAM_JPEGHEIGHT), .rgb = {}};
+  Image image = {.width = tj3Get(decompressor_, TJPARAM_JPEGWIDTH),
+                 .height = tj3Get(decompressor_, TJPARAM_JPEGHEIGHT),
+                 .rgb = {}};
   if (image.width <= 0 || image.height <= 0) {
-    return absl::InvalidArgumentError(absl::StrCat("the JPEG image has no size: ", image.width, "x", image.height));
+    return absl::InvalidArgumentError(absl::StrCat(
+        "the JPEG image has no size: ", image.width, "x", image.height));
   }
-  image.rgb.resize(static_cast<size_t>(image.width) * static_cast<size_t>(image.height) * 3);
+  image.rgb.resize(static_cast<size_t>(image.width) *
+                   static_cast<size_t>(image.height) * 3);
   if (tj3Set(decompressor_, TJPARAM_BOTTOMUP, /*value=*/0) != 0 ||
-      tj3Decompress8(decompressor_, data, jpeg.size(), image.rgb.data(), /*pitch=*/image.width * 3, TJPF_RGB) != 0) {
-    return absl::InvalidArgumentError(absl::StrCat("the JPEG image does not decode: ", tj3GetErrorStr(decompressor_)));
+      tj3Decompress8(decompressor_, data, jpeg.size(), image.rgb.data(),
+                     /*pitch=*/image.width * 3, TJPF_RGB) != 0) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "the JPEG image does not decode: ", tj3GetErrorStr(decompressor_)));
   }
   return image;
 }

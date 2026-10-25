@@ -110,20 +110,28 @@ class GeneratedModulesTest(unittest.TestCase):
             for stem in self.stems
         }
 
-    def test_every_proto_file_has_a_module_named_after_its_one_definition(self) -> None:
+    def test_every_proto_file_has_a_module_named_after_its_one_definition(
+        self,
+    ) -> None:
         for stem, module in self.modules.items():
             with self.subTest(proto=stem):
                 file_descriptor = module.DESCRIPTOR
-                self.assertEqual(file_descriptor.name, f"{PACKAGE}/{stem}.proto")
-                self.assertEqual(file_descriptor.package, PACKAGE)
-                definitions = list(file_descriptor.message_types_by_name) + list(
-                    file_descriptor.enum_types_by_name
+                self.assertEqual(
+                    file_descriptor.name, f"{PACKAGE}/{stem}.proto"
                 )
+                self.assertEqual(file_descriptor.package, PACKAGE)
+                definitions = list(
+                    file_descriptor.message_types_by_name
+                ) + list(file_descriptor.enum_types_by_name)
                 self.assertEqual(len(definitions), 1, definitions)
                 self.assertEqual(snake_case(definitions[0]), stem)
 
-    def test_every_import_is_a_file_of_the_package_or_the_nproto_options(self) -> None:
-        files = {f"{PACKAGE}/{stem}.proto" for stem in self.stems} | {NPROTO_OPTIONS}
+    def test_every_import_is_a_file_of_the_package_or_the_nproto_options(
+        self,
+    ) -> None:
+        files = {f"{PACKAGE}/{stem}.proto" for stem in self.stems} | {
+            NPROTO_OPTIONS
+        }
         for stem, module in self.modules.items():
             for dependency in module.DESCRIPTOR.dependencies:
                 with self.subTest(proto=stem, imports=dependency.name):
@@ -136,7 +144,9 @@ class GeneratedModulesTest(unittest.TestCase):
             for name, message in file_descriptor.message_types_by_name.items():
                 with self.subTest(proto=stem, message=name):
                     self.assertEqual(
-                        message.GetOptions().Extensions[options_pb2.generate_struct],
+                        message.GetOptions().Extensions[
+                            options_pb2.generate_struct
+                        ],
                         f"{STRUCT_NAMESPACE}::{name}",
                     )
             for name, enum in file_descriptor.enum_types_by_name.items():
@@ -170,7 +180,8 @@ class MpcPolicyTest(unittest.TestCase):
     def test_type_name_is_the_full_protobuf_name(self) -> None:
         # The second frame of every bus message; tools/ipc decodes topics by it.
         self.assertEqual(
-            mpc_policy_pb2.MpcPolicy.DESCRIPTOR.full_name, "humanoid_mpc_msgs.MpcPolicy"
+            mpc_policy_pb2.MpcPolicy.DESCRIPTOR.full_name,
+            "humanoid_mpc_msgs.MpcPolicy",
         )
 
 
@@ -182,18 +193,22 @@ class TargetContactPatchTest(unittest.TestCase):
         patch = target_contact_patch_pb2.TargetContactPatch()
         self.assertFalse(patch.HasField("pose"))
         self.assertEqual(
-            patch.kind, target_contact_patch_pb2.TargetContactPatch.KIND_UNSPECIFIED
+            patch.kind,
+            target_contact_patch_pb2.TargetContactPatch.KIND_UNSPECIFIED,
         )
         patch.pose.x = 0.0
         self.assertTrue(patch.HasField("pose"))
 
-    def test_a_payload_of_the_retired_layout_is_not_read_as_a_pose(self) -> None:
+    def test_a_payload_of_the_retired_layout_is_not_read_as_a_pose(
+        self,
+    ) -> None:
         # valid: true (field 1), kind: 2 (field 2) and x: 0.5 (field 3) of the layout before the pose had presence.
         old = bytes([0x08, 0x01, 0x10, 0x02, 0x19]) + struct.pack("<d", 0.5)
         patch = target_contact_patch_pb2.TargetContactPatch.FromString(old)
         self.assertFalse(patch.HasField("pose"))
         self.assertEqual(
-            patch.kind, target_contact_patch_pb2.TargetContactPatch.KIND_UNSPECIFIED
+            patch.kind,
+            target_contact_patch_pb2.TargetContactPatch.KIND_UNSPECIFIED,
         )
 
 
@@ -203,12 +218,12 @@ class BusTest(unittest.TestCase):
         received: list[tuple[str, bytes]] = []
         policy = make_policy()
         bus = robot_ipc.Bus("mpc", robot_ipc.isolated_test_network(["mpc"]))
+
+        def receive(type_name: str, payload: bytes) -> None:
+            received.append((type_name, payload))
+
         try:
-            bus.subscribe_raw(
-                "mpc/policy",
-                lambda type_name, payload: received.append((type_name, payload)),
-                "all",
-            )
+            bus.subscribe_raw("mpc/policy", receive, "all")
             bus.start()
             deadline = time.monotonic() + 20.0
             while not received and time.monotonic() < deadline:
@@ -224,8 +239,15 @@ class BusTest(unittest.TestCase):
 
 class RerunTest(unittest.TestCase):
 
-    def test_rerun_sdk_loads_with_the_archetypes_the_bridge_maps_onto(self) -> None:
-        for archetype in ("Arrows3D", "LineStrips3D", "Points3D", "Transform3D"):
+    def test_rerun_sdk_loads_with_the_archetypes_the_bridge_maps_onto(
+        self,
+    ) -> None:
+        for archetype in (
+            "Arrows3D",
+            "LineStrips3D",
+            "Points3D",
+            "Transform3D",
+        ):
             with self.subTest(archetype=archetype):
                 self.assertTrue(hasattr(rerun, archetype))
 

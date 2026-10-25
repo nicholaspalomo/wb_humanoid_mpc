@@ -44,7 +44,9 @@ import nproto_generator
 def main() -> int:
     # nproto_generator has imported nproto's options_pb2 and retired_field_options_pb2, so the request's custom options
     # parse as their extensions.
-    request = plugin_pb2.CodeGeneratorRequest.FromString(sys.stdin.buffer.read())
+    request = plugin_pb2.CodeGeneratorRequest.FromString(
+        sys.stdin.buffer.read()
+    )
     response = nproto_generator.generate(request)
     sys.stdout.buffer.write(response.SerializeToString())
     return 0

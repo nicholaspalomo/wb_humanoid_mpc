@@ -40,15 +40,20 @@ namespace ocs2::humanoid {
 /**
  * `yaw_torque_regularization`: w sum_i tau_{i,k}^2 on the running nodes.
  *
- * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
  */
 class YawTorqueRegularizationCost final : public LipWeightedCost {
  public:
   std::string describe() const override;
-  std::vector<std::string> requiredBlocks() const override { return {term::kHeadingDoubleIntegrator}; }
+  std::vector<std::string> requiredBlocks() const override {
+    return {term::kHeadingDoubleIntegrator};
+  }
   void configure(const ContactPlanningConfig& config) override;
   NodeSet nodeSet() const override { return NodeSet::kRunning; }
-  void addToStage(const ContactPlanningContext& ctx, int node, StageAccumulator& stage) const override;
+  void addToStage(const ContactPlanningContext& ctx,
+                  int node,
+                  StageAccumulator& stage) const override;
 };
 
 }  // namespace ocs2::humanoid

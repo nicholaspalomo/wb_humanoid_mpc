@@ -162,7 +162,9 @@ class Envelope(cyclonedds.idl.IdlStruct, typename=ENVELOPE_TYPE_NAME):  # type: 
                 raise EnvelopeError("the data is shorter than its header")
             encapsulation = _HEADER.unpack_from(view)[0]
             if encapsulation not in (_CDR_BE, _CDR_LE, _CDR2_BE, _CDR2_LE):
-                raise EnvelopeError(f"unknown encapsulation 0x{encapsulation:04x}")
+                raise EnvelopeError(
+                    f"unknown encapsulation 0x{encapsulation:04x}"
+                )
             body = view[_HEADER_SIZE:]
         else:
             encapsulation = _CDR2_LE if use_version_2 is not False else _CDR_LE
@@ -176,7 +178,9 @@ class Envelope(cyclonedds.idl.IdlStruct, typename=ENVELOPE_TYPE_NAME):  # type: 
         try:
             (protocol_version,) = struct.unpack_from(f"{order}I", body, 0)
             offset = _UINT32_SIZE + _padding(_UINT32_SIZE, uint64_alignment)
-            sequence_number, name_size = struct.unpack_from(f"{order}QI", body, offset)
+            sequence_number, name_size = struct.unpack_from(
+                f"{order}QI", body, offset
+            )
             offset += _UINT64_SIZE + _UINT32_SIZE
             name = bytes(body[offset : offset + name_size])
             if len(name) != name_size or not name.endswith(_STRING_TERMINATOR):

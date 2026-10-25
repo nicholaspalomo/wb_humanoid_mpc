@@ -45,19 +45,26 @@ def registry_lines(source):
     """The lines the registry engine reports for `source`, a first-party C++ file, after its NOLINT markers."""
     return [
         f.line
-        for f in check_test_support.findings("argument-comment", source, "src/a.cpp")
+        for f in check_test_support.findings(
+            "argument-comment", source, "src/a.cpp"
+        )
     ]
 
 
 class FlagsBareLiteralsTest(unittest.TestCase):
     def test_the_call_the_rule_was_written_for(self):
-        source = "const ContactRectangle footprint = ContactRectangle::loadContactRectangle(taskFile_, modelSettings_, 0, verbose_);"
+        source = (
+            "const ContactRectangle footprint ="
+            " ContactRectangle::loadContactRectangle(taskFile_, modelSettings_,"
+            " 0, verbose_);"
+        )
         self.assertEqual(flagged(source), [("loadContactRectangle", "0", 3)])
 
     def test_an_argument_comment_satisfies_it(self):
         self.assertEqual(
             flagged(
-                "loadContactRectangle(taskFile_, modelSettings_, /*contactIndex=*/0, verbose_);"
+                "loadContactRectangle(taskFile_, modelSettings_,"
+                " /*contactIndex=*/0, verbose_);"
             ),
             [],
         )
@@ -82,7 +89,9 @@ class FlagsBareLiteralsTest(unittest.TestCase):
         }
         for literal, expected in cases.items():
             with self.subTest(literal=literal):
-                self.assertEqual(flagged("f(a, %s);" % literal), [("f", expected, 2)])
+                self.assertEqual(
+                    flagged("f(a, %s);" % literal), [("f", expected, 2)]
+                )
 
     def test_empty_values_and_characters(self):
         for literal in ["{}", '""', "std::nullopt", "'c'", "'\\n'"]:
@@ -90,12 +99,15 @@ class FlagsBareLiteralsTest(unittest.TestCase):
                 self.assertEqual(
                     flagged("load(file, %s);" % literal), [("load", literal, 2)]
                 )
-                self.assertEqual(flagged("load(file, /*defaults=*/%s);" % literal), [])
+                self.assertEqual(
+                    flagged("load(file, /*defaults=*/%s);" % literal), []
+                )
         # A non-empty braced list or string says what it holds.
         self.assertEqual(flagged('load(file, {"a"}); load(file, "a");'), [])
         # Two numbers are coordinates; an empty value beside a number is not, and both are reported.
         self.assertEqual(
-            flagged("addHard({}, 1.0);"), [("addHard", "{}", 1), ("addHard", "1.0", 2)]
+            flagged("addHard({}, 1.0);"),
+            [("addHard", "{}", 1), ("addHard", "1.0", 2)],
         )
 
     def test_each_literal_of_a_call_is_reported_with_its_position(self):
@@ -111,7 +123,8 @@ class FlagsBareLiteralsTest(unittest.TestCase):
 
     def test_a_call_inside_an_exempt_macro_is_still_checked(self):
         self.assertEqual(
-            flagged("EXPECT_TRUE(isInContact(0.1, foot));"), [("isInContact", "0.1", 1)]
+            flagged("EXPECT_TRUE(isInContact(0.1, foot));"),
+            [("isInContact", "0.1", 1)],
         )
 
     def test_templated_and_qualified_callees(self):
@@ -119,12 +132,14 @@ class FlagsBareLiteralsTest(unittest.TestCase):
         self.assertEqual(flagged("foo<Bar<int>>(a, 0);"), [("foo", "0", 2)])
         self.assertEqual(flagged("object->method(a, 0);"), [("method", "0", 2)])
         self.assertEqual(
-            flagged("std::make_unique<Term>(model, 0.5);"), [("make_unique", "0.5", 2)]
+            flagged("std::make_unique<Term>(model, 0.5);"),
+            [("make_unique", "0.5", 2)],
         )
 
     def test_a_direct_initialized_object_is_a_constructor_call(self):
         self.assertEqual(
-            flagged("ContactRectangle rectangle(file, 0);"), [("rectangle", "0", 2)]
+            flagged("ContactRectangle rectangle(file, 0);"),
+            [("rectangle", "0", 2)],
         )
 
 
@@ -133,13 +148,19 @@ class ExemptionsTest(unittest.TestCase):
         self.assertEqual(flagged("x = R(2, 2);"), [])
         self.assertEqual(flagged("v = vector3_t(0.0, 0.0, 1.0);"), [])
         # A boolean among them is not a coordinate.
-        self.assertEqual(flagged("f(0, true);"), [("f", "0", 1), ("f", "true", 2)])
+        self.assertEqual(
+            flagged("f(0, true);"), [("f", "0", 1), ("f", "true", 2)]
+        )
 
     def test_one_argument_calls(self):
-        self.assertEqual(flagged("setVerbose(true); v.resize(3); wait(0.5);"), [])
+        self.assertEqual(
+            flagged("setVerbose(true); v.resize(3); wait(0.5);"), []
+        )
         # A bool or null is the exception: the name of a one-argument call rarely says what it switches.
         self.assertEqual(flagged("reset(true);"), [("reset", "true", 1)])
-        self.assertEqual(flagged("runner.start(nullptr);"), [("start", "nullptr", 1)])
+        self.assertEqual(
+            flagged("runner.start(nullptr);"), [("start", "nullptr", 1)]
+        )
         self.assertEqual(flagged("reset(/*hard=*/true);"), [])
         # Unless it is a setter, a protobuf adder, a member or variable being initialized, or conventional.
         for source in [
@@ -190,31 +211,48 @@ class ExemptionsTest(unittest.TestCase):
         # Every declarator of `Type a(...), b(...)` has the declaration's type, not only the first.
         self.assertEqual(
             flagged(
-                "std::vector<double*> A(N + 1, nullptr), B(N + 1, nullptr), C(N, nullptr);"
+                "std::vector<double*> A(N + 1, nullptr), B(N + 1, nullptr),"
+                " C(N, nullptr);"
             ),
             [],
         )
         # Positive controls: a declaration of a type that is not conventional, and calls that are not declarators.
         self.assertEqual(flagged("int a(1), b(n, true);"), [("b", "true", 2)])
         self.assertEqual(flagged("f(g(1), h(n, true));"), [("h", "true", 2)])
-        self.assertEqual(flagged("f(x, vector(1), h(n, true));"), [("h", "true", 2)])
-        self.assertEqual(flagged("return a(1), b(n, true);"), [("b", "true", 2)])
+        self.assertEqual(
+            flagged("f(x, vector(1), h(n, true));"), [("h", "true", 2)]
+        )
+        self.assertEqual(
+            flagged("return a(1), b(n, true);"), [("b", "true", 2)]
+        )
 
-    def test_template_arguments_of_a_conventional_type_are_not_call_arguments(self):
+    def test_template_arguments_of_a_conventional_type_are_not_call_arguments(
+        self,
+    ):
         # The commas and sizes of `Eigen::Matrix<SCALAR, 3, 3>` are not arguments of the call or declaration around it,
         # neither in a parameter declaration nor in a temporary passed as an argument.
         for source in [
-            "SCALAR footYawError(const Eigen::Matrix<SCALAR, 3, 3>& rotation, const vector3_t& axis);",
-            "EndEffectorKinematicsCostElement(const Eigen::Matrix<SCALAR_T, 13, 1>& vector);",
+            (
+                "SCALAR footYawError(const Eigen::Matrix<SCALAR, 3, 3>&"
+                " rotation, const vector3_t& axis);"
+            ),
+            (
+                "EndEffectorKinematicsCostElement(const Eigen::Matrix<SCALAR_T,"
+                " 13, 1>& vector);"
+            ),
             "costElementVector(Eigen::Matrix<SCALAR_T, 13, 1>::Zero());",
-            "f(getRotationMatrixFromZyxEulerAngles(Eigen::Matrix<ad_scalar_t, 3, 1>(yaw, 0.0, 0.0)), frame);",
+            (
+                "f(getRotationMatrixFromZyxEulerAngles(Eigen::Matrix<ad_scalar_t,"
+                " 3, 1>(yaw, 0.0, 0.0)), frame);"
+            ),
             "g(std::pair<int, bool>{index, flag}, name);",
         ]:
             with self.subTest(source=source):
                 self.assertEqual(flagged(source), [])
         # Positive controls: a bare literal beside such a type is still reported, at its real position.
         self.assertEqual(
-            flagged("f(Eigen::Matrix<ad_scalar_t, 3, 1>(x, y, z), 0);"), [("f", "0", 2)]
+            flagged("f(Eigen::Matrix<ad_scalar_t, 3, 1>(x, y, z), 0);"),
+            [("f", "0", 2)],
         )
         self.assertEqual(
             flagged("h(std::vector<std::pair<int, int>>{}, false);"),
@@ -259,20 +297,26 @@ class ExemptionsTest(unittest.TestCase):
     def test_nolint(self):
         # The registry applies the markers: NOLINT and NOLINTNEXTLINE with a reason suppress the finding.
         self.assertEqual(
-            registry_lines("f(a, 0);  // NOLINT(argument-comment): a reason\n"), []
+            registry_lines("f(a, 0);  // NOLINT(argument-comment): a reason\n"),
+            [],
         )
         self.assertEqual(
-            registry_lines("// NOLINTNEXTLINE(argument-comment): a reason\nf(a, 0);\n"),
+            registry_lines(
+                "// NOLINTNEXTLINE(argument-comment): a reason\nf(a, 0);\n"
+            ),
             [],
         )
         # Only the named check is suppressed.
         self.assertEqual(
-            registry_lines("f(a, 0);  // NOLINT(some-other-check): a reason\n"), [1]
+            registry_lines("f(a, 0);  // NOLINT(some-other-check): a reason\n"),
+            [1],
         )
 
 
 class PreCommitHookTest(unittest.TestCase):
-    def test_the_hook_runs_the_staged_check_after_formatting_and_fails_on_it(self):
+    def test_the_hook_runs_the_staged_check_after_formatting_and_fails_on_it(
+        self,
+    ):
         # The hook runs the registry's checks on the staged files, after the formatter's changes are staged.
         check_test_support.assert_hook_runs_the_linter(self)
         check_test_support.assert_check_behaves(

@@ -59,7 +59,9 @@ def _runfile(relative_path: str) -> str:
             os.path.join(os.environ["TEST_SRCDIR"], "_main"),
             os.environ["TEST_SRCDIR"],
         ]
-    roots.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+    roots.append(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
+    )
     for root in roots:
         candidate = os.path.join(root, relative_path)
         if os.path.exists(candidate):
@@ -125,7 +127,9 @@ class SetupEnvTest(unittest.TestCase):
             timeout=60,
             check=False,
         )
-        self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))
+        self.assertEqual(
+            (result.returncode, result.stdout, result.stderr), (0, "", "")
+        )
 
     def test_it_writes_no_file(self) -> None:
         self.source_then("true")
@@ -138,9 +142,13 @@ class SetupEnvTest(unittest.TestCase):
         self.assertIn(os.path.join(_ROBOTPKG_PREFIX, "bin"), path)
         self.assertIn("/usr/bin", path)
 
-    def test_the_python_tools_of_the_checkout_are_on_the_python_path(self) -> None:
+    def test_the_python_tools_of_the_checkout_are_on_the_python_path(
+        self,
+    ) -> None:
         python_path = self.environment()["PYTHONPATH"].split(":")
-        self.assertIn(os.path.join(self.workspace, "humanoid_learning"), python_path)
+        self.assertIn(
+            os.path.join(self.workspace, "humanoid_learning"), python_path
+        )
         self.assertIn(
             os.path.join(
                 self.workspace, "humanoid_nmpc", "humanoid_common_mpc_pyutils"
@@ -205,7 +213,9 @@ class SetupEnvTest(unittest.TestCase):
     ) -> None:
         self.assertEqual(self.environment()["DISPLAY"], ":99")
         self.assertEqual(self.environment(DISPLAY=":1")["DISPLAY"], ":99")
-        self.assertEqual(self.environment(DISPLAY="host:0")["DISPLAY"], "host:0")
+        self.assertEqual(
+            self.environment(DISPLAY="host:0")["DISPLAY"], "host:0"
+        )
 
 
 if __name__ == "__main__":

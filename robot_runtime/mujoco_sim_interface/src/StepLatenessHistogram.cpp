@@ -41,15 +41,18 @@ namespace robot::mujoco_sim_interface {
 
 void StepLatenessHistogram::record(std::chrono::nanoseconds lateness) {
   const int64_t nanoseconds = std::max<int64_t>(lateness.count(), 0);
-  const int64_t bin = std::min<int64_t>(nanoseconds / kBinWidthNanoseconds, kNumBins - 1);
+  const int64_t bin =
+      std::min<int64_t>(nanoseconds / kBinWidthNanoseconds, kNumBins - 1);
   bins_[bin].fetch_add(1, std::memory_order_relaxed);
   // One writer, so a plain compare and store keeps the maximum.
-  if (nanoseconds > maxNanoseconds_.load(std::memory_order_relaxed)) maxNanoseconds_.store(nanoseconds, std::memory_order_relaxed);
+  if (nanoseconds > maxNanoseconds_.load(std::memory_order_relaxed))
+    maxNanoseconds_.store(nanoseconds, std::memory_order_relaxed);
   count_.fetch_add(1, std::memory_order_relaxed);
 }
 
 void StepLatenessHistogram::reset() {
-  for (std::atomic<int64_t>& bin : bins_) bin.store(0, std::memory_order_relaxed);
+  for (std::atomic<int64_t>& bin : bins_)
+    bin.store(0, std::memory_order_relaxed);
   maxNanoseconds_.store(0, std::memory_order_relaxed);
   count_.store(0, std::memory_order_relaxed);
 }
@@ -60,25 +63,36 @@ int64_t StepLatenessHistogram::count() const {
 
 absl::Duration StepLatenessHistogram::percentile(double fraction) const {
   int64_t total = 0;
-  for (const std::atomic<int64_t>& bin : bins_) total += bin.load(std::memory_order_relaxed);
+  for (const std::atomic<int64_t>& bin : bins_)
+    total += bin.load(std::memory_order_relaxed);
   if (total == 0) return absl::ZeroDuration();
   if (!(fraction < 1.0)) return max();
-  const int64_t wanted = std::max<int64_t>(1, static_cast<int64_t>(std::ceil(std::max(fraction, 0.0) * static_cast<double>(total))));
+  const int64_t wanted = std::max<int64_t>(
+      1, static_cast<int64_t>(
+             std::ceil(std::max(fraction, 0.0) * static_cast<double>(total))));
   int64_t seen = 0;
   for (int bin = 0; bin < kNumBins; ++bin) {
     seen += bins_[bin].load(std::memory_order_relaxed);
     if (seen < wanted) continue;
-    // The last bin holds everything later than the others, so its upper edge is the maximum.
-    return bin + 1 == kNumBins ? max() : std::min(absl::Nanoseconds((bin + 1) * kBinWidthNanoseconds), max());
+    // The last bin holds everything later than the others, so its upper edge is
+    // the maximum.
+    return bin + 1 == kNumBins
+               ? max()
+               : std::min(absl::Nanoseconds((bin + 1) * kBinWidthNanoseconds),
+                          max());
   }
   return max();
 }
 
 int64_t StepLatenessHistogram::countLaterThan(absl::Duration lateness) const {
-  const int64_t nanoseconds = std::max<int64_t>(absl::ToInt64Nanoseconds(lateness), 0);
-  const int64_t firstBin = std::min<int64_t>((nanoseconds + kBinWidthNanoseconds - 1) / kBinWidthNanoseconds, kNumBins - 1);
+  const int64_t nanoseconds =
+      std::max<int64_t>(absl::ToInt64Nanoseconds(lateness), 0);
+  const int64_t firstBin = std::min<int64_t>(
+      (nanoseconds + kBinWidthNanoseconds - 1) / kBinWidthNanoseconds,
+      kNumBins - 1);
   int64_t later = 0;
-  for (int64_t bin = firstBin; bin < kNumBins; ++bin) later += bins_[bin].load(std::memory_order_relaxed);
+  for (int64_t bin = firstBin; bin < kNumBins; ++bin)
+    later += bins_[bin].load(std::memory_order_relaxed);
   return later;
 }
 

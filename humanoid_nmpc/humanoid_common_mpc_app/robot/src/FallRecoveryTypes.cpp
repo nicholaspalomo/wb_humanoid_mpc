@@ -40,7 +40,8 @@ absl::string_view settlePhaseDescription(SettlePhase phase) {
     case SettlePhase::kLifting:
       return "lifting the robot clear of the ground";
     case SettlePhase::kSettlingLifted:
-      return "waiting for the lifted robot to come to rest at the nominal posture";
+      return "waiting for the lifted robot to come to rest at the nominal "
+             "posture";
     case SettlePhase::kLowering:
       return "lowering the robot back onto its feet";
     case SettlePhase::kSettlingOnFeet:
@@ -48,17 +49,25 @@ absl::string_view settlePhaseDescription(SettlePhase phase) {
     case SettlePhase::kIdle:
       return "idle";
   }
-  return "idle";  // not an enumerator: no -Wswitch default, so that a new phase must be described (ToTW #147)
+  return "idle";  // not an enumerator: no -Wswitch default, so that a new phase
+                  // must be described (ToTW #147)
 }
 
-std::string discontinuityReason(DiscontinuityCause cause, uint64_t resetEpoch, double tilt, double maxTilt) {
+std::string discontinuityReason(DiscontinuityCause cause,
+                                uint64_t resetEpoch,
+                                double tilt,
+                                double maxTilt) {
   switch (cause) {
     case DiscontinuityCause::kSimulatorReset:
-      return absl::StrCat("the simulator put the robot back in its initial state (reset epoch ", resetEpoch, ")");
+      return absl::StrCat(
+          "the simulator put the robot back in its initial state (reset epoch ",
+          resetEpoch, ")");
     case DiscontinuityCause::kGantryLocked:
       return "the gantry was locked";
     case DiscontinuityCause::kTiltCaught:
-      return absl::StrCat("the base tilted ", tilt, " rad, past sim_max_base_tilt_angle ", maxTilt, " rad");
+      return absl::StrCat("the base tilted ", tilt,
+                          " rad, past sim_max_base_tilt_angle ", maxTilt,
+                          " rad");
     case DiscontinuityCause::kNone:
       return "no discontinuity";
   }

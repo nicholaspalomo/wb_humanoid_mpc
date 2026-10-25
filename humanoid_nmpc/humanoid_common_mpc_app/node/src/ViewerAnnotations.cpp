@@ -35,10 +35,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::node {
 
-void targetContactPatchToProto(const TargetContactPose& pose, humanoid_mpc_msgs::TargetContactPatch* absl_nonnull patch) {
+void targetContactPatchToProto(
+    const TargetContactPose& pose,
+    humanoid_mpc_msgs::TargetContactPatch* absl_nonnull patch) {
   patch->Clear();
   // Every enumerator is listed, so that -Wswitch reports a new one.
-  humanoid_mpc_msgs::TargetContactPatch::Kind kind = humanoid_mpc_msgs::TargetContactPatch::KIND_UNSPECIFIED;
+  humanoid_mpc_msgs::TargetContactPatch::Kind kind =
+      humanoid_mpc_msgs::TargetContactPatch::KIND_UNSPECIFIED;
   switch (pose.kind) {
     case TargetContactPose::Kind::kSwingInFlight:
       kind = humanoid_mpc_msgs::TargetContactPatch::KIND_SWING_IN_FLIGHT;
@@ -51,9 +54,13 @@ void targetContactPatchToProto(const TargetContactPose& pose, humanoid_mpc_msgs:
       break;
   }
   patch->set_kind(kind);
-  // A pose that is not valid or not finite is sent as no pose: the viewer draws nothing for the foot.
-  if (!pose.valid || !pose.position.allFinite() || !std::isfinite(pose.height) || !std::isfinite(pose.yaw)) return;
-  humanoid_mpc_msgs::TargetContactPatch::Pose* absl_nonnull placement = patch->mutable_pose();
+  // A pose that is not valid or not finite is sent as no pose: the viewer draws
+  // nothing for the foot.
+  if (!pose.valid || !pose.position.allFinite() ||
+      !std::isfinite(pose.height) || !std::isfinite(pose.yaw))
+    return;
+  humanoid_mpc_msgs::TargetContactPatch::Pose* absl_nonnull placement =
+      patch->mutable_pose();
   placement->set_x(pose.position(0));
   placement->set_y(pose.position(1));
   placement->set_z(pose.height);
@@ -61,13 +68,15 @@ void targetContactPatchToProto(const TargetContactPose& pose, humanoid_mpc_msgs:
   placement->set_yaw_planned(pose.yawPlanned);
 }
 
-void fillViewerAnnotations(const feet_array_t<TargetContactPose>* absl_nullable targetContactPoses,
-                           const WalkingVelocityCommand& scaledVelocityCommand,
-                           humanoid_mpc_msgs::ViewerAnnotations* absl_nonnull annotations) {
+void fillViewerAnnotations(
+    const feet_array_t<TargetContactPose>* absl_nullable targetContactPoses,
+    const WalkingVelocityCommand& scaledVelocityCommand,
+    humanoid_mpc_msgs::ViewerAnnotations* absl_nonnull annotations) {
   annotations->Clear();
   if (targetContactPoses != nullptr) {
     for (const TargetContactPose& pose : *targetContactPoses) {
-      targetContactPatchToProto(pose, annotations->add_target_contact_patches());
+      targetContactPatchToProto(pose,
+                                annotations->add_target_contact_patches());
     }
   }
   annotations->set_scaled_velocity_x(scaledVelocityCommand.linear_velocity_x);

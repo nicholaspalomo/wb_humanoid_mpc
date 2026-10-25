@@ -75,7 +75,10 @@ _STATUS_DISPLAY_MS = 5000
 
 def _disabled_banner(reason: str) -> str:
     """The banner of a tab whose online tuning is off, for `reason` (empty: the task file's enable_online_tuning)."""
-    return f"🔒 Online Tuning Disabled ({reason or 'enable_online_tuning: false in the task file'})"
+    return (
+        "🔒 Online Tuning Disabled"
+        f" ({reason or 'enable_online_tuning: false in the task file'})"
+    )
 
 
 class MpcParamsTab(ttk.Frame):
@@ -96,7 +99,9 @@ class MpcParamsTab(ttk.Frame):
 
     KNOWN_PRESETS = {
         "DRC Atlas (Centroidal)": "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto",
-        "Unitree G1 (WB)": "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto",
+        "Unitree G1 (WB)": (
+            "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto"
+        ),
         "Unitree R1 (Centroidal)": "robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.textproto",
         "Unitree G1 (Centroidal)": "robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto",
         "EngineAI SA01 (Centroidal)": "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto",
@@ -159,7 +164,9 @@ class MpcParamsTab(ttk.Frame):
         self.scroll_container = scrollable_frame.ScrollableFrame(
             self, bg_color="#2c2c2c"
         )
-        self.scroll_container.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        self.scroll_container.pack(
+            fill="both", expand=True, padx=10, pady=(0, 10)
+        )
 
         # A file given that is not there is reported, never replaced by another robot's: the fallback is for none.
         if self.task_file:
@@ -174,9 +181,9 @@ class MpcParamsTab(ttk.Frame):
         toolbar = ttk.Frame(self)
         toolbar.pack(fill="x", padx=10, pady=(10, 5))
 
-        ttk.Label(toolbar, text="Robot Preset:", font=("Helvetica", 9, "bold")).pack(
-            side="left", padx=(0, 4)
-        )
+        ttk.Label(
+            toolbar, text="Robot Preset:", font=("Helvetica", 9, "bold")
+        ).pack(side="left", padx=(0, 4))
         self.preset_var = tk.StringVar(value="Select Preset...")
         preset_cb = ttk.Combobox(
             toolbar,
@@ -193,10 +200,14 @@ class MpcParamsTab(ttk.Frame):
         path_entry = ttk.Entry(toolbar, textvariable=self.path_var, width=32)
         path_entry.pack(side="left", fill="x", expand=True, padx=(0, 4))
 
-        browse_btn = ttk.Button(toolbar, text="Browse...", command=self._browse_file)
+        browse_btn = ttk.Button(
+            toolbar, text="Browse...", command=self._browse_file
+        )
         browse_btn.pack(side="left", padx=2)
 
-        reload_btn = ttk.Button(toolbar, text="⟳ Reload", command=self.reload_file)
+        reload_btn = ttk.Button(
+            toolbar, text="⟳ Reload", command=self.reload_file
+        )
         reload_btn.pack(side="left", padx=2)
 
         self.reset_btn = ttk.Button(
@@ -226,7 +237,9 @@ class MpcParamsTab(ttk.Frame):
             self.save_btn.configure(state="disabled")
             self.reset_btn.configure(state="disabled")
 
-    def set_online_tuning_enabled(self, enabled: bool, reason: str = "") -> None:
+    def set_online_tuning_enabled(
+        self, enabled: bool, reason: str = ""
+    ) -> None:
         """Enables or disables online tuning; `reason` is why it is off, for the banner (empty: the task file says so)."""
         self.enable_online_tuning = bool(enabled)
         state = "normal" if self.enable_online_tuning else "disabled"
@@ -335,7 +348,10 @@ class MpcParamsTab(ttk.Frame):
     def _browse_file(self) -> None:
         selected = filedialog.askopenfilename(
             title="Select task.textproto",
-            filetypes=[("Textproto files", "*.textproto"), ("All files", "*.*")],
+            filetypes=[
+                ("Textproto files", "*.textproto"),
+                ("All files", "*.*"),
+            ],
         )
         if selected:
             self.load_file(selected)
@@ -351,7 +367,9 @@ class MpcParamsTab(ttk.Frame):
         """
         self.task_file = os.path.abspath(file_path)
         self.path_var.set(self.task_file)
-        self.contact_planning_file = config_files.contact_planning_file(self.task_file)
+        self.contact_planning_file = config_files.contact_planning_file(
+            self.task_file
+        )
         try:
             self.task = tuned_file.TunedFile(
                 self.task_file, task_file_pb2.TaskFile, self.registries
@@ -369,12 +387,15 @@ class MpcParamsTab(ttk.Frame):
             self.categories = []
             self._refresh_categories()
             self._clear_rows()
-            self._show_status(f"Cannot load {self.task_file}: {error}", error=True)
+            self._show_status(
+                f"Cannot load {self.task_file}: {error}", error=True
+            )
             self._notify_base_controller_fields_changed()
             return
 
-        self.enable_online_tuning = self._explicit_online_tuning is not False and bool(
-            self.task.message.enable_online_tuning
+        self.enable_online_tuning = (
+            self._explicit_online_tuning is not False
+            and bool(self.task.message.enable_online_tuning)
         )
         self._refresh_categories()
         self._render_active_category()
@@ -399,13 +420,19 @@ class MpcParamsTab(ttk.Frame):
     def _locate(self, key: str) -> tuple[tuned_file.TunedFile, str]:
         """The file and the parameter path of a row key; KeyError for a key of neither."""
         for prefix, file in reversed(self._files()):
-            if prefix and key.startswith(prefix) and file.has(key[len(prefix) :]):
+            if (
+                prefix
+                and key.startswith(prefix)
+                and file.has(key[len(prefix) :])
+            ):
                 return file, key[len(prefix) :]
         if self.task is not None and self.task.has(key):
             return self.task, key
         raise KeyError(key)
 
-    def _category_of(self, prefix: str, spec: config_schema.ParameterSpec) -> str:
+    def _category_of(
+        self, prefix: str, spec: config_schema.ParameterSpec
+    ) -> str:
         if prefix:
             return CONTACT_PLANNING_BLOCK
         return spec.block or ROOT_CATEGORY
@@ -440,7 +467,8 @@ class MpcParamsTab(ttk.Frame):
         )
         selector.pack(side="left")
         selector.bind(
-            "<<ComboboxSelected>>", lambda _event: self._render_active_category()
+            "<<ComboboxSelected>>",
+            lambda _event: self._render_active_category(),
         )
         self.category_selector = selector
 
@@ -461,7 +489,9 @@ class MpcParamsTab(ttk.Frame):
             Whether the row is on screen now.
         """
         for prefix, file in self._files():
-            path = key[len(prefix) :] if prefix and key.startswith(prefix) else key
+            path = (
+                key[len(prefix) :] if prefix and key.startswith(prefix) else key
+            )
             if (prefix and not key.startswith(prefix)) or not file.has(path):
                 continue
             block = self._category_of(prefix, file.spec(path))
@@ -614,7 +644,8 @@ class MpcParamsTab(ttk.Frame):
             self._render_active_category()
             self._notify_base_controller_fields_changed()
             self._show_status(
-                "A file changed on disk: its values were taken, and your changes kept."
+                "A file changed on disk: its values were taken, and your"
+                " changes kept."
             )
         return changed
 
@@ -622,7 +653,9 @@ class MpcParamsTab(ttk.Frame):
         """Publishes the two files with the current values, as an MpcParameterUpdate on operator/mpc_parameters."""
         self._debounce_publish_id = None
         if not self.enable_online_tuning or not self.param_publisher:
-            _LOGGER.debug("Skipping publish: online tuning disabled or no publisher.")
+            _LOGGER.debug(
+                "Skipping publish: online tuning disabled or no publisher."
+            )
             return
         try:
             update = self.build_parameter_update()
@@ -664,7 +697,8 @@ class MpcParamsTab(ttk.Frame):
                 self.contact_planning.save()
             except (OSError, tuned_file.TunedFileError) as error:
                 self._show_status(
-                    f"Error saving the contact planner's file: {error}; the task file was not saved",
+                    f"Error saving the contact planner's file: {error}; the"
+                    " task file was not saved",
                     error=True,
                 )
                 return False
@@ -683,7 +717,9 @@ class MpcParamsTab(ttk.Frame):
         self._refresh_categories()
         self._render_active_category()
         self._notify_base_controller_fields_changed()
-        self.robot_save.send(robot_config_save.KIND_TASK, self.task.path, task_text)
+        self.robot_save.send(
+            robot_config_save.KIND_TASK, self.task.path, task_text
+        )
         if self.on_params_updated:
             self.on_params_updated(self.task_file)
         return True
@@ -702,7 +738,9 @@ class MpcParamsTab(ttk.Frame):
         color = "#e74c3c" if error else "#27ae60"
         self.status_label.configure(text=msg, foreground=color)
         if transient:
-            self._status_clear_id = self.after(_STATUS_DISPLAY_MS, self._clear_status)
+            self._status_clear_id = self.after(
+                _STATUS_DISPLAY_MS, self._clear_status
+            )
 
     def _clear_status(self) -> None:
         self._status_clear_id = None

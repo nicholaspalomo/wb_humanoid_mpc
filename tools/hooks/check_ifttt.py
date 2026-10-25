@@ -42,7 +42,9 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 IF_CHANGE_RE = re.compile(
     r"^\s*(?:#|//|<!--|--|;|\*)\s*LINT\.IfChange(?:\(([A-Za-z0-9_\-\.]+)\))?"
 )
-THEN_CHANGE_RE = re.compile(r"^\s*(?:#|//|<!--|--|;|\*)\s*LINT\.ThenChange\(([^)]+)\)")
+THEN_CHANGE_RE = re.compile(
+    r"^\s*(?:#|//|<!--|--|;|\*)\s*LINT\.ThenChange\(([^)]+)\)"
+)
 
 
 def parse_targets(target_str: str) -> list[str]:
@@ -119,7 +121,8 @@ def check_file(rel_path: str) -> list[str]:
             if label:
                 if label in seen_labels:
                     errors.append(
-                        f"{rel_path}:{idx}: duplicate LINT.IfChange label '{label}'"
+                        f"{rel_path}:{idx}: duplicate LINT.IfChange label"
+                        f" '{label}'"
                     )
                 seen_labels.add(label)
             # ifttt-lint, which the pre-commit hook runs, does not support nesting: it reports the outer block as
@@ -128,15 +131,17 @@ def check_file(rel_path: str) -> list[str]:
                 open_idx, open_label = if_stack[-1]
                 open_str = f"({open_label})" if open_label else ""
                 errors.append(
-                    f"{rel_path}:{idx}: LINT.IfChange inside the LINT.IfChange{open_str} opened at line "
-                    f"{open_idx}; blocks cannot be nested - close the outer one first"
+                    f"{rel_path}:{idx}: LINT.IfChange inside the"
+                    f" LINT.IfChange{open_str} opened at line {open_idx};"
+                    " blocks cannot be nested - close the outer one first"
                 )
             if_stack.append((idx, label))
 
         if then_match:
             if not if_stack:
                 errors.append(
-                    f"{rel_path}:{idx}: LINT.ThenChange without preceding LINT.IfChange"
+                    f"{rel_path}:{idx}: LINT.ThenChange without preceding"
+                    " LINT.IfChange"
                 )
             else:
                 if_stack.pop()
@@ -152,20 +157,23 @@ def check_file(rel_path: str) -> list[str]:
                     target_full_path = os.path.join(REPO_ROOT, t_file)
                     if not os.path.exists(target_full_path):
                         errors.append(
-                            f"{rel_path}:{idx}: target file not found '//{t_file}'"
+                            f"{rel_path}:{idx}: target file not found"
+                            f" '//{t_file}'"
                         )
                         continue
                 # The label has to exist in the target too, or the directive guards nothing: a label renamed or
                 # moved on one side silently leaves the other side pointing at nowhere.
                 if t_label and t_label not in labels_in(t_file or rel_path):
                     errors.append(
-                        f"{rel_path}:{idx}: target label not found '//{t_file}:{t_label}'"
+                        f"{rel_path}:{idx}: target label not found"
+                        f" '//{t_file}:{t_label}'"
                     )
 
     for unclosed_idx, unclosed_label in if_stack:
         lbl_str = f"({unclosed_label})" if unclosed_label else ""
         errors.append(
-            f"{rel_path}:{unclosed_idx}: LINT.IfChange{lbl_str} without matching LINT.ThenChange"
+            f"{rel_path}:{unclosed_idx}: LINT.IfChange{lbl_str} without"
+            " matching LINT.ThenChange"
         )
 
     return errors
@@ -179,14 +187,22 @@ def main() -> None:
         # hook sees. Walking the tree instead would lint editor backups and build output the hook never checks.
         try:
             listed = subprocess.run(
-                ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+                [
+                    "git",
+                    "ls-files",
+                    "--cached",
+                    "--others",
+                    "--exclude-standard",
+                ],
                 cwd=REPO_ROOT,
                 capture_output=True,
                 text=True,
                 check=True,
             ).stdout.splitlines()
             files = [
-                rel for rel in listed if os.path.isfile(os.path.join(REPO_ROOT, rel))
+                rel
+                for rel in listed
+                if os.path.isfile(os.path.join(REPO_ROOT, rel))
             ]
         except (OSError, subprocess.CalledProcessError):
             files = []
@@ -200,7 +216,9 @@ def main() -> None:
 
     total_errors = []
     for rel_path in files:
-        if rel_path.startswith("tools/ifttt-lint") or rel_path.startswith(".git"):
+        if rel_path.startswith("tools/ifttt-lint") or rel_path.startswith(
+            ".git"
+        ):
             continue
         errs = check_file(rel_path)
         total_errors.extend(errs)

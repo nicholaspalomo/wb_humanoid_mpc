@@ -44,48 +44,61 @@ namespace robot::mujoco_sim_interface {
 class EglLibrary;
 
 /**
- * A desktop OpenGL context without a window or an X server, made through EGL for offscreen rendering
- * (WebMujocoViewer). Create() picks the display: an EGL device (a GPU, or the one `deviceId` names), else Mesa's
- * surfaceless platform (llvmpipe); EGL_DEFAULT_DISPLAY is never used, because it needs DISPLAY or falls back to X.
+ * A desktop OpenGL context without a window or an X server, made through EGL
+ * for offscreen rendering (WebMujocoViewer). Create() picks the display: an EGL
+ * device (a GPU, or the one `deviceId` names), else Mesa's surfaceless platform
+ * (llvmpipe); EGL_DEFAULT_DISPLAY is never used, because it needs DISPLAY or
+ * falls back to X.
  *
- * Not thread-safe. The context is current on at most one thread at a time: makeCurrent() and release() may run on any
- * thread, and each binds the OpenGL API first, since EGL's bound API is per-thread state. The destructor destroys the
- * context but never terminates the display, which EGL shares between every context on it in the process.
+ * Not thread-safe. The context is current on at most one thread at a time:
+ * makeCurrent() and release() may run on any thread, and each binds the OpenGL
+ * API first, since EGL's bound API is per-thread state. The destructor destroys
+ * the context but never terminates the display, which EGL shares between every
+ * context on it in the process.
  */
 class EglContext {
  public:
   struct Options {
-    std::optional<int> deviceId;  // an index of eglQueryDevicesEXT (MUJOCO_EGL_DEVICE_ID); unset picks a GPU, else surfaceless
+    std::optional<int>
+        deviceId;  // an index of eglQueryDevicesEXT (MUJOCO_EGL_DEVICE_ID);
+                   // unset picks a GPU, else surfaceless
   };
 
   /**
-   * Initializes the display and creates a context on it, not yet current. `library` must outlive the context (every
-   * EglLibrary does). Fails with InvalidArgument when `options.deviceId` is past the devices, naming their count, and
-   * with Unavailable naming each display tried and its EGL error when none gives a desktop OpenGL context.
+   * Initializes the display and creates a context on it, not yet current.
+   * `library` must outlive the context (every EglLibrary does). Fails with
+   * InvalidArgument when `options.deviceId` is past the devices, naming their
+   * count, and with Unavailable naming each display tried and its EGL error
+   * when none gives a desktop OpenGL context.
    */
-  static absl::StatusOr<std::unique_ptr<EglContext>> Create(const EglLibrary* absl_nonnull library, const Options& options);
+  static absl::StatusOr<std::unique_ptr<EglContext>> Create(
+      const EglLibrary* absl_nonnull library, const Options& options);
 
   EglContext(const EglContext&) = delete;
   EglContext& operator=(const EglContext&) = delete;
   EglContext(EglContext&&) = delete;
   EglContext& operator=(EglContext&&) = delete;
 
-  /** Destroys the context (and its pbuffer, if any). Call release() first on the thread it is current on. */
+  /** Destroys the context (and its pbuffer, if any). Call release() first on
+   * the thread it is current on. */
   ~EglContext();
 
-  /** Makes the context current on this thread, without a surface where EGL allows it (else on a 1x1 pbuffer). */
+  /** Makes the context current on this thread, without a surface where EGL
+   * allows it (else on a 1x1 pbuffer). */
   absl::Status makeCurrent();
 
   /** Makes no context current on this thread. */
   absl::Status release();
 
   /**
-   * What the context offers (glGetString, glGetIntegerv), for checkGlCapabilities(). Requires the context current on
-   * this thread; fails with Unavailable when the library cannot resolve the OpenGL queries.
+   * What the context offers (glGetString, glGetIntegerv), for
+   * checkGlCapabilities(). Requires the context current on this thread; fails
+   * with Unavailable when the library cannot resolve the OpenGL queries.
    */
   absl::StatusOr<GlCapabilities> queryGlCapabilities() const;
 
-  /** The display and its EGL implementation, e.g. "surfaceless (Mesa Project, EGL 1.5)", for the start-up log. */
+  /** The display and its EGL implementation, e.g. "surfaceless (Mesa Project,
+   * EGL 1.5)", for the start-up log. */
   const std::string& description() const { return description_; }
 
  private:
@@ -96,10 +109,12 @@ class EglContext {
              std::string description);
 
   const EglLibrary* absl_nonnull library_;
-  // EGL's handles (EGLDisplay, EGLContext, EGLSurface are void*), kept as void* so that no viewer header includes EGL.
+  // EGL's handles (EGLDisplay, EGLContext, EGLSurface are void*), kept as void*
+  // so that no viewer header includes EGL.
   void* absl_nonnull display_;
   void* absl_nonnull context_;
-  void* absl_nullable surface_;  // a 1x1 pbuffer where the display lacks EGL_KHR_surfaceless_context; null otherwise
+  void* absl_nullable surface_;  // a 1x1 pbuffer where the display lacks
+                                 // EGL_KHR_surfaceless_context; null otherwise
   std::string description_;
 };
 

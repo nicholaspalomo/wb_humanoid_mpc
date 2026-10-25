@@ -61,50 +61,77 @@ namespace ocs2::humanoid {
 namespace {
 
 /**
- * The mujoco_viewer of the plot configuration at `path` (--plot_config), read strictly and checked; kDefaultViewerName
- * when the file lists none. Errors are prefixed with the flag.
+ * The mujoco_viewer of the plot configuration at `path` (--plot_config), read
+ * strictly and checked; kDefaultViewerName when the file lists none. Errors are
+ * prefixed with the flag.
  */
-absl::StatusOr<std::vector<std::string>> viewerNamesFromPlotConfig(absl::string_view path) {
-  absl::StatusOr<rerun::PlotConfig> config = nproto::LoadTextprotoFile<rerun::PlotConfig, humanoid_rerun_viewer_proto::PlotConfig>(path);
-  if (!config.ok()) return absl::Status(config.status().code(), absl::StrCat("--plot_config=", path, ": ", config.status().message()));
+absl::StatusOr<std::vector<std::string>> viewerNamesFromPlotConfig(
+    absl::string_view path) {
+  absl::StatusOr<rerun::PlotConfig> config =
+      nproto::LoadTextprotoFile<rerun::PlotConfig,
+                                humanoid_rerun_viewer_proto::PlotConfig>(path);
+  if (!config.ok())
+    return absl::Status(
+        config.status().code(),
+        absl::StrCat("--plot_config=", path, ": ", config.status().message()));
   if (config->mujoco_viewer.empty()) {
-    LOG(INFO) << "[robot] MuJoCo viewer: " << kDefaultViewerName << ", the default (--plot_config=" << path
+    LOG(INFO) << "[robot] MuJoCo viewer: " << kDefaultViewerName
+              << ", the default (--plot_config=" << path
               << " lists no mujoco_viewer and --viewer is not given)";
     return std::vector<std::string>{std::string(kDefaultViewerName)};
   }
-  if (absl::Status status = robot::mujoco_sim_interface::checkViewerNames(config->mujoco_viewer); !status.ok()) {
-    return absl::InvalidArgumentError(absl::StrCat("--plot_config=", path, ": mujoco_viewer: ", status.message()));
+  if (absl::Status status =
+          robot::mujoco_sim_interface::checkViewerNames(config->mujoco_viewer);
+      !status.ok()) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "--plot_config=", path, ": mujoco_viewer: ", status.message()));
   }
-  LOG(INFO) << "[robot] MuJoCo viewer: " << absl::StrJoin(config->mujoco_viewer, ",") << ", the mujoco_viewer of --plot_config=" << path
+  LOG(INFO) << "[robot] MuJoCo viewer: "
+            << absl::StrJoin(config->mujoco_viewer, ",")
+            << ", the mujoco_viewer of --plot_config=" << path
             << " (--viewer is not given)";
   return std::move(config->mujoco_viewer);
 }
 
-/** The web viewer's address, port, allowed hosts, cores and EGL device from the flags; InvalidArgument naming the flag. */
-absl::StatusOr<robot::mujoco_sim_interface::WebViewerOptions> webViewerOptionsFromFlags(const ViewerFlagValues& flags,
-                                                                                        const std::vector<int>& defaultViewerCores) {
+/** The web viewer's address, port, allowed hosts, cores and EGL device from the
+ * flags; InvalidArgument naming the flag. */
+absl::StatusOr<robot::mujoco_sim_interface::WebViewerOptions>
+webViewerOptionsFromFlags(const ViewerFlagValues& flags,
+                          const std::vector<int>& defaultViewerCores) {
   robot::mujoco_sim_interface::WebViewerOptions web;
   web.address = std::string(absl::StripAsciiWhitespace(flags.webViewerAddress));
   if (web.address.empty()) {
-    return absl::InvalidArgumentError("--web_viewer_address is empty: 127.0.0.1 serves this machine only, 0.0.0.0 every interface");
+    return absl::InvalidArgumentError(
+        "--web_viewer_address is empty: 127.0.0.1 serves this machine only, "
+        "0.0.0.0 every interface");
   }
-  if (flags.webViewerPort < 0 || flags.webViewerPort > robot::mujoco_sim_interface::WebViewerOptions::kMaxPort) {
-    return absl::InvalidArgumentError(absl::StrCat("--web_viewer_port=", flags.webViewerPort, ": give a TCP port of 1-",
-                                                   robot::mujoco_sim_interface::WebViewerOptions::kMaxPort, ", or 0 for any free one"));
+  if (flags.webViewerPort < 0 ||
+      flags.webViewerPort >
+          robot::mujoco_sim_interface::WebViewerOptions::kMaxPort) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "--web_viewer_port=", flags.webViewerPort, ": give a TCP port of 1-",
+        robot::mujoco_sim_interface::WebViewerOptions::kMaxPort,
+        ", or 0 for any free one"));
   }
   web.port = flags.webViewerPort;
-  for (const absl::string_view host : absl::StrSplit(flags.webViewerAllowedHosts, ',', absl::SkipWhitespace())) {
+  for (const absl::string_view host : absl::StrSplit(
+           flags.webViewerAllowedHosts, ',', absl::SkipWhitespace())) {
     web.allowedHosts.emplace_back(absl::StripAsciiWhitespace(host));
   }
-  absl::StatusOr<std::vector<int>> cores = parseCoreList(flags.viewerCores, defaultViewerCores);
-  if (!cores.ok()) return absl::InvalidArgumentError(absl::StrCat("--viewer_cores=", flags.viewerCores, ": ", cores.status().message()));
+  absl::StatusOr<std::vector<int>> cores =
+      parseCoreList(flags.viewerCores, defaultViewerCores);
+  if (!cores.ok())
+    return absl::InvalidArgumentError(absl::StrCat(
+        "--viewer_cores=", flags.viewerCores, ": ", cores.status().message()));
   web.cores = *std::move(cores);
   if (flags.eglDeviceId.has_value()) {
     int device = -1;
     if (!absl::SimpleAtoi(*flags.eglDeviceId, &device) || device < 0) {
-      return absl::InvalidArgumentError(absl::StrCat("MUJOCO_EGL_DEVICE_ID=", *flags.eglDeviceId,
-                                                     ": give the index of an EGL device (0, 1, ...), or unset it to render on the "
-                                                     "first GPU, else on Mesa's llvmpipe"));
+      return absl::InvalidArgumentError(
+          absl::StrCat("MUJOCO_EGL_DEVICE_ID=", *flags.eglDeviceId,
+                       ": give the index of an EGL device (0, 1, ...), or "
+                       "unset it to render on the "
+                       "first GPU, else on Mesa's llvmpipe"));
     }
     web.eglDeviceId = device;
   }
@@ -113,54 +140,76 @@ absl::StatusOr<robot::mujoco_sim_interface::WebViewerOptions> webViewerOptionsFr
 
 }  // namespace
 
-absl::StatusOr<std::vector<int>> parseCoreList(absl::string_view value, const std::vector<int>& defaultCores) {
+absl::StatusOr<std::vector<int>> parseCoreList(
+    absl::string_view value, const std::vector<int>& defaultCores) {
   const absl::string_view trimmed = absl::StripAsciiWhitespace(value);
   if (trimmed == "default") return defaultCores;
   if (trimmed.empty() || trimmed == "none") return std::vector<int>();
   std::vector<int> cores;
   for (absl::string_view part : absl::StrSplit(trimmed, ',')) {
     int core = -1;
-    if (!absl::SimpleAtoi(absl::StripAsciiWhitespace(part), &core) || core < 0) {
+    if (!absl::SimpleAtoi(absl::StripAsciiWhitespace(part), &core) ||
+        core < 0) {
       return absl::InvalidArgumentError(
-          absl::StrCat("'", value, "' names no cores: give `default`, `none` or a comma-separated list of CPU numbers such as 4,5"));
+          absl::StrCat("'", value,
+                       "' names no cores: give `default`, `none` or a "
+                       "comma-separated list of CPU numbers such as 4,5"));
     }
     cores.push_back(core);
   }
   return cores;
 }
 
-absl::StatusOr<std::vector<std::string>> viewerNamesFromFlags(const ViewerFlagValues& flags) {
+absl::StatusOr<std::vector<std::string>> viewerNamesFromFlags(
+    const ViewerFlagValues& flags) {
   if (!absl::StripAsciiWhitespace(flags.viewer).empty()) {
-    absl::StatusOr<std::vector<std::string>> names = robot::mujoco_sim_interface::parseViewerNames(flags.viewer);
-    if (!names.ok()) return absl::InvalidArgumentError(absl::StrCat("--viewer=", flags.viewer, ": ", names.status().message()));
+    absl::StatusOr<std::vector<std::string>> names =
+        robot::mujoco_sim_interface::parseViewerNames(flags.viewer);
+    if (!names.ok())
+      return absl::InvalidArgumentError(absl::StrCat(
+          "--viewer=", flags.viewer, ": ", names.status().message()));
     return names;
   }
-  const absl::string_view plotConfig = absl::StripAsciiWhitespace(flags.plotConfig);
+  const absl::string_view plotConfig =
+      absl::StripAsciiWhitespace(flags.plotConfig);
   if (!plotConfig.empty()) return viewerNamesFromPlotConfig(plotConfig);
-  LOG(INFO) << "[robot] MuJoCo viewer: " << kDefaultViewerName << ", the default (neither --viewer nor --plot_config is given)";
+  LOG(INFO) << "[robot] MuJoCo viewer: " << kDefaultViewerName
+            << ", the default (neither --viewer nor --plot_config is given)";
   return std::vector<std::string>{std::string(kDefaultViewerName)};
 }
 
-absl::StatusOr<robot::mujoco_sim_interface::ViewerSettings> viewerSettingsFromFlags(const ViewerFlagValues& flags,
-                                                                                    const std::vector<int>& defaultViewerCores) {
+absl::StatusOr<robot::mujoco_sim_interface::ViewerSettings>
+viewerSettingsFromFlags(const ViewerFlagValues& flags,
+                        const std::vector<int>& defaultViewerCores) {
   robot::mujoco_sim_interface::ViewerSettings settings;
   ASSIGN_OR_RETURN(settings.names, viewerNamesFromFlags(flags));
-  ASSIGN_OR_RETURN(settings.web, webViewerOptionsFromFlags(flags, defaultViewerCores));
-  RETURN_IF_ERROR(robot::mujoco_sim_interface::validateViewerSettings(settings));
+  ASSIGN_OR_RETURN(settings.web,
+                   webViewerOptionsFromFlags(flags, defaultViewerCores));
+  RETURN_IF_ERROR(
+      robot::mujoco_sim_interface::validateViewerSettings(settings));
   return settings;
 }
 
-std::optional<std::string> softwareRasterizerThreadsToSet(const robot::mujoco_sim_interface::ViewerSettings& viewer,
-                                                          const char* absl_nullable current) {
+std::optional<std::string> softwareRasterizerThreadsToSet(
+    const robot::mujoco_sim_interface::ViewerSettings& viewer,
+    const char* absl_nullable current) {
   if (current != nullptr && *current != '\0') return std::nullopt;
-  if (!absl::c_linear_search(viewer.names, robot::mujoco_sim_interface::kWebViewerName)) return std::nullopt;
-  return absl::StrCat(robot::mujoco_sim_interface::softwareRasterizerThreads(viewer.web));
+  if (!absl::c_linear_search(viewer.names,
+                             robot::mujoco_sim_interface::kWebViewerName))
+    return std::nullopt;
+  return absl::StrCat(
+      robot::mujoco_sim_interface::softwareRasterizerThreads(viewer.web));
 }
 
-std::string describeSoftwareRasterizerThreads(const robot::mujoco_sim_interface::ViewerSettings& viewer, absl::string_view threads) {
+std::string describeSoftwareRasterizerThreads(
+    const robot::mujoco_sim_interface::ViewerSettings& viewer,
+    absl::string_view threads) {
   const std::string cores =
-      viewer.web.cores.empty() ? " (viewer cores unrestricted)" : absl::StrCat(", for ", viewer.web.cores.size(), " viewer core(s)");
-  return absl::StrCat(kSoftwareRasterizerThreadsVariable, "=", threads, ": llvmpipe's rasterizer threads", cores, ".");
+      viewer.web.cores.empty()
+          ? " (viewer cores unrestricted)"
+          : absl::StrCat(", for ", viewer.web.cores.size(), " viewer core(s)");
+  return absl::StrCat(kSoftwareRasterizerThreadsVariable, "=", threads,
+                      ": llvmpipe's rasterizer threads", cores, ".");
 }
 
 }  // namespace ocs2::humanoid

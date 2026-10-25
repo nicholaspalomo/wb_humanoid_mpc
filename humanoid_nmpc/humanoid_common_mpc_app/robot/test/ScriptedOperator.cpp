@@ -50,36 +50,42 @@ namespace ocs2::humanoid::test_support {
 
 namespace topics = ::ocs2::humanoid::ipc::topics;
 
-ScriptedOperator::ScriptedOperator(const robot::ipc::NetworkConfig& network) : bus_(createBus(network, "operator")) {
-  CHECK_OK(bus_->subscribe<humanoid_mpc_msgs::FsmState>(topics::kRobotFsmState, robot::ipc::Delivery::kLatest,
-                                                        [this](const humanoid_mpc_msgs::FsmState& state) {
-                                                          absl::MutexLock lock(mutex_);
-                                                          fsmState_ = state;
-                                                        }));
-  CHECK_OK(bus_->subscribe<humanoid_mpc_msgs::RobotStateSample>(topics::kRobotState, robot::ipc::Delivery::kAll,
-                                                                [this](const humanoid_mpc_msgs::RobotStateSample& sample) {
-                                                                  absl::MutexLock lock(mutex_);
-                                                                  sample_ = sample;
-                                                                  const double height = sample.base_position_world().z();
-                                                                  baseHeightRange_.min = std::min(baseHeightRange_.min, height);
-                                                                  baseHeightRange_.max = std::max(baseHeightRange_.max, height);
-                                                                  ++baseHeightRange_.samples;
-                                                                }));
-  CHECK_OK(bus_->subscribe<humanoid_mpc_msgs::LoopTiming>(topics::kRobotLoopTiming, robot::ipc::Delivery::kLatest,
-                                                          [this](const humanoid_mpc_msgs::LoopTiming& timing) {
-                                                            absl::MutexLock lock(mutex_);
-                                                            timing_ = timing;
-                                                          }));
-  CHECK_OK(bus_->subscribe<humanoid_mpc_msgs::MpcStatus>(topics::kMpcStatus, robot::ipc::Delivery::kLatest,
-                                                         [this](const humanoid_mpc_msgs::MpcStatus& status) {
-                                                           absl::MutexLock lock(mutex_);
-                                                           mpcStatus_ = status;
-                                                         }));
-  CHECK_OK(bus_->subscribe<humanoid_mpc_msgs::VisualizationScene>(topics::kVizScene, robot::ipc::Delivery::kAll,
-                                                                  [this](const humanoid_mpc_msgs::VisualizationScene& /*scene*/) {
-                                                                    absl::MutexLock lock(mutex_);
-                                                                    ++scenesReceived_;
-                                                                  }));
+ScriptedOperator::ScriptedOperator(const robot::ipc::NetworkConfig& network)
+    : bus_(createBus(network, "operator")) {
+  CHECK_OK(bus_->subscribe<humanoid_mpc_msgs::FsmState>(
+      topics::kRobotFsmState, robot::ipc::Delivery::kLatest,
+      [this](const humanoid_mpc_msgs::FsmState& state) {
+        absl::MutexLock lock(mutex_);
+        fsmState_ = state;
+      }));
+  CHECK_OK(bus_->subscribe<humanoid_mpc_msgs::RobotStateSample>(
+      topics::kRobotState, robot::ipc::Delivery::kAll,
+      [this](const humanoid_mpc_msgs::RobotStateSample& sample) {
+        absl::MutexLock lock(mutex_);
+        sample_ = sample;
+        const double height = sample.base_position_world().z();
+        baseHeightRange_.min = std::min(baseHeightRange_.min, height);
+        baseHeightRange_.max = std::max(baseHeightRange_.max, height);
+        ++baseHeightRange_.samples;
+      }));
+  CHECK_OK(bus_->subscribe<humanoid_mpc_msgs::LoopTiming>(
+      topics::kRobotLoopTiming, robot::ipc::Delivery::kLatest,
+      [this](const humanoid_mpc_msgs::LoopTiming& timing) {
+        absl::MutexLock lock(mutex_);
+        timing_ = timing;
+      }));
+  CHECK_OK(bus_->subscribe<humanoid_mpc_msgs::MpcStatus>(
+      topics::kMpcStatus, robot::ipc::Delivery::kLatest,
+      [this](const humanoid_mpc_msgs::MpcStatus& status) {
+        absl::MutexLock lock(mutex_);
+        mpcStatus_ = status;
+      }));
+  CHECK_OK(bus_->subscribe<humanoid_mpc_msgs::VisualizationScene>(
+      topics::kVizScene, robot::ipc::Delivery::kAll,
+      [this](const humanoid_mpc_msgs::VisualizationScene& /*scene*/) {
+        absl::MutexLock lock(mutex_);
+        ++scenesReceived_;
+      }));
 }
 
 ScriptedOperator::~ScriptedOperator() {
@@ -99,7 +105,8 @@ std::optional<humanoid_mpc_msgs::FsmState> ScriptedOperator::fsmState() const {
   return fsmState_;
 }
 
-std::optional<humanoid_mpc_msgs::RobotStateSample> ScriptedOperator::sample() const {
+std::optional<humanoid_mpc_msgs::RobotStateSample> ScriptedOperator::sample()
+    const {
   absl::MutexLock lock(mutex_);
   return sample_;
 }
@@ -109,7 +116,8 @@ std::optional<humanoid_mpc_msgs::LoopTiming> ScriptedOperator::timing() const {
   return timing_;
 }
 
-std::optional<humanoid_mpc_msgs::MpcStatus> ScriptedOperator::mpcStatus() const {
+std::optional<humanoid_mpc_msgs::MpcStatus> ScriptedOperator::mpcStatus()
+    const {
   absl::MutexLock lock(mutex_);
   return mpcStatus_;
 }
@@ -119,9 +127,10 @@ uint64_t ScriptedOperator::scenesReceived() const {
   return scenesReceived_;
 }
 
-bool ScriptedOperator::sendFsmCommand(const std::string& command,
-                                      const std::function<bool(const humanoid_mpc_msgs::FsmState&)>& reached,
-                                      absl::Duration timeout) {
+bool ScriptedOperator::sendFsmCommand(
+    const std::string& command,
+    const std::function<bool(const humanoid_mpc_msgs::FsmState&)>& reached,
+    absl::Duration timeout) {
   humanoid_mpc_msgs::FsmCommand message;
   message.set_command(command);
   message.set_sequence(++sequence_);
@@ -136,13 +145,19 @@ bool ScriptedOperator::sendFsmCommand(const std::string& command,
 }
 
 bool ScriptedOperator::enterMode(const std::string& mode) {
-  return sendFsmCommand(mode, [&mode](const humanoid_mpc_msgs::FsmState& state) { return state.mode() == mode; });
+  return sendFsmCommand(mode,
+                        [&mode](const humanoid_mpc_msgs::FsmState& state) {
+                          return state.mode() == mode;
+                        });
 }
 
-void ScriptedOperator::sendVelocityCommand(const humanoid_mpc_msgs::WalkingVelocityCommand& command, absl::Duration duration) {
+void ScriptedOperator::sendVelocityCommand(
+    const humanoid_mpc_msgs::WalkingVelocityCommand& command,
+    absl::Duration duration) {
   const absl::Time end = absl::Now() + duration;
   while (absl::Now() < end) {
-    bus_->publish(topics::kOperatorWalkingVelocityCommand, command).IgnoreError();
+    bus_->publish(topics::kOperatorWalkingVelocityCommand, command)
+        .IgnoreError();
     absl::SleepFor(absl::Milliseconds(40));
   }
 }

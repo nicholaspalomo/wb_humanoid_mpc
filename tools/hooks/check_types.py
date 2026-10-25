@@ -112,7 +112,8 @@ def is_text(path: str) -> bool:
     """True for a file the text checks read."""
     name = path.replace(os.sep, "/").rsplit("/", 1)[-1]
     return (
-        name in TEXT_FILE_NAMES or os.path.splitext(name)[1].lower() in TEXT_EXTENSIONS
+        name in TEXT_FILE_NAMES
+        or os.path.splitext(name)[1].lower() in TEXT_EXTENSIONS
     )
 
 
@@ -125,7 +126,9 @@ def language_of(path: str) -> Language | None:
         return Language.PYTHON
     if name.endswith(".proto"):
         return Language.PROTO
-    if name in ("BUILD", "WORKSPACE") or name.endswith((".bazel", ".bzl", ".BUILD")):
+    if name in ("BUILD", "WORKSPACE") or name.endswith(
+        (".bazel", ".bzl", ".BUILD")
+    ):
         return Language.STARLARK
     if name.endswith(".bazelrc"):
         return Language.BAZELRC
@@ -156,7 +159,10 @@ class Finding:
     message: str
 
     def __str__(self) -> str:
-        return f"{self.path}:{self.line}:{self.column}: {self.message} [{self.check}]"
+        return (
+            f"{self.path}:{self.line}:{self.column}:"
+            f" {self.message} [{self.check}]"
+        )
 
 
 # check_source(source, path) -> the findings of the check in `source`, the content of the file at `path` (relative to

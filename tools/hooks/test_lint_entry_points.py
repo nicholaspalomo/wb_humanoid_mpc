@@ -76,7 +76,9 @@ class EntryPointsTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_the_ifttt_check(self):
-        result = _run_module("tools.hooks.check_ifttt", "tools/hooks/no_such_file.py")
+        result = _run_module(
+            "tools.hooks.check_ifttt", "tools/hooks/no_such_file.py"
+        )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_no_hook_edits_sys_path(self):
@@ -88,7 +90,9 @@ class EntryPointsTest(unittest.TestCase):
             with open(os.path.join(hooks, name), encoding="utf-8") as f:
                 source = f.read()
             with self.subTest(module=name):
-                self.assertEqual(python_imports.check_sys_path(source, name), [])
+                self.assertEqual(
+                    python_imports.check_sys_path(source, name), []
+                )
 
     def test_the_callers_use_the_module_form(self):
         makefile = check_test_support.read_repository_file("Makefile")

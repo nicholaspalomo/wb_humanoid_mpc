@@ -41,30 +41,35 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::web_viewer {
 
 /**
- * The bytes of an RGB pixel, one per channel: of the frames the encoder takes, and of the frames the MuJoCo viewers read
- * back from OpenGL to encode or capture.
+ * The bytes of an RGB pixel, one per channel: of the frames the encoder takes,
+ * and of the frames the MuJoCo viewers read back from OpenGL to encode or
+ * capture.
  */
 inline constexpr int kRgbBytesPerPixel = 3;
 
-// The order of the rows of an image in memory: top row first (a browser's), or bottom row first (OpenGL's, which
-// mjr_readPixels returns).
+// The order of the rows of an image in memory: top row first (a browser's), or
+// bottom row first (OpenGL's, which mjr_readPixels returns).
 enum class RowOrder {
   kTopDown,
   kBottomUp,
 };
 
 /**
- * Encodes RGB images as baseline JPEG with libjpeg-turbo (TurboJPEG 3, SIMD, 4:2:0 chroma subsampling). A
- * kBottomUp image is encoded as it lies in memory, with no copy to flip it.
+ * Encodes RGB images as baseline JPEG with libjpeg-turbo (TurboJPEG 3, SIMD,
+ * 4:2:0 chroma subsampling). A kBottomUp image is encoded as it lies in memory,
+ * with no copy to flip it.
  *
- * About 1.2 ms for a 1280x720 frame. It keeps libjpeg-turbo's output buffer between frames, so after the first frame
- * of a size it allocates only the returned string.
+ * About 1.2 ms for a 1280x720 frame. It keeps libjpeg-turbo's output buffer
+ * between frames, so after the first frame of a size it allocates only the
+ * returned string.
  *
- * Not thread-safe: one encoder per thread (the viewer's render thread owns one).
+ * Not thread-safe: one encoder per thread (the viewer's render thread owns
+ * one).
  */
 class JpegEncoder {
  public:
-  /** Creates an encoder; Internal when libjpeg-turbo cannot allocate its compressor. */
+  /** Creates an encoder; Internal when libjpeg-turbo cannot allocate its
+   * compressor. */
   static absl::StatusOr<std::unique_ptr<JpegEncoder>> Create();
 
   ~JpegEncoder();
@@ -72,19 +77,26 @@ class JpegEncoder {
   JpegEncoder& operator=(const JpegEncoder&) = delete;
 
   /**
-   * Encodes `rgb`, `height` rows of `width` pixels of 3 bytes each (no row padding), in `rowOrder`, at `quality` (1 to
-   * 100), and returns the JFIF bytes. InvalidArgument when a size is not positive, `rgb` does not hold exactly width x
-   * height x 3 bytes, or `quality` is out of range; Internal when libjpeg-turbo fails.
+   * Encodes `rgb`, `height` rows of `width` pixels of 3 bytes each (no row
+   * padding), in `rowOrder`, at `quality` (1 to 100), and returns the JFIF
+   * bytes. InvalidArgument when a size is not positive, `rgb` does not hold
+   * exactly width x height x 3 bytes, or `quality` is out of range; Internal
+   * when libjpeg-turbo fails.
    */
-  absl::StatusOr<std::string> encode(absl::Span<const uint8_t> rgb, int width, int height, int quality, RowOrder rowOrder);
+  absl::StatusOr<std::string> encode(absl::Span<const uint8_t> rgb,
+                                     int width,
+                                     int height,
+                                     int quality,
+                                     RowOrder rowOrder);
 
  private:
   explicit JpegEncoder(void* absl_nonnull compressor);
 
   // The tjhandle of tj3Init(TJINIT_COMPRESS), destroyed with the encoder.
   void* absl_nonnull compressor_;
-  // libjpeg-turbo's output buffer (tj3Alloc), grown by it as needed and freed with the encoder; null before the first
-  // frame. outputCapacity_ is its size in bytes.
+  // libjpeg-turbo's output buffer (tj3Alloc), grown by it as needed and freed
+  // with the encoder; null before the first frame. outputCapacity_ is its size
+  // in bytes.
   unsigned char* absl_nullable output_ = nullptr;
   size_t outputCapacity_ = 0;
 };

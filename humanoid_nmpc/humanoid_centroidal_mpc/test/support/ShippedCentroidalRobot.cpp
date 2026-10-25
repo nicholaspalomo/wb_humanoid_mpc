@@ -55,7 +55,8 @@ std::string shippedCentroidalRobotName(ShippedCentroidalRobot robot) {
   return "unknown";
 }
 
-std::string shippedCentroidalRobotTestName(const ::testing::TestParamInfo<ShippedCentroidalRobot>& info) {
+std::string shippedCentroidalRobotTestName(
+    const ::testing::TestParamInfo<ShippedCentroidalRobot>& info) {
   return shippedCentroidalRobotName(info.param);
 }
 
@@ -73,21 +74,33 @@ CentroidalRobotFiles shippedCentroidalRobotFiles(ShippedCentroidalRobot robot) {
   return CentroidalRobotFiles{};
 }
 
-absl::StatusOr<LoadedCentroidalRobot> loadShippedCentroidalRobot(ShippedCentroidalRobot robot, absl::string_view centroidalModel) {
+absl::StatusOr<LoadedCentroidalRobot> loadShippedCentroidalRobot(
+    ShippedCentroidalRobot robot, absl::string_view centroidalModel) {
   LoadedCentroidalRobot loaded;
   loaded.name = shippedCentroidalRobotName(robot);
   loaded.files = shippedCentroidalRobotFiles(robot);
   ASSIGN_OR_RETURN(loaded.config, loadConfigOf(loaded.files));
-  if (!centroidalModel.empty()) loaded.config.task.centroidal_model = std::string(centroidalModel);
-  ASSIGN_OR_RETURN(ModelSettings modelSettings,
-                   ModelSettings::Create(loaded.config.task, loaded.files.urdfFile, "shipped_robot_test", /*verbose=*/false));
-  loaded.modelSettings = std::make_unique<ModelSettings>(std::move(modelSettings));
-  ASSIGN_OR_RETURN(PinocchioInterface pinocchioInterface,
-                   loadCustomPinocchioInterface(loaded.config.task, loaded.files.urdfFile, *loaded.modelSettings));
-  loaded.pinocchioInterface = std::make_unique<PinocchioInterface>(std::move(pinocchioInterface));
-  ASSIGN_OR_RETURN(CentroidalModelInfo info, centroidalModelInfoOf(loaded.config, *loaded.pinocchioInterface, *loaded.modelSettings));
+  if (!centroidalModel.empty())
+    loaded.config.task.centroidal_model = std::string(centroidalModel);
+  ASSIGN_OR_RETURN(
+      ModelSettings modelSettings,
+      ModelSettings::Create(loaded.config.task, loaded.files.urdfFile,
+                            "shipped_robot_test", /*verbose=*/false));
+  loaded.modelSettings =
+      std::make_unique<ModelSettings>(std::move(modelSettings));
+  ASSIGN_OR_RETURN(
+      PinocchioInterface pinocchioInterface,
+      loadCustomPinocchioInterface(loaded.config.task, loaded.files.urdfFile,
+                                   *loaded.modelSettings));
+  loaded.pinocchioInterface =
+      std::make_unique<PinocchioInterface>(std::move(pinocchioInterface));
+  ASSIGN_OR_RETURN(
+      CentroidalModelInfo info,
+      centroidalModelInfoOf(loaded.config, *loaded.pinocchioInterface,
+                            *loaded.modelSettings));
   loaded.info = std::make_unique<CentroidalModelInfo>(std::move(info));
-  loaded.model = std::make_unique<CentroidalMpcRobotModel<scalar_t>>(*loaded.modelSettings, *loaded.pinocchioInterface, *loaded.info);
+  loaded.model = std::make_unique<CentroidalMpcRobotModel<scalar_t>>(
+      *loaded.modelSettings, *loaded.pinocchioInterface, *loaded.info);
   return loaded;
 }
 

@@ -45,20 +45,24 @@ def _found(source: str, path: str = _COST) -> list[tuple[int, int]]:
 class EulerBoundaryTest(unittest.TestCase):
     def test_the_euler_api_is_flagged_in_every_capitalization(self):
         source = (
-            "const vector3_t a = model.getBaseOrientationEulerZyx(state);\n"
-            "const vector3_t b = quaternionToEulerZYX(xi);\n"
-            "const vector3_t c = eulerZyxFromQuaternion(xi);\n"
-            "const matrix3_t d = getRotationMatrixFromZyxEulerAngles(c);\n"
-            "const vector3_t e = getEulerAnglesZyxDerivativesFromGlobalAngularVelocity(c, w);\n"
+            "const vector3_t a ="
+            " model.getBaseOrientationEulerZyx(state);\nconst vector3_t b ="
+            " quaternionToEulerZYX(xi);\nconst vector3_t c ="
+            " eulerZyxFromQuaternion(xi);\nconst matrix3_t d ="
+            " getRotationMatrixFromZyxEulerAngles(c);\nconst vector3_t e ="
+            " getEulerAnglesZyxDerivativesFromGlobalAngularVelocity(c, w);\n"
         )
-        self.assertEqual(_found(source), [(1, 27), (2, 21), (3, 21), (4, 21), (5, 21)])
+        self.assertEqual(
+            _found(source), [(1, 27), (2, 21), (3, 21), (4, 21), (5, 21)]
+        )
 
     def test_the_euler_headers_are_flagged(self):
         source = (
-            '#include "humanoid_common_mpc/orientation/EulerBoundary.h"\n'
-            '#include "ocs2_robotic_tools/common/RotationDerivativesTransforms.h"\n'
-            '#include "humanoid_common_mpc/orientation/BaseOrientation.h"\n'
-            '#include "my/EulerBoundary.h"\n'
+            "#include"
+            ' "humanoid_common_mpc/orientation/EulerBoundary.h"\n#include'
+            ' "ocs2_robotic_tools/common/RotationDerivativesTransforms.h"\n#include'
+            ' "humanoid_common_mpc/orientation/BaseOrientation.h"\n#include'
+            ' "my/EulerBoundary.h"\n'
         )
         self.assertEqual(_found(source), [(1, 11), (2, 11)])
 
@@ -83,8 +87,10 @@ class EulerBoundaryTest(unittest.TestCase):
     def test_every_directory_the_tapes_are_recorded_through_is_read(self):
         # The helpers of the taped flow maps and terms: an Euler conversion there would reach a CppAD tape.
         flagged = (
-            "const vector3_t a = getEulerAnglesZyxDerivativesFromGlobalAngularVelocity<SCALAR_T>(c, w);\n"
-            '#include "ocs2_robotic_tools/common/RotationDerivativesTransforms.h"\n'
+            "const vector3_t a ="
+            " getEulerAnglesZyxDerivativesFromGlobalAngularVelocity<SCALAR_T>(c,"
+            " w);\n#include"
+            ' "ocs2_robotic_tools/common/RotationDerivativesTransforms.h"\n'
         )
         clean = "const vector4_t xi = model.getBaseOrientation(state);\n"
         for path in (
@@ -169,7 +175,8 @@ class RepositoryTest(unittest.TestCase):
         )
         self.assertEqual(len(euler_boundary.FORMULATION_FILES), 8)
         self.assertEqual(
-            euler_boundary.FORMULATION_TREES, ("lib/ocs2/pinocchio/centroidal_model/",)
+            euler_boundary.FORMULATION_TREES,
+            ("lib/ocs2/pinocchio/centroidal_model/",),
         )
         self.assertEqual(len(euler_boundary.ROBOT_MODEL_HEADERS), 5)
         for header in euler_boundary.ROBOT_MODEL_HEADERS:

@@ -54,7 +54,8 @@ std::unique_ptr<robot::ipc::Bus> createLoopbackBus(const std::string& name) {
   robot::ipc::BusOptions options;
   options.nodeName = name;
   options.network = robot::ipc::isolatedTestNetwork({name});
-  absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus = robot::ipc::Bus::Create(std::move(options));
+  absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus =
+      robot::ipc::Bus::Create(std::move(options));
   CHECK_OK(bus.status());
   return *std::move(bus);
 }
@@ -70,7 +71,9 @@ bool waitFor(const std::function<bool()>& condition, double timeoutSeconds) {
   return true;
 }
 
-ScriptedRobot::ScriptedRobot() : robot_(createLoopbackBus("robot")), operator_(createLoopbackBus("operator")) {}
+ScriptedRobot::ScriptedRobot()
+    : robot_(createLoopbackBus("robot")),
+      operator_(createLoopbackBus("operator")) {}
 
 ScriptedRobot::~ScriptedRobot() {
   robot_->stop();
@@ -78,19 +81,22 @@ ScriptedRobot::~ScriptedRobot() {
 }
 
 absl::Status ScriptedRobot::start() {
-  const std::function<void(const humanoid_mpc_msgs::MpcPolicy&)> onPolicy = [this](const humanoid_mpc_msgs::MpcPolicy& policy) {
-    absl::MutexLock lock(mutex_);
-    policies_.push_back(policy);
-  };
-  RETURN_IF_ERROR(robot_->subscribe<humanoid_mpc_msgs::MpcPolicy>(topics::kMpcPolicy, robot::ipc::Delivery::kAll, onPolicy));
+  const std::function<void(const humanoid_mpc_msgs::MpcPolicy&)> onPolicy =
+      [this](const humanoid_mpc_msgs::MpcPolicy& policy) {
+        absl::MutexLock lock(mutex_);
+        policies_.push_back(policy);
+      };
+  RETURN_IF_ERROR(robot_->subscribe<humanoid_mpc_msgs::MpcPolicy>(
+      topics::kMpcPolicy, robot::ipc::Delivery::kAll, onPolicy));
   RETURN_IF_ERROR(robot_->start());
   return operator_->start();
 }
 
-humanoid_mpc_msgs::MpcObservation ScriptedRobot::observationMessage(const SystemObservation& observation,
-                                                                    uint64_t sequence,
-                                                                    uint64_t requested,
-                                                                    uint64_t fullRequested) {
+humanoid_mpc_msgs::MpcObservation ScriptedRobot::observationMessage(
+    const SystemObservation& observation,
+    uint64_t sequence,
+    uint64_t requested,
+    uint64_t fullRequested) {
   humanoid_mpc_msgs::MpcObservation message;
   ipc::toProto(observation, message.mutable_observation());
   message.mutable_resets()->set_requested(requested);
@@ -99,15 +105,18 @@ humanoid_mpc_msgs::MpcObservation ScriptedRobot::observationMessage(const System
   return message;
 }
 
-std::optional<humanoid_mpc_msgs::MpcPolicy> ScriptedRobot::solve(const humanoid_mpc_msgs::MpcObservation& observation,
-                                                                 double timeoutSeconds) {
+std::optional<humanoid_mpc_msgs::MpcPolicy> ScriptedRobot::solve(
+    const humanoid_mpc_msgs::MpcObservation& observation,
+    double timeoutSeconds) {
   const double time = observation.observation().time();
   absl::Time nextSend = absl::InfinitePast();
   const bool arrived = waitFor(
       [&]() {
-        // Resent every 10 ms: the server skips a repeated sequence number, so a resend is never solved twice.
+        // Resent every 10 ms: the server skips a repeated sequence number, so a
+        // resend is never solved twice.
         if (absl::Now() >= nextSend) {
-          robot_->publish(topics::kRobotMpcObservation, observation).IgnoreError();
+          robot_->publish(topics::kRobotMpcObservation, observation)
+              .IgnoreError();
           nextSend = absl::Now() + absl::Milliseconds(10);
         }
         return policySolvedAt(time).has_value();
@@ -130,10 +139,12 @@ bool ScriptedRobot::sendAsOperator(absl::string_view topic,
   });
 }
 
-std::optional<humanoid_mpc_msgs::MpcPolicy> ScriptedRobot::policySolvedAt(double time) const {
+std::optional<humanoid_mpc_msgs::MpcPolicy> ScriptedRobot::policySolvedAt(
+    double time) const {
   absl::MutexLock lock(mutex_);
   for (size_t index = policies_.size(); index-- > 0;) {
-    if (policies_[index].init_observation().time() == time) return policies_[index];
+    if (policies_[index].init_observation().time() == time)
+      return policies_[index];
   }
   return std::nullopt;
 }

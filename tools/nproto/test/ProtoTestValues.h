@@ -27,8 +27,9 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// Test values for any protobuf message, and the round-trip checks every nproto struct passes. Shared by nproto's own
-// tests and by the tests of the packages that use nproto (humanoid_nmpc/humanoid_mpc_msgs).
+// Test values for any protobuf message, and the round-trip checks every nproto
+// struct passes. Shared by nproto's own tests and by the tests of the packages
+// that use nproto (humanoid_nmpc/humanoid_mpc_msgs).
 
 #pragma once
 
@@ -42,36 +43,49 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace nproto::test_support {
 
 struct TestValueOptions {
-  // Varies every value except map keys, sizes and the oneof alternative, so that two seeds give messages of one shape.
+  // Varies every value except map keys, sizes and the oneof alternative, so
+  // that two seeds give messages of one shape.
   int seed = 1;
-  // The number of elements of every repeated field and map (maps with bool keys hold at most two).
+  // The number of elements of every repeated field and map (maps with bool keys
+  // hold at most two).
   int repeatedSize = 2;
-  // Which alternative of each oneof is set: this one, modulo the number of alternatives.
+  // Which alternative of each oneof is set: this one, modulo the number of
+  // alternatives.
   int oneofChoice = 0;
-  // When positive, the fields whose number plus the seed is a multiple of it are left unset.
+  // When positive, the fields whose number plus the seed is a multiple of it
+  // are left unset.
   int skipEvery = 0;
 };
 
 /**
- * Sets the fields of `message`, recursively, to values that differ from their defaults: numbers from the seed and the
- * field number, strings of a fixed length longer than any small-string buffer, the enum value after the default,
- * `repeatedSize` elements per repeated field and map, map keys that depend on the index only. Messages deeper than
- * eight levels are left empty.
+ * Sets the fields of `message`, recursively, to values that differ from their
+ * defaults: numbers from the seed and the field number, strings of a fixed
+ * length longer than any small-string buffer, the enum value after the default,
+ * `repeatedSize` elements per repeated field and map, map keys that depend on
+ * the index only. Messages deeper than eight levels are left empty.
  */
-void FillWithTestValues(const TestValueOptions& options, google::protobuf::Message* absl_nonnull message);
+void FillWithTestValues(const TestValueOptions& options,
+                        google::protobuf::Message* absl_nonnull message);
 
-/** `message` serialized with maps in key order, so that equal messages give equal bytes. */
+/** `message` serialized with maps in key order, so that equal messages give
+ * equal bytes. */
 std::string DeterministicBytes(const google::protobuf::Message& message);
 
-/** Success when the two messages are equal; otherwise a failure that prints both. */
-::testing::AssertionResult ProtoEquals(const google::protobuf::Message& expected, const google::protobuf::Message& actual);
+/** Success when the two messages are equal; otherwise a failure that prints
+ * both. */
+::testing::AssertionResult ProtoEquals(
+    const google::protobuf::Message& expected,
+    const google::protobuf::Message& actual);
 
 /**
- * The properties every nproto struct and its message have, for a message type with at least one field:
- * - a message full of test values converts to a struct that differs from the default one;
- * - proto -> struct -> proto and struct -> proto -> struct reproduce what they started from;
- * - converting into a struct or message that holds other values (another seed, other sizes, unset fields, another
- *   oneof alternative) overwrites all of it;
+ * The properties every nproto struct and its message have, for a message type
+ * with at least one field:
+ * - a message full of test values converts to a struct that differs from the
+ * default one;
+ * - proto -> struct -> proto and struct -> proto -> struct reproduce what they
+ * started from;
+ * - converting into a struct or message that holds other values (another seed,
+ * other sizes, unset fields, another oneof alternative) overwrites all of it;
  * - the empty message is the default struct.
  */
 template <typename Struct, typename Proto>
@@ -83,7 +97,9 @@ void ExpectRoundTrips() {
   const absl::Status fromFilled = FromProto(filled, &value);
   ASSERT_TRUE(fromFilled.ok()) << fromFilled;
   if (hasFields) {
-    EXPECT_TRUE(value != Struct{}) << "the test values of " << Proto::descriptor()->full_name() << " reach the struct";
+    EXPECT_TRUE(value != Struct{})
+        << "the test values of " << Proto::descriptor()->full_name()
+        << " reach the struct";
   }
 
   Proto back;
@@ -95,9 +111,13 @@ void ExpectRoundTrips() {
   EXPECT_TRUE(again == value);
   EXPECT_FALSE(again != value);
 
-  // Into objects that held something else: another seed, more elements, unset fields, another oneof alternative.
+  // Into objects that held something else: another seed, more elements, unset
+  // fields, another oneof alternative.
   Proto other;
-  FillWithTestValues(TestValueOptions{.seed = 7, .repeatedSize = 3, .oneofChoice = 1, .skipEvery = 3}, &other);
+  FillWithTestValues(
+      TestValueOptions{
+          .seed = 7, .repeatedSize = 3, .oneofChoice = 1, .skipEvery = 3},
+      &other);
   Struct dirty;
   const absl::Status fromOther = FromProto(other, &dirty);
   ASSERT_TRUE(fromOther.ok()) << fromOther;
@@ -107,9 +127,13 @@ void ExpectRoundTrips() {
   ToProto(value, &other);
   EXPECT_TRUE(ProtoEquals(filled, other));
 
-  // And the other way around: a sparse message into a struct that held a full one.
+  // And the other way around: a sparse message into a struct that held a full
+  // one.
   Proto sparse;
-  FillWithTestValues(TestValueOptions{.seed = 3, .repeatedSize = 1, .oneofChoice = 2, .skipEvery = 2}, &sparse);
+  FillWithTestValues(
+      TestValueOptions{
+          .seed = 3, .repeatedSize = 1, .oneofChoice = 2, .skipEvery = 2},
+      &sparse);
   Struct fresh;
   const absl::Status fromSparse = FromProto(sparse, &fresh);
   ASSERT_TRUE(fromSparse.ok()) << fromSparse;

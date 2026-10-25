@@ -48,15 +48,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_validation/closed_loop/RobotConfiguration.h"
 
 /*
- * What the closed-loop driver reads of the configuration files itself (DriverSettingsFromConfig.h): the GUI's command
- * scaling of the reference file, and the contact wrench gate every configuration's task file sets
- * (wholeFileContactWrenchGate(), tested with the conversion in humanoid_common_mpc).
+ * What the closed-loop driver reads of the configuration files itself
+ * (DriverSettingsFromConfig.h): the GUI's command scaling of the reference
+ * file, and the contact wrench gate every configuration's task file sets
+ * (wholeFileContactWrenchGate(), tested with the conversion in
+ * humanoid_common_mpc).
  */
 
 namespace ocs2::humanoid::validation {
 namespace {
 
-/** A reference file that gives every value referenceSettingsFromConfig() requires, each a value of its own. */
+/** A reference file that gives every value referenceSettingsFromConfig()
+ * requires, each a value of its own. */
 mpc_config::ReferenceFile completeReferenceFile() {
   mpc_config::ReferenceFile file;
   file.target_displacement_velocity = 0.45;
@@ -79,25 +82,35 @@ struct ScalingField {
 /** The command limits, in the order of GuiCommandScaling::commandLimits. */
 std::array<ScalingField, 3> commandLimitFields() {
   return {{
-      {.name = "max_displacement_velocity_x", .member = &mpc_config::ReferenceFile::max_displacement_velocity_x},
-      {.name = "max_displacement_velocity_y", .member = &mpc_config::ReferenceFile::max_displacement_velocity_y},
-      {.name = "max_rotation_velocity", .member = &mpc_config::ReferenceFile::max_rotation_velocity},
+      {.name = "max_displacement_velocity_x",
+       .member = &mpc_config::ReferenceFile::max_displacement_velocity_x},
+      {.name = "max_displacement_velocity_y",
+       .member = &mpc_config::ReferenceFile::max_displacement_velocity_y},
+      {.name = "max_rotation_velocity",
+       .member = &mpc_config::ReferenceFile::max_rotation_velocity},
   }};
 }
 
 /** The scaling of `file`, checked against the fields it comes from. */
-void expectScalingOfFile(const GuiCommandScaling& scaling, const mpc_config::ReferenceFile& file, absl::string_view what) {
+void expectScalingOfFile(const GuiCommandScaling& scaling,
+                         const mpc_config::ReferenceFile& file,
+                         absl::string_view what) {
   const std::array<ScalingField, 3> fields = commandLimitFields();
   for (size_t i = 0; i < fields.size(); ++i) {
-    EXPECT_EQ(std::optional<double>(scaling.commandLimits(static_cast<Eigen::Index>(i))), file.*(fields[i].member))
+    EXPECT_EQ(std::optional<double>(
+                  scaling.commandLimits(static_cast<Eigen::Index>(i))),
+              file.*(fields[i].member))
         << what << ": " << fields[i].name;
   }
-  EXPECT_EQ(std::optional<double>(scaling.defaultPelvisHeight), file.default_base_height) << what;
+  EXPECT_EQ(std::optional<double>(scaling.defaultPelvisHeight),
+            file.default_base_height)
+      << what;
 }
 
 TEST(GuiCommandScalingTest, EachValueComesFromItsOwnField) {
   const mpc_config::ReferenceFile file = completeReferenceFile();
-  const absl::StatusOr<GuiCommandScaling> scaling = guiCommandScalingFromConfig(file);
+  const absl::StatusOr<GuiCommandScaling> scaling =
+      guiCommandScalingFromConfig(file);
   ASSERT_TRUE(scaling.ok()) << scaling.status();
   expectScalingOfFile(*scaling, file, /*what=*/"the complete file");
 }
@@ -107,10 +120,13 @@ TEST(GuiCommandScalingTest, ACommandLimitThatIsNotPositiveIsRefusedByName) {
     for (const double value : {0.0, -0.5}) {
       mpc_config::ReferenceFile file = completeReferenceFile();
       file.*(field.member) = value;
-      const absl::StatusOr<GuiCommandScaling> scaling = guiCommandScalingFromConfig(file);
+      const absl::StatusOr<GuiCommandScaling> scaling =
+          guiCommandScalingFromConfig(file);
       ASSERT_FALSE(scaling.ok()) << field.name << " = " << value;
-      EXPECT_EQ(scaling.status().code(), absl::StatusCode::kInvalidArgument) << field.name;
-      EXPECT_TRUE(absl::StrContains(scaling.status().message(), field.name)) << scaling.status();
+      EXPECT_EQ(scaling.status().code(), absl::StatusCode::kInvalidArgument)
+          << field.name;
+      EXPECT_TRUE(absl::StrContains(scaling.status().message(), field.name))
+          << scaling.status();
     }
   }
 }
@@ -118,39 +134,57 @@ TEST(GuiCommandScalingTest, ACommandLimitThatIsNotPositiveIsRefusedByName) {
 TEST(GuiCommandScalingTest, AFileThatLeavesOutAValueItReadsIsRefusedByName) {
   const std::array<ScalingField, 3> limits = commandLimitFields();
   const std::array<ScalingField, 4> fields = {
-      {limits[0], limits[1], limits[2], {.name = "default_base_height", .member = &mpc_config::ReferenceFile::default_base_height}}};
+      {limits[0],
+       limits[1],
+       limits[2],
+       {.name = "default_base_height",
+        .member = &mpc_config::ReferenceFile::default_base_height}}};
   for (const ScalingField& field : fields) {
     mpc_config::ReferenceFile file = completeReferenceFile();
     (file.*(field.member)).reset();
-    const absl::StatusOr<GuiCommandScaling> scaling = guiCommandScalingFromConfig(file);
+    const absl::StatusOr<GuiCommandScaling> scaling =
+        guiCommandScalingFromConfig(file);
     ASSERT_FALSE(scaling.ok()) << field.name;
-    EXPECT_EQ(scaling.status().code(), absl::StatusCode::kInvalidArgument) << field.name;
-    EXPECT_TRUE(absl::StrContains(scaling.status().message(), field.name)) << scaling.status();
+    EXPECT_EQ(scaling.status().code(), absl::StatusCode::kInvalidArgument)
+        << field.name;
+    EXPECT_TRUE(absl::StrContains(scaling.status().message(), field.name))
+        << scaling.status();
   }
 }
 
-TEST(GuiCommandScalingTest, EveryConfigurationScalesTheCommandByItsReferenceFile) {
+TEST(GuiCommandScalingTest,
+     EveryConfigurationScalesTheCommandByItsReferenceFile) {
   for (const RobotConfiguration& configuration : robotConfigurations()) {
     // The path the driver reads: the configuration's.
-    const absl::StatusOr<mpc_config::ReferenceFile> file = loadReferenceFile(configuration.referenceFile);
+    const absl::StatusOr<mpc_config::ReferenceFile> file =
+        loadReferenceFile(configuration.referenceFile);
     ASSERT_TRUE(file.ok()) << configuration.name << ": " << file.status();
-    const absl::StatusOr<GuiCommandScaling> scaling = guiCommandScalingFromConfig(*file);
+    const absl::StatusOr<GuiCommandScaling> scaling =
+        guiCommandScalingFromConfig(*file);
     ASSERT_TRUE(scaling.ok()) << configuration.name << ": " << scaling.status();
     expectScalingOfFile(*scaling, *file, configuration.name);
-    EXPECT_TRUE((scaling->commandLimits.array() > 0.0).all()) << configuration.name;
+    EXPECT_TRUE((scaling->commandLimits.array() > 0.0).all())
+        << configuration.name;
     EXPECT_GT(scaling->defaultPelvisHeight, 0.0) << configuration.name;
   }
 }
 
 TEST(WholeFileContactWrenchGateTest, EveryConfigurationsTaskFileSetsItsGate) {
   for (const RobotConfiguration& configuration : robotConfigurations()) {
-    const absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(configuration.taskFile);
+    const absl::StatusOr<mpc_config::TaskFile> task =
+        loadTaskFile(configuration.taskFile);
     ASSERT_TRUE(task.ok()) << configuration.name << ": " << task.status();
-    const ControllerSideConfig settings = controllerSideSettingsFromConfig(*task);
+    const ControllerSideConfig settings =
+        controllerSideSettingsFromConfig(*task);
     EXPECT_TRUE(settings.problems.empty()) << configuration.name;
-    const std::optional<ContactWrenchGate::Config> gate = wholeFileContactWrenchGate(settings);
-    if (!gate.has_value()) GTEST_FAIL() << configuration.name << ": no gate, the gate in use would be kept";
-    const mpc_config::ContactWrenchGateConfig block = task->contact_wrench_gate.value_or(mpc_config::ContactWrenchGateConfig{});
+    const std::optional<ContactWrenchGate::Config> gate =
+        wholeFileContactWrenchGate(settings);
+    if (!gate.has_value())
+      GTEST_FAIL() << configuration.name
+                   << ": no gate, the gate in use would be kept";
+    const mpc_config::ContactWrenchGateConfig block =
+        task->contact_wrench_gate.value_or(
+            mpc_config::ContactWrenchGateConfig{});
     EXPECT_EQ(gate->debounceTime, block.debounce_time) << configuration.name;
     EXPECT_EQ(gate->rampTime, block.ramp_time) << configuration.name;
   }

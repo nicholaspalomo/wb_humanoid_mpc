@@ -50,20 +50,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::teleop {
 namespace {
 
-/** [s] How often a failing publication of the walking command, or a reference file that no longer reads, is logged. */
+/** [s] How often a failing publication of the walking command, or a reference
+ * file that no longer reads, is logged. */
 constexpr double kPublishFailureLogPeriodSeconds = 5.0;
-/** How often publishStopCommand() looks whether the bus has sent the stop command. */
+/** How often publishStopCommand() looks whether the bus has sent the stop
+ * command. */
 constexpr absl::Duration kStopCommandPollPeriod = absl::Milliseconds(5);
 
 }  // namespace
 
-absl::StatusOr<std::unique_ptr<VelocityCommandRepeater>> VelocityCommandRepeater::Create(robot::ipc::Bus& bus,
-                                                                                         std::string referenceFile,
-                                                                                         const KeyboardCommandLimits& limits,
-                                                                                         absl::Duration period,
-                                                                                         absl::Duration limitsCheckPeriod) {
-  if (period <= absl::ZeroDuration() || limitsCheckPeriod <= absl::ZeroDuration()) {
-    return absl::InvalidArgumentError("The repeater's period and the command limits' check period must be positive");
+absl::StatusOr<std::unique_ptr<VelocityCommandRepeater>>
+VelocityCommandRepeater::Create(robot::ipc::Bus& bus,
+                                std::string referenceFile,
+                                const KeyboardCommandLimits& limits,
+                                absl::Duration period,
+                                absl::Duration limitsCheckPeriod) {
+  if (period <= absl::ZeroDuration() ||
+      limitsCheckPeriod <= absl::ZeroDuration()) {
+    return absl::InvalidArgumentError(
+        "The repeater's period and the command limits' check period must be "
+        "positive");
   }
   const std::shared_ptr<State> state = std::make_shared<State>();
   {
@@ -72,28 +78,41 @@ absl::StatusOr<std::unique_ptr<VelocityCommandRepeater>> VelocityCommandRepeater
   }
   state->referenceFile = std::move(referenceFile);
   absl::Duration remainder;
-  const int64_t callbacksPerLimitsCheck = absl::IDivDuration(limitsCheckPeriod, period, &remainder);
-  state->callbacksPerLimitsCheck = callbacksPerLimitsCheck > 0 ? callbacksPerLimitsCheck : 1;
+  const int64_t callbacksPerLimitsCheck =
+      absl::IDivDuration(limitsCheckPeriod, period, &remainder);
+  state->callbacksPerLimitsCheck =
+      callbacksPerLimitsCheck > 0 ? callbacksPerLimitsCheck : 1;
   state->callbacksUntilLimitsCheck = state->callbacksPerLimitsCheck;
   robot::ipc::Bus* absl_nonnull busPointer = &bus;
-  absl::Status registered = bus.addPeriodicCallback(period, [state, busPointer]() { publishFromIoThread(*state, *busPointer); });
+  absl::Status registered = bus.addPeriodicCallback(
+      period,
+      [state, busPointer]() { publishFromIoThread(*state, *busPointer); });
   if (!registered.ok()) return registered;
   return absl::WrapUnique(new VelocityCommandRepeater(state));
 }
 
 void VelocityCommandRepeater::reloadLimitsIfChanged(State& state) {
   std::error_code error;
-  const std::filesystem::file_time_type writeTime = std::filesystem::last_write_time(state.referenceFile, error);
+  const std::filesystem::file_time_type writeTime =
+      std::filesystem::last_write_time(state.referenceFile, error);
   if (error) {
     LOG_EVERY_N_SEC(WARNING, kPublishFailureLogPeriodSeconds)
-        << "[teleop] Keeping the previous command limits: cannot read the time of " << state.referenceFile << ": " << error.message();
+        << "[teleop] Keeping the previous command limits: cannot read the time "
+           "of "
+        << state.referenceFile << ": " << error.message();
     return;
   }
-  if (state.referenceFileTime.has_value() && *state.referenceFileTime == writeTime) return;
-  absl::StatusOr<KeyboardCommandLimits> reloaded = loadKeyboardCommandLimits(state.referenceFile);
+  if (state.referenceFileTime.has_value() &&
+      *state.referenceFileTime == writeTime)
+    return;
+  absl::StatusOr<KeyboardCommandLimits> reloaded =
+      loadKeyboardCommandLimits(state.referenceFile);
   if (!reloaded.ok()) {
-    // The time is not recorded, so that the next look tries again: an editor may have saved half a file.
-    LOG_EVERY_N_SEC(WARNING, kPublishFailureLogPeriodSeconds) << "[teleop] Keeping the previous command limits: " << reloaded.status();
+    // The time is not recorded, so that the next look tries again: an editor
+    // may have saved half a file.
+    LOG_EVERY_N_SEC(WARNING, kPublishFailureLogPeriodSeconds)
+        << "[teleop] Keeping the previous command limits: "
+        << reloaded.status();
     return;
   }
   state.referenceFileTime = writeTime;
@@ -102,7 +121,8 @@ void VelocityCommandRepeater::reloadLimitsIfChanged(State& state) {
   state.limitsReloads.fetch_add(1);
 }
 
-void VelocityCommandRepeater::publishFromIoThread(State& state, robot::ipc::Bus& bus) {
+void VelocityCommandRepeater::publishFromIoThread(State& state,
+                                                  robot::ipc::Bus& bus) {
   if (--state.callbacksUntilLimitsCheck <= 0) {
     state.callbacksUntilLimitsCheck = state.callbacksPerLimitsCheck;
     reloadLimitsIfChanged(state);
@@ -115,9 +135,11 @@ void VelocityCommandRepeater::publishFromIoThread(State& state, robot::ipc::Bus&
     message = keyboardCommandToMessage(*state.command, state.limits);
     generation = state.commandGeneration;
   }
-  const absl::Status sent = bus.publishFromIoThread(ipc::topics::kOperatorWalkingVelocityCommand, message);
+  const absl::Status sent = bus.publishFromIoThread(
+      ipc::topics::kOperatorWalkingVelocityCommand, message);
   if (!sent.ok()) {
-    LOG_EVERY_N_SEC(WARNING, kPublishFailureLogPeriodSeconds) << "[teleop] Publishing the walking command failed: " << sent.message();
+    LOG_EVERY_N_SEC(WARNING, kPublishFailureLogPeriodSeconds)
+        << "[teleop] Publishing the walking command failed: " << sent.message();
     return;
   }
   state.published.fetch_add(1);
@@ -125,20 +147,23 @@ void VelocityCommandRepeater::publishFromIoThread(State& state, robot::ipc::Bus&
   state.publishedGeneration = std::max(state.publishedGeneration, generation);
 }
 
-void VelocityCommandRepeater::setCommand(const vector4_t& command, const KeyboardCommandLimits& limits) {
+void VelocityCommandRepeater::setCommand(const vector4_t& command,
+                                         const KeyboardCommandLimits& limits) {
   absl::MutexLock lock(state_->mutex);
   state_->command = command;
   state_->limits = limits;
   ++state_->commandGeneration;
 }
 
-bool VelocityCommandRepeater::publishStopCommand(absl::Duration timeout, absl::Duration gracePeriod) {
+bool VelocityCommandRepeater::publishStopCommand(absl::Duration timeout,
+                                                 absl::Duration gracePeriod) {
   uint64_t stopGeneration = 0;
   {
     absl::MutexLock lock(state_->mutex);
     if (!state_->command.has_value()) return false;
     vector4_t stop = vector4_t::Zero();
-    stop(KeyboardCommandLimits::kPelvisHeightChangeIndex) = (*state_->command)(KeyboardCommandLimits::kPelvisHeightChangeIndex);
+    stop(KeyboardCommandLimits::kPelvisHeightChangeIndex) =
+        (*state_->command)(KeyboardCommandLimits::kPelvisHeightChangeIndex);
     state_->command = stop;
     stopGeneration = ++state_->commandGeneration;
   }
@@ -149,7 +174,8 @@ bool VelocityCommandRepeater::publishStopCommand(absl::Duration timeout, absl::D
       if (state_->publishedGeneration >= stopGeneration) break;
     }
     if (absl::Now() >= deadline) {
-      LOG(WARNING) << "[teleop] The stop command was not sent within " << timeout;
+      LOG(WARNING) << "[teleop] The stop command was not sent within "
+                   << timeout;
       return false;
     }
     absl::SleepFor(kStopCommandPollPeriod);

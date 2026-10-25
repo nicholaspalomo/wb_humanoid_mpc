@@ -98,7 +98,9 @@ def _parse(source: str) -> ast.Module | None:
         return None
 
 
-def _finding(path: str, node: ast.AST, name: str, message: str) -> check_types.Finding:
+def _finding(
+    path: str, node: ast.AST, name: str, message: str
+) -> check_types.Finding:
     return check_types.Finding(
         path,
         getattr(node, "lineno", 1),
@@ -134,13 +136,16 @@ def check_staticmethod(source: str, path: str) -> list[check_types.Finding]:
                         path,
                         decorator,
                         STATICMETHOD,
-                        f"`@staticmethod` on `{node.name}`: write a module-level function (Python style 2.17).",
+                        f"`@staticmethod` on `{node.name}`: write a"
+                        " module-level function (Python style 2.17).",
                     )
                 )
     return findings
 
 
-def check_complex_comprehension(source: str, path: str) -> list[check_types.Finding]:
+def check_complex_comprehension(
+    source: str, path: str
+) -> list[check_types.Finding]:
     """Comprehensions with more than one `for` or more than one `if`."""
     tree = _parse(source)
     if tree is None:
@@ -158,8 +163,8 @@ def check_complex_comprehension(source: str, path: str) -> list[check_types.Find
                     path,
                     node,
                     COMPLEX_COMPREHENSION,
-                    "a comprehension has one `for` clause and one condition at most: write a loop "
-                    "(Python style 2.7).",
+                    "a comprehension has one `for` clause and one condition at"
+                    " most: write a loop (Python style 2.7).",
                 )
             )
     return findings
@@ -175,7 +180,8 @@ def check_long_ternary(source: str, path: str) -> list[check_types.Finding]:
             path,
             node,
             LONG_TERNARY,
-            "each part of a conditional expression fits on one line: write an `if` statement (Python style 2.11).",
+            "each part of a conditional expression fits on one line: write an"
+            " `if` statement (Python style 2.11).",
         )
         for node in ast.walk(tree)
         if isinstance(node, ast.IfExp)
@@ -202,8 +208,9 @@ def check_long_lambda(source: str, path: str) -> list[check_types.Finding]:
                     path,
                     node,
                     LONG_LAMBDA,
-                    f"a lambda is one line of at most {MAX_LAMBDA_LENGTH} characters: define a function "
-                    "(Python style 2.10).",
+                    "a lambda is one line of at most"
+                    f" {MAX_LAMBDA_LENGTH} characters: define a function"
+                    " (Python style 2.10).",
                 )
             )
     return findings
@@ -244,8 +251,8 @@ def check_length_test(source: str, path: str) -> list[check_types.Finding]:
             path,
             condition,
             LENGTH_TEST,
-            "a length compared with 0 as a condition: test the sequence itself, `if seq:` / `if not seq:` "
-            "(Python style 2.14).",
+            "a length compared with 0 as a condition: test the sequence itself,"
+            " `if seq:` / `if not seq:` (Python style 2.14).",
         )
         for condition in conditions
         if _is_length_test(condition)
@@ -262,8 +269,8 @@ def check_assert(source: str, path: str) -> list[check_types.Finding]:
             path,
             node,
             ASSERT,
-            "`assert` outside a test: raise an exception (ValueError, ...), since `python -O` drops asserts "
-            "(Python style 2.4).",
+            "`assert` outside a test: raise an exception (ValueError, ...),"
+            " since `python -O` drops asserts (Python style 2.4).",
         )
         for node in ast.walk(tree)
         if isinstance(node, ast.Assert)
@@ -283,7 +290,8 @@ def check_exception_name(source: str, path: str) -> list[check_types.Finding]:
             path,
             node,
             EXCEPTION_NAME,
-            f"exception class `{node.name}`: its name ends in `Error` (Python style 2.4).",
+            f"exception class `{node.name}`: its name ends in `Error` (Python"
+            " style 2.4).",
         )
         for node in ast.walk(tree)
         if isinstance(node, ast.ClassDef)
@@ -309,7 +317,10 @@ def check_power_feature(source: str, path: str) -> list[check_types.Finding]:
             k.arg == "metaclass" for k in node.keywords
         ):
             what = "a metaclass"
-        elif isinstance(node, ast.Call) and _name(node.func) in ("exec", "eval"):
+        elif isinstance(node, ast.Call) and _name(node.func) in (
+            "exec",
+            "eval",
+        ):
             what = f"`{_name(node.func)}`"
         if what:
             findings.append(
@@ -317,7 +328,8 @@ def check_power_feature(source: str, path: str) -> list[check_types.Finding]:
                     path,
                     node,
                     POWER_FEATURE,
-                    f"{what} is a power feature this code does not use (Python style 2.19).",
+                    f"{what} is a power feature this code does not use (Python"
+                    " style 2.19).",
                 )
             )
     return findings
@@ -336,7 +348,10 @@ def check_backslash(source: str, path: str) -> list[check_types.Finding]:
             inside.update(range(token.start[0], token.end[0]))
         elif token.type == getattr(tokenize, "FSTRING_START", -1):
             fstring_starts.append(token.start[0])
-        elif token.type == getattr(tokenize, "FSTRING_END", -1) and fstring_starts:
+        elif (
+            token.type == getattr(tokenize, "FSTRING_END", -1)
+            and fstring_starts
+        ):
             inside.update(range(fstring_starts.pop(), token.end[0]))
         elif token.type == tokenize.COMMENT:
             inside.add(-token.start[0])
@@ -353,7 +368,8 @@ def check_backslash(source: str, path: str) -> list[check_types.Finding]:
                     number,
                     len(line.rstrip("\r")),
                     BACKSLASH,
-                    "backslash line continuation: wrap in parentheses (Python style 3.2).",
+                    "backslash line continuation: wrap in parentheses (Python"
+                    " style 3.2).",
                 )
             )
     return findings
@@ -374,7 +390,8 @@ def check_type_comment(source: str, path: str) -> list[check_types.Finding]:
             token.start[0],
             token.start[1] + 1,
             TYPE_COMMENT,
-            "`# type:` comment: write an annotation; only `# type: ignore[<code>]` is used (Python style 3.19).",
+            "`# type:` comment: write an annotation; only `# type:"
+            " ignore[<code>]` is used (Python style 3.19).",
         )
         for token in tokens
         if token.type == tokenize.COMMENT and _TYPE_COMMENT.match(token.string)
@@ -428,7 +445,8 @@ def check_pragma_reason(source: str, path: str) -> list[check_types.Finding]:
         if ignore and not _PRAGMA_REASON.match(ignore.group("rest")):
             add(
                 token,
-                "`# type: ignore[<code>]` without its reason: append `  # <why the type checker is wrong here>`",
+                "`# type: ignore[<code>]` without its reason: append `  # <why"
+                " the type checker is wrong here>`",
             )
         pragma = _PYLINT_PRAGMA.search(token.string)
         if pragma is None:
@@ -436,8 +454,8 @@ def check_pragma_reason(source: str, path: str) -> list[check_types.Finding]:
         if pragma.group("kind") == "skip-file":
             add(
                 token,
-                "`# pylint: skip-file` silences every message of the file: disable each one where it occurs, with "
-                "its reason",
+                "`# pylint: skip-file` silences every message of the file:"
+                " disable each one where it occurs, with its reason",
             )
             continue
         if _PRAGMA_REASON.match(pragma.group("rest")):
@@ -447,8 +465,8 @@ def check_pragma_reason(source: str, path: str) -> list[check_types.Finding]:
             continue
         add(
             token,
-            f"`# pylint: {pragma.group('kind')}=...` without its reason: append `  # <reason>`, as "
-            "`# pylint: disable=<message>  # <reason>`",
+            f"`# pylint: {pragma.group('kind')}=...` without its reason: append"
+            " `  # <reason>`, as `# pylint: disable=<message>  # <reason>`",
         )
     return findings
 
@@ -462,19 +480,28 @@ def check_shebang(source: str, path: str) -> list[check_types.Finding]:
     first = source.split("\n", 1)[0]
     message = None
     if first.startswith("#!") and not executable:
-        message = "a shebang on a file that is not executable: delete it, or `chmod +x` the file"
+        message = (
+            "a shebang on a file that is not executable: delete it, or `chmod"
+            " +x` the file"
+        )
     elif executable and first != SHEBANG_LINE:
         message = f"an executable file starts with exactly `{SHEBANG_LINE}`"
     if message is None:
         return []
-    return [check_types.Finding(path, 1, 1, SHEBANG, f"{message} (Python style 3.7).")]
+    return [
+        check_types.Finding(
+            path, 1, 1, SHEBANG, f"{message} (Python style 3.7)."
+        )
+    ]
 
 
 def _is_main_guard(node: ast.AST) -> bool:
     if not isinstance(node, ast.If) or not isinstance(node.test, ast.Compare):
         return False
     parts = [node.test.left] + list(node.test.comparators)
-    return any(isinstance(p, ast.Name) and p.id == "__name__" for p in parts) and any(
+    return any(
+        isinstance(p, ast.Name) and p.id == "__name__" for p in parts
+    ) and any(
         isinstance(p, ast.Constant) and p.value == "__main__" for p in parts
     )
 
@@ -498,8 +525,9 @@ def check_main_guard(source: str, path: str) -> list[check_types.Finding]:
                         path,
                         node,
                         MAIN_GUARD,
-                        "the `__main__` guard calls `main()` (or `app.run(main)`), which holds the program "
-                        "(Python style 3.17).",
+                        "the `__main__` guard calls `main()` (or"
+                        " `app.run(main)`), which holds the program (Python"
+                        " style 3.17).",
                     )
                 )
         elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
@@ -510,7 +538,8 @@ def check_main_guard(source: str, path: str) -> list[check_types.Finding]:
                         path,
                         node,
                         MAIN_GUARD,
-                        f"`{name or 'a call'}(...)` runs at import time: move it into `main()` (Python style 3.17).",
+                        f"`{name or 'a call'}(...)` runs at import time: move"
+                        " it into `main()` (Python style 3.17).",
                     )
                 )
     return findings
@@ -551,11 +580,17 @@ CHECKS = [
         check_long_ternary,
         "each part of a conditional expression fits on one line (2.11).",
     ),
-    _check(LONG_LAMBDA, check_long_lambda, "lambdas are one short line (2.10)."),
     _check(
-        LENGTH_TEST, check_length_test, "`if not seq:`, not `if len(seq) == 0:` (2.14)."
+        LONG_LAMBDA, check_long_lambda, "lambdas are one short line (2.10)."
     ),
-    _check(ASSERT, check_assert, "no assert outside tests (2.4).", non_test=True),
+    _check(
+        LENGTH_TEST,
+        check_length_test,
+        "`if not seq:`, not `if len(seq) == 0:` (2.14).",
+    ),
+    _check(
+        ASSERT, check_assert, "no assert outside tests (2.4).", non_test=True
+    ),
     _check(
         EXCEPTION_NAME,
         check_exception_name,
@@ -567,16 +602,23 @@ CHECKS = [
         "no __del__, metaclasses, exec or eval outside tests (2.19).",
         non_test=True,
     ),
-    _check(BACKSLASH, check_backslash, "no backslash line continuations (3.2)."),
     _check(
-        TYPE_COMMENT, check_type_comment, "annotations, not # type: comments (3.19)."
+        BACKSLASH, check_backslash, "no backslash line continuations (3.2)."
+    ),
+    _check(
+        TYPE_COMMENT,
+        check_type_comment,
+        "annotations, not # type: comments (3.19).",
     ),
     _check(
         PRAGMA_REASON,
         check_pragma_reason,
-        "pylint pragmas and type: ignore comments say why; no pylint: skip-file (AGENTS.md).",
+        "pylint pragmas and type: ignore comments say why; no pylint: skip-file"
+        " (AGENTS.md).",
     ),
-    _check(SHEBANG, check_shebang, "a shebang exactly on executable files (3.7)."),
+    _check(
+        SHEBANG, check_shebang, "a shebang exactly on executable files (3.7)."
+    ),
     _check(
         MAIN_GUARD,
         check_main_guard,

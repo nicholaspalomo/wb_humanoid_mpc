@@ -41,14 +41,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::validation {
 
 /**
- * A JSON document (RFC 8259), small enough to need no third-party library: the closed-loop metrics and the solve
- * benchmark write their results with it, and the schema test and the band comparison read them back.
+ * A JSON document (RFC 8259), small enough to need no third-party library: the
+ * closed-loop metrics and the solve benchmark write their results with it, and
+ * the schema test and the band comparison read them back.
  *
- * Objects keep their members in insertion order, so a file written twice from the same values is byte-identical and
- * diffs well. Numbers are doubles, written with the fewest significant digits that read back to the same double; a
- * number that is not finite has no JSON form and is written as null.
+ * Objects keep their members in insertion order, so a file written twice from
+ * the same values is byte-identical and diffs well. Numbers are doubles,
+ * written with the fewest significant digits that read back to the same double;
+ * a number that is not finite has no JSON form and is written as null.
  *
- * A value type: not thread-safe to modify; its const methods may be called concurrently.
+ * A value type: not thread-safe to modify; its const methods may be called
+ * concurrently.
  */
 class JsonValue {
  public:
@@ -80,31 +83,41 @@ class JsonValue {
 
   /** Elements of an array or members of an object; 0 for the other types. */
   size_t size() const;
-  /** Element `index` of an array; CHECK-fails out of range or on another type. */
+  /** Element `index` of an array; CHECK-fails out of range or on another type.
+   */
   const JsonValue& at(size_t index) const;
-  /** Key and value of member `index` of an object, in insertion order; CHECK-fails out of range or on another type. */
+  /** Key and value of member `index` of an object, in insertion order;
+   * CHECK-fails out of range or on another type. */
   const std::string& keyAt(size_t index) const;
   const JsonValue& valueAt(size_t index) const;
 
-  /** Sets member `key` of an object (CHECK-fails on another type): replaces it in place, or appends it. Returns it. */
+  /** Sets member `key` of an object (CHECK-fails on another type): replaces it
+   * in place, or appends it. Returns it. */
   JsonValue& set(absl::string_view key, JsonValue value);
-  /** Appends to an array (CHECK-fails on another type). Returns the new element. */
+  /** Appends to an array (CHECK-fails on another type). Returns the new
+   * element. */
   JsonValue& append(JsonValue value);
 
-  /** Member `key` of an object; nullptr when absent or when this is not an object. */
+  /** Member `key` of an object; nullptr when absent or when this is not an
+   * object. */
   const JsonValue* absl_nullable find(absl::string_view key) const;
-  /** The value at a dotted path of object keys ("solve_time_ms.total.p99"); nullptr when any part is absent. */
+  /** The value at a dotted path of object keys ("solve_time_ms.total.p99");
+   * nullptr when any part is absent. */
   const JsonValue* absl_nullable findPath(absl::string_view dottedPath) const;
 
   /** The document with two-space indentation, without a trailing newline. */
   std::string serialize() const;
 
-  /** Parses one JSON document; InvalidArgument with the byte offset of the first error. */
+  /** Parses one JSON document; InvalidArgument with the byte offset of the
+   * first error. */
   static absl::StatusOr<JsonValue> parse(absl::string_view text);
 
-  /** Structural equality: same types, numbers equal as doubles, object members equal in the same order. */
+  /** Structural equality: same types, numbers equal as doubles, object members
+   * equal in the same order. */
   friend bool operator==(const JsonValue& lhs, const JsonValue& rhs);
-  friend bool operator!=(const JsonValue& lhs, const JsonValue& rhs) { return !(lhs == rhs); }
+  friend bool operator!=(const JsonValue& lhs, const JsonValue& rhs) {
+    return !(lhs == rhs);
+  }
 
  private:
   void serializeTo(std::string& out, int indent) const;
@@ -114,13 +127,15 @@ class JsonValue {
   double number_ = 0.0;
   std::string string_;
   std::vector<JsonValue> elements_;  // array elements, or object member values
-  std::vector<std::string> keys_;    // object member keys, parallel to elements_
+  std::vector<std::string> keys_;  // object member keys, parallel to elements_
 };
 
-/** JsonValue::parse() of the file at `path`; NotFound when it cannot be read. */
+/** JsonValue::parse() of the file at `path`; NotFound when it cannot be read.
+ */
 absl::StatusOr<JsonValue> readJsonFile(const std::string& path);
 
-/** `value` serialized into `path` with a final newline, creating its directory; Internal when it cannot be written. */
+/** `value` serialized into `path` with a final newline, creating its directory;
+ * Internal when it cannot be written. */
 absl::Status writeJsonFile(const std::string& path, const JsonValue& value);
 
 }  // namespace ocs2::humanoid::validation

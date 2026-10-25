@@ -52,7 +52,8 @@ OUTPUT_GROUP = "clang_tidy"
 # `path:line:column: warning|error: message [check,-warnings-as-errors]`, or a diagnostic without a location
 # (`error: unable to handle compilation [clang-diagnostic-error]`).
 _DIAGNOSTIC = re.compile(
-    r"^(?:(?P<path>[^\s:][^:]*):(?P<line>\d+):(?P<column>\d+): )?(?P<severity>warning|error): "
+    r"^(?:(?P<path>[^\s:][^:]*):(?P<line>\d+):(?P<column>\d+):"
+    r" )?(?P<severity>warning|error): "
     r"(?P<message>.*?)(?: \[(?P<checks>[^\]\s]+)\])?$"
 )
 # Everything up to the execution root of a Bazel action, in an absolute path.
@@ -78,9 +79,14 @@ class Finding:
 
     def format(self) -> str:
         """The finding as clang-tidy prints it, with a repository-relative path."""
-        location = f"{self.path}:{self.line}:{self.column}: " if self.path else ""
+        location = (
+            f"{self.path}:{self.line}:{self.column}: " if self.path else ""
+        )
         return "\n".join(
-            [f"{location}{self.severity}: {self.message} [{self.check}]", *self.details]
+            [
+                f"{location}{self.severity}: {self.message} [{self.check}]",
+                *self.details,
+            ]
         )
 
 
@@ -108,7 +114,9 @@ def _check_name(checks: str | None, severity: str) -> str:
             if severity == "error"
             else "clang-diagnostic-warning"
         )
-    names = [name for name in checks.split(",") if name and not name.startswith("-")]
+    names = [
+        name for name in checks.split(",") if name and not name.startswith("-")
+    ]
     return names[0] if names else checks
 
 
@@ -135,7 +143,9 @@ def parse_report(text: str) -> list[Finding]:
                 path=repository_path(match.group("path") or ""),
                 line=int(match.group("line") or 0),
                 column=int(match.group("column") or 0),
-                check=_check_name(match.group("checks"), match.group("severity")),
+                check=_check_name(
+                    match.group("checks"), match.group("severity")
+                ),
                 message=match.group("message"),
                 severity=match.group("severity"),
             )
@@ -184,7 +194,8 @@ def output_group_files(bep_path: str, output_group: str) -> list[str]:
                 for group in event.get("completed", {}).get("outputGroup", []):
                     if group.get("name") == output_group:
                         roots += [
-                            file_set["id"] for file_set in group.get("fileSets", [])
+                            file_set["id"]
+                            for file_set in group.get("fileSets", [])
                         ]
     files: set[str] = set()
     seen: set[str] = set()
@@ -199,7 +210,9 @@ def output_group_files(bep_path: str, output_group: str) -> list[str]:
             uri = file.get("uri", "")
             if uri.startswith("file://"):
                 files.add(urllib.parse.unquote(uri[len("file://") :]))
-        pending += [file_set["id"] for file_set in named_set.get("fileSets", [])]
+        pending += [
+            file_set["id"] for file_set in named_set.get("fileSets", [])
+        ]
     return sorted(files)
 
 
@@ -245,7 +258,9 @@ def collect(
             continue
         findings += parse_report(text)
     selected = [
-        finding for finding in deduplicate(findings) if in_paths(finding.path, paths)
+        finding
+        for finding in deduplicate(findings)
+        if in_paths(finding.path, paths)
     ]
     return selected, missing
 
@@ -262,7 +277,11 @@ def summary(findings: list[Finding], root: str) -> list[str]:
     """
     by_check = collections.Counter(finding.check for finding in findings)
     by_package = collections.Counter(
-        lint_files.bazel_package(finding.path, root) if finding.path else "(no file)"
+        (
+            lint_files.bazel_package(finding.path, root)
+            if finding.path
+            else "(no file)"
+        )
         for finding in findings
     )
     lines = ["Findings per check:"]
@@ -294,7 +313,10 @@ def main(argv: list[str] | None = None) -> int:
         help="also print counts per check and per package",
     )
     parser.add_argument(
-        "--paths", nargs="*", default=[], help="keep only findings in these directories"
+        "--paths",
+        nargs="*",
+        default=[],
+        help="keep only findings in these directories",
     )
     parser.add_argument(
         "--root",
@@ -310,7 +332,8 @@ def main(argv: list[str] | None = None) -> int:
         print(finding.format())
     for report in missing:
         print(
-            f"clang-tidy: no report at {report}: its action failed (see the build output above).",
+            f"clang-tidy: no report at {report}: its action failed (see the"
+            " build output above).",
             file=sys.stderr,
         )
     if arguments.summary and findings:

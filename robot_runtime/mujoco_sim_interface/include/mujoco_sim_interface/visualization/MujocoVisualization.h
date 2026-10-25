@@ -41,34 +41,50 @@ namespace robot::mujoco_sim_interface {
 class MujocoSimInterface;
 
 /**
- * Everything a visualization may read or draw into during one frame of the viewer. Owned by the renderer; the pointers
- * are valid for the duration of the frame only. All hooks run on the render thread. Every pointer may be null (a
- * default-constructed or partial frame, as in the tests), so a hook checks the ones it reads.
+ * Everything a visualization may read or draw into during one frame of the
+ * viewer. Owned by the renderer; the pointers are valid for the duration of the
+ * frame only. All hooks run on the render thread. Every pointer may be null (a
+ * default-constructed or partial frame, as in the tests), so a hook checks the
+ * ones it reads.
  */
 struct VisualizationFrame {
-  const MujocoSimInterface* absl_nullable sim{nullptr};  // simulator (config, data published by the control thread)
-  // The model the frame is drawn with: the simulator's own (GLFW window) or the viewer's private copy of it (web), which
-  // the physics thread never writes. Visualizations read this one, not sim->getModel().
+  const MujocoSimInterface* absl_nullable sim{
+      nullptr};  // simulator (config, data published by the control thread)
+  // The model the frame is drawn with: the simulator's own (GLFW window) or the
+  // viewer's private copy of it (web), which the physics thread never writes.
+  // Visualizations read this one, not sim->getModel().
   const mjModel* absl_nullable model{nullptr};
-  const MjState* absl_nullable state{nullptr};       // copy of the physics state the frame is drawn from (mj_forward has run on it)
-  mjvOption* absl_nullable options{nullptr};         // MuJoCo visualization flags of the viewer
-  mjvScene* absl_nullable scene{nullptr};            // abstract scene; addSceneGeoms appends decor geoms here
-  const mjrContext* absl_nullable context{nullptr};  // GPU context, for text and 2D overlays
-  mjrRect viewport{0, 0, 0, 0};                      // framebuffer rectangle in pixels, origin bottom-left
+  const MjState* absl_nullable state{
+      nullptr};  // copy of the physics state the frame is drawn from
+                 // (mj_forward has run on it)
+  mjvOption* absl_nullable options{
+      nullptr};  // MuJoCo visualization flags of the viewer
+  mjvScene* absl_nullable scene{
+      nullptr};  // abstract scene; addSceneGeoms appends decor geoms here
+  const mjrContext* absl_nullable context{
+      nullptr};  // GPU context, for text and 2D overlays
+  mjrRect viewport{0, 0, 0,
+                   0};  // framebuffer rectangle in pixels, origin bottom-left
   double renderFps = 0.0;
   double elapsedRealTime = 0.0;  // [s] wall-clock time since the viewer started
 };
 
 /**
- * One marker or overlay of the MuJoCo viewer: contact force arrows, the contact timeline, the target contact patches,
- * ... Every visualization is a class of its own, registered under a name in VisualizationRegistry.h; the task file lists
- * the names to enable (`sim_visualizations`) and the hotkey, if the class declares one, toggles it in the viewer.
+ * One marker or overlay of the MuJoCo viewer: contact force arrows, the contact
+ * timeline, the target contact patches,
+ * ... Every visualization is a class of its own, registered under a name in
+ * VisualizationRegistry.h; the task file lists the names to enable
+ * (`sim_visualizations`) and the hotkey, if the class declares one, toggles it
+ * in the viewer.
  *
  * The renderer calls the three hooks once per frame in this order:
- *  1. beforeSceneUpdate(): before mjv_updateScene, called whether the visualization is enabled or not, so that a
- *     visualization that acts on the MuJoCo options or the model can also undo its effect once disabled;
- *  2. addSceneGeoms(): after mjv_updateScene and before mjr_render, enabled visualizations only; append decor geoms;
- *  3. renderOverlay(): after mjr_render, enabled visualizations only; draw 2D overlays and text.
+ *  1. beforeSceneUpdate(): before mjv_updateScene, called whether the
+ * visualization is enabled or not, so that a visualization that acts on the
+ * MuJoCo options or the model can also undo its effect once disabled;
+ *  2. addSceneGeoms(): after mjv_updateScene and before mjr_render, enabled
+ * visualizations only; append decor geoms;
+ *  3. renderOverlay(): after mjr_render, enabled visualizations only; draw 2D
+ * overlays and text.
  *
  * Not thread-safe: the viewer drives it from one thread.
  */
@@ -76,11 +92,13 @@ class MujocoVisualization {
  public:
   virtual ~MujocoVisualization() = default;
 
-  /** Name under which the visualization is registered and listed in the task file. */
+  /** Name under which the visualization is registered and listed in the task
+   * file. */
   virtual std::string name() const = 0;
   /** One line for the hotkey cheatsheet. */
   virtual std::string description() const = 0;
-  /** Lower-case letter that toggles the visualization in the viewer, or 0 for none. */
+  /** Lower-case letter that toggles the visualization in the viewer, or 0 for
+   * none. */
   virtual char hotkey() const { return 0; }
 
   virtual void beforeSceneUpdate(const VisualizationFrame& /*frame*/) {}

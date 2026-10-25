@@ -71,7 +71,9 @@ ATLAS_CONFIG = repo_path(
     "robot_models", "drc_atlas", "drc_atlas_centroidal_mpc", "config"
 )
 ATLAS_TASK_FILE = os.path.join(ATLAS_CONFIG, "mpc", "task.textproto")
-ATLAS_REFERENCE_FILE = os.path.join(ATLAS_CONFIG, "command", "reference.textproto")
+ATLAS_REFERENCE_FILE = os.path.join(
+    ATLAS_CONFIG, "command", "reference.textproto"
+)
 ATLAS_PD_GAINS_FILE = os.path.join(
     ATLAS_CONFIG, "controller", "joint_pd_gains.textproto"
 )
@@ -165,7 +167,9 @@ class RecordingBus:
         """Hands `message` to the subscription of `topic`, as the receive thread would."""
         message_class, callback, _ = self.subscriptions[topic]
         if not isinstance(message, message_class):
-            raise TypeError(f"'{topic}' is subscribed with {message_class.__name__}")
+            raise TypeError(
+                f"'{topic}' is subscribed with {message_class.__name__}"
+            )
         callback(message)
 
     def start(self) -> None:
@@ -200,7 +204,9 @@ class RecordingPublisher(operator_bus.TopicPublisher):
     def __init__(self, topic: str, bus: RecordingBus | None = None) -> None:
         row = operator_bus.operator_topic(topic)
         super().__init__(
-            bus if bus is not None else RecordingBus(), row.topic, row.message_class
+            bus if bus is not None else RecordingBus(),
+            row.topic,
+            row.message_class,
         )
 
     @property
@@ -328,18 +334,25 @@ def requires_display(test_item: Any) -> Any:
     # LINT.ThenChange(//humanoid_nmpc/remote_control/BUILD.bazel:tk_environment, //humanoid_nmpc/humanoid_rerun_viewer/BUILD.bazel:tk_environment)
     if on_ci:
         raise RuntimeError(
-            f"{reason}; on CI the Tk tests must run, not be skipped: install xvfb (dependencies.txt)"
+            f"{reason}; on CI the Tk tests must run, not be skipped: install"
+            " xvfb (dependencies.txt)"
         )
     return unittest.skip(reason)(test_item)
 
 
 # The DRC Atlas files the robot process of the end-to-end tests runs (humanoid_centroidal_mpc_robot), relative to
 # REPO_ROOT, which the tests run in.
-ATLAS_PACKAGE = os.path.join("robot_models", "drc_atlas", "drc_atlas_centroidal_mpc")
+ATLAS_PACKAGE = os.path.join(
+    "robot_models", "drc_atlas", "drc_atlas_centroidal_mpc"
+)
 ATLAS_ROBOT_FLAGS = (
     "--robot_name=drc_atlas",
-    f"--task_file={os.path.join(ATLAS_PACKAGE, 'config', 'mpc', 'task.textproto')}",
-    f"--reference_file={os.path.join(ATLAS_PACKAGE, 'config', 'command', 'reference.textproto')}",
+    (
+        f"--task_file={os.path.join(ATLAS_PACKAGE, 'config', 'mpc', 'task.textproto')}"
+    ),
+    (
+        f"--reference_file={os.path.join(ATLAS_PACKAGE, 'config', 'command', 'reference.textproto')}"
+    ),
     "--urdf_file=robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf",
     "--mjcf_file=robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml",
 )

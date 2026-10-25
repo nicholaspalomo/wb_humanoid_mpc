@@ -88,7 +88,9 @@ class ServeWebSinkTest(unittest.TestCase):
         self.layout = blueprint.build_blueprint()
 
     def attach(self, grpc_port: int, web_port: int) -> str:
-        options = rerun_sinks.SinkOptions(grpc_port=grpc_port, web_port=web_port)
+        options = rerun_sinks.SinkOptions(
+            grpc_port=grpc_port, web_port=web_port
+        )
         return rerun_sinks.attach_sink(
             "serve_web", self.recording, self.layout, options
         )

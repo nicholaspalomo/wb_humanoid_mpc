@@ -94,28 +94,36 @@ def _marker_check(name: str, description: str) -> Check:
         scope=lint_files.Scope.FIRST_PARTY,
         check_source=_no_findings,
         description=description,
-        hint="A NOLINT marker names the checks it silences and says why: `// NOLINT(<check>): <reason>` "
-        "(tools/hooks/nolint.py).",
+        hint=(
+            "A NOLINT marker names the checks it silences and says why: `//"
+            " NOLINT(<check>): <reason>` (tools/hooks/nolint.py)."
+        ),
     )
 
 
 _NOLINT_CHECKS = [
     _marker_check(
         "nolint-category",
-        "a NOLINT marker names the checks it silences: a bare NOLINT silences every cpplint and clang-tidy check.",
+        "a NOLINT marker names the checks it silences: a bare NOLINT silences"
+        " every cpplint and clang-tidy check.",
     ),
-    _marker_check("nolint-reason", "a NOLINT marker gives its reason after a colon."),
+    _marker_check(
+        "nolint-reason", "a NOLINT marker gives its reason after a colon."
+    ),
     _marker_check(
         "nolint-unknown",
-        "a NOLINT marker names a check of the registry, a cpplint category or a clang-tidy check of .clang-tidy.",
+        "a NOLINT marker names a check of the registry, a cpplint category or a"
+        " clang-tidy check of .clang-tidy.",
     ),
     _marker_check(
         NOLINT_UNUSED,
-        "a NOLINT marker for one of the repository's own checks suppresses a finding.",
+        "a NOLINT marker for one of the repository's own checks suppresses a"
+        " finding.",
     ),
     _marker_check(
         "nolint-unbalanced",
-        "every NOLINTBEGIN is closed by a NOLINTEND of the same check, and every NOLINTEND closes one.",
+        "every NOLINTBEGIN is closed by a NOLINTEND of the same check, and"
+        " every NOLINTEND closes one.",
     ),
 ]
 
@@ -237,8 +245,12 @@ CPPLINT_CATEGORIES = frozenset(
 # The clang-tidy configuration whose checks NOLINT markers may name. A marker for a check it does not enable would
 # suppress nothing, so `nolint-unknown` rejects it.
 CLANG_TIDY_CONFIGS = (".clang-tidy",)
-_CLANG_TIDY_CHECK = re.compile(r"^\s*-\s*[\"']?(-?[a-z0-9.*-]+)[\"']?\s*(?:#.*)?$")
-_CLANG_TIDY_CHECKS_STRING = re.compile(r"^Checks:\s*[\"']([^\"']*)[\"']", re.MULTILINE)
+_CLANG_TIDY_CHECK = re.compile(
+    r"^\s*-\s*[\"']?(-?[a-z0-9.*-]+)[\"']?\s*(?:#.*)?$"
+)
+_CLANG_TIDY_CHECKS_STRING = re.compile(
+    r"^Checks:\s*[\"']([^\"']*)[\"']", re.MULTILINE
+)
 
 
 def by_name(name: str) -> Check:
@@ -386,15 +398,65 @@ def run_file(
 
 
 def fix_file(source: str, path: str, selected: frozenset[str]) -> str:
-    """`source` rewritten by the fix of every `selected` check that reads `path` and has one, in registry order."""
+    """Applies the fix of every `selected` check that reads `path` and has one, in registry order.
+
+    A line that a NOLINT marker exempts from a check, NOLINTNEXTLINE and NOLINTBEGIN blocks included, keeps its text.
+
+    Args:
+      source: The content of the file.
+      path: Its path, relative to the repository root.
+      selected: The names of the checks whose fixes to apply.
+
+    Returns:
+      The rewritten content; `source` itself when nothing changed.
+    """
     for check in REGISTRY:
         if (
             check.name in selected
             and check.fix_source is not None
             and check.applies_to(path)
         ):
-            source = check.fix_source(source, path)
+            source = _fix_outside_markers(
+                check.name, check.fix_source, source, path
+            )
     return source
+
+
+def _fix_outside_markers(
+    name: str, fix: check_types.FixFunction, source: str, path: str
+) -> str:
+    """Applies the check `name`'s `fix` to `source`, except on the lines its NOLINT markers exempt.
+
+    Args:
+      name: The check, whose NOLINT markers exempt lines.
+      fix: The check's fix_source.
+      source: The content of the file.
+      path: Its path, relative to the repository root.
+
+    Returns:
+      The fixed content with the exempt lines as they were. A fix that adds or removes lines is not applied to a file
+      with an exempt line, since the lines can then not be matched up; the linter reports what is left to fix by hand.
+    """
+    rewritten = fix(source, path)
+    if rewritten == source:
+        return source
+    suppressions = nolint.Suppressions(
+        nolint.parse(source, comment_style(path))
+    )
+    original = source.splitlines(keepends=True)
+    exempt = [
+        number
+        for number in range(1, len(original) + 1)
+        if suppressions.suppresses(name, number)
+    ]
+    if not exempt:
+        return rewritten
+    lines = rewritten.splitlines(keepends=True)
+    if len(lines) != len(original):
+        return source
+    for number in exempt:
+        lines[number - 1] = original[number - 1]
+    return "".join(lines)
 
 
 def format_fixes() -> frozenset[str]:

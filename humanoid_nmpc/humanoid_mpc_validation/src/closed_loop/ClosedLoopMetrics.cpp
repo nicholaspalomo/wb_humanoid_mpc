@@ -63,7 +63,8 @@ constexpr double kWholePercent = 100.0;
 
 /** The nearest-rank percentile `percent` of sorted `values`. */
 double percentile(const std::vector<double>& sorted, double percent) {
-  const size_t rank = static_cast<size_t>(std::ceil(percent / kWholePercent * static_cast<double>(sorted.size())));
+  const size_t rank = static_cast<size_t>(
+      std::ceil(percent / kWholePercent * static_cast<double>(sorted.size())));
   return sorted[std::min(sorted.size() - 1, rank == 0 ? 0 : rank - 1)];
 }
 
@@ -86,7 +87,8 @@ JsonValue summarizeSample(std::vector<double> values) {
   std::sort(values.begin(), values.end());
   double sum = 0.0;
   for (const double value : values) sum += value;
-  summary.set("mean", JsonValue::number(sum / static_cast<double>(values.size())));
+  summary.set("mean",
+              JsonValue::number(sum / static_cast<double>(values.size())));
   summary.set("p50", JsonValue::number(percentile(values, kMedianPercent)));
   summary.set("p99", JsonValue::number(percentile(values, kTailPercent)));
   summary.set("max", JsonValue::number(values.back()));
@@ -101,8 +103,10 @@ void ClosedLoopMetrics::addControlCycle(const ControlCycleSample& sample) {
   const double height = sample.basePosition.z();
   heightSum_ += height;
   const double deviationFromPreviousMean = height - heightRunningMean_;
-  heightRunningMean_ += deviationFromPreviousMean / static_cast<double>(numCycles_);
-  heightSquaredDeviationSum_ += deviationFromPreviousMean * (height - heightRunningMean_);
+  heightRunningMean_ +=
+      deviationFromPreviousMean / static_cast<double>(numCycles_);
+  heightSquaredDeviationSum_ +=
+      deviationFromPreviousMean * (height - heightRunningMean_);
   const double heightError = height - sample.referenceBaseHeight;
   heightErrorSquaredSum_ += heightError * heightError;
 
@@ -111,18 +115,26 @@ void ClosedLoopMetrics::addControlCycle(const ControlCycleSample& sample) {
   tiltSquaredSum_ += tilt * tilt;
   tiltMax_ = std::max(tiltMax_, tilt);
 
-  // The base velocity in the heading frame, and the yaw rate in the world, against the reference.
+  // The base velocity in the heading frame, and the yaw rate in the world,
+  // against the reference.
   const double heading = twistHeading(xi);
   const double cosHeading = std::cos(heading);
   const double sinHeading = std::sin(heading);
   const Eigen::Vector3d& velocity = sample.baseLinearVelocityWorld;
-  const Eigen::Vector2d headingVelocity(cosHeading * velocity.x() + sinHeading * velocity.y(),
-                                        -sinHeading * velocity.x() + cosHeading * velocity.y());
-  velocityErrorSquaredSum_ += (headingVelocity - sample.referenceVelocity.head<kCommandPlanarVelocityDim>()).squaredNorm();
+  const Eigen::Vector2d headingVelocity(
+      cosHeading * velocity.x() + sinHeading * velocity.y(),
+      -sinHeading * velocity.x() + cosHeading * velocity.y());
+  velocityErrorSquaredSum_ +=
+      (headingVelocity -
+       sample.referenceVelocity.head<kCommandPlanarVelocityDim>())
+          .squaredNorm();
   Eigen::Quaterniond rotation;
   rotation.coeffs() = sample.baseQuaternion;
-  const double yawRate = (rotation.normalized().toRotationMatrix() * sample.baseAngularVelocityLocal).z();
-  const double yawRateError = yawRate - sample.referenceVelocity(kCommandYawRateIndex);
+  const double yawRate = (rotation.normalized().toRotationMatrix() *
+                          sample.baseAngularVelocityLocal)
+                             .z();
+  const double yawRateError =
+      yawRate - sample.referenceVelocity(kCommandYawRateIndex);
   yawRateErrorSquaredSum_ += yawRateError * yawRateError;
 
   // Heading unwrapped from the first sample on.
@@ -134,9 +146,11 @@ void ClosedLoopMetrics::addControlCycle(const ControlCycleSample& sample) {
   haveHeading_ = true;
   lastHeading_ = heading;
 
-  // Stance-foot slip: the horizontal drift of a contact point from where it touched down, while it stays in contact.
+  // Stance-foot slip: the horizontal drift of a contact point from where it
+  // touched down, while it stays in contact.
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    const Eigen::Vector2d position = sample.contactPositions[contact].head<kHorizontalPositionDim>();
+    const Eigen::Vector2d position =
+        sample.contactPositions[contact].head<kHorizontalPositionDim>();
     StancePhase& phase = stance_[contact];
     if (sample.contactFlags[contact]) {
       if (!phase.active) {
@@ -144,7 +158,8 @@ void ClosedLoopMetrics::addControlCycle(const ControlCycleSample& sample) {
         phase.touchDownPosition = position;
         phase.maxDrift = 0.0;
       }
-      phase.maxDrift = std::max(phase.maxDrift, (position - phase.touchDownPosition).norm());
+      phase.maxDrift =
+          std::max(phase.maxDrift, (position - phase.touchDownPosition).norm());
     } else if (phase.active) {
       closeStancePhase(contact, lastContactPosition_[contact]);
     }
@@ -152,14 +167,16 @@ void ClosedLoopMetrics::addControlCycle(const ControlCycleSample& sample) {
   }
 
   for (Eigen::Index joint = 0; joint < sample.jointTorques.size(); ++joint) {
-    torqueSquaredSum_ += sample.jointTorques(joint) * sample.jointTorques(joint);
+    torqueSquaredSum_ +=
+        sample.jointTorques(joint) * sample.jointTorques(joint);
   }
   torqueCount_ += static_cast<size_t>(sample.jointTorques.size());
   nonFiniteValues_ += sample.nonFiniteValues;
   if (!sample.mpcHealthy) ++unhealthyCycles_;
 }
 
-void ClosedLoopMetrics::closeStancePhase(size_t contact, const Eigen::Vector2d& position) {
+void ClosedLoopMetrics::closeStancePhase(size_t contact,
+                                         const Eigen::Vector2d& position) {
   StancePhase& phase = stance_[contact];
   stanceFinalDrifts_.push_back((position - phase.touchDownPosition).norm());
   slipMax_ = std::max(slipMax_, phase.maxDrift);
@@ -187,7 +204,8 @@ void ClosedLoopMetrics::addSolve(const SolveSample& sample) {
     } else if (std::isnan(*sample.initialStateRotationGap)) {
       maxRotationGap_ = sample.initialStateRotationGap;
       maxRotationGapTime_ = sample.time;
-    } else if (!std::isnan(*maxRotationGap_) && *sample.initialStateRotationGap > *maxRotationGap_) {
+    } else if (!std::isnan(*maxRotationGap_) &&
+               *sample.initialStateRotationGap > *maxRotationGap_) {
       maxRotationGap_ = sample.initialStateRotationGap;
       maxRotationGapTime_ = sample.time;
     }
@@ -197,7 +215,8 @@ void ClosedLoopMetrics::addSolve(const SolveSample& sample) {
       maxGapNorm_ = sample.initialStateGapNorm;
     } else if (std::isnan(*sample.initialStateGapNorm)) {
       maxGapNorm_ = sample.initialStateGapNorm;
-    } else if (!std::isnan(*maxGapNorm_) && *sample.initialStateGapNorm > *maxGapNorm_) {
+    } else if (!std::isnan(*maxGapNorm_) &&
+               *sample.initialStateGapNorm > *maxGapNorm_) {
       maxGapNorm_ = sample.initialStateGapNorm;
     }
   }
@@ -209,7 +228,8 @@ void ClosedLoopMetrics::addSolve(const SolveSample& sample) {
       maxQuaternionNormDeviation_ = sample.quaternionNormDeviation;
     } else if (std::isnan(*sample.quaternionNormDeviation)) {
       maxQuaternionNormDeviation_ = sample.quaternionNormDeviation;
-    } else if (!std::isnan(*maxQuaternionNormDeviation_) && *sample.quaternionNormDeviation > *maxQuaternionNormDeviation_) {
+    } else if (!std::isnan(*maxQuaternionNormDeviation_) &&
+               *sample.quaternionNormDeviation > *maxQuaternionNormDeviation_) {
       maxQuaternionNormDeviation_ = sample.quaternionNormDeviation;
     }
   }
@@ -224,7 +244,8 @@ void ClosedLoopMetrics::addSqpStep(const SqpStepSample& step) {
   } else {
     ++zeroSteps_;
   }
-  if (step.stepSize < 1.0 && step.fullStepKind == SqpStepKind::kConstraint) ++fullStepsRefusedAboveGMax_;
+  if (step.stepSize < 1.0 && step.fullStepKind == SqpStepKind::kConstraint)
+    ++fullStepsRefusedAboveGMax_;
   switch (step.stepKind) {
     case SqpStepKind::kConstraint:
       ++acceptedByConstraint_;
@@ -240,11 +261,16 @@ void ClosedLoopMetrics::addSqpStep(const SqpStepSample& step) {
       break;
   }
   violationGrowthRun_ =
-      lastConstraintViolation_.has_value() && step.constraintViolation > *lastConstraintViolation_ ? violationGrowthRun_ + 1 : 0;
-  longestViolationGrowthRun_ = std::max(longestViolationGrowthRun_, violationGrowthRun_);
+      lastConstraintViolation_.has_value() &&
+              step.constraintViolation > *lastConstraintViolation_
+          ? violationGrowthRun_ + 1
+          : 0;
+  longestViolationGrowthRun_ =
+      std::max(longestViolationGrowthRun_, violationGrowthRun_);
   lastConstraintViolation_ = step.constraintViolation;
   constraintViolations_.push_back(step.constraintViolation);
-  if (step.swingNormalVelocityResidual.has_value()) swingNormalVelocityResiduals_.push_back(*step.swingNormalVelocityResidual);
+  if (step.swingNormalVelocityResidual.has_value())
+    swingNormalVelocityResiduals_.push_back(*step.swingNormalVelocityResidual);
 }
 
 void ClosedLoopMetrics::setFall(double time, std::string reason) {
@@ -258,7 +284,9 @@ JsonValue ClosedLoopMetrics::report(const ClosedLoopRunInfo& info) const {
   double slipMax = slipMax_;
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
     if (!stance_[contact].active) continue;
-    finalDrifts.push_back((lastContactPosition_[contact] - stance_[contact].touchDownPosition).norm());
+    finalDrifts.push_back(
+        (lastContactPosition_[contact] - stance_[contact].touchDownPosition)
+            .norm());
     slipMax = std::max(slipMax, stance_[contact].maxDrift);
   }
   double finalDriftSquaredSum = 0.0;
@@ -267,13 +295,15 @@ JsonValue ClosedLoopMetrics::report(const ClosedLoopRunInfo& info) const {
   const std::optional<double> heightMean = meanOf(heightSum_, numCycles_);
   std::optional<double> heightStd;
   if (heightMean.has_value()) {
-    heightStd = std::sqrt(heightSquaredDeviationSum_ / static_cast<double>(numCycles_));
+    heightStd =
+        std::sqrt(heightSquaredDeviationSum_ / static_cast<double>(numCycles_));
   }
   const bool sampled = numCycles_ > 0;
 
   // LINT.IfChange(metrics_document)
   JsonValue document = JsonValue::object();
-  document.set("schema", JsonValue::string(std::string(kClosedLoopMetricsSchemaName)));
+  document.set("schema",
+               JsonValue::string(std::string(kClosedLoopMetricsSchemaName)));
   document.set("label", JsonValue::string(info.label));
   document.set("robot", JsonValue::string(info.robot));
   document.set("formulation", JsonValue::string(info.formulation));
@@ -282,10 +312,16 @@ JsonValue ClosedLoopMetrics::report(const ClosedLoopRunInfo& info) const {
   document.set("settings", info.settings);
 
   JsonValue& evaluation = document.set("evaluation", JsonValue::object());
-  evaluation.set("start_time_s", JsonValue::optionalNumber(sampled ? std::optional<double>(firstTime_) : std::nullopt));
-  evaluation.set("end_time_s", JsonValue::optionalNumber(sampled ? std::optional<double>(lastTime_) : std::nullopt));
-  evaluation.set("control_cycles", JsonValue::number(static_cast<double>(numCycles_)));
-  evaluation.set("solves", JsonValue::number(static_cast<double>(wallTimesMs_.size())));
+  evaluation.set("start_time_s", JsonValue::optionalNumber(
+                                     sampled ? std::optional<double>(firstTime_)
+                                             : std::nullopt));
+  evaluation.set("end_time_s", JsonValue::optionalNumber(
+                                   sampled ? std::optional<double>(lastTime_)
+                                           : std::nullopt));
+  evaluation.set("control_cycles",
+                 JsonValue::number(static_cast<double>(numCycles_)));
+  evaluation.set("solves",
+                 JsonValue::number(static_cast<double>(wallTimesMs_.size())));
 
   JsonValue& survival = document.set("survival", JsonValue::object());
   survival.set("survived", JsonValue::boolean(survived()));
@@ -295,39 +331,68 @@ JsonValue ClosedLoopMetrics::report(const ClosedLoopRunInfo& info) const {
   JsonValue& baseHeight = document.set("base_height", JsonValue::object());
   baseHeight.set("mean_m", JsonValue::optionalNumber(heightMean));
   baseHeight.set("std_m", JsonValue::optionalNumber(heightStd));
-  baseHeight.set("rms_error_m", JsonValue::optionalNumber(rmsOf(heightErrorSquaredSum_, numCycles_)));
+  baseHeight.set("rms_error_m", JsonValue::optionalNumber(
+                                    rmsOf(heightErrorSquaredSum_, numCycles_)));
 
   JsonValue& tilt = document.set("tilt", JsonValue::object());
-  tilt.set("rms_rad", JsonValue::optionalNumber(rmsOf(tiltSquaredSum_, numCycles_)));
-  tilt.set("max_rad", JsonValue::optionalNumber(sampled ? std::optional<double>(tiltMax_) : std::nullopt));
+  tilt.set("rms_rad",
+           JsonValue::optionalNumber(rmsOf(tiltSquaredSum_, numCycles_)));
+  tilt.set("max_rad",
+           JsonValue::optionalNumber(sampled ? std::optional<double>(tiltMax_)
+                                             : std::nullopt));
 
   document.set("velocity", JsonValue::object())
-      .set("rms_error_mps", JsonValue::optionalNumber(rmsOf(velocityErrorSquaredSum_, numCycles_)));
+      .set("rms_error_mps", JsonValue::optionalNumber(
+                                rmsOf(velocityErrorSquaredSum_, numCycles_)));
   document.set("yaw_rate", JsonValue::object())
-      .set("rms_error_radps", JsonValue::optionalNumber(rmsOf(yawRateErrorSquaredSum_, numCycles_)));
+      .set("rms_error_radps", JsonValue::optionalNumber(
+                                  rmsOf(yawRateErrorSquaredSum_, numCycles_)));
 
   JsonValue& heading = document.set("heading", JsonValue::object());
-  heading.set("cumulative_final_rad", JsonValue::optionalNumber(sampled ? std::optional<double>(cumulativeHeading_) : std::nullopt));
-  heading.set("cumulative_max_rad", JsonValue::optionalNumber(sampled ? std::optional<double>(cumulativeHeadingMax_) : std::nullopt));
-  heading.set("cumulative_min_rad", JsonValue::optionalNumber(sampled ? std::optional<double>(cumulativeHeadingMin_) : std::nullopt));
+  heading.set(
+      "cumulative_final_rad",
+      JsonValue::optionalNumber(
+          sampled ? std::optional<double>(cumulativeHeading_) : std::nullopt));
+  heading.set("cumulative_max_rad",
+              JsonValue::optionalNumber(
+                  sampled ? std::optional<double>(cumulativeHeadingMax_)
+                          : std::nullopt));
+  heading.set("cumulative_min_rad",
+              JsonValue::optionalNumber(
+                  sampled ? std::optional<double>(cumulativeHeadingMin_)
+                          : std::nullopt));
 
   JsonValue& slip = document.set("stance_foot_slip", JsonValue::object());
-  slip.set("max_m", JsonValue::optionalNumber(finalDrifts.empty() ? std::nullopt : std::optional<double>(slipMax)));
-  slip.set("rms_m", JsonValue::optionalNumber(rmsOf(finalDriftSquaredSum, finalDrifts.size())));
-  slip.set("stance_phases", JsonValue::number(static_cast<double>(finalDrifts.size())));
+  slip.set("max_m", JsonValue::optionalNumber(
+                        finalDrifts.empty() ? std::nullopt
+                                            : std::optional<double>(slipMax)));
+  slip.set("rms_m", JsonValue::optionalNumber(
+                        rmsOf(finalDriftSquaredSum, finalDrifts.size())));
+  slip.set("stance_phases",
+           JsonValue::number(static_cast<double>(finalDrifts.size())));
 
-  document.set("joint_torque", JsonValue::object()).set("rms_nm", JsonValue::optionalNumber(rmsOf(torqueSquaredSum_, torqueCount_)));
+  document.set("joint_torque", JsonValue::object())
+      .set("rms_nm",
+           JsonValue::optionalNumber(rmsOf(torqueSquaredSum_, torqueCount_)));
 
   JsonValue& gap = document.set("initial_state_gap", JsonValue::object());
   gap.set("max_rotation_rad", JsonValue::optionalNumber(maxRotationGap_));
-  gap.set("max_rotation_time_s",
-          JsonValue::optionalNumber(maxRotationGap_.has_value() ? std::optional<double>(maxRotationGapTime_) : std::nullopt));
+  gap.set(
+      "max_rotation_time_s",
+      JsonValue::optionalNumber(maxRotationGap_.has_value()
+                                    ? std::optional<double>(maxRotationGapTime_)
+                                    : std::nullopt));
   gap.set("max_norm", JsonValue::optionalNumber(maxGapNorm_));
 
-  JsonValue& quaternionNorm = document.set("quaternion_norm", JsonValue::object());
-  quaternionNorm.set("max_deviation", JsonValue::optionalNumber(maxQuaternionNormDeviation_));
-  quaternionNorm.set("non_finite_solves", JsonValue::number(static_cast<double>(nonFiniteQuaternionSolves_)));
-  document.set("non_finite_values", JsonValue::number(static_cast<double>(nonFiniteValues_)));
+  JsonValue& quaternionNorm =
+      document.set("quaternion_norm", JsonValue::object());
+  quaternionNorm.set("max_deviation",
+                     JsonValue::optionalNumber(maxQuaternionNormDeviation_));
+  quaternionNorm.set(
+      "non_finite_solves",
+      JsonValue::number(static_cast<double>(nonFiniteQuaternionSolves_)));
+  document.set("non_finite_values",
+               JsonValue::number(static_cast<double>(nonFiniteValues_)));
 
   JsonValue& solveTime = document.set("solve_time_ms", JsonValue::object());
   solveTime.set("total", summarizeSample(wallTimesMs_));
@@ -339,23 +404,39 @@ JsonValue ClosedLoopMetrics::report(const ClosedLoopRunInfo& info) const {
   JsonValue& sqpStep = document.set("sqp_step", JsonValue::object());
   sqpStep.set("steps", JsonValue::number(static_cast<double>(sqpSteps_)));
   sqpStep.set("full_steps", JsonValue::number(static_cast<double>(fullSteps_)));
-  sqpStep.set("reduced_steps", JsonValue::number(static_cast<double>(reducedSteps_)));
+  sqpStep.set("reduced_steps",
+              JsonValue::number(static_cast<double>(reducedSteps_)));
   sqpStep.set("zero_steps", JsonValue::number(static_cast<double>(zeroSteps_)));
-  sqpStep.set("full_steps_refused_above_g_max", JsonValue::number(static_cast<double>(fullStepsRefusedAboveGMax_)));
+  sqpStep.set(
+      "full_steps_refused_above_g_max",
+      JsonValue::number(static_cast<double>(fullStepsRefusedAboveGMax_)));
   JsonValue& acceptedBy = sqpStep.set("accepted_by", JsonValue::object());
-  acceptedBy.set("constraint", JsonValue::number(static_cast<double>(acceptedByConstraint_)));
-  acceptedBy.set("dual", JsonValue::number(static_cast<double>(acceptedByDual_)));
-  acceptedBy.set("cost", JsonValue::number(static_cast<double>(acceptedByCost_)));
-  sqpStep.set("longest_violation_growth", JsonValue::number(static_cast<double>(longestViolationGrowthRun_)));
+  acceptedBy.set("constraint",
+                 JsonValue::number(static_cast<double>(acceptedByConstraint_)));
+  acceptedBy.set("dual",
+                 JsonValue::number(static_cast<double>(acceptedByDual_)));
+  acceptedBy.set("cost",
+                 JsonValue::number(static_cast<double>(acceptedByCost_)));
+  sqpStep.set(
+      "longest_violation_growth",
+      JsonValue::number(static_cast<double>(longestViolationGrowthRun_)));
   sqpStep.set("constraint_violation", summarizeSample(constraintViolations_));
-  sqpStep.set("swing_normal_velocity_residual", summarizeSample(swingNormalVelocityResiduals_));
+  sqpStep.set("swing_normal_velocity_residual",
+              summarizeSample(swingNormalVelocityResiduals_));
 
   JsonValue& failures = document.set("failures", JsonValue::object());
-  failures.set("failed_solves", JsonValue::number(static_cast<double>(failedSolves_)));
-  failures.set("resets_served", JsonValue::number(static_cast<double>(counters_.resetsServed)));
-  failures.set("full_resets_served", JsonValue::number(static_cast<double>(counters_.fullResetsServed)));
-  failures.set("simulator_resets", JsonValue::number(static_cast<double>(counters_.simulatorResets)));
-  failures.set("unhealthy_cycles", JsonValue::number(static_cast<double>(unhealthyCycles_)));
+  failures.set("failed_solves",
+               JsonValue::number(static_cast<double>(failedSolves_)));
+  failures.set("resets_served",
+               JsonValue::number(static_cast<double>(counters_.resetsServed)));
+  failures.set(
+      "full_resets_served",
+      JsonValue::number(static_cast<double>(counters_.fullResetsServed)));
+  failures.set(
+      "simulator_resets",
+      JsonValue::number(static_cast<double>(counters_.simulatorResets)));
+  failures.set("unhealthy_cycles",
+               JsonValue::number(static_cast<double>(unhealthyCycles_)));
   // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/src/closed_loop/ClosedLoopMetricsSchema.cpp:metrics_schema)
   return document;
 }

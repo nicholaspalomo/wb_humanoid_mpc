@@ -77,7 +77,9 @@ def resolve_launch_file_path(path: str, environment: Mapping[str, str]) -> str:
     if os.path.isabs(path):
         return path
     candidates = [
-        os.path.join(environment.get("BUILD_WORKING_DIRECTORY", os.getcwd()), path)
+        os.path.join(
+            environment.get("BUILD_WORKING_DIRECTORY", os.getcwd()), path
+        )
     ]
     workspace = environment.get("BUILD_WORKSPACE_DIRECTORY")
     if workspace:
@@ -121,8 +123,8 @@ def find_repo_root(
         if root is not None:
             return root
     raise launch_file.LaunchFileError(
-        f"cannot find the repository root (a directory with {REPO_ROOT_MARKER}) above {launch_file_path} or the "
-        "working directory; pass --repo_root"
+        f"cannot find the repository root (a directory with {REPO_ROOT_MARKER})"
+        f" above {launch_file_path} or the working directory; pass --repo_root"
     )
 
 
@@ -135,16 +137,23 @@ def format_dry_run(
     """The resolved launch as shell lines: a comment with each process's settings, then its command."""
     lines = [
         f"# repository root (every command runs here): {repo_root}",
-        f"# teardown: SIGINT, {shutdown.sigint_grace_period:g} s, SIGTERM, {shutdown.sigterm_grace_period:g} s, "
-        "SIGKILL",
+        (
+            f"# teardown: SIGINT, {shutdown.sigint_grace_period:g} s, SIGTERM,"
+            f" {shutdown.sigterm_grace_period:g} s, SIGKILL"
+        ),
     ]
     for spec in processes:
         lines.append(
-            f"# {spec.name}: machine={spec.machine} required={str(spec.required).lower()} "
+            f"# {spec.name}:"
+            f" machine={spec.machine} required={str(spec.required).lower()} "
             f"terminal={str(spec.terminal).lower()} delay={spec.delay:g}s"
         )
-        environment = " ".join(f"{key}={shlex.quote(value)}" for key, value in spec.env)
-        command = shlex.join(process_supervisor.process_argv(spec, terminal_command))
+        environment = " ".join(
+            f"{key}={shlex.quote(value)}" for key, value in spec.env
+        )
+        command = shlex.join(
+            process_supervisor.process_argv(spec, terminal_command)
+        )
         lines.append(f"{environment} {command}" if environment else command)
     return "".join(f"{line}\n" for line in lines)
 
@@ -163,10 +172,13 @@ def build_parser() -> argparse.ArgumentParser:
     """The launcher's command line."""
     parser = argparse.ArgumentParser(
         prog="launch",
-        description="Start the processes of a launch file and stop them together.",
+        description=(
+            "Start the processes of a launch file and stop them together."
+        ),
     )
     parser.add_argument(
-        "launch_file", help="the launch file, a textproto of launch_proto.LaunchFile"
+        "launch_file",
+        help="the launch file, a textproto of launch_proto.LaunchFile",
     )
     parser.add_argument(
         "--machine",
@@ -191,32 +203,48 @@ def build_parser() -> argparse.ArgumentParser:
         "--sigint_grace_period",
         type=_non_negative_seconds,
         default=None,
-        help="seconds the teardown waits after SIGINT before SIGTERM (default: the launch file's, else "
-        f"{launch_file.DEFAULT_SIGINT_GRACE_PERIOD_S:g})",
+        help=(
+            "seconds the teardown waits after SIGINT before SIGTERM (default:"
+            " the launch file's, else"
+            f" {launch_file.DEFAULT_SIGINT_GRACE_PERIOD_S:g})"
+        ),
     )
     parser.add_argument(
         "--sigterm_grace_period",
         type=_non_negative_seconds,
         default=None,
-        help="seconds the teardown waits after SIGTERM before SIGKILL (default: the launch file's, else "
-        f"{launch_file.DEFAULT_SIGTERM_GRACE_PERIOD_S:g})",
+        help=(
+            "seconds the teardown waits after SIGTERM before SIGKILL (default:"
+            " the launch file's, else"
+            f" {launch_file.DEFAULT_SIGTERM_GRACE_PERIOD_S:g})"
+        ),
     )
     parser.add_argument(
         "--color",
         choices=process_supervisor.COLOR_MODES,
         default="auto",
-        help="color the [name] prefixes: auto (on a terminal, unless NO_COLOR is set), always or never",
+        help=(
+            "color the [name] prefixes: auto (on a terminal, unless NO_COLOR is"
+            " set), always or never"
+        ),
     )
     parser.add_argument(
         "--terminal_command",
         default=shlex.join(process_supervisor.DEFAULT_TERMINAL_COMMAND),
-        help="the command a process with `terminal: true` runs inside, its arguments appended (default: %(default)s)",
+        help=(
+            "the command a process with `terminal: true` runs inside, its"
+            " arguments appended (default: %(default)s)"
+        ),
     )
     parser.add_argument(
         "--repo_root",
         default=None,
-        help="the directory every process runs in (default: the workspace of `bazel run`, else the nearest "
-        f"directory with {REPO_ROOT_MARKER} above the launch file or the working directory)",
+        help=(
+            "the directory every process runs in (default: the workspace of"
+            " `bazel run`, else the nearest directory with"
+            f" {REPO_ROOT_MARKER} above the launch file or the working"
+            " directory)"
+        ),
     )
     return parser
 
@@ -243,7 +271,9 @@ def main(
         err.write(f"launch: {error}\n")
         return EXIT_USAGE
     if not processes:
-        err.write(f"launch: no process of {path} runs on machine '{args.machine}'\n")
+        err.write(
+            f"launch: no process of {path} runs on machine '{args.machine}'\n"
+        )
         return EXIT_USAGE
     terminal_command: list[str] = shlex.split(args.terminal_command)
     if not terminal_command:
@@ -263,7 +293,9 @@ def main(
         ),
     )
     if args.dry_run:
-        out.write(format_dry_run(processes, repo_root, shutdown, terminal_command))
+        out.write(
+            format_dry_run(processes, repo_root, shutdown, terminal_command)
+        )
         out.flush()
         return 0
 

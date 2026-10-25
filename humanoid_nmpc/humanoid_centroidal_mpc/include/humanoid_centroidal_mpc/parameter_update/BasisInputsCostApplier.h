@@ -45,46 +45,61 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Applies what the basis-vector contact inputs of the centroidal MPC (humanoid_nmpc/docs/contact_basis_vectors/
- * README.md) add to a reload. input_weights is indexed in wrench space (forces, moments, joint velocities), while the
- * OCP input is [lambda, joint velocities], so R is its basis-space image R_basis = M^T R_wrench M + reg * blkdiag(S, 0),
- * with exactly the transform the OCP factory used (CentroidalMpcInterface::getBasisInputsCostTransformConfig()) and the
- * regularization's weight and shape reloaded (contacts.basis_scaling_regularization, contacts.basis_regularization); a
- * reload that would make the lambda block indefinite or names an unknown shape is refused by field and the running R
- * kept. The generator set is not reloaded: it fixes M and the input dimension. And it applies
+ * Applies what the basis-vector contact inputs of the centroidal MPC
+ * (humanoid_nmpc/docs/contact_basis_vectors/ README.md) add to a reload.
+ * input_weights is indexed in wrench space (forces, moments, joint velocities),
+ * while the OCP input is [lambda, joint velocities], so R is its basis-space
+ * image R_basis = M^T R_wrench M + reg * blkdiag(S, 0), with exactly the
+ * transform the OCP factory used
+ * (CentroidalMpcInterface::getBasisInputsCostTransformConfig()) and the
+ * regularization's weight and shape reloaded
+ * (contacts.basis_scaling_regularization, contacts.basis_regularization); a
+ * reload that would make the lambda block indefinite or names an unknown shape
+ * is refused by field and the running R kept. The generator set is not
+ * reloaded: it fixes M and the input dimension. And it applies
  * contacts.basis_non_negativity_barrier to every foot's lambda >= 0 barrier.
  *
- * Without basis-vector inputs (no transform) it applies nothing: R is QuadraticCostWeightsApplier's then, which is
- * created with QuadraticCostWeightsApplier::InputCost::kBasisVectorInputs exactly when this one has a transform.
- * Not thread-safe (HotFieldApplier).
+ * Without basis-vector inputs (no transform) it applies nothing: R is
+ * QuadraticCostWeightsApplier's then, which is created with
+ * QuadraticCostWeightsApplier::InputCost::kBasisVectorInputs exactly when this
+ * one has a transform. Not thread-safe (HotFieldApplier).
  */
 class BasisInputsCostApplier final : public HotFieldApplier {
  public:
   /**
-   * The fields it applies: input_weights (under basis-vector inputs), contacts.basis_scaling_regularization,
-   * contacts.basis_regularization and contacts.basis_non_negativity_barrier.
+   * The fields it applies: input_weights (under basis-vector inputs),
+   * contacts.basis_scaling_regularization, contacts.basis_regularization and
+   * contacts.basis_non_negativity_barrier.
    */
   static absl::Span<const absl::string_view> staticFields();
 
   /**
-   * The applier of the running transform `basisCostTransform` (nullopt: the inputs are not basis vectors, and it applies
-   * nothing) for an OCP input of `inputDim`, or the InvalidArgument that says which is inconsistent: inputDim is not the
-   * transform's basisInputDim(), its map does not have wrenchInputDim rows, its numBasisInputs exceeds inputDim, or it
-   * fails validateBasisInputsCostTransformConfig(). A wrench-versus-basis dimension mix-up is refused here, at
-   * construction, rather than by every reload's setInputWeights() of the input costs.
+   * The applier of the running transform `basisCostTransform` (nullopt: the
+   * inputs are not basis vectors, and it applies nothing) for an OCP input of
+   * `inputDim`, or the InvalidArgument that says which is inconsistent:
+   * inputDim is not the transform's basisInputDim(), its map does not have
+   * wrenchInputDim rows, its numBasisInputs exceeds inputDim, or it fails
+   * validateBasisInputsCostTransformConfig(). A wrench-versus-basis dimension
+   * mix-up is refused here, at construction, rather than by every reload's
+   * setInputWeights() of the input costs.
    */
-  static absl::StatusOr<std::unique_ptr<BasisInputsCostApplier>> Create(std::optional<BasisInputsCostTransformConfig> basisCostTransform,
-                                                                        size_t inputDim);
+  static absl::StatusOr<std::unique_ptr<BasisInputsCostApplier>> Create(
+      std::optional<BasisInputsCostTransformConfig> basisCostTransform,
+      size_t inputDim);
 
   absl::string_view name() const override { return "BasisInputsCostApplier"; }
-  absl::Span<const absl::string_view> fields() const final { return staticFields(); }
+  absl::Span<const absl::string_view> fields() const final {
+    return staticFields();
+  }
   void apply(HotUpdateTarget& target) override;
 
  private:
-  explicit BasisInputsCostApplier(std::optional<BasisInputsCostTransformConfig> basisCostTransform)
+  explicit BasisInputsCostApplier(
+      std::optional<BasisInputsCostTransformConfig> basisCostTransform)
       : basisCostTransform_(std::move(basisCostTransform)) {}
 
-  /// The running transform: its regularization follows the last reload that was applied. Empty without basis inputs.
+  /// The running transform: its regularization follows the last reload that was
+  /// applied. Empty without basis inputs.
   std::optional<BasisInputsCostTransformConfig> basisCostTransform_;
 };
 

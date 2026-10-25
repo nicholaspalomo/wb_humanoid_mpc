@@ -34,7 +34,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace robot::model {
 
-/** The command to one joint: a PD target with its gains and a feedforward torque. */
+/** The command to one joint: a PD target with its gains and a feedforward
+ * torque. */
 struct JointAction {
   scalar_t q_des = 0;
   scalar_t qd_des = 0;
@@ -42,16 +43,21 @@ struct JointAction {
   scalar_t kd = 0;
   scalar_t feed_forward_effort = 0;
 
-  scalar_t getTotalFeedbackTorque(scalar_t q, scalar_t qd) const { return kp * (q_des - q) + kd * (qd_des - qd) + feed_forward_effort; }
+  scalar_t getTotalFeedbackTorque(scalar_t q, scalar_t qd) const {
+    return kp * (q_des - q) + kd * (qd_des - qd) + feed_forward_effort;
+  }
 };
 
 /**
- * The commands to every joint of a robot description, by joint index: a JointAction per joint, all zero to start with.
- * Copying one into another of the same robot allocates nothing (the realtime loop does it every cycle). Not thread-safe.
+ * The commands to every joint of a robot description, by joint index: a
+ * JointAction per joint, all zero to start with. Copying one into another of
+ * the same robot allocates nothing (the realtime loop does it every cycle). Not
+ * thread-safe.
  */
 class RobotJointAction : public JointIdMap<JointAction> {
  public:
-  explicit RobotJointAction(const RobotDescription& robotDescription) : JointIdMap(robotDescription) {
+  explicit RobotJointAction(const RobotDescription& robotDescription)
+      : JointIdMap(robotDescription) {
     for (joint_index_t idx : robotDescription.getJointIndices()) {
       (*this)[idx].emplace();
     }

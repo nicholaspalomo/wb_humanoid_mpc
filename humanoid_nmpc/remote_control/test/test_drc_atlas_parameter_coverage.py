@@ -83,7 +83,9 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
             operator_test_support.ATLAS_CONFIG, self.tmpdir
         )
         self.task_file = os.path.join(config, "mpc", "task.textproto")
-        self.planner_file = os.path.join(config, "mpc", "contact_planning.textproto")
+        self.planner_file = os.path.join(
+            config, "mpc", "contact_planning.textproto"
+        )
         self.publisher = operator_test_support.RecordingPublisher(
             topics.OPERATOR_MPC_PARAMETERS
         )
@@ -116,7 +118,8 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
         task = self.tab.task.message
         for joint in task.state_weights.joint_positions:
             self.assertIn(
-                f"state_weights.joint_positions[joint={joint.joint}].value", rendered
+                f"state_weights.joint_positions[joint={joint.joint}].value",
+                rendered,
             )
         for wrench in task.input_weights.contact_wrenches:
             for axis in "xyz":
@@ -128,13 +131,17 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
     def test_every_row_is_published_and_saved(self):
         values = self._drive_every_row()
         self.assertGreater(len(values), 100)
-        assert self.tab.task is not None and self.tab.contact_planning is not None
+        assert (
+            self.tab.task is not None and self.tab.contact_planning is not None
+        )
         expected_task = self.tab.task.edited().message
         expected_planner = self.tab.contact_planning.edited().message
 
         self.tab._publish_to_topic()
         published = self.publisher.last_message
-        assert isinstance(published, mpc_parameter_update_pb2.MpcParameterUpdate)
+        assert isinstance(
+            published, mpc_parameter_update_pb2.MpcParameterUpdate
+        )
         self.assertEqual(published.task, expected_task)
         self.assertEqual(published.contact_planning, expected_planner)
         for key, value in values.items():
@@ -144,7 +151,9 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
                 if file is self.tab.contact_planning
                 else published.task
             )
-            walked = {spec.path: spec for spec in config_schema.parameters(message)}
+            walked = {
+                spec.path: spec for spec in config_schema.parameters(message)
+            }
             self.assertEqual(walked[path].value, value, key)
 
         originals = {}
@@ -166,10 +175,14 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
             with open(path, encoding="utf-8") as handle:
                 saved = handle.read()
             original_comments = [
-                line for line in original.splitlines() if line.lstrip().startswith("#")
+                line
+                for line in original.splitlines()
+                if line.lstrip().startswith("#")
             ]
             saved_comments = [
-                line for line in saved.splitlines() if line.lstrip().startswith("#")
+                line
+                for line in saved.splitlines()
+                if line.lstrip().startswith("#")
             ]
             self.assertEqual(saved_comments, original_comments, path)
 

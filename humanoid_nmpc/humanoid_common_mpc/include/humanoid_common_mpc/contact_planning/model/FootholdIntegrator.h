@@ -38,10 +38,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `foothold_integrator`: the foot positions p_i, their displacements dp_i (inputs, |dp| <= bigM) and the contact
- * binaries c_i in {0, 1}: p_{i,k+1} = p_{i,k} + dp_{i,k}. Owns the binaries the mixed-integer solver branches on.
+ * `foothold_integrator`: the foot positions p_i, their displacements dp_i
+ * (inputs, |dp| <= bigM) and the contact binaries c_i in {0, 1}: p_{i,k+1} =
+ * p_{i,k} + dp_{i,k}. Owns the binaries the mixed-integer solver branches on.
  *
- * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
  */
 class FootholdIntegrator final : public LipModelBlock {
  public:
@@ -49,10 +51,17 @@ class FootholdIntegrator final : public LipModelBlock {
   void configure(const ContactPlanningConfig& config) override;
   void bind(const Layout& layout) override;
   void declareVariables(LayoutBuilder& layout) const override;
-  void addDynamics(const ContactPlanningContext& ctx, int node, OcpQpStage& stage) const override;
-  void addInputBounds(const ContactPlanningContext& ctx, int node, InputBoundsBuilder& bounds) const override;
-  void setInitialState(const ContactPlanningContext& ctx, vector_t& x0) const override;
-  void decode(const ContactPlanningContext& ctx, const MiqpResult& result, ContactPlan& plan) const override;
+  void addDynamics(const ContactPlanningContext& ctx,
+                   int node,
+                   OcpQpStage& stage) const override;
+  void addInputBounds(const ContactPlanningContext& ctx,
+                      int node,
+                      InputBoundsBuilder& bounds) const override;
+  void setInitialState(const ContactPlanningContext& ctx,
+                       vector_t& x0) const override;
+  void decode(const ContactPlanningContext& ctx,
+              const MiqpResult& result,
+              ContactPlan& plan) const override;
   std::vector<int> binaryInputs() const override;
 
  private:

@@ -15,7 +15,8 @@
 # - enable=, after disable=: consider-using-with, consider-using-alias, consider-alternative-union-syntax,
 #   use-a-generator, consider-using-generator.
 # - function-rgx without the camelCase branch; no-docstring-rgx also matches TestFoo / FooTest classes.
-# - max-line-length=140, the repository's column limit (.clang-format, CPPLINT.cfg); black formats code at 88.
+# - max-line-length=140, the limit of comments and docstrings; black formats code at the column limit, 80
+#   (.clang-format, tools/hooks/lint_code.py BLACK_LINE_LENGTH).
 # - ignore-long-lines: also IFTTT directives and pylint pragmas; msg-template: path:line:column: message [symbol].
 # - docparams in lenient mode (accept-no-*-doc): tools/hooks/python_docstrings.py requires the sections.
 # - the fallback-blocks option, whose name the American spelling check rejects, keeps its default (no).

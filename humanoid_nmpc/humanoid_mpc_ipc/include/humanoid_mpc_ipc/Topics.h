@@ -34,15 +34,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 
 /**
- * The topics of the IPC bus (humanoid_nmpc/docs/distributed_runtime/README.md, "Topics"). Each is a DDS topic of the same
- * name (letters, digits, '_' and '/'); the comment of each constant names the message it carries and who publishes it.
- * config/ipc/network.textproto gives every one its QoS profile and publishers (test/testTopics.cpp checks it).
+ * The topics of the IPC bus (humanoid_nmpc/docs/distributed_runtime/README.md,
+ * "Topics"). Each is a DDS topic of the same name (letters, digits, '_' and
+ * '/'); the comment of each constant names the message it carries and who
+ * publishes it. config/ipc/network.textproto gives every one its QoS profile
+ * and publishers (test/testTopics.cpp checks it).
  */
 namespace ocs2::humanoid::ipc::topics {
 
 // LINT.IfChange(topics)
 // MpcObservation, robot -> MPC, every control cycle.
-inline constexpr absl::string_view kRobotMpcObservation = "robot/mpc_observation";
+inline constexpr absl::string_view kRobotMpcObservation =
+    "robot/mpc_observation";
 // RobotStateSample, robot -> MPC (visualization), every telemetry period.
 inline constexpr absl::string_view kRobotState = "robot/state";
 // FsmState, robot -> GUI, on change and at 2 Hz.
@@ -51,28 +54,39 @@ inline constexpr absl::string_view kRobotFsmState = "robot/fsm_state";
 inline constexpr absl::string_view kRobotLoopTiming = "robot/loop_timing";
 // MpcPolicy, MPC -> robot and dummy sim, every solve.
 inline constexpr absl::string_view kMpcPolicy = "mpc/policy";
-// MpcStatus, MPC -> robot (solver health) and Rerun bridge, every solve attempt.
+// MpcStatus, MPC -> robot (solver health) and Rerun bridge, every solve
+// attempt.
 inline constexpr absl::string_view kMpcStatus = "mpc/status";
 // VisualizationScene, MPC (visualization) -> Rerun bridge.
 inline constexpr absl::string_view kVizScene = "viz/scene";
-// TelemetrySeries, MPC (visualization) -> Rerun bridge, one per robot/state sample.
+// TelemetrySeries, MPC (visualization) -> Rerun bridge, one per robot/state
+// sample.
 inline constexpr absl::string_view kVizTelemetry = "viz/telemetry";
 // WalkingVelocityCommand, GUI and teleop -> MPC and robot, at 25 Hz.
-inline constexpr absl::string_view kOperatorWalkingVelocityCommand = "operator/walking_velocity_command";
+inline constexpr absl::string_view kOperatorWalkingVelocityCommand =
+    "operator/walking_velocity_command";
 // FsmCommand, GUI -> robot, on change.
 inline constexpr absl::string_view kOperatorFsmCommand = "operator/fsm_command";
-// MpcParameterUpdate (humanoid_mpc_config: the whole task and contact planner files), GUI -> MPC and robot, on edit.
-inline constexpr absl::string_view kOperatorMpcParameters = "operator/mpc_parameters";
-// JointPdGainsUpdate (humanoid_mpc_config: the whole PD gains file, paired with its configuration identity), GUI -> robot, on edit.
+// MpcParameterUpdate (humanoid_mpc_config: the whole task and contact planner
+// files), GUI -> MPC and robot, on edit.
+inline constexpr absl::string_view kOperatorMpcParameters =
+    "operator/mpc_parameters";
+// JointPdGainsUpdate (humanoid_mpc_config: the whole PD gains file, paired with
+// its configuration identity), GUI -> robot, on edit.
 inline constexpr absl::string_view kOperatorPdGains = "operator/pd_gains";
 // JointTargets, GUI -> robot, on edit (JOINT_PD only).
-inline constexpr absl::string_view kOperatorJointTargets = "operator/joint_targets";
+inline constexpr absl::string_view kOperatorJointTargets =
+    "operator/joint_targets";
 // DodgeballThrow, GUI -> robot (simulation), on button press.
-inline constexpr absl::string_view kOperatorDodgeballThrow = "operator/dodgeball_throw";
-// ConfigFileSave, GUI and push_robot_config -> robot, on Save: a configuration file for the robot's persistent copy.
+inline constexpr absl::string_view kOperatorDodgeballThrow =
+    "operator/dodgeball_throw";
+// ConfigFileSave, GUI and push_robot_config -> robot, on Save: a configuration
+// file for the robot's persistent copy.
 inline constexpr absl::string_view kOperatorConfigSave = "operator/config_save";
-// ConfigFileSaveStatus, robot -> GUI and push_robot_config, once per ConfigFileSave.
-inline constexpr absl::string_view kRobotConfigSaveStatus = "robot/config_save_status";
+// ConfigFileSaveStatus, robot -> GUI and push_robot_config, once per
+// ConfigFileSave.
+inline constexpr absl::string_view kRobotConfigSaveStatus =
+    "robot/config_save_status";
 
 // Every topic above, for tools that list or check them.
 inline constexpr std::array<absl::string_view, 16> kAllTopics = {

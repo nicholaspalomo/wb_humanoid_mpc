@@ -47,7 +47,8 @@ namespace {
 class ContactEstimatorRegistryTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    tempDir_ = std::filesystem::temp_directory_path() / "robot_model_contact_estimator_registry_test";
+    tempDir_ = std::filesystem::temp_directory_path() /
+               "robot_model_contact_estimator_registry_test";
     std::filesystem::create_directories(tempDir_);
     urdfPath_ = tempDir_ / "robot.urdf";
     std::ofstream urdfFile(urdfPath_);
@@ -80,53 +81,76 @@ class ContactEstimatorRegistryTest : public ::testing::Test {
   std::filesystem::path urdfPath_;
 };
 
-TEST_F(ContactEstimatorRegistryTest, registersTheRobotModelEstimatorsAndCreatesThemByName) {
+TEST_F(ContactEstimatorRegistryTest,
+       registersTheRobotModelEstimatorsAndCreatesThemByName) {
   ContactEstimatorRegistry registry;
-  const std::vector<ContactEstimatorRegistry::Entry> entries = registry.available();
+  const std::vector<ContactEstimatorRegistry::Entry> entries =
+      registry.available();
   ASSERT_EQ(entries.size(), 2u);
   EXPECT_EQ(entries[0].name, "robot_state");
   EXPECT_EQ(entries[1].name, "always_in_contact");
   EXPECT_FALSE(entries[0].description.empty());
   EXPECT_EQ(registry.availableNames(), "robot_state, always_in_contact");
 
-  const absl::StatusOr<RobotDescription> description = RobotDescription::Create(urdfPath_.string());
+  const absl::StatusOr<RobotDescription> description =
+      RobotDescription::Create(urdfPath_.string());
   ASSERT_TRUE(description.ok()) << description.status();
   RobotState state(*description, /*contactSize=*/2);
   state.setContactFlag(/*index=*/0, /*contactFlag=*/false);
-  EXPECT_EQ(estimateContactFlags(*registry.create("robot_state"), state), (std::vector<bool>{false, true}));
-  EXPECT_EQ(estimateContactFlags(*registry.create("always_in_contact"), state), (std::vector<bool>{true, true}));
-  EXPECT_EQ(registry.create("always_in_contact")->getName(), "AlwaysInContactEstimator");
+  EXPECT_EQ(estimateContactFlags(*registry.create("robot_state"), state),
+            (std::vector<bool>{false, true}));
+  EXPECT_EQ(estimateContactFlags(*registry.create("always_in_contact"), state),
+            (std::vector<bool>{true, true}));
+  EXPECT_EQ(registry.create("always_in_contact")->getName(),
+            "AlwaysInContactEstimator");
 }
 
-TEST_F(ContactEstimatorRegistryTest, namesAreMatchedTrimmedAndCaseInsensitively) {
+TEST_F(ContactEstimatorRegistryTest,
+       namesAreMatchedTrimmedAndCaseInsensitively) {
   ContactEstimatorRegistry registry;
-  EXPECT_EQ(ContactEstimatorRegistry::canonicalName("  Robot_State \n"), "robot_state");
+  EXPECT_EQ(ContactEstimatorRegistry::canonicalName("  Robot_State \n"),
+            "robot_state");
   EXPECT_EQ(ContactEstimatorRegistry::canonicalName("   "), "");
   EXPECT_TRUE(registry.has(" ROBOT_STATE "));
-  EXPECT_EQ(registry.create("Always_In_Contact")->getName(), "AlwaysInContactEstimator");
+  EXPECT_EQ(registry.create("Always_In_Contact")->getName(),
+            "AlwaysInContactEstimator");
 }
 
-TEST(ContactEstimatorRegistryDeathTest, creatingAnUnregisteredNameIsAProgrammingErrorListingTheAvailableOnes) {
+TEST(ContactEstimatorRegistryDeathTest,
+     creatingAnUnregisteredNameIsAProgrammingErrorListingTheAvailableOnes) {
   const ContactEstimatorRegistry registry;
-  EXPECT_FALSE(registry.has("cheater_sim")) << "a name from a file is validated with has() first";
-  EXPECT_DEATH(registry.create("cheater_sim"), "unknown contact estimator 'cheater_sim'; available: robot_state, always_in_contact");
+  EXPECT_FALSE(registry.has("cheater_sim"))
+      << "a name from a file is validated with has() first";
+  EXPECT_DEATH(registry.create("cheater_sim"),
+               "unknown contact estimator 'cheater_sim'; available: "
+               "robot_state, always_in_contact");
 }
 
 TEST_F(ContactEstimatorRegistryTest, interfacesRegisterTheirOwnEstimators) {
   ContactEstimatorRegistry registry;
-  registry.add("cheater_sim", "ground truth of a simulator", [] { return std::make_shared<AlwaysInContactEstimator>(); });
+  registry.add("cheater_sim", "ground truth of a simulator",
+               [] { return std::make_shared<AlwaysInContactEstimator>(); });
   EXPECT_TRUE(registry.has("cheater_sim"));
   EXPECT_EQ(registry.available().size(), 3u);
-  EXPECT_EQ(registry.availableNames(), "robot_state, always_in_contact, cheater_sim");
+  EXPECT_EQ(registry.availableNames(),
+            "robot_state, always_in_contact, cheater_sim");
 }
 
-TEST(ContactEstimatorRegistryDeathTest, aSecondRegistrationOrAnEstimatorWithoutNameOrFactoryIsAProgrammingError) {
+TEST(ContactEstimatorRegistryDeathTest,
+     aSecondRegistrationOrAnEstimatorWithoutNameOrFactoryIsAProgrammingError) {
   ContactEstimatorRegistry registry;
-  registry.add("cheater_sim", "ground truth of a simulator", [] { return std::make_shared<AlwaysInContactEstimator>(); });
-  EXPECT_DEATH(registry.add("Cheater_Sim", "again", [] { return std::make_shared<AlwaysInContactEstimator>(); }),
-               "estimator 'cheater_sim' is already registered");
-  EXPECT_DEATH(registry.add(" ", "nameless", [] { return std::make_shared<AlwaysInContactEstimator>(); }), "an estimator needs a name");
-  EXPECT_DEATH(registry.add("no_factory", "factory-less", /*factory=*/nullptr), "estimator 'no_factory' has no factory");
+  registry.add("cheater_sim", "ground truth of a simulator",
+               [] { return std::make_shared<AlwaysInContactEstimator>(); });
+  EXPECT_DEATH(
+      registry.add("Cheater_Sim", "again",
+                   [] { return std::make_shared<AlwaysInContactEstimator>(); }),
+      "estimator 'cheater_sim' is already registered");
+  EXPECT_DEATH(
+      registry.add(" ", "nameless",
+                   [] { return std::make_shared<AlwaysInContactEstimator>(); }),
+      "an estimator needs a name");
+  EXPECT_DEATH(registry.add("no_factory", "factory-less", /*factory=*/nullptr),
+               "estimator 'no_factory' has no factory");
 }
 
 }  // namespace

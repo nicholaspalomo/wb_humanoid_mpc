@@ -27,9 +27,11 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// The visualization publisher's settings from a typed task file: a file that says nothing gives the default rate,
-// reported as the default, and the contact frames; a rate is read and not reported as the default; a rate that is not a
-// positive finite number, a frame name the Rerun bridge cannot carry and a frame named twice are refused by their field.
+// The visualization publisher's settings from a typed task file: a file that
+// says nothing gives the default rate, reported as the default, and the contact
+// frames; a rate is read and not reported as the default; a rate that is not a
+// positive finite number, a frame name the Rerun bridge cannot carry and a
+// frame named twice are refused by their field.
 
 #include <limits>
 #include <string>
@@ -54,8 +56,10 @@ std::vector<std::string> contactFrames() {
   return {"foot_l_contact", "foot_r_contact"};
 }
 
-TEST(VisualizationConfigFromConfigTest, AFileThatSaysNothingGivesTheDefaultRateAndTheContactFrames) {
-  const absl::StatusOr<VisualizationConfig> config = visualizationConfigFromConfig(mpc_config::TaskFile{}, contactFrames());
+TEST(VisualizationConfigFromConfigTest,
+     AFileThatSaysNothingGivesTheDefaultRateAndTheContactFrames) {
+  const absl::StatusOr<VisualizationConfig> config =
+      visualizationConfigFromConfig(mpc_config::TaskFile{}, contactFrames());
   ASSERT_TRUE(config.ok()) << config.status();
   EXPECT_EQ(config->sceneFrequency, kDefaultRerunSceneFrequency);
   EXPECT_TRUE(config->sceneFrequencyIsDefault);
@@ -68,7 +72,8 @@ TEST(VisualizationConfigFromConfigTest, TheRateAndTheFrameListsAreRead) {
   task.rerun_scene_frequency = 12.5;
   task.telemetry_frames = {"pelvis", "utorso"};
   task.rerun_plan_frames = {"left_hand_palm_joint"};
-  const absl::StatusOr<VisualizationConfig> config = visualizationConfigFromConfig(task, contactFrames());
+  const absl::StatusOr<VisualizationConfig> config =
+      visualizationConfigFromConfig(task, contactFrames());
   ASSERT_TRUE(config.ok()) << config.status();
   EXPECT_EQ(config->sceneFrequency, 12.5);
   EXPECT_FALSE(config->sceneFrequencyIsDefault);
@@ -76,29 +81,40 @@ TEST(VisualizationConfigFromConfigTest, TheRateAndTheFrameListsAreRead) {
   EXPECT_THAT(config->planFrames, ElementsAre("left_hand_palm_joint"));
 }
 
-TEST(VisualizationConfigFromConfigTest, ARateThatIsNotAPositiveFiniteNumberIsRefused) {
-  for (const double bad : {0.0, -30.0, std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN()}) {
+TEST(VisualizationConfigFromConfigTest,
+     ARateThatIsNotAPositiveFiniteNumberIsRefused) {
+  for (const double bad : {0.0, -30.0, std::numeric_limits<double>::infinity(),
+                           std::numeric_limits<double>::quiet_NaN()}) {
     mpc_config::TaskFile task;
     task.rerun_scene_frequency = bad;
-    const absl::StatusOr<VisualizationConfig> config = visualizationConfigFromConfig(task, contactFrames());
-    EXPECT_EQ(config.status().code(), absl::StatusCode::kInvalidArgument) << bad;
+    const absl::StatusOr<VisualizationConfig> config =
+        visualizationConfigFromConfig(task, contactFrames());
+    EXPECT_EQ(config.status().code(), absl::StatusCode::kInvalidArgument)
+        << bad;
     EXPECT_THAT(config.status().message(), HasSubstr("rerun_scene_frequency"));
   }
 }
 
-TEST(VisualizationConfigFromConfigTest, AFrameTheBridgeCannotCarryOrAFrameNamedTwiceIsRefusedByItsList) {
-  for (const std::string& bad : {std::string("foot l"), std::string(".."), std::string("a/b"), std::string()}) {
+TEST(VisualizationConfigFromConfigTest,
+     AFrameTheBridgeCannotCarryOrAFrameNamedTwiceIsRefusedByItsList) {
+  for (const std::string& bad : {std::string("foot l"), std::string(".."),
+                                 std::string("a/b"), std::string()}) {
     mpc_config::TaskFile task;
     task.rerun_plan_frames = {"pelvis", bad};
-    const absl::StatusOr<VisualizationConfig> config = visualizationConfigFromConfig(task, contactFrames());
-    EXPECT_EQ(config.status().code(), absl::StatusCode::kInvalidArgument) << bad;
-    EXPECT_THAT(config.status().message(), HasSubstr("rerun_plan_frames names the frame"));
+    const absl::StatusOr<VisualizationConfig> config =
+        visualizationConfigFromConfig(task, contactFrames());
+    EXPECT_EQ(config.status().code(), absl::StatusCode::kInvalidArgument)
+        << bad;
+    EXPECT_THAT(config.status().message(),
+                HasSubstr("rerun_plan_frames names the frame"));
   }
   mpc_config::TaskFile twice;
   twice.telemetry_frames = {"pelvis", "utorso", "pelvis"};
-  const absl::StatusOr<VisualizationConfig> config = visualizationConfigFromConfig(twice, contactFrames());
+  const absl::StatusOr<VisualizationConfig> config =
+      visualizationConfigFromConfig(twice, contactFrames());
   EXPECT_EQ(config.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_THAT(config.status().message(), HasSubstr("telemetry_frames names the frame 'pelvis' twice"));
+  EXPECT_THAT(config.status().message(),
+              HasSubstr("telemetry_frames names the frame 'pelvis' twice"));
 }
 
 }  // namespace

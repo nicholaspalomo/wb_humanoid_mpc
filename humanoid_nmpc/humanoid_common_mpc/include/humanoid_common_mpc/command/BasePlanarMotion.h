@@ -34,14 +34,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The planar motion of the base: the velocity of its origin in its heading frame and the rate of its heading. What a
- * velocity command's reference starts from and what the gait switches compare the command with (design defects D1,
- * D1b, D2), in the frame the command is given in: the heading frame is the world frame turned
- * about its z axis by the twist heading psi_h (MpcRobotModelBase::getBaseHeading()), so (forward, lateral) are the
+ * The planar motion of the base: the velocity of its origin in its heading
+ * frame and the rate of its heading. What a velocity command's reference starts
+ * from and what the gait switches compare the command with (design defects D1,
+ * D1b, D2), in the frame the command is given in: the heading frame is the
+ * world frame turned about its z axis by the twist heading psi_h
+ * (MpcRobotModelBase::getBaseHeading()), so (forward, lateral) are the
  * command's (v_x, v_y) axes. Passive data.
  */
 struct BasePlanarMotion {
-  /** [m/s] (forward, lateral): R_z(psi_h)^T (dp_x, dp_y) / dt of the base origin. */
+  /** [m/s] (forward, lateral): R_z(psi_h)^T (dp_x, dp_y) / dt of the base
+   * origin. */
   vector2_t velocityInHeadingFrame = vector2_t::Zero();
   /** [rad/s] d psi_h / dt, the rate of the twist heading. */
   scalar_t headingRate = 0.0;

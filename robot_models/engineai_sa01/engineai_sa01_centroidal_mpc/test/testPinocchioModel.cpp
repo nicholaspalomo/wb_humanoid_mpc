@@ -61,25 +61,32 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_core/ResourcePaths.h"
 
 /**
- * Prints the Pinocchio model the MPC builds for the EngineAI SA01, so that the joint order of its state, the contact
- * frame placement and the nominal standing height can be checked against the URDF.
+ * Prints the Pinocchio model the MPC builds for the EngineAI SA01, so that the
+ * joint order of its state, the contact frame placement and the nominal
+ * standing height can be checked against the URDF.
  */
 
 namespace ocs2::humanoid {
 namespace {
 
 // Relative to the repository root.
-constexpr absl::string_view kUrdfFile = "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.urdf";
-constexpr absl::string_view kTaskFile = "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto";
+constexpr absl::string_view kUrdfFile =
+    "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.urdf";
+constexpr absl::string_view kTaskFile =
+    "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/"
+    "task.textproto";
 
-// SA01 is a legs-only biped. The floating base is a JointModelTranslation + JointModelSpherical composite
-// (createPinocchioModel.cpp getBaseJointcomposite), so it contributes SEVEN configuration variables - x, y, z and the
-// unit quaternion (x, y, z, w) - and six velocities, and the twelve leg joints one each. The configurations below start
-// from pinocchio::neutral() (the identity quaternion, every joint at zero) and address the joints by name, so they do
-// not depend on the size of the base.
+// SA01 is a legs-only biped. The floating base is a JointModelTranslation +
+// JointModelSpherical composite (createPinocchioModel.cpp
+// getBaseJointcomposite), so it contributes SEVEN configuration variables - x,
+// y, z and the unit quaternion (x, y, z, w) - and six velocities, and the
+// twelve leg joints one each. The configurations below start from
+// pinocchio::neutral() (the identity quaternion, every joint at zero) and
+// address the joints by name, so they do not depend on the size of the base.
 
-// The nominal standing pose of config/command/reference.textproto. Keep the two in sync: this test prints the sole and
-// contact-frame heights that default_base_height and contacts.contact_frame_translation are derived from.
+// The nominal standing pose of config/command/reference.textproto. Keep the two
+// in sync: this test prints the sole and contact-frame heights that
+// default_base_height and contacts.contact_frame_translation are derived from.
 // LINT.IfChange(sa01_nominal_pose)
 constexpr double kNominalBaseHeight = 0.8135;
 constexpr double kNominalHipPitch = -0.30;
@@ -91,24 +98,33 @@ constexpr double kNominalAnklePitch = -0.40;
 constexpr std::array<absl::string_view, 2> kLegSides = {"l", "r"};
 
 /**
- * The neutral configuration of `model` (pinocchio::neutral(): the base at the origin, upright, with the identity
- * quaternion, and every joint at zero) with the base raised to `baseHeight`.
+ * The neutral configuration of `model` (pinocchio::neutral(): the base at the
+ * origin, upright, with the identity quaternion, and every joint at zero) with
+ * the base raised to `baseHeight`.
  */
-Eigen::VectorXd neutralConfigurationAtHeight(const pinocchio::Model& model, double baseHeight) {
+Eigen::VectorXd neutralConfigurationAtHeight(const pinocchio::Model& model,
+                                             double baseHeight) {
   Eigen::VectorXd q = pinocchio::neutral(model);
-  // The root joint (joint 1, after the universe) starts its configuration with the base position (x, y, z).
+  // The root joint (joint 1, after the universe) starts its configuration with
+  // the base position (x, y, z).
   q[model.joints[1].idx_q() + 2] = baseHeight;
   return q;
 }
 
-/** Sets the configuration of the one-degree-of-freedom joint `jointName` of `model` in `q` to `angle`; dies without it. */
-void setJointAngle(const pinocchio::Model& model, const std::string& jointName, double angle, Eigen::VectorXd& q) {
-  ABSL_CHECK(model.existJointName(jointName)) << "the model has no joint " << jointName;
+/** Sets the configuration of the one-degree-of-freedom joint `jointName` of
+ * `model` in `q` to `angle`; dies without it. */
+void setJointAngle(const pinocchio::Model& model,
+                   const std::string& jointName,
+                   double angle,
+                   Eigen::VectorXd& q) {
+  ABSL_CHECK(model.existJointName(jointName))
+      << "the model has no joint " << jointName;
   q[model.joints[model.getJointId(jointName)].idx_q()] = angle;
 }
 
 /** The entries of `values`, each with `precision` decimals. */
-std::string formatFixed(const Eigen::Ref<const Eigen::VectorXd>& values, int precision) {
+std::string formatFixed(const Eigen::Ref<const Eigen::VectorXd>& values,
+                        int precision) {
   std::string text;
   for (Eigen::Index i = 0; i < values.size(); ++i) {
     if (i > 0) text.push_back(' ');
@@ -127,12 +143,15 @@ void printModelDimensionality(const PinocchioInterface& pinocchioInterface) {
 
 void printJointNames(const PinocchioInterface& pinocchioInterface) {
   const pinocchio::Model& model = pinocchioInterface.getModel();
-  for (pinocchio::JointIndex joint_id = 0; joint_id < static_cast<pinocchio::JointIndex>(model.njoints); ++joint_id) {
+  for (pinocchio::JointIndex joint_id = 0;
+       joint_id < static_cast<pinocchio::JointIndex>(model.njoints);
+       ++joint_id) {
     LOG(INFO) << absl::StrFormat("%-4d%-24s", joint_id, model.names[joint_id]);
   }
 }
 
-void printFramePlacements(PinocchioInterface& pinocchioInterface, const Eigen::VectorXd& q) {
+void printFramePlacements(PinocchioInterface& pinocchioInterface,
+                          const Eigen::VectorXd& q) {
   const pinocchio::Model& model = pinocchioInterface.getModel();
   pinocchio::Data& data = pinocchioInterface.getData();
 
@@ -142,20 +161,28 @@ void printFramePlacements(PinocchioInterface& pinocchioInterface, const Eigen::V
   LOG(INFO) << "###########################################";
   LOG(INFO) << "############### Model Joints ##############";
   LOG(INFO) << "###########################################";
-  for (pinocchio::JointIndex joint_id = 0; joint_id < static_cast<pinocchio::JointIndex>(model.njoints); ++joint_id) {
-    LOG(INFO) << absl::StrFormat("%-5s%d, %s: %s", "ID: ", joint_id, model.names[joint_id],
-                                 formatFixed(data.oMi[joint_id].translation(), /*precision=*/5));
+  for (pinocchio::JointIndex joint_id = 0;
+       joint_id < static_cast<pinocchio::JointIndex>(model.njoints);
+       ++joint_id) {
+    LOG(INFO) << absl::StrFormat(
+        "%-5s%d, %s: %s", "ID: ", joint_id, model.names[joint_id],
+        formatFixed(data.oMi[joint_id].translation(), /*precision=*/5));
   }
   LOG(INFO) << "###########################################";
   LOG(INFO) << "############### Model Frames ##############";
   LOG(INFO) << "###########################################";
-  for (pinocchio::FrameIndex frame_id = 0; frame_id < static_cast<pinocchio::FrameIndex>(model.nframes); ++frame_id) {
-    LOG(INFO) << absl::StrFormat("%-10s%d, name: %s : Pos: %s", "ID: ", frame_id, model.frames[frame_id].name,
-                                 formatFixed(data.oMf[frame_id].translation(), /*precision=*/5));
+  for (pinocchio::FrameIndex frame_id = 0;
+       frame_id < static_cast<pinocchio::FrameIndex>(model.nframes);
+       ++frame_id) {
+    LOG(INFO) << absl::StrFormat(
+        "%-10s%d, name: %s : Pos: %s", "ID: ", frame_id,
+        model.frames[frame_id].name,
+        formatFixed(data.oMf[frame_id].translation(), /*precision=*/5));
   }
 }
 
-void printContactFrameHeights(PinocchioInterface& pinocchioInterface, const Eigen::VectorXd& q) {
+void printContactFrameHeights(PinocchioInterface& pinocchioInterface,
+                              const Eigen::VectorXd& q) {
   const pinocchio::Model& model = pinocchioInterface.getModel();
   pinocchio::Data& data = pinocchioInterface.getData();
 
@@ -166,27 +193,39 @@ void printContactFrameHeights(PinocchioInterface& pinocchioInterface, const Eige
   LOG(INFO) << "###########################################";
   LOG(INFO) << "########## Nominal Standing Pose ##########";
   LOG(INFO) << "###########################################";
-  for (const std::string& frameName : {std::string("foot_l_contact"), std::string("foot_r_contact")}) {
+  for (const std::string& frameName :
+       {std::string("foot_l_contact"), std::string("foot_r_contact")}) {
     if (!model.existFrame(frameName)) {
       LOG(INFO) << frameName << ": NOT A FRAME OF THE MODEL";
       continue;
     }
     const pinocchio::FrameIndex frameId = model.getFrameId(frameName);
-    LOG(INFO) << frameName << " position: " << formatFixed(data.oMf[frameId].translation(), /*precision=*/5);
+    LOG(INFO) << frameName << " position: "
+              << formatFixed(data.oMf[frameId].translation(), /*precision=*/5);
   }
-  LOG(INFO) << absl::StrFormat("base height : %.5f m (reference.textproto default_base_height)", q[model.joints[1].idx_q() + 2]);
+  LOG(INFO) << absl::StrFormat(
+      "base height : %.5f m (reference.textproto default_base_height)",
+      q[model.joints[1].idx_q() + 2]);
   LOG(INFO) << "CoM         : " << com.transpose();
-  LOG(INFO) << "CoM height above the contact frames: " << com[2] - data.oMf[model.getFrameId("foot_l_contact")].translation()[2] << " m"
-            << " (dcm_terminal_cost.com_height)";
+  LOG(INFO) << "CoM height above the contact frames: "
+            << com[2] -
+                   data.oMf[model.getFrameId("foot_l_contact")].translation()[2]
+            << " m" << " (dcm_terminal_cost.com_height)";
 }
 
-/** The default model, straight from the URDF, and the model the MPC builds from the task file. */
+/** The default model, straight from the URDF, and the model the MPC builds from
+ * the task file. */
 int printModels() {
-  // From the binary's runfiles (BUILD `data`), so `bazel run` and a run from .bazel/bin read the same files.
-  const absl::StatusOr<std::string> resolvedUrdfFile = robot::resolveResourcePath(kUrdfFile);
-  const absl::StatusOr<std::string> resolvedTaskFile = robot::resolveResourcePath(kTaskFile);
+  // From the binary's runfiles (BUILD `data`), so `bazel run` and a run from
+  // .bazel/bin read the same files.
+  const absl::StatusOr<std::string> resolvedUrdfFile =
+      robot::resolveResourcePath(kUrdfFile);
+  const absl::StatusOr<std::string> resolvedTaskFile =
+      robot::resolveResourcePath(kTaskFile);
   if (!resolvedUrdfFile.ok() || !resolvedTaskFile.ok()) {
-    LOG(ERROR) << "The model files are not in the runfiles: " << resolvedUrdfFile.status() << "; " << resolvedTaskFile.status();
+    LOG(ERROR) << "The model files are not in the runfiles: "
+               << resolvedUrdfFile.status() << "; "
+               << resolvedTaskFile.status();
     return 1;
   }
   const std::string& urdfFile = *resolvedUrdfFile;
@@ -200,22 +239,26 @@ int printModels() {
   printModelDimensionality(pin_interface);
   printJointNames(pin_interface);
 
-  Eigen::VectorXd q = neutralConfigurationAtHeight(pin_interface.getModel(), kNominalBaseHeight);
+  Eigen::VectorXd q = neutralConfigurationAtHeight(pin_interface.getModel(),
+                                                   kNominalBaseHeight);
   printFramePlacements(pin_interface, q);
 
-  /// The model the MPC actually uses: the fixed joints of the task file removed and the contact frames added. The task
-  /// file is read once, strictly: an unknown field is an error with its line.
+  /// The model the MPC actually uses: the fixed joints of the task file removed
+  /// and the contact frames added. The task file is read once, strictly: an
+  /// unknown field is an error with its line.
   const absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(taskFile);
   if (!task.ok()) {
     LOG(ERROR) << task.status();
     return 1;
   }
-  absl::StatusOr<ModelSettings> modelSettings = ModelSettings::Create(*task, urdfFile, /*mpcName=*/"test_pinocchio", /*verbose=*/true);
+  absl::StatusOr<ModelSettings> modelSettings = ModelSettings::Create(
+      *task, urdfFile, /*mpcName=*/"test_pinocchio", /*verbose=*/true);
   if (!modelSettings.ok()) {
     LOG(ERROR) << taskFile << ": " << modelSettings.status();
     return 1;
   }
-  absl::StatusOr<PinocchioInterface> customInterface = loadCustomPinocchioInterface(*task, urdfFile, *modelSettings);
+  absl::StatusOr<PinocchioInterface> customInterface =
+      loadCustomPinocchioInterface(*task, urdfFile, *modelSettings);
   if (!customInterface.ok()) {
     LOG(ERROR) << taskFile << ": " << customInterface.status();
     return 1;
@@ -225,13 +268,17 @@ int printModels() {
   printModelDimensionality(pin_interface);
   printJointNames(pin_interface);
 
-  // The nominal standing crouch of reference.textproto, on the MPC model's joints.
+  // The nominal standing crouch of reference.textproto, on the MPC model's
+  // joints.
   const pinocchio::Model& mpcModel = pin_interface.getModel();
   q = neutralConfigurationAtHeight(mpcModel, kNominalBaseHeight);
   for (const absl::string_view side : kLegSides) {
-    setJointAngle(mpcModel, absl::StrCat("leg_", side, "3_joint"), kNominalHipPitch, q);    // hip pitch
-    setJointAngle(mpcModel, absl::StrCat("leg_", side, "4_joint"), kNominalKnee, q);        // knee
-    setJointAngle(mpcModel, absl::StrCat("leg_", side, "5_joint"), kNominalAnklePitch, q);  // ankle pitch
+    setJointAngle(mpcModel, absl::StrCat("leg_", side, "3_joint"),
+                  kNominalHipPitch, q);  // hip pitch
+    setJointAngle(mpcModel, absl::StrCat("leg_", side, "4_joint"), kNominalKnee,
+                  q);  // knee
+    setJointAngle(mpcModel, absl::StrCat("leg_", side, "5_joint"),
+                  kNominalAnklePitch, q);  // ankle pitch
   }
   printContactFrameHeights(pin_interface, q);
 
@@ -242,13 +289,15 @@ int printModels() {
 }  // namespace ocs2::humanoid
 
 int main() {
-  // Route Abseil log records to stderr. Without InitializeLog() Abseil warns once and writes everything to
-  // stderr anyway; with it the default stderr threshold is ERROR, so the INFO records have to be asked for.
+  // Route Abseil log records to stderr. Without InitializeLog() Abseil warns
+  // once and writes everything to stderr anyway; with it the default stderr
+  // threshold is ERROR, so the INFO records have to be asked for.
   absl::InitializeLog();
   absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
   try {
     return ocs2::humanoid::printModels();
-  } catch (const std::exception& error) {  // Pinocchio reports a URDF it cannot read by throwing.
+  } catch (const std::exception&
+               error) {  // Pinocchio reports a URDF it cannot read by throwing.
     LOG(ERROR) << error.what();
     return 1;
   }

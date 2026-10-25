@@ -50,12 +50,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_wb_mpc/parameter_update/WholeBodyHotFieldAppliers.h"
 
 /*
- * The reload classes of the task file's schema against what each formulation's parameter updater applies (T8,
- * humanoid_nmpc/humanoid_mpc_config/README.md): for the centroidal and the whole-body MPC, a tunable field the formulation
- * reads is RELOAD_HOT exactly when its updater applies it; a field another formulation reads alone, and a field the
- * robot process or the GUI reads, is applied by neither; and every name of the updaters' lists is a field of the schema.
- * It compares the schema's annotations with the appliers' static field lists (centroidalHotFieldNames(),
- * wholeBodyHotFieldNames()) and builds no MPC; the node tests check that the updater they build applies those lists.
+ * The reload classes of the task file's schema against what each formulation's
+ * parameter updater applies (T8, humanoid_nmpc/humanoid_mpc_config/README.md):
+ * for the centroidal and the whole-body MPC, a tunable field the formulation
+ * reads is RELOAD_HOT exactly when its updater applies it; a field another
+ * formulation reads alone, and a field the robot process or the GUI reads, is
+ * applied by neither; and every name of the updaters' lists is a field of the
+ * schema. It compares the schema's annotations with the appliers' static field
+ * lists (centroidalHotFieldNames(), wholeBodyHotFieldNames()) and builds no
+ * MPC; the node tests check that the updater they build applies those lists.
  */
 namespace ocs2::humanoid {
 namespace {
@@ -67,17 +70,23 @@ struct Formulation {
 };
 
 std::vector<Formulation> formulations() {
-  return {Formulation{.name = kCentroidalFormulation, .appliedFields = centroidalHotFieldNames()},
-          Formulation{.name = kWholeBodyFormulation, .appliedFields = wholeBodyHotFieldNames()}};
+  return {Formulation{.name = kCentroidalFormulation,
+                      .appliedFields = centroidalHotFieldNames()},
+          Formulation{.name = kWholeBodyFormulation,
+                      .appliedFields = wholeBodyHotFieldNames()}};
 }
 
-/** Whether the field path `name` stands for the leaf at `path`: the leaf itself, or a block above it. */
+/** Whether the field path `name` stands for the leaf at `path`: the leaf
+ * itself, or a block above it. */
 bool covers(absl::string_view name, absl::string_view path) {
-  return path == name || absl::StartsWith(path, absl::StrCat(name, ".")) || absl::StartsWith(path, absl::StrCat(name, "["));
+  return path == name || absl::StartsWith(path, absl::StrCat(name, ".")) ||
+         absl::StartsWith(path, absl::StrCat(name, "["));
 }
 
 bool coveredBy(const std::vector<std::string>& names, absl::string_view path) {
-  return std::any_of(names.begin(), names.end(), [path](const std::string& name) { return covers(name, path); });
+  return std::any_of(
+      names.begin(), names.end(),
+      [path](const std::string& name) { return covers(name, path); });
 }
 
 std::vector<ConfigLeaf> taskFileLeaves() {
@@ -91,14 +100,19 @@ TEST(HotFieldCoverage, EachFormulationAppliesExactlyTheHotFieldsItReads) {
     SCOPED_TRACE(formulation.name);
     ASSERT_FALSE(formulation.appliedFields.empty());
     for (const ConfigLeaf& leaf : leaves) {
-      if (!leaf.tunable || !isReadByTheMpc(leaf.consumer) || !isReadByFormulation(leaf.formulations, formulation.name)) continue;
+      if (!leaf.tunable || !isReadByTheMpc(leaf.consumer) ||
+          !isReadByFormulation(leaf.formulations, formulation.name))
+        continue;
       const bool applied = coveredBy(formulation.appliedFields, leaf.path);
       if (leaf.reload == ConfigReload::kHot) {
-        EXPECT_TRUE(applied) << leaf.path << " is RELOAD_HOT and read by the " << formulation.name
-                             << " MPC, whose parameter updater does not apply it: apply it, or mark it RELOAD_START_UP";
+        EXPECT_TRUE(applied) << leaf.path << " is RELOAD_HOT and read by the "
+                             << formulation.name
+                             << " MPC, whose parameter updater does not apply "
+                                "it: apply it, or mark it RELOAD_START_UP";
       } else {
-        EXPECT_FALSE(applied) << leaf.path << " is applied by the " << formulation.name
-                              << " MPC's parameter updater but not marked RELOAD_HOT";
+        EXPECT_FALSE(applied)
+            << leaf.path << " is applied by the " << formulation.name
+            << " MPC's parameter updater but not marked RELOAD_HOT";
       }
     }
   }
@@ -109,7 +123,8 @@ TEST(HotFieldCoverage, NoFormulationAppliesAFieldItDoesNotRead) {
     for (const ConfigLeaf& leaf : taskFileLeaves()) {
       if (isReadByFormulation(leaf.formulations, formulation.name)) continue;
       EXPECT_FALSE(coveredBy(formulation.appliedFields, leaf.path))
-          << leaf.path << " is read by another formulation only, yet the " << formulation.name << " MPC's parameter updater applies it";
+          << leaf.path << " is read by another formulation only, yet the "
+          << formulation.name << " MPC's parameter updater applies it";
     }
   }
 }
@@ -119,11 +134,14 @@ TEST(HotFieldCoverage, TheRobotsAndTheGuisFieldsAreAppliedByNoMpc) {
     if (isReadByTheMpc(leaf.consumer)) continue;
     for (const Formulation& formulation : formulations()) {
       EXPECT_FALSE(coveredBy(formulation.appliedFields, leaf.path))
-          << leaf.path << " is read by the " << leaf.consumer << ", yet the " << formulation.name << " MPC's parameter updater applies it";
+          << leaf.path << " is read by the " << leaf.consumer << ", yet the "
+          << formulation.name << " MPC's parameter updater applies it";
     }
-    // What the robot process applies while it runs (the controller-side settings) is RELOAD_HOT as well.
+    // What the robot process applies while it runs (the controller-side
+    // settings) is RELOAD_HOT as well.
     if (leaf.consumer == kRobotConsumer && leaf.tunable) {
-      EXPECT_NE(leaf.reload, ConfigReload::kUnspecified) << leaf.path << " says neither when it applies";
+      EXPECT_NE(leaf.reload, ConfigReload::kUnspecified)
+          << leaf.path << " says neither when it applies";
     }
   }
 }
@@ -132,8 +150,11 @@ TEST(HotFieldCoverage, EveryAppliedNameIsAFieldOfTheSchema) {
   const std::vector<ConfigLeaf> leaves = taskFileLeaves();
   for (const Formulation& formulation : formulations()) {
     for (const std::string& name : formulation.appliedFields) {
-      const bool named = std::any_of(leaves.begin(), leaves.end(), [&name](const ConfigLeaf& leaf) { return covers(name, leaf.path); });
-      EXPECT_TRUE(named) << "the " << formulation.name << " MPC's parameter updater applies " << name
+      const bool named = std::any_of(
+          leaves.begin(), leaves.end(),
+          [&name](const ConfigLeaf& leaf) { return covers(name, leaf.path); });
+      EXPECT_TRUE(named) << "the " << formulation.name
+                         << " MPC's parameter updater applies " << name
                          << ", which no field of the task file is";
     }
   }
@@ -143,21 +164,28 @@ TEST(HotFieldCoverage, EveryFormulationNameOfTheSchemaIsAFormulation) {
   const std::vector<Formulation> known = formulations();
   for (const ConfigLeaf& leaf : taskFileLeaves()) {
     for (const std::string& name : leaf.formulations) {
-      const bool isKnown =
-          std::any_of(known.begin(), known.end(), [&name](const Formulation& formulation) { return formulation.name == name; });
-      EXPECT_TRUE(isKnown) << leaf.path << " names the formulation \"" << name << "\", which is not \"" << kCentroidalFormulation
+      const bool isKnown = std::any_of(known.begin(), known.end(),
+                                       [&name](const Formulation& formulation) {
+                                         return formulation.name == name;
+                                       });
+      EXPECT_TRUE(isKnown) << leaf.path << " names the formulation \"" << name
+                           << "\", which is not \"" << kCentroidalFormulation
                            << "\" or \"" << kWholeBodyFormulation << "\"";
     }
   }
 }
 
-/** The field at the leaf path `path` of the task file ("a.b[*].c"), or null when there is none. */
-const google::protobuf::FieldDescriptor* absl_nullable fieldAt(absl::string_view path) {
-  const google::protobuf::Descriptor* absl_nullable message = humanoid_mpc_config::TaskFile::descriptor();
+/** The field at the leaf path `path` of the task file ("a.b[*].c"), or null
+ * when there is none. */
+const google::protobuf::FieldDescriptor* absl_nullable fieldAt(
+    absl::string_view path) {
+  const google::protobuf::Descriptor* absl_nullable message =
+      humanoid_mpc_config::TaskFile::descriptor();
   const google::protobuf::FieldDescriptor* absl_nullable field = nullptr;
   for (absl::string_view segment : absl::StrSplit(path, '.')) {
     if (message == nullptr) return nullptr;
-    if (absl::EndsWith(segment, "[*]")) segment.remove_suffix(std::string_view("[*]").size());
+    if (absl::EndsWith(segment, "[*]"))
+      segment.remove_suffix(std::string_view("[*]").size());
     field = message->FindFieldByName(segment);
     if (field == nullptr) return nullptr;
     message = field->message_type();
@@ -180,12 +208,15 @@ bool isNumber(const google::protobuf::FieldDescriptor& field) {
 }
 
 /**
- * The RELOAD_HOT leaves of the task file that hold no number (a bool, an enum, a registry name, a name list) and the
- * test that shows each one applied as a fresh start would apply it: the live-update parity tests
- * (humanoid_centroidal_mpc:testLiveUpdateEqualsFreshStart, humanoid_wb_mpc:testWholeBodyLiveUpdateEqualsFreshStart)
- * perturb numbers only.
+ * The RELOAD_HOT leaves of the task file that hold no number (a bool, an enum,
+ * a registry name, a name list) and the test that shows each one applied as a
+ * fresh start would apply it: the live-update parity tests
+ * (humanoid_centroidal_mpc:testLiveUpdateEqualsFreshStart,
+ * humanoid_wb_mpc:testWholeBodyLiveUpdateEqualsFreshStart) perturb numbers
+ * only.
  */
-/** A RELOAD_HOT leaf without a number, and the test that shows it applied live as a fresh start reads it. */
+/** A RELOAD_HOT leaf without a number, and the test that shows it applied live
+ * as a fresh start reads it. */
 struct NonNumericHotLeaf {
   const char* absl_nonnull path;
   const char* absl_nonnull test;
@@ -193,43 +224,62 @@ struct NonNumericHotLeaf {
 
 constexpr std::array<NonNumericHotLeaf, 3> kNonNumericHotLeaves = {{
     {.path = "arm_swing.generator",
-     .test = "humanoid_common_mpc:parameter_update_test, TheArmSwingGeneratorIsAppliedLiveAsAFreshStartReadsIt"},
+     .test = "humanoid_common_mpc:parameter_update_test, "
+             "TheArmSwingGeneratorIsAppliedLiveAsAFreshStartReadsIt"},
     {.path = "contacts.basis_regularization",
-     .test = "humanoid_centroidal_mpc:testMpcParameterUpdaterModule, TheRegularizationOfTheBasisSpaceInputCostIsReloadedByName"},
+     .test = "humanoid_centroidal_mpc:testMpcParameterUpdaterModule, "
+             "TheRegularizationOfTheBasisSpaceInputCostIsReloadedByName"},
     {.path = "model_settings.foot_constraint.stance_constraint",
-     .test = "humanoid_centroidal_mpc:testMpcParameterUpdaterModule, AStanceConstraintReloadChangesTheRowsOfTheHardZeroVelocityTermItself"},
+     .test = "humanoid_centroidal_mpc:testMpcParameterUpdaterModule, "
+             "AStanceConstraintReloadChangesTheRowsOfTheHardZeroVelocityTermIts"
+             "elf"},
 }};
 
 TEST(HotFieldCoverage, EveryHotLeafThatIsNotANumberNamesTheTestThatAppliesIt) {
   std::set<std::string> found;
   for (const ConfigLeaf& leaf : taskFileLeaves()) {
-    if (!leaf.tunable || leaf.reload != ConfigReload::kHot || !isReadByTheMpc(leaf.consumer)) continue;
-    const google::protobuf::FieldDescriptor* absl_nullable field = fieldAt(leaf.path);
+    if (!leaf.tunable || leaf.reload != ConfigReload::kHot ||
+        !isReadByTheMpc(leaf.consumer))
+      continue;
+    const google::protobuf::FieldDescriptor* absl_nullable field =
+        fieldAt(leaf.path);
     ASSERT_NE(field, nullptr) << leaf.path;
     if (!isNumber(*field)) found.insert(leaf.path);
   }
   std::set<std::string> listed;
-  for (const NonNumericHotLeaf& entry : kNonNumericHotLeaves) listed.insert(entry.path);
+  for (const NonNumericHotLeaf& entry : kNonNumericHotLeaves)
+    listed.insert(entry.path);
   for (const std::string& path : found) {
-    EXPECT_TRUE(listed.contains(path)) << path << " is RELOAD_HOT and holds no number, which the live-update parity tests do not "
-                                       << "perturb: add a case that applies it live and from a fresh start, and list it here";
+    EXPECT_TRUE(listed.contains(path))
+        << path
+        << " is RELOAD_HOT and holds no number, which the live-update parity "
+           "tests do not "
+        << "perturb: add a case that applies it live and from a fresh start, "
+           "and list it here";
   }
   for (const std::string& path : listed) {
-    EXPECT_TRUE(found.contains(path)) << path << " is listed but is no RELOAD_HOT leaf without a number";
+    EXPECT_TRUE(found.contains(path))
+        << path << " is listed but is no RELOAD_HOT leaf without a number";
   }
 }
 
 TEST(HotFieldCoverage, TheFormulationsDifferInTheFieldsOnlyOneReads) {
-  // Positive controls of the annotations: a block each formulation reads alone is in its list only.
+  // Positive controls of the annotations: a block each formulation reads alone
+  // is in its list only.
   const std::vector<std::string> centroidal = centroidalHotFieldNames();
   const std::vector<std::string> wholeBody = wholeBodyHotFieldNames();
   EXPECT_TRUE(coveredBy(centroidal, "com_weights.x"));
   EXPECT_FALSE(coveredBy(wholeBody, "com_weights.x"));
   EXPECT_TRUE(coveredBy(wholeBody, "joint_torque_weights.scaling"));
   EXPECT_FALSE(coveredBy(centroidal, "joint_torque_weights.scaling"));
-  EXPECT_TRUE(coveredBy(wholeBody, "model_settings.foot_constraint.linear_acceleration_error_gain_z"));
-  EXPECT_FALSE(coveredBy(centroidal, "model_settings.foot_constraint.linear_acceleration_error_gain_z"));
-  EXPECT_TRUE(coveredBy(centroidal, "state_weights.scaling") && coveredBy(wholeBody, "state_weights.scaling"));
+  EXPECT_TRUE(coveredBy(
+      wholeBody,
+      "model_settings.foot_constraint.linear_acceleration_error_gain_z"));
+  EXPECT_FALSE(coveredBy(
+      centroidal,
+      "model_settings.foot_constraint.linear_acceleration_error_gain_z"));
+  EXPECT_TRUE(coveredBy(centroidal, "state_weights.scaling") &&
+              coveredBy(wholeBody, "state_weights.scaling"));
 }
 
 }  // namespace

@@ -38,35 +38,47 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * What the execution rules of the reference manager read at one solver cycle: the configuration, the measured contact
- * state, the active plan, the measured and predicted center of mass, and the per-foot touch-down shifts the cadence rule
- * computes for the schedule adaptation. Filled by ContactPlanningReferenceManager::modifyReferences() (and, for the
- * tests, by adaptScheduleToContactEvents()).
+ * What the execution rules of the reference manager read at one solver cycle:
+ * the configuration, the measured contact state, the active plan, the measured
+ * and predicted center of mass, and the per-foot touch-down shifts the cadence
+ * rule computes for the schedule adaptation. Filled by
+ * ContactPlanningReferenceManager::modifyReferences() (and, for the tests, by
+ * adaptScheduleToContactEvents()).
  */
 struct ExecutionContext {
-  /** A context of `config`, which must outlive it; every other field at its default. */
-  explicit ExecutionContext(const ContactPlanningConfig& config) : config(&config) {}
+  /** A context of `config`, which must outlive it; every other field at its
+   * default. */
+  explicit ExecutionContext(const ContactPlanningConfig& config)
+      : config(&config) {}
 
   scalar_t time = 0.0;
   contact_flag_t measuredContact = makeFeetArray(true);
-  const ContactPlan* absl_nullable activePlan = nullptr;  // a valid plan, or null while none is active
-  const ContactPlanningConfig* absl_nonnull config;       // the configuration of the cycle (the constructor's)
+  const ContactPlan* absl_nullable activePlan =
+      nullptr;  // a valid plan, or null while none is active
+  const ContactPlanningConfig* absl_nonnull
+  config;  // the configuration of the cycle (the constructor's)
   bool hasPredictedComState = false;
-  vector2_t com = vector2_t::Zero();  // measured CoM position / velocity at this cycle
+  vector2_t com =
+      vector2_t::Zero();  // measured CoM position / velocity at this cycle
   vector2_t comVelocity = vector2_t::Zero();
-  // Measured base position at this cycle. A rule that wants to command a center-of-mass motion has to write it into a
-  // reference state that carries the base pose, and com - basePosition is the horizontal offset between the two.
+  // Measured base position at this cycle. A rule that wants to command a
+  // center-of-mass motion has to write it into a reference state that carries
+  // the base pose, and com - basePosition is the horizontal offset between the
+  // two.
   vector2_t basePosition = vector2_t::Zero();
-  vector2_t predictedCom = vector2_t::Zero();  // the NMPC's own prediction for this cycle
+  vector2_t predictedCom =
+      vector2_t::Zero();  // the NMPC's own prediction for this cycle
   vector2_t predictedComVelocity = vector2_t::Zero();
   scalar_t totalMass = 0.0;
-  feet_array_t<scalar_t> cadenceTouchDownShift = makeFeetArray(0.0);  // [s] per foot, set by energy_cadence_modulation
+  feet_array_t<scalar_t> cadenceTouchDownShift =
+      makeFeetArray(0.0);  // [s] per foot, set by energy_cadence_modulation
 
   scalar_t omega() const { return config->omega(); }
   bool hasPlan() const { return activePlan != nullptr && activePlan->valid; }
 };
 
-/** A late touch-down search: the foot height reference continues its planned swing as a straight descent. */
+/** A late touch-down search: the foot height reference continues its planned
+ * swing as a straight descent. */
 struct GroundSearchRequest {
   scalar_t liftOffTime = 0.0;
   scalar_t plannedTouchDownTime = 0.0;

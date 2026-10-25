@@ -59,8 +59,12 @@ class NetworkFilesTest(unittest.TestCase):
     def test_every_node_of_the_example_is_on_a_machine_address(self) -> None:
         for node in self.example.nodes:
             with self.subTest(node=node.name):
-                self.assertTrue(robot_ipc.network_config.is_ipv4_address(node.host))
-                self.assertFalse(robot_ipc.network_config.is_loopback_host(node.host))
+                self.assertTrue(
+                    robot_ipc.network_config.is_ipv4_address(node.host)
+                )
+                self.assertFalse(
+                    robot_ipc.network_config.is_loopback_host(node.host)
+                )
 
     def test_the_robot_is_on_a_machine_of_its_own(self) -> None:
         hosts = {node.name: node.host for node in self.example.nodes}

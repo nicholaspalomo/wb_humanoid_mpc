@@ -45,7 +45,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** Counters of one plan, filled by the branch-and-bound and the search stages. Passive data. */
+/** Counters of one plan, filled by the branch-and-bound and the search stages.
+ * Passive data. */
 struct SearchStatistics {
   int numBranchAndBoundRelaxations = 0;
   int numLocalSearchQps = 0;
@@ -56,19 +57,24 @@ struct SearchStatistics {
   bool localSearchImproved = false;
 };
 
-/** What the stages that run before the branch-and-bound can read and set. Passive data, one per plan. */
+/** What the stages that run before the branch-and-bound can read and set.
+ * Passive data, one per plan. */
 struct SearchSetup {
   const ContactPlan* absl_nullable previousPlan = nullptr;
   const MiqpAssignment* absl_nullable previousAssignment = nullptr;
   std::optional<int> previousPlanShift;  // empty: no usable previous plan
   int numNodes = 0;
-  std::optional<MiqpAssignment> warmStart;  // complete assignment tried first for an incumbent (warm_start_previous_plan)
-  MiqpSettings miqpSettings;                // diving is off unless the diving stage turns it on
+  std::optional<MiqpAssignment>
+      warmStart;  // complete assignment tried first for an incumbent
+                  // (warm_start_previous_plan)
+  MiqpSettings
+      miqpSettings;  // diving is off unless the diving stage turns it on
 };
 
 /**
- * What the stages that run after the branch-and-bound work on: the incumbent, the problem, the solver and the counters.
- * One per plan; the pointers are into the planner and the plan's input and are non-null while the stages run.
+ * What the stages that run after the branch-and-bound work on: the incumbent,
+ * the problem, the solver and the counters. One per plan; the pointers are into
+ * the planner and the plan's input and are non-null while the stages run.
  */
 struct SearchRun {
   using Clock = std::chrono::steady_clock;
@@ -76,41 +82,58 @@ struct SearchRun {
   const ContactPlanningConfig* absl_nullable config = nullptr;
   const Layout* absl_nullable layout = nullptr;
   const std::vector<MiqpBinaryVariable>* absl_nullable binaries = nullptr;
-  const MiqpAssignment* absl_nullable initialAssignment = nullptr;  // fixings that hold for the whole search (the committed schedule)
+  const MiqpAssignment* absl_nullable initialAssignment =
+      nullptr;  // fixings that hold for the whole search (the committed
+                // schedule)
   const MiqpPropagateFn* absl_nullable propagate = nullptr;
   const MiqpAssignmentCostFn* absl_nullable assignmentCost = nullptr;
   MixedIntegerOcpQp* absl_nullable miqp = nullptr;
-  OcpQpProblem* absl_nullable problem = nullptr;  // the problem the incumbent was found on; a stage that re-linearizes replaces it
+  OcpQpProblem* absl_nullable problem =
+      nullptr;  // the problem the incumbent was found on; a stage that
+                // re-linearizes replaces it
   MiqpResult* absl_nullable result = nullptr;
   SearchStatistics* absl_nullable statistics = nullptr;
-  // Re-builds the problem around a nominal; the planner's error when it cannot build the context.
-  std::function<absl::StatusOr<OcpQpProblem>(const HeadingNominal&)> assembleWithNominal;
-  // Re-builds the problem on a grid of a different node duration, the incumbent's contact pattern unchanged. Under a
-  // fixed pattern the cadence is the grid scale, so this is how a stage re-times every phase of the plan together.
+  // Re-builds the problem around a nominal; the planner's error when it cannot
+  // build the context.
+  std::function<absl::StatusOr<OcpQpProblem>(const HeadingNominal&)>
+      assembleWithNominal;
+  // Re-builds the problem on a grid of a different node duration, the
+  // incumbent's contact pattern unchanged. Under a fixed pattern the cadence is
+  // the grid scale, so this is how a stage re-times every phase of the plan
+  // together.
   std::function<absl::StatusOr<OcpQpProblem>(scalar_t)> assembleWithGrid;
   Clock::time_point start;  // start of the plan, for the time budgets
   bool verbose = false;
-  // Output of a stage that re-timed the grid: the node duration the plan is to be emitted with. 0 leaves it at
-  // planner.dt. ContactPlan carries its own dt, so a re-timed plan needs no other change.
+  // Output of a stage that re-timed the grid: the node duration the plan is to
+  // be emitted with. 0 leaves it at planner.dt. ContactPlan carries its own dt,
+  // so a re-timed plan needs no other change.
   scalar_t chosenDt = 0.0;
 
-  scalar_t elapsedSeconds() const { return std::chrono::duration<scalar_t>(Clock::now() - start).count(); }
+  scalar_t elapsedSeconds() const {
+    return std::chrono::duration<scalar_t>(Clock::now() - start).count();
+  }
 };
 
 /**
- * A stage of the search around the branch-and-bound: something that provides an incumbent before it (a warm start, the
- * diving heuristic inside the solver) or refines the incumbent after it (local search, re-linearization).
+ * A stage of the search around the branch-and-bound: something that provides an
+ * incumbent before it (a warm start, the diving heuristic inside the solver) or
+ * refines the incumbent after it (local search, re-linearization).
  *
- * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
  */
 class SearchStage : public ContactPlanningTerm {
  public:
   virtual void beforeSearch(SearchSetup& /*setup*/) const {}
   /**
-   * Refines the incumbent of `run`. An error (a problem that cannot be re-built, a solve the QP solver rejects) ends the
-   * stage: what it adopted before stays in `run`, and the planner logs the status and runs the next stage.
+   * Refines the incumbent of `run`. An error (a problem that cannot be
+   * re-built, a solve the QP solver rejects) ends the stage: what it adopted
+   * before stays in `run`, and the planner logs the status and runs the next
+   * stage.
    */
-  virtual absl::Status afterSearch(SearchRun& /*run*/) const { return absl::OkStatus(); }
+  virtual absl::Status afterSearch(SearchRun& /*run*/) const {
+    return absl::OkStatus();
+  }
 };
 
 }  // namespace ocs2::humanoid

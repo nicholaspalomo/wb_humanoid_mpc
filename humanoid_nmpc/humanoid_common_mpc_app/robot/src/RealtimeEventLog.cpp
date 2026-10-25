@@ -39,7 +39,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-/** kCaughtAndSettling: the index of sim_gantry_catch_lift [m] in RealtimeEvent::values (SimFallRecovery's report). */
+/** kCaughtAndSettling: the index of sim_gantry_catch_lift [m] in
+ * RealtimeEvent::values (SimFallRecovery's report). */
 constexpr size_t kCatchLiftValueIndex = 2;
 
 }  // namespace
@@ -54,9 +55,11 @@ std::string formatRealtimeEvent(const RealtimeEvent& event) {
   const SettlePhase phase = static_cast<SettlePhase>(event.detail);
   switch (event.code) {
     case RealtimeEventCode::kTorquesDisabled:
-      return absl::StrCat("FSM command received: ", text, " - zero-torque mode.");
+      return absl::StrCat("FSM command received: ", text,
+                          " - zero-torque mode.");
     case RealtimeEventCode::kTorquesEnabled:
-      return absl::StrCat("FSM command received: ", text, " - enabling torques.");
+      return absl::StrCat("FSM command received: ", text,
+                          " - enabling torques.");
     case RealtimeEventCode::kModeCommanded:
       return absl::StrCat("FSM command received: ", text, ".");
     case RealtimeEventCode::kGantryLockCommanded:
@@ -66,41 +69,66 @@ std::string formatRealtimeEvent(const RealtimeEvent& event) {
     case RealtimeEventCode::kGantryUnlockedMpcReset:
       return "Gantry unlocked - resetting MPC.";
     case RealtimeEventCode::kCaughtAndSettling:
-      return absl::StrCat("[SimFallRecovery] Caught on the gantry in JOINT_PD, resetting the controller: ",
-                          discontinuityReason(static_cast<DiscontinuityCause>(event.detail), event.count, event.values[0], event.values[1]),
-                          ". The gantry lifts the robot by ", event.values[kCatchLiftValueIndex],
-                          " m (sim_gantry_catch_lift) until it rests at the nominal posture, then lowers it back; WB_MPC is accepted after "
-                          "that.");
+      return absl::StrCat(
+          "[SimFallRecovery] Caught on the gantry in JOINT_PD, resetting the "
+          "controller: ",
+          discontinuityReason(static_cast<DiscontinuityCause>(event.detail),
+                              event.count, event.values[0], event.values[1]),
+          ". The gantry lifts the robot by ",
+          event.values[kCatchLiftValueIndex],
+          " m (sim_gantry_catch_lift) until it rests at the nominal posture, "
+          "then lowers it back; WB_MPC is accepted after "
+          "that.");
     case RealtimeEventCode::kDiscontinuity:
-      return absl::StrCat("[SimFallRecovery] JOINT_PD, resetting the controller: ",
-                          discontinuityReason(static_cast<DiscontinuityCause>(event.detail), event.count, event.values[0], event.values[1]),
-                          ".");
+      return absl::StrCat(
+          "[SimFallRecovery] JOINT_PD, resetting the controller: ",
+          discontinuityReason(static_cast<DiscontinuityCause>(event.detail),
+                              event.count, event.values[0], event.values[1]),
+          ".");
     case RealtimeEventCode::kSettleEndedByUnlock:
-      return absl::StrCat("[SimFallRecovery] The gantry was unlocked while ", settlePhaseDescription(phase),
+      return absl::StrCat("[SimFallRecovery] The gantry was unlocked while ",
+                          settlePhaseDescription(phase),
                           "; the settle sequence ends here.");
     case RealtimeEventCode::kMpcModeRefusedWhileSettling:
-      return absl::StrCat("[SimFallRecovery] ", text, " refused while ", settlePhaseDescription(phase),
-                          "; the robot stays in JOINT_PD until it has settled on the gantry.");
+      return absl::StrCat(
+          "[SimFallRecovery] ", text, " refused while ",
+          settlePhaseDescription(phase),
+          "; the robot stays in JOINT_PD until it has settled on the gantry.");
     case RealtimeEventCode::kLiftedSettleTimedOut:
-      return absl::StrCat("[SimFallRecovery] The lifted robot did not come to rest at the nominal posture within ", event.values[0],
-                          " s; lowering it anyway.");
+      return absl::StrCat(
+          "[SimFallRecovery] The lifted robot did not come to rest at the "
+          "nominal posture within ",
+          event.values[0], " s; lowering it anyway.");
     case RealtimeEventCode::kOnFeetSettleTimedOut:
-      return absl::StrCat("[SimFallRecovery] The robot did not come to rest on its feet within ", event.values[0],
-                          " s; WB_MPC is accepted anyway.");
+      return absl::StrCat(
+          "[SimFallRecovery] The robot did not come to rest on its feet "
+          "within ",
+          event.values[0], " s; WB_MPC is accepted anyway.");
     case RealtimeEventCode::kSettled:
-      return "[SimFallRecovery] The robot rests on its feet on the gantry; WB_MPC is accepted again.";
+      return "[SimFallRecovery] The robot rests on its feet on the gantry; "
+             "WB_MPC is accepted again.";
     case RealtimeEventCode::kContactEstimatorSwapped:
-      return absl::StrCat("[RobotProcess] The measured contact state now comes from the contact estimator '", text, "'.");
+      return absl::StrCat(
+          "[RobotProcess] The measured contact state now comes from the "
+          "contact estimator '",
+          text, "'.");
     case RealtimeEventCode::kGantryCommandIgnored:
-      return absl::StrCat("FSM command received: ", text, " - ignored: the robot process drives no gantry on this robot.");
+      return absl::StrCat(
+          "FSM command received: ", text,
+          " - ignored: the robot process drives no gantry on this robot.");
     case RealtimeEventCode::kFallTorquesOff:
-      return absl::StrCat("[HardwareFallRecovery] The base tilted ", event.values[0], " rad, past sim_max_base_tilt_angle ",
-                          event.values[1], " rad: torques off (ZERO_TORQUE). An FSM command switches them on again.");
+      return absl::StrCat(
+          "[HardwareFallRecovery] The base tilted ", event.values[0],
+          " rad, past sim_max_base_tilt_angle ", event.values[1],
+          " rad: torques off (ZERO_TORQUE). An FSM command switches them on "
+          "again.");
     case RealtimeEventCode::kControllerEvent:
-      return formatControllerEvent(
-          makeControllerEvent(static_cast<ControllerEventCode>(event.detail), event.source, event.values[0], event.values[1], text));
+      return formatControllerEvent(makeControllerEvent(
+          static_cast<ControllerEventCode>(event.detail), event.source,
+          event.values[0], event.values[1], text));
   }
-  return absl::StrCat("[RobotProcess] realtime event ", static_cast<int>(event.code));
+  return absl::StrCat("[RobotProcess] realtime event ",
+                      static_cast<int>(event.code));
 }
 
 bool isWarningEvent(const RealtimeEvent& event) {
@@ -113,7 +141,8 @@ bool isWarningEvent(const RealtimeEvent& event) {
     case RealtimeEventCode::kFallTorquesOff:
       return true;
     case RealtimeEventCode::kControllerEvent:
-      return isWarningControllerEvent(makeControllerEvent(static_cast<ControllerEventCode>(event.detail), event.source));
+      return isWarningControllerEvent(makeControllerEvent(
+          static_cast<ControllerEventCode>(event.detail), event.source));
     case RealtimeEventCode::kTorquesDisabled:
     case RealtimeEventCode::kTorquesEnabled:
     case RealtimeEventCode::kModeCommanded:
@@ -131,8 +160,13 @@ bool isWarningEvent(const RealtimeEvent& event) {
 
 RealtimeEventLog::RealtimeEventLog(size_t capacity) : queue_(capacity) {}
 
-bool RealtimeEventLog::post(
-    RealtimeEventCode code, int32_t detail, absl::string_view text, double value0, double value1, double value2, uint64_t count) {
+bool RealtimeEventLog::post(RealtimeEventCode code,
+                            int32_t detail,
+                            absl::string_view text,
+                            double value0,
+                            double value1,
+                            double value2,
+                            uint64_t count) {
   return queue_.tryPushInPlace([&](RealtimeEvent& slot) {
     slot.code = code;
     slot.detail = detail;
@@ -156,9 +190,11 @@ bool RealtimeEventLog::post(const ControllerEvent& event) {
   });
 }
 
-size_t RealtimeEventLog::drain(absl::FunctionRef<void(const RealtimeEvent&)> consumer) {
+size_t RealtimeEventLog::drain(
+    absl::FunctionRef<void(const RealtimeEvent&)> consumer) {
   size_t drained = 0;
-  while (queue_.tryPopInPlace([&](const RealtimeEvent& event) { consumer(event); })) {
+  while (queue_.tryPopInPlace(
+      [&](const RealtimeEvent& event) { consumer(event); })) {
     ++drained;
   }
   return drained;

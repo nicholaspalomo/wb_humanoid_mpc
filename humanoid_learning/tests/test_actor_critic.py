@@ -56,7 +56,9 @@ _ACT_DIM = 12
 
 def _network_and_params() -> tuple[actor_critic.ActorCritic, dict]:
     network = actor_critic.ActorCritic(action_dim=_ACT_DIM)
-    return network, network.init(jax.random.PRNGKey(0), jnp.zeros((1, _OBS_DIM)))
+    return network, network.init(
+        jax.random.PRNGKey(0), jnp.zeros((1, _OBS_DIM))
+    )
 
 
 class ActorCriticTest(unittest.TestCase):
@@ -73,8 +75,12 @@ class ActorCriticTest(unittest.TestCase):
             set(params["params"]),
             {"Dense_0", "Dense_1", "Dense_2", "Dense_3", "log_std"},
         )
-        self.assertEqual(params["params"]["Dense_0"]["kernel"].shape[0], _OBS_DIM)
-        self.assertEqual(params["params"]["Dense_2"]["kernel"].shape[1], _ACT_DIM)
+        self.assertEqual(
+            params["params"]["Dense_0"]["kernel"].shape[0], _OBS_DIM
+        )
+        self.assertEqual(
+            params["params"]["Dense_2"]["kernel"].shape[1], _ACT_DIM
+        )
 
 
 def _random_normalizer(seed: int) -> actor_critic.ObservationNormalizer:
@@ -98,7 +104,9 @@ class CheckpointTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "nested", "policy.npz")
             actor_critic.save_checkpoint(path, params, normalizer)
-            loaded_params, loaded_normalizer = actor_critic.load_checkpoint(path)
+            loaded_params, loaded_normalizer = actor_critic.load_checkpoint(
+                path
+            )
         jax.tree_util.tree_map(
             np.testing.assert_array_equal, loaded_params, jax.device_get(params)
         )
@@ -109,14 +117,18 @@ class CheckpointTest(unittest.TestCase):
             actor_critic.policy_action(
                 network, loaded_params, loaded_normalizer, observations
             ),
-            actor_critic.policy_action(network, params, normalizer, observations),
+            actor_critic.policy_action(
+                network, params, normalizer, observations
+            ),
         )
 
     def test_a_checkpoint_without_a_key_is_refused_naming_it(self) -> None:
         _, params = _network_and_params()
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "policy.npz")
-            actor_critic.save_checkpoint(path, params, _random_normalizer(seed=4))
+            actor_critic.save_checkpoint(
+                path, params, _random_normalizer(seed=4)
+            )
             with np.load(path) as archive:
                 arrays = {key: archive[key] for key in archive.files}
             for key in ("params/Dense_1/kernel", "normalizer/std"):
@@ -137,7 +149,9 @@ class CheckpointTest(unittest.TestCase):
         normalized = np.asarray(normalizer.normalize(observations))
         np.testing.assert_allclose(normalized.mean(axis=0), 0.0, atol=1e-5)
         varying = np.arange(_OBS_DIM) != 3
-        np.testing.assert_allclose(normalized.std(axis=0)[varying], 1.0, rtol=1e-4)
+        np.testing.assert_allclose(
+            normalized.std(axis=0)[varying], 1.0, rtol=1e-4
+        )
         self.assertEqual(normalizer.std[3], 1.0)
         np.testing.assert_allclose(normalized[:, 3], 0.0, atol=1e-6)
 
@@ -193,11 +207,18 @@ class BehavioralCloningTest(unittest.TestCase):
                 verbose=False,
             )
 
-    def test_the_command_line_trains_in_its_batches_and_saves_the_policy(self) -> None:
+    def test_the_command_line_trains_in_its_batches_and_saves_the_policy(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "bc_policy.npz")
             bc_warmstart.main(
-                ["--epochs=2", "--batch_size=300", "--seed=3", f"--output_path={path}"]
+                [
+                    "--epochs=2",
+                    "--batch_size=300",
+                    "--seed=3",
+                    f"--output_path={path}",
+                ]
             )
             params, normalizer = actor_critic.load_checkpoint(path)
         # The same run in process: the checkpoint holds what it trained, not the initialization.
@@ -215,7 +236,9 @@ class BehavioralCloningTest(unittest.TestCase):
         )
         self.assertEqual(expected.num_updates, 8)
         jax.tree_util.tree_map(
-            np.testing.assert_array_equal, params, jax.device_get(expected.params)
+            np.testing.assert_array_equal,
+            params,
+            jax.device_get(expected.params),
         )
         np.testing.assert_array_equal(normalizer.mean, expected.normalizer.mean)
         initialization = actor_critic.ActorCritic(action_dim=_ACT_DIM).init(
@@ -246,7 +269,9 @@ class ExportOnnxTest(unittest.TestCase):
         evaluator = onnx.reference.ReferenceEvaluator(model)
         # Observations of the normalizer's spread, where the tanh is not saturated and its slope shows any difference.
         unit = (
-            np.random.default_rng(7).standard_normal((32, _OBS_DIM)).astype(np.float32)
+            np.random.default_rng(7)
+            .standard_normal((32, _OBS_DIM))
+            .astype(np.float32)
         )
         observations = normalizer.mean + normalizer.std * unit
         expected = np.asarray(
@@ -259,7 +284,9 @@ class ExportOnnxTest(unittest.TestCase):
             (exported,) = evaluator.run(
                 None, {"observation": observation[np.newaxis, :]}
             )
-            np.testing.assert_allclose(exported[0], action, rtol=1e-5, atol=1e-6)
+            np.testing.assert_allclose(
+                exported[0], action, rtol=1e-5, atol=1e-6
+            )
 
     def test_the_export_needs_a_checkpoint_with_every_layer(self) -> None:
         with self.assertRaises(SystemExit):

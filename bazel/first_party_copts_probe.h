@@ -31,8 +31,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace wb_humanoid_mpc::copts_probe {
 
-// Instantiates a few templates of every third-party header family first-party code includes, so that
-// //bazel:first_party_copts_probe compiles them under FIRST_PARTY_COPTS (bazel/copts.bzl). Nothing calls it.
+// Instantiates a few templates of every third-party header family first-party
+// code includes, so that
+// //bazel:first_party_copts_probe compiles them under FIRST_PARTY_COPTS
+// (bazel/copts.bzl). Nothing calls it.
 int instantiateThirdPartyTemplates();
 
 }  // namespace wb_humanoid_mpc::copts_probe

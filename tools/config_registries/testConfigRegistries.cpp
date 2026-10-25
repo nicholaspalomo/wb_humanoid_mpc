@@ -27,9 +27,10 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// config_registries.textproto against the registries it is written from: the committed file is what
-// print_config_registries writes and parses strictly into its schema, every registry has names, once each, and every
-// name it offers is one its registry accepts.
+// config_registries.textproto against the registries it is written from: the
+// committed file is what print_config_registries writes and parses strictly
+// into its schema, every registry has names, once each, and every name it
+// offers is one its registry accepts.
 
 #include <algorithm>
 #include <functional>
@@ -77,12 +78,17 @@ namespace {
 using Registry = mpc_config::ConfigRegistries::Registry;
 using Accepts = std::function<bool(const std::string& name)>;
 
-constexpr char kWriteIt[] = "write it with `bazel run //tools/config_registries:print_config_registries`";
+constexpr char kWriteIt[] =
+    "write it with `bazel run "
+    "//tools/config_registries:print_config_registries`";
 
-/** Whether some list of the contact planner holds the term `name`, spelled so. */
+/** Whether some list of the contact planner holds the term `name`, spelled so.
+ */
 bool isContactPlanningTerm(const std::string& name) {
   const std::vector<TermKind>& kinds = allTermKinds();
-  return std::any_of(kinds.begin(), kinds.end(), [&name](TermKind kind) { return canonicalTermName(kind, name) == name; });
+  return std::any_of(kinds.begin(), kinds.end(), [&name](TermKind kind) {
+    return canonicalTermName(kind, name) == name;
+  });
 }
 
 /** Whether some list of the locomotion heuristics holds `name`, spelled so. */
@@ -93,85 +99,147 @@ bool isLocomotionHeuristic(const std::string& name) {
   return false;
 }
 
-/** Whether the robot process reads a task file naming `name` as its whole-body feedforward. */
+/** Whether the robot process reads a task file naming `name` as its whole-body
+ * feedforward. */
 bool isWbMpcFeedforward(const std::string& name) {
   mpc_config::TaskFile task;
   task.wb_mpc_feedforward = name;
   return robotProcessSettingsFromConfig(task).ok();
 }
 
-/** Whether the contact planner's conversion reads a planning file whose planner.threading is `name`. */
+/** Whether the contact planner's conversion reads a planning file whose
+ * planner.threading is `name`. */
 bool isPlannerThreading(const std::string& name) {
   mpc_config::ContactPlanningFile file;
   file.planner.threading = name;
-  return contactPlanningConfigFromConfig(file, ContactPlanningValidation::kDeferUntilModelParametersApplied).ok();
+  return contactPlanningConfigFromConfig(
+             file, ContactPlanningValidation::kDeferUntilModelParametersApplied)
+      .ok();
 }
 
-/** Whether the contact planner's conversion reads a planning file whose terminal_dcm.target is `name`. */
+/** Whether the contact planner's conversion reads a planning file whose
+ * terminal_dcm.target is `name`. */
 bool isTerminalDcmTarget(const std::string& name) {
   mpc_config::ContactPlanningFile file;
   file.terminal_dcm.target = name;
-  return contactPlanningConfigFromConfig(file, ContactPlanningValidation::kDeferUntilModelParametersApplied).ok();
+  return contactPlanningConfigFromConfig(
+             file, ContactPlanningValidation::kDeferUntilModelParametersApplied)
+      .ok();
 }
 
-/** Whether the model settings read a foot_constraint block whose stance_constraint is `name`. */
+/** Whether the model settings read a foot_constraint block whose
+ * stance_constraint is `name`. */
 bool isStanceConstraint(const std::string& name) {
   mpc_config::ModelSettingsConfig::FootConstraintConfig footConstraint;
   footConstraint.stance_constraint = name;
   return footConstraintFromConfig(footConstraint).ok();
 }
 
-/** Whether the SQP settings read a multiple_shooting block whose integrator_type is `name`. */
+/** Whether the SQP settings read a multiple_shooting block whose
+ * integrator_type is `name`. */
 bool isSensitivityIntegrator(const std::string& name) {
   mpc_config::SqpSettingsConfig config;
   config.integrator_type = name;
   return toSqpSettings(config).ok();
 }
 
-/** Whether the rollout settings read a rollout block whose integrator_type is `name`. */
+/** Whether the rollout settings read a rollout block whose integrator_type is
+ * `name`. */
 bool isRolloutIntegrator(const std::string& name) {
   mpc_config::RolloutSettingsConfig config;
   config.integrator_type = name;
   return toRolloutSettings(config).ok();
 }
 
-/** What each registry accepts, by its own resolver: a name it offers must be a name it reads. */
+/** What each registry accepts, by its own resolver: a name it offers must be a
+ * name it reads. */
 absl::flat_hash_map<std::string, Accepts> acceptors() {
   return {
-      {"arm_swing", [](const std::string& name) { return armSwingGeneratorFromName(name).ok(); }},
-      {"basis_generator_set", [](const std::string& name) { return getBasisGeneratorSetBuilder(name).ok(); }},
-      {"basis_regularization", [](const std::string& name) { return getBasisRegularizationBuilder(name).ok(); }},
-      {"centroidal_model", [](const std::string& name) { return centroidalModelTypeFromName(name).ok(); }},
+      {"arm_swing",
+       [](const std::string& name) {
+         return armSwingGeneratorFromName(name).ok();
+       }},
+      {"basis_generator_set",
+       [](const std::string& name) {
+         return getBasisGeneratorSetBuilder(name).ok();
+       }},
+      {"basis_regularization",
+       [](const std::string& name) {
+         return getBasisRegularizationBuilder(name).ok();
+       }},
+      {"centroidal_model",
+       [](const std::string& name) {
+         return centroidalModelTypeFromName(name).ok();
+       }},
       {"contact_estimator",
        [](const std::string& name) {
-         return robot::model::ContactEstimatorRegistry().has(name) || name == robot::mujoco_sim_interface::kCheaterSimContactEstimatorName;
+         return robot::model::ContactEstimatorRegistry().has(name) ||
+                name == robot::mujoco_sim_interface::
+                            kCheaterSimContactEstimatorName;
        }},
-      {"contact_input_parameterization", [](const std::string& name) { return contactInputParameterizationFromName(name).ok(); }},
-      {"contact_planner", [](const std::string& name) { return canonicalPlannerName(name) == name; }},
+      {"contact_input_parameterization",
+       [](const std::string& name) {
+         return contactInputParameterizationFromName(name).ok();
+       }},
+      {"contact_planner",
+       [](const std::string& name) {
+         return canonicalPlannerName(name) == name;
+       }},
       {"contact_planner_threading", &isPlannerThreading},
       {"contact_planning_term", &isContactPlanningTerm},
-      {"contact_schedule_source", [](const std::string& name) { return contactScheduleSourceFromName(name).ok(); }},
+      {"contact_schedule_source",
+       [](const std::string& name) {
+         return contactScheduleSourceFromName(name).ok();
+       }},
       {"foot_cost_phases",
-       [](const std::string& name) { return footCostActiveInStanceFromName(name, "task_space_foot_cost.active_phases").ok(); }},
-      {"gantry_hold", [](const std::string& name) { return robot::mujoco_sim_interface::gantryHoldFromName(name).ok(); }},
-      {"hard_constraint", [](const std::string& name) { return stringToMpcHardConstraintType(name).ok(); }},
+       [](const std::string& name) {
+         return footCostActiveInStanceFromName(
+                    name, "task_space_foot_cost.active_phases")
+             .ok();
+       }},
+      {"gantry_hold",
+       [](const std::string& name) {
+         return robot::mujoco_sim_interface::gantryHoldFromName(name).ok();
+       }},
+      {"hard_constraint",
+       [](const std::string& name) {
+         return stringToMpcHardConstraintType(name).ok();
+       }},
       {"locomotion_heuristic", &isLocomotionHeuristic},
-      {"mpc_cost", [](const std::string& name) { return stringToMpcCostType(name).ok(); }},
-      {"projectile", [](const std::string& name) { return robot::mujoco_sim_interface::projectileFromName(name).ok(); }},
+      {"mpc_cost",
+       [](const std::string& name) { return stringToMpcCostType(name).ok(); }},
+      {"projectile",
+       [](const std::string& name) {
+         return robot::mujoco_sim_interface::projectileFromName(name).ok();
+       }},
       {"rollout_integrator", &isRolloutIntegrator},
       {"sensitivity_integrator", &isSensitivityIntegrator},
-      {"soft_constraint", [](const std::string& name) { return stringToMpcSoftConstraintType(name).ok(); }},
+      {"soft_constraint",
+       [](const std::string& name) {
+         return stringToMpcSoftConstraintType(name).ok();
+       }},
       {"stance_constraint", &isStanceConstraint},
-      {"state_estimator", [](const std::string& name) { return estimation::StateEstimatorRegistry().has(name); }},
-      {"telemetry_sink", [](const std::string& name) { return TelemetrySinkRegistry().has(name); }},
+      {"state_estimator",
+       [](const std::string& name) {
+         return estimation::StateEstimatorRegistry().has(name);
+       }},
+      {"telemetry_sink",
+       [](const std::string& name) {
+         return TelemetrySinkRegistry().has(name);
+       }},
       {"terminal_dcm_target", &isTerminalDcmTarget},
-      {"visualization", [](const std::string& name) { return robot::mujoco_sim_interface::createVisualization(name) != nullptr; }},
+      {"visualization",
+       [](const std::string& name) {
+         return robot::mujoco_sim_interface::createVisualization(name) !=
+                nullptr;
+       }},
       {"wb_mpc_feedforward", &isWbMpcFeedforward},
   };
 }
 
 TEST(ConfigRegistriesFileTest, IsWhatPrintConfigRegistriesWrites) {
-  const absl::StatusOr<std::string> text = nproto::ReadTextFile(kConfigRegistriesFile);
+  const absl::StatusOr<std::string> text =
+      nproto::ReadTextFile(kConfigRegistriesFile);
   ASSERT_TRUE(text.ok()) << text.status() << "; " << kWriteIt;
   EXPECT_EQ(*text, configRegistriesText(collectConfigRegistries()))
       << kConfigRegistriesFile << " differs from the registries; " << kWriteIt;
@@ -179,24 +247,30 @@ TEST(ConfigRegistriesFileTest, IsWhatPrintConfigRegistriesWrites) {
 
 TEST(ConfigRegistriesFileTest, ParsesStrictlyIntoTheRegistries) {
   const absl::StatusOr<mpc_config::ConfigRegistries> file =
-      nproto::LoadTextprotoFile<mpc_config::ConfigRegistries, humanoid_mpc_config::ConfigRegistries>(kConfigRegistriesFile);
+      nproto::LoadTextprotoFile<mpc_config::ConfigRegistries,
+                                humanoid_mpc_config::ConfigRegistries>(
+          kConfigRegistriesFile);
   ASSERT_TRUE(file.ok()) << file.status();
   EXPECT_TRUE(*file == collectConfigRegistries()) << kWriteIt;
 }
 
-TEST(ConfigRegistriesTest, EveryRegistryIsListedOnceInOrderAndHasEachOfItsNamesOnce) {
+TEST(ConfigRegistriesTest,
+     EveryRegistryIsListedOnceInOrderAndHasEachOfItsNamesOnce) {
   const mpc_config::ConfigRegistries registries = collectConfigRegistries();
   ASSERT_FALSE(registries.registries.empty());
   for (size_t i = 0; i < registries.registries.size(); ++i) {
     const Registry& registry = registries.registries[i];
     EXPECT_FALSE(registry.name.empty());
     if (i > 0) {
-      EXPECT_LT(registries.registries[i - 1].name, registry.name) << "sorted, each registry once";
+      EXPECT_LT(registries.registries[i - 1].name, registry.name)
+          << "sorted, each registry once";
     }
     EXPECT_FALSE(registry.names.empty()) << registry.name << " offers no name";
     for (const std::string& name : registry.names) {
       EXPECT_FALSE(name.empty()) << registry.name;
-      EXPECT_EQ(std::count(registry.names.begin(), registry.names.end(), name), 1) << registry.name << ": " << name;
+      EXPECT_EQ(std::count(registry.names.begin(), registry.names.end(), name),
+                1)
+          << registry.name << ": " << name;
     }
   }
 }
@@ -204,12 +278,18 @@ TEST(ConfigRegistriesTest, EveryRegistryIsListedOnceInOrderAndHasEachOfItsNamesO
 TEST(ConfigRegistriesTest, EveryNameARegistryOffersIsOneItAccepts) {
   const absl::flat_hash_map<std::string, Accepts> accepts = acceptors();
   const mpc_config::ConfigRegistries registries = collectConfigRegistries();
-  EXPECT_EQ(registries.registries.size(), accepts.size()) << "a registry without its resolver in acceptors(), or one gone";
+  EXPECT_EQ(registries.registries.size(), accepts.size())
+      << "a registry without its resolver in acceptors(), or one gone";
   for (const Registry& registry : registries.registries) {
-    const absl::flat_hash_map<std::string, Accepts>::const_iterator accept = accepts.find(registry.name);
-    ASSERT_NE(accept, accepts.end()) << registry.name << " has no resolver in acceptors()";
-    for (const std::string& name : registry.names) EXPECT_TRUE(accept->second(name)) << registry.name << " offers '" << name << "'";
-    EXPECT_FALSE(accept->second("no_such_name")) << registry.name << " accepts anything, so it offers nothing";
+    const absl::flat_hash_map<std::string, Accepts>::const_iterator accept =
+        accepts.find(registry.name);
+    ASSERT_NE(accept, accepts.end())
+        << registry.name << " has no resolver in acceptors()";
+    for (const std::string& name : registry.names)
+      EXPECT_TRUE(accept->second(name))
+          << registry.name << " offers '" << name << "'";
+    EXPECT_FALSE(accept->second("no_such_name"))
+        << registry.name << " accepts anything, so it offers nothing";
   }
 }
 

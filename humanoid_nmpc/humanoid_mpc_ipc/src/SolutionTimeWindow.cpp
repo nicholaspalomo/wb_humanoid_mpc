@@ -51,29 +51,39 @@ void keepFirst(size_t length, Array* absl_nonnull array) {
   }
 }
 
-void trimController(scalar_t finalTime, ControllerBase* absl_nonnull controller) {
-  if (FeedforwardController* absl_nullable feedforward = asFeedforwardController(*controller); feedforward != nullptr) {
-    const size_t length = solutionWindowLength(feedforward->timeStamp_, finalTime);
+void trimController(scalar_t finalTime,
+                    ControllerBase* absl_nonnull controller) {
+  if (FeedforwardController* absl_nullable feedforward =
+          asFeedforwardController(*controller);
+      feedforward != nullptr) {
+    const size_t length =
+        solutionWindowLength(feedforward->timeStamp_, finalTime);
     keepFirst(length, &feedforward->timeStamp_);
     keepFirst(length, &feedforward->uffArray_);
     return;
   }
-  if (LinearController* absl_nullable linear = asLinearController(*controller); linear != nullptr) {
+  if (LinearController* absl_nullable linear = asLinearController(*controller);
+      linear != nullptr) {
     const size_t length = solutionWindowLength(linear->timeStamp_, finalTime);
     keepFirst(length, &linear->timeStamp_);
     keepFirst(length, &linear->biasArray_);
     keepFirst(length, &linear->gainArray_);
     return;
   }
-  if (ManifoldLinearController* absl_nullable manifoldLinear = asManifoldLinearController(*controller); manifoldLinear != nullptr) {
-    manifoldLinear->keepFirst(solutionWindowLength(manifoldLinear->getTimeStamps(), finalTime));
+  if (ManifoldLinearController* absl_nullable manifoldLinear =
+          asManifoldLinearController(*controller);
+      manifoldLinear != nullptr) {
+    manifoldLinear->keepFirst(
+        solutionWindowLength(manifoldLinear->getTimeStamps(), finalTime));
   }
 }
 
 }  // namespace
 
-size_t solutionWindowLength(const scalar_array_t& timeTrajectory, scalar_t finalTime) {
-  const scalar_array_t::const_iterator firstLater = std::upper_bound(timeTrajectory.cbegin(), timeTrajectory.cend(), finalTime);
+size_t solutionWindowLength(const scalar_array_t& timeTrajectory,
+                            scalar_t finalTime) {
+  const scalar_array_t::const_iterator firstLater = std::upper_bound(
+      timeTrajectory.cbegin(), timeTrajectory.cend(), finalTime);
   size_t length = static_cast<size_t>(firstLater - timeTrajectory.cbegin());
   if (length < timeTrajectory.size()) {
     ++length;
@@ -81,15 +91,19 @@ size_t solutionWindowLength(const scalar_array_t& timeTrajectory, scalar_t final
   return length;
 }
 
-void trimToSolutionWindow(scalar_t finalTime, PrimalSolution* absl_nonnull solution) {
-  const size_t length = solutionWindowLength(solution->timeTrajectory_, finalTime);
+void trimToSolutionWindow(scalar_t finalTime,
+                          PrimalSolution* absl_nonnull solution) {
+  const size_t length =
+      solutionWindowLength(solution->timeTrajectory_, finalTime);
   keepFirst(length, &solution->timeTrajectory_);
   keepFirst(length, &solution->stateTrajectory_);
   keepFirst(length, &solution->inputTrajectory_);
   // An event whose post-event node is cut off is cut off with it.
-  const size_array_t::const_iterator firstCut =
-      std::upper_bound(solution->postEventIndices_.cbegin(), solution->postEventIndices_.cend(), length == 0 ? 0 : length - 1);
-  solution->postEventIndices_.erase(firstCut, solution->postEventIndices_.cend());
+  const size_array_t::const_iterator firstCut = std::upper_bound(
+      solution->postEventIndices_.cbegin(), solution->postEventIndices_.cend(),
+      length == 0 ? 0 : length - 1);
+  solution->postEventIndices_.erase(firstCut,
+                                    solution->postEventIndices_.cend());
   if (solution->controllerPtr_ != nullptr) {
     trimController(finalTime, solution->controllerPtr_.get());
   }

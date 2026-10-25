@@ -40,9 +40,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Who applies a change of a field of a configuration file (the `reload` of its (humanoid_mpc_config.tuning) option,
- * humanoid_nmpc/humanoid_mpc_config/tuning_options.proto): the running MPC or robot (kHot), the next start-up
- * (kStartUp), or neither said (kUnspecified, the fields the tuning GUI excludes).
+ * Who applies a change of a field of a configuration file (the `reload` of its
+ * (humanoid_mpc_config.tuning) option,
+ * humanoid_nmpc/humanoid_mpc_config/tuning_options.proto): the running MPC or
+ * robot (kHot), the next start-up (kStartUp), or neither said (kUnspecified,
+ * the fields the tuning GUI excludes).
  */
 enum class ConfigReload {
   kUnspecified,
@@ -50,8 +52,8 @@ enum class ConfigReload {
   kStartUp,
 };
 
-// The names of the MPC formulations, as the `formulations` of the tuning options name them (an empty list: every
-// formulation reads the field).
+// The names of the MPC formulations, as the `formulations` of the tuning
+// options name them (an empty list: every formulation reads the field).
 // clang-format off
 // LINT.IfChange(formulation_names)
 inline constexpr char kCentroidalFormulation[] = "centroidal";
@@ -59,46 +61,59 @@ inline constexpr char kWholeBodyFormulation[] = "whole_body";
 // LINT.ThenChange(//humanoid_nmpc/remote_control/remote_control/config_schema.py:formulation_names, //humanoid_nmpc/humanoid_mpc_config/tuning_options.proto:formulations)
 // clang-format on
 
-// Who reads a field, as the `consumer` of the tuning options names it (an empty one: the MPC).
+// Who reads a field, as the `consumer` of the tuning options names it (an empty
+// one: the MPC).
 // LINT.IfChange(consumer_names)
 inline constexpr char kMpcConsumer[] = "mpc";
 inline constexpr char kRobotConsumer[] = "robot";
 // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/tuning_options.proto:consumer)
 
-/** Whether the MPC reads a field whose tuning options name `consumer`: an empty one, or kMpcConsumer. */
+/** Whether the MPC reads a field whose tuning options name `consumer`: an empty
+ * one, or kMpcConsumer. */
 bool isReadByTheMpc(absl::string_view consumer);
 
-/** Whether the MPC formulation `formulation` reads a field whose tuning options name `formulations` (empty: every one). */
-bool isReadByFormulation(absl::Span<const std::string> formulations, absl::string_view formulation);
+/** Whether the MPC formulation `formulation` reads a field whose tuning options
+ * name `formulations` (empty: every one). */
+bool isReadByFormulation(absl::Span<const std::string> formulations,
+                         absl::string_view formulation);
 
-/** A field of a configuration file's schema that holds values (no message), with the tuning options in effect for it. */
+/** A field of a configuration file's schema that holds values (no message),
+ * with the tuning options in effect for it. */
 struct ConfigLeaf {
-  // The path from the file message: "state_weights.base_position.x", and "[*]" after a repeated block for every element
-  // of it ("task_space_costs[*].weights.pos_x"), as remote_control/config_schema.py writes it.
+  // The path from the file message: "state_weights.base_position.x", and "[*]"
+  // after a repeated block for every element of it
+  // ("task_space_costs[*].weights.pos_x"), as remote_control/config_schema.py
+  // writes it.
   std::string path;
   ConfigReload reload = ConfigReload::kUnspecified;
-  // Whether the tuning GUI renders it: a number, a bool, an enum, a name list (a repeated string) or a string naming a
-  // registry entry, without an exclude_reason.
+  // Whether the tuning GUI renders it: a number, a bool, an enum, a name list
+  // (a repeated string) or a string naming a registry entry, without an
+  // exclude_reason.
   bool tunable = false;
-  // Who reads it (the `consumer` of its tuning options, inherited like `reload`): "gui", "robot" or "mpc"; empty: the
-  // MPC.
+  // Who reads it (the `consumer` of its tuning options, inherited like
+  // `reload`): "gui", "robot" or "mpc"; empty: the MPC.
   std::string consumer;
-  // The MPC formulations that read it, by name (kCentroidalFormulation, kWholeBodyFormulation; the `formulations` of its
-  // tuning options, inherited like `reload`); empty: every formulation.
+  // The MPC formulations that read it, by name (kCentroidalFormulation,
+  // kWholeBodyFormulation; the `formulations` of its tuning options, inherited
+  // like `reload`); empty: every formulation.
   std::vector<std::string> formulations;
 };
 
 /**
- * Every value field of the file message `file`, depth first in declaration order, with the options the schema gives it:
- * a block's options apply to every field below it unless that field sets its own, except the registry, which is each
- * field's own (tuning_options.proto; remote_control/config_schema.py's inherit()). Deprecated fields and maps are
- * skipped, as by the GUI's walk, and a message reachable from itself is walked once on each path.
+ * Every value field of the file message `file`, depth first in declaration
+ * order, with the options the schema gives it: a block's options apply to every
+ * field below it unless that field sets its own, except the registry, which is
+ * each field's own (tuning_options.proto; remote_control/config_schema.py's
+ * inherit()). Deprecated fields and maps are skipped, as by the GUI's walk, and
+ * a message reachable from itself is walked once on each path.
  */
 std::vector<ConfigLeaf> configLeaves(const google::protobuf::Descriptor& file);
 
-/** A field whose values differ between two versions of a file and that a hot reload does not apply. */
+/** A field whose values differ between two versions of a file and that a hot
+ * reload does not apply. */
 struct ConfigChange {
-  // Its path from the file message, an element of a repeated block named by its index ("task_space_costs[1].link_name").
+  // Its path from the file message, an element of a repeated block named by its
+  // index ("task_space_costs[1].link_name").
   std::string path;
   // The tuning options in effect for it, as ConfigLeaf has them; never kHot.
   ConfigReload reload = ConfigReload::kUnspecified;
@@ -107,15 +122,21 @@ struct ConfigChange {
 };
 
 /**
- * The fields whose values differ between `running` and `reloaded`, two messages of one file message type, and whose
- * reload is not kHot: what a hot reload of `reloaded` leaves for the next start-up, or for no one (kUnspecified), with
- * who reads each. An element of a repeated block is named by its index ("task_space_costs[1].link_name"). A repeated
- * field whose sizes differ is named whole, unless it is a block whose own reload is kHot: then an element only one side
- * has is compared with the block's defaults, so that an added or removed entry is named by the start-up fields it sets
- * ("task_space_costs[2].name"). An (nproto.optional_message) block or a scalar without a default that is present in one
- * message only is named whole too. Any other absent field is its default, as the parser reads it. Allocates; for the
+ * The fields whose values differ between `running` and `reloaded`, two messages
+ * of one file message type, and whose reload is not kHot: what a hot reload of
+ * `reloaded` leaves for the next start-up, or for no one (kUnspecified), with
+ * who reads each. An element of a repeated block is named by its index
+ * ("task_space_costs[1].link_name"). A repeated field whose sizes differ is
+ * named whole, unless it is a block whose own reload is kHot: then an element
+ * only one side has is compared with the block's defaults, so that an added or
+ * removed entry is named by the start-up fields it sets
+ * ("task_space_costs[2].name"). An (nproto.optional_message) block or a scalar
+ * without a default that is present in one message only is named whole too. Any
+ * other absent field is its default, as the parser reads it. Allocates; for the
  * threads that apply a reload, not the realtime one.
  */
-std::vector<ConfigChange> changedStartUpFields(const google::protobuf::Message& running, const google::protobuf::Message& reloaded);
+std::vector<ConfigChange> changedStartUpFields(
+    const google::protobuf::Message& running,
+    const google::protobuf::Message& reloaded);
 
 }  // namespace ocs2::humanoid

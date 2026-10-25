@@ -170,8 +170,12 @@ class ContactRowRenderTest(unittest.TestCase):
         self.assertEqual(tab.contact_input_parameterization(), "basis_vectors")
         self.assertTrue(tab.render_category_containing(f"{CONE}.mu"))
         self.assertIn("not applicable", tab.slider_rows[f"{CONE}.mu"].name)
-        self.assertIn("restart", tab.slider_rows[f"{CONE}.num_basis_vectors"].name)
-        barrier = tab.slider_rows["contacts.basis_non_negativity_barrier.mu"].name
+        self.assertIn(
+            "restart", tab.slider_rows[f"{CONE}.num_basis_vectors"].name
+        )
+        barrier = tab.slider_rows[
+            "contacts.basis_non_negativity_barrier.mu"
+        ].name
         self.assertNotIn("not applicable", barrier)
         self.assertNotIn("restart", barrier)
 

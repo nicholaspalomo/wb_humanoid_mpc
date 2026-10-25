@@ -91,7 +91,9 @@ DEFAULT_PELVIS_HEIGHT = 0.8
 
 # The names each registry accepts, by registry: the choices of a string field whose (humanoid_mpc_config.tuning)
 # option names a registry. Written by `bazel run //tools/config_registries:print_config_registries`.
-REGISTRIES_FILE = "humanoid_nmpc/humanoid_mpc_config/config_registries.textproto"
+REGISTRIES_FILE = (
+    "humanoid_nmpc/humanoid_mpc_config/config_registries.textproto"
+)
 
 
 class ConfigFilesError(ValueError):
@@ -99,9 +101,9 @@ class ConfigFilesError(ValueError):
 
 
 def _is_repository_root(directory: str) -> bool:
-    return os.path.isfile(os.path.join(directory, REPOSITORY_MARKER)) and os.path.isdir(
-        os.path.join(directory, ROBOT_MODELS_DIR)
-    )
+    return os.path.isfile(
+        os.path.join(directory, REPOSITORY_MARKER)
+    ) and os.path.isdir(os.path.join(directory, ROBOT_MODELS_DIR))
 
 
 def _walk_up(start: str) -> str | None:
@@ -154,7 +156,9 @@ def resolve_input_path(path: str, repo_root: str | None = None) -> str:
     if not path or os.path.isabs(path):
         return path
     candidates = [
-        os.path.join(os.environ.get("BUILD_WORKING_DIRECTORY", os.getcwd()), path)
+        os.path.join(
+            os.environ.get("BUILD_WORKING_DIRECTORY", os.getcwd()), path
+        )
     ]
     root = repo_root or find_repo_root()
     if root:
@@ -250,11 +254,17 @@ def resolve_config_files(
             )
             raise ConfigFilesError(f"the {label} {given} does not exist{hint}")
     task = resolve_source_path(task_file, repo_root) if task_file else ""
-    reference = resolve_source_path(reference_file, repo_root) if reference_file else ""
-    pd_gains = resolve_source_path(pd_gains_file, repo_root) if pd_gains_file else ""
+    reference = (
+        resolve_source_path(reference_file, repo_root) if reference_file else ""
+    )
+    pd_gains = (
+        resolve_source_path(pd_gains_file, repo_root) if pd_gains_file else ""
+    )
 
     if not os.path.exists(task):
-        candidates = [_sibling(reference, _TASK_FROM_REFERENCE)] if reference else []
+        candidates = (
+            [_sibling(reference, _TASK_FROM_REFERENCE)] if reference else []
+        )
         if pd_gains:
             candidates.append(task_file_beside(pd_gains))
         if repo_root:
@@ -315,7 +325,9 @@ def read_default_pelvis_height(
         )
     except (OSError, nproto_textproto.TextprotoError) as error:
         _LOGGER.warning(
-            "Could not read default_base_height from %s: %s", reference_file, error
+            "Could not read default_base_height from %s: %s",
+            reference_file,
+            error,
         )
         return fallback
     if not reference.HasField("default_base_height"):
@@ -352,9 +364,13 @@ def read_online_tuning_state(task_file: str) -> OnlineTuning:
     if not task_file or not os.path.exists(task_file):
         return OnlineTuning(enabled=True)
     try:
-        task = nproto_textproto.load_textproto(task_file, task_file_pb2.TaskFile)
+        task = nproto_textproto.load_textproto(
+            task_file, task_file_pb2.TaskFile
+        )
     except (OSError, nproto_textproto.TextprotoError) as error:
-        _LOGGER.error("Online tuning is off: the task file does not parse: %s", error)
+        _LOGGER.error(
+            "Online tuning is off: the task file does not parse: %s", error
+        )
         return OnlineTuning(
             enabled=False, reason=f"the task file does not parse: {error}"
         )
@@ -375,11 +391,14 @@ def read_default_joint_state(reference_file: str | None) -> dict[str, float]:
         )
     except (OSError, nproto_textproto.TextprotoError) as error:
         _LOGGER.warning(
-            "Could not read default_joint_state from %s: %s", reference_file, error
+            "Could not read default_joint_state from %s: %s",
+            reference_file,
+            error,
         )
         return {}
     return {
-        str(entry.joint): float(entry.value) for entry in reference.default_joint_state
+        str(entry.joint): float(entry.value)
+        for entry in reference.default_joint_state
     }
 
 
@@ -392,7 +411,9 @@ def read_pd_gains_joint_names(pd_gains_file: str | None) -> list[str]:
             pd_gains_file, joint_pd_gains_file_pb2.JointPdGainsFile
         )
     except (OSError, nproto_textproto.TextprotoError) as error:
-        _LOGGER.warning("Could not read the joints of %s: %s", pd_gains_file, error)
+        _LOGGER.warning(
+            "Could not read the joints of %s: %s", pd_gains_file, error
+        )
         return []
     return [str(entry.joint) for entry in gains.joint_gains]
 
@@ -424,7 +445,9 @@ def load_registries(
         )
     except (OSError, nproto_textproto.TextprotoError) as error:
         _LOGGER.warning(
-            "Could not read the registries' names from %s: %s", registries_file, error
+            "Could not read the registries' names from %s: %s",
+            registries_file,
+            error,
         )
         return {}
     return {

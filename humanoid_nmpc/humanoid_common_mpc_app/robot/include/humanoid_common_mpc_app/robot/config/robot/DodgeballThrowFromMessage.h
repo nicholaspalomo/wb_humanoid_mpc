@@ -37,19 +37,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The throw the simulator acts on from a DodgeballThrow of operator/dodgeball_throw, the typed payload of the GUI's
- * Dodgeball tab.
+ * The throw the simulator acts on from a DodgeballThrow of
+ * operator/dodgeball_throw, the typed payload of the GUI's Dodgeball tab.
  *
- * The geometry was computed by the GUI (remote_control/tk_app/dodgeball.py) and is not recomputed here: this reads the
- * spawn offset, the launch velocity and the flight time it worked out, in the robot's yaw frame, and the ball's mass;
- * the operator's azimuth, elevation, distance and speed and the documentation fields are not read. Every value the
- * simulator uses is required, including the mass, so that a throw that left one out is not filled in with a default
- * nobody chose. A mass outside the slider's range is not refused here; the simulator clamps it.
+ * The geometry was computed by the GUI (remote_control/tk_app/dodgeball.py) and
+ * is not recomputed here: this reads the spawn offset, the launch velocity and
+ * the flight time it worked out, in the robot's yaw frame, and the ball's mass;
+ * the operator's azimuth, elevation, distance and speed and the documentation
+ * fields are not read. Every value the simulator uses is required, including
+ * the mass, so that a throw that left one out is not filled in with a default
+ * nobody chose. A mass outside the slider's range is not refused here; the
+ * simulator clamps it.
  *
- * @return InvalidArgument naming the field when a required one is absent or not finite (a NaN launch velocity makes
- *         MuJoCo reset the whole simulation), when the flight time is negative, or when the mass is not positive.
+ * @return InvalidArgument naming the field when a required one is absent or not
+ * finite (a NaN launch velocity makes MuJoCo reset the whole simulation), when
+ * the flight time is negative, or when the mass is not positive.
  */
-absl::StatusOr<robot::mujoco_sim_interface::MujocoSimInterface::DodgeballThrow> dodgeballThrowFromMessage(
-    const msgs::DodgeballThrow& message);
+absl::StatusOr<robot::mujoco_sim_interface::MujocoSimInterface::DodgeballThrow>
+dodgeballThrowFromMessage(const msgs::DodgeballThrow& message);
 
 }  // namespace ocs2::humanoid

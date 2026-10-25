@@ -69,14 +69,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * A contact estimator and a contact wrench gate for the MRT joint controller, as the realtime thread takes them from
- * the mailbox: the estimator already built (and kept alive by the mailbox, so that the one it replaces is never freed
- * on the realtime thread), the name already canonical.
+ * A contact estimator and a contact wrench gate for the MRT joint controller,
+ * as the realtime thread takes them from the mailbox: the estimator already
+ * built (and kept alive by the mailbox, so that the one it replaces is never
+ * freed on the realtime thread), the name already canonical.
  */
 struct ControllerSettingsUpdate {
   /**
-   * The characters `contactEstimatorName`, and the realtime thread's copy of it (RobotProcess), are reserved for, so that
-   * a copy of a canonical estimator name allocates nothing: longer than any estimator name.
+   * The characters `contactEstimatorName`, and the realtime thread's copy of it
+   * (RobotProcess), are reserved for, so that a copy of a canonical estimator
+   * name allocates nothing: longer than any estimator name.
    */
   static constexpr size_t kContactEstimatorNameCapacity = 64;
 
@@ -88,31 +90,42 @@ struct ControllerSettingsUpdate {
 };
 
 /**
- * The operator's commands on their way to the realtime thread of the robot process. The handlers run on the bus's IO
- * thread (registerOnBus()); every conversion, every name lookup and every log line happens there. The realtime thread
- * only takes what they leave, without a lock and without allocating:
+ * The operator's commands on their way to the realtime thread of the robot
+ * process. The handlers run on the bus's IO thread (registerOnBus()); every
+ * conversion, every name lookup and every log line happens there. The realtime
+ * thread only takes what they leave, without a lock and without allocating:
  *
- *   operator/fsm_command             FsmCommand      -> parseFsmCommand()         -> SpscQueue<FsmCommandEvent>, in order
- *   operator/joint_targets           JointTargets    -> merged into the posture   -> TripleBuffer of the whole posture
- *   operator/dodgeball_throw         DodgeballThrow  -> dodgeballThrowFromMessage() -> SpscQueue<DodgeballThrow>
- *   operator/walking_velocity_command  desired_pelvis_height, clamped              -> atomic gantry height
- *   operator/mpc_parameters          MpcParameterUpdate (humanoid_mpc_config) -> controllerSideSettingsFromConfig() of
- *                                                       its task file, estimator built -> SpscQueue<ControllerSettingsUpdate>
- *   operator/pd_gains                JointPdGainsUpdate (humanoid_mpc_config) -> the controller's setPdGains() (it
- *                                                       resolves the gains on this thread and hands them to the control
- *                                                       thread in its own mailbox)
+ *   operator/fsm_command             FsmCommand      -> parseFsmCommand() ->
+ * SpscQueue<FsmCommandEvent>, in order operator/joint_targets JointTargets ->
+ * merged into the posture   -> TripleBuffer of the whole posture
+ *   operator/dodgeball_throw         DodgeballThrow  ->
+ * dodgeballThrowFromMessage() -> SpscQueue<DodgeballThrow>
+ *   operator/walking_velocity_command  desired_pelvis_height, clamped -> atomic
+ * gantry height operator/mpc_parameters          MpcParameterUpdate
+ * (humanoid_mpc_config) -> controllerSideSettingsFromConfig() of its task file,
+ * estimator built -> SpscQueue<ControllerSettingsUpdate> operator/pd_gains
+ * JointPdGainsUpdate (humanoid_mpc_config) -> the controller's setPdGains() (it
+ *                                                       resolves the gains on
+ * this thread and hands them to the control thread in its own mailbox)
  *
- * The same handlers are public methods, for the tests and for the task-file watcher (postControllerSettings()).
+ * The same handlers are public methods, for the tests and for the task-file
+ * watcher (postControllerSettings()).
  *
- * FSM commands carry a sequence number (FsmCommand.sequence); a message with the sequence of the command accepted
- * last is a repeat and is dropped. A command name parseFsmCommand() does not know is logged and dropped, as are joint
- * targets that are not finite, a throw dodgeballThrowFromMessage() refuses and an unknown contact estimator.
+ * FSM commands carry a sequence number (FsmCommand.sequence); a message with
+ * the sequence of the command accepted last is a repeat and is dropped. A
+ * command name parseFsmCommand() does not know is logged and dropped, as are
+ * joint targets that are not finite, a throw dodgeballThrowFromMessage()
+ * refuses and an unknown contact estimator.
  *
- * The three payloads of the tuning GUI are checked before anything of them is applied (OperatorPayloadChecks.h): a
- * DodgeballThrow, a JointPdGainsUpdate or an MpcParameterUpdate with a field this build's schema does not know, an
- * MpcParameterUpdate or JointPdGainsUpdate of another schema fingerprint, an MpcParameterUpdate whose task file is
- * another robot's (Config::robotName) and one of another configuration (Config::taskFileIdentity, Config::pdGainsFileIdentity)
- * are refused whole, logged and counted: a GUI built from another version, or pointed at another robot or configuration, applies nothing.
+ * The three payloads of the tuning GUI are checked before anything of them is
+ * applied (OperatorPayloadChecks.h): a DodgeballThrow, a JointPdGainsUpdate or
+ * an MpcParameterUpdate with a field this build's schema does not know, an
+ * MpcParameterUpdate or JointPdGainsUpdate of another schema fingerprint, an
+ * MpcParameterUpdate whose task file is another robot's (Config::robotName) and
+ * one of another configuration (Config::taskFileIdentity,
+ * Config::pdGainsFileIdentity) are refused whole, logged and counted: a GUI
+ * built from another version, or pointed at another robot or configuration,
+ * applies nothing.
  */
 class OperatorCommandMailbox {
  public:
@@ -123,45 +136,59 @@ class OperatorCommandMailbox {
 
     /** The robot's joints, by joint index (jointNamesByIndex()). */
     std::vector<std::string> jointNames;
-    /** The JOINT_PD posture at start-up, by joint index: the operator's joint targets are merged into it. */
+    /** The JOINT_PD posture at start-up, by joint index: the operator's joint
+     * targets are merged into it. */
     std::vector<double> initialNominalPositions;
     /**
-     * The running robot (ModelSettings::robotName, the task file's model_settings.robot_name): an operator/mpc_parameters
-     * update whose task file names another robot is refused. Empty: not checked.
+     * The running robot (ModelSettings::robotName, the task file's
+     * model_settings.robot_name): an operator/mpc_parameters update whose task
+     * file names another robot is refused. Empty: not checked.
      */
     std::string robotName;
     /**
-     * The running configuration (configFileIdentity() of the bundled task file, RobotConfigDirectory::identity()): an
-     * operator/mpc_parameters update whose config_path is another is refused before its controller-side settings are
-     * taken, so that a GUI opened on another configuration of the robot (the centroidal G1's against the whole-body G1,
-     * whose robot_name is the same) changes nothing here. Empty: not checked.
+     * The running configuration (configFileIdentity() of the bundled task file,
+     * RobotConfigDirectory::identity()): an operator/mpc_parameters update
+     * whose config_path is another is refused before its controller-side
+     * settings are taken, so that a GUI opened on another configuration of the
+     * robot (the centroidal G1's against the whole-body G1, whose robot_name is
+     * the same) changes nothing here. Empty: not checked.
      */
     std::string taskFileIdentity;
     /**
-     * The running PD gains configuration (configFileIdentity() of the bundled joint PD gains file,
-     * RobotConfigDirectory::identity(kJointPdGains)): an operator/pd_gains update whose config_path is another is
-     * refused before its gains are taken, so that a GUI opened on another configuration of the robot (the centroidal G1's
-     * against the whole-body G1, whose joints are the same) changes nothing here. Empty: not checked.
+     * The running PD gains configuration (configFileIdentity() of the bundled
+     * joint PD gains file, RobotConfigDirectory::identity(kJointPdGains)): an
+     * operator/pd_gains update whose config_path is another is refused before
+     * its gains are taken, so that a GUI opened on another configuration of the
+     * robot (the centroidal G1's against the whole-body G1, whose joints are
+     * the same) changes nothing here. Empty: not checked.
      */
     std::string pdGainsFileIdentity;
-    /** Capacity of the FSM command and the controller settings queues; a burst beyond it is dropped and counted. */
+    /** Capacity of the FSM command and the controller settings queues; a burst
+     * beyond it is dropped and counted. */
     size_t commandQueueCapacity = kDefaultCommandQueueCapacity;
     size_t dodgeballQueueCapacity = kDefaultDodgeballQueueCapacity;
   };
 
   /**
-   * What the robot process plugs into the mailbox: the consumer of operator/pd_gains, which the mailbox subscribes
-   * because the bus takes one subscription per topic, and the check of every contact estimator the mailbox builds.
+   * What the robot process plugs into the mailbox: the consumer of
+   * operator/pd_gains, which the mailbox subscribes because the bus takes one
+   * subscription per topic, and the check of every contact estimator the
+   * mailbox builds.
    */
   struct Hooks {
     /** operator/pd_gains, the controller's setPdGains(). IO thread. */
-    std::function<absl::Status(const mpc_config::JointPdGainsFile& gains)> pdGains;
+    std::function<absl::Status(const mpc_config::JointPdGainsFile& gains)>
+        pdGains;
     /**
-     * Whether a contact estimator the mailbox has just built suits the controller (the robot process's:
-     * checkContactEstimator() on its initial state). Called once per estimator, on the thread that resolves its name,
-     * before the realtime thread can use it; an error refuses the estimator. Unset: every estimator is accepted.
+     * Whether a contact estimator the mailbox has just built suits the
+     * controller (the robot process's: checkContactEstimator() on its initial
+     * state). Called once per estimator, on the thread that resolves its name,
+     * before the realtime thread can use it; an error refuses the estimator.
+     * Unset: every estimator is accepted.
      */
-    std::function<absl::Status(robot::model::ContactEstimator& estimator, absl::string_view name)> checkContactEstimator;
+    std::function<absl::Status(robot::model::ContactEstimator& estimator,
+                               absl::string_view name)>
+        checkContactEstimator;
   };
 
   /** What the handlers did; every counter only grows. Any thread. */
@@ -176,24 +203,32 @@ class OperatorCommandMailbox {
     uint64_t dodgeballsRejected = 0;
     uint64_t controllerSettingsQueued = 0;
     /**
-     * An unknown or refused contact estimator, and an operator/mpc_parameters message refused whole: one that does not
-     * convert, is of another schema version, of another robot or of another configuration.
+     * An unknown or refused contact estimator, and an operator/mpc_parameters
+     * message refused whole: one that does not convert, is of another schema
+     * version, of another robot or of another configuration.
      */
     uint64_t controllerSettingsRejected = 0;
     /** operator/pd_gains messages received. */
     uint64_t pdGainsDocuments = 0;
-    /** operator/pd_gains messages refused: of another schema version, not converting, or refused by the controller. */
+    /** operator/pd_gains messages refused: of another schema version, not
+     * converting, or refused by the controller. */
     uint64_t pdGainsRejected = 0;
-    /** Dropped because the realtime thread had not taken the previous ones yet. */
+    /** Dropped because the realtime thread had not taken the previous ones yet.
+     */
     uint64_t queueDrops = 0;
   };
 
   /**
-   * `contactEstimators` resolves the names of the controller-side settings; it must outlive the mailbox and already
-   * hold every estimator (the backend's included). InvalidArgument when the initial posture does not match the joints.
+   * `contactEstimators` resolves the names of the controller-side settings; it
+   * must outlive the mailbox and already hold every estimator (the backend's
+   * included). InvalidArgument when the initial posture does not match the
+   * joints.
    */
   static absl::StatusOr<std::unique_ptr<OperatorCommandMailbox>> Create(
-      Config config, const robot::model::ContactEstimatorRegistry* absl_nonnull contactEstimators, Hooks hooks = Hooks());
+      Config config,
+      const robot::model::ContactEstimatorRegistry* absl_nonnull
+      contactEstimators,
+      Hooks hooks = Hooks());
 
   OperatorCommandMailbox(const OperatorCommandMailbox&) = delete;
   OperatorCommandMailbox& operator=(const OperatorCommandMailbox&) = delete;
@@ -202,67 +237,95 @@ class OperatorCommandMailbox {
   /** Subscribes the six topics on `bus`, which must not be running yet. */
   absl::Status registerOnBus(robot::ipc::Bus& bus);
 
-  // ------------------------------------------------------------------ the realtime thread
+  // ------------------------------------------------------------------ the
+  // realtime thread
 
   /** The oldest FSM command not taken yet. */
   bool takeFsmCommand(FsmCommandEvent& command);
-  /** The newest dodgeball throw; older ones still queued are dropped with it (the button is a one-shot). */
-  bool takeDodgeballThrow(robot::mujoco_sim_interface::MujocoSimInterface::DodgeballThrow& throwCommand);
-  /** The JOINT_PD posture with every joint target received so far, when it changed since the last call. */
+  /** The newest dodgeball throw; older ones still queued are dropped with it
+   * (the button is a one-shot). */
+  bool takeDodgeballThrow(
+      robot::mujoco_sim_interface::MujocoSimInterface::DodgeballThrow&
+          throwCommand);
+  /** The JOINT_PD posture with every joint target received so far, when it
+   * changed since the last call. */
   bool takeNominalPosture(std::vector<double>& nominalPositions);
-  /** The gantry height the operator's slider asks for [m], once one walking command has been received. */
+  /** The gantry height the operator's slider asks for [m], once one walking
+   * command has been received. */
   std::optional<double> desiredGantryHeight() const;
-  /** Calls `apply` with the oldest controller settings update not taken yet; false when there is none. */
+  /** Calls `apply` with the oldest controller settings update not taken yet;
+   * false when there is none. */
   template <typename Apply>
   bool takeControllerSettings(Apply&& apply) {
     return controllerSettings_.tryPopInPlace(std::forward<Apply>(apply));
   }
 
-  // ------------------------------------------------------------------ the IO thread (and tests)
+  // ------------------------------------------------------------------ the IO
+  // thread (and tests)
 
   void onFsmCommand(const humanoid_mpc_msgs::FsmCommand& message);
   void onJointTargets(const humanoid_mpc_msgs::JointTargets& message);
   void onDodgeballThrow(const humanoid_mpc_msgs::DodgeballThrow& message);
-  void onWalkingVelocityCommand(const humanoid_mpc_msgs::WalkingVelocityCommand& message);
+  void onWalkingVelocityCommand(
+      const humanoid_mpc_msgs::WalkingVelocityCommand& message);
   void onMpcParameters(const humanoid_mpc_config::MpcParameterUpdate& message);
   void onPdGains(const humanoid_mpc_config::JointPdGainsUpdate& message);
 
   /**
-   * Resolves the estimator `settings` names and queues the update for the realtime thread (the task-file watcher and
-   * onMpcParameters()), treating the settings as those of a whole task file (humanoid_nmpc/humanoid_mpc_config/README.md, "Live updates"):
-   * the file's contact estimator - the schema's default when the file names none - and its contact wrench gate, the instantaneous gate
-   * (ContactWrenchGate::Config{}) when the file has no contact_wrench_gate block. An unknown estimator name is logged with the available
-   * ones and leaves the estimator as it is; the gate still goes through. A gate controllerSideSettingsFromConfig() refused (one of
-   * `settings.problems`) is logged and leaves the gate as it is. `source` names the file or the topic for the log.
+   * Resolves the estimator `settings` names and queues the update for the
+   * realtime thread (the task-file watcher and onMpcParameters()), treating the
+   * settings as those of a whole task file
+   * (humanoid_nmpc/humanoid_mpc_config/README.md, "Live updates"): the file's
+   * contact estimator - the schema's default when the file names none - and its
+   * contact wrench gate, the instantaneous gate (ContactWrenchGate::Config{})
+   * when the file has no contact_wrench_gate block. An unknown estimator name
+   * is logged with the available ones and leaves the estimator as it is; the
+   * gate still goes through. A gate controllerSideSettingsFromConfig() refused
+   * (one of `settings.problems`) is logged and leaves the gate as it is.
+   * `source` names the file or the topic for the log.
    */
-  void postControllerSettings(const ControllerSideConfig& settings, absl::string_view source);
+  void postControllerSettings(const ControllerSideConfig& settings,
+                              absl::string_view source);
 
   /**
-   * The estimator `name` names, built once and kept for the life of the mailbox, so that an estimator the realtime
-   * thread replaces is never freed there. NotFound listing the available names for an unknown one; the error of
-   * Hooks::checkContactEstimator for one that does not suit the controller, which is then not kept. Thread-safe; call it
-   * for the controller's initial estimator too.
+   * The estimator `name` names, built once and kept for the life of the
+   * mailbox, so that an estimator the realtime thread replaces is never freed
+   * there. NotFound listing the available names for an unknown one; the error
+   * of Hooks::checkContactEstimator for one that does not suit the controller,
+   * which is then not kept. Thread-safe; call it for the controller's initial
+   * estimator too.
    */
-  absl::StatusOr<std::shared_ptr<robot::model::ContactEstimator>> contactEstimator(const std::string& name);
+  absl::StatusOr<std::shared_ptr<robot::model::ContactEstimator>>
+  contactEstimator(const std::string& name);
 
   /**
-   * When the newest operator/mpc_parameters that onMpcParameters() accepted arrived, on the clock of the files'
-   * modification times; nullopt: none has. The task-file watcher does not apply a file written before it, which is an
-   * older edit than that update (RobotProcess::onTaskFileChanged()). Thread-safe.
+   * When the newest operator/mpc_parameters that onMpcParameters() accepted
+   * arrived, on the clock of the files' modification times; nullopt: none has.
+   * The task-file watcher does not apply a file written before it, which is an
+   * older edit than that update (RobotProcess::onTaskFileChanged()).
+   * Thread-safe.
    */
-  std::optional<std::filesystem::file_time_type> lastMpcParametersArrival() const ABSL_LOCKS_EXCLUDED(mpcParametersArrivalMutex_);
+  std::optional<std::filesystem::file_time_type> lastMpcParametersArrival()
+      const ABSL_LOCKS_EXCLUDED(mpcParametersArrivalMutex_);
 
   Statistics statistics() const;
 
  private:
-  OperatorCommandMailbox(Config config, const robot::model::ContactEstimatorRegistry* absl_nonnull contactEstimators, Hooks hooks);
+  OperatorCommandMailbox(
+      Config config,
+      const robot::model::ContactEstimatorRegistry* absl_nonnull
+      contactEstimators,
+      Hooks hooks);
 
   const Config config_;
-  const robot::model::ContactEstimatorRegistry* absl_nonnull contactEstimatorRegistry_;
+  const robot::model::ContactEstimatorRegistry* absl_nonnull
+  contactEstimatorRegistry_;
   const Hooks hooks_;
 
   robot::realtime::SpscQueue<FsmCommandEvent> fsmCommands_;
-  robot::realtime::SpscQueue<robot::mujoco_sim_interface::MujocoSimInterface::DodgeballThrow> dodgeballs_;
+  robot::realtime::SpscQueue<
+      robot::mujoco_sim_interface::MujocoSimInterface::DodgeballThrow>
+      dodgeballs_;
   robot::realtime::SpscQueue<ControllerSettingsUpdate> controllerSettings_;
   robot::TripleBuffer<std::vector<double>> nominalPosture_;
   /** [m] NaN until a walking command has arrived. */
@@ -276,8 +339,11 @@ class OperatorCommandMailbox {
 
   absl::Mutex estimatorsMutex_;
   mutable absl::Mutex mpcParametersArrivalMutex_;
-  std::optional<std::filesystem::file_time_type> lastMpcParametersArrival_ ABSL_GUARDED_BY(mpcParametersArrivalMutex_);
-  absl::flat_hash_map<std::string, std::shared_ptr<robot::model::ContactEstimator>> estimators_ ABSL_GUARDED_BY(estimatorsMutex_);
+  std::optional<std::filesystem::file_time_type> lastMpcParametersArrival_
+      ABSL_GUARDED_BY(mpcParametersArrivalMutex_);
+  absl::flat_hash_map<std::string,
+                      std::shared_ptr<robot::model::ContactEstimator>>
+      estimators_ ABSL_GUARDED_BY(estimatorsMutex_);
 
   std::atomic<uint64_t> fsmCommandsQueued_{0};
   std::atomic<uint64_t> fsmCommandsRepeated_{0};

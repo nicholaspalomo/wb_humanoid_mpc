@@ -127,7 +127,9 @@ class RobotMeshes:
         """
         result = InstanceLogResult()
         for visual in self.model.visuals:
-            path = scene_contract.visual_path(style.name, visual.link, visual.index)
+            path = scene_contract.visual_path(
+                style.name, visual.link, visual.index
+            )
             color = visual_color(visual, style)
             geometry = visual.geometry
             scale: tuple[float, float, float] = (1.0, 1.0, 1.0)
@@ -137,7 +139,9 @@ class RobotMeshes:
                 path,
                 rr.Transform3D(
                     translation=list(visual.origin.translation),
-                    quaternion=rr.Quaternion(xyzw=list(visual.origin.quaternion_xyzw)),
+                    quaternion=rr.Quaternion(
+                        xyzw=list(visual.origin.quaternion_xyzw)
+                    ),
                     scale=list(scale),
                 ),
                 static=True,

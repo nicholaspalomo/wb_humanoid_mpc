@@ -69,7 +69,9 @@ import humanoid_learning.examples
 # pylint: enable=wrong-import-position
 
 # A policy's inference function, as Brax PPO makes it: (observation, key) -> (action, extras).
-InferenceFn: TypeAlias = Callable[[np.ndarray, jax.Array], tuple[jax.Array, Any]]
+InferenceFn: TypeAlias = Callable[
+    [np.ndarray, jax.Array], tuple[jax.Array, Any]
+]
 
 # ==============================================================================
 # 1. Cartpole MJCF XML Model Definition
@@ -114,7 +116,9 @@ _MILLISECONDS_PER_SECOND = 1000.0
 def cartpole_observation(qpos: Any, qvel: Any) -> jax.Array:
     """Returns the observation (x, sin theta, cos theta, x_dot, theta_dot) of the state, MJX's or MuJoCo's."""
     theta = qpos[1]
-    return jnp.array([qpos[0], jnp.sin(theta), jnp.cos(theta), qvel[0], qvel[1]])
+    return jnp.array(
+        [qpos[0], jnp.sin(theta), jnp.cos(theta), qvel[0], qvel[1]]
+    )
 
 
 def cartpole_done(qpos: Any) -> jax.Array:
@@ -131,7 +135,13 @@ def cartpole_reward(qpos: Any, qvel: Any, ctrl: Any, done: Any) -> jax.Array:
     spin_penalty = 0.005 * jnp.square(qvel[1])
     ctrl_penalty = 0.005 * jnp.sum(jnp.square(ctrl))
     fall_penalty = jnp.where(done > 0.5, -1.0, 0.0)
-    return upright_reward - center_penalty - spin_penalty - ctrl_penalty + fall_penalty
+    return (
+        upright_reward
+        - center_penalty
+        - spin_penalty
+        - ctrl_penalty
+        + fall_penalty
+    )
 
 
 def gif_frame_duration_ms(timestep: float) -> int:
@@ -181,7 +191,9 @@ class CartpoleBraxEnv(brax_base.PipelineEnv):
         }
         return brax_base.State(pipeline_state, obs, reward, done, metrics)
 
-    def step(self, state: brax_base.State, action: jax.Array) -> brax_base.State:
+    def step(
+        self, state: brax_base.State, action: jax.Array
+    ) -> brax_base.State:
         """Applies action and integrates physics forward using MJX."""
         ctrl = jnp.clip(action, -1.0, 1.0)
         pipeline_state = self.pipeline_step(state.pipeline_state, ctrl)
@@ -210,7 +222,9 @@ class CartpoleBraxEnv(brax_base.PipelineEnv):
         self, pipeline_state: mjx.Data, ctrl: jax.Array, done: jax.Array
     ) -> jax.Array:
         """The reward for being upright near the center, less the penalties for spinning, effort and falling."""
-        return cartpole_reward(pipeline_state.qpos, pipeline_state.qvel, ctrl, done)
+        return cartpole_reward(
+            pipeline_state.qpos, pipeline_state.qvel, ctrl, done
+        )
 
     def _is_done(self, pipeline_state: mjx.Data) -> jax.Array:
         return cartpole_done(pipeline_state.qpos)
@@ -256,7 +270,9 @@ def rollout_policy(
     rng = jax.random.PRNGKey(0)
     for _ in range(num_steps):
         rollout.positions.append(np.array(data.qpos))
-        obs = np.asarray(cartpole_observation(data.qpos, data.qvel), dtype=np.float32)
+        obs = np.asarray(
+            cartpole_observation(data.qpos, data.qvel), dtype=np.float32
+        )
         rng, act_rng = jax.random.split(rng)
         action, _ = inference_fn(obs, act_rng)
         ctrl = np.clip(np.asarray(action), -1.0, 1.0)
@@ -265,7 +281,9 @@ def rollout_policy(
         mujoco.mj_step(mj_model, data)
 
         done = cartpole_done(data.qpos)
-        rollout.score += float(cartpole_reward(data.qpos, data.qvel, ctrl, done))
+        rollout.score += float(
+            cartpole_reward(data.qpos, data.qvel, ctrl, done)
+        )
         if float(done) > 0.5:
             break
     return rollout
@@ -369,7 +387,9 @@ def render_policy_rollout(
             frames.append(Image.fromarray(rgba[:, :, :3]))
         plt.close(fig)
 
-    os.makedirs(os.path.dirname(os.path.abspath(output_gif_path)), exist_ok=True)
+    os.makedirs(
+        os.path.dirname(os.path.abspath(output_gif_path)), exist_ok=True
+    )
     if frames:
         frames[0].save(
             output_gif_path,
@@ -406,7 +426,10 @@ def plot_training_curves(
             linewidth=2,
         )
     ax1.set_title(
-        "Evaluation Episode Return", fontsize=12, fontweight="bold", color="#1e293b"
+        "Evaluation Episode Return",
+        fontsize=12,
+        fontweight="bold",
+        color="#1e293b",
     )
     ax1.set_xlabel("Environment Steps")
     ax1.set_ylabel("Cumulative Return")
@@ -423,13 +446,17 @@ def plot_training_curves(
             color="#dc2626",
             linewidth=2,
         )
-    ax2.set_title("PPO Total Loss", fontsize=12, fontweight="bold", color="#1e293b")
+    ax2.set_title(
+        "PPO Total Loss", fontsize=12, fontweight="bold", color="#1e293b"
+    )
     ax2.set_xlabel("Environment Steps")
     ax2.set_ylabel("Loss")
     ax2.grid(True, linestyle="--", alpha=0.6)
 
     plt.tight_layout()
-    os.makedirs(os.path.dirname(os.path.abspath(output_plot_path)), exist_ok=True)
+    os.makedirs(
+        os.path.dirname(os.path.abspath(output_plot_path)), exist_ok=True
+    )
     plt.savefig(output_plot_path, dpi=120)
     plt.close(fig)
 
@@ -442,21 +469,35 @@ def main() -> None:
         description="Cartpole Brax MJX PPO Training with Visualization"
     )
     parser.add_argument(
-        "--num_envs", type=int, default=64, help="Number of parallel environments"
+        "--num_envs",
+        type=int,
+        default=64,
+        help="Number of parallel environments",
     )
     parser.add_argument(
-        "--total_timesteps", type=int, default=50_000, help="Total environment steps"
+        "--total_timesteps",
+        type=int,
+        default=50_000,
+        help="Total environment steps",
     )
     parser.add_argument(
-        "--num_evals", type=int, default=10, help="Number of evaluation checkpoints"
+        "--num_evals",
+        type=int,
+        default=10,
+        help="Number of evaluation checkpoints",
     )
     parser.add_argument(
         "--episode_length", type=int, default=200, help="Episode length"
     )
     parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
-    parser.add_argument("--gamma", type=float, default=0.99, help="Discount factor")
     parser.add_argument(
-        "--output_dir", type=str, default="cartpole_renders", help="Output directory"
+        "--gamma", type=float, default=0.99, help="Discount factor"
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default="cartpole_renders",
+        help="Output directory",
     )
     parser.add_argument(
         "--vnc",
@@ -471,7 +512,9 @@ def main() -> None:
     args = parser.parse_args()
 
     # Resolve output directory relative to workspace root if invoked via Bazel
-    workspace_dir = os.environ.get("BUILD_WORKSPACE_DIRECTORY", os.path.abspath("."))
+    workspace_dir = os.environ.get(
+        "BUILD_WORKSPACE_DIRECTORY", os.path.abspath(".")
+    )
     if not os.path.isabs(args.output_dir):
         args.output_dir = os.path.join(workspace_dir, args.output_dir)
 
@@ -544,7 +587,8 @@ def main() -> None:
             else ("🟡 BALANCING" if eval_reward > 20.0 else "🔴 FALLEN")
         )
         print(
-            f"Step {num_steps:>6d} | Eval Reward: {eval_reward:>+7.2f} | Loss: {loss_val:.4f} | {pole_icon} | {dt*1000:.1f}ms"
+            f"Step {num_steps:>6d} | Eval Reward: {eval_reward:>+7.2f} | Loss:"
+            f" {loss_val:.4f} | {pole_icon} | {dt*1000:.1f}ms"
         )
 
         plot_path = os.path.join(args.output_dir, "training_curves.png")
@@ -578,11 +622,15 @@ def main() -> None:
     # Render final policy rollout
     final_gif_path = os.path.join(args.output_dir, "cartpole_latest.gif")
     eval_score = render_policy_rollout(
-        env.mj_model, inference_fn, final_gif_path, num_steps=args.episode_length
+        env.mj_model,
+        inference_fn,
+        final_gif_path,
+        num_steps=args.episode_length,
     )
     print(
-        f"\n🎬 [Final Visualization Saved] -> {final_gif_path} (Return of the deterministic policy from a 0.35 rad"
-        f" tilt, scored as training's evaluations: {eval_score:.1f})"
+        f"\n🎬 [Final Visualization Saved] -> {final_gif_path} (Return of the"
+        " deterministic policy from a 0.35 rad tilt, scored as training's"
+        f" evaluations: {eval_score:.1f})"
     )
 
     # Live 3D playback in VNC if viewer is active
@@ -600,12 +648,15 @@ def main() -> None:
             if not viewer.is_running():
                 break
             obs_eval = np.asarray(
-                cartpole_observation(eval_data.qpos, eval_data.qvel), dtype=np.float32
+                cartpole_observation(eval_data.qpos, eval_data.qvel),
+                dtype=np.float32,
             )
             rng_eval, act_rng = jax.random.split(rng_eval)
             action, _ = inference_fn(obs_eval, act_rng)
             with viewer.lock():
-                eval_data.ctrl[0] = np.clip(float(np.array(action)[0]), -1.0, 1.0)
+                eval_data.ctrl[0] = np.clip(
+                    float(np.array(action)[0]), -1.0, 1.0
+                )
                 mujoco.mj_step(env.mj_model, eval_data)
             viewer.sync()
             time.sleep(
@@ -625,13 +676,16 @@ def main() -> None:
     print(f'\n{"=" * 70}')
     print("🎉 Brax PPO Training Completed Successfully!")
     print(
-        f"📁 All animated GIFs and metric plots saved in: {os.path.abspath(args.output_dir)}/"
+        "📁 All animated GIFs and metric plots saved in:"
+        f" {os.path.abspath(args.output_dir)}/"
     )
     print(
-        f"   - Latest Animation: {os.path.join(args.output_dir, 'cartpole_latest.gif')}"
+        "   - Latest Animation:"
+        f" {os.path.join(args.output_dir, 'cartpole_latest.gif')}"
     )
     print(
-        f"   - Training Curves:  {os.path.join(args.output_dir, 'training_curves.png')}"
+        "   - Training Curves: "
+        f" {os.path.join(args.output_dir, 'training_curves.png')}"
     )
     print("=" * 70)
 

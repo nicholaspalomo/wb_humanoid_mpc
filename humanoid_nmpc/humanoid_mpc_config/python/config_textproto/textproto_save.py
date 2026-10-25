@@ -180,13 +180,18 @@ def apply_edits(
     try:
         nproto_textproto.parse_textproto(text, message, source)
         document = textproto_document.parse(text, source)
-    except (nproto_textproto.TextprotoError, textproto_document.DocumentError) as error:
+    except (
+        nproto_textproto.TextprotoError,
+        textproto_document.DocumentError,
+    ) as error:
         raise SaveError(str(error)) from error
     return edit(document, message, edits)
 
 
 def edit(
-    document: textproto_document.TextprotoDocument, message: Any, edits: Sequence[Edit]
+    document: textproto_document.TextprotoDocument,
+    message: Any,
+    edits: Sequence[Edit],
 ) -> EditResult:
     """Applies `edits` to a file already parsed: its document and its message, neither of which changes.
 
@@ -210,7 +215,9 @@ def edit(
     batch = _ValueBatch(edited_document)
     for one_edit in edits:
         try:
-            if not (isinstance(one_edit, SetValue) and batch.add(intended, one_edit)):
+            if not (
+                isinstance(one_edit, SetValue) and batch.add(intended, one_edit)
+            ):
                 batch.write()
                 _apply(edited_document, intended, one_edit, document.source)
         except textproto_document.DocumentError as error:
@@ -220,10 +227,14 @@ def edit(
     except textproto_document.DocumentError as error:
         raise SaveError(str(error)) from error
     text = edited_document.text()
-    if text == document.text() and _serialized(intended) == _serialized(message):
+    if text == document.text() and _serialized(intended) == _serialized(
+        message
+    ):
         # The text that parsed into `message`, unchanged: no need to parse it again.
         return EditResult(text, intended, changed=False)
-    return EditResult(text, _check(text, intended, document.source), changed=True)
+    return EditResult(
+        text, _check(text, intended, document.source), changed=True
+    )
 
 
 class _ValueBatch:
@@ -251,7 +262,9 @@ class _ValueBatch:
         if not isinstance(old, textproto_document.ScalarNode):
             return False
         where = _Where(self._document.source, change.path)
-        field, converted = _set_in_message(message, segments, change.value, where)
+        field, converted = _set_in_message(
+            message, segments, change.value, where
+        )
         self._values.append((change.path, _literal(field, converted, old)))
         self._fields.add(segments[-1].name)
         return True
@@ -263,7 +276,9 @@ class _ValueBatch:
         self._document.set_scalars(values)
 
 
-def save(path: str, message_class: type[MessageT], edits: Sequence[Edit]) -> EditResult:
+def save(
+    path: str, message_class: type[MessageT], edits: Sequence[Edit]
+) -> EditResult:
     """Applies `edits` to the file at `path` (apply_edits()) and writes the result atomically when the text changed.
 
     The file must name its schema with a `# proto-message:` line (nproto_textproto.check_proto_message_header()), as
@@ -417,7 +432,8 @@ def _set_in_message(
             )
         if last.index > len(container):
             raise where.error(
-                f"{field.name} has {len(container)} elements; [{last.index}] is not one of them or the next"
+                f"{field.name} has {len(container)} elements; [{last.index}] is"
+                " not one of them or the next"
             )
         if last.index == len(container):
             container.append(converted)
@@ -506,13 +522,20 @@ def _navigate(
 def _field(
     message: Any, segment: textproto_document.PathSegment, where: _Where
 ) -> FieldDescriptor:
+    """The field of `message` that `segment` names; raises `where`'s error when there is none or it is a map."""
     descriptor = message.DESCRIPTOR
     field = descriptor.fields_by_name.get(segment.name)
     if field is None:
-        raise where.error(f"{descriptor.full_name} has no field {segment.name!r}")
-    if field.message_type is not None and field.message_type.GetOptions().map_entry:
         raise where.error(
-            f"{segment.name} is a map; the editor edits repeated messages with a key field instead"
+            f"{descriptor.full_name} has no field {segment.name!r}"
+        )
+    if (
+        field.message_type is not None
+        and field.message_type.GetOptions().map_entry
+    ):
+        raise where.error(
+            f"{segment.name} is a map; the editor edits repeated messages with"
+            " a key field instead"
         )
     return field
 
@@ -540,9 +563,14 @@ def _key_field(
 ) -> FieldDescriptor:
     """The field of `field`'s element type that `key` selects its elements by; a scalar, else SaveError."""
     key_field = field.message_type.fields_by_name.get(key[0])
-    if key_field is None or key_field.message_type is not None or key_field.is_repeated:
+    if (
+        key_field is None
+        or key_field.message_type is not None
+        or key_field.is_repeated
+    ):
         raise where.error(
-            f"{key[0]} is not a value of {field.message_type.full_name} to select {field.name} by"
+            f"{key[0]} is not a value of {field.message_type.full_name} to"
+            f" select {field.name} by"
         )
     return key_field
 
@@ -584,19 +612,25 @@ def _element(
         key = segment.key
         key_field = _key_field(field, key, where)
         matches = [
-            element for element in container if _key_matches(element, key_field, key[1])
+            element
+            for element in container
+            if _key_matches(element, key_field, key[1])
         ]
         if len(matches) == 1:
             return matches[0]
         if matches:
             raise where.error(
-                f"{len(matches)} elements of {field.name} have {key[0]} {key[1]}"
+                f"{len(matches)} elements of {field.name} have"
+                f" {key[0]} {key[1]}"
             )
         if not create:
-            raise where.error(f"no element of {field.name} has {key[0]} {key[1]}")
+            raise where.error(
+                f"no element of {field.name} has {key[0]} {key[1]}"
+            )
         if key_field.type != FieldDescriptor.TYPE_STRING:
             raise where.error(
-                f"a new element of {field.name} is selected by a string key, not by {key_field.name}"
+                f"a new element of {field.name} is selected by a string key,"
+                f" not by {key_field.name}"
             )
         element = container.add()
         setattr(element, key_field.name, key[1])
@@ -606,7 +640,8 @@ def _element(
     if create and not container:
         return container.add()
     raise where.error(
-        f"{field.name} has {len(container)} elements; select one with [index] or [field=value]"
+        f"{field.name} has {len(container)} elements; select one with [index]"
+        " or [field=value]"
     )
 
 
@@ -620,7 +655,9 @@ def _fill(
         field = _field(message, textproto_document.PathSegment(name), where)
         values = value if field.is_repeated else [value]
         if not isinstance(values, Sequence) or isinstance(values, (str, bytes)):
-            raise where.error(f"{name} is repeated: give a sequence of its values")
+            raise where.error(
+                f"{name} is repeated: give a sequence of its values"
+            )
         for item in values:
             if field.message_type is not None:
                 if not isinstance(item, Mapping):
@@ -686,7 +723,9 @@ def _convert(field: FieldDescriptor, value: object, where: _Where) -> Any:
         return value
     if kind == FieldDescriptor.TYPE_ENUM:
         return _enum_number(field, value, where)
-    raise where.error(f"{field.name} has a type the editor does not write ({kind})")
+    raise where.error(
+        f"{field.name} has a type the editor does not write ({kind})"
+    )
 
 
 def _enum_number(field: FieldDescriptor, value: object, where: _Where) -> int:
@@ -700,7 +739,9 @@ def _enum_number(field: FieldDescriptor, value: object, where: _Where) -> int:
     ):
         return value
     names = ", ".join(enum_value.name for enum_value in enum_type.values)
-    raise where.error(f"{value!r} is not a value of {enum_type.full_name}: {names}")
+    raise where.error(
+        f"{value!r} is not a value of {enum_type.full_name}: {names}"
+    )
 
 
 def _to_float32(value: float) -> float:
@@ -772,12 +813,12 @@ def _check(text: str, intended: Any, source: str) -> Any:
         raise SaveError(
             f"the edited text does not parse, so nothing is written: {error}"
         ) from error
-    if reparsed.SerializeToString(deterministic=True) != intended.SerializeToString(
+    if reparsed.SerializeToString(
         deterministic=True
-    ):
+    ) != intended.SerializeToString(deterministic=True):
         raise SaveError(
-            f"{source}: the edited text is not the edited message, so nothing is written:\n"
-            f"{_difference(intended, reparsed)}"
+            f"{source}: the edited text is not the edited message, so nothing"
+            f" is written:\n{_difference(intended, reparsed)}"
         )
     return reparsed
 
@@ -797,8 +838,9 @@ def _difference(intended: Any, reparsed: Any) -> str:
         lines = lines[:_DIFFERENCE_LINES] + [
             f"... {len(lines) - _DIFFERENCE_LINES} more lines"
         ]
+    if lines:
+        return "\n".join(lines)
     return (
-        "\n".join(lines)
-        if lines
-        else "(the two serialize differently, e.g. 0.0 against -0.0 or NaN payloads)"
+        "(the two serialize differently, e.g. 0.0 against -0.0 or NaN"
+        " payloads)"
     )

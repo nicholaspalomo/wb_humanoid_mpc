@@ -34,10 +34,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-// The range checks of the conversions of the typed configuration (src/config/<area>/): each returns OK when `value`
-// is in its range, and otherwise InvalidArgument naming the field by `path` (its path from the file message, e.g.
-// "multiple_shooting.dt") and saying the range. Every check is written so that it passes only when its comparisons
-// hold, so NaN, which compares false with everything, is refused by each of them.
+// The range checks of the conversions of the typed configuration
+// (src/config/<area>/): each returns OK when `value` is in its range, and
+// otherwise InvalidArgument naming the field by `path` (its path from the file
+// message, e.g. "multiple_shooting.dt") and saying the range. Every check is
+// written so that it passes only when its comparisons hold, so NaN, which
+// compares false with everything, is refused by each of them.
 
 /** OK when `value` is finite. */
 absl::Status requireFinite(absl::string_view path, double value);
@@ -48,19 +50,34 @@ absl::Status requirePositive(absl::string_view path, double value);
 /** OK when `value` is finite and at least 0. */
 absl::Status requireNonNegative(absl::string_view path, double value);
 
-/** OK when `value` lies in the open interval (low, high); `low` < `high` are finite. */
-absl::Status requireInOpenInterval(absl::string_view path, double value, double low, double high);
+/** OK when `value` lies in the open interval (low, high); `low` < `high` are
+ * finite. */
+absl::Status requireInOpenInterval(absl::string_view path,
+                                   double value,
+                                   double low,
+                                   double high);
 
-/** OK when `value` lies in the half-open interval [low, high); `low` < `high` are finite. */
-absl::Status requireInHalfOpenInterval(absl::string_view path, double value, double low, double high);
+/** OK when `value` lies in the half-open interval [low, high); `low` < `high`
+ * are finite. */
+absl::Status requireInHalfOpenInterval(absl::string_view path,
+                                       double value,
+                                       double low,
+                                       double high);
 
-/** OK when `value` lies in the half-open interval (low, high]; `low` < `high` are finite. */
-absl::Status requireInLeftOpenInterval(absl::string_view path, double value, double low, double high);
+/** OK when `value` lies in the half-open interval (low, high]; `low` < `high`
+ * are finite. */
+absl::Status requireInLeftOpenInterval(absl::string_view path,
+                                       double value,
+                                       double low,
+                                       double high);
 
 /**
- * OK when `lower` <= `upper`, both already checked finite: the bounds of an interval the file gives as two fields, named
- * by `lowerPath` and `upperPath`.
+ * OK when `lower` <= `upper`, both already checked finite: the bounds of an
+ * interval the file gives as two fields, named by `lowerPath` and `upperPath`.
  */
-absl::Status requireOrdered(absl::string_view lowerPath, double lower, absl::string_view upperPath, double upper);
+absl::Status requireOrdered(absl::string_view lowerPath,
+                            double lower,
+                            absl::string_view upperPath,
+                            double upper);
 
 }  // namespace ocs2::humanoid

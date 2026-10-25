@@ -67,14 +67,17 @@ using Registry = mpc_config::ConfigRegistries::Registry;
 
 /** `names` with `name` appended unless it holds it already. */
 void appendOnce(const std::string& name, std::vector<std::string>& names) {
-  if (std::find(names.begin(), names.end(), name) == names.end()) names.push_back(name);
+  if (std::find(names.begin(), names.end(), name) == names.end())
+    names.push_back(name);
 }
 
-/** Every term of the contact planner, over its lists in the order of the file (no_flight is in two of them), once each. */
+/** Every term of the contact planner, over its lists in the order of the file
+ * (no_flight is in two of them), once each. */
 std::vector<std::string> contactPlanningTermNames() {
   std::vector<std::string> names;
   for (const TermKind kind : allTermKinds()) {
-    for (const std::string& name : knownTermNames(kind)) appendOnce(name, names);
+    for (const std::string& name : knownTermNames(kind))
+      appendOnce(name, names);
   }
   return names;
 }
@@ -83,24 +86,29 @@ std::vector<std::string> contactPlanningTermNames() {
 std::vector<std::string> locomotionHeuristicNames() {
   std::vector<std::string> names;
   for (const HeuristicKind kind : allHeuristicKinds()) {
-    for (const std::string& name : knownHeuristicNames(kind)) appendOnce(name, names);
+    for (const std::string& name : knownHeuristicNames(kind))
+      appendOnce(name, names);
   }
   return names;
 }
 
-/** The estimators of robot_model and the simulator's, which a simulated robot process adds. */
+/** The estimators of robot_model and the simulator's, which a simulated robot
+ * process adds. */
 std::vector<std::string> contactEstimatorNames() {
   std::vector<std::string> names;
-  for (const robot::model::ContactEstimatorRegistry::Entry& entry : robot::model::ContactEstimatorRegistry().available()) {
+  for (const robot::model::ContactEstimatorRegistry::Entry& entry :
+       robot::model::ContactEstimatorRegistry().available()) {
     names.push_back(entry.name);
   }
-  appendOnce(robot::mujoco_sim_interface::kCheaterSimContactEstimatorName, names);
+  appendOnce(robot::mujoco_sim_interface::kCheaterSimContactEstimatorName,
+             names);
   return names;
 }
 
 std::vector<std::string> visualizationNames() {
   std::vector<std::string> names;
-  for (const robot::mujoco_sim_interface::VisualizationInfo& info : robot::mujoco_sim_interface::availableVisualizations()) {
+  for (const robot::mujoco_sim_interface::VisualizationInfo& info :
+       robot::mujoco_sim_interface::availableVisualizations()) {
     names.push_back(info.name);
   }
   return names;
@@ -109,7 +117,8 @@ std::vector<std::string> visualizationNames() {
 }  // namespace
 
 mpc_config::ConfigRegistries collectConfigRegistries() {
-  // The registry names of the schemas' (humanoid_mpc_config.tuning) options, each with its registry's names.
+  // The registry names of the schemas' (humanoid_mpc_config.tuning) options,
+  // each with its registry's names.
   // LINT.IfChange(registry_names)
   std::vector<Registry> registries = {
       {.name = "arm_swing", .names = armSwingGeneratorNames()},
@@ -117,46 +126,62 @@ mpc_config::ConfigRegistries collectConfigRegistries() {
       {.name = "basis_regularization", .names = basisRegularizationNames()},
       {.name = "centroidal_model", .names = centroidalModelNames()},
       {.name = "contact_estimator", .names = contactEstimatorNames()},
-      {.name = "contact_input_parameterization", .names = contactInputParameterizationNames()},
+      {.name = "contact_input_parameterization",
+       .names = contactInputParameterizationNames()},
       {.name = "contact_planner", .names = knownPlannerNames()},
       {.name = "contact_planner_threading", .names = plannerThreadingNames()},
       {.name = "contact_planning_term", .names = contactPlanningTermNames()},
-      {.name = "contact_schedule_source", .names = contactScheduleSourceNames()},
+      {.name = "contact_schedule_source",
+       .names = contactScheduleSourceNames()},
       {.name = "foot_cost_phases", .names = footCostPhasesNames()},
-      {.name = "gantry_hold", .names = robot::mujoco_sim_interface::gantryHoldNames()},
+      {.name = "gantry_hold",
+       .names = robot::mujoco_sim_interface::gantryHoldNames()},
       {.name = "hard_constraint", .names = mpcHardConstraintNames()},
       {.name = "locomotion_heuristic", .names = locomotionHeuristicNames()},
       {.name = "mpc_cost", .names = mpcCostNames()},
-      {.name = "projectile", .names = robot::mujoco_sim_interface::availableProjectiles()},
+      {.name = "projectile",
+       .names = robot::mujoco_sim_interface::availableProjectiles()},
       {.name = "rollout_integrator", .names = rolloutIntegratorNames()},
       {.name = "sensitivity_integrator", .names = sensitivityIntegratorNames()},
       {.name = "soft_constraint", .names = mpcSoftConstraintNames()},
       {.name = "stance_constraint", .names = stanceConstraintNames()},
-      {.name = "state_estimator", .names = estimation::StateEstimatorRegistry().names()},
+      {.name = "state_estimator",
+       .names = estimation::StateEstimatorRegistry().names()},
       {.name = "telemetry_sink", .names = TelemetrySinkRegistry().names()},
       {.name = "terminal_dcm_target", .names = terminalDcmTargetNames()},
       {.name = "visualization", .names = visualizationNames()},
       {.name = "wb_mpc_feedforward", .names = wbMpcFeedforwardNames()},
   };
   // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/tuning_options.proto:registry)
-  std::sort(registries.begin(), registries.end(), [](const Registry& lhs, const Registry& rhs) { return lhs.name < rhs.name; });
+  std::sort(registries.begin(), registries.end(),
+            [](const Registry& lhs, const Registry& rhs) {
+              return lhs.name < rhs.name;
+            });
   mpc_config::ConfigRegistries collected;
   collected.registries = std::move(registries);
   return collected;
 }
 
-std::string configRegistriesText(const mpc_config::ConfigRegistries& registries) {
+std::string configRegistriesText(
+    const mpc_config::ConfigRegistries& registries) {
   std::string text =
-      "# proto-file: humanoid_nmpc/humanoid_mpc_config/config_registries.proto\n"
+      "# proto-file: "
+      "humanoid_nmpc/humanoid_mpc_config/config_registries.proto\n"
       "# proto-message: humanoid_mpc_config.ConfigRegistries\n"
       "#\n"
-      "# The names each registry of the stack accepts: the choices the tuning GUI offers for a string field whose\n"
-      "# (humanoid_mpc_config.tuning) option names a registry. Written from the registries by\n"
-      "# `bazel run //tools/config_registries:print_config_registries`; do not edit it by hand:\n"
-      "# //tools/config_registries:config_registries_test fails when it and the registries differ.\n";
+      "# The names each registry of the stack accepts: the choices the tuning "
+      "GUI offers for a string field whose\n"
+      "# (humanoid_mpc_config.tuning) option names a registry. Written from "
+      "the registries by\n"
+      "# `bazel run //tools/config_registries:print_config_registries`; do not "
+      "edit it by hand:\n"
+      "# //tools/config_registries:config_registries_test fails when it and "
+      "the registries differ.\n";
   for (const Registry& registry : registries.registries) {
-    absl::StrAppend(&text, "\nregistries {\n  name: \"", absl::CEscape(registry.name), "\"\n");
-    for (const std::string& name : registry.names) absl::StrAppend(&text, "  names: \"", absl::CEscape(name), "\"\n");
+    absl::StrAppend(&text, "\nregistries {\n  name: \"",
+                    absl::CEscape(registry.name), "\"\n");
+    for (const std::string& name : registry.names)
+      absl::StrAppend(&text, "  names: \"", absl::CEscape(name), "\"\n");
     absl::StrAppend(&text, "}\n");
   }
   return text;

@@ -50,14 +50,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-absl::StatusOr<RobotConfiguration> loadRobotConfiguration(const RobotConfigDirectory& directory) {
+absl::StatusOr<RobotConfiguration> loadRobotConfiguration(
+    const RobotConfigDirectory& directory) {
   const RobotConfigDirectory::Files& files = directory.files();
   RobotConfiguration configuration;
-  // The task file's write time first: a save while the process starts is applied by the task file watcher's first poll.
+  // The task file's write time first: a save while the process starts is
+  // applied by the task file watcher's first poll.
   configuration.taskFileReadAt = TaskFileWatcher::writeTimeOf(files.taskFile);
   ASSIGN_OR_RETURN(configuration.files, loadRobotConfigFiles(files));
   ASSIGN_OR_RETURN(configuration.bundledRobotName, bundledRobotName(directory));
-  absl::StatusOr<RobotProcessSettings> settings = robotProcessSettingsFromConfig(configuration.files.task);
+  absl::StatusOr<RobotProcessSettings> settings =
+      robotProcessSettingsFromConfig(configuration.files.task);
   if (!settings.ok()) return withConfigFile(settings.status(), files.taskFile);
   configuration.settings = *std::move(settings);
   return configuration;
@@ -68,7 +71,8 @@ RobotConfigurationCheckContext robotConfigurationCheckContext(
     std::string robotName,
     const ModelSettings& modelSettings,
     const RobotBackendOptions& backendOptions,
-    const robot::model::ContactEstimatorRegistry* absl_nonnull contactEstimators) {
+    const robot::model::ContactEstimatorRegistry* absl_nonnull
+    contactEstimators) {
   RobotConfigurationCheckContext context;
   context.robotName = std::move(robotName);
   context.mpcJointNames = modelSettings.mpcModelJointNames;
@@ -79,19 +83,24 @@ RobotConfigurationCheckContext robotConfigurationCheckContext(
   return context;
 }
 
-RobotProcess::Hooks robotProcessHooks(RemoteMpcLinkAdapter* absl_nonnull remoteLink,
-                                      const RobotConfigDirectory::Files& storedFiles,
-                                      RobotConfigurationCheckContext context) {
+RobotProcess::Hooks robotProcessHooks(
+    RemoteMpcLinkAdapter* absl_nonnull remoteLink,
+    const RobotConfigDirectory::Files& storedFiles,
+    RobotConfigurationCheckContext context) {
   RobotProcess::Hooks hooks;
-  hooks.takeViewerAnnotations = [remoteLink](msgs::ViewerAnnotations& annotations) {
-    return remoteLink->remote().takeAnnotations(annotations);
-  };
-  hooks.fillLinkStatistics = [remoteLink](humanoid_mpc_msgs::LoopTiming& loopTiming) {
-    const ipc::RemoteMpcLink::Statistics statistics = remoteLink->remote().statistics();
-    loopTiming.set_stale_policies_dropped(statistics.stalePoliciesDropped);
-    loopTiming.set_policy_age_s(statistics.policyAge);
-  };
-  hooks.validateConfigFile = [storedFiles, context = std::move(context)](const ConfigFileCandidate& candidate) {
+  hooks.takeViewerAnnotations =
+      [remoteLink](msgs::ViewerAnnotations& annotations) {
+        return remoteLink->remote().takeAnnotations(annotations);
+      };
+  hooks.fillLinkStatistics =
+      [remoteLink](humanoid_mpc_msgs::LoopTiming& loopTiming) {
+        const ipc::RemoteMpcLink::Statistics statistics =
+            remoteLink->remote().statistics();
+        loopTiming.set_stale_policies_dropped(statistics.stalePoliciesDropped);
+        loopTiming.set_policy_age_s(statistics.policyAge);
+      };
+  hooks.validateConfigFile = [storedFiles, context = std::move(context)](
+                                 const ConfigFileCandidate& candidate) {
     return checkConfigFileCandidate(storedFiles, candidate, context);
   };
   return hooks;
@@ -111,7 +120,8 @@ RobotProcess::Config robotProcessConfig(const RobotAppOptions& options,
   config.robotName = modelSettings.robotName;
   config.taskFileIdentity = directory.taskFileIdentity();
   config.pdGainsFileIdentity = directory.pdGainsFileIdentity();
-  config.configStore = configFileStoreConfig(directory, modelSettings.robotName);
+  config.configStore =
+      configFileStoreConfig(directory, modelSettings.robotName);
   config.urdfFile = options.files.urdfFile;
   config.contactFrameNames = modelSettings.contactNames;
   config.contactParentJointNames = modelSettings.contactParentJointNames;

@@ -55,7 +55,9 @@ def _is_local_address(address: str) -> bool:
     return True
 
 
-def interface_address_for(network: network_config.NetworkConfig, node_name: str) -> str:
+def interface_address_for(
+    network: network_config.NetworkConfig, node_name: str
+) -> str:
     """The address of the network interface the process of `node_name` uses (DomainConfig.h interfaceAddressFor()).
 
     Args:
@@ -70,7 +72,9 @@ def interface_address_for(network: network_config.NetworkConfig, node_name: str)
         InterfaceError: the node's host is an IPv4 address of no interface of this machine.
     """
     if not node_name:
-        if all(network_config.is_loopback_host(node.host) for node in network.nodes):
+        if all(
+            network_config.is_loopback_host(node.host) for node in network.nodes
+        ):
             return network_config.LOOPBACK_HOST
         for candidate in network.nodes:
             if (
@@ -89,8 +93,8 @@ def interface_address_for(network: network_config.NetworkConfig, node_name: str)
         return ""
     if not _is_local_address(node.host):
         raise InterfaceError(
-            f"node '{node.name}' is on {node.host}, which is no address of this machine: run it on that machine, "
-            "or fix its host"
+            f"node '{node.name}' is on {node.host}, which is no address of this"
+            " machine: run it on that machine, or fix its host"
         )
     return node.host
 
@@ -109,9 +113,14 @@ def _general_section(
 ) -> str:
     """The General element: the interface, no multicast, the message size."""
     if interface_address:
-        interfaces = f'<Interfaces><NetworkInterface address="{_escaped(interface_address)}"/></Interfaces>'
+        interfaces = (
+            "<Interfaces><NetworkInterface"
+            f' address="{_escaped(interface_address)}"/></Interfaces>'
+        )
     else:
-        interfaces = '<Interfaces><NetworkInterface autodetermine="true"/></Interfaces>'
+        interfaces = (
+            '<Interfaces><NetworkInterface autodetermine="true"/></Interfaces>'
+        )
     general = f"<General>{interfaces}<AllowMulticast>false</AllowMulticast>"
     if transport.max_message_size_bytes > 0:
         general += f"<MaxMessageSize>{_bytes(transport.max_message_size_bytes)}</MaxMessageSize>"
@@ -121,19 +130,24 @@ def _general_section(
 def _discovery_section(network: network_config.NetworkConfig) -> str:
     """The Discovery element: the tag, the process indices, the unicast peers, the lease."""
     lease = (
-        network.transport.lease_duration_ms or network_config.DEFAULT_LEASE_DURATION_MS
+        network.transport.lease_duration_ms
+        or network_config.DEFAULT_LEASE_DURATION_MS
     )
     discovery = "<Discovery>"
     if network.domain_tag:
         discovery += f"<Tag>{_escaped(network.domain_tag)}</Tag>"
+    max_index = network_config.max_processes_per_host(network) - 1
     discovery += (
-        "<ParticipantIndex>auto</ParticipantIndex><MaxAutoParticipantIndex>"
-        f"{network_config.max_processes_per_host(network) - 1}</MaxAutoParticipantIndex>"
+        "<ParticipantIndex>auto</ParticipantIndex>"
+        f"<MaxAutoParticipantIndex>{max_index}</MaxAutoParticipantIndex>"
         '<Peers AddLocalhost="false">'
     )
     for host in network.peer_hosts():
         discovery += f'<Peer Address="{_escaped(host)}"/>'
-    return discovery + f"</Peers><LeaseDuration>{lease}ms</LeaseDuration></Discovery>"
+    return (
+        discovery
+        + f"</Peers><LeaseDuration>{lease}ms</LeaseDuration></Discovery>"
+    )
 
 
 def _internal_section(transport: network_config.TransportOptions) -> str:
@@ -162,7 +176,9 @@ def _internal_section(transport: network_config.TransportOptions) -> str:
 # LINT.ThenChange(//robot_runtime/robot_ipc/src/DomainConfig.cpp:domain_config_xml)
 
 
-def cyclone_domain_config(network: network_config.NetworkConfig, node_name: str) -> str:
+def cyclone_domain_config(
+    network: network_config.NetworkConfig, node_name: str
+) -> str:
     """The Cyclone DDS configuration (XML) of a process of `network` publishing as `node_name` (empty: subscribing).
 
     Args:

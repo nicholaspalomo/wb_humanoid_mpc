@@ -41,34 +41,46 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The joint actions an MRT joint controller writes on the control thread, reached without a check, and the check the
- * controller's constructor makes once instead. Shared by CentroidalMpcMrtJointController and WBMpcMrtJointController.
+ * The joint actions an MRT joint controller writes on the control thread,
+ * reached without a check, and the check the controller's constructor makes
+ * once instead. Shared by CentroidalMpcMrtJointController and
+ * WBMpcMrtJointController.
  */
 
 /**
- * Ends the process unless every index of `indices` is a joint of `robotDescription`: a RobotJointAction of that
- * description carries an action at each, so jointActionUnchecked() may reach them. For a constructor, once: it builds a
- * RobotJointAction, which allocates. `controller` names the caller in the message.
+ * Ends the process unless every index of `indices` is a joint of
+ * `robotDescription`: a RobotJointAction of that description carries an action
+ * at each, so jointActionUnchecked() may reach them. For a constructor, once:
+ * it builds a RobotJointAction, which allocates. `controller` names the caller
+ * in the message.
  */
-inline void checkJointIndices(const ::robot::model::RobotDescription& robotDescription,
-                              absl::Span<const size_t> indices,
-                              const char* absl_nonnull controller) {
+inline void checkJointIndices(
+    const ::robot::model::RobotDescription& robotDescription,
+    absl::Span<const size_t> indices,
+    const char* absl_nonnull controller) {
   const ::robot::model::RobotJointAction descriptionAction(robotDescription);
   for (const size_t index : indices) {
-    ABSL_CHECK(descriptionAction.inRange(index) && descriptionAction[index].has_value())
-        << "[" << controller << "] joint " << index << " is not a joint of the robot description";
+    ABSL_CHECK(descriptionAction.inRange(index) &&
+               descriptionAction[index].has_value())
+        << "[" << controller << "] joint " << index
+        << " is not a joint of the robot description";
   }
 }
 
 /**
- * The action of joint `index` of `action`, without a check: `index` passed checkJointIndices() for the description
- * `action` was built from, which the robot process makes sure is the controller's (checkControllerRobot()).
+ * The action of joint `index` of `action`, without a check: `index` passed
+ * checkJointIndices() for the description `action` was built from, which the
+ * robot process makes sure is the controller's (checkControllerRobot()).
  */
-inline ::robot::model::JointAction& jointActionUnchecked(::robot::model::RobotJointAction& action, size_t index) {
-  return *action[index];  // NOLINT(bugprone-unchecked-optional-access): checked once, by checkJointIndices().
+inline ::robot::model::JointAction& jointActionUnchecked(
+    ::robot::model::RobotJointAction& action, size_t index) {
+  return *action
+      [index];  // NOLINT(bugprone-unchecked-optional-access): checked once, by checkJointIndices().
 }
-inline const ::robot::model::JointAction& jointActionUnchecked(const ::robot::model::RobotJointAction& action, size_t index) {
-  return *action[index];  // NOLINT(bugprone-unchecked-optional-access): checked once, by checkJointIndices().
+inline const ::robot::model::JointAction& jointActionUnchecked(
+    const ::robot::model::RobotJointAction& action, size_t index) {
+  return *action
+      [index];  // NOLINT(bugprone-unchecked-optional-access): checked once, by checkJointIndices().
 }
 
 }  // namespace ocs2::humanoid

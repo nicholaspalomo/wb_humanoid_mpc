@@ -36,7 +36,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::node {
 
-/** The robot's files an MPC is built from: the --task_file, --reference_file, --urdf_file and --gait_file of a binary. */
+/** The robot's files an MPC is built from: the --task_file, --reference_file,
+ * --urdf_file and --gait_file of a binary. */
 struct MpcFiles {
   std::string taskFile;
   std::string referenceFile;
@@ -44,7 +45,8 @@ struct MpcFiles {
   std::string gaitFile;
 };
 
-/** InvalidArgument naming `flag` when `path` is empty, NotFound naming the flag and the path when it is not a file. */
+/** InvalidArgument naming `flag` when `path` is empty, NotFound naming the flag
+ * and the path when it is not a file. */
 absl::Status validateFileFlag(absl::string_view flag, const std::string& path);
 
 /** validateFileFlag() of every file: the first error. */

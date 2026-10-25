@@ -51,7 +51,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::mujoco_sim_interface {
 namespace {
 
-// The fewest llvmpipe rasterizer threads softwareRasterizerThreads() asks for, however few cores the viewer has.
+// The fewest llvmpipe rasterizer threads softwareRasterizerThreads() asks for,
+// however few cores the viewer has.
 constexpr int kMinSoftwareRasterizerThreads = 2;
 
 bool isKnownViewer(absl::string_view name) {
@@ -61,48 +62,74 @@ bool isKnownViewer(absl::string_view name) {
   return false;
 }
 
-/** OK when `value` of the web viewer option `field` lies in [minimum, maximum], else InvalidArgument naming both. */
-absl::Status checkRange(absl::string_view field, int value, int minimum, int maximum) {
+/** OK when `value` of the web viewer option `field` lies in [minimum, maximum],
+ * else InvalidArgument naming both. */
+absl::Status checkRange(absl::string_view field,
+                        int value,
+                        int minimum,
+                        int maximum) {
   if (value >= minimum && value <= maximum) return absl::OkStatus();
   return absl::InvalidArgumentError(
-      absl::StrCat("the web viewer's ", field, " is ", value, "; it must lie in [", minimum, ", ", maximum, "]"));
+      absl::StrCat("the web viewer's ", field, " is ", value,
+                   "; it must lie in [", minimum, ", ", maximum, "]"));
 }
 
 absl::Status checkSizes(const WebViewerOptions& web) {
-  if (absl::Status status = checkRange("maxWidth", web.maxWidth, kMinWebViewerWidth, kMaxWebViewerWidth); !status.ok()) {
+  if (absl::Status status = checkRange("maxWidth", web.maxWidth,
+                                       kMinWebViewerWidth, kMaxWebViewerWidth);
+      !status.ok()) {
     return status;
   }
-  if (absl::Status status = checkRange("maxHeight", web.maxHeight, kMinWebViewerHeight, kMaxWebViewerHeight); !status.ok()) {
+  if (absl::Status status = checkRange(
+          "maxHeight", web.maxHeight, kMinWebViewerHeight, kMaxWebViewerHeight);
+      !status.ok()) {
     return status;
   }
-  if (absl::Status status = checkRange("width", web.width, kMinWebViewerWidth, web.maxWidth); !status.ok()) {
+  if (absl::Status status =
+          checkRange("width", web.width, kMinWebViewerWidth, web.maxWidth);
+      !status.ok()) {
     return status;
   }
   return checkRange("height", web.height, kMinWebViewerHeight, web.maxHeight);
 }
 
 absl::Status checkRendering(const WebViewerOptions& web) {
-  if (absl::Status status = checkRange("fps", web.fps, kMinWebViewerFps, kMaxWebViewerFps); !status.ok()) {
+  if (absl::Status status =
+          checkRange("fps", web.fps, kMinWebViewerFps, kMaxWebViewerFps);
+      !status.ok()) {
     return status;
   }
-  if (absl::Status status = checkRange("quality", web.quality, kMinWebViewerQuality, kMaxWebViewerQuality); !status.ok()) {
+  if (absl::Status status = checkRange(
+          "quality", web.quality, kMinWebViewerQuality, kMaxWebViewerQuality);
+      !status.ok()) {
     return status;
   }
-  if (absl::Status status = checkRange("msaaSamples", web.msaaSamples, /*minimum=*/0, kMaxWebViewerMsaaSamples); !status.ok()) {
+  if (absl::Status status = checkRange("msaaSamples", web.msaaSamples,
+                                       /*minimum=*/0, kMaxWebViewerMsaaSamples);
+      !status.ok()) {
     return status;
   }
-  return checkRange("shadowSize", web.shadowSize, /*minimum=*/0, kMaxWebViewerShadowSize);
+  return checkRange("shadowSize", web.shadowSize, /*minimum=*/0,
+                    kMaxWebViewerShadowSize);
 }
 
 absl::Status checkServing(const WebViewerOptions& web) {
-  if (web.address.empty()) return absl::InvalidArgumentError("the web viewer's address is empty; 127.0.0.1 serves this machine only");
-  if (absl::Status status = checkRange("port", web.port, /*minimum=*/0, WebViewerOptions::kMaxPort); !status.ok()) {
+  if (web.address.empty())
+    return absl::InvalidArgumentError(
+        "the web viewer's address is empty; 127.0.0.1 serves this machine "
+        "only");
+  if (absl::Status status = checkRange("port", web.port, /*minimum=*/0,
+                                       WebViewerOptions::kMaxPort);
+      !status.ok()) {
     return status;
   }
   for (const std::string& host : web.allowedHosts) {
-    if (host.empty()) return absl::InvalidArgumentError("the web viewer's allowed hosts list an empty name");
+    if (host.empty())
+      return absl::InvalidArgumentError(
+          "the web viewer's allowed hosts list an empty name");
   }
-  return checkRange("maxClients", web.maxClients, /*minimum=*/1, kMaxWebViewerClients);
+  return checkRange("maxClients", web.maxClients, /*minimum=*/1,
+                    kMaxWebViewerClients);
 }
 
 bool isThreadPriority(web_viewer::ViewerThreadPriority priority) {
@@ -116,60 +143,78 @@ bool isThreadPriority(web_viewer::ViewerThreadPriority priority) {
 
 absl::Status checkPlacementAndEgl(const WebViewerOptions& web) {
   for (const int core : web.cores) {
-    if (core < 0) return absl::InvalidArgumentError(absl::StrCat("the web viewer's cores list ", core, ", which is no CPU core"));
+    if (core < 0)
+      return absl::InvalidArgumentError(absl::StrCat(
+          "the web viewer's cores list ", core, ", which is no CPU core"));
   }
   if (!isThreadPriority(web.threadPriority)) {
-    return absl::InvalidArgumentError(absl::StrCat("the web viewer's threadPriority ", static_cast<int>(web.threadPriority),
-                                                   " is none of ViewerThreadPriority's (kIdle, kInherited)"));
+    return absl::InvalidArgumentError(
+        absl::StrCat("the web viewer's threadPriority ",
+                     static_cast<int>(web.threadPriority),
+                     " is none of ViewerThreadPriority's (kIdle, kInherited)"));
   }
   if (web.eglDeviceId.has_value() && *web.eglDeviceId < 0) {
-    return absl::InvalidArgumentError(absl::StrCat("the web viewer's EGL device id is ", *web.eglDeviceId, "; device ids start at 0"));
+    return absl::InvalidArgumentError(
+        absl::StrCat("the web viewer's EGL device id is ", *web.eglDeviceId,
+                     "; device ids start at 0"));
   }
-  if (web.eglLibrary.empty()) return absl::InvalidArgumentError("the web viewer's EGL library name is empty; the default is libEGL.so.1");
+  if (web.eglLibrary.empty())
+    return absl::InvalidArgumentError(
+        "the web viewer's EGL library name is empty; the default is "
+        "libEGL.so.1");
   if (web.startTimeout <= absl::ZeroDuration()) {
-    return absl::InvalidArgumentError(absl::StrCat("the web viewer's start timeout is ", absl::FormatDuration(web.startTimeout)));
+    return absl::InvalidArgumentError(
+        absl::StrCat("the web viewer's start timeout is ",
+                     absl::FormatDuration(web.startTimeout)));
   }
   return absl::OkStatus();
 }
 
 }  // namespace
 
-// The rules of a viewer list, which a plot configuration's mujoco_viewer follows too (checked in Python by the Rerun
-// bridge, for the same file).
+// The rules of a viewer list, which a plot configuration's mujoco_viewer
+// follows too (checked in Python by the Rerun bridge, for the same file).
 // LINT.IfChange(viewer_list_rules)
 absl::Status checkViewerNames(absl::Span<const std::string> names) {
   const std::string list = absl::StrJoin(names, ",");
   if (names.empty()) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("no viewer is named; name one or more of ", availableViewerNames(), " (", kNoViewerName, " runs without one)"));
+    return absl::InvalidArgumentError(absl::StrCat(
+        "no viewer is named; name one or more of ", availableViewerNames(),
+        " (", kNoViewerName, " runs without one)"));
   }
   absl::flat_hash_set<std::string> seen;
   for (size_t index = 0; index < names.size(); ++index) {
     const std::string& name = names[index];
     if (!isKnownViewer(name)) {
       return absl::InvalidArgumentError(
-          absl::StrCat("unknown viewer '", name, "' in '", list, "'; the viewers are ", availableViewerNames()));
+          absl::StrCat("unknown viewer '", name, "' in '", list,
+                       "'; the viewers are ", availableViewerNames()));
     }
     if (!seen.insert(name).second) {
-      return absl::InvalidArgumentError(absl::StrCat("the viewer '", name, "' is listed twice in '", list, "'"));
+      return absl::InvalidArgumentError(absl::StrCat(
+          "the viewer '", name, "' is listed twice in '", list, "'"));
     }
     if (index + 1 == names.size()) continue;
     if (name == kNoViewerName) {
-      return absl::InvalidArgumentError(
-          absl::StrCat("'", kNoViewerName, "' always starts, so nothing may follow it in '", list, "'; list it last"));
+      return absl::InvalidArgumentError(absl::StrCat(
+          "'", kNoViewerName, "' always starts, so nothing may follow it in '",
+          list, "'; list it last"));
     }
     if (name == kGlfwViewerName) {
-      return absl::InvalidArgumentError(absl::StrCat("'", kGlfwViewerName,
-                                                     "' cannot fail at start-up (a window it cannot open is logged and the simulation runs "
-                                                     "on without it), so nothing may follow it in '",
-                                                     list, "'"));
+      return absl::InvalidArgumentError(
+          absl::StrCat("'", kGlfwViewerName,
+                       "' cannot fail at start-up (a window it cannot open is "
+                       "logged and the simulation runs "
+                       "on without it), so nothing may follow it in '",
+                       list, "'"));
     }
   }
   return absl::OkStatus();
 }
 // LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/python/humanoid_rerun_viewer/plot_config.py:viewer_list_rules)
 
-absl::StatusOr<std::vector<std::string>> parseViewerNames(absl::string_view list) {
+absl::StatusOr<std::vector<std::string>> parseViewerNames(
+    absl::string_view list) {
   std::vector<std::string> names;
   if (absl::StripAsciiWhitespace(list).empty()) {
     if (absl::Status status = checkViewerNames(names); !status.ok()) {
@@ -179,8 +224,9 @@ absl::StatusOr<std::vector<std::string>> parseViewerNames(absl::string_view list
   for (const absl::string_view name : absl::StrSplit(list, ',')) {
     const absl::string_view stripped = absl::StripAsciiWhitespace(name);
     if (stripped.empty()) {
-      return absl::InvalidArgumentError(
-          absl::StrCat("the viewer list '", list, "' has an empty entry; the viewers are ", availableViewerNames()));
+      return absl::InvalidArgumentError(absl::StrCat(
+          "the viewer list '", list, "' has an empty entry; the viewers are ",
+          availableViewerNames()));
     }
     names.emplace_back(stripped);
   }
@@ -207,7 +253,8 @@ absl::Status validateViewerSettings(const ViewerSettings& settings) {
 }
 
 int softwareRasterizerThreads(const WebViewerOptions& web) {
-  return std::max(static_cast<int>(web.cores.size()), kMinSoftwareRasterizerThreads);
+  return std::max(static_cast<int>(web.cores.size()),
+                  kMinSoftwareRasterizerThreads);
 }
 
 }  // namespace robot::mujoco_sim_interface

@@ -49,40 +49,52 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_msgs/target_trajectories.pb.h"
 
 /**
- * Lossless conversions between the OCS2 types the MPC link carries and their humanoid_mpc_msgs messages.
+ * Lossless conversions between the OCS2 types the MPC link carries and their
+ * humanoid_mpc_msgs messages.
  *
- * Every double travels as a double, and every mode and post-event index as a uint64, so that a round trip reproduces
- * the OCS2 object exactly; a policy rebuilt from a message evaluates to the same inputs as the policy it was made from.
+ * Every double travels as a double, and every mode and post-event index as a
+ * uint64, so that a round trip reproduces the OCS2 object exactly; a policy
+ * rebuilt from a message evaluates to the same inputs as the policy it was made
+ * from.
  *
- * The toProto() functions overwrite the fields they own and reuse the capacity the message already has: the repeated
- * fields are resized rather than cleared, and the nested Vector messages are kept. A caller that keeps one message
- * object and encodes into it again and again therefore allocates only while the message grows, which is the first call
- * and any call with longer trajectories or larger vectors than before.
+ * The toProto() functions overwrite the fields they own and reuse the capacity
+ * the message already has: the repeated fields are resized rather than cleared,
+ * and the nested Vector messages are kept. A caller that keeps one message
+ * object and encodes into it again and again therefore allocates only while the
+ * message grows, which is the first call and any call with longer trajectories
+ * or larger vectors than before.
  *
- * The fromProto() functions validate the whole message before they write anything, so the output is unchanged when they
- * return an error: every double is finite, the times are sorted, the array lengths agree, and the controller data match
- * the dimensions of the nodes. An InvalidArgument error names the offending field with its path in the message, e.g.
- * "MpcPolicy.state_trajectory[3].data[2]". Whether the dimensions are those of the robot model is a separate question
- * the conversions cannot answer; checkDimensions() answers it for the caller that knows the model.
+ * The fromProto() functions validate the whole message before they write
+ * anything, so the output is unchanged when they return an error: every double
+ * is finite, the times are sorted, the array lengths agree, and the controller
+ * data match the dimensions of the nodes. An InvalidArgument error names the
+ * offending field with its path in the message, e.g.
+ * "MpcPolicy.state_trajectory[3].data[2]". Whether the dimensions are those of
+ * the robot model is a separate question the conversions cannot answer;
+ * checkDimensions() answers it for the caller that knows the model.
  *
- * None of these functions is meant for a realtime thread: the decoding side allocates the OCS2 arrays it fills.
+ * None of these functions is meant for a realtime thread: the decoding side
+ * allocates the OCS2 arrays it fills.
  */
 namespace ocs2::humanoid::ipc {
 
 /** The dimensions of the model a message must match, for checkDimensions(). */
 struct ModelDimensions {
   /**
-   * The size of a stored state. On a state manifold that is its ambient dimension (StateManifold::getAmbientDim()); the
-   * gains of a ManifoldLinearController then have the manifold's tangent dimension as columns, which the manifold itself
-   * gives (StateManifold::getTangentDim()), so it has no field here.
+   * The size of a stored state. On a state manifold that is its ambient
+   * dimension (StateManifold::getAmbientDim()); the gains of a
+   * ManifoldLinearController then have the manifold's tangent dimension as
+   * columns, which the manifold itself gives (StateManifold::getTangentDim()),
+   * so it has no field here.
    */
   size_t stateDim = 0;
   size_t inputDim = 0;
   /**
-   * The number of modes of the model: every mode a message carries (an observation's, each mode of a policy's mode
-   * schedule) must be below it. The humanoids' modes are the contact flags of the two feet, 0 to 3
-   * (humanoid_common_mpc/gait/MotionPhaseDefinition.h), so 4; another mode would reach modeNumber2StanceLeg(), which
-   * has no contact flags for it.
+   * The number of modes of the model: every mode a message carries (an
+   * observation's, each mode of a policy's mode schedule) must be below it. The
+   * humanoids' modes are the contact flags of the two feet, 0 to 3
+   * (humanoid_common_mpc/gait/MotionPhaseDefinition.h), so 4; another mode
+   * would reach modeNumber2StanceLeg(), which has no contact flags for it.
    */
   size_t numModes = 0;
 };
@@ -91,92 +103,121 @@ struct ModelDimensions {
 // SystemObservation
 // ---------------------------------------------------------------------------------------------------------------------
 
-/** Writes `observation` into `message`. Allocates only while the message's state or input grows. */
-void toProto(const SystemObservation& observation, humanoid_mpc_msgs::SystemObservation* absl_nonnull message);
+/** Writes `observation` into `message`. Allocates only while the message's
+ * state or input grows. */
+void toProto(const SystemObservation& observation,
+             humanoid_mpc_msgs::SystemObservation* absl_nonnull message);
 
 /**
- * Reads `message` into `observation`. Requires a finite time, state and input. Decoding into the same observation
- * again allocates nothing while the dimensions stay the same, as Eigen keeps a vector's storage when its size does not
- * change.
+ * Reads `message` into `observation`. Requires a finite time, state and input.
+ * Decoding into the same observation again allocates nothing while the
+ * dimensions stay the same, as Eigen keeps a vector's storage when its size
+ * does not change.
  */
-absl::Status fromProto(const humanoid_mpc_msgs::SystemObservation& message, SystemObservation* absl_nonnull observation);
+absl::Status fromProto(const humanoid_mpc_msgs::SystemObservation& message,
+                       SystemObservation* absl_nonnull observation);
 
 /**
- * Checks that `message` has a state of dimensions.stateDim and an input of dimensions.inputDim entries, and a mode
- * below dimensions.numModes.
+ * Checks that `message` has a state of dimensions.stateDim and an input of
+ * dimensions.inputDim entries, and a mode below dimensions.numModes.
  */
-absl::Status checkDimensions(const humanoid_mpc_msgs::SystemObservation& message, const ModelDimensions& dimensions);
+absl::Status checkDimensions(
+    const humanoid_mpc_msgs::SystemObservation& message,
+    const ModelDimensions& dimensions);
 
 // ---------------------------------------------------------------------------------------------------------------------
 // ModeSchedule
 // ---------------------------------------------------------------------------------------------------------------------
 
-/** Writes `modeSchedule` into `message`. Allocates only while the message's arrays grow. */
-void toProto(const ModeSchedule& modeSchedule, humanoid_mpc_msgs::ModeSchedule* absl_nonnull message);
+/** Writes `modeSchedule` into `message`. Allocates only while the message's
+ * arrays grow. */
+void toProto(const ModeSchedule& modeSchedule,
+             humanoid_mpc_msgs::ModeSchedule* absl_nonnull message);
 
 /**
- * Reads `message` into `modeSchedule`. Requires at least one mode, one mode more than there are event times, and
- * finite event times that do not decrease (OCS2 looks modes up by binary search).
+ * Reads `message` into `modeSchedule`. Requires at least one mode, one mode
+ * more than there are event times, and finite event times that do not decrease
+ * (OCS2 looks modes up by binary search).
  */
-absl::Status fromProto(const humanoid_mpc_msgs::ModeSchedule& message, ModeSchedule* absl_nonnull modeSchedule);
+absl::Status fromProto(const humanoid_mpc_msgs::ModeSchedule& message,
+                       ModeSchedule* absl_nonnull modeSchedule);
 
 // ---------------------------------------------------------------------------------------------------------------------
 // TargetTrajectories
 // ---------------------------------------------------------------------------------------------------------------------
 
-/** Writes `targetTrajectories` into `message`, reusing its Vector messages. Allocates only while the message grows. */
-void toProto(const TargetTrajectories& targetTrajectories, humanoid_mpc_msgs::TargetTrajectories* absl_nonnull message);
+/** Writes `targetTrajectories` into `message`, reusing its Vector messages.
+ * Allocates only while the message grows. */
+void toProto(const TargetTrajectories& targetTrajectories,
+             humanoid_mpc_msgs::TargetTrajectories* absl_nonnull message);
 
 /**
- * Reads `message` into `targetTrajectories`. Requires finite values, times that do not decrease, one state per time,
- * and either one input per time or none (OCS2 allows target trajectories without inputs). An empty message is the empty
- * TargetTrajectories. Decoding into the same object again allocates nothing while the sizes stay the same.
+ * Reads `message` into `targetTrajectories`. Requires finite values, times that
+ * do not decrease, one state per time, and either one input per time or none
+ * (OCS2 allows target trajectories without inputs). An empty message is the
+ * empty TargetTrajectories. Decoding into the same object again allocates
+ * nothing while the sizes stay the same.
  */
-absl::Status fromProto(const humanoid_mpc_msgs::TargetTrajectories& message, TargetTrajectories* absl_nonnull targetTrajectories);
+absl::Status fromProto(const humanoid_mpc_msgs::TargetTrajectories& message,
+                       TargetTrajectories* absl_nonnull targetTrajectories);
 
 // ---------------------------------------------------------------------------------------------------------------------
 // PerformanceIndex
 // ---------------------------------------------------------------------------------------------------------------------
 
 /** Writes `performanceIndex` into `message`. Never allocates. */
-void toProto(const PerformanceIndex& performanceIndex, humanoid_mpc_msgs::PerformanceIndex* absl_nonnull message);
+void toProto(const PerformanceIndex& performanceIndex,
+             humanoid_mpc_msgs::PerformanceIndex* absl_nonnull message);
 
 /**
- * Reads `message` into `performanceIndex`. Accepts any value, NaN and infinity included: the performance index is a
- * diagnostic that no controller evaluates, and a NaN merit is what a diverged solve reports, which the receiver should
+ * Reads `message` into `performanceIndex`. Accepts any value, NaN and infinity
+ * included: the performance index is a diagnostic that no controller evaluates,
+ * and a NaN merit is what a diverged solve reports, which the receiver should
  * see rather than lose.
  */
-absl::Status fromProto(const humanoid_mpc_msgs::PerformanceIndex& message, PerformanceIndex* absl_nonnull performanceIndex);
+absl::Status fromProto(const humanoid_mpc_msgs::PerformanceIndex& message,
+                       PerformanceIndex* absl_nonnull performanceIndex);
 
 // ---------------------------------------------------------------------------------------------------------------------
 // The policy: CommandData + PrimalSolution + PerformanceIndex <-> MpcPolicy
 // ---------------------------------------------------------------------------------------------------------------------
 
 /**
- * Writes one MPC solution into `message`: the command data (init_observation, target_trajectories), the primal
- * solution (time, state and input trajectories, post_event_indices, mode_schedule, controller_type, controller_data) and
- * the performance index. The fields the MPC node owns (resets_served, full_resets_served, solver_status, annotations)
- * are left as they are.
+ * Writes one MPC solution into `message`: the command data (init_observation,
+ * target_trajectories), the primal solution (time, state and input
+ * trajectories, post_event_indices, mode_schedule, controller_type,
+ * controller_data) and the performance index. The fields the MPC node owns
+ * (resets_served, full_resets_served, solver_status, annotations) are left as
+ * they are.
  *
- * The controller travels as one Vector per time node, laid out as OCS2's flattenSingle() writes it
- * (FeedforwardController: uff; LinearController: [uff_0, K_0,:, uff_1, K_1,:, ...]). A controller whose time stamps are
- * the primal solution's time trajectory, which is how OCS2's multiple-shooting solvers build it, travels as its own node
- * values. That keeps the two nodes of an event, which share one time, apart; ControllerBase::flatten() would sample the
- * pre-event node for both and change the policy after every event. A controller on other time stamps is sampled at the
- * time trajectory with ControllerBase::flatten(); that path allocates scratch arrays on every
- * call, the other allocates only while the message grows.
+ * The controller travels as one Vector per time node, laid out as OCS2's
+ * flattenSingle() writes it (FeedforwardController: uff; LinearController:
+ * [uff_0, K_0,:, uff_1, K_1,:, ...]). A controller whose time stamps are the
+ * primal solution's time trajectory, which is how OCS2's multiple-shooting
+ * solvers build it, travels as its own node values. That keeps the two nodes of
+ * an event, which share one time, apart; ControllerBase::flatten() would sample
+ * the pre-event node for both and change the policy after every event. A
+ * controller on other time stamps is sampled at the time trajectory with
+ * ControllerBase::flatten(); that path allocates scratch arrays on every call,
+ * the other allocates only while the message grows.
  *
- * A ManifoldLinearController, the policy of a solver on a state manifold, travels only as its own node arrays,
- * CONTROLLER_TYPE_MANIFOLD_LINEAR: node k is [u*_k, xbar_k, vec K_k] (nu + nx + nu ndx doubles, K_k column-major) from
- * getNominalInputs(), getAnchorStates() and getFeedbackGains(). The anchors travel because they are not the state
- * trajectory (multiple_shooting::toPrimalSolution() repeats the previous node's at a pre-event node and at the end).
- * Sampling one between its nodes would change its law (ManifoldLinearController::flatten()), so a ManifoldLinearController
- * on other time stamps than the time trajectory is refused. The encoder needs no manifold: the gains carry ndx.
+ * A ManifoldLinearController, the policy of a solver on a state manifold,
+ * travels only as its own node arrays, CONTROLLER_TYPE_MANIFOLD_LINEAR: node k
+ * is [u*_k, xbar_k, vec K_k] (nu + nx + nu ndx doubles, K_k column-major) from
+ * getNominalInputs(), getAnchorStates() and getFeedbackGains(). The anchors
+ * travel because they are not the state trajectory
+ * (multiple_shooting::toPrimalSolution() repeats the previous node's at a
+ * pre-event node and at the end). Sampling one between its nodes would change
+ * its law (ManifoldLinearController::flatten()), so a ManifoldLinearController
+ * on other time stamps than the time trajectory is refused. The encoder needs
+ * no manifold: the gains carry ndx.
  *
- * Fails, leaving `message` unchanged, if the primal solution has no controller, a controller other than a
- * FeedforwardController, a LinearController or a ManifoldLinearController, an empty controller next to a non-empty time
- * trajectory, a controller whose arrays disagree in length or with its manifold, or a ManifoldLinearController whose
- * time stamps are not the time trajectory.
+ * Fails, leaving `message` unchanged, if the primal solution has no controller,
+ * a controller other than a FeedforwardController, a LinearController or a
+ * ManifoldLinearController, an empty controller next to a non-empty time
+ * trajectory, a controller whose arrays disagree in length or with its
+ * manifold, or a ManifoldLinearController whose time stamps are not the time
+ * trajectory.
  */
 absl::Status policyToProto(const CommandData& commandData,
                            const PrimalSolution& primalSolution,
@@ -184,22 +225,27 @@ absl::Status policyToProto(const CommandData& commandData,
                            humanoid_mpc_msgs::MpcPolicy* absl_nonnull message);
 
 /**
- * Reads the command data, the primal solution and the performance index of `message`, and rebuilds the controller:
- * a FeedforwardController, a LinearController or a ManifoldLinearController on the time trajectory, equal node for node
- * to the one that was sent.
+ * Reads the command data, the primal solution and the performance index of
+ * `message`, and rebuilds the controller: a FeedforwardController, a
+ * LinearController or a ManifoldLinearController on the time trajectory, equal
+ * node for node to the one that was sent.
  *
- * `stateManifold` is the manifold of the receiver's state, or null for a flat state. A ManifoldLinearController is
- * rebuilt on it, so it is shared: the controller keeps it (ManifoldLinearController's constructor takes a
- * std::shared_ptr). With a manifold every state of the solution has its ambient dimension, and a
- * CONTROLLER_TYPE_LINEAR policy is refused, whose gains would act on the stored state rather than on its tangent;
- * without one a CONTROLLER_TYPE_MANIFOLD_LINEAR policy is refused, which has no law on a flat state. A feedforward
- * policy is read either way.
+ * `stateManifold` is the manifold of the receiver's state, or null for a flat
+ * state. A ManifoldLinearController is rebuilt on it, so it is shared: the
+ * controller keeps it (ManifoldLinearController's constructor takes a
+ * std::shared_ptr). With a manifold every state of the solution has its ambient
+ * dimension, and a CONTROLLER_TYPE_LINEAR policy is refused, whose gains would
+ * act on the stored state rather than on its tangent; without one a
+ * CONTROLLER_TYPE_MANIFOLD_LINEAR policy is refused, which has no law on a flat
+ * state. A feedforward policy is read either way.
  *
- * Besides the checks of the fromProto() functions above, requires a non-empty time trajectory (a policy without nodes
- * cannot be evaluated), one state, one input and one controller entry per time, finite values throughout, strictly
- * increasing post-event indices in [1, number of nodes - 1], a known controller type, and controller data of the size the
- * node's state and input dimensions (and the manifold's tangent dimension) imply. Allocates the arrays of the primal
- * solution and a new controller.
+ * Besides the checks of the fromProto() functions above, requires a non-empty
+ * time trajectory (a policy without nodes cannot be evaluated), one state, one
+ * input and one controller entry per time, finite values throughout, strictly
+ * increasing post-event indices in [1, number of nodes - 1], a known controller
+ * type, and controller data of the size the node's state and input dimensions
+ * (and the manifold's tangent dimension) imply. Allocates the arrays of the
+ * primal solution and a new controller.
  */
 absl::Status policyFromProto(const humanoid_mpc_msgs::MpcPolicy& message,
                              std::shared_ptr<const StateManifold> stateManifold,
@@ -208,11 +254,14 @@ absl::Status policyFromProto(const humanoid_mpc_msgs::MpcPolicy& message,
                              PerformanceIndex* absl_nonnull performanceIndex);
 
 /**
- * Checks that every state of `message` (init_observation, target_trajectories and state_trajectory) has
- * dimensions.stateDim entries, every input dimensions.inputDim, and that the mode of init_observation and every mode of
- * mode_schedule is below dimensions.numModes. Together with policyFromProto(), which ties the controller data to the
- * node dimensions, that makes the policy one the model can evaluate. Target trajectories without inputs pass.
+ * Checks that every state of `message` (init_observation, target_trajectories
+ * and state_trajectory) has dimensions.stateDim entries, every input
+ * dimensions.inputDim, and that the mode of init_observation and every mode of
+ * mode_schedule is below dimensions.numModes. Together with policyFromProto(),
+ * which ties the controller data to the node dimensions, that makes the policy
+ * one the model can evaluate. Target trajectories without inputs pass.
  */
-absl::Status checkDimensions(const humanoid_mpc_msgs::MpcPolicy& message, const ModelDimensions& dimensions);
+absl::Status checkDimensions(const humanoid_mpc_msgs::MpcPolicy& message,
+                             const ModelDimensions& dimensions);
 
 }  // namespace ocs2::humanoid::ipc

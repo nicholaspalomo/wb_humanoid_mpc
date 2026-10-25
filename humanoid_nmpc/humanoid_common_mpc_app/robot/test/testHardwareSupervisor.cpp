@@ -64,11 +64,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_model/RobotState.h"
 
 /*
- * The robot process on a backend that is no simulator: the `hardware` supervisor (HardwareFsmBridge,
- * HardwareFallRecovery) on the test-only FakeRobotBackend, which plugs in as a hardware backend would. The FSM commands
- * switch the backend's torques and the gantry commands are ignored; a tilt past the limit switches the torques off;
- * the supervisor registry refuses the simulator's supervisor for such a backend; and the whole process runs its cycles
- * over the bus on it, with either state estimator.
+ * The robot process on a backend that is no simulator: the `hardware`
+ * supervisor (HardwareFsmBridge, HardwareFallRecovery) on the test-only
+ * FakeRobotBackend, which plugs in as a hardware backend would. The FSM
+ * commands switch the backend's torques and the gantry commands are ignored; a
+ * tilt past the limit switches the torques off; the supervisor registry refuses
+ * the simulator's supervisor for such a backend; and the whole process runs its
+ * cycles over the bus on it, with either state estimator.
  */
 
 namespace ocs2::humanoid {
@@ -79,27 +81,33 @@ using robot_test::waitFor;
 
 /** [m] The base height the Atlas stands at. */
 constexpr double kStandingHeight = 0.95;
-/** [rad] The tilt limit of the tests (sim_max_base_tilt_angle), and a tilt past it. */
+/** [rad] The tilt limit of the tests (sim_max_base_tilt_angle), and a tilt past
+ * it. */
 constexpr double kMaxTilt = 0.5;
 constexpr double kFallenTilt = 1.0;
 
-robot::model::RobotState standingAtlas(const robot::model::RobotDescription& description) {
+robot::model::RobotState standingAtlas(
+    const robot::model::RobotDescription& description) {
   robot::model::RobotState state(description);
   state.setRootPositionInWorldFrame(vector3_t(0.0, 0.0, kStandingHeight));
   return state;
 }
 
-std::unique_ptr<OperatorCommandMailbox> makeMailbox(const robot::model::RobotDescription& description,
-                                                    const robot::model::ContactEstimatorRegistry& registry) {
+std::unique_ptr<OperatorCommandMailbox> makeMailbox(
+    const robot::model::RobotDescription& description,
+    const robot::model::ContactEstimatorRegistry& registry) {
   OperatorCommandMailbox::Config config;
   config.jointNames = jointNamesByIndex(description);
   config.initialNominalPositions.assign(description.getNumJoints(), 0.0);
-  absl::StatusOr<std::unique_ptr<OperatorCommandMailbox>> mailbox = OperatorCommandMailbox::Create(config, &registry);
+  absl::StatusOr<std::unique_ptr<OperatorCommandMailbox>> mailbox =
+      OperatorCommandMailbox::Create(config, &registry);
   EXPECT_TRUE(mailbox.ok()) << mailbox.status();
   return mailbox.ok() ? *std::move(mailbox) : nullptr;
 }
 
-void send(OperatorCommandMailbox& mailbox, const std::string& command, uint64_t sequence) {
+void send(OperatorCommandMailbox& mailbox,
+          const std::string& command,
+          uint64_t sequence) {
   humanoid_mpc_msgs::FsmCommand message;
   message.set_command(command);
   message.set_sequence(sequence);
@@ -109,20 +117,25 @@ void send(OperatorCommandMailbox& mailbox, const std::string& command, uint64_t 
 /** The codes the log holds, oldest first; drains it. */
 std::vector<RealtimeEventCode> drainCodes(RealtimeEventLog& log) {
   std::vector<RealtimeEventCode> codes;
-  log.drain([&codes](const RealtimeEvent& event) { codes.push_back(event.code); });
+  log.drain(
+      [&codes](const RealtimeEvent& event) { codes.push_back(event.code); });
   return codes;
 }
 
-TEST(HardwareFsmBridge, TheFsmCommandsSwitchTheBackendsTorquesAndTheGantryCommandsAreIgnored) {
-  const robot::model::RobotDescription description = robot_test::atlasDescription();
+TEST(HardwareFsmBridge,
+     TheFsmCommandsSwitchTheBackendsTorquesAndTheGantryCommandsAreIgnored) {
+  const robot::model::RobotDescription description =
+      robot_test::atlasDescription();
   const robot::model::RobotState initial = standingAtlas(description);
   FakeRobotBackend backend(robot_test::atlasDescription(), initial);
   const robot::model::ContactEstimatorRegistry registry;
-  const std::unique_ptr<OperatorCommandMailbox> mailbox = makeMailbox(description, registry);
+  const std::unique_ptr<OperatorCommandMailbox> mailbox =
+      makeMailbox(description, registry);
   ASSERT_NE(mailbox, nullptr);
   FsmStateMailbox states;
   RealtimeEventLog log(/*capacity=*/16);
-  HardwareFsmBridge bridge(description, initial, mailbox.get(), &states, &backend, &log);
+  HardwareFsmBridge bridge(description, initial, mailbox.get(), &states,
+                           &backend, &log);
   msgs::FsmState state;
   ASSERT_TRUE(states.take(state));
   EXPECT_EQ(state.mode, "ZERO_TORQUE");
@@ -136,7 +149,8 @@ TEST(HardwareFsmBridge, TheFsmCommandsSwitchTheBackendsTorquesAndTheGantryComman
   EXPECT_TRUE(backend.acceptsJointAction());
   EXPECT_EQ(backend.torqueEnables(), 1u);
 
-  // The gantry is not the process's here: the command is reported and changes nothing.
+  // The gantry is not the process's here: the command is reported and changes
+  // nothing.
   send(*mailbox, "LOCK_GANTRY", /*sequence=*/2);
   EXPECT_FALSE(bridge.processCommands(mode));
   EXPECT_FALSE(bridge.isGantryLocked());
@@ -154,8 +168,11 @@ TEST(HardwareFsmBridge, TheFsmCommandsSwitchTheBackendsTorquesAndTheGantryComman
   EXPECT_EQ(state.mode, "ZERO_TORQUE");
   EXPECT_FALSE(state.gantry_locked);
 
-  EXPECT_EQ(drainCodes(log), (std::vector<RealtimeEventCode>{RealtimeEventCode::kTorquesEnabled, RealtimeEventCode::kGantryCommandIgnored,
-                                                             RealtimeEventCode::kModeCommanded, RealtimeEventCode::kTorquesDisabled}));
+  EXPECT_EQ(drainCodes(log), (std::vector<RealtimeEventCode>{
+                                 RealtimeEventCode::kTorquesEnabled,
+                                 RealtimeEventCode::kGantryCommandIgnored,
+                                 RealtimeEventCode::kModeCommanded,
+                                 RealtimeEventCode::kTorquesDisabled}));
 
   bridge.publishControllerReset(mode);
   ASSERT_TRUE(states.take(state));
@@ -165,18 +182,22 @@ TEST(HardwareFsmBridge, TheFsmCommandsSwitchTheBackendsTorquesAndTheGantryComman
   EXPECT_FALSE(state.mpc_healthy);
 }
 
-TEST(HardwareFallRecovery, ATiltPastTheLimitUnderTorqueSwitchesTheTorquesOffOnce) {
-  const robot::model::RobotDescription description = robot_test::atlasDescription();
+TEST(HardwareFallRecovery,
+     ATiltPastTheLimitUnderTorqueSwitchesTheTorquesOffOnce) {
+  const robot::model::RobotDescription description =
+      robot_test::atlasDescription();
   const robot::model::RobotState upright = standingAtlas(description);
   FakeRobotBackend backend(robot_test::atlasDescription(), upright);
   RealtimeEventLog log(/*capacity=*/16);
   HardwareFallRecovery recovery(kMaxTilt, &backend, &log);
   const std::vector<scalar_t> nominal(description.getNumJoints(), 0.0);
   robot::model::RobotState fallen = upright;
-  fallen.setRootRotationLocalToWorldFrame(quaternion_t(Eigen::AngleAxis<scalar_t>(kFallenTilt, vector3_t::UnitY())));
+  fallen.setRootRotationLocalToWorldFrame(quaternion_t(
+      Eigen::AngleAxis<scalar_t>(kFallenTilt, vector3_t::UnitY())));
 
   std::string mode = "WB_MPC";
-  EXPECT_FALSE(recovery.update(fallen, nominal, mode).modeChanged) << "the torques are off: nothing to switch off";
+  EXPECT_FALSE(recovery.update(fallen, nominal, mode).modeChanged)
+      << "the torques are off: nothing to switch off";
   backend.enableTorques();
   const FallRecovery::Cycle upCycle = recovery.update(upright, nominal, mode);
   EXPECT_FALSE(upCycle.modeChanged);
@@ -184,13 +205,17 @@ TEST(HardwareFallRecovery, ATiltPastTheLimitUnderTorqueSwitchesTheTorquesOffOnce
 
   const FallRecovery::Cycle fell = recovery.update(fallen, nominal, mode);
   EXPECT_TRUE(fell.modeChanged);
-  EXPECT_FALSE(fell.discontinuity) << "nothing caught the robot: the plant did not jump";
+  EXPECT_FALSE(fell.discontinuity)
+      << "nothing caught the robot: the plant did not jump";
   EXPECT_FALSE(fell.baseRelocated);
   EXPECT_NEAR(fell.tilt, kFallenTilt, 1.0e-9);
   EXPECT_EQ(mode, "ZERO_TORQUE");
   EXPECT_FALSE(backend.acceptsJointAction());
-  EXPECT_FALSE(recovery.update(fallen, nominal, mode).modeChanged) << "reported once";
-  EXPECT_EQ(drainCodes(log), (std::vector<RealtimeEventCode>{RealtimeEventCode::kFallTorquesOff}));
+  EXPECT_FALSE(recovery.update(fallen, nominal, mode).modeChanged)
+      << "reported once";
+  EXPECT_EQ(
+      drainCodes(log),
+      (std::vector<RealtimeEventCode>{RealtimeEventCode::kFallTorquesOff}));
 
   // A limit <= 0 disables the cut-off.
   HardwareFallRecovery disabled(/*maxBaseTiltAngle=*/0.0, &backend, &log);
@@ -200,28 +225,40 @@ TEST(HardwareFallRecovery, ATiltPastTheLimitUnderTorqueSwitchesTheTorquesOffOnce
   EXPECT_TRUE(backend.acceptsJointAction());
 }
 
-TEST(RobotSupervisorRegistry, RefusesTheSimulatorsSupervisorWithoutASimulatorAndAnUnknownName) {
-  const robot::model::RobotDescription description = robot_test::atlasDescription();
+TEST(RobotSupervisorRegistry,
+     RefusesTheSimulatorsSupervisorWithoutASimulatorAndAnUnknownName) {
+  const robot::model::RobotDescription description =
+      robot_test::atlasDescription();
   const robot::model::RobotState initial = standingAtlas(description);
   FakeRobotBackend backend(robot_test::atlasDescription(), initial);
   const robot::model::ContactEstimatorRegistry registry;
-  const std::unique_ptr<OperatorCommandMailbox> mailbox = makeMailbox(description, registry);
+  const std::unique_ptr<OperatorCommandMailbox> mailbox =
+      makeMailbox(description, registry);
   ASSERT_NE(mailbox, nullptr);
   FsmStateMailbox states;
-  const RobotSupervisorContext context{
-      .backend = &backend, .description = &description, .initialState = &initial, .commands = mailbox.get(), .fsmStates = &states};
+  const RobotSupervisorContext context{.backend = &backend,
+                                       .description = &description,
+                                       .initialState = &initial,
+                                       .commands = mailbox.get(),
+                                       .fsmStates = &states};
   const RobotSupervisorRegistry supervisors;
   EXPECT_EQ(supervisors.names(), (std::vector<std::string>{"sim", "hardware"}));
 
-  const absl::StatusOr<RobotSupervisor> sim = supervisors.create(kSimSupervisorName, context);
+  const absl::StatusOr<RobotSupervisor> sim =
+      supervisors.create(kSimSupervisorName, context);
   EXPECT_EQ(sim.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_NE(sim.status().message().find("'fake' is not a simulator"), std::string::npos) << sim.status();
+  EXPECT_NE(sim.status().message().find("'fake' is not a simulator"),
+            std::string::npos)
+      << sim.status();
 
-  const absl::StatusOr<RobotSupervisor> unknown = supervisors.create("teleoperator", context);
+  const absl::StatusOr<RobotSupervisor> unknown =
+      supervisors.create("teleoperator", context);
   EXPECT_EQ(unknown.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_NE(unknown.status().message().find("hardware ("), std::string::npos) << unknown.status();
+  EXPECT_NE(unknown.status().message().find("hardware ("), std::string::npos)
+      << unknown.status();
 
-  const absl::StatusOr<RobotSupervisor> hardware = supervisors.create(backend.supervisorName(), context);
+  const absl::StatusOr<RobotSupervisor> hardware =
+      supervisors.create(backend.supervisorName(), context);
   ASSERT_TRUE(hardware.ok()) << hardware.status();
   EXPECT_NE(hardware->fsmBridge, nullptr);
   EXPECT_NE(hardware->fallRecovery, nullptr);
@@ -244,20 +281,28 @@ class FsmStateView {
   std::optional<humanoid_mpc_msgs::FsmState> last_ ABSL_GUARDED_BY(mutex_);
 };
 
-/** The robot process on the fake backend, with the operator on a loopback bus. */
-class RobotProcessOnHardwareTest : public ::testing::TestWithParam<std::string> {
+/** The robot process on the fake backend, with the operator on a loopback bus.
+ */
+class RobotProcessOnHardwareTest
+    : public ::testing::TestWithParam<std::string> {
  protected:
   void SetUp() override {
-    description_ = std::make_unique<robot::model::RobotDescription>(robot_test::atlasDescription());
+    description_ = std::make_unique<robot::model::RobotDescription>(
+        robot_test::atlasDescription());
     initialState_.emplace(standingAtlas(*description_));
-    backend_ = std::make_unique<FakeRobotBackend>(robot_test::atlasDescription(), *initialState_);
+    backend_ = std::make_unique<FakeRobotBackend>(
+        robot_test::atlasDescription(), *initialState_);
     backend_->registerContactEstimators(estimators_);
     controller_.setRobotJointNames(description_->getJointNames());
     robotBus_ = robot_test::createLoopbackBus("robot");
     operatorBus_ = robot_test::createLoopbackBus("operator");
     ASSERT_TRUE(operatorBus_
-                    ->subscribe<humanoid_mpc_msgs::FsmState>(ipc::topics::kRobotFsmState, robot::ipc::Delivery::kLatest,
-                                                             [this](const humanoid_mpc_msgs::FsmState& state) { view_.onFsmState(state); })
+                    ->subscribe<humanoid_mpc_msgs::FsmState>(
+                        ipc::topics::kRobotFsmState,
+                        robot::ipc::Delivery::kLatest,
+                        [this](const humanoid_mpc_msgs::FsmState& state) {
+                          view_.onFsmState(state);
+                        })
                     .ok());
   }
 
@@ -276,26 +321,36 @@ class RobotProcessOnHardwareTest : public ::testing::TestWithParam<std::string> 
     config.settings.stateEstimator = stateEstimator;
     config.settings.fallRecovery.maxBaseTiltAngle = kMaxTilt;
     const ModelSettings modelSettings =
-        ModelSettings::Create(robot_test::kAtlasTask, robot_test::kAtlasUrdf, "centroidal_mpc_", /*verbose=*/false).value();
+        ModelSettings::Create(robot_test::kAtlasTask, robot_test::kAtlasUrdf,
+                              "centroidal_mpc_", /*verbose=*/false)
+            .value();
     config.urdfFile = robot_test::kAtlasUrdf;
     config.contactFrameNames = modelSettings.contactNames;
     config.contactParentJointNames = modelSettings.contactParentJointNames;
-    // The height the contact frames stand at in the world (kalman's contact_height): the Atlas stands at kStandingHeight
-    // with every joint at zero, so it is that height plus the frames' height below the base at zero joints, by the same
-    // leg kinematics the estimator runs.
+    // The height the contact frames stand at in the world (kalman's
+    // contact_height): the Atlas stands at kStandingHeight with every joint at
+    // zero, so it is that height plus the frames' height below the base at zero
+    // joints, by the same leg kinematics the estimator runs.
     std::vector<estimation::ContactPointSpec> contacts;
-    for (size_t contact = 0; contact < config.contactFrameNames.size(); ++contact) {
-      contacts.push_back(
-          estimation::ContactPointSpec{.frameNames = {config.contactFrameNames[contact], config.contactParentJointNames[contact]}});
+    for (size_t contact = 0; contact < config.contactFrameNames.size();
+         ++contact) {
+      contacts.push_back(estimation::ContactPointSpec{
+          .frameNames = {config.contactFrameNames[contact],
+                         config.contactParentJointNames[contact]}});
     }
     absl::StatusOr<std::unique_ptr<estimation::ContactKinematics>> kinematics =
-        estimation::ContactKinematics::Create(robot_test::kAtlasUrdf, contacts, description_->getJointNames());
+        estimation::ContactKinematics::Create(robot_test::kAtlasUrdf, contacts,
+                                              description_->getJointNames());
     EXPECT_TRUE(kinematics.ok()) << kinematics.status();
     if (kinematics.ok()) {
-      const vector_t zero = vector_t::Zero(static_cast<Eigen::Index>(description_->getNumJoints()));
+      const vector_t zero = vector_t::Zero(
+          static_cast<Eigen::Index>(description_->getNumJoints()));
       (*kinematics)->update(zero, zero);
-      config.settings.kalmanStateEstimator.contactHeight = kStandingHeight + (*kinematics)->contactPositionInBase(0).z();
-      EXPECT_NEAR((*kinematics)->contactPositionInBase(0).z(), (*kinematics)->contactPositionInBase(1).z(), 1.0e-9) << "a symmetric stance";
+      config.settings.kalmanStateEstimator.contactHeight =
+          kStandingHeight + (*kinematics)->contactPositionInBase(0).z();
+      EXPECT_NEAR((*kinematics)->contactPositionInBase(0).z(),
+                  (*kinematics)->contactPositionInBase(1).z(), 1.0e-9)
+          << "a symmetric stance";
     }
     return config;
   }
@@ -305,7 +360,8 @@ class RobotProcessOnHardwareTest : public ::testing::TestWithParam<std::string> 
     message.set_command(name);
     message.set_sequence(++sequence_);
     return waitFor([&]() {
-      operatorBus_->publish(ipc::topics::kOperatorFsmCommand, message).IgnoreError();
+      operatorBus_->publish(ipc::topics::kOperatorFsmCommand, message)
+          .IgnoreError();
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
       return done();
     });
@@ -325,18 +381,23 @@ class RobotProcessOnHardwareTest : public ::testing::TestWithParam<std::string> 
 
 TEST_P(RobotProcessOnHardwareTest, RunsItsCyclesOnABackendThatIsNoSimulator) {
   absl::StatusOr<std::unique_ptr<RobotProcess>> created =
-      RobotProcess::Create(robotBus_.get(), backend_.get(), &controller_, &estimators_, processConfig(GetParam()));
+      RobotProcess::Create(robotBus_.get(), backend_.get(), &controller_,
+                           &estimators_, processConfig(GetParam()));
   ASSERT_TRUE(created.ok()) << created.status();
   process_ = *std::move(created);
   ASSERT_TRUE(robotBus_->start().ok());
   ASSERT_TRUE(operatorBus_->start().ok());
   ASSERT_TRUE(process_->start().ok());
-  ASSERT_TRUE(waitFor([&]() { return controller_.cycles() > 50 && backend_->statesPublished() > 50; }));
+  ASSERT_TRUE(waitFor([&]() {
+    return controller_.cycles() > 50 && backend_->statesPublished() > 50;
+  }));
   EXPECT_EQ(backend_->actionsExecuted(), 0u) << "the torques start off";
 
-  ASSERT_TRUE(command("JOINT_PD", [&]() { return controller_.mode() == "JOINT_PD"; }));
+  ASSERT_TRUE(
+      command("JOINT_PD", [&]() { return controller_.mode() == "JOINT_PD"; }));
   EXPECT_TRUE(backend_->acceptsJointAction());
-  ASSERT_TRUE(waitFor([&]() { return backend_->actionsExecuted() > 50; })) << "the actions reach the drives";
+  ASSERT_TRUE(waitFor([&]() { return backend_->actionsExecuted() > 50; }))
+      << "the actions reach the drives";
   ASSERT_TRUE(waitFor([&]() {
     const std::optional<humanoid_mpc_msgs::FsmState> state = view_.last();
     return state.has_value() && state->mode() == "JOINT_PD";
@@ -347,25 +408,32 @@ TEST_P(RobotProcessOnHardwareTest, RunsItsCyclesOnABackendThatIsNoSimulator) {
   }
   EXPECT_FALSE(lastState->gantry_locked());
 
-  // A standing robot stays where it stands, measured or estimated: with its contact_height where the feet stand, the
-  // estimate of a robot at rest is the state it was reset to, and a centimeter is far above its noise model's drift.
+  // A standing robot stays where it stands, measured or estimated: with its
+  // contact_height where the feet stand, the estimate of a robot at rest is the
+  // state it was reset to, and a centimeter is far above its noise model's
+  // drift.
   constexpr double kStandingTolerance = 0.01;
   if (!initialState_.has_value()) {
     FAIL() << "SetUp() builds the initial state";
   }
-  EXPECT_LT((controller_.rootPosition() - initialState_->getRootPositionInWorldFrame()).norm(), kStandingTolerance);
+  EXPECT_LT((controller_.rootPosition() -
+             initialState_->getRootPositionInWorldFrame())
+                .norm(),
+            kStandingTolerance);
   EXPECT_LT(controller_.rootLinearVelocity().norm(), kStandingTolerance);
 
-  ASSERT_TRUE(command("ZERO_TORQUE", [&]() { return controller_.mode() == "ZERO_TORQUE"; }));
+  ASSERT_TRUE(command("ZERO_TORQUE",
+                      [&]() { return controller_.mode() == "ZERO_TORQUE"; }));
   EXPECT_FALSE(backend_->acceptsJointAction());
   process_->stop();
   EXPECT_FALSE(process_->faulted());
 }
 
-INSTANTIATE_TEST_SUITE_P(StateEstimators,
-                         RobotProcessOnHardwareTest,
-                         ::testing::Values(std::string(estimation::kGroundTruthStateEstimatorName),
-                                           std::string(estimation::kKalmanStateEstimatorName)));
+INSTANTIATE_TEST_SUITE_P(
+    StateEstimators,
+    RobotProcessOnHardwareTest,
+    ::testing::Values(std::string(estimation::kGroundTruthStateEstimatorName),
+                      std::string(estimation::kKalmanStateEstimatorName)));
 
 }  // namespace
 }  // namespace ocs2::humanoid

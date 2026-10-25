@@ -98,7 +98,9 @@ def make_policy(sequence: int) -> test_sample_pb2.TestSample:
     )
 
 
-def network(loss_per_mille: int = 0, message_size: int = 0) -> robot_ipc.NetworkConfig:
+def network(
+    loss_per_mille: int = 0, message_size: int = 0
+) -> robot_ipc.NetworkConfig:
     isolated = robot_ipc.isolated_test_network(["python", "echo"])
     reliable_latest = robot_ipc.QosProfile.RELIABLE_LATEST
     return robot_ipc.NetworkConfig(
@@ -179,7 +181,9 @@ class CrossLanguageTestCase(unittest.TestCase):
 
     def setUp(self) -> None:
         self.network = network(self.LOSS_PER_MILLE, self.MESSAGE_SIZE)
-        network_file = os.path.join(os.environ["TEST_TMPDIR"], f"{self.id()}.textproto")
+        network_file = os.path.join(
+            os.environ["TEST_TMPDIR"], f"{self.id()}.textproto"
+        )
         with open(network_file, "w", encoding="utf-8") as file:
             file.write(robot_ipc.format_network_config(self.network))
         self.bus = robot_ipc.Bus("python", self.network)
@@ -195,7 +199,9 @@ class CrossLanguageTestCase(unittest.TestCase):
         self.echoes: dict[int, test_sample_pb2.TestSample] = {}
         self.policies: dict[int, test_sample_pb2.TestSample] = {}
         self.envelopes: list[tuple[str, str, bytes]] = []
-        self.bus.subscribe(FROM_CPP, test_sample_pb2.TestSample, self._on_echo, "all")
+        self.bus.subscribe(
+            FROM_CPP, test_sample_pb2.TestSample, self._on_echo, "all"
+        )
         self.bus.subscribe(
             POLICY_FROM_CPP, test_sample_pb2.TestSample, self._on_policy, "all"
         )
@@ -238,13 +244,21 @@ class CrossLanguageTestCase(unittest.TestCase):
 
 class CrossLanguageTest(CrossLanguageTestCase):
 
-    def test_both_languages_generate_the_same_domain_configuration(self) -> None:
+    def test_both_languages_generate_the_same_domain_configuration(
+        self,
+    ) -> None:
         self.assertEqual(
-            self.cpp_config, robot_ipc.cyclone_domain_config(self.network, "echo")
+            self.cpp_config,
+            robot_ipc.cyclone_domain_config(self.network, "echo"),
         )
 
-    def test_python_and_cpp_carry_the_envelope_and_serialize_identically(self) -> None:
-        sent = {sequence: make_sample(sequence) for sequence in range(1, SAMPLES + 1)}
+    def test_python_and_cpp_carry_the_envelope_and_serialize_identically(
+        self,
+    ) -> None:
+        sent = {
+            sequence: make_sample(sequence)
+            for sequence in range(1, SAMPLES + 1)
+        }
         for sample in sent.values():
             self.assertTrue(self.bus.publish(TO_CPP, sample))
         self.assertTrue(wait_for(lambda: all(self.has_echo(s) for s in sent)))
@@ -261,9 +275,12 @@ class CrossLanguageTest(CrossLanguageTestCase):
         # The C++ bus's envelopes: the full type name and the payload.
         for topic, type_name, payload in envelopes:
             self.assertEqual(topic, FROM_CPP)
-            self.assertEqual(type_name, test_sample_pb2.TestSample.DESCRIPTOR.full_name)
             self.assertEqual(
-                test_sample_pb2.TestSample.FromString(payload).origin, ECHO_ORIGIN
+                type_name, test_sample_pb2.TestSample.DESCRIPTOR.full_name
+            )
+            self.assertEqual(
+                test_sample_pb2.TestSample.FromString(payload).origin,
+                ECHO_ORIGIN,
             )
 
         code, stats = self.echo.finish()
@@ -273,7 +290,9 @@ class CrossLanguageTest(CrossLanguageTestCase):
 
     def test_cpp_rejects_another_type_on_its_typed_subscription(self) -> None:
         self.assertTrue(
-            self.bus.publish(TO_CPP, test_event_pb2.TestEvent(name="not a sample"))
+            self.bus.publish(
+                TO_CPP, test_event_pb2.TestEvent(name="not a sample")
+            )
         )
         # One writer keeps its order on a reliable topic: once this echo is in, the event has reached the C++ bus.
         self.assertTrue(self.bus.publish(TO_CPP, make_sample(SAMPLES + 1)))
@@ -293,7 +312,9 @@ class LossyLinkTest(CrossLanguageTestCase):
     LOSS_PER_MILLE = LOSS_PER_MILLE
     MESSAGE_SIZE = WIFI_MESSAGE_SIZE_BYTES
 
-    def test_reliable_latest_carries_every_policy_whole_over_a_lossy_link(self) -> None:
+    def test_reliable_latest_carries_every_policy_whole_over_a_lossy_link(
+        self,
+    ) -> None:
         self.assertIn(
             f"<XmitLossiness>{LOSS_PER_MILLE}</XmitLossiness>", self.cpp_config
         )

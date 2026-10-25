@@ -187,6 +187,7 @@ hard_constraints: "normal_velocity"
 # LINT.IfChange(contact_implicit_soft_constraints)
 soft_constraints: "joint_limits"
 soft_constraints: "foot_collision"
+soft_constraints: "foot_collision_cbf"  # bounds how fast the feet and knees approach, not only how close
 soft_constraints: "contact_wrench_cone"  # wrench inputs: friction, CoP and torsion in one relaxed-barrier term.
                                  # Under basis_vectors (as shipped) the lambda >= 0 barrier is the cone and this
                                  # entry builds nothing.
@@ -1132,5 +1133,19 @@ collision_constraint {
   }
   # relaxed log barrier parameters
   mu: 30000
+  delta: 0.05
+}
+
+# The control barrier function of the collision_constraint spheres (soft constraint foot_collision_cbf,
+# FootCollisionCbfConstraint): each row is dh/dt + gamma * h >= 0 with h = |p_a - p_b|^2 - (2 r)^2, so a pair may
+# approach at most at gamma times its squared margin. With delta = 0.05 m^2/s the barrier engages at rest once the
+# squared margin falls below delta / gamma = 0.0025 m^2 (SA01's feet keep 0.0144 m^2 at the nominal stance).
+# gamma is 20, not the 10 of the other robots: with 10, one of the 20 real-time solves of
+# testMpcSqpConvergence (InRealTimeEverySolveTakesTheFullStep...) was reset instead of taking the full step; 5 and 20
+# both took every full step.
+collision_cbf_constraint {
+  gamma: 20.0  # [1/s]
+  # relaxed log barrier parameters
+  mu: 5000
   delta: 0.05
 }

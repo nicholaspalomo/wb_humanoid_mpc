@@ -27,12 +27,14 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// Interposes glibc's pthread_create for the test binary that links it: a call for which takePthreadCreateFailure()
-// returns true fails with EAGAIN, and every other call is passed on to glibc's.
+// Interposes glibc's pthread_create for the test binary that links it: a call
+// for which takePthreadCreateFailure() returns true fails with EAGAIN, and
+// every other call is passed on to glibc's.
 //
-// A translation unit of its own that includes no header declaring pthread_create (<pthread.h>, <atomic>, <thread>,
-// <memory>): next to glibc's declaration, whose parameters carry reserved names, this definition would be a second
-// declaration with other parameter names.
+// A translation unit of its own that includes no header declaring
+// pthread_create (<pthread.h>, <atomic>, <thread>, <memory>): next to glibc's
+// declaration, whose parameters carry reserved names, this definition would be
+// a second declaration with other parameter names.
 
 #include "robot_runtime/web_viewer/test/PthreadCreateInterposer.h"
 
@@ -43,20 +45,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 
-// The declaration glibc's <pthread.h> would give, with this file's parameter names.
-extern "C" int pthread_create(pthread_t* absl_nonnull thread,
-                              const pthread_attr_t* absl_nullable attributes,
-                              void* absl_nullable (*absl_nonnull start)(void* absl_nullable),
-                              void* absl_nullable argument) noexcept;
+// The declaration glibc's <pthread.h> would give, with this file's parameter
+// names.
+extern "C" int pthread_create(
+    pthread_t* absl_nonnull thread,
+    const pthread_attr_t* absl_nullable attributes,
+    void* absl_nullable (*absl_nonnull start)(void* absl_nullable),
+    void* absl_nullable argument) noexcept;
 
-extern "C" int pthread_create(pthread_t* absl_nonnull thread,
-                              const pthread_attr_t* absl_nullable attributes,
-                              void* absl_nullable (*absl_nonnull start)(void* absl_nullable),
-                              void* absl_nullable argument) noexcept {
-  using PthreadCreate = int (*absl_nullable)(pthread_t* absl_nonnull, const pthread_attr_t* absl_nullable,
-                                             void* absl_nullable (*absl_nonnull)(void* absl_nullable), void* absl_nullable);
-  // glibc's own pthread_create, the next definition after this one; null only in a process without libc's threads.
-  static const PthreadCreate kGlibcPthreadCreate = reinterpret_cast<PthreadCreate>(dlsym(RTLD_NEXT, "pthread_create"));
+extern "C" int pthread_create(
+    pthread_t* absl_nonnull thread,
+    const pthread_attr_t* absl_nullable attributes,
+    void* absl_nullable (*absl_nonnull start)(void* absl_nullable),
+    void* absl_nullable argument) noexcept {
+  using PthreadCreate = int (*absl_nullable)(
+      pthread_t* absl_nonnull, const pthread_attr_t* absl_nullable,
+      void* absl_nullable (*absl_nonnull)(void* absl_nullable),
+      void* absl_nullable);
+  // glibc's own pthread_create, the next definition after this one; null only
+  // in a process without libc's threads.
+  static const PthreadCreate kGlibcPthreadCreate =
+      reinterpret_cast<PthreadCreate>(dlsym(RTLD_NEXT, "pthread_create"));
   if (kGlibcPthreadCreate == nullptr) return ENOSYS;
   if (robot::web_viewer::takePthreadCreateFailure()) return EAGAIN;
   return kGlibcPthreadCreate(thread, attributes, start, argument);

@@ -53,7 +53,9 @@ IMPORT_NAMES: dict[str, str] = {
     "rerun-sdk": "rerun",
 }
 
-_REQUIREMENT = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:==\s*([^\s;]+))?")
+_REQUIREMENT = re.compile(
+    r"^([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:==\s*([^\s;]+))?"
+)
 
 
 class Requirement(NamedTuple):
@@ -83,7 +85,8 @@ class ReadRequirementsTest(unittest.TestCase):
         path = os.path.join(os.environ["TEST_TMPDIR"], "requirements.txt")
         with open(path, "w", encoding="utf-8") as requirements_file:
             requirements_file.write(
-                "# comment\n\npygame\nprotobuf==7.36.0  # pinned\nnumpy>=2\nRerun_SDK==0.38.1\n"
+                "# comment\n\npygame\nprotobuf==7.36.0  #"
+                " pinned\nnumpy>=2\nRerun_SDK==0.38.1\n"
             )
         self.assertEqual(
             read_requirements(path),

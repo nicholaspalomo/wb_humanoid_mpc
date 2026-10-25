@@ -38,8 +38,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::test_support {
 
 /**
- * An MpcLink with no MPC behind it: observations go nowhere and no policy ever arrives. For tests of an MRT joint
- * controller's own work in a cycle - its passive modes and its hold of WB_MPC - without a solver thread or a bus whose
+ * An MpcLink with no MPC behind it: observations go nowhere and no policy ever
+ * arrives. For tests of an MRT joint controller's own work in a cycle - its
+ * passive modes and its hold of WB_MPC - without a solver thread or a bus whose
  * work would be counted with it.
  */
 class NullMpcLink final : public MpcLink {
@@ -51,14 +52,18 @@ class NullMpcLink final : public MpcLink {
 
   /** A factory for the controllers' constructors. */
   static MpcLinkFactory factory() {
-    return [](const MpcLink::ResetTargetFunction& /*resetTarget*/) { return std::make_unique<NullMpcLink>(); };
+    return [](const MpcLink::ResetTargetFunction& /*resetTarget*/) {
+      return std::make_unique<NullMpcLink>();
+    };
   }
 
  private:
   class NullMrt final : public MRT_BASE {
    public:
-    void resetMpcNode(const TargetTrajectories& /*initTargetTrajectories*/) override {}
-    void setCurrentObservation(const SystemObservation& /*observation*/) override {}
+    void resetMpcNode(
+        const TargetTrajectories& /*initTargetTrajectories*/) override {}
+    void setCurrentObservation(
+        const SystemObservation& /*observation*/) override {}
   };
 
   NullMrt mrt_;

@@ -27,8 +27,10 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// The conversion of the knee mimic joints (JointMimicFromConfig.h): the left knee first, every value carried over, a
-// value that is not finite refused by its path, and the centroidal variant refusing the velocity gain it has no use for.
+// The conversion of the knee mimic joints (JointMimicFromConfig.h): the left
+// knee first, every value carried over, a value that is not finite refused by
+// its path, and the centroidal variant refusing the velocity gain it has no use
+// for.
 
 #include <limits>
 
@@ -61,7 +63,8 @@ mpc_config::MimicJointsConfig kneeMimicJoints() {
 TEST(JointMimicFromConfigTest, TheLegsComeInTheOrderOfTheContacts) {
   mpc_config::MimicJointsConfig mimicJoints = kneeMimicJoints();
   mimicJoints.right_knee.velocity_gain = 0.25;
-  const absl::StatusOr<feet_array_t<JointMimicSettings>> joints = kneeMimicJointsFromConfig(mimicJoints);
+  const absl::StatusOr<feet_array_t<JointMimicSettings>> joints =
+      kneeMimicJointsFromConfig(mimicJoints);
   ASSERT_TRUE(joints.ok()) << joints.status();
   EXPECT_EQ((*joints)[0].parentJointName, "l_knee");
   EXPECT_EQ((*joints)[0].childJointName, "l_knee_mimic");
@@ -74,7 +77,8 @@ TEST(JointMimicFromConfigTest, TheLegsComeInTheOrderOfTheContacts) {
 }
 
 TEST(JointMimicFromConfigTest, AnEmptyBlockIsEmptyNamesAndZeros) {
-  const absl::StatusOr<feet_array_t<JointMimicSettings>> joints = kneeMimicJointsFromConfig(mpc_config::MimicJointsConfig{});
+  const absl::StatusOr<feet_array_t<JointMimicSettings>> joints =
+      kneeMimicJointsFromConfig(mpc_config::MimicJointsConfig{});
   ASSERT_TRUE(joints.ok()) << joints.status();
   for (const JointMimicSettings& joint : *joints) {
     EXPECT_TRUE(joint.parentJointName.empty());
@@ -85,19 +89,26 @@ TEST(JointMimicFromConfigTest, AnEmptyBlockIsEmptyNamesAndZeros) {
 
 TEST(JointMimicFromConfigTest, RefusesANonFiniteValueByItsPath) {
   mpc_config::MimicJointsConfig mimicJoints = kneeMimicJoints();
-  mimicJoints.right_knee.position_gain = std::numeric_limits<double>::infinity();
-  const absl::StatusOr<feet_array_t<JointMimicSettings>> refused = kneeMimicJointsFromConfig(mimicJoints);
+  mimicJoints.right_knee.position_gain =
+      std::numeric_limits<double>::infinity();
+  const absl::StatusOr<feet_array_t<JointMimicSettings>> refused =
+      kneeMimicJointsFromConfig(mimicJoints);
   EXPECT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(absl::StrContains(refused.status().message(), "mimic_joints.right_knee.position_gain")) << refused.status();
+  EXPECT_TRUE(absl::StrContains(refused.status().message(),
+                                "mimic_joints.right_knee.position_gain"))
+      << refused.status();
 }
 
 TEST(JointMimicFromConfigTest, TheCentroidalVariantRefusesAVelocityGain) {
   mpc_config::MimicJointsConfig mimicJoints = kneeMimicJoints();
   EXPECT_TRUE(kneeMimicKinematicJointsFromConfig(mimicJoints).ok());
   mimicJoints.left_knee.velocity_gain = 1.0;
-  const absl::StatusOr<feet_array_t<JointMimicSettings>> refused = kneeMimicKinematicJointsFromConfig(mimicJoints);
+  const absl::StatusOr<feet_array_t<JointMimicSettings>> refused =
+      kneeMimicKinematicJointsFromConfig(mimicJoints);
   EXPECT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(absl::StrContains(refused.status().message(), "mimic_joints.left_knee.velocity_gain")) << refused.status();
+  EXPECT_TRUE(absl::StrContains(refused.status().message(),
+                                "mimic_joints.left_knee.velocity_gain"))
+      << refused.status();
 }
 
 }  // namespace

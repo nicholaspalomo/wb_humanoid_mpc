@@ -61,16 +61,19 @@ constexpr std::array<absl::string_view, 2> kFields = {
 // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/task_file.proto)
 
 /** Whether `ocp` carries the foot cost of any foot of `contactNames`. */
-bool carriesFootCost(const OptimalControlProblem& ocp, const std::vector<std::string>& contactNames) {
+bool carriesFootCost(const OptimalControlProblem& ocp,
+                     const std::vector<std::string>& contactNames) {
   for (const std::string& footName : contactNames) {
-    if (carriesTerm(*ocp.costPtr, taskSpaceKinematicsCostName(footName))) return true;
+    if (carriesTerm(*ocp.costPtr, taskSpaceKinematicsCostName(footName)))
+      return true;
   }
   return false;
 }
 
 }  // namespace
 
-absl::Span<const absl::string_view> CentroidalCostWeightsApplier::staticFields() {
+absl::Span<const absl::string_view>
+CentroidalCostWeightsApplier::staticFields() {
   return absl::MakeConstSpan(kFields);
 }
 
@@ -79,11 +82,15 @@ void CentroidalCostWeightsApplier::apply(HotUpdateTarget& target) {
   const OptimalControlProblem& running = target.runningProblem();
   std::optional<TaskSpaceFootCostSettings> footCost;
   if (carriesFootCost(running, target.contactNames())) {
-    footCost = convertedOrReported(taskSpaceFootCostFromConfig(task.task_space_foot_cost), target.source(), "task_space_foot_cost");
+    footCost = convertedOrReported(
+        taskSpaceFootCostFromConfig(task.task_space_foot_cost), target.source(),
+        "task_space_foot_cost");
   }
   std::optional<DcmTerminalCost::Config> dcmTerminalCost;
   if (carriesTerm(*running.finalCostPtr, DcmTerminalCost::kTermName)) {
-    dcmTerminalCost = convertedOrReported(dcmTerminalCostConfigFromConfig(task.dcm_terminal_cost), target.source(), "dcm_terminal_cost");
+    dcmTerminalCost = convertedOrReported(
+        dcmTerminalCostConfigFromConfig(task.dcm_terminal_cost),
+        target.source(), "dcm_terminal_cost");
   }
 
   bool dcmRefusalLogged = false;
@@ -92,19 +99,26 @@ void CentroidalCostWeightsApplier::apply(HotUpdateTarget& target) {
       const vector12_t weights = footCost->weights.toVector();
       for (const std::string& footName : target.contactNames()) {
         updateTermIfPresent<CentroidalMpcEndEffectorFootCost>(
-            *ocp.costPtr, taskSpaceKinematicsCostName(footName), [&](CentroidalMpcEndEffectorFootCost& cost) {
+            *ocp.costPtr, taskSpaceKinematicsCostName(footName),
+            [&](CentroidalMpcEndEffectorFootCost& cost) {
               cost.setWeights(weights);
               cost.setActiveInStance(footCost->activeInStance);
-              cost.setSwingVelocityReferenceWeight(footCost->swingVelocityReferenceWeight);
+              cost.setSwingVelocityReferenceWeight(
+                  footCost->swingVelocityReferenceWeight);
             });
       }
     }
     if (dcmTerminalCost.has_value()) {
       absl::Status applied = absl::OkStatus();
-      updateTermIfPresent<DcmTerminalCost>(*ocp.finalCostPtr, DcmTerminalCost::kTermName,
-                                           [&](DcmTerminalCost& cost) { applied = cost.setConfig(*dcmTerminalCost); });
+      updateTermIfPresent<DcmTerminalCost>(
+          *ocp.finalCostPtr, DcmTerminalCost::kTermName,
+          [&](DcmTerminalCost& cost) {
+            applied = cost.setConfig(*dcmTerminalCost);
+          });
       if (!applied.ok() && !dcmRefusalLogged) {
-        LOG(WARNING) << "[MpcParameterUpdaterModule] dcm_terminal_cost not applied, the running cost is kept: " << applied.message();
+        LOG(WARNING) << "[MpcParameterUpdaterModule] dcm_terminal_cost not "
+                        "applied, the running cost is kept: "
+                     << applied.message();
         dcmRefusalLogged = true;
       }
     }

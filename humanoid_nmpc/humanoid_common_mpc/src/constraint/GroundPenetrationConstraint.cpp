@@ -37,36 +37,48 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-absl::StatusOr<std::unique_ptr<GroundPenetrationConstraint>> GroundPenetrationConstraint::Create(
-    const FootprintCornerHeights& cornerHeights, scalar_t terrainHeight) {
+absl::StatusOr<std::unique_ptr<GroundPenetrationConstraint>>
+GroundPenetrationConstraint::Create(const FootprintCornerHeights& cornerHeights,
+                                    scalar_t terrainHeight) {
   if (cornerHeights.numCorners() == 0) {
-    return absl::InvalidArgumentError("[GroundPenetrationConstraint] needs at least one point of the foot to keep above the ground");
+    return absl::InvalidArgumentError(
+        "[GroundPenetrationConstraint] needs at least one point of the foot to "
+        "keep above the ground");
   }
   // The constructor is private, so std::make_unique cannot call it (ToTW #134).
-  return absl::WrapUnique(new GroundPenetrationConstraint(cornerHeights, terrainHeight));
+  return absl::WrapUnique(
+      new GroundPenetrationConstraint(cornerHeights, terrainHeight));
 }
 
-GroundPenetrationConstraint::GroundPenetrationConstraint(const FootprintCornerHeights& cornerHeights, scalar_t terrainHeight)
+GroundPenetrationConstraint::GroundPenetrationConstraint(
+    const FootprintCornerHeights& cornerHeights, scalar_t terrainHeight)
     : StateConstraint(ConstraintOrder::Linear),
       cornerHeightsPtr_(cornerHeights.clone()),
       numPoints_(cornerHeights.numCorners()),
       terrainHeight_(terrainHeight) {}
 
-GroundPenetrationConstraint::GroundPenetrationConstraint(const GroundPenetrationConstraint& rhs)
+GroundPenetrationConstraint::GroundPenetrationConstraint(
+    const GroundPenetrationConstraint& rhs)
     : StateConstraint(rhs),
       cornerHeightsPtr_(rhs.cornerHeightsPtr_->clone()),
       numPoints_(rhs.numPoints_),
       terrainHeight_(rhs.terrainHeight_) {}
 
-vector_t GroundPenetrationConstraint::getValue(scalar_t /*time*/, const vector_t& state, const PreComputation& /*preComp*/) const {
+vector_t GroundPenetrationConstraint::getValue(
+    scalar_t /*time*/,
+    const vector_t& state,
+    const PreComputation& /*preComp*/) const {
   return cornerHeightsPtr_->getHeights(state).array() - terrainHeight_;
 }
 
-VectorFunctionLinearApproximation GroundPenetrationConstraint::getLinearApproximation(scalar_t /*time*/,
-                                                                                      const vector_t& state,
-                                                                                      const PreComputation& /*preComp*/) const {
+VectorFunctionLinearApproximation
+GroundPenetrationConstraint::getLinearApproximation(
+    scalar_t /*time*/,
+    const vector_t& state,
+    const PreComputation& /*preComp*/) const {
   VectorFunctionLinearApproximation approximation;
-  approximation.f = cornerHeightsPtr_->getHeights(state).array() - terrainHeight_;
+  approximation.f =
+      cornerHeightsPtr_->getHeights(state).array() - terrainHeight_;
   approximation.dfdx = cornerHeightsPtr_->getHeightsJacobian(state);
   return approximation;
 }

@@ -34,41 +34,54 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::validation {
 
 /**
- * The first time of the grid `scheduled` + k `period` (k = 0, 1, ...) after `time`: `scheduled` itself when it is after
- * `time`, else `scheduled` + k `period` for the least k >= 1 that passes `time`, computed at once rather than by adding
- * one period at a time, whose cost grows with the time skipped. One period ahead is `scheduled` + `period`, the sum
- * the step-by-step addition makes. Precondition: `period` > 0 and every argument finite.
+ * The first time of the grid `scheduled` + k `period` (k = 0, 1, ...) after
+ * `time`: `scheduled` itself when it is after `time`, else `scheduled` + k
+ * `period` for the least k >= 1 that passes `time`, computed at once rather
+ * than by adding one period at a time, whose cost grows with the time skipped.
+ * One period ahead is `scheduled` + `period`, the sum the step-by-step addition
+ * makes. Precondition: `period` > 0 and every argument finite.
  */
 double firstPeriodicTimeAfter(double scheduled, double period, double time);
 
 /**
- * When the lockstep closed loop (LockstepClosedLoop) solves: steps 4 and 5 of InProcessMpcLink's solver thread, which
- * Execution::kCaller leaves to the caller, on the simulation's clock.
+ * When the lockstep closed loop (LockstepClosedLoop) solves: steps 4 and 5 of
+ * InProcessMpcLink's solver thread, which Execution::kCaller leaves to the
+ * caller, on the simulation's clock.
  *
- * A solve is due every `period` from the first one (step 5, the pacing; a solve falls in the first control cycle at or
- * after its time). A solve that fails and asks for a pause before the next attempt (MpcResetSupervisor::onSolveResult()'s
- * retry delay) holds the solves back until the delay has passed, or until a reset is requested after that failure
- * (MpcResetSupervisor::resetRequestedSinceLastFailure()), whichever comes first (step 4, waitBeforeRetry()). The solve
- * that ends the pause runs at once, and the period is counted again from it, as the solver thread starts the next
+ * A solve is due every `period` from the first one (step 5, the pacing; a solve
+ * falls in the first control cycle at or after its time). A solve that fails
+ * and asks for a pause before the next attempt
+ * (MpcResetSupervisor::onSolveResult()'s retry delay) holds the solves back
+ * until the delay has passed, or until a reset is requested after that failure
+ * (MpcResetSupervisor::resetRequestedSinceLastFailure()), whichever comes first
+ * (step 4, waitBeforeRetry()). The solve that ends the pause runs at once, and
+ * the period is counted again from it, as the solver thread starts the next
  * iteration straight after the wait and paces from there.
  */
 class LockstepSolveSchedule {
  public:
   /**
    * @param firstSolveTime [s] When the first solve is due.
-   * @param period         [s] 1 / mpc.mpc_desired_frequency; <= 0: a solve in every control cycle, as the solver thread
-   *                       runs back to back without a frequency.
-   * @param timeTolerance  [s] Times this close are the same: the clock is a sum of simulation steps.
+   * @param period         [s] 1 / mpc.mpc_desired_frequency; <= 0: a solve in
+   * every control cycle, as the solver thread runs back to back without a
+   * frequency.
+   * @param timeTolerance  [s] Times this close are the same: the clock is a sum
+   * of simulation steps.
    */
-  LockstepSolveSchedule(double firstSolveTime, double period, double timeTolerance);
+  LockstepSolveSchedule(double firstSolveTime,
+                        double period,
+                        double timeTolerance);
 
   /**
-   * Whether a solve is due in the control cycle at `time`. `resetRequestedSinceFailure` is
-   * MpcResetSupervisor::resetRequestedSinceLastFailure(); it matters only while a pause holds the solves back.
+   * Whether a solve is due in the control cycle at `time`.
+   * `resetRequestedSinceFailure` is
+   * MpcResetSupervisor::resetRequestedSinceLastFailure(); it matters only while
+   * a pause holds the solves back.
    */
   bool isDue(double time, bool resetRequestedSinceFailure) const;
 
-  /** Accounts for the solve run at `time`, which asked for a pause of `retryDelay` [s] before the next (zero: none). */
+  /** Accounts for the solve run at `time`, which asked for a pause of
+   * `retryDelay` [s] before the next (zero: none). */
   void onSolve(double time, double retryDelay);
 
   /** Whether a failed solve's pause holds the solves back. */

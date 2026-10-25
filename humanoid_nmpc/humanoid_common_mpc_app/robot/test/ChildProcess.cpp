@@ -47,10 +47,15 @@ namespace ocs2::humanoid::test_support {
 ChildProcess::ChildProcess(const std::vector<std::string>& arguments) {
   CHECK(!arguments.empty()) << "a process needs a program";
   name_ = arguments.front();
-  std::vector<char* absl_nullable> argv;  // null-terminated, as posix_spawn() takes it
-  for (const std::string& argument : arguments) argv.push_back(const_cast<char*>(argument.c_str()));
+  std::vector<char* absl_nullable>
+      argv;  // null-terminated, as posix_spawn() takes it
+  for (const std::string& argument : arguments)
+    argv.push_back(const_cast<char*>(argument.c_str()));
   argv.push_back(nullptr);
-  CHECK_EQ(::posix_spawn(&pid_, argv[0], /*file_actions=*/nullptr, /*attrp=*/nullptr, argv.data(), environ), 0) << "cannot start " << name_;
+  CHECK_EQ(::posix_spawn(&pid_, argv[0], /*file_actions=*/nullptr,
+                         /*attrp=*/nullptr, argv.data(), environ),
+           0)
+      << "cannot start " << name_;
 }
 
 ChildProcess::~ChildProcess() {

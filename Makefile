@@ -26,7 +26,7 @@ bazel_indexed := cd $(current_path) && $(bazel_indexed_in_repo)
 # Build targets
 ############################################################
 .PHONY: help build-all build-debug build-release build-relwithdebinfo build compile-commands \
-        test-all test test-heuristic-parameters derive-heuristic-parameters clean clean-all format lint ci-local \
+        test-all test test-heuristic-parameters derive-heuristic-parameters clean clean-all format lint fix ci-local \
         lint-tidy lint-tidy-fix \
         test-pinocchio-model-atlas test-pinocchio-model-r1 test-pinocchio-model-sa01 \
         start-vnc stop-vnc kill-sims check-zombies \
@@ -182,6 +182,18 @@ format:
 
 ## Lint repository: IFTTT, formatting, the token checks of tools/hooks/checks.py, cpplint, pylint and mypy
 lint:
+	@python3 -m tools.hooks.lint_code
+
+# Every automatic fix, then the lint, whose findings are what is left to fix by hand. The registry's fixes include those
+# `make format` leaves out because they can change behavior (american-spelling renames identifiers, proto-next-id
+# rewrites `// Next ID` comments), so build and test afterwards. clang-tidy's fix-its need a build and run only when
+# TIDY_CHECKS names them (make lint-tidy-fix). Without them the target runs no compiler.
+## Apply every automatic lint fix, then lint what is left to fix by hand (build and test afterwards):
+## make fix [TIDY_CHECKS='<glob>' [PKG=//humanoid_nmpc/...]]
+fix:
+	@python3 -m tools.hooks.lint_code --fix-only
+	@python3 -m tools.hooks.format_code
+	@$(if $(TIDY_CHECKS),$(MAKE) --no-print-directory lint-tidy-fix CHECKS='$(TIDY_CHECKS)' $(if $(PKG),PKG='$(PKG)'),true)
 	@python3 -m tools.hooks.lint_code
 
 # clang-tidy runs as a Bazel aspect (tools/clang_tidy/README.md), inside .bazelrc's RAM-bounded --jobs and tools/bazel's
@@ -628,6 +640,8 @@ help:
 	@echo "  format                          clang-format, black, isort and the enforced checks' safe rewrites"
 	@echo "  lint                            every check without a compiler; one check or directory:"
 	@echo "                                  python3 -m tools.hooks.lint_code --only <check> --paths <dir>"
+	@echo "  fix [TIDY_CHECKS= [PKG=]]       every automatic fix (the checks' rewrites, format, clang-tidy's fix-its"
+	@echo "                                  with TIDY_CHECKS), then lint what is left to fix by hand"
 	@echo "  lint-tidy [PKG=]                clang-tidy as a Bazel aspect, inside the machine lock"
 	@echo "  lint-tidy-fix CHECKS= [PKG=] [PATHS=]        apply clang-tidy's fix-its, then build"
 	@echo "  install-hooks                   the pre-commit hook: format, then lint the staged files"

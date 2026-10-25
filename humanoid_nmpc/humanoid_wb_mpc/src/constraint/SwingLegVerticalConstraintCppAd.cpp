@@ -45,22 +45,27 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-absl::StatusOr<std::unique_ptr<SwingLegVerticalConstraintCppAd>> SwingLegVerticalConstraintCppAd::Create(
+absl::StatusOr<std::unique_ptr<SwingLegVerticalConstraintCppAd>>
+SwingLegVerticalConstraintCppAd::Create(
     const SwitchedModelReferenceManager& referenceManager,
     const EndEffectorDynamics<scalar_t>& endEffectorDynamics,
     size_t contactPointIndex) {
-  ASSIGN_OR_RETURN(std::unique_ptr<EndEffectorDynamicsLinearAccConstraint> eeLinearConstraint,
-                   EndEffectorDynamicsLinearAccConstraint::Create(endEffectorDynamics, /*numConstraints=*/1));
-  return absl::WrapUnique(new SwingLegVerticalConstraintCppAd(referenceManager, std::move(eeLinearConstraint), contactPointIndex));
+  ASSIGN_OR_RETURN(std::unique_ptr<EndEffectorDynamicsLinearAccConstraint>
+                       eeLinearConstraint,
+                   EndEffectorDynamicsLinearAccConstraint::Create(
+                       endEffectorDynamics, /*numConstraints=*/1));
+  return absl::WrapUnique(new SwingLegVerticalConstraintCppAd(
+      referenceManager, std::move(eeLinearConstraint), contactPointIndex));
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-SwingLegVerticalConstraintCppAd::SwingLegVerticalConstraintCppAd(const SwitchedModelReferenceManager& referenceManager,
-                                                                 std::unique_ptr<EndEffectorDynamicsLinearAccConstraint> eeLinearConstraint,
-                                                                 size_t contactPointIndex)
+SwingLegVerticalConstraintCppAd::SwingLegVerticalConstraintCppAd(
+    const SwitchedModelReferenceManager& referenceManager,
+    std::unique_ptr<EndEffectorDynamicsLinearAccConstraint> eeLinearConstraint,
+    size_t contactPointIndex)
     : StateInputConstraint(ConstraintOrder::Linear),
       referenceManagerPtr_(&referenceManager),
       eeLinearConstraintPtr_(std::move(eeLinearConstraint)),
@@ -70,7 +75,8 @@ SwingLegVerticalConstraintCppAd::SwingLegVerticalConstraintCppAd(const SwitchedM
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-SwingLegVerticalConstraintCppAd::SwingLegVerticalConstraintCppAd(const SwingLegVerticalConstraintCppAd& rhs)
+SwingLegVerticalConstraintCppAd::SwingLegVerticalConstraintCppAd(
+    const SwingLegVerticalConstraintCppAd& rhs)
     : StateInputConstraint(rhs),
       referenceManagerPtr_(rhs.referenceManagerPtr_),
       eeLinearConstraintPtr_(rhs.eeLinearConstraintPtr_->clone()),
@@ -86,12 +92,16 @@ bool SwingLegVerticalConstraintCppAd::isActive(scalar_t time) const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-vector_t SwingLegVerticalConstraintCppAd::getValue(scalar_t time,
-                                                   const vector_t& state,
-                                                   const vector_t& input,
-                                                   const PreComputation& preComp) const {
-  const WBMpcPreComputation& humanoidPreComp = cast<WBMpcPreComputation>(preComp);
-  eeLinearConstraintPtr_->configure(humanoidPreComp.getEeNormalAccelerationConstraintConfigs()[contactPointIndex_]);
+vector_t SwingLegVerticalConstraintCppAd::getValue(
+    scalar_t time,
+    const vector_t& state,
+    const vector_t& input,
+    const PreComputation& preComp) const {
+  const WBMpcPreComputation& humanoidPreComp =
+      cast<WBMpcPreComputation>(preComp);
+  eeLinearConstraintPtr_->configure(
+      humanoidPreComp
+          .getEeNormalAccelerationConstraintConfigs()[contactPointIndex_]);
 
   return eeLinearConstraintPtr_->getValue(time, state, input, preComp);
 }
@@ -99,17 +109,23 @@ vector_t SwingLegVerticalConstraintCppAd::getValue(scalar_t time,
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-VectorFunctionLinearApproximation SwingLegVerticalConstraintCppAd::getLinearApproximation(scalar_t time,
-                                                                                          const vector_t& state,
-                                                                                          const vector_t& input,
-                                                                                          const PreComputation& preComp) const {
-  const WBMpcPreComputation& humanoidPreComp = cast<WBMpcPreComputation>(preComp);
+VectorFunctionLinearApproximation
+SwingLegVerticalConstraintCppAd::getLinearApproximation(
+    scalar_t time,
+    const vector_t& state,
+    const vector_t& input,
+    const PreComputation& preComp) const {
+  const WBMpcPreComputation& humanoidPreComp =
+      cast<WBMpcPreComputation>(preComp);
 
-  EndEffectorDynamicsLinearAccConstraint::Config config = humanoidPreComp.getEeNormalAccelerationConstraintConfigs()[contactPointIndex_];
+  EndEffectorDynamicsLinearAccConstraint::Config config =
+      humanoidPreComp
+          .getEeNormalAccelerationConstraintConfigs()[contactPointIndex_];
 
   eeLinearConstraintPtr_->configure(config);
 
-  return eeLinearConstraintPtr_->getLinearApproximation(time, state, input, preComp);
+  return eeLinearConstraintPtr_->getLinearApproximation(time, state, input,
+                                                        preComp);
 }
 
 }  // namespace ocs2::humanoid

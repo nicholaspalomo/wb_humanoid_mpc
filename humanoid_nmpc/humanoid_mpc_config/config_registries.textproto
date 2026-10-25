@@ -178,6 +178,7 @@ registries {
   name: "soft_constraint"
   names: "joint_limits"
   names: "foot_collision"
+  names: "foot_collision_cbf"
   names: "friction_force_cone"
   names: "contact_moment_xy"
   names: "contact_wrench_cone"

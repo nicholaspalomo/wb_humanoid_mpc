@@ -88,11 +88,14 @@ def schema_fingerprint_text(descriptor: descriptor_module.Descriptor) -> str:
     lines: list[str] = []
     for name in sorted(messages):
         lines.append(f"message {name}")
-        for field in sorted(messages[name].fields, key=lambda field: field.number):
+        for field in sorted(
+            messages[name].fields, key=lambda field: field.number
+        ):
             label = "repeated" if field.is_repeated else "singular"
             presence = "presence" if field.has_presence else "no_presence"
             lines.append(
-                f"field {field.number} {field.name} {field.type} {label} {presence} {_type_name(field)}"
+                "field"
+                f" {field.number} {field.name} {field.type} {label} {presence} {_type_name(field)}"
             )
     for name in sorted(enums):
         lines.append(f"enum {name}")

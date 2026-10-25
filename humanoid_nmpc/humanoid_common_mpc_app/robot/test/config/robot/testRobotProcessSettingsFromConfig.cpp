@@ -27,10 +27,11 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// The robot process's settings from a typed task file: a file that says nothing gives the defaults of
-// RobotProcessSettings except the lists it leaves out, which are empty, every field is read, a value the robot process cannot
-// run with is refused by its field, the retired fields name their replacement, and the schema's link timeout is the
-// link's.
+// The robot process's settings from a typed task file: a file that says nothing
+// gives the defaults of RobotProcessSettings except the lists it leaves out,
+// which are empty, every field is read, a value the robot process cannot run
+// with is refused by its field, the retired fields name their replacement, and
+// the schema's link timeout is the link's.
 
 #include <limits>
 #include <string>
@@ -65,26 +66,36 @@ using ::testing::Optional;
 constexpr double kDebounceTime = 0.01;
 constexpr double kRampTime = 0.04;
 
-TEST(RobotProcessSettingsFromConfigTest, AFileThatSaysNothingGivesTheLoadersDefaultsButNoLists) {
-  const absl::StatusOr<RobotProcessSettings> settings = robotProcessSettingsFromConfig(mpc_config::TaskFile{});
+TEST(RobotProcessSettingsFromConfigTest,
+     AFileThatSaysNothingGivesTheLoadersDefaultsButNoLists) {
+  const absl::StatusOr<RobotProcessSettings> settings =
+      robotProcessSettingsFromConfig(mpc_config::TaskFile{});
   ASSERT_TRUE(settings.ok()) << settings.status();
   const RobotProcessSettings defaults;
   EXPECT_EQ(settings->contactEstimator, defaults.contactEstimator);
-  EXPECT_EQ(settings->simulator.contactForceThreshold, defaults.simulator.contactForceThreshold);
-  EXPECT_EQ(settings->simulator.contactTimelineWindow, defaults.simulator.contactTimelineWindow);
+  EXPECT_EQ(settings->simulator.contactForceThreshold,
+            defaults.simulator.contactForceThreshold);
+  EXPECT_EQ(settings->simulator.contactTimelineWindow,
+            defaults.simulator.contactTimelineWindow);
   EXPECT_EQ(settings->simulator.gantryHold, defaults.simulator.gantryHold);
   EXPECT_EQ(settings->simulator.projectile, defaults.simulator.projectile);
-  EXPECT_EQ(settings->fallRecovery.maxBaseTiltAngle, defaults.fallRecovery.maxBaseTiltAngle) << "the catch stays off";
+  EXPECT_EQ(settings->fallRecovery.maxBaseTiltAngle,
+            defaults.fallRecovery.maxBaseTiltAngle)
+      << "the catch stays off";
   EXPECT_EQ(settings->fallRecovery.catchLift, defaults.fallRecovery.catchLift);
   EXPECT_EQ(settings->mpcEntryBlendTime, defaults.mpcEntryBlendTime);
-  EXPECT_EQ(settings->safetyDecayTimeConstant, defaults.safetyDecayTimeConstant);
-  EXPECT_FALSE(settings->contactWrenchGate.has_value()) << "the instantaneous gate";
+  EXPECT_EQ(settings->safetyDecayTimeConstant,
+            defaults.safetyDecayTimeConstant);
+  EXPECT_FALSE(settings->contactWrenchGate.has_value())
+      << "the instantaneous gate";
   EXPECT_EQ(settings->wbMpcFeedforward, defaults.wbMpcFeedforward);
   EXPECT_EQ(settings->telemetryFrequency, defaults.telemetryFrequency);
   EXPECT_EQ(settings->mpcLinkPolicyTimeout, defaults.mpcLinkPolicyTimeout);
-  // A repeated field the file leaves out is empty: every shipped file lists both.
+  // A repeated field the file leaves out is empty: every shipped file lists
+  // both.
   EXPECT_TRUE(settings->telemetrySinks.empty());
-  EXPECT_THAT(settings->simulator.visualizations, Optional(std::vector<std::string>{}));
+  EXPECT_THAT(settings->simulator.visualizations,
+              Optional(std::vector<std::string>{}));
 }
 
 TEST(RobotProcessSettingsFromConfigTest, EveryFieldIsRead) {
@@ -108,34 +119,41 @@ TEST(RobotProcessSettingsFromConfigTest, EveryFieldIsRead) {
   task.telemetry_frequency = 50.0;
   task.mpc_link.policy_timeout = 0.75;
 
-  const absl::StatusOr<RobotProcessSettings> settings = robotProcessSettingsFromConfig(task);
+  const absl::StatusOr<RobotProcessSettings> settings =
+      robotProcessSettingsFromConfig(task);
   ASSERT_TRUE(settings.ok()) << settings.status();
   EXPECT_EQ(settings->contactEstimator, "robot_state");
   EXPECT_EQ(settings->simulator.contactForceThreshold, 7.5);
   EXPECT_EQ(settings->simulator.contactTimelineWindow, 3.0);
-  EXPECT_THAT(settings->simulator.visualizations, Optional(ElementsAre("metrics", "zmp")));
+  EXPECT_THAT(settings->simulator.visualizations,
+              Optional(ElementsAre("metrics", "zmp")));
   EXPECT_EQ(settings->simulator.gantryHold, "kinematic_teleport");
   EXPECT_EQ(settings->simulator.projectile, "dodgeball");
   EXPECT_EQ(settings->fallRecovery.maxBaseTiltAngle, 1.0);
   EXPECT_EQ(settings->fallRecovery.catchLift, 0.15);
   EXPECT_THAT(settings->mpcEntryBlendTime, Optional(0.4));
   EXPECT_THAT(settings->safetyDecayTimeConstant, Optional(0.5));
-  EXPECT_THAT(settings->contactWrenchGate, Optional(AllOf(Field(&ContactWrenchGate::Config::debounceTime, kDebounceTime),
-                                                          Field(&ContactWrenchGate::Config::rampTime, kRampTime))));
+  EXPECT_THAT(
+      settings->contactWrenchGate,
+      Optional(
+          AllOf(Field(&ContactWrenchGate::Config::debounceTime, kDebounceTime),
+                Field(&ContactWrenchGate::Config::rampTime, kRampTime))));
   EXPECT_EQ(settings->wbMpcFeedforward, WbMpcFeedforward::kGravityCompensation);
   EXPECT_THAT(settings->telemetrySinks, ElementsAre("bus"));
   EXPECT_THAT(settings->telemetryFrequency, Optional(50.0));
   EXPECT_EQ(settings->mpcLinkPolicyTimeout, 0.75);
 }
 
-TEST(RobotProcessSettingsFromConfigTest, AValueTheRobotProcessCannotRunWithIsRefusedByItsField) {
+TEST(RobotProcessSettingsFromConfigTest,
+     AValueTheRobotProcessCannotRunWithIsRefusedByItsField) {
   struct Case {
     mpc_config::TaskFile task;
     std::string field;
   };
   std::vector<Case> cases;
   {
-    Case unknownFeedforward{.task = {}, .field = "wb_mpc_feedforward is 'torque_feedforward'"};
+    Case unknownFeedforward{
+        .task = {}, .field = "wb_mpc_feedforward is 'torque_feedforward'"};
     unknownFeedforward.task.wb_mpc_feedforward = "torque_feedforward";
     cases.push_back(unknownFeedforward);
   }
@@ -146,30 +164,43 @@ TEST(RobotProcessSettingsFromConfigTest, AValueTheRobotProcessCannotRunWithIsRef
     negativeGate.task.contact_wrench_gate = gate;
     cases.push_back(negativeGate);
   }
-  for (const double bad : {0.0, -100.0, std::numeric_limits<double>::quiet_NaN()}) {
+  for (const double bad :
+       {0.0, -100.0, std::numeric_limits<double>::quiet_NaN()}) {
     Case frequency{.task = {}, .field = "telemetry_frequency must be positive"};
     frequency.task.telemetry_frequency = bad;
     cases.push_back(frequency);
-    Case timeout{.task = {}, .field = "mpc_link.policy_timeout must be a positive number of seconds"};
+    Case timeout{
+        .task = {},
+        .field =
+            "mpc_link.policy_timeout must be a positive number of seconds"};
     timeout.task.mpc_link.policy_timeout = bad;
     cases.push_back(timeout);
   }
   for (const Case& refused : cases) {
-    const absl::StatusOr<RobotProcessSettings> settings = robotProcessSettingsFromConfig(refused.task);
-    EXPECT_EQ(settings.status().code(), absl::StatusCode::kInvalidArgument) << refused.field;
+    const absl::StatusOr<RobotProcessSettings> settings =
+        robotProcessSettingsFromConfig(refused.task);
+    EXPECT_EQ(settings.status().code(), absl::StatusCode::kInvalidArgument)
+        << refused.field;
     EXPECT_THAT(settings.status().message(), HasSubstr(refused.field));
   }
 }
 
-TEST(RobotProcessSettingsFromConfigTest, AFallRecoveryDistanceIsAbsentOrPositive) {
-  // The schema has no 0 sentinel: leaving the field out is off, and a present value is positive.
-  for (const double bad : {0.0, -1.0, std::numeric_limits<double>::quiet_NaN()}) {
+TEST(RobotProcessSettingsFromConfigTest,
+     AFallRecoveryDistanceIsAbsentOrPositive) {
+  // The schema has no 0 sentinel: leaving the field out is off, and a present
+  // value is positive.
+  for (const double bad :
+       {0.0, -1.0, std::numeric_limits<double>::quiet_NaN()}) {
     mpc_config::TaskFile tilt;
     tilt.sim_max_base_tilt_angle = bad;
-    EXPECT_THAT(robotProcessSettingsFromConfig(tilt).status().message(), HasSubstr("sim_max_base_tilt_angle is ")) << bad;
+    EXPECT_THAT(robotProcessSettingsFromConfig(tilt).status().message(),
+                HasSubstr("sim_max_base_tilt_angle is "))
+        << bad;
     mpc_config::TaskFile lift;
     lift.sim_gantry_catch_lift = bad;
-    EXPECT_THAT(robotProcessSettingsFromConfig(lift).status().message(), HasSubstr("sim_gantry_catch_lift is ")) << bad;
+    EXPECT_THAT(robotProcessSettingsFromConfig(lift).status().message(),
+                HasSubstr("sim_gantry_catch_lift is "))
+        << bad;
   }
 }
 
@@ -181,20 +212,26 @@ TEST(RobotProcessSettingsFromConfigTest, TheRetiredKeysNameTheirReplacement) {
   const Retired retired[] = {
       {.text = "enableTelemetry: true\n", .replacement = "telemetry_sinks"},
       {.text = "enable_telemetry: false\n", .replacement = "telemetry_sinks"},
-      {.text = "useGravityCompFeedforward: true\n", .replacement = "wb_mpc_feedforward"},
+      {.text = "useGravityCompFeedforward: true\n",
+       .replacement = "wb_mpc_feedforward"},
   };
   for (const Retired& key : retired) {
     const absl::StatusOr<humanoid_mpc_config::TaskFile> parsed =
-        nproto::ParseTextproto<humanoid_mpc_config::TaskFile>(key.text, "task.textproto");
-    EXPECT_EQ(parsed.status().code(), absl::StatusCode::kInvalidArgument) << key.text;
+        nproto::ParseTextproto<humanoid_mpc_config::TaskFile>(key.text,
+                                                              "task.textproto");
+    EXPECT_EQ(parsed.status().code(), absl::StatusCode::kInvalidArgument)
+        << key.text;
     EXPECT_THAT(parsed.status().message(), HasSubstr("is retired: "));
     EXPECT_THAT(parsed.status().message(), HasSubstr(key.replacement));
   }
 }
 
-TEST(RobotProcessSettingsFromConfigTest, TheSchemasLinkTimeoutIsTheLinksAndTheSettings) {
-  EXPECT_EQ(mpc_config::MpcLinkConfig{}.policy_timeout, RobotProcessSettings{}.mpcLinkPolicyTimeout);
-  EXPECT_EQ(mpc_config::MpcLinkConfig{}.policy_timeout, ipc::RemoteMpcLink::Config{}.policyTimeout);
+TEST(RobotProcessSettingsFromConfigTest,
+     TheSchemasLinkTimeoutIsTheLinksAndTheSettings) {
+  EXPECT_EQ(mpc_config::MpcLinkConfig{}.policy_timeout,
+            RobotProcessSettings{}.mpcLinkPolicyTimeout);
+  EXPECT_EQ(mpc_config::MpcLinkConfig{}.policy_timeout,
+            ipc::RemoteMpcLink::Config{}.policyTimeout);
 }
 
 }  // namespace

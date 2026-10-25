@@ -41,39 +41,51 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Applies the foot constraint's error gains and its stance constraint to the twist constraint of every foot's
- * zero_velocity term, hard (an equality constraint) or soft (inside a StateInputSoftConstraint): its rows (6 with the
- * orientation, 3 without), the yaw-rate row about the contact normal and the gains of footTwistConfig(). The
- * pre-computation's copy of position_error_gain_z is FootConstraintSoftWeightsApplier's. Not thread-safe
+ * Applies the foot constraint's error gains and its stance constraint to the
+ * twist constraint of every foot's zero_velocity term, hard (an equality
+ * constraint) or soft (inside a StateInputSoftConstraint): its rows (6 with the
+ * orientation, 3 without), the yaw-rate row about the contact normal and the
+ * gains of footTwistConfig(). The pre-computation's copy of
+ * position_error_gain_z is FootConstraintSoftWeightsApplier's. Not thread-safe
  * (HotFieldApplier).
  */
 class ZeroVelocityGainsApplier final : public HotFieldApplier {
  public:
   /**
-   * The fields it applies: model_settings.foot_constraint.{position_error_gain_z, orientation_error_gain,
-   * linear_velocity_error_gain_z, linear_velocity_error_gain_xy, angular_velocity_error_gain, stance_constraint}.
+   * The fields it applies:
+   * model_settings.foot_constraint.{position_error_gain_z,
+   * orientation_error_gain, linear_velocity_error_gain_z,
+   * linear_velocity_error_gain_xy, angular_velocity_error_gain,
+   * stance_constraint}.
    */
   static absl::Span<const absl::string_view> staticFields();
 
   ZeroVelocityGainsApplier() = default;
 
   absl::string_view name() const override { return "ZeroVelocityGainsApplier"; }
-  absl::Span<const absl::string_view> fields() const final { return staticFields(); }
+  absl::Span<const absl::string_view> fields() const final {
+    return staticFields();
+  }
   void apply(HotUpdateTarget& target) override;
 };
 
 /**
- * The Ax/Av gains of the zero_velocity twist constraint of `gains`: the one definition, which
- * CentroidalMpcInterface::getStanceFootConstraint() builds the constraint with and the hot reload applies.
+ * The Ax/Av gains of the zero_velocity twist constraint of `gains`: the one
+ * definition, which CentroidalMpcInterface::getStanceFootConstraint() builds
+ * the constraint with and the hot reload applies.
  */
-EndEffectorKinematicsTwistConstraint::Config footTwistConfig(const ModelSettings::FootConstraintConfig& gains);
+EndEffectorKinematicsTwistConstraint::Config footTwistConfig(
+    const ModelSettings::FootConstraintConfig& gains);
 
 /**
- * Applies `gains` to the twist constraint of the zero_velocity term `constraint`: its rows (6 with the orientation, 3
- * without), the yaw-rate row about the contact normal and the error gains of `twistConfig` (footTwistConfig(gains)).
+ * Applies `gains` to the twist constraint of the zero_velocity term
+ * `constraint`: its rows (6 with the orientation, 3 without), the yaw-rate row
+ * about the contact normal and the error gains of `twistConfig`
+ * (footTwistConfig(gains)).
  */
-void configureZeroVelocityConstraint(ZeroVelocityConstraintCppAd& constraint,
-                                     const ModelSettings::FootConstraintConfig& gains,
-                                     const EndEffectorKinematicsTwistConstraint::Config& twistConfig);
+void configureZeroVelocityConstraint(
+    ZeroVelocityConstraintCppAd& constraint,
+    const ModelSettings::FootConstraintConfig& gains,
+    const EndEffectorKinematicsTwistConstraint::Config& twistConfig);
 
 }  // namespace ocs2::humanoid

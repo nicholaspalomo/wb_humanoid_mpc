@@ -44,7 +44,9 @@ _LOWEST_PORT = 20000
 def _ephemeral_range() -> tuple[int, int]:
     """The ports the kernel picks from for bind(0) and outgoing connections (ip_local_port_range)."""
     try:
-        with open("/proc/sys/net/ipv4/ip_local_port_range", encoding="utf-8") as ports:
+        with open(
+            "/proc/sys/net/ipv4/ip_local_port_range", encoding="utf-8"
+        ) as ports:
             low, high = (int(word) for word in ports.read().split())
             return low, high
     except (OSError, ValueError):

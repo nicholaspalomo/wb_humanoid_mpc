@@ -56,7 +56,9 @@ def _script():
 
 
 def _git(directory, *arguments):
-    subprocess.run(["git", *arguments], cwd=directory, check=True, capture_output=True)
+    subprocess.run(
+        ["git", *arguments], cwd=directory, check=True, capture_output=True
+    )
 
 
 @unittest.skipIf(shutil.which("git") is None, "git is not installed")
@@ -103,17 +105,23 @@ class WorktreeStateTest(unittest.TestCase):
         # A new directory: git status --porcelain alone would print one "?? new/" line whatever the files hold.
         self._write("new/deeper/source.cpp", "int a = 1;\n")
         first = self._state()
-        self.assertTrue(first.startswith("1 changed paths, diff sha256 "), first)
+        self.assertTrue(
+            first.startswith("1 changed paths, diff sha256 "), first
+        )
         self._write("new/deeper/source.cpp", "int a = 2;\n")
         self.assertNotEqual(self._state(), first)
         self._write("new/deeper/source.cpp", "int a = 1;\n")
-        self.assertEqual(self._state(), first, "the same contents give the same hash")
+        self.assertEqual(
+            self._state(), first, "the same contents give the same hash"
+        )
 
     def test_every_untracked_file_is_counted_and_ignored_files_are_not(self):
         self._write("new/one.txt", "1\n")
         self._write("new/two.txt", "2\n")
         self._write(".gitignore", "*.log\n")
-        self.assertTrue(self._state().startswith("3 changed paths"), self._state())
+        self.assertTrue(
+            self._state().startswith("3 changed paths"), self._state()
+        )
         before = self._state()
         self._write("build.log", "noise\n")
         self.assertEqual(self._state(), before)

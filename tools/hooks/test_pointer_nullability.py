@@ -40,7 +40,9 @@ INCLUDE = '#include "absl/base/nullability.h"\n'
 
 
 def _messages(source: str) -> list[str]:
-    return [f.message for f in pointer_nullability.check_source(source, "src/a.cpp")]
+    return [
+        f.message for f in pointer_nullability.check_source(source, "src/a.cpp")
+    ]
 
 
 def _count(source: str) -> int:
@@ -88,7 +90,9 @@ class MissingAnnotationTest(unittest.TestCase):
         messages = _messages(f"{INCLUDE}Foo *a, *b;\n")
         self.assertEqual(len(messages), 1)
         self.assertIn("right-aligned", messages[0])
-        self.assertIn("right-aligned", _messages(f"{INCLUDE}void f(Foo *a);\n")[0])
+        self.assertIn(
+            "right-aligned", _messages(f"{INCLUDE}void f(Foo *a);\n")[0]
+        )
         self.assertEqual(
             _messages(f"{INCLUDE}int x = a *b;\n"),
             [],
@@ -158,7 +162,10 @@ class NotFlaggedTest(unittest.TestCase):
                 self.assertEqual(_count(source), 0)
 
     def test_comments_literals_and_the_preprocessor(self):
-        source = '// Foo* p\n/* Foo* q */\nconst char s[] = "Foo* x";\nauto r = R"(Foo* y)";\nchar c = \'*\';\n#define X(T) T*\n'
+        source = (
+            '// Foo* p\n/* Foo* q */\nconst char s[] = "Foo* x";\nauto r ='
+            " R\"(Foo* y)\";\nchar c = '*';\n#define X(T) T*\n"
+        )
         self.assertEqual(_count(source), 0)
 
     def test_a_local_array_is_not_a_parameter(self):
@@ -173,7 +180,9 @@ class RulesTest(unittest.TestCase):
         self.assertTrue(
             any(
                 "misplaced" in m
-                for m in _messages(f"{INCLUDE}void f(Foo* const absl_nonnull p);")
+                for m in _messages(
+                    f"{INCLUDE}void f(Foo* const absl_nonnull p);"
+                )
             )
         )
 
@@ -199,7 +208,10 @@ class RulesTest(unittest.TestCase):
                 "struct S { Foo* absl_nonnull p = {}; };",
                 "struct S { Foo* absl_nonnull p = &x; };",
             ),
-            ("void f(Foo* absl_nonnull p = {});", "void f(Foo* absl_nullable p = {});"),
+            (
+                "void f(Foo* absl_nonnull p = {});",
+                "void f(Foo* absl_nullable p = {});",
+            ),
             (
                 "void f(Foo* absl_nonnull p = {nullptr});",
                 "void f(Foo* absl_nonnull p = {&x});",
@@ -227,12 +239,24 @@ class RulesTest(unittest.TestCase):
                 "class S { S() : p_(&x) {} Foo* absl_nonnull p_; };",
             ),
             (
-                "class S { S() : a_(1), p_{} {} int a_; Foo* absl_nonnull p_; };",
-                "class S { S() : a_(1), p_{&x} {} int a_; Foo* absl_nonnull p_; };",
+                (
+                    "class S { S() : a_(1), p_{} {} int a_; Foo* absl_nonnull"
+                    " p_; };"
+                ),
+                (
+                    "class S { S() : a_(1), p_{&x} {} int a_; Foo* absl_nonnull"
+                    " p_; };"
+                ),
             ),
             (
-                "class S { void reset() { p_ = nullptr; } Foo* absl_nonnull p_; };",
-                "class S { void reset() { q_ = nullptr; } Foo* absl_nonnull p_; std::unique_ptr<Foo> q_; };",
+                (
+                    "class S { void reset() { p_ = nullptr; } Foo* absl_nonnull"
+                    " p_; };"
+                ),
+                (
+                    "class S { void reset() { q_ = nullptr; } Foo* absl_nonnull"
+                    " p_; std::unique_ptr<Foo> q_; };"
+                ),
             ),
         ]:
             with self.subTest(source=flagged):
@@ -244,7 +268,8 @@ class RulesTest(unittest.TestCase):
         # The same name nullable elsewhere in the file: left alone rather than guessed.
         self.assertEqual(
             _count(
-                "class A { Foo* absl_nonnull p_; };\nclass B { B() : p_(nullptr) {} Foo* absl_nullable p_; };"
+                "class A { Foo* absl_nonnull p_; };\nclass B { B() :"
+                " p_(nullptr) {} Foo* absl_nullable p_; };"
             ),
             0,
         )
@@ -256,8 +281,14 @@ class RulesTest(unittest.TestCase):
                 "Foo* absl_nullable f() { return nullptr; }",
             ),
             (
-                "Foo* absl_nonnull Bar::get() const { if (x) { return &a; } return NULL; }",
-                "Foo* absl_nonnull Bar::get() const { if (x) { return &a; } return &b; }",
+                (
+                    "Foo* absl_nonnull Bar::get() const { if (x) { return &a; }"
+                    " return NULL; }"
+                ),
+                (
+                    "Foo* absl_nonnull Bar::get() const { if (x) { return &a; }"
+                    " return &b; }"
+                ),
             ),
             (
                 "auto g = []() -> Foo* absl_nonnull { return nullptr; };",
@@ -273,7 +304,8 @@ class RulesTest(unittest.TestCase):
         # A nested lambda returns its own type.
         self.assertEqual(
             _count(
-                "Foo* absl_nonnull f() { auto l = []() -> Foo* absl_nullable { return nullptr; }; return &x; }"
+                "Foo* absl_nonnull f() { auto l = []() -> Foo* absl_nullable {"
+                " return nullptr; }; return &x; }"
             ),
             0,
         )
@@ -308,8 +340,14 @@ class RulesTest(unittest.TestCase):
                 "auto p = reinterpret_cast<const char* absl_nullable>(q);",
                 "auto p = reinterpret_cast<const char*>(q);",
             ),
-            ("auto p = (const char* absl_nonnull)buf;", "auto p = (const char*)buf;"),
-            ("size_t n = sizeof(Foo* absl_nonnull);", "size_t n = sizeof(Foo*);"),
+            (
+                "auto p = (const char* absl_nonnull)buf;",
+                "auto p = (const char*)buf;",
+            ),
+            (
+                "size_t n = sizeof(Foo* absl_nonnull);",
+                "size_t n = sizeof(Foo*);",
+            ),
             (
                 "constexpr bool b = std::is_pointer_v<T* absl_nonnull>;",
                 "constexpr bool b = std::is_pointer_v<T*>;",
@@ -324,7 +362,10 @@ class RulesTest(unittest.TestCase):
                 self.assertEqual(_count(clean), 0)
         # A function-pointer type is a type, not a cast.
         self.assertEqual(
-            _count("using F = absl::StatusOr<int> (*absl_nonnull)(const A& a);"), 0
+            _count(
+                "using F = absl::StatusOr<int> (*absl_nonnull)(const A& a);"
+            ),
+            0,
         )
 
     def test_banned_spellings(self):
@@ -340,7 +381,9 @@ class RulesTest(unittest.TestCase):
 
     def test_the_include(self):
         self.assertEqual(len(_messages("void f(Foo* absl_nonnull p);")), 1)
-        self.assertIn("nullability.h", _messages("void f(Foo* absl_nonnull p);")[0])
+        self.assertIn(
+            "nullability.h", _messages("void f(Foo* absl_nonnull p);")[0]
+        )
         self.assertEqual(_count("void f(Foo* absl_nonnull p);"), 0)
         self.assertEqual(_messages("void f(int x);"), [])
 
@@ -356,8 +399,12 @@ class WiringTest(unittest.TestCase):
         )
 
     def test_the_scope_is_first_party_and_lib_ocs2(self):
-        check = check_test_support.assert_registered(self, "pointer-nullability")
-        self.assertTrue(check.applies_to("lib/ocs2/core/include/ocs2_core/Types.h"))
+        check = check_test_support.assert_registered(
+            self, "pointer-nullability"
+        )
+        self.assertTrue(
+            check.applies_to("lib/ocs2/core/include/ocs2_core/Types.h")
+        )
         self.assertFalse(
             check.applies_to("lib/ocs2/thirdparty/include/cppad/cppad.hpp")
         )
@@ -372,7 +419,9 @@ class WiringTest(unittest.TestCase):
     def test_clang_format_keeps_annotated_pointers(self):
         probe = (
             INCLUDE
-            + "void f(std::vector<Foo* absl_nonnull> v, const int* absl_nullable p, char* absl_nonnull* absl_nonnull argv);\n"
+            + "void f(std::vector<Foo* absl_nonnull> v,\n"
+            + "       const int* absl_nullable p,\n"
+            + "       char* absl_nonnull* absl_nonnull argv);\n"
             + "int (*absl_nonnull fn)(int);\n"
         )
         with tempfile.TemporaryDirectory() as directory:

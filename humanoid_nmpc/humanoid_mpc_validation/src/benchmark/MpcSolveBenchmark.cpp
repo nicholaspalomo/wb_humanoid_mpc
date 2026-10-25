@@ -53,17 +53,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::validation {
 namespace {
 
-/** The tape operation count of every library made ready while it is alive, once per library folder. */
+/** The tape operation count of every library made ready while it is alive, once
+ * per library folder. */
 class TapeOperationCounter {
  public:
   TapeOperationCounter() {
     CppAdInterface::setLibraryObserver([this](const CppAdInterface& library) {
       std::lock_guard<std::mutex> lock(mutex_);
-      if (counts_.contains(library.getLibraryFolder())) return;  // a copy reloads a library already counted
-      counts_.emplace(library.getLibraryFolder(), library.getTapeOperationCount());
+      if (counts_.contains(library.getLibraryFolder()))
+        return;  // a copy reloads a library already counted
+      counts_.emplace(library.getLibraryFolder(),
+                      library.getTapeOperationCount());
     });
   }
-  ~TapeOperationCounter() { CppAdInterface::setLibraryObserver(CppAdInterface::LibraryObserver()); }
+  ~TapeOperationCounter() {
+    CppAdInterface::setLibraryObserver(CppAdInterface::LibraryObserver());
+  }
 
   TapeOperationCounter(const TapeOperationCounter&) = delete;
   TapeOperationCounter& operator=(const TapeOperationCounter&) = delete;
@@ -88,23 +93,28 @@ std::string libraryNameOfFolder(absl::string_view libraryFolder) {
   return std::string(name);
 }
 
-absl::StatusOr<JsonValue> runSolveBenchmark(const RobotConfiguration& configuration,
-                                            const RecordedRobotStates& states,
-                                            const SolveBenchmarkOptions& options,
-                                            const std::string& label,
-                                            JsonValue provenance) {
+absl::StatusOr<JsonValue> runSolveBenchmark(
+    const RobotConfiguration& configuration,
+    const RecordedRobotStates& states,
+    const SolveBenchmarkOptions& options,
+    const std::string& label,
+    JsonValue provenance) {
   if (states.records.size() <= options.warmupSolves) {
-    return absl::InvalidArgumentError(absl::StrCat("[runSolveBenchmark] ", states.records.size(),
-                                                   " recorded states leave nothing to time after ", options.warmupSolves,
-                                                   " warm-up solves"));
+    return absl::InvalidArgumentError(
+        absl::StrCat("[runSolveBenchmark] ", states.records.size(),
+                     " recorded states leave nothing to time after ",
+                     options.warmupSolves, " warm-up solves"));
   }
   const TapeOperationCounter tapeOperations;
-  ASSIGN_OR_RETURN(std::unique_ptr<ClosedLoopDriver> driver, createClosedLoopDriver(configuration, options.driver));
+  ASSIGN_OR_RETURN(std::unique_ptr<ClosedLoopDriver> driver,
+                   createClosedLoopDriver(configuration, options.driver));
 
   std::vector<robot::model::RobotState> robotStates;
   robotStates.reserve(states.records.size());
   for (const RobotStateRecord& record : states.records) {
-    ASSIGN_OR_RETURN(robot::model::RobotState robotState, toRobotState(record, states.jointNames, driver->robotDescription()));
+    ASSIGN_OR_RETURN(
+        robot::model::RobotState robotState,
+        toRobotState(record, states.jointNames, driver->robotDescription()));
     robotStates.push_back(std::move(robotState));
   }
 
@@ -115,15 +125,19 @@ absl::StatusOr<JsonValue> runSolveBenchmark(const RobotConfiguration& configurat
   std::vector<double> computeController;
   size_t failedSolves = 0;
   robot::model::RobotJointAction action(driver->robotDescription());
-  // The JOINT_PD posture, which WB_MPC holds while it waits for a policy solved after a reset.
-  std::vector<scalar_t> nominalPosture(driver->robotDescription().getNumJoints(), 0.0);
+  // The JOINT_PD posture, which WB_MPC holds while it waits for a policy solved
+  // after a reset.
+  std::vector<scalar_t> nominalPosture(
+      driver->robotDescription().getNumJoints(), 0.0);
   for (size_t joint = 0; joint < nominalPosture.size(); ++joint) {
-    nominalPosture[joint] = driver->initialRobotState().getCheckedJointPosition(joint);
+    nominalPosture[joint] =
+        driver->initialRobotState().getCheckedJointPosition(joint);
   }
   RobotController& controller = driver->robotController();
   for (size_t pass = 0; pass < options.repeats; ++pass) {
-    // Each pass starts afresh from the first record, in WB_MPC (the controller's mode after construction): the first
-    // pass starts the MPC from it, every later one resets the MPC fully at its first solve.
+    // Each pass starts afresh from the first record, in WB_MPC (the
+    // controller's mode after construction): the first pass starts the MPC from
+    // it, every later one resets the MPC fully at its first solve.
     driver->startMpc(robotStates.front());
     for (size_t k = 0; k < robotStates.size(); ++k) {
       driver->setGuiVelocityCommand(states.records[k].guiCommand);
@@ -144,20 +158,28 @@ absl::StatusOr<JsonValue> runSolveBenchmark(const RobotConfiguration& configurat
   }
 
   JsonValue document = JsonValue::object();
-  document.set("schema", JsonValue::string(std::string(kSolveBenchmarkSchemaName)));
+  document.set("schema",
+               JsonValue::string(std::string(kSolveBenchmarkSchemaName)));
   document.set("label", JsonValue::string(label));
   document.set("robot", JsonValue::string(configuration.name));
-  document.set("formulation", JsonValue::string(formulationName(configuration.formulation)));
+  document.set("formulation",
+               JsonValue::string(formulationName(configuration.formulation)));
   document.set("provenance", std::move(provenance));
 
   JsonValue& settings = document.set("settings", JsonValue::object());
-  settings.set("solver_threads", JsonValue::number(static_cast<double>(driver->solverThreads())));
+  settings.set("solver_threads",
+               JsonValue::number(static_cast<double>(driver->solverThreads())));
   settings.set("mpc_frequency_hz", JsonValue::number(driver->mpcFrequency()));
-  settings.set("recorded_states", JsonValue::number(static_cast<double>(states.records.size())));
-  settings.set("warmup_solves", JsonValue::number(static_cast<double>(options.warmupSolves)));
-  settings.set("repeats", JsonValue::number(static_cast<double>(options.repeats)));
-  settings.set("timed_solves", JsonValue::number(static_cast<double>(wallTimes.size())));
-  settings.set("failed_solves", JsonValue::number(static_cast<double>(failedSolves)));
+  settings.set("recorded_states",
+               JsonValue::number(static_cast<double>(states.records.size())));
+  settings.set("warmup_solves",
+               JsonValue::number(static_cast<double>(options.warmupSolves)));
+  settings.set("repeats",
+               JsonValue::number(static_cast<double>(options.repeats)));
+  settings.set("timed_solves",
+               JsonValue::number(static_cast<double>(wallTimes.size())));
+  settings.set("failed_solves",
+               JsonValue::number(static_cast<double>(failedSolves)));
 
   JsonValue& times = document.set("solve_time_ms", JsonValue::object());
   times.set("total", summarizeSample(wallTimes));
@@ -170,15 +192,22 @@ absl::StatusOr<JsonValue> runSolveBenchmark(const RobotConfiguration& configurat
   JsonValue& gate = document.set("real_time", JsonValue::object());
   gate.set("mpc_period_ms", JsonValue::number(periodMs));
   gate.set("p99_fraction_of_period",
-           JsonValue::optionalNumber(p99 != nullptr && p99->isNumber() ? std::optional<double>(p99->asNumber() / periodMs) : std::nullopt));
+           JsonValue::optionalNumber(
+               p99 != nullptr && p99->isNumber()
+                   ? std::optional<double>(p99->asNumber() / periodMs)
+                   : std::nullopt));
 
-  JsonValue& libraries = document.set("tape_operation_counts", JsonValue::object());
+  JsonValue& libraries =
+      document.set("tape_operation_counts", JsonValue::object());
   size_t totalOperations = 0;
-  for (const std::pair<const std::string, size_t>& library : tapeOperations.counts()) {
-    libraries.set(libraryNameOfFolder(library.first), JsonValue::number(static_cast<double>(library.second)));
+  for (const std::pair<const std::string, size_t>& library :
+       tapeOperations.counts()) {
+    libraries.set(libraryNameOfFolder(library.first),
+                  JsonValue::number(static_cast<double>(library.second)));
     totalOperations += library.second;
   }
-  document.set("total_tape_operations", JsonValue::number(static_cast<double>(totalOperations)));
+  document.set("total_tape_operations",
+               JsonValue::number(static_cast<double>(totalOperations)));
   return document;
 }
 

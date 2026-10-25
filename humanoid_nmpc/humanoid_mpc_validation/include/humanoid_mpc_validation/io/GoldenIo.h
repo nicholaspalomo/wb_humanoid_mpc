@@ -44,16 +44,19 @@ namespace ocs2::humanoid::validation {
 using golden_matrix_t = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>;
 
 /**
- * Where a golden file came from: the commit and the state of the worktree it was recorded on, and the SHA-256 of every
- * configuration file it depends on, so that a golden that no longer matches its configuration is recognized as stale
- * rather than read as a regression.
+ * Where a golden file came from: the commit and the state of the worktree it
+ * was recorded on, and the SHA-256 of every configuration file it depends on,
+ * so that a golden that no longer matches its configuration is recognized as
+ * stale rather than read as a regression.
  */
 struct GoldenProvenance {
   std::string gitCommit;      ///< the commit hash, or "unknown"
-  std::string worktreeState;  ///< "clean", or what the uncommitted changes were (e.g. their diff's hash)
+  std::string worktreeState;  ///< "clean", or what the uncommitted changes were
+                              ///< (e.g. their diff's hash)
   /// (path as recorded, SHA-256 of its contents), in the order given.
   std::vector<std::pair<std::string, std::string>> configurationHashes;
-  /// Free (key, value) notes: the robot, the label, the machine. Keys have no whitespace and no ':'.
+  /// Free (key, value) notes: the robot, the label, the machine. Keys have no
+  /// whitespace and no ':'.
   std::vector<std::pair<std::string, std::string>> notes;
 };
 
@@ -64,9 +67,11 @@ struct GoldenEntry {
 };
 
 /**
- * Labeled matrices with their provenance, as plain text: every value at %.17g, so that a double reads back bit for bit
- * (NaN and the infinities as nan, inf and -inf, the sign of zero kept), in the style of the ProblemFingerprint of the
- * centroidal MPC tests and the contact-planning goldens of humanoid_common_mpc.
+ * Labeled matrices with their provenance, as plain text: every value at %.17g,
+ * so that a double reads back bit for bit (NaN and the infinities as nan, inf
+ * and -inf, the sign of zero kept), in the style of the ProblemFingerprint of
+ * the centroidal MPC tests and the contact-planning goldens of
+ * humanoid_common_mpc.
  *
  *   # wb_humanoid_mpc golden v1
  *   # git_commit: <hash>
@@ -86,23 +91,28 @@ struct GoldenFile {
 };
 
 /**
- * The provenance of a recording that depends on `configurationFiles`: each file's SHA-256, in the order given.
- * NotFound naming the first file that cannot be read.
+ * The provenance of a recording that depends on `configurationFiles`: each
+ * file's SHA-256, in the order given. NotFound naming the first file that
+ * cannot be read.
  */
-absl::StatusOr<GoldenProvenance> makeGoldenProvenance(std::string gitCommit,
-                                                      std::string worktreeState,
-                                                      const std::vector<std::string>& configurationFiles);
+absl::StatusOr<GoldenProvenance> makeGoldenProvenance(
+    std::string gitCommit,
+    std::string worktreeState,
+    const std::vector<std::string>& configurationFiles);
 
 /**
- * The text of `golden`. InvalidArgument for a label that is empty, holds whitespace or repeats, and for a provenance
- * field or note that holds a line break (a note key also must not hold whitespace or ':').
+ * The text of `golden`. InvalidArgument for a label that is empty, holds
+ * whitespace or repeats, and for a provenance field or note that holds a line
+ * break (a note key also must not hold whitespace or ':').
  */
 absl::StatusOr<std::string> formatGoldenFile(const GoldenFile& golden);
 
-/** Parses formatGoldenFile()'s text; InvalidArgument naming the line of the first error. */
+/** Parses formatGoldenFile()'s text; InvalidArgument naming the line of the
+ * first error. */
 absl::StatusOr<GoldenFile> parseGoldenFile(absl::string_view text);
 
-/** formatGoldenFile() into `path`, creating its directory; the errors of formatGoldenFile(), or Internal if unwritable. */
+/** formatGoldenFile() into `path`, creating its directory; the errors of
+ * formatGoldenFile(), or Internal if unwritable. */
 absl::Status writeGoldenFile(const std::string& path, const GoldenFile& golden);
 
 /** parseGoldenFile() of the file at `path`; NotFound when it cannot be read. */

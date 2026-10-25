@@ -75,7 +75,10 @@ class SinkRegistryTest(unittest.TestCase):
     def test_an_unknown_name_lists_the_valid_ones(self) -> None:
         with self.assertRaises(ValueError) as context:
             rerun_sinks.attach_sink(
-                "no_such_sink", self.recording, self.layout, rerun_sinks.SinkOptions()
+                "no_such_sink",
+                self.recording,
+                self.layout,
+                rerun_sinks.SinkOptions(),
             )
         for name in rerun_sinks.sink_names():
             self.assertIn(name, str(context.exception))
@@ -96,7 +99,9 @@ class SinkRegistryTest(unittest.TestCase):
         self.assertIn("world/x", contents.entities)
         self.assertIn(blueprint.SCENE_VIEW_NAME, contents.view_names())
 
-    def test_a_later_run_is_saved_to_a_numbered_file_next_to_the_first(self) -> None:
+    def test_a_later_run_is_saved_to_a_numbered_file_next_to_the_first(
+        self,
+    ) -> None:
         path = os.path.join(self.directory, "walk.rrd")
         sink = rerun_sinks.make_sink(
             "save", self.layout, rerun_sinks.SinkOptions(rrd_path=path)
@@ -115,7 +120,9 @@ class SinkRegistryTest(unittest.TestCase):
         self.assertEqual(sink.recordings, (second,))
         self.assertEqual(sink.runs, 2)
         first_contents = rrd_contents.RrdContents(path)
-        second_contents = rrd_contents.RrdContents(rerun_sinks.run_path(path, 2))
+        second_contents = rrd_contents.RrdContents(
+            rerun_sinks.run_path(path, 2)
+        )
         self.assertIn("world/first", first_contents.entities)
         self.assertNotIn("world/second", first_contents.entities)
         self.assertIn("world/second", second_contents.entities)
@@ -126,10 +133,14 @@ class SinkRegistryTest(unittest.TestCase):
         sink = rerun_sinks.make_sink(
             "serve_web", self.layout, rerun_sinks.SinkOptions()
         )
-        stubs = [_RecordingStub() for _ in range(rerun_sinks.MAX_ATTACHED_RUNS + 4)]
+        stubs = [
+            _RecordingStub() for _ in range(rerun_sinks.MAX_ATTACHED_RUNS + 4)
+        ]
         sink_class = type(sink)
         with (
-            mock.patch.object(sink_class, "_attach_first", return_value="first"),
+            mock.patch.object(
+                sink_class, "_attach_first", return_value="first"
+            ),
             mock.patch.object(sink_class, "_attach_next", return_value="next"),
         ):
             for stub in stubs:
@@ -141,8 +152,12 @@ class SinkRegistryTest(unittest.TestCase):
             self.assertEqual(stub.disconnects, 0 if stub in kept else 1)
 
     def test_the_run_paths(self) -> None:
-        self.assertEqual(rerun_sinks.run_path("/tmp/walk.rrd", 1), "/tmp/walk.rrd")
-        self.assertEqual(rerun_sinks.run_path("/tmp/walk.rrd", 3), "/tmp/walk.run3.rrd")
+        self.assertEqual(
+            rerun_sinks.run_path("/tmp/walk.rrd", 1), "/tmp/walk.rrd"
+        )
+        self.assertEqual(
+            rerun_sinks.run_path("/tmp/walk.rrd", 3), "/tmp/walk.run3.rrd"
+        )
         self.assertEqual(rerun_sinks.run_path("walk", 2), "walk.run2")
 
     def test_the_viewers_the_sinks_stream_to(self) -> None:
@@ -166,7 +181,11 @@ class SinkRegistryTest(unittest.TestCase):
             rerun_sinks.url_endpoint(rerun_sinks.DEFAULT_CONNECT_URL),
             ("127.0.0.1", rerun_sinks.DEFAULT_GRPC_PORT),
         )
-        for url in ("rerun+http://viewer/proxy", "not a url", "rerun+http://:x/proxy"):
+        for url in (
+            "rerun+http://viewer/proxy",
+            "not a url",
+            "rerun+http://:x/proxy",
+        ):
             with self.subTest(url=url):
                 self.assertIsNone(rerun_sinks.url_endpoint(url))
 

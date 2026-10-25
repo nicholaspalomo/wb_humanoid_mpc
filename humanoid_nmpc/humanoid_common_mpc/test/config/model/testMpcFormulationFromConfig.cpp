@@ -45,27 +45,33 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "nproto/Textproto.h"
 
 /**
- * The formulation of the typed task file: the term lists resolved by their registries and the combinations they refuse,
- * the contact schedule source, the contact input parameterization and the centroidal model, by name.
+ * The formulation of the typed task file: the term lists resolved by their
+ * registries and the combinations they refuse, the contact schedule source, the
+ * contact input parameterization and the centroidal model, by name.
  */
 namespace ocs2::humanoid {
 namespace {
 
 using ::testing::HasSubstr;
 
-/** The schedule-gated formulation every robot ships: the hard contact constraints and a cone. */
+/** The schedule-gated formulation every robot ships: the hard contact
+ * constraints and a cone. */
 mpc_config::TaskFile scheduleGatedTask() {
   mpc_config::TaskFile task;
   task.hard_constraints = {"zero_wrench", "zero_velocity", "normal_velocity"};
-  task.soft_constraints = {"joint_limits", "foot_collision", "contact_wrench_cone"};
-  task.costs = {"state_quadratic_cost", "input_quadratic_cost", "terminal_cost", "task_space_foot_cost"};
+  task.soft_constraints = {"joint_limits", "foot_collision",
+                           "contact_wrench_cone"};
+  task.costs = {"state_quadratic_cost", "input_quadratic_cost", "terminal_cost",
+                "task_space_foot_cost"};
   return task;
 }
 
-/** The contact-implicit formulation, complete: the three terms, the soft normal velocity and a cone. */
+/** The contact-implicit formulation, complete: the three terms, the soft normal
+ * velocity and a cone. */
 mpc_config::TaskFile contactImplicitTask() {
   mpc_config::TaskFile task;
-  task.soft_constraints = {"contact_wrench_cone", "normal_velocity", "contact_complementarity", "force_weighted_slip",
+  task.soft_constraints = {"contact_wrench_cone", "normal_velocity",
+                           "contact_complementarity", "force_weighted_slip",
                            "ground_penetration"};
   task.costs = {"state_quadratic_cost"};
   return task;
@@ -73,53 +79,66 @@ mpc_config::TaskFile contactImplicitTask() {
 
 /** The message of the error `task` is refused with, or "accepted". */
 std::string refusal(const mpc_config::TaskFile& task) {
-  const absl::StatusOr<MpcFormulationTasks> tasks = mpcFormulationTasksFromConfig(task, FormulationLogging::kQuiet);
+  const absl::StatusOr<MpcFormulationTasks> tasks =
+      mpcFormulationTasksFromConfig(task, FormulationLogging::kQuiet);
   if (tasks.ok()) return "accepted";
   EXPECT_EQ(tasks.status().code(), absl::StatusCode::kInvalidArgument);
   return std::string(tasks.status().message());
 }
 
 TEST(MpcFormulationFromConfig, TheListsResolveToTheirTerms) {
-  const absl::StatusOr<MpcFormulationTasks> tasks = mpcFormulationTasksFromConfig(scheduleGatedTask(), FormulationLogging::kLogSummary);
+  const absl::StatusOr<MpcFormulationTasks> tasks =
+      mpcFormulationTasksFromConfig(scheduleGatedTask(),
+                                    FormulationLogging::kLogSummary);
   ASSERT_TRUE(tasks.ok()) << tasks.status();
   EXPECT_EQ(tasks->hardConstraints.size(), 3U);
   EXPECT_TRUE(tasks->hasHardConstraint(MpcHardConstraintType::kZeroWrench));
-  EXPECT_TRUE(tasks->hasSoftConstraint(MpcSoftConstraintType::kContactWrenchCone));
+  EXPECT_TRUE(
+      tasks->hasSoftConstraint(MpcSoftConstraintType::kContactWrenchCone));
   EXPECT_TRUE(tasks->hasCost(MpcCostType::kTerminalCost));
   EXPECT_EQ(tasks->costs.size(), 4U);
   EXPECT_TRUE(contactConstraintsAreScheduleGated(*tasks));
   EXPECT_FALSE(usesContactImplicitFormulation(*tasks));
 }
 
-TEST(MpcFormulationFromConfig, EverySpellingOfTheRegistriesIsAcceptedAndARepeatedNameIsOneTerm) {
+TEST(MpcFormulationFromConfig,
+     EverySpellingOfTheRegistriesIsAcceptedAndARepeatedNameIsOneTerm) {
   mpc_config::TaskFile task = scheduleGatedTask();
   task.costs = {"stateQuadraticCost", "state_quadratic_cost", "inputCost"};
-  const absl::StatusOr<MpcFormulationTasks> tasks = mpcFormulationTasksFromConfig(task, FormulationLogging::kQuiet);
+  const absl::StatusOr<MpcFormulationTasks> tasks =
+      mpcFormulationTasksFromConfig(task, FormulationLogging::kQuiet);
   ASSERT_TRUE(tasks.ok()) << tasks.status();
   EXPECT_EQ(tasks->costs.size(), 2U);
   EXPECT_TRUE(tasks->hasCost(MpcCostType::kStateQuadraticCost));
   EXPECT_TRUE(tasks->hasCost(MpcCostType::kInputQuadraticCost));
 }
 
-TEST(MpcFormulationFromConfig, AnUnknownNameIsRefusedNamingItsEntryAndTheRegisteredNames) {
+TEST(MpcFormulationFromConfig,
+     AnUnknownNameIsRefusedNamingItsEntryAndTheRegisteredNames) {
   mpc_config::TaskFile task = scheduleGatedTask();
   task.costs = {"state_quadratic_cost", "state_quadratic_costs"};
-  EXPECT_THAT(refusal(task), HasSubstr("costs[1]: Unknown MPC cost type: 'state_quadratic_costs'"));
+  EXPECT_THAT(
+      refusal(task),
+      HasSubstr("costs[1]: Unknown MPC cost type: 'state_quadratic_costs'"));
   EXPECT_THAT(refusal(task), HasSubstr("dcm_terminal_cost"));
 
   task = scheduleGatedTask();
   task.soft_constraints.push_back("joint_limit");
-  EXPECT_THAT(refusal(task), HasSubstr("soft_constraints[3]: Unknown MPC soft constraint type: 'joint_limit'"));
+  EXPECT_THAT(refusal(task), HasSubstr("soft_constraints[3]: Unknown MPC soft "
+                                       "constraint type: 'joint_limit'"));
 
   task = scheduleGatedTask();
   task.hard_constraints = {"zero_wrenches"};
-  EXPECT_THAT(refusal(task), HasSubstr("hard_constraints[0]: Unknown MPC hard constraint type"));
+  EXPECT_THAT(
+      refusal(task),
+      HasSubstr("hard_constraints[0]: Unknown MPC hard constraint type"));
 }
 
 TEST(MpcFormulationFromConfig, TheCombinationsThatAreNoFormulationAreRefused) {
   mpc_config::TaskFile task = scheduleGatedTask();
   task.costs.push_back("dcm_terminal_cost");
-  EXPECT_THAT(refusal(task), HasSubstr("both 'terminal_cost' and 'dcm_terminal_cost'"));
+  EXPECT_THAT(refusal(task),
+              HasSubstr("both 'terminal_cost' and 'dcm_terminal_cost'"));
 
   task = scheduleGatedTask();
   task.soft_constraints.push_back("zero_velocity");
@@ -130,37 +149,55 @@ TEST(MpcFormulationFromConfig, TheCombinationsThatAreNoFormulationAreRefused) {
   EXPECT_THAT(refusal(task), HasSubstr("'normal_velocity' is listed in both"));
 
   task = contactImplicitTask();
-  task.soft_constraints = {"contact_wrench_cone", "normal_velocity", "contact_complementarity"};
+  task.soft_constraints = {"contact_wrench_cone", "normal_velocity",
+                           "contact_complementarity"};
   EXPECT_THAT(refusal(task), HasSubstr("together or not at all"));
   EXPECT_THAT(refusal(task), HasSubstr("'force_weighted_slip' (without it"));
 
   task = contactImplicitTask();
   task.hard_constraints = {"zero_wrench"};
-  EXPECT_THAT(refusal(task), HasSubstr("'contact_complementarity' and the hard 'zero_wrench' constraint are mutually exclusive"));
+  EXPECT_THAT(refusal(task),
+              HasSubstr("'contact_complementarity' and the hard 'zero_wrench' "
+                        "constraint are mutually exclusive"));
 
   task = contactImplicitTask();
-  task.soft_constraints = {"normal_velocity", "contact_complementarity", "force_weighted_slip", "ground_penetration"};
-  EXPECT_THAT(refusal(task), HasSubstr("'contact_wrench_cone' or 'friction_force_cone' must be listed"));
+  task.soft_constraints = {"normal_velocity", "contact_complementarity",
+                           "force_weighted_slip", "ground_penetration"};
+  EXPECT_THAT(
+      refusal(task),
+      HasSubstr(
+          "'contact_wrench_cone' or 'friction_force_cone' must be listed"));
 
   task = contactImplicitTask();
   task.hard_constraints = {"zero_velocity"};
-  EXPECT_THAT(refusal(task), HasSubstr("'force_weighted_slip' replaces 'zero_velocity'"));
+  EXPECT_THAT(refusal(task),
+              HasSubstr("'force_weighted_slip' replaces 'zero_velocity'"));
 
   task = contactImplicitTask();
-  task.soft_constraints = {"contact_wrench_cone", "contact_complementarity", "force_weighted_slip", "ground_penetration"};
+  task.soft_constraints = {"contact_wrench_cone", "contact_complementarity",
+                           "force_weighted_slip", "ground_penetration"};
   task.hard_constraints = {"normal_velocity"};
-  EXPECT_THAT(refusal(task), HasSubstr("the hard 'normal_velocity' constraint are mutually exclusive"));
+  EXPECT_THAT(
+      refusal(task),
+      HasSubstr(
+          "the hard 'normal_velocity' constraint are mutually exclusive"));
 
   task = contactImplicitTask();
-  task.soft_constraints = {"contact_wrench_cone", "contact_complementarity", "force_weighted_slip", "ground_penetration"};
-  EXPECT_THAT(refusal(task), HasSubstr("model_settings.foot_constraint.normal_velocity_soft_constraint_weight"));
+  task.soft_constraints = {"contact_wrench_cone", "contact_complementarity",
+                           "force_weighted_slip", "ground_penetration"};
+  EXPECT_THAT(refusal(task), HasSubstr("model_settings.foot_constraint.normal_"
+                                       "velocity_soft_constraint_weight"));
 
-  EXPECT_THAT(refusal(mpc_config::TaskFile{}), HasSubstr("must be listed in soft_constraints"))
+  EXPECT_THAT(refusal(mpc_config::TaskFile{}),
+              HasSubstr("must be listed in soft_constraints"))
       << "a file that lists nothing has neither zero_wrench nor a cone";
 }
 
-TEST(MpcFormulationFromConfig, TheContactImplicitFormulationIsAcceptedAsAWhole) {
-  const absl::StatusOr<MpcFormulationTasks> tasks = mpcFormulationTasksFromConfig(contactImplicitTask(), FormulationLogging::kQuiet);
+TEST(MpcFormulationFromConfig,
+     TheContactImplicitFormulationIsAcceptedAsAWhole) {
+  const absl::StatusOr<MpcFormulationTasks> tasks =
+      mpcFormulationTasksFromConfig(contactImplicitTask(),
+                                    FormulationLogging::kQuiet);
   ASSERT_TRUE(tasks.ok()) << tasks.status();
   EXPECT_TRUE(usesContactImplicitFormulation(*tasks));
   EXPECT_FALSE(contactConstraintsAreScheduleGated(*tasks));
@@ -168,9 +205,11 @@ TEST(MpcFormulationFromConfig, TheContactImplicitFormulationIsAcceptedAsAWhole) 
 
 TEST(MpcFormulationFromConfig, TheContactScheduleSourceIsResolvedByName) {
   mpc_config::TaskFile task;
-  absl::StatusOr<ContactScheduleSource> source = contactScheduleSourceFromConfig(task);
+  absl::StatusOr<ContactScheduleSource> source =
+      contactScheduleSourceFromConfig(task);
   ASSERT_TRUE(source.ok()) << source.status();
-  EXPECT_EQ(*source, kDefaultContactScheduleSource) << "the schema's default is the loader's";
+  EXPECT_EQ(*source, kDefaultContactScheduleSource)
+      << "the schema's default is the loader's";
   for (const std::string& name : contactScheduleSourceNames()) {
     task.contact_schedule_source = name;
     source = contactScheduleSourceFromConfig(task);
@@ -180,15 +219,20 @@ TEST(MpcFormulationFromConfig, TheContactScheduleSourceIsResolvedByName) {
   task.contact_schedule_source = "planner";
   source = contactScheduleSourceFromConfig(task);
   EXPECT_EQ(source.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_THAT(source.status().message(), HasSubstr("contact_schedule_source is 'planner'"));
-  EXPECT_THAT(source.status().message(), HasSubstr("gait_schedule, contact_planner"));
+  EXPECT_THAT(source.status().message(),
+              HasSubstr("contact_schedule_source is 'planner'"));
+  EXPECT_THAT(source.status().message(),
+              HasSubstr("gait_schedule, contact_planner"));
 }
 
-TEST(MpcFormulationFromConfig, TheContactInputParameterizationIsResolvedByName) {
+TEST(MpcFormulationFromConfig,
+     TheContactInputParameterizationIsResolvedByName) {
   mpc_config::TaskFile task;
-  absl::StatusOr<ContactInputParameterization> parameterization = contactInputParameterizationFromConfig(task);
+  absl::StatusOr<ContactInputParameterization> parameterization =
+      contactInputParameterizationFromConfig(task);
   ASSERT_TRUE(parameterization.ok()) << parameterization.status();
-  EXPECT_EQ(*parameterization, kDefaultContactInputParameterization) << "the schema's default is the loader's";
+  EXPECT_EQ(*parameterization, kDefaultContactInputParameterization)
+      << "the schema's default is the loader's";
   for (const std::string& name : contactInputParameterizationNames()) {
     task.contact_input_parameterization = name;
     parameterization = contactInputParameterizationFromConfig(task);
@@ -197,20 +241,29 @@ TEST(MpcFormulationFromConfig, TheContactInputParameterizationIsResolvedByName) 
   }
   task.contact_input_parameterization = "basis";
   parameterization = contactInputParameterizationFromConfig(task);
-  EXPECT_EQ(parameterization.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_THAT(parameterization.status().message(), HasSubstr("contact_input_parameterization is 'basis'"));
-  EXPECT_THAT(parameterization.status().message(), HasSubstr("wrench, basis_vectors"));
+  EXPECT_EQ(parameterization.status().code(),
+            absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(parameterization.status().message(),
+              HasSubstr("contact_input_parameterization is 'basis'"));
+  EXPECT_THAT(parameterization.status().message(),
+              HasSubstr("wrench, basis_vectors"));
 }
 
 TEST(MpcFormulationFromConfig, TheCentroidalModelIsRequiredAndOneOfItsNames) {
   mpc_config::TaskFile task;
-  absl::StatusOr<CentroidalModelType> type = centroidalModelTypeFromConfig(task);
+  absl::StatusOr<CentroidalModelType> type =
+      centroidalModelTypeFromConfig(task);
   EXPECT_EQ(type.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_THAT(type.status().message(), HasSubstr("sets no centroidal_model"));
-  EXPECT_THAT(type.status().message(), HasSubstr("full_centroidal_dynamics, single_rigid_body_dynamics"));
+  EXPECT_THAT(
+      type.status().message(),
+      HasSubstr("full_centroidal_dynamics, single_rigid_body_dynamics"));
 
-  // Each name is its model, and the name of the model is the name: the registry and its inverse agree.
-  EXPECT_EQ(centroidalModelNames(), (std::vector<std::string>{"full_centroidal_dynamics", "single_rigid_body_dynamics"}));
+  // Each name is its model, and the name of the model is the name: the registry
+  // and its inverse agree.
+  EXPECT_EQ(centroidalModelNames(),
+            (std::vector<std::string>{"full_centroidal_dynamics",
+                                      "single_rigid_body_dynamics"}));
   for (const std::string& name : centroidalModelNames()) {
     task.centroidal_model = name;
     type = centroidalModelTypeFromConfig(task);
@@ -222,16 +275,22 @@ TEST(MpcFormulationFromConfig, TheCentroidalModelIsRequiredAndOneOfItsNames) {
     task.centroidal_model = std::string(name);
     type = centroidalModelTypeFromConfig(task);
     EXPECT_EQ(type.status().code(), absl::StatusCode::kInvalidArgument) << name;
-    EXPECT_THAT(type.status().message(), HasSubstr("which is not a centroidal model; valid names are: full_centroidal_dynamics")) << name;
+    EXPECT_THAT(type.status().message(),
+                HasSubstr("which is not a centroidal model; valid names are: "
+                          "full_centroidal_dynamics"))
+        << name;
   }
 }
 
-TEST(MpcFormulationFromConfig, EachCentroidalModelNameIsTheModelOfTheIntCodeItReplaced) {
-  // The parity of the retired centroidal_model_type: 0 was the full centroidal dynamics, 1 the single rigid body
-  // dynamics, OCS2's CentroidalModelType in the order of its enumerators.
+TEST(MpcFormulationFromConfig,
+     EachCentroidalModelNameIsTheModelOfTheIntCodeItReplaced) {
+  // The parity of the retired centroidal_model_type: 0 was the full centroidal
+  // dynamics, 1 the single rigid body dynamics, OCS2's CentroidalModelType in
+  // the order of its enumerators.
   mpc_config::TaskFile task;
   task.centroidal_model = "full_centroidal_dynamics";
-  absl::StatusOr<CentroidalModelType> type = centroidalModelTypeFromConfig(task);
+  absl::StatusOr<CentroidalModelType> type =
+      centroidalModelTypeFromConfig(task);
   ASSERT_TRUE(type.ok()) << type.status();
   EXPECT_EQ(*type, static_cast<CentroidalModelType>(0));
   task.centroidal_model = "single_rigid_body_dynamics";
@@ -241,15 +300,21 @@ TEST(MpcFormulationFromConfig, EachCentroidalModelNameIsTheModelOfTheIntCodeItRe
 }
 
 TEST(MpcFormulationFromConfig, TheRetiredFormulationKeysAreRefusedByTheParser) {
-  // The booleans that became names and list entries, and the nesting of the lists, which the old loaders handled
-  // themselves: the schema retires them, so a stale file never reaches the conversions.
+  // The booleans that became names and list entries, and the nesting of the
+  // lists, which the old loaders handled themselves: the schema retires them,
+  // so a stale file never reaches the conversions.
   for (const absl::string_view retired :
-       {"useComAndAcomTracking: true\n", "useDcmTerminalCost: false\n", "useContactPlanning: true\n", "useContactBasisVectorInputs: true\n",
-        "mpc_tasks { }\n", "tasks { }\n", "centroidal_model_type: 0\n", "centroidalModelType: 1\n"}) {
+       {"useComAndAcomTracking: true\n", "useDcmTerminalCost: false\n",
+        "useContactPlanning: true\n", "useContactBasisVectorInputs: true\n",
+        "mpc_tasks { }\n", "tasks { }\n", "centroidal_model_type: 0\n",
+        "centroidalModelType: 1\n"}) {
     const absl::StatusOr<humanoid_mpc_config::TaskFile> parsed =
-        nproto::ParseTextproto<humanoid_mpc_config::TaskFile>(retired, "task.textproto");
-    EXPECT_EQ(parsed.status().code(), absl::StatusCode::kInvalidArgument) << retired;
-    EXPECT_THAT(parsed.status().message(), HasSubstr("is retired: ")) << retired;
+        nproto::ParseTextproto<humanoid_mpc_config::TaskFile>(retired,
+                                                              "task.textproto");
+    EXPECT_EQ(parsed.status().code(), absl::StatusCode::kInvalidArgument)
+        << retired;
+    EXPECT_THAT(parsed.status().message(), HasSubstr("is retired: "))
+        << retired;
   }
 }
 

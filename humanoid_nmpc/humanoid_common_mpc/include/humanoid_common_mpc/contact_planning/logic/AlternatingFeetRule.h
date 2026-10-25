@@ -36,15 +36,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `alternating_feet`: a foot may not lift off twice without the other foot swinging in between (biped gait structure).
+ * `alternating_feet`: a foot may not lift off twice without the other foot
+ * swinging in between (biped gait structure).
  *
- * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
  */
 class AlternatingFeetRule final : public ContactLogicRule {
  public:
   std::string describe() const override;
   void configure(const ContactPlanningConfig& /*config*/) override {}
-  bool propagate(const ContactLogicState& state, MiqpAssignment& a, bool& changed) const override;
+  bool propagate(const ContactLogicState& state,
+                 MiqpAssignment& a,
+                 bool& changed) const override;
 };
 
 }  // namespace ocs2::humanoid

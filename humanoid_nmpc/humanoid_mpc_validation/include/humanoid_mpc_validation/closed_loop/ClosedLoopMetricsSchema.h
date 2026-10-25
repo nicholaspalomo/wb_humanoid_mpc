@@ -40,18 +40,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::validation {
 
 /**
- * The `schema` member of every closed-loop metrics document; a change of the fields below is a new version. v2 added
- * the `sqp_step` group; a v1 document has none of it, and the comparison of two labels compares only what both have.
+ * The `schema` member of every closed-loop metrics document; a change of the
+ * fields below is a new version. v2 added the `sqp_step` group; a v1 document
+ * has none of it, and the comparison of two labels compares only what both
+ * have.
  */
-inline constexpr absl::string_view kClosedLoopMetricsSchemaName = "humanoid_mpc_validation.closed_loop_metrics.v2";
+inline constexpr absl::string_view kClosedLoopMetricsSchemaName =
+    "humanoid_mpc_validation.closed_loop_metrics.v2";
 
 /** What a schema field holds. */
 enum class JsonFieldKind {
   kNumber,          ///< always a number
-  kNullableNumber,  ///< a number, or null where there was nothing to measure (no samples, a formulation without it)
+  kNullableNumber,  ///< a number, or null where there was nothing to measure
+                    ///< (no samples, a formulation without it)
   kBool,
   kString,
-  kOpenObject,  ///< an object whose members are free (the provenance, the settings)
+  kOpenObject,  ///< an object whose members are free (the provenance, the
+                ///< settings)
 };
 
 /** One field of the schema, by its dotted path ("solve_time_ms.total.p99"). */
@@ -60,13 +65,16 @@ struct JsonSchemaField {
   JsonFieldKind kind;
 };
 
-/** Every field of a closed-loop metrics document, as ClosedLoopMetrics::report() writes it. */
+/** Every field of a closed-loop metrics document, as
+ * ClosedLoopMetrics::report() writes it. */
 const std::vector<JsonSchemaField>& closedLoopMetricsSchema();
 
 /**
- * OK when `document` is a closed-loop metrics document of this version: its `schema` is kClosedLoopMetricsSchemaName,
- * every field of closedLoopMetricsSchema() is present with its kind, and it holds no value the schema does not list
- * (the members of an open object are free). InvalidArgument naming every field that is missing, mistyped or unknown.
+ * OK when `document` is a closed-loop metrics document of this version: its
+ * `schema` is kClosedLoopMetricsSchemaName, every field of
+ * closedLoopMetricsSchema() is present with its kind, and it holds no value the
+ * schema does not list (the members of an open object are free).
+ * InvalidArgument naming every field that is missing, mistyped or unknown.
  */
 absl::Status validateClosedLoopMetrics(const JsonValue& document);
 

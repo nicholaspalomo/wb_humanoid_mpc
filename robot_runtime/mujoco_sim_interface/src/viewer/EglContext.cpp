@@ -58,11 +58,16 @@ namespace robot::mujoco_sim_interface {
 namespace {
 
 // The members keep EGL's handles as void*, which they are.
-static_assert(std::is_same_v<EGLDisplay, void*> && std::is_same_v<EGLContext, void*> && std::is_same_v<EGLSurface, void*>);
+static_assert(std::is_same_v<EGLDisplay, void*> &&
+              std::is_same_v<EGLContext, void*> &&
+              std::is_same_v<EGLSurface, void*>);
 
-// The OpenGL queries of queryGlCapabilities(), resolved through eglGetProcAddress so that this file needs no GL header.
-using GlGetStringFunction = const unsigned char* absl_nullable (*absl_nullable)(unsigned int name);
-using GlGetIntegervFunction = void (*absl_nullable)(unsigned int name, int* absl_nonnull data);
+// The OpenGL queries of queryGlCapabilities(), resolved through
+// eglGetProcAddress so that this file needs no GL header.
+using GlGetStringFunction =
+    const unsigned char* absl_nullable (*absl_nullable)(unsigned int name);
+using GlGetIntegervFunction = void (*absl_nullable)(unsigned int name,
+                                                    int* absl_nonnull data);
 using GlGetErrorFunction = unsigned int (*absl_nullable)();
 // The OpenGL enumerants they take (the values of GL/gl.h and glext.h).
 constexpr unsigned int kGlVendor = 0x1F00;
@@ -72,10 +77,12 @@ constexpr unsigned int kGlExtensions = 0x1F03;
 constexpr unsigned int kGlMaxRenderbufferSize = 0x84E8;
 constexpr unsigned int kGlMaxSamples = 0x8D57;
 constexpr unsigned int kGlMaxTextureSize = 0x0D33;
-// The most OpenGL errors queryGlCapabilities() clears after its queries, so that MuJoCo's first error check sees none.
+// The most OpenGL errors queryGlCapabilities() clears after its queries, so
+// that MuJoCo's first error check sees none.
 constexpr int kMaxClearedGlErrors = 16;
 
-// The framebuffer of the EGL config: 8-bit red, green, blue and alpha, a 24-bit depth and an 8-bit stencil buffer.
+// The framebuffer of the EGL config: 8-bit red, green, blue and alpha, a 24-bit
+// depth and an 8-bit stencil buffer.
 constexpr EGLint kColorChannelBits = 8;
 constexpr EGLint kDepthBufferBits = 24;
 constexpr EGLint kStencilBufferBits = 8;
@@ -118,18 +125,22 @@ std::string eglErrorName(EGLint error) {
   }
 }
 
-bool hasExtension(const char* absl_nullable extensions, absl::string_view name) {
+bool hasExtension(const char* absl_nullable extensions,
+                  absl::string_view name) {
   if (extensions == nullptr) return false;
-  for (const absl::string_view extension : absl::StrSplit(extensions, ' ', absl::SkipEmpty())) {
+  for (const absl::string_view extension :
+       absl::StrSplit(extensions, ' ', absl::SkipEmpty())) {
     if (extension == name) return true;
   }
   return false;
 }
 
-/** The OpenGL string `name`, through `getString` (glGetString, never null here); empty where the context has none. */
+/** The OpenGL string `name`, through `getString` (glGetString, never null
+ * here); empty where the context has none. */
 std::string glString(GlGetStringFunction getString, unsigned int name) {
   const unsigned char* absl_nullable value = getString(name);
-  return value != nullptr ? std::string(reinterpret_cast<const char*>(value)) : std::string();
+  return value != nullptr ? std::string(reinterpret_cast<const char*>(value))
+                          : std::string();
 }
 
 std::string orUnknown(const char* absl_nullable text) {
@@ -142,131 +153,194 @@ struct InitializedDisplay {
   std::string description;
 };
 
-/** Initializes `display`, found on `platform`; appends why to `failures` and returns none when it fails. */
-std::optional<InitializedDisplay> initializeDisplay(const EglLibrary::Functions& egl,
-                                                    EGLDisplay display,
-                                                    absl::string_view platform,
-                                                    std::vector<std::string>& failures) {
+/** Initializes `display`, found on `platform`; appends why to `failures` and
+ * returns none when it fails. */
+std::optional<InitializedDisplay> initializeDisplay(
+    const EglLibrary::Functions& egl,
+    EGLDisplay display,
+    absl::string_view platform,
+    std::vector<std::string>& failures) {
   if (display == EGL_NO_DISPLAY) {
-    failures.push_back(absl::StrCat(platform, ": no display (", eglErrorName(egl.getError()), ")"));
+    failures.push_back(absl::StrCat(platform, ": no display (",
+                                    eglErrorName(egl.getError()), ")"));
     return std::nullopt;
   }
   EGLint major = 0;
   EGLint minor = 0;
   if (egl.initialize(display, &major, &minor) != EGL_TRUE) {
-    failures.push_back(absl::StrCat(platform, ": eglInitialize failed (", eglErrorName(egl.getError()), ")"));
+    failures.push_back(absl::StrCat(platform, ": eglInitialize failed (",
+                                    eglErrorName(egl.getError()), ")"));
     return std::nullopt;
   }
   return InitializedDisplay{
       .display = display,
-      .description = absl::StrCat(platform, " (", orUnknown(egl.queryString(display, EGL_VENDOR)), ", EGL ", major, ".", minor, ")")};
+      .description = absl::StrCat(
+          platform, " (", orUnknown(egl.queryString(display, EGL_VENDOR)),
+          ", EGL ", major, ".", minor, ")")};
 }
 
 /**
- * The display of an EGL device: the one `deviceId` names, else the first that is not Mesa's software device. None, with
- * the reason appended to `failures`, when there is no such device; InvalidArgument when `deviceId` is past the devices.
+ * The display of an EGL device: the one `deviceId` names, else the first that
+ * is not Mesa's software device. None, with the reason appended to `failures`,
+ * when there is no such device; InvalidArgument when `deviceId` is past the
+ * devices.
  */
-absl::StatusOr<std::optional<InitializedDisplay>> deviceDisplay(const EglLibrary::Functions& egl,
-                                                                std::optional<int> deviceId,
-                                                                std::vector<std::string>& failures) {
-  const char* absl_nullable clientExtensions = egl.queryString(EGL_NO_DISPLAY, EGL_EXTENSIONS);
-  if (egl.getPlatformDisplay == nullptr || egl.queryDevices == nullptr || egl.queryDeviceString == nullptr ||
+absl::StatusOr<std::optional<InitializedDisplay>> deviceDisplay(
+    const EglLibrary::Functions& egl,
+    std::optional<int> deviceId,
+    std::vector<std::string>& failures) {
+  const char* absl_nullable clientExtensions =
+      egl.queryString(EGL_NO_DISPLAY, EGL_EXTENSIONS);
+  if (egl.getPlatformDisplay == nullptr || egl.queryDevices == nullptr ||
+      egl.queryDeviceString == nullptr ||
       !hasExtension(clientExtensions, "EGL_EXT_platform_device")) {
     if (deviceId.has_value()) {
-      return absl::InvalidArgumentError(absl::StrCat("EGL device ", *deviceId,
-                                                     " does not exist: EGL reports 0 device(s), since it offers no device platform "
-                                                     "(EGL_EXT_platform_device); unset MUJOCO_EGL_DEVICE_ID to let the viewer choose"));
+      return absl::InvalidArgumentError(
+          absl::StrCat("EGL device ", *deviceId,
+                       " does not exist: EGL reports 0 device(s), since it "
+                       "offers no device platform "
+                       "(EGL_EXT_platform_device); unset MUJOCO_EGL_DEVICE_ID "
+                       "to let the viewer choose"));
     }
-    failures.push_back("device platform: not offered (EGL_EXT_platform_device, EGL_EXT_device_enumeration)");
+    failures.push_back(
+        "device platform: not offered (EGL_EXT_platform_device, "
+        "EGL_EXT_device_enumeration)");
     return std::nullopt;
   }
   EGLint count = 0;
-  if (egl.queryDevices(/*max_devices=*/0, /*devices=*/nullptr, &count) != EGL_TRUE) count = 0;
-  std::vector<EGLDeviceEXT> devices(static_cast<size_t>(std::max<EGLint>(count, 0)));
-  if (count > 0 && egl.queryDevices(count, devices.data(), &count) != EGL_TRUE) count = 0;
+  if (egl.queryDevices(/*max_devices=*/0, /*devices=*/nullptr, &count) !=
+      EGL_TRUE)
+    count = 0;
+  std::vector<EGLDeviceEXT> devices(
+      static_cast<size_t>(std::max<EGLint>(count, 0)));
+  if (count > 0 && egl.queryDevices(count, devices.data(), &count) != EGL_TRUE)
+    count = 0;
   devices.resize(static_cast<size_t>(std::max<EGLint>(count, 0)));
   if (deviceId.has_value() && *deviceId >= static_cast<int>(devices.size())) {
-    return absl::InvalidArgumentError(absl::StrCat("EGL device ", *deviceId, " does not exist: EGL reports ", devices.size(),
-                                                   " device(s); unset MUJOCO_EGL_DEVICE_ID to let the viewer choose"));
+    return absl::InvalidArgumentError(absl::StrCat(
+        "EGL device ", *deviceId, " does not exist: EGL reports ",
+        devices.size(),
+        " device(s); unset MUJOCO_EGL_DEVICE_ID to let the viewer choose"));
   }
   std::optional<int> chosen = deviceId;
-  for (int index = 0; !chosen.has_value() && index < static_cast<int>(devices.size()); ++index) {
-    if (!hasExtension(egl.queryDeviceString(devices[index], EGL_EXTENSIONS), "EGL_MESA_device_software")) chosen = index;
+  for (int index = 0;
+       !chosen.has_value() && index < static_cast<int>(devices.size());
+       ++index) {
+    if (!hasExtension(egl.queryDeviceString(devices[index], EGL_EXTENSIONS),
+                      "EGL_MESA_device_software"))
+      chosen = index;
   }
   if (!chosen.has_value()) {
-    failures.push_back(absl::StrCat("device platform: ", devices.size(), " device(s), none of them a GPU"));
+    failures.push_back(absl::StrCat("device platform: ", devices.size(),
+                                    " device(s), none of them a GPU"));
     return std::nullopt;
   }
   const std::string platform = absl::StrCat("EGL device ", *chosen);
-  return initializeDisplay(egl, egl.getPlatformDisplay(EGL_PLATFORM_DEVICE_EXT, devices[*chosen], /*attrib_list=*/nullptr), platform,
-                           failures);
+  return initializeDisplay(
+      egl,
+      egl.getPlatformDisplay(EGL_PLATFORM_DEVICE_EXT, devices[*chosen],
+                             /*attrib_list=*/nullptr),
+      platform, failures);
 }
 
-/** The display of Mesa's surfaceless platform (llvmpipe, or a render node); none, with the reason in `failures`. */
-std::optional<InitializedDisplay> surfacelessDisplay(const EglLibrary::Functions& egl, std::vector<std::string>& failures) {
+/** The display of Mesa's surfaceless platform (llvmpipe, or a render node);
+ * none, with the reason in `failures`. */
+std::optional<InitializedDisplay> surfacelessDisplay(
+    const EglLibrary::Functions& egl, std::vector<std::string>& failures) {
   if (egl.getPlatformDisplay == nullptr ||
-      !hasExtension(egl.queryString(EGL_NO_DISPLAY, EGL_EXTENSIONS), "EGL_MESA_platform_surfaceless")) {
-    failures.push_back("surfaceless platform: not offered (EGL_MESA_platform_surfaceless)");
+      !hasExtension(egl.queryString(EGL_NO_DISPLAY, EGL_EXTENSIONS),
+                    "EGL_MESA_platform_surfaceless")) {
+    failures.push_back(
+        "surfaceless platform: not offered (EGL_MESA_platform_surfaceless)");
     return std::nullopt;
   }
-  return initializeDisplay(egl, egl.getPlatformDisplay(EGL_PLATFORM_SURFACELESS_MESA, EGL_DEFAULT_DISPLAY, /*attrib_list=*/nullptr),
-                           "surfaceless", failures);
+  return initializeDisplay(
+      egl,
+      egl.getPlatformDisplay(EGL_PLATFORM_SURFACELESS_MESA, EGL_DEFAULT_DISPLAY,
+                             /*attrib_list=*/nullptr),
+      "surfaceless", failures);
 }
 
 std::string howToRunWithoutEgl() {
-  return absl::StrCat("use a machine with Mesa's EGL (libegl-mesa0) or a GPU, or choose --viewer=", kNoViewerName,
-                      " (or --viewer=", kWebViewerName, ",", kNoViewerName, " to fall back)");
+  return absl::StrCat(
+      "use a machine with Mesa's EGL (libegl-mesa0) or a GPU, or choose "
+      "--viewer=",
+      kNoViewerName, " (or --viewer=", kWebViewerName, ",", kNoViewerName,
+      " to fall back)");
 }
 
 }  // namespace
 
-absl::StatusOr<std::unique_ptr<EglContext>> EglContext::Create(const EglLibrary* absl_nonnull library, const Options& options) {
+absl::StatusOr<std::unique_ptr<EglContext>> EglContext::Create(
+    const EglLibrary* absl_nonnull library, const Options& options) {
   const EglLibrary::Functions& egl = library->functions();
   std::vector<std::string> failures;
-  absl::StatusOr<std::optional<InitializedDisplay>> device = deviceDisplay(egl, options.deviceId, failures);
+  absl::StatusOr<std::optional<InitializedDisplay>> device =
+      deviceDisplay(egl, options.deviceId, failures);
   if (!device.ok()) return device.status();
   std::optional<InitializedDisplay> display = *std::move(device);
-  // An explicit device is that device or nothing; without one, llvmpipe is the fallback.
-  if (!display.has_value() && !options.deviceId.has_value()) display = surfacelessDisplay(egl, failures);
+  // An explicit device is that device or nothing; without one, llvmpipe is the
+  // fallback.
+  if (!display.has_value() && !options.deviceId.has_value())
+    display = surfacelessDisplay(egl, failures);
   if (!display.has_value()) {
-    return absl::UnavailableError(
-        absl::StrCat("EGL offers no display to render on (", absl::StrJoin(failures, "; "), "); ", howToRunWithoutEgl()));
+    return absl::UnavailableError(absl::StrCat(
+        "EGL offers no display to render on (", absl::StrJoin(failures, "; "),
+        "); ", howToRunWithoutEgl()));
   }
   const InitializedDisplay& initialized = *display;
 
   if (egl.bindApi(EGL_OPENGL_API) != EGL_TRUE) {
-    return absl::UnavailableError(absl::StrCat("EGL on ", initialized.description, " offers no desktop OpenGL (",
-                                               eglErrorName(egl.getError()), "); ", howToRunWithoutEgl()));
+    return absl::UnavailableError(absl::StrCat(
+        "EGL on ", initialized.description, " offers no desktop OpenGL (",
+        eglErrorName(egl.getError()), "); ", howToRunWithoutEgl()));
   }
   const std::array<EGLint, kConfigAttributeListSize> attributes = {
-      EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,   EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,     EGL_RED_SIZE,   kColorChannelBits,
-      EGL_GREEN_SIZE,   kColorChannelBits, EGL_BLUE_SIZE,       kColorChannelBits,  EGL_ALPHA_SIZE, kColorChannelBits,
-      EGL_DEPTH_SIZE,   kDepthBufferBits,  EGL_STENCIL_SIZE,    kStencilBufferBits, EGL_NONE};
+      EGL_SURFACE_TYPE,   EGL_PBUFFER_BIT,   EGL_RENDERABLE_TYPE,
+      EGL_OPENGL_BIT,     EGL_RED_SIZE,      kColorChannelBits,
+      EGL_GREEN_SIZE,     kColorChannelBits, EGL_BLUE_SIZE,
+      kColorChannelBits,  EGL_ALPHA_SIZE,    kColorChannelBits,
+      EGL_DEPTH_SIZE,     kDepthBufferBits,  EGL_STENCIL_SIZE,
+      kStencilBufferBits, EGL_NONE};
   EGLConfig config = nullptr;
   EGLint numConfigs = 0;
-  if (egl.chooseConfig(initialized.display, attributes.data(), &config, /*config_size=*/1, &numConfigs) != EGL_TRUE || numConfigs < 1) {
-    return absl::UnavailableError(absl::StrCat("EGL on ", initialized.description, " has no RGBA8 / depth 24 / stencil 8 OpenGL config (",
-                                               eglErrorName(egl.getError()), "); ", howToRunWithoutEgl()));
+  if (egl.chooseConfig(initialized.display, attributes.data(), &config,
+                       /*config_size=*/1, &numConfigs) != EGL_TRUE ||
+      numConfigs < 1) {
+    return absl::UnavailableError(absl::StrCat(
+        "EGL on ", initialized.description,
+        " has no RGBA8 / depth 24 / stencil 8 OpenGL config (",
+        eglErrorName(egl.getError()), "); ", howToRunWithoutEgl()));
   }
-  // No attributes: MuJoCo needs the legacy entry points of a compatibility-profile context.
-  void* absl_nullable context = egl.createContext(initialized.display, config, EGL_NO_CONTEXT, /*attrib_list=*/nullptr);
+  // No attributes: MuJoCo needs the legacy entry points of a
+  // compatibility-profile context.
+  void* absl_nullable context = egl.createContext(
+      initialized.display, config, EGL_NO_CONTEXT, /*attrib_list=*/nullptr);
   if (context == EGL_NO_CONTEXT) {
-    return absl::UnavailableError(absl::StrCat("EGL on ", initialized.description, " could not create an OpenGL context (",
-                                               eglErrorName(egl.getError()), "); ", howToRunWithoutEgl()));
+    return absl::UnavailableError(absl::StrCat(
+        "EGL on ", initialized.description,
+        " could not create an OpenGL context (", eglErrorName(egl.getError()),
+        "); ", howToRunWithoutEgl()));
   }
   void* absl_nullable surface = EGL_NO_SURFACE;
-  if (!hasExtension(egl.queryString(initialized.display, EGL_EXTENSIONS), "EGL_KHR_surfaceless_context")) {
-    const std::array<EGLint, kPbufferAttributeListSize> pbuffer = {EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE};  // 1 x 1 px
-    surface = egl.createPbufferSurface(initialized.display, config, pbuffer.data());
+  if (!hasExtension(egl.queryString(initialized.display, EGL_EXTENSIONS),
+                    "EGL_KHR_surfaceless_context")) {
+    const std::array<EGLint, kPbufferAttributeListSize> pbuffer = {
+        EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE};  // 1 x 1 px
+    surface =
+        egl.createPbufferSurface(initialized.display, config, pbuffer.data());
     if (surface == EGL_NO_SURFACE) {
       const std::string error = eglErrorName(egl.getError());
       egl.destroyContext(initialized.display, context);
-      return absl::UnavailableError(absl::StrCat("EGL on ", initialized.description,
-                                                 " has neither surfaceless contexts nor a pbuffer to make one current (", error, "); ",
-                                                 howToRunWithoutEgl()));
+      return absl::UnavailableError(
+          absl::StrCat("EGL on ", initialized.description,
+                       " has neither surfaceless contexts nor a pbuffer to "
+                       "make one current (",
+                       error, "); ", howToRunWithoutEgl()));
     }
   }
-  return absl::WrapUnique(new EglContext(library, initialized.display, context, surface, initialized.description));
+  return absl::WrapUnique(new EglContext(library, initialized.display, context,
+                                         surface, initialized.description));
 }
 
 EglContext::EglContext(const EglLibrary* absl_nonnull library,
@@ -274,24 +348,33 @@ EglContext::EglContext(const EglLibrary* absl_nonnull library,
                        void* absl_nonnull context,
                        void* absl_nullable surface,
                        std::string description)
-    : library_(library), display_(display), context_(context), surface_(surface), description_(std::move(description)) {}
+    : library_(library),
+      display_(display),
+      context_(context),
+      surface_(surface),
+      description_(std::move(description)) {}
 
 EglContext::~EglContext() {
   const EglLibrary::Functions& egl = library_->functions();
   if (surface_ != nullptr) egl.destroySurface(display_, surface_);
   egl.destroyContext(display_, context_);
-  // No eglTerminate: EGL returns this same display to every context of the platform in the process (see the class).
+  // No eglTerminate: EGL returns this same display to every context of the
+  // platform in the process (see the class).
 }
 
 absl::Status EglContext::makeCurrent() {
   const EglLibrary::Functions& egl = library_->functions();
-  // The bound API is per thread, and this thread may never have bound desktop OpenGL.
+  // The bound API is per thread, and this thread may never have bound desktop
+  // OpenGL.
   if (egl.bindApi(EGL_OPENGL_API) != EGL_TRUE) {
-    return absl::UnavailableError(absl::StrCat("eglBindAPI(EGL_OPENGL_API) failed (", eglErrorName(egl.getError()), ")"));
+    return absl::UnavailableError(
+        absl::StrCat("eglBindAPI(EGL_OPENGL_API) failed (",
+                     eglErrorName(egl.getError()), ")"));
   }
   if (egl.makeCurrent(display_, surface_, surface_, context_) != EGL_TRUE) {
-    return absl::UnavailableError(
-        absl::StrCat("eglMakeCurrent failed on ", description_, " (", eglErrorName(egl.getError()), "); is it current on another thread?"));
+    return absl::UnavailableError(absl::StrCat(
+        "eglMakeCurrent failed on ", description_, " (",
+        eglErrorName(egl.getError()), "); is it current on another thread?"));
   }
   return absl::OkStatus();
 }
@@ -299,21 +382,32 @@ absl::Status EglContext::makeCurrent() {
 absl::Status EglContext::release() {
   const EglLibrary::Functions& egl = library_->functions();
   if (egl.bindApi(EGL_OPENGL_API) != EGL_TRUE) {
-    return absl::UnavailableError(absl::StrCat("eglBindAPI(EGL_OPENGL_API) failed (", eglErrorName(egl.getError()), ")"));
+    return absl::UnavailableError(
+        absl::StrCat("eglBindAPI(EGL_OPENGL_API) failed (",
+                     eglErrorName(egl.getError()), ")"));
   }
-  if (egl.makeCurrent(display_, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT) != EGL_TRUE) {
-    return absl::UnavailableError(absl::StrCat("eglMakeCurrent(EGL_NO_CONTEXT) failed (", eglErrorName(egl.getError()), ")"));
+  if (egl.makeCurrent(display_, EGL_NO_SURFACE, EGL_NO_SURFACE,
+                      EGL_NO_CONTEXT) != EGL_TRUE) {
+    return absl::UnavailableError(
+        absl::StrCat("eglMakeCurrent(EGL_NO_CONTEXT) failed (",
+                     eglErrorName(egl.getError()), ")"));
   }
   return absl::OkStatus();
 }
 
 absl::StatusOr<GlCapabilities> EglContext::queryGlCapabilities() const {
   const EglLibrary::Functions& egl = library_->functions();
-  const GlGetStringFunction getString = reinterpret_cast<GlGetStringFunction>(egl.getProcAddress("glGetString"));
-  const GlGetIntegervFunction getIntegerv = reinterpret_cast<GlGetIntegervFunction>(egl.getProcAddress("glGetIntegerv"));
-  const GlGetErrorFunction getError = reinterpret_cast<GlGetErrorFunction>(egl.getProcAddress("glGetError"));
+  const GlGetStringFunction getString =
+      reinterpret_cast<GlGetStringFunction>(egl.getProcAddress("glGetString"));
+  const GlGetIntegervFunction getIntegerv =
+      reinterpret_cast<GlGetIntegervFunction>(
+          egl.getProcAddress("glGetIntegerv"));
+  const GlGetErrorFunction getError =
+      reinterpret_cast<GlGetErrorFunction>(egl.getProcAddress("glGetError"));
   if (getString == nullptr || getIntegerv == nullptr || getError == nullptr) {
-    return absl::UnavailableError(absl::StrCat(library_->soname(), " resolves no glGetString / glGetIntegerv / glGetError"));
+    return absl::UnavailableError(
+        absl::StrCat(library_->soname(),
+                     " resolves no glGetString / glGetIntegerv / glGetError"));
   }
   GlCapabilities capabilities;
   capabilities.vendor = glString(getString, kGlVendor);
@@ -321,14 +415,20 @@ absl::StatusOr<GlCapabilities> EglContext::queryGlCapabilities() const {
   capabilities.version = glString(getString, kGlVersion);
   capabilities.extensions = glString(getString, kGlExtensions);
   getIntegerv(kGlMaxRenderbufferSize, &capabilities.maxRenderbufferSize);
-  getIntegerv(kGlMaxSamples, &capabilities.maxSamples);  // GL_INVALID_ENUM, and 0 left, before OpenGL 3.0
+  getIntegerv(
+      kGlMaxSamples,
+      &capabilities
+           .maxSamples);  // GL_INVALID_ENUM, and 0 left, before OpenGL 3.0
   getIntegerv(kGlMaxTextureSize, &capabilities.maxTextureSize);
-  // Clear what the queries raised, so that MuJoCo's first error check does not report it as its own.
+  // Clear what the queries raised, so that MuJoCo's first error check does not
+  // report it as its own.
   for (int pending = 0; pending < kMaxClearedGlErrors; ++pending) {
     if (getError() == 0) break;
   }
   if (capabilities.version.empty()) {
-    return absl::UnavailableError(absl::StrCat("glGetString(GL_VERSION) returned nothing on ", description_, "; is the context current?"));
+    return absl::UnavailableError(
+        absl::StrCat("glGetString(GL_VERSION) returned nothing on ",
+                     description_, "; is the context current?"));
   }
   return capabilities;
 }

@@ -44,27 +44,34 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The MpcLink of a controller whose MPC is the MPC node (MpcServer) on the bus: an ipc::RemoteMpcLink, which serves
- * this link's MpcResetSupervisor, as the controllers' MpcLink interface (humanoid_common_mpc/mrt/MpcLink.h). The
- * controller calls setCurrentObservation(), updatePolicy() and the predicates on it as on InProcessMpcLink; the
- * observation goes into a triple buffer that the bus's IO thread publishes on robot/mpc_observation, and policies come
- * in on mpc/policy. Its isHealthy() is the supervisor's, which the remote link feeds with the MPC node's health and the
- * policy timeout (link loss), so the controller holds JOINT_PD on link loss as for a failing solver.
+ * The MpcLink of a controller whose MPC is the MPC node (MpcServer) on the bus:
+ * an ipc::RemoteMpcLink, which serves this link's MpcResetSupervisor, as the
+ * controllers' MpcLink interface (humanoid_common_mpc/mrt/MpcLink.h). The
+ * controller calls setCurrentObservation(), updatePolicy() and the predicates
+ * on it as on InProcessMpcLink; the observation goes into a triple buffer that
+ * the bus's IO thread publishes on robot/mpc_observation, and policies come in
+ * on mpc/policy. Its isHealthy() is the supervisor's, which the remote link
+ * feeds with the MPC node's health and the policy timeout (link loss), so the
+ * controller holds JOINT_PD on link loss as for a failing solver.
  *
- * The link registers on a bus that is not running yet; the robot process starts the bus once everything is registered.
- * start() hands the first observation to the link (the MPC node serves its first reset as a full one by itself). stop()
- * has no thread to join - the IO thread is the bus's - and the callbacks end with the link, whose destructor detaches
- * them from the bus.
+ * The link registers on a bus that is not running yet; the robot process starts
+ * the bus once everything is registered. start() hands the first observation to
+ * the link (the MPC node serves its first reset as a full one by itself).
+ * stop() has no thread to join - the IO thread is the bus's - and the callbacks
+ * end with the link, whose destructor detaches them from the bus.
  */
 class RemoteMpcLinkAdapter final : public MpcLink {
  public:
   /**
-   * A link on `bus` (not running yet), which must outlive it. `config` is ipc::RemoteMpcLink's: the dimensions of the
-   * controller's model (the effective input dimension under basis-vector contact inputs) and mpc_link.policy_timeout.
+   * A link on `bus` (not running yet), which must outlive it. `config` is
+   * ipc::RemoteMpcLink's: the dimensions of the controller's model (the
+   * effective input dimension under basis-vector contact inputs) and
+   * mpc_link.policy_timeout.
    */
-  static absl::StatusOr<std::unique_ptr<RemoteMpcLinkAdapter>> Create(robot::ipc::Bus* absl_nonnull bus,
-                                                                      ipc::RemoteMpcLink::Config config,
-                                                                      MpcResetSupervisor::Config supervisorConfig = {});
+  static absl::StatusOr<std::unique_ptr<RemoteMpcLinkAdapter>> Create(
+      robot::ipc::Bus* absl_nonnull bus,
+      ipc::RemoteMpcLink::Config config,
+      MpcResetSupervisor::Config supervisorConfig = {});
 
   RemoteMpcLinkAdapter(const RemoteMpcLinkAdapter&) = delete;
   RemoteMpcLinkAdapter& operator=(const RemoteMpcLinkAdapter&) = delete;
@@ -76,7 +83,8 @@ class RemoteMpcLinkAdapter final : public MpcLink {
   MRT_BASE& mrt() override { return *link_; }
   const MRT_BASE& mrt() const override { return *link_; }
 
-  /** The remote link: its statistics (LoopTiming's stale policies and policy age) and the viewer annotations. */
+  /** The remote link: its statistics (LoopTiming's stale policies and policy
+   * age) and the viewer annotations. */
   ipc::RemoteMpcLink& remote() { return *link_; }
   const ipc::RemoteMpcLink& remote() const { return *link_; }
 
@@ -87,9 +95,10 @@ class RemoteMpcLinkAdapter final : public MpcLink {
 };
 
 /**
- * An MpcLinkFactory that hands the controller `link`, made before the controller: the controller calls its factory once,
- * from its constructor. The reset target the controller passes is not used (a remote link's MPC node resets to its own).
- * A second call returns nullptr.
+ * An MpcLinkFactory that hands the controller `link`, made before the
+ * controller: the controller calls its factory once, from its constructor. The
+ * reset target the controller passes is not used (a remote link's MPC node
+ * resets to its own). A second call returns nullptr.
  */
 MpcLinkFactory handOverMpcLink(std::unique_ptr<MpcLink> link);
 

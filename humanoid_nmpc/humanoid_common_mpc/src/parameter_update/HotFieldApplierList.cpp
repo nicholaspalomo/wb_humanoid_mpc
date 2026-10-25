@@ -38,7 +38,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-std::vector<std::string> sortedFieldUnion(absl::Span<const absl::Span<const absl::string_view>> fieldLists) {
+std::vector<std::string> sortedFieldUnion(
+    absl::Span<const absl::Span<const absl::string_view>> fieldLists) {
   std::vector<std::string> fields;
   for (const absl::Span<const absl::string_view> list : fieldLists) {
     for (const absl::string_view field : list) fields.emplace_back(field);

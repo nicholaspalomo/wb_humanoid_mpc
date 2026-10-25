@@ -38,32 +38,46 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-absl::Status OrientationCompensationHeuristic::configure(const LocomotionHeuristicConfig& config,
-                                                         const LocomotionHeuristicModelParameters& /*model*/) {
+absl::Status OrientationCompensationHeuristic::configure(
+    const LocomotionHeuristicConfig& config,
+    const LocomotionHeuristicModelParameters& /*model*/) {
   parameters_ = config.orientationCompensation;
   return absl::OkStatus();
 }
 
-BasePoseOffset OrientationCompensationHeuristic::offset(const BasePoseHeuristicContext& context) const {
+BasePoseOffset OrientationCompensationHeuristic::offset(
+    const BasePoseHeuristicContext& context) const {
   BasePoseOffset result;
-  // H_Theta(pdot) = a1 pdot + a0, evaluated on the two components separately: roll against the LATERAL command and
-  // pitch against the FORWARD one, which is the pairing Bledt's regressions found (equations 4.11 and 4.12). The
-  // velocity is already in the base's own yaw frame, so these are the robot's forward and left, not the world's.
-  result.roll = parameters_.rollPerLateralVelocity * context.commandedVelocityInBaseFrame.y() + parameters_.rollOffset;
-  result.pitch = parameters_.pitchPerForwardVelocity * context.commandedVelocityInBaseFrame.x() + parameters_.pitchOffset;
-  // The clamp is not defensive trimming: the command this reads is the operator's, filtered but not rate limited, and
-  // an affine law applied to it has no bound of its own. A reference tilt the legs cannot reach is worse than no
-  // reference at all, because the state cost pulls towards it at every node and the solver spends its iterations on
-  // a target it cannot have.
-  result.roll = std::clamp(result.roll, -parameters_.maximumTilt, parameters_.maximumTilt);
-  result.pitch = std::clamp(result.pitch, -parameters_.maximumTilt, parameters_.maximumTilt);
+  // H_Theta(pdot) = a1 pdot + a0, evaluated on the two components separately:
+  // roll against the LATERAL command and pitch against the FORWARD one, which
+  // is the pairing Bledt's regressions found (equations 4.11 and 4.12). The
+  // velocity is already in the base's own yaw frame, so these are the robot's
+  // forward and left, not the world's.
+  result.roll = parameters_.rollPerLateralVelocity *
+                    context.commandedVelocityInBaseFrame.y() +
+                parameters_.rollOffset;
+  result.pitch = parameters_.pitchPerForwardVelocity *
+                     context.commandedVelocityInBaseFrame.x() +
+                 parameters_.pitchOffset;
+  // The clamp is not defensive trimming: the command this reads is the
+  // operator's, filtered but not rate limited, and an affine law applied to it
+  // has no bound of its own. A reference tilt the legs cannot reach is worse
+  // than no reference at all, because the state cost pulls towards it at every
+  // node and the solver spends its iterations on a target it cannot have.
+  result.roll = std::clamp(result.roll, -parameters_.maximumTilt,
+                           parameters_.maximumTilt);
+  result.pitch = std::clamp(result.pitch, -parameters_.maximumTilt,
+                            parameters_.maximumTilt);
   return result;
 }
 
 std::string OrientationCompensationHeuristic::describe() const {
-  return absl::StrCat("orientation_compensation: roll = ", parameters_.rollPerLateralVelocity, " * v_y + ", parameters_.rollOffset,
-                      " [rad], pitch = ", parameters_.pitchPerForwardVelocity, " * v_x + ", parameters_.pitchOffset,
-                      " [rad], both clamped to +/- ", parameters_.maximumTilt, " rad");
+  return absl::StrCat(
+      "orientation_compensation: roll = ", parameters_.rollPerLateralVelocity,
+      " * v_y + ", parameters_.rollOffset,
+      " [rad], pitch = ", parameters_.pitchPerForwardVelocity, " * v_x + ",
+      parameters_.pitchOffset, " [rad], both clamped to +/- ",
+      parameters_.maximumTilt, " rad");
 }
 
 }  // namespace ocs2::humanoid

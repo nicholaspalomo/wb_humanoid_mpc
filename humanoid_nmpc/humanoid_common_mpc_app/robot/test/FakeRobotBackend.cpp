@@ -47,13 +47,16 @@ constexpr double kGravity = 9.81;
 
 }  // namespace
 
-FakeRobotBackend::Trajectory standingStill(const robot::model::RobotState& initialState) {
+FakeRobotBackend::Trajectory standingStill(
+    const robot::model::RobotState& initialState) {
   return [initialState](double time, robot::model::RobotState& state) {
     state = initialState;
     state.setTime(time);
     state.setRootLinearVelocityInLocalFrame(vector3_t::Zero());
     state.setRootAngularVelocityInLocalFrame(vector3_t::Zero());
-    state.setImuLinearAccelerationInLocalFrame(initialState.getRootRotationLocalToWorldFrame().inverse() * vector3_t(0.0, 0.0, kGravity));
+    state.setImuLinearAccelerationInLocalFrame(
+        initialState.getRootRotationLocalToWorldFrame().inverse() *
+        vector3_t(0.0, 0.0, kGravity));
   };
 }
 
@@ -90,7 +93,8 @@ void FakeRobotBackend::stop() {
 
 void FakeRobotBackend::enableTorques() {
   if (!torquesEnabled_.exchange(true)) {
-    // No action applied while the torques were off is executed (RobotHWInterfaceBase::discardAppliedJointAction()).
+    // No action applied while the torques were off is executed
+    // (RobotHWInterfaceBase::discardAppliedJointAction()).
     hardware_.discardApplied();
     torqueEnables_.fetch_add(1);
   }
@@ -101,7 +105,8 @@ void FakeRobotBackend::enterSafeState() {
   safeStates_.fetch_add(1);
 }
 
-void FakeRobotBackend::readMeasuredContactForces(std::array<vector3_t, kNumContacts>& forces) {
+void FakeRobotBackend::readMeasuredContactForces(
+    std::array<vector3_t, kNumContacts>& forces) {
   forces.fill(vector3_t::Zero());
 }
 
@@ -120,7 +125,8 @@ void FakeRobotBackend::runDriver() {
     trajectory_(static_cast<double>(step) * periodSeconds, driverState_);
     hardware_.publish(driverState_);
     statesPublished_.fetch_add(1);
-    if (hardware_.take(driverAction_) && torquesEnabled_.load()) actionsExecuted_.fetch_add(1);
+    if (hardware_.take(driverAction_) && torquesEnabled_.load())
+      actionsExecuted_.fetch_add(1);
   }
 }
 

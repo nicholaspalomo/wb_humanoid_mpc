@@ -60,7 +60,9 @@ absl::StatusOr<Delivery> parseDelivery(absl::string_view name) {
   if (name == kAllName) {
     return Delivery::kAll;
   }
-  return absl::InvalidArgumentError(absl::StrCat("unknown delivery '", name, "' (valid: ", kLatestName, ", ", kAllName, ")"));
+  return absl::InvalidArgumentError(absl::StrCat("unknown delivery '", name,
+                                                 "' (valid: ", kLatestName,
+                                                 ", ", kAllName, ")"));
 }
 
 }  // namespace robot::ipc

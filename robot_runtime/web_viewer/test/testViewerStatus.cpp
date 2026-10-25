@@ -40,17 +40,32 @@ namespace {
 
 TEST(ViewerStatusTest, EncodesEveryField) {
   ViewerStatus status;
-  status.camera = {.mode = ViewerCameraMode::kFree, .azimuth = 90.0, .elevation = -5.5, .distance = 3.0, .lookat = {0.0, 0.25, 0.5}};
-  status.render = {.width = 1280, .height = 720, .targetFps = 30, .measuredFps = 16.5, .quality = 70};
+  status.camera = {.mode = ViewerCameraMode::kFree,
+                   .azimuth = 90.0,
+                   .elevation = -5.5,
+                   .distance = 3.0,
+                   .lookat = {0.0, 0.25, 0.5}};
+  status.render = {.width = 1280,
+                   .height = 720,
+                   .targetFps = 30,
+                   .measuredFps = 16.5,
+                   .quality = 70};
   status.geomGroups = {true, false, true};
-  status.visualizations.push_back({.name = "contact_timeline", .hotkey = 'c', .enabled = true, .description = "contacts over time"});
-  status.visualizations.push_back({.name = "metrics", .hotkey = 0, .enabled = false, .description = "rates"});
-  EXPECT_EQ(viewerStatusJson(status),
-            R"({"camera":{"mode":"free","azimuth":90,"elevation":-5.5,"distance":3,"lookat":[0,0.25,0.5]},)"
-            R"("render":{"width":1280,"height":720,"targetFps":30,"measuredFps":16.5,"quality":70},)"
-            R"("geomGroups":[true,false,true],)"
-            R"("visualizations":[{"name":"contact_timeline","hotkey":"c","enabled":true,"description":"contacts over time"},)"
-            R"({"name":"metrics","hotkey":null,"enabled":false,"description":"rates"}]})");
+  status.visualizations.push_back({.name = "contact_timeline",
+                                   .hotkey = 'c',
+                                   .enabled = true,
+                                   .description = "contacts over time"});
+  status.visualizations.push_back({.name = "metrics",
+                                   .hotkey = 0,
+                                   .enabled = false,
+                                   .description = "rates"});
+  EXPECT_EQ(
+      viewerStatusJson(status),
+      R"({"camera":{"mode":"free","azimuth":90,"elevation":-5.5,"distance":3,"lookat":[0,0.25,0.5]},)"
+      R"("render":{"width":1280,"height":720,"targetFps":30,"measuredFps":16.5,"quality":70},)"
+      R"("geomGroups":[true,false,true],)"
+      R"("visualizations":[{"name":"contact_timeline","hotkey":"c","enabled":true,"description":"contacts over time"},)"
+      R"({"name":"metrics","hotkey":null,"enabled":false,"description":"rates"}]})");
 }
 
 TEST(ViewerStatusTest, NumbersJsonCannotSpellAreNull) {

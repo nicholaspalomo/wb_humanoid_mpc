@@ -81,9 +81,12 @@ constexpr char kUrdf[] = R"(<?xml version="1.0"?>
 
 /** The biped of kUrdf, read from a file in the test's temporary directory. */
 RobotDescription bipedDescription() {
-  const std::filesystem::path urdfPath = std::filesystem::temp_directory_path() / "robot_model_robot_state_test.urdf";
+  const std::filesystem::path urdfPath =
+      std::filesystem::temp_directory_path() /
+      "robot_model_robot_state_test.urdf";
   std::ofstream(urdfPath) << kUrdf;
-  absl::StatusOr<RobotDescription> description = RobotDescription::Create(urdfPath.string());
+  absl::StatusOr<RobotDescription> description =
+      RobotDescription::Create(urdfPath.string());
   CHECK_OK(description.status());
   std::error_code ec;
   std::filesystem::remove(urdfPath, ec);
@@ -121,10 +124,14 @@ TEST_F(RobotStateTest, SettingAJointThatIsNotThereIsIgnored) {
 TEST_F(RobotStateTest, TheCheckedAndTheUncheckedReadsOfAJointAgree) {
   RobotState state(description_, /*contactSize=*/2);
   for (const joint_index_t joint : description_.getJointIndices()) {
-    state.setJointPosition(joint, /*jointPosition=*/0.1 * static_cast<scalar_t>(joint + 1));
-    state.setJointVelocity(joint, /*jointVelocity=*/-0.2 * static_cast<scalar_t>(joint + 1));
-    EXPECT_EQ(state.getJointPosition(joint), state.getCheckedJointPosition(joint));
-    EXPECT_EQ(state.getJointVelocity(joint), state.getCheckedJointVelocity(joint));
+    state.setJointPosition(
+        joint, /*jointPosition=*/0.1 * static_cast<scalar_t>(joint + 1));
+    state.setJointVelocity(
+        joint, /*jointVelocity=*/-0.2 * static_cast<scalar_t>(joint + 1));
+    EXPECT_EQ(state.getJointPosition(joint),
+              state.getCheckedJointPosition(joint));
+    EXPECT_EQ(state.getJointVelocity(joint),
+              state.getCheckedJointVelocity(joint));
   }
 }
 
@@ -143,7 +150,8 @@ TEST_F(RobotStateTest, CopyingAStateIntoAnotherCopiesEveryJointAndFlag) {
   EXPECT_EQ(moved.getJointPosition(2), 0.75);
 }
 
-TEST_F(RobotStateTest, TheImuAccelerationStartsAtZeroIsCopiedAndIsZeroedWithTheConfiguration) {
+TEST_F(RobotStateTest,
+       TheImuAccelerationStartsAtZeroIsCopiedAndIsZeroedWithTheConfiguration) {
   RobotState source(description_);
   EXPECT_EQ(source.getImuLinearAccelerationInLocalFrame(), vector3_t::Zero());
   const vector3_t atRest(0.1, -0.2, 9.81);
@@ -160,8 +168,11 @@ TEST_F(RobotStateTest, AJointActionStartsAtZeroForEveryJoint) {
   EXPECT_EQ(action.size(), description_.getNumJoints());
   EXPECT_EQ(action.capacity(), description_.getNumJoints());
   for (joint_index_t joint = 0; joint < description_.getNumJoints(); ++joint) {
-    EXPECT_THAT(action[joint], Optional(Field(&JointAction::kp, DoubleEq(0.0))));
-    EXPECT_THAT(action.at(joint), Optional(Field(&JointAction::feed_forward_effort, DoubleEq(0.0))));
+    EXPECT_THAT(action[joint],
+                Optional(Field(&JointAction::kp, DoubleEq(0.0))));
+    EXPECT_THAT(
+        action.at(joint),
+        Optional(Field(&JointAction::feed_forward_effort, DoubleEq(0.0))));
   }
   action[1].emplace().kp = 10.0;
   size_t visited = 0;
@@ -176,7 +187,9 @@ TEST_F(RobotStateTest, AnEmptySlotReadsAsTheDefaultAndIsSkippedByIteration) {
   action[0].emplace().q_des = 0.1;
   action[1].reset();
   action[2].emplace().q_des = 0.3;
-  const vector_t targets = action.toVector({0, 1, 2}, [](const JointAction& joint) { return joint.q_des; }, /*defaultValue=*/-1.0);
+  const vector_t targets = action.toVector(
+      {0, 1, 2}, [](const JointAction& joint) { return joint.q_des; },
+      /*defaultValue=*/-1.0);
   EXPECT_EQ(targets, (vector_t(3) << 0.1, -1.0, 0.3).finished());
   EXPECT_EQ(action.size(), 2u);
   size_t visited = 0;
@@ -189,20 +202,27 @@ TEST_F(RobotStateTest, AnEmptySlotReadsAsTheDefaultAndIsSkippedByIteration) {
 
 using RobotStateDeathTest = RobotStateTest;
 
-TEST_F(RobotStateDeathTest, ReadingAJointOrAContactPointThatIsNotThereIsAProgrammingError) {
+TEST_F(RobotStateDeathTest,
+       ReadingAJointOrAContactPointThatIsNotThereIsAProgrammingError) {
   RobotState state(description_, /*contactSize=*/2);
-  EXPECT_DEATH(state.getCheckedJointPosition(/*jointId=*/7), "RobotState: no joint 7");
-  EXPECT_DEATH(state.getCheckedJointVelocity(/*jointId=*/7), "RobotState: no joint 7");
-  EXPECT_DEATH(state.getContactFlag(/*index=*/2), "RobotState: no contact point 2");
-  EXPECT_DEATH(state.setContactFlag(/*index=*/2, /*contactFlag=*/true), "RobotState: no contact point 2");
+  EXPECT_DEATH(state.getCheckedJointPosition(/*jointId=*/7),
+               "RobotState: no joint 7");
+  EXPECT_DEATH(state.getCheckedJointVelocity(/*jointId=*/7),
+               "RobotState: no joint 7");
+  EXPECT_DEATH(state.getContactFlag(/*index=*/2),
+               "RobotState: no contact point 2");
+  EXPECT_DEATH(state.setContactFlag(/*index=*/2, /*contactFlag=*/true),
+               "RobotState: no contact point 2");
 }
 
-TEST_F(RobotStateDeathTest, TheCheckedAccessOfAJointActionRefusesAnIdOutOfRange) {
+TEST_F(RobotStateDeathTest,
+       TheCheckedAccessOfAJointActionRefusesAnIdOutOfRange) {
   RobotJointAction action(description_);
   EXPECT_DEATH(action.at(/*element_id=*/3), "IDMapBase: no id 3");
 }
 
-// IDMapBase's constructor is for the maps built from a description; this one takes any size.
+// IDMapBase's constructor is for the maps built from a description; this one
+// takes any size.
 class SizedMap : public IDMapBase<int> {
  public:
   explicit SizedMap(size_t size) : IDMapBase<int>(size) {}
@@ -212,18 +232,21 @@ TEST(IDMapBaseDeathTest, AMapHasTwoTo255Ids) {
   EXPECT_EQ(SizedMap(/*size=*/2).capacity(), 2u);
   EXPECT_EQ(SizedMap(/*size=*/255).capacity(), 255u);
   EXPECT_DEATH(SizedMap(/*size=*/1), "IDMapBase: 1 ids; a map has 2 to 255");
-  EXPECT_DEATH(SizedMap(/*size=*/256), "IDMapBase: 256 ids; a map has 2 to 255");
+  EXPECT_DEATH(SizedMap(/*size=*/256),
+               "IDMapBase: 256 ids; a map has 2 to 255");
 }
 
 TEST(IDMapBase, CopyingKeepsTheCapacity) {
-  // The copy is unchecked, as every copy the realtime loop makes is between maps of one robot description; a larger
-  // source is copied up to the target's capacity.
+  // The copy is unchecked, as every copy the realtime loop makes is between
+  // maps of one robot description; a larger source is copied up to the target's
+  // capacity.
   SizedMap target(/*size=*/3);
   SizedMap larger(/*size=*/4);
   larger[0] = 1;
   larger[3] = 4;
   target = larger;
-  EXPECT_EQ(target.capacity(), 3u) << "the capacity is kept; the extra slot is not copied";
+  EXPECT_EQ(target.capacity(), 3u)
+      << "the capacity is kept; the extra slot is not copied";
   EXPECT_EQ(target[0], std::optional<int>(1));
   EXPECT_EQ(target.size(), 1u);
 }

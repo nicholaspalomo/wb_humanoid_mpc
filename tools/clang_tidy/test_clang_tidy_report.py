@@ -38,9 +38,7 @@ from tools.clang_tidy import clang_tidy_apply
 from tools.clang_tidy import clang_tidy_report
 from tools.clang_tidy import clang_tidy_selftest
 
-SANDBOX = (
-    "/home/u/.cache/bazel/_bazel_u/1/sandbox/processwrapper-sandbox/9/execroot/_main/"
-)
+SANDBOX = "/home/u/.cache/bazel/_bazel_u/1/sandbox/processwrapper-sandbox/9/execroot/_main/"
 
 HEADER_FINDING = """\
 tools/x/include/x/Limits.h:5:22: error: invalid case style for global constant 'MAX_SIZE' \
@@ -89,7 +87,9 @@ def _bep(directory: str, groups: dict[str, list[str]]) -> str:
         }
     )
     return _write(
-        directory, "bep.json", "\n".join(json.dumps(event) for event in events) + "\n"
+        directory,
+        "bep.json",
+        "\n".join(json.dumps(event) for event in events) + "\n",
     )
 
 
@@ -100,7 +100,12 @@ class ReportTest(unittest.TestCase):
         finding = findings[0]
         self.assertEqual(
             finding.key,
-            ("tools/x/include/x/Limits.h", 5, 22, "readability-identifier-naming"),
+            (
+                "tools/x/include/x/Limits.h",
+                5,
+                22,
+                "readability-identifier-naming",
+            ),
         )
         self.assertEqual(len(finding.details), 3)
         self.assertIn("[readability-identifier-naming]", finding.format())
@@ -108,28 +113,43 @@ class ReportTest(unittest.TestCase):
     def test_a_header_finding_reported_by_several_actions_is_printed_once(self):
         # The header's own action names it with the sandbox's absolute path, each .cpp action with a relative one.
         parsed = []
-        for report in (HEADER_FINDING, SANDBOX + HEADER_FINDING, f"./{HEADER_FINDING}"):
+        for report in (
+            HEADER_FINDING,
+            SANDBOX + HEADER_FINDING,
+            f"./{HEADER_FINDING}",
+        ):
             parsed += clang_tidy_report.parse_report(report)
         findings = clang_tidy_report.deduplicate(parsed)
-        self.assertEqual([f.path for f in findings], ["tools/x/include/x/Limits.h"])
+        self.assertEqual(
+            [f.path for f in findings], ["tools/x/include/x/Limits.h"]
+        )
 
     def test_a_compile_error_without_a_check_name_is_a_finding(self):
         findings = clang_tidy_report.parse_report(
             "tools/x/A.cpp:3:1: error: unknown type name 'Foo'\n"
         )
-        self.assertEqual([f.check for f in findings], ["clang-diagnostic-error"])
+        self.assertEqual(
+            [f.check for f in findings], ["clang-diagnostic-error"]
+        )
         findings = clang_tidy_report.parse_report(
             "error: unable to handle compilation [clang-diagnostic-error]\n"
         )
         self.assertEqual(
-            [(f.path, f.check) for f in findings], [("", "clang-diagnostic-error")]
+            [(f.path, f.check) for f in findings],
+            [("", "clang-diagnostic-error")],
         )
 
     def test_paths_keep_the_findings_of_the_given_directories(self):
         self.assertTrue(clang_tidy_report.in_paths("tools/x/A.cpp", []))
-        self.assertTrue(clang_tidy_report.in_paths("tools/x/A.cpp", ["tools/x/"]))
-        self.assertTrue(clang_tidy_report.in_paths("tools/x/A.cpp", ["tools/x"]))
-        self.assertFalse(clang_tidy_report.in_paths("tools/xy/A.cpp", ["tools/x"]))
+        self.assertTrue(
+            clang_tidy_report.in_paths("tools/x/A.cpp", ["tools/x/"])
+        )
+        self.assertTrue(
+            clang_tidy_report.in_paths("tools/x/A.cpp", ["tools/x"])
+        )
+        self.assertFalse(
+            clang_tidy_report.in_paths("tools/xy/A.cpp", ["tools/x"])
+        )
 
     def test_the_reports_of_a_build_come_from_its_build_event_file(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -146,7 +166,8 @@ class ReportTest(unittest.TestCase):
             )
             fixes = _write(directory, "out/a.yaml", "")
             bep = _bep(
-                directory, {"clang_tidy": [first, second], "clang_tidy_fixes": [fixes]}
+                directory,
+                {"clang_tidy": [first, second], "clang_tidy_fixes": [fixes]},
             )
             files = clang_tidy_report.output_group_files(bep, "clang_tidy")
             self.assertEqual(files, sorted([first, second]))
@@ -158,12 +179,16 @@ class ReportTest(unittest.TestCase):
             self.assertEqual(len(missing), 1)
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
-                self.assertEqual(clang_tidy_report.main([bep, "--root", directory]), 1)
+                self.assertEqual(
+                    clang_tidy_report.main([bep, "--root", directory]), 1
+                )
             self.assertIn("2 findings in 2 files", output.getvalue())
 
     def test_no_findings_is_success(self):
         with tempfile.TemporaryDirectory() as directory:
-            bep = _bep(directory, {"clang_tidy": [_write(directory, "empty.txt", "")]})
+            bep = _bep(
+                directory, {"clang_tidy": [_write(directory, "empty.txt", "")]}
+            )
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(clang_tidy_report.main([bep]), 0)
 
@@ -198,7 +223,10 @@ def _fixes(main_file: str, diagnostics: list[dict]) -> str:
       Replacements:{replacements if replacements else " []"}
     Level:           Error"""
         )
-    return f"---\nMainSourceFile:  '{SANDBOX}{main_file}'\nDiagnostics:{''.join(entries)}\n...\n"
+    return (
+        "---\nMainSourceFile: "
+        f" '{SANDBOX}{main_file}'\nDiagnostics:{''.join(entries)}\n...\n"
+    )
 
 
 RENAME = {
@@ -239,13 +267,17 @@ class ApplyTest(unittest.TestCase):
         with open(os.path.join(self.root, path), encoding="utf-8") as f:
             return f.read()
 
-    def test_a_rename_reported_by_every_translation_unit_lands_once_everywhere(self):
+    def test_a_rename_reported_by_every_translation_unit_lands_once_everywhere(
+        self,
+    ):
         diagnostics = self._diagnostics(
             _fixes("tools/x/Limits.h", [self._rename([])]),
             _fixes("tools/x/A.cpp", [self._rename([("tools/x/A.cpp", 8)])]),
             _fixes("tools/x/B.cpp", [self._rename([("tools/x/B.cpp", 8)])]),
         )
-        result = clang_tidy_apply.plan(diagnostics, ["readability-*"], [], self.root)
+        result = clang_tidy_apply.plan(
+            diagnostics, ["readability-*"], [], self.root
+        )
         self.assertEqual((result.applied, result.refused), (1, []))
         self.assertEqual(
             clang_tidy_apply.apply(result, self.root),
@@ -255,7 +287,9 @@ class ApplyTest(unittest.TestCase):
         self.assertEqual(self._read("tools/x/A.cpp"), "int a = kMaxSize;\n")
         self.assertEqual(self._read("tools/x/B.cpp"), "int b = kMaxSize;\n")
 
-    def test_a_diagnostic_one_translation_unit_cannot_fix_is_applied_nowhere(self):
+    def test_a_diagnostic_one_translation_unit_cannot_fix_is_applied_nowhere(
+        self,
+    ):
         # The renamer's "cannot be fixed because it is inside a macro": the same diagnostic without fix-its.
         diagnostics = self._diagnostics(
             _fixes("tools/x/A.cpp", [self._rename([("tools/x/A.cpp", 8)])]),
@@ -275,7 +309,8 @@ class ApplyTest(unittest.TestCase):
         generated = "bazel-out/k8-opt/bin/tools/x/x.pb.h"
         diagnostics = self._diagnostics(
             _fixes(
-                "tools/x/A.cpp", [self._rename([("tools/x/A.cpp", 8), (generated, 0)])]
+                "tools/x/A.cpp",
+                [self._rename([("tools/x/A.cpp", 8), (generated, 0)])],
             )
         )
         result = clang_tidy_apply.plan(diagnostics, ["*"], [], self.root)
@@ -290,12 +325,16 @@ class ApplyTest(unittest.TestCase):
                 [self._rename([("tools/x/A.cpp", 8), ("tools/y/C.cpp", 8)])],
             )
         )
-        result = clang_tidy_apply.plan(diagnostics, ["*"], ["tools/x"], self.root)
+        result = clang_tidy_apply.plan(
+            diagnostics, ["*"], ["tools/x"], self.root
+        )
         self.assertEqual(result.applied, 0)
         self.assertIn("outside --paths", result.refused[0][1])
         # A diagnostic located elsewhere is not considered at all.
         self.assertEqual(
-            clang_tidy_apply.plan(diagnostics, ["*"], ["tools/y"], self.root).refused,
+            clang_tidy_apply.plan(
+                diagnostics, ["*"], ["tools/y"], self.root
+            ).refused,
             [],
         )
 
@@ -316,19 +355,27 @@ class ApplyTest(unittest.TestCase):
         self.assertIn("overlaps", result.refused[0][1])
 
     def test_only_the_selected_checks_are_applied(self):
-        diagnostics = self._diagnostics(_fixes("tools/x/Limits.h", [self._rename([])]))
-        result = clang_tidy_apply.plan(diagnostics, ["modernize-*"], [], self.root)
+        diagnostics = self._diagnostics(
+            _fixes("tools/x/Limits.h", [self._rename([])])
+        )
+        result = clang_tidy_apply.plan(
+            diagnostics, ["modernize-*"], [], self.root
+        )
         self.assertEqual(
             (result.applied, result.refused, result.replacements), (0, [], {})
         )
 
     def test_a_file_without_findings_has_no_diagnostics(self):
         self.assertEqual(clang_tidy_apply.parse_fixes(""), [])
-        self.assertEqual(clang_tidy_apply.parse_fixes(_fixes("tools/x/A.cpp", [])), [])
+        self.assertEqual(
+            clang_tidy_apply.parse_fixes(_fixes("tools/x/A.cpp", [])), []
+        )
 
     def test_the_command_line_applies_the_fixes_of_the_build(self):
         fixes = _write(
-            self.root, "out/a.yaml", _fixes("tools/x/Limits.h", [self._rename([])])
+            self.root,
+            "out/a.yaml",
+            _fixes("tools/x/Limits.h", [self._rename([])]),
         )
         bep = _bep(self.root, {"clang_tidy_fixes": [fixes]})
         output = io.StringIO()
@@ -364,7 +411,8 @@ class SelftestTest(unittest.TestCase):
             expected = _write(
                 directory,
                 "fixture.expected",
-                "tools/x/include/x/Limits.h:5:22: readability-identifier-naming\n",
+                "tools/x/include/x/Limits.h:5:22:"
+                " readability-identifier-naming\n",
             )
             fixtures = [{"name": "fixture", "reports": [report]}]
             self.assertEqual(
@@ -374,8 +422,12 @@ class SelftestTest(unittest.TestCase):
             self.assertEqual(
                 len(clang_tidy_selftest.check_fixtures(fixtures, [expected])), 1
             )
-            self.assertEqual(len(clang_tidy_selftest.check_fixtures([], [expected])), 1)
-            self.assertEqual(len(clang_tidy_selftest.check_fixtures(fixtures, [])), 1)
+            self.assertEqual(
+                len(clang_tidy_selftest.check_fixtures([], [expected])), 1
+            )
+            self.assertEqual(
+                len(clang_tidy_selftest.check_fixtures(fixtures, [])), 1
+            )
 
 
 if __name__ == "__main__":

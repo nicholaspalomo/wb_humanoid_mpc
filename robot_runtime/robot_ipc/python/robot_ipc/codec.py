@@ -64,7 +64,8 @@ def message_class(type_name: str | bytes) -> type[message.Message]:
         descriptor = descriptor_pool.Default().FindMessageTypeByName(name)
     except KeyError:
         raise UnknownMessageTypeError(
-            f"no imported protobuf module defines '{name}': import its *_pb2 module first"
+            f"no imported protobuf module defines '{name}': import its *_pb2"
+            " module first"
         ) from None
     return message_factory.GetMessageClass(descriptor)
 

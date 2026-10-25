@@ -38,15 +38,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Base of every term the contact planner's problem is assembled from (ContactPlanningProblem): model blocks, costs,
- * constraints, logic rules, assignment costs, and, around the problem, search stages and execution rules.
+ * Base of every term the contact planner's problem is assembled from
+ * (ContactPlanningProblem): model blocks, costs, constraints, logic rules,
+ * assignment costs, and, around the problem, search stages and execution rules.
  *
- * A term has a canonical name (ContactPlanningFormulation.h), reads its parameter block from the configuration in
- * configure() (the hot-reload path), resolves the variable indices it uses once in bind(), and describes its
+ * A term has a canonical name (ContactPlanningFormulation.h), reads its
+ * parameter block from the configuration in configure() (the hot-reload path),
+ * resolves the variable indices it uses once in bind(), and describes its
  * mathematics in one line for the start-up print.
  *
- * Terms are owned through a pointer to their kind (TermCollection) and are neither copyable nor movable, which rules
- * out slicing. Not thread-safe: the planner that owns a term configures and evaluates it from one thread at a time.
+ * Terms are owned through a pointer to their kind (TermCollection) and are
+ * neither copyable nor movable, which rules out slicing. Not thread-safe: the
+ * planner that owns a term configures and evaluates it from one thread at a
+ * time.
  */
 class ContactPlanningTerm {
  public:
@@ -54,17 +58,22 @@ class ContactPlanningTerm {
   ContactPlanningTerm(const ContactPlanningTerm&) = delete;
   ContactPlanningTerm& operator=(const ContactPlanningTerm&) = delete;
 
-  /** One line of math with the current parameter values, printed at start-up and after a structural reload. */
+  /** One line of math with the current parameter values, printed at start-up
+   * and after a structural reload. */
   virtual std::string describe() const = 0;
-  /** Model blocks this term needs in the layout; the problem rejects a formulation that lists the term without them. */
+  /** Model blocks this term needs in the layout; the problem rejects a
+   * formulation that lists the term without them. */
   virtual std::vector<std::string> requiredBlocks() const { return {}; }
-  /** Resolves the variable indices the term uses. Called once after the layout is final and after every re-assembly. */
+  /** Resolves the variable indices the term uses. Called once after the layout
+   * is final and after every re-assembly. */
   virtual void bind(const Layout& /*layout*/) {}
   /**
-   * Reads the term's parameter block. The configuration has passed ContactPlanningConfig::validateStatus(), which is the one
-   * place the values are checked and the one that names the key an operator has to change, so a term does not
-   * re-validate them: every configure() used to repeat a check of validateStatus() with a message that named no key, and
-   * threw std::invalid_argument from what is a plain setter.
+   * Reads the term's parameter block. The configuration has passed
+   * ContactPlanningConfig::validateStatus(), which is the one place the values
+   * are checked and the one that names the key an operator has to change, so a
+   * term does not re-validate them: every configure() used to repeat a check of
+   * validateStatus() with a message that named no key, and threw
+   * std::invalid_argument from what is a plain setter.
    */
   virtual void configure(const ContactPlanningConfig& config) = 0;
 
@@ -72,7 +81,8 @@ class ContactPlanningTerm {
   ContactPlanningTerm() = default;
 };
 
-/** Nodes of the horizon a term acts on. Node N (the terminal one) has no inputs, dynamics or ZMP. */
+/** Nodes of the horizon a term acts on. Node N (the terminal one) has no
+ * inputs, dynamics or ZMP. */
 enum class NodeSet { kRunning, kTerminal, kAll, kLastRunning };
 bool nodeSetContains(NodeSet set, int node, int numNodes);
 std::string nodeSetName(NodeSet set);

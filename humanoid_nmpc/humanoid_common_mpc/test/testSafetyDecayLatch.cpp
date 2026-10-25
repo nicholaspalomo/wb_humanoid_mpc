@@ -34,10 +34,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/mrt/SafetyDecay.h"
 
 /*
- * The SAFETY decay as the MRT joint controllers apply it (safety_decay::latchedFactor()): alpha never rises within one
- * stay in the mode, whatever the observation clock and the time constant do - a clock that steps back by less than
- * the rewind tolerance (which the controllers do not compensate), a time constant made longer mid-decay, or both - and
- * once it has reached zero torque it stays there. factor() alone rises in both cases: the positive control.
+ * The SAFETY decay as the MRT joint controllers apply it
+ * (safety_decay::latchedFactor()): alpha never rises within one stay in the
+ * mode, whatever the observation clock and the time constant do - a clock that
+ * steps back by less than the rewind tolerance (which the controllers do not
+ * compensate), a time constant made longer mid-decay, or both - and once it has
+ * reached zero torque it stays there. factor() alone rises in both cases: the
+ * positive control.
  */
 
 namespace ocs2::humanoid {
@@ -45,7 +48,8 @@ namespace {
 
 TEST(SafetyDecayLatch, NeverRisesUnderClockStepsBackAndLongerTimeConstants) {
   std::mt19937 generator(/*sd=*/23);
-  std::uniform_real_distribution<scalar_t> step(-0.004, 0.01);  // [s] per cycle; back by up to 4 ms
+  std::uniform_real_distribution<scalar_t> step(
+      -0.004, 0.01);  // [s] per cycle; back by up to 4 ms
   std::uniform_real_distribution<scalar_t> timeConstant(0.1, 5.0);
   bool unlatchedRose = false;
   for (int run = 0; run < 50; ++run) {
@@ -66,15 +70,19 @@ TEST(SafetyDecayLatch, NeverRisesUnderClockStepsBackAndLongerTimeConstants) {
       alpha = latched;
     }
   }
-  EXPECT_TRUE(unlatchedRose) << "the positive control: the bare factor rises in these runs";
+  EXPECT_TRUE(unlatchedRose)
+      << "the positive control: the bare factor rises in these runs";
 }
 
 TEST(SafetyDecayLatch, ZeroTorqueStaysZeroWhenTheTimeConstantGrows) {
   const scalar_t tau = 0.5;
-  scalar_t alpha = safety_decay::latchedFactor(/*previous=*/1.0, /*elapsedSinceEntry=*/10.0 * tau, tau);
+  scalar_t alpha = safety_decay::latchedFactor(
+      /*previous=*/1.0, /*elapsedSinceEntry=*/10.0 * tau, tau);
   ASSERT_EQ(alpha, 0.0);
-  // Ten times the time constant at the same elapsed time: the bare factor is back above the cutoff.
-  ASSERT_GT(safety_decay::factor(10.0 * tau, 10.0 * tau), safety_decay::kCutoff);
+  // Ten times the time constant at the same elapsed time: the bare factor is
+  // back above the cutoff.
+  ASSERT_GT(safety_decay::factor(10.0 * tau, 10.0 * tau),
+            safety_decay::kCutoff);
   alpha = safety_decay::latchedFactor(alpha, 10.0 * tau, 10.0 * tau);
   EXPECT_EQ(alpha, 0.0);
 }

@@ -45,7 +45,9 @@ from unittest import mock
 import operator_test_support
 from remote_control import config_files
 
-_ATLAS = os.path.join("robot_models", "drc_atlas", "drc_atlas_centroidal_mpc", "config")
+_ATLAS = os.path.join(
+    "robot_models", "drc_atlas", "drc_atlas_centroidal_mpc", "config"
+)
 
 _TASK_HEADER = (
     "# proto-file: humanoid_nmpc/humanoid_mpc_config/task_file.proto\n"
@@ -56,8 +58,9 @@ _REFERENCE_HEADER = (
     "# proto-message: humanoid_mpc_config.ReferenceFile\n"
 )
 _PD_GAINS_HEADER = (
-    "# proto-file: humanoid_nmpc/humanoid_mpc_config/joint_pd_gains_file.proto\n"
-    "# proto-message: humanoid_mpc_config.JointPdGainsFile\n"
+    "# proto-file:"
+    " humanoid_nmpc/humanoid_mpc_config/joint_pd_gains_file.proto\n#"
+    " proto-message: humanoid_mpc_config.JointPdGainsFile\n"
 )
 
 
@@ -95,7 +98,9 @@ class FakeCheckoutTestCase(unittest.TestCase):
             os.path.join(self.repo_root, "robot_models"),
             os.path.join(self.copy_root, "robot_models"),
         )
-        self.copied_task = os.path.join(self.copy_root, _ATLAS, "mpc", "task.textproto")
+        self.copied_task = os.path.join(
+            self.copy_root, _ATLAS, "mpc", "task.textproto"
+        )
 
 
 class TestResolveSourcePath(FakeCheckoutTestCase):
@@ -107,7 +112,8 @@ class TestResolveSourcePath(FakeCheckoutTestCase):
 
     def test_a_path_in_the_checkout_stays(self):
         self.assertEqual(
-            config_files.resolve_source_path(self.task, self.repo_root), self.task
+            config_files.resolve_source_path(self.task, self.repo_root),
+            self.task,
         )
 
     def test_a_copy_without_a_source_file_stays(self):
@@ -122,9 +128,12 @@ class TestResolveSourcePath(FakeCheckoutTestCase):
             os.path.join(self.tmpdir, "some", "random", "file.textproto")
         )
         self.assertEqual(
-            config_files.resolve_source_path(elsewhere, self.repo_root), elsewhere
+            config_files.resolve_source_path(elsewhere, self.repo_root),
+            elsewhere,
         )
-        self.assertEqual(config_files.resolve_source_path("", self.repo_root), "")
+        self.assertEqual(
+            config_files.resolve_source_path("", self.repo_root), ""
+        )
         missing = "/does/not/exist/robot_models/task.textproto"
         self.assertEqual(
             config_files.resolve_source_path(missing, self.repo_root), missing
@@ -132,17 +141,22 @@ class TestResolveSourcePath(FakeCheckoutTestCase):
 
     def test_without_a_checkout_every_path_stays(self):
         self.assertEqual(
-            config_files.resolve_source_path(self.copied_task, None), self.copied_task
+            config_files.resolve_source_path(self.copied_task, None),
+            self.copied_task,
         )
 
 
 class TestFindRepoRoot(FakeCheckoutTestCase):
     def test_bazel_run_names_the_checkout(self):
-        with mock.patch.dict(os.environ, {"BUILD_WORKSPACE_DIRECTORY": self.repo_root}):
+        with mock.patch.dict(
+            os.environ, {"BUILD_WORKSPACE_DIRECTORY": self.repo_root}
+        ):
             self.assertEqual(config_files.find_repo_root(), self.repo_root)
 
     def test_a_workspace_directory_that_is_no_checkout_is_ignored(self):
-        with mock.patch.dict(os.environ, {"BUILD_WORKSPACE_DIRECTORY": self.tmpdir}):
+        with mock.patch.dict(
+            os.environ, {"BUILD_WORKSPACE_DIRECTORY": self.tmpdir}
+        ):
             self.assertNotEqual(config_files.find_repo_root(), self.tmpdir)
 
     def test_without_bazel_run_it_is_the_checkout_of_the_sources(self):
@@ -191,24 +205,34 @@ class TestResolveInputPath(FakeCheckoutTestCase):
         self.assertEqual(resolved, self.task)
 
     def test_then_relative_to_the_checkout(self):
-        with mock.patch.dict(os.environ, {"BUILD_WORKING_DIRECTORY": self.tmpdir}):
+        with mock.patch.dict(
+            os.environ, {"BUILD_WORKING_DIRECTORY": self.tmpdir}
+        ):
             resolved = config_files.resolve_input_path(
                 os.path.join(_ATLAS, "mpc", "task.textproto"), self.repo_root
             )
         self.assertEqual(resolved, self.task)
 
     def test_a_file_that_exists_nowhere_names_the_first_candidate(self):
-        with mock.patch.dict(os.environ, {"BUILD_WORKING_DIRECTORY": self.tmpdir}):
+        with mock.patch.dict(
+            os.environ, {"BUILD_WORKING_DIRECTORY": self.tmpdir}
+        ):
             resolved = config_files.resolve_input_path(
                 "missing.textproto", self.repo_root
             )
-        self.assertEqual(resolved, os.path.join(self.tmpdir, "missing.textproto"))
+        self.assertEqual(
+            resolved, os.path.join(self.tmpdir, "missing.textproto")
+        )
 
     def test_the_default_network_file_is_found(self):
         # The runfiles hold config/ipc/network.textproto for the binaries; here it is found from the checkout.
-        resolved = config_files.resolve_input_path("config/ipc/network.textproto")
+        resolved = config_files.resolve_input_path(
+            "config/ipc/network.textproto"
+        )
         self.assertTrue(
-            resolved.endswith(os.path.join("config", "ipc", "network.textproto")),
+            resolved.endswith(
+                os.path.join("config", "ipc", "network.textproto")
+            ),
             resolved,
         )
 
@@ -226,7 +250,10 @@ class TestResolveConfigFiles(FakeCheckoutTestCase):
             repo_root=self.repo_root,
         )
         self.assertEqual(
-            files, config_files.GuiConfigFiles(self.task, self.reference, self.pd_gains)
+            files,
+            config_files.GuiConfigFiles(
+                self.task, self.reference, self.pd_gains
+            ),
         )
 
     def test_the_task_file_alone_finds_the_others_next_to_it(self):
@@ -234,12 +261,17 @@ class TestResolveConfigFiles(FakeCheckoutTestCase):
             task_file=self.task, repo_root=self.repo_root
         )
         self.assertEqual(
-            files, config_files.GuiConfigFiles(self.task, self.reference, self.pd_gains)
+            files,
+            config_files.GuiConfigFiles(
+                self.task, self.reference, self.pd_gains
+            ),
         )
 
     def test_the_contact_planning_file_is_found_next_to_the_task_file(self):
         self.assertIsNone(config_files.contact_planning_file(self.task))
-        planner = _write(os.path.join(self.config, "mpc", "contact_planning.textproto"))
+        planner = _write(
+            os.path.join(self.config, "mpc", "contact_planning.textproto")
+        )
         self.assertEqual(config_files.contact_planning_file(self.task), planner)
         self.assertIsNone(config_files.contact_planning_file(""))
 
@@ -248,22 +280,31 @@ class TestResolveConfigFiles(FakeCheckoutTestCase):
             reference_file=self.reference, repo_root=self.repo_root
         )
         self.assertEqual(
-            files, config_files.GuiConfigFiles(self.task, self.reference, self.pd_gains)
+            files,
+            config_files.GuiConfigFiles(
+                self.task, self.reference, self.pd_gains
+            ),
         )
 
-    def test_a_pd_gains_file_alone_finds_its_own_robots_task_and_reference(self):
+    def test_a_pd_gains_file_alone_finds_its_own_robots_task_and_reference(
+        self,
+    ):
         g1_config = os.path.join(
             self.repo_root, "robot_models", "unitree_g1", "g1_wb_mpc", "config"
         )
         g1_task = _write(os.path.join(g1_config, "mpc", "task.textproto"))
-        g1_ref = _write(os.path.join(g1_config, "command", "reference.textproto"))
+        g1_ref = _write(
+            os.path.join(g1_config, "command", "reference.textproto")
+        )
         g1_pd = _write(
             os.path.join(g1_config, "controller", "joint_pd_gains.textproto")
         )
         files = config_files.resolve_config_files(
             pd_gains_file=g1_pd, repo_root=self.repo_root
         )
-        self.assertEqual(files, config_files.GuiConfigFiles(g1_task, g1_ref, g1_pd))
+        self.assertEqual(
+            files, config_files.GuiConfigFiles(g1_task, g1_ref, g1_pd)
+        )
 
     def test_nothing_given_falls_back_to_a_shipped_robot(self):
         # The fake checkout holds the first default task file.
@@ -276,8 +317,12 @@ class TestResolveConfigFiles(FakeCheckoutTestCase):
 
     def test_a_given_file_that_does_not_exist_is_refused_not_replaced(self):
         # Never another robot's files in its place: the GUI would publish them to the robot it is connected to.
-        missing = os.path.join(self.tmpdir, "config", "mpc", "missing.textproto")
-        with self.assertRaisesRegex(config_files.ConfigFilesError, "missing.textproto"):
+        missing = os.path.join(
+            self.tmpdir, "config", "mpc", "missing.textproto"
+        )
+        with self.assertRaisesRegex(
+            config_files.ConfigFilesError, "missing.textproto"
+        ):
             config_files.resolve_config_files(
                 task_file=missing, repo_root=self.repo_root
             )
@@ -285,7 +330,9 @@ class TestResolveConfigFiles(FakeCheckoutTestCase):
         with self.assertRaisesRegex(
             config_files.ConfigFilesError, r"task\.yaml.*\.textproto files"
         ):
-            config_files.resolve_config_files(task_file=yaml, repo_root=self.repo_root)
+            config_files.resolve_config_files(
+                task_file=yaml, repo_root=self.repo_root
+            )
         for keyword in ("reference_file", "pd_gains_file"):
             with self.subTest(file=keyword):
                 with self.assertRaises(config_files.ConfigFilesError):
@@ -295,7 +342,8 @@ class TestResolveConfigFiles(FakeCheckoutTestCase):
 
     def test_without_a_checkout_and_files_nothing_is_found(self):
         self.assertEqual(
-            config_files.resolve_config_files(), config_files.GuiConfigFiles("", "", "")
+            config_files.resolve_config_files(),
+            config_files.GuiConfigFiles("", "", ""),
         )
 
     def test_the_shipped_defaults_exist(self):
@@ -316,7 +364,9 @@ class TestDefaults(FakeCheckoutTestCase):
         )
 
     def test_a_missing_or_unreadable_reference_falls_back(self):
-        self.assertEqual(config_files.read_default_pelvis_height("", fallback=0.5), 0.5)
+        self.assertEqual(
+            config_files.read_default_pelvis_height("", fallback=0.5), 0.5
+        )
         broken = _write(
             os.path.join(self.tmpdir, "broken.textproto"),
             f"{_REFERENCE_HEADER}default_base_height: [unclosed\n",
@@ -340,7 +390,9 @@ class TestDefaults(FakeCheckoutTestCase):
         )
 
     def test_online_tuning_follows_the_task_file_and_defaults_to_on(self):
-        self.assertFalse(config_files.read_online_tuning_state(self.task).enabled)
+        self.assertFalse(
+            config_files.read_online_tuning_state(self.task).enabled
+        )
         self.assertTrue(config_files.read_online_tuning_state("").enabled)
         on = _write(
             os.path.join(self.tmpdir, "on.textproto"),

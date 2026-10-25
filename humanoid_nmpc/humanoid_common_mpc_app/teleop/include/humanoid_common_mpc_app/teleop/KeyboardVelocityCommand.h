@@ -40,52 +40,67 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::teleop {
 
 /**
- * The command limits of the robot's reference file, as the MPC reads them (TargetTrajectoriesCalculatorBase): the
- * keyboard command is clamped to them and normalized by them, and the MPC scales the normalized command back by its own
- * copy, so the two must be the same numbers.
+ * The command limits of the robot's reference file, as the MPC reads them
+ * (TargetTrajectoriesCalculatorBase): the keyboard command is clamped to them
+ * and normalized by them, and the MPC scales the normalized command back by its
+ * own copy, so the two must be the same numbers.
  */
 struct KeyboardCommandLimits {
-  /** The entries of a keyboard command and of `limits`, in this order, and their count. */
+  /** The entries of a keyboard command and of `limits`, in this order, and
+   * their count. */
   static constexpr int kVelocityXIndex = 0;
   static constexpr int kVelocityYIndex = 1;
   static constexpr int kPelvisHeightChangeIndex = 2;
   static constexpr int kYawRateIndex = 3;
   static constexpr int kNumEntries = kYawRateIndex + 1;
 
-  /** The defaults of the entries of `limits`, in their order and units, and of defaultBaseHeight [m]. */
+  /** The defaults of the entries of `limits`, in their order and units, and of
+   * defaultBaseHeight [m]. */
   static constexpr scalar_t kDefaultMaxVelocityX = 0.5;
   static constexpr scalar_t kDefaultMaxVelocityY = 0.3;
   static constexpr scalar_t kDefaultMaxDeltaPelvisHeight = 0.4;
   static constexpr scalar_t kDefaultMaxYawRate = 0.5;
   static constexpr scalar_t kDefaultBaseHeight = 0.7;
 
-  /** [v_x m/s, v_y m/s, pelvis height change m, yaw rate rad/s]: max_displacement_velocity_x,
-   *  max_displacement_velocity_y, max_delta_pelvis_height, max_rotation_velocity. */
-  vector4_t limits = vector4_t(kDefaultMaxVelocityX, kDefaultMaxVelocityY, kDefaultMaxDeltaPelvisHeight, kDefaultMaxYawRate);
-  /** [m] default_base_height: the pelvis height a zero height change commands. */
+  /** [v_x m/s, v_y m/s, pelvis height change m, yaw rate rad/s]:
+   * max_displacement_velocity_x, max_displacement_velocity_y,
+   * max_delta_pelvis_height, max_rotation_velocity. */
+  vector4_t limits = vector4_t(kDefaultMaxVelocityX,
+                               kDefaultMaxVelocityY,
+                               kDefaultMaxDeltaPelvisHeight,
+                               kDefaultMaxYawRate);
+  /** [m] default_base_height: the pelvis height a zero height change commands.
+   */
   scalar_t defaultBaseHeight = kDefaultBaseHeight;
 };
 
 /**
- * The command limits of the reference file `referenceFile` (a robot's config/command/reference.textproto, read strictly:
- * loadReferenceFile(), then keyboardCommandLimitsFromConfig()). Every limit is required, as the MPC requires it.
+ * The command limits of the reference file `referenceFile` (a robot's
+ * config/command/reference.textproto, read strictly: loadReferenceFile(), then
+ * keyboardCommandLimitsFromConfig()). Every limit is required, as the MPC
+ * requires it.
  *
- * @return NotFound when the file does not exist; the errors of loadReferenceFile(), which name the file, the line and
- *         the column; and InvalidArgument naming the file and the field when one is missing, is not a finite number or,
- *         for the four limits, is not positive.
+ * @return NotFound when the file does not exist; the errors of
+ * loadReferenceFile(), which name the file, the line and the column; and
+ * InvalidArgument naming the file and the field when one is missing, is not a
+ * finite number or, for the four limits, is not positive.
  */
-absl::StatusOr<KeyboardCommandLimits> loadKeyboardCommandLimits(const std::string& referenceFile);
+absl::StatusOr<KeyboardCommandLimits> loadKeyboardCommandLimits(
+    const std::string& referenceFile);
 
 /**
- * The command of one typed line, "v_x v_y delta_height yaw_rate" separated by white space, of the PELVIS: words left
- * out are 0 and words past the fourth are ignored. InvalidArgument naming the word that is not a finite number.
+ * The command of one typed line, "v_x v_y delta_height yaw_rate" separated by
+ * white space, of the PELVIS: words left out are 0 and words past the fourth
+ * are ignored. InvalidArgument naming the word that is not a finite number.
  */
 absl::StatusOr<vector4_t> parseKeyboardCommandLine(absl::string_view line);
 
 /**
- * The operator/walking_velocity_command of `command`: clamped to +-limits, the velocities normalized by their limits,
- * the pelvis height default_base_height plus the clamped change.
+ * The operator/walking_velocity_command of `command`: clamped to +-limits, the
+ * velocities normalized by their limits, the pelvis height default_base_height
+ * plus the clamped change.
  */
-humanoid_mpc_msgs::WalkingVelocityCommand keyboardCommandToMessage(const vector4_t& command, const KeyboardCommandLimits& limits);
+humanoid_mpc_msgs::WalkingVelocityCommand keyboardCommandToMessage(
+    const vector4_t& command, const KeyboardCommandLimits& limits);
 
 }  // namespace ocs2::humanoid::teleop

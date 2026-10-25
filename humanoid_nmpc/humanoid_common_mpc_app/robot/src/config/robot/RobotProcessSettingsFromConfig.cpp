@@ -48,31 +48,40 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-/** The feedforward wb_mpc_feedforward names; InvalidArgument listing the names for any other. */
-absl::StatusOr<WbMpcFeedforward> wbMpcFeedforwardFromName(absl::string_view name) {
+/** The feedforward wb_mpc_feedforward names; InvalidArgument listing the names
+ * for any other. */
+absl::StatusOr<WbMpcFeedforward> wbMpcFeedforwardFromName(
+    absl::string_view name) {
   if (name == kInverseDynamicsFeedforwardName) {
     return WbMpcFeedforward::kInverseDynamics;
   }
   if (name == kGravityCompensationFeedforwardName) {
     return WbMpcFeedforward::kGravityCompensation;
   }
-  return absl::InvalidArgumentError(absl::StrCat("wb_mpc_feedforward is '", name, "'; it must be ", kInverseDynamicsFeedforwardName, " or ",
-                                                 kGravityCompensationFeedforwardName, "."));
+  return absl::InvalidArgumentError(
+      absl::StrCat("wb_mpc_feedforward is '", name, "'; it must be ",
+                   kInverseDynamicsFeedforwardName, " or ",
+                   kGravityCompensationFeedforwardName, "."));
 }
 
-/** 0 (off) for an absent `value` of the task file's `field`; the value when it is finite and positive; InvalidArgument otherwise. */
-absl::StatusOr<double> absentOrPositive(absl::string_view field, std::optional<double> value) {
+/** 0 (off) for an absent `value` of the task file's `field`; the value when it
+ * is finite and positive; InvalidArgument otherwise. */
+absl::StatusOr<double> absentOrPositive(absl::string_view field,
+                                        std::optional<double> value) {
   if (!value.has_value()) return 0.0;
   // Negated, so that NaN is refused too.
   if (!std::isfinite(*value) || !(*value > 0.0)) {
-    return absl::InvalidArgumentError(absl::StrCat(field, " is ", *value, "; it must be positive, or absent to switch it off."));
+    return absl::InvalidArgumentError(
+        absl::StrCat(field, " is ", *value,
+                     "; it must be positive, or absent to switch it off."));
   }
   return *value;
 }
 
 }  // namespace
 
-estimation::KalmanBaseEstimator::Config kalmanBaseEstimatorConfigFromConfig(const mpc_config::KalmanStateEstimatorConfig& config) {
+estimation::KalmanBaseEstimator::Config kalmanBaseEstimatorConfigFromConfig(
+    const mpc_config::KalmanStateEstimatorConfig& config) {
   // LINT.IfChange(kalman_state_estimator_fields)
   return estimation::KalmanBaseEstimator::Config{
       .imuAccelerationNoise = config.imu_acceleration_noise,
@@ -88,13 +97,16 @@ estimation::KalmanBaseEstimator::Config kalmanBaseEstimatorConfigFromConfig(cons
   // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/kalman_state_estimator_config.proto:kalman_state_estimator_defaults)
 }
 
-absl::StatusOr<RobotProcessSettings> robotProcessSettingsFromConfig(const mpc_config::TaskFile& task) {
+absl::StatusOr<RobotProcessSettings> robotProcessSettingsFromConfig(
+    const mpc_config::TaskFile& task) {
   RobotProcessSettings settings;
-  // The controller-side settings through their one reader, which the mailbox and the task file watcher use too; at
-  // start-up there is no running gate to keep, so a block it refuses refuses the file.
+  // The controller-side settings through their one reader, which the mailbox
+  // and the task file watcher use too; at start-up there is no running gate to
+  // keep, so a block it refuses refuses the file.
   ControllerSideConfig controllerSide = controllerSideSettingsFromConfig(task);
   if (!controllerSide.problems.empty()) {
-    return absl::InvalidArgumentError(absl::StrJoin(controllerSide.problems, "; "));
+    return absl::InvalidArgumentError(
+        absl::StrJoin(controllerSide.problems, "; "));
   }
   settings.contactEstimator = std::move(controllerSide.contactEstimator);
   settings.contactWrenchGate = controllerSide.contactWrenchGate;
@@ -105,12 +117,18 @@ absl::StatusOr<RobotProcessSettings> robotProcessSettingsFromConfig(const mpc_co
   settings.simulator.projectile = task.sim_projectile;
   settings.simulator.ragdollJointDamping = task.sim_ragdoll_joint_damping;
   settings.simulator.autoResetBaseHeight = task.sim_auto_reset_base_height;
-  // The schema has no sentinel: an absent field is off, which the fall recovery's config spells 0.
-  ASSIGN_OR_RETURN(settings.fallRecovery.maxBaseTiltAngle, absentOrPositive("sim_max_base_tilt_angle", task.sim_max_base_tilt_angle));
-  ASSIGN_OR_RETURN(settings.fallRecovery.catchLift, absentOrPositive("sim_gantry_catch_lift", task.sim_gantry_catch_lift));
+  // The schema has no sentinel: an absent field is off, which the fall
+  // recovery's config spells 0.
+  ASSIGN_OR_RETURN(settings.fallRecovery.maxBaseTiltAngle,
+                   absentOrPositive("sim_max_base_tilt_angle",
+                                    task.sim_max_base_tilt_angle));
+  ASSIGN_OR_RETURN(
+      settings.fallRecovery.catchLift,
+      absentOrPositive("sim_gantry_catch_lift", task.sim_gantry_catch_lift));
   settings.mpcEntryBlendTime = task.mpc_entry_blend_time;
   settings.safetyDecayTimeConstant = task.safety_decay_time_constant;
-  const absl::StatusOr<WbMpcFeedforward> feedforward = wbMpcFeedforwardFromName(task.wb_mpc_feedforward);
+  const absl::StatusOr<WbMpcFeedforward> feedforward =
+      wbMpcFeedforwardFromName(task.wb_mpc_feedforward);
   if (!feedforward.ok()) {
     return feedforward.status();
   }
@@ -119,15 +137,20 @@ absl::StatusOr<RobotProcessSettings> robotProcessSettingsFromConfig(const mpc_co
   settings.telemetryFrequency = task.telemetry_frequency;
   settings.mpcLinkPolicyTimeout = task.mpc_link.policy_timeout;
   settings.stateEstimator = task.state_estimator;
-  settings.kalmanStateEstimator = kalmanBaseEstimatorConfigFromConfig(task.kalman_state_estimator);
+  settings.kalmanStateEstimator =
+      kalmanBaseEstimatorConfigFromConfig(task.kalman_state_estimator);
 
-  if (settings.telemetryFrequency.has_value() && !(*settings.telemetryFrequency > 0.0)) {
-    return absl::InvalidArgumentError(absl::StrCat("telemetry_frequency must be positive [Hz], got ", *settings.telemetryFrequency,
-                                                   "; a file without telemetry_sinks turns the telemetry off."));
+  if (settings.telemetryFrequency.has_value() &&
+      !(*settings.telemetryFrequency > 0.0)) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "telemetry_frequency must be positive [Hz], got ",
+        *settings.telemetryFrequency,
+        "; a file without telemetry_sinks turns the telemetry off."));
   }
   if (!(settings.mpcLinkPolicyTimeout > 0.0)) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("mpc_link.policy_timeout must be a positive number of seconds, got ", settings.mpcLinkPolicyTimeout));
+    return absl::InvalidArgumentError(absl::StrCat(
+        "mpc_link.policy_timeout must be a positive number of seconds, got ",
+        settings.mpcLinkPolicyTimeout));
   }
   return settings;
 }

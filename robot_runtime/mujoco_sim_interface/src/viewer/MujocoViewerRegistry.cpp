@@ -47,21 +47,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace robot::mujoco_sim_interface {
 
-absl::StatusOr<std::unique_ptr<MujocoViewer>> createViewer(absl::string_view name, const MujocoSimInterface* absl_nonnull sim) {
+absl::StatusOr<std::unique_ptr<MujocoViewer>> createViewer(
+    absl::string_view name, const MujocoSimInterface* absl_nonnull sim) {
   // LINT.IfChange(viewer_factories)
   if (name == kGlfwViewerName) {
-    absl::StatusOr<std::unique_ptr<GlfwMujocoViewer>> viewer = GlfwMujocoViewer::Create(sim);
+    absl::StatusOr<std::unique_ptr<GlfwMujocoViewer>> viewer =
+        GlfwMujocoViewer::Create(sim);
     if (!viewer.ok()) return viewer.status();
     return std::unique_ptr<MujocoViewer>(*std::move(viewer));
   }
   if (name == kWebViewerName) {
-    absl::StatusOr<std::unique_ptr<WebMujocoViewer>> viewer = WebMujocoViewer::Create(sim, sim->getConfig().viewer.web);
+    absl::StatusOr<std::unique_ptr<WebMujocoViewer>> viewer =
+        WebMujocoViewer::Create(sim, sim->getConfig().viewer.web);
     if (!viewer.ok()) return viewer.status();
     return std::unique_ptr<MujocoViewer>(*std::move(viewer));
   }
   if (name == kNoViewerName) return std::make_unique<NoMujocoViewer>();
   // LINT.ThenChange(//robot_runtime/mujoco_sim_interface/include/mujoco_sim_interface/viewer/ViewerNames.h:viewer_names)
-  return absl::InvalidArgumentError(absl::StrCat("unknown viewer '", name, "'; the viewers are ", availableViewerNames()));
+  return absl::InvalidArgumentError(absl::StrCat(
+      "unknown viewer '", name, "'; the viewers are ", availableViewerNames()));
 }
 
 }  // namespace robot::mujoco_sim_interface

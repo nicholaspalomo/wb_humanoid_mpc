@@ -39,14 +39,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 namespace {
-// The elapsed nodes of the phase active at planning time are counted up to this many horizons.
+// The elapsed nodes of the phase active at planning time are counted up to this
+// many horizons.
 constexpr int kElapsedNodesCapInHorizons = 2;
 }  // namespace
 
-ContactLogicState ContactLogicState::make(const ContactPlannerInput& input,
-                                          const ContactPlanningConfig& config,
-                                          std::optional<int> previousPlanShift,
-                                          const MiqpAssignment* absl_nullable previousAssignment) {
+ContactLogicState ContactLogicState::make(
+    const ContactPlannerInput& input,
+    const ContactPlanningConfig& config,
+    std::optional<int> previousPlanShift,
+    const MiqpAssignment* absl_nullable previousAssignment) {
   ContactLogicState s;
   s.input = &input;
   s.numNodes = config.planner.numNodes;
@@ -56,15 +58,21 @@ ContactLogicState ContactLogicState::make(const ContactPlannerInput& input,
   s.nContactMin = config.minContactNodes();
   s.nContactMax = config.maxContactNodes();
   s.nDoubleSupportHold = config.minDoubleSupportNodes();
-  // Minimum double support, in (fractional) nodes: after a touch-down at node time t_td the other foot may not lift at a
-  // node that starts before t_td + minDoubleSupportDuration.
-  s.minDoubleSupportNodes = config.shared.gaitLimits.minDoubleSupportDuration / config.planner.dt;
-  s.numCommitted = std::min(static_cast<int>(input.committedContacts.size()), s.numNodes);
-  // A double support already in progress at planning time counts from its touch-down, the start of the shorter contact.
+  // Minimum double support, in (fractional) nodes: after a touch-down at node
+  // time t_td the other foot may not lift at a node that starts before t_td +
+  // minDoubleSupportDuration.
+  s.minDoubleSupportNodes =
+      config.shared.gaitLimits.minDoubleSupportDuration / config.planner.dt;
+  s.numCommitted =
+      std::min(static_cast<int>(input.committedContacts.size()), s.numNodes);
+  // A double support already in progress at planning time counts from its
+  // touch-down, the start of the shorter contact.
   s.initialTouchDownNode = kNoTouchDownNode;
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
     if (input.contacts[foot] && input.contacts[1 - foot]) {
-      s.initialTouchDownNode = std::max(s.initialTouchDownNode, -std::max(0.0, input.phaseElapsedTime[foot]) / config.planner.dt);
+      s.initialTouchDownNode = std::max(
+          s.initialTouchDownNode,
+          -std::max(0.0, input.phaseElapsedTime[foot]) / config.planner.dt);
     }
   }
   s.previousPlanShift = previousPlanShift;
@@ -72,30 +80,40 @@ ContactLogicState ContactLogicState::make(const ContactPlannerInput& input,
   return s;
 }
 
-int ContactLogicState::initialPhaseNodes(size_t foot, NodeRounding rounding) const {
+int ContactLogicState::initialPhaseNodes(size_t foot,
+                                         NodeRounding rounding) const {
   const bool roundUp = rounding == NodeRounding::kUp;
   const int cap = kElapsedNodesCapInHorizons * numNodes;
   const scalar_t nodes = std::max(0.0, input->phaseElapsedTime[foot]) / dt;
-  // Rounding to the nearest node let both limits be violated by up to half a node: a swing 0.16 s old counted as two
-  // nodes and could end one node later at 0.26 s against a 0.3 s minimum.
-  const int elapsed = static_cast<int>(roundUp ? std::ceil(nodes - ContactPlanningConfig::kNodeRoundingTolerance)
-                                               : std::floor(nodes + ContactPlanningConfig::kNodeRoundingTolerance));
+  // Rounding to the nearest node let both limits be violated by up to half a
+  // node: a swing 0.16 s old counted as two nodes and could end one node later
+  // at 0.26 s against a 0.3 s minimum.
+  const int elapsed = static_cast<int>(
+      roundUp
+          ? std::ceil(nodes - ContactPlanningConfig::kNodeRoundingTolerance)
+          : std::floor(nodes + ContactPlanningConfig::kNodeRoundingTolerance));
   return std::clamp(elapsed, 0, cap);
 }
 
 scalar_t ContactLogicState::switchTime(int k, size_t foot) const {
-  // A phase that switches at node k begins at the node start, except along the committed prefix, where the executed
-  // schedule knows the real event time: a touch-down at 0.97 s inside the node [0.9, 1.0) has lasted 0.03 s when the
-  // node ends, not a whole node. Counting it from the node start let every minimum-duration rule after it be satisfied
-  // up to a node too early.
+  // A phase that switches at node k begins at the node start, except along the
+  // committed prefix, where the executed schedule knows the real event time: a
+  // touch-down at 0.97 s inside the node [0.9, 1.0) has lasted 0.03 s when the
+  // node ends, not a whole node. Counting it from the node start let every
+  // minimum-duration rule after it be satisfied up to a node too early.
   const scalar_t nodeStart = input->time + static_cast<scalar_t>(k) * dt;
   if (k < static_cast<int>(input->committedPhaseStartTimes.size())) {
-    const scalar_t start = input->committedPhaseStartTimes[static_cast<size_t>(k)][foot];
-    // The switch is detected between two samples; an event outside that window is not the switch we are looking at.
-    // The window is closed at the node's end with a tolerance: the last committed node is sampled at the commit
-    // boundary, which lies exactly on its end whenever the boundary is on the grid, and the node times are sums of dt
-    // that land a few ulp off the event time.
-    if (std::isfinite(start) && start > nodeStart - dt && start <= nodeStart + dt + kSwitchTimeTolerance) return start;
+    const scalar_t start =
+        input->committedPhaseStartTimes[static_cast<size_t>(k)][foot];
+    // The switch is detected between two samples; an event outside that window
+    // is not the switch we are looking at. The window is closed at the node's
+    // end with a tolerance: the last committed node is sampled at the commit
+    // boundary, which lies exactly on its end whenever the boundary is on the
+    // grid, and the node times are sums of dt that land a few ulp off the event
+    // time.
+    if (std::isfinite(start) && start > nodeStart - dt &&
+        start <= nodeStart + dt + kSwitchTimeTolerance)
+      return start;
   }
   return nodeStart;
 }
@@ -104,20 +122,30 @@ scalar_t ContactLogicState::switchNode(int k, size_t foot) const {
   return (switchTime(k, foot) - input->time) / dt;
 }
 
-int ContactLogicState::switchedPhaseNodes(int k, size_t foot, NodeRounding rounding) const {
+int ContactLogicState::switchedPhaseNodes(int k,
+                                          size_t foot,
+                                          NodeRounding rounding) const {
   const bool roundUp = rounding == NodeRounding::kUp;
-  // Rounded down against a minimum, up against a maximum, like the elapsed time of the phase active at planning time.
+  // Rounded down against a minimum, up against a maximum, like the elapsed time
+  // of the phase active at planning time.
   const scalar_t nodes = static_cast<scalar_t>(k + 1) - switchNode(k, foot);
-  const int rounded = static_cast<int>(roundUp ? std::ceil(nodes - ContactPlanningConfig::kNodeRoundingTolerance)
-                                               : std::floor(nodes + ContactPlanningConfig::kNodeRoundingTolerance));
+  const int rounded = static_cast<int>(
+      roundUp
+          ? std::ceil(nodes - ContactPlanningConfig::kNodeRoundingTolerance)
+          : std::floor(nodes + ContactPlanningConfig::kNodeRoundingTolerance));
   return std::max(roundUp ? 1 : 0, rounded);
 }
 
-bool ContactLogicState::heldAfterTouchDown(int k, scalar_t latestTouchDownNode) const {
-  return static_cast<scalar_t>(k) < latestTouchDownNode + minDoubleSupportNodes - ContactPlanningConfig::kNodeRoundingTolerance;
+bool ContactLogicState::heldAfterTouchDown(int k,
+                                           scalar_t latestTouchDownNode) const {
+  return static_cast<scalar_t>(k) <
+         latestTouchDownNode + minDoubleSupportNodes -
+             ContactPlanningConfig::kNodeRoundingTolerance;
 }
 
-int ContactLogicState::stateBefore(const MiqpAssignment& a, size_t foot, int node) const {
+int ContactLogicState::stateBefore(const MiqpAssignment& a,
+                                   size_t foot,
+                                   int node) const {
   int8_t kappa = input->contacts[foot] ? 1 : 0;
   for (int k = 0; k < node; ++k) {
     const int8_t value = a[static_cast<size_t>(contactBinaryIndex(k, foot))];
@@ -127,7 +155,9 @@ int ContactLogicState::stateBefore(const MiqpAssignment& a, size_t foot, int nod
   return static_cast<int>(kappa);
 }
 
-int ContactLogicState::contactAge(const MiqpAssignment& a, size_t foot, int node) const {
+int ContactLogicState::contactAge(const MiqpAssignment& a,
+                                  size_t foot,
+                                  int node) const {
   int8_t kappa = input->contacts[foot] ? 1 : 0;
   int tau = initialPhaseNodes(foot, NodeRounding::kUp);
   for (int k = 0; k < node; ++k) {
@@ -143,14 +173,16 @@ int ContactLogicState::contactAge(const MiqpAssignment& a, size_t foot, int node
   return kappa == 1 ? tau : 0;
 }
 
-scalar_t ContactLogicState::latestTouchDownNode(const MiqpAssignment& a, int node) const {
+scalar_t ContactLogicState::latestTouchDownNode(const MiqpAssignment& a,
+                                                int node) const {
   scalar_t latest = initialTouchDownNode;
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
     int8_t kappa = input->contacts[foot] ? 1 : 0;
     for (int k = 0; k <= node && k < numNodes; ++k) {
       const int8_t value = a[static_cast<size_t>(contactBinaryIndex(k, foot))];
       if (value == kMiqpFree) break;
-      if (kappa == 0 && value == 1) latest = std::max(latest, switchNode(k, foot));
+      if (kappa == 0 && value == 1)
+        latest = std::max(latest, switchNode(k, foot));
       kappa = value;
     }
   }

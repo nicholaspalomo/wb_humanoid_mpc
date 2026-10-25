@@ -41,22 +41,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Evaluates the policy in use for an MRT joint controller that commands it a lookahead delta ahead of its measurement:
- * the measurement x is taken at time t, and the command reaches the joints about one control period later.
+ * Evaluates the policy in use for an MRT joint controller that commands it a
+ * lookahead delta ahead of its measurement: the measurement x is taken at time
+ * t, and the command reaches the joints about one control period later.
  *
- * The plan is read at t + delta - the planned state x*(t + delta), which gives the joint targets, the mode, and the
- * feedforward input u(t + delta, x*(t + delta)) - while the feedback correction is formed where the measurement is,
+ * The plan is read at t + delta - the planned state x*(t + delta), which gives
+ * the joint targets, the mode, and the feedforward input u(t + delta, x*(t +
+ * delta)) - while the feedback correction is formed where the measurement is,
  * at t, against the plan at t:
  *   input = u(t + delta, x*(t + delta)) + [u(t, x) - u(t, x*(t))].
- * For a linear policy u(t, x) = u_ff(t) + K(t) (x (-) x*(t)) that is u_ff(t + delta) + K(t) (x (-) x*(t)). Evaluating the
- * whole law at t + delta on the state measured at t, as the controllers did, gives
- * u_ff(t + delta) + K(t + delta) (x (-) x*(t + delta)) instead: on a moving plan a robot exactly on it gets the
- * feedback -K (x*(t + delta) (-) x*(t)) ~ -K xdot* delta, a correction towards where the plan will be rather than
- * none. Here a measurement exactly on the plan (x equal to x*(t), bit for bit) gets exactly the feedforward: the two
- * evaluations at t are the same arithmetic on the same doubles. A FeedforwardController's input is u_ff(t + delta).
+ * For a linear policy u(t, x) = u_ff(t) + K(t) (x (-) x*(t)) that is u_ff(t +
+ * delta) + K(t) (x (-) x*(t)). Evaluating the whole law at t + delta on the
+ * state measured at t, as the controllers did, gives u_ff(t + delta) + K(t +
+ * delta) (x (-) x*(t + delta)) instead: on a moving plan a robot exactly on it
+ * gets the feedback -K (x*(t + delta) (-) x*(t)) ~ -K xdot* delta, a correction
+ * towards where the plan will be rather than none. Here a measurement exactly
+ * on the plan (x equal to x*(t), bit for bit) gets exactly the feedforward: the
+ * two evaluations at t are the same arithmetic on the same doubles. A
+ * FeedforwardController's input is u_ff(t + delta).
  *
- * Every evaluation is the RealtimePolicyEvaluator's (four of them, on buffers allocated once by the constructor), so
- * evaluate() allocates nothing while its outputs have the model's sizes, logs nothing and takes no lock. Not
+ * Every evaluation is the RealtimePolicyEvaluator's (four of them, on buffers
+ * allocated once by the constructor), so evaluate() allocates nothing while its
+ * outputs have the model's sizes, logs nothing and takes no lock. Not
  * thread-safe: one per control thread.
  */
 class LookaheadPolicyEvaluator {
@@ -64,16 +70,19 @@ class LookaheadPolicyEvaluator {
   using Outcome = ipc::RealtimePolicyEvaluator::Outcome;
 
   /**
-   * Allocates the buffers for a model of `dimensions` whose state lives on `stateManifold` (null: a flat state), which
-   * is retained and must outlive the evaluator (RealtimePolicyEvaluator's contract).
+   * Allocates the buffers for a model of `dimensions` whose state lives on
+   * `stateManifold` (null: a flat state), which is retained and must outlive
+   * the evaluator (RealtimePolicyEvaluator's contract).
    */
-  LookaheadPolicyEvaluator(const ipc::ModelDimensions& dimensions, const StateManifold* absl_nullable stateManifold);
+  LookaheadPolicyEvaluator(const ipc::ModelDimensions& dimensions,
+                           const StateManifold* absl_nullable stateManifold);
 
   /**
-   * Writes x*(measurementTime + lookahead) into `plannedState`, the input of the class comment into `input` and the
-   * mode at measurementTime + lookahead into `mode`, for the state `measuredState` measured at `measurementTime`.
-   * Unless the outcome is kEvaluated (RealtimePolicyEvaluator::evaluate()'s outcome for `policy`), the outputs are left
-   * as they were.
+   * Writes x*(measurementTime + lookahead) into `plannedState`, the input of
+   * the class comment into `input` and the mode at measurementTime + lookahead
+   * into `mode`, for the state `measuredState` measured at `measurementTime`.
+   * Unless the outcome is kEvaluated (RealtimePolicyEvaluator::evaluate()'s
+   * outcome for `policy`), the outputs are left as they were.
    */
   Outcome evaluate(const PrimalSolution& policy,
                    scalar_t measurementTime,
@@ -90,7 +99,8 @@ class LookaheadPolicyEvaluator {
   vector_t inputOnPlanNow_;        ///< u(t, x*(t))
   vector_t lookaheadPlanState_;    ///< x*(t + delta)
   vector_t lookaheadInputOnPlan_;  ///< u(t + delta, x*(t + delta))
-  vector_t discardedState_;        ///< the planned state of the evaluations whose state output is not needed
+  vector_t discardedState_;  ///< the planned state of the evaluations whose
+                             ///< state output is not needed
 };
 
 }  // namespace ocs2::humanoid

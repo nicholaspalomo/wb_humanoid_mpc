@@ -32,7 +32,9 @@ import unittest
 from tools.hooks import cpp_source
 
 
-def _texts(source: str, keep_preprocessor: bool = False) -> list[tuple[str, str]]:
+def _texts(
+    source: str, keep_preprocessor: bool = False
+) -> list[tuple[str, str]]:
     return [
         (token.kind, token.text)
         for token in cpp_source.tokenize(source, keep_preprocessor)
@@ -54,7 +56,9 @@ class TokenizeTest(unittest.TestCase):
         )
         foo = tokens[5]
         self.assertEqual((foo.text, foo.line, foo.col), ("foo", 2, 3))
-        self.assertIn((cpp_source.NUMBER, "2.5f"), [(t.kind, t.text) for t in tokens])
+        self.assertIn(
+            (cpp_source.NUMBER, "2.5f"), [(t.kind, t.text) for t in tokens]
+        )
 
     def test_whitespace_before(self):
         tokens = cpp_source.tokenize("Foo* x = a * b;")
@@ -71,7 +75,10 @@ class TokenizeTest(unittest.TestCase):
 
     def test_multi_character_punctuators(self):
         self.assertEqual(
-            [t.text for t in cpp_source.tokenize("a->b::c <=> d ... e->*f x.*y")],
+            [
+                t.text
+                for t in cpp_source.tokenize("a->b::c <=> d ... e->*f x.*y")
+            ],
             [
                 "a",
                 "->",
@@ -165,14 +172,17 @@ class TokenizeTest(unittest.TestCase):
 
     def test_code_tokens_drop_comments(self):
         self.assertEqual(
-            [t.text for t in cpp_source.code_tokens("a /* b */ c // d\n")], ["a", "c"]
+            [t.text for t in cpp_source.code_tokens("a /* b */ c // d\n")],
+            ["a", "c"],
         )
 
 
 class CallArgumentsTest(unittest.TestCase):
     def _arguments(self, source: str) -> list[list[str]] | None:
         tokens = cpp_source.code_tokens(source)
-        opening = next(k for k, token in enumerate(tokens) if token.text in "({")
+        opening = next(
+            k for k, token in enumerate(tokens) if token.text in "({"
+        )
         arguments = cpp_source.call_arguments(tokens, opening)
         if arguments is None:
             return None
@@ -240,7 +250,8 @@ class ScopesTest(unittest.TestCase):
 
     def test_an_enum_body_is_an_enum_scope(self):
         source = (
-            "enum class Mode : int { kA = 3 };\n[[nodiscard]] enum Flag { kB = 4 };\n"
+            "enum class Mode : int { kA = 3 };\n[[nodiscard]] enum Flag { kB ="
+            " 4 };\n"
         )
         self.assertEqual(
             self._number_scopes(source),
@@ -249,22 +260,36 @@ class ScopesTest(unittest.TestCase):
 
     def test_a_function_with_an_elaborated_enum_parameter_has_a_code_body(self):
         source = "void set(enum Mode mode) {\n  gain = 3;\n}\n"
-        self.assertEqual(self._number_scopes(source), [(cpp_source.CODE_SCOPE,)])
+        self.assertEqual(
+            self._number_scopes(source), [(cpp_source.CODE_SCOPE,)]
+        )
 
     def test_a_function_returning_an_elaborated_enum_has_a_code_body(self):
-        source = "enum Color parse(int x) {\n  return static_cast<Color>(x + 3);\n}\n"
-        self.assertEqual(self._number_scopes(source), [(cpp_source.CODE_SCOPE,)])
+        source = (
+            "enum Color parse(int x) {\n  return static_cast<Color>(x +"
+            " 3);\n}\n"
+        )
+        self.assertEqual(
+            self._number_scopes(source), [(cpp_source.CODE_SCOPE,)]
+        )
 
     def test_an_enum_with_a_decltype_underlying_type_is_an_enum_scope(self):
-        source = "enum E : decltype(kX) { kA = 2 };\nenum F : std::underlying_type_t<G> { kB = 3 };\n"
+        source = (
+            "enum E : decltype(kX) { kA = 2 };\nenum F :"
+            " std::underlying_type_t<G> { kB = 3 };\n"
+        )
         self.assertEqual(
             self._number_scopes(source),
             [(cpp_source.ENUM_SCOPE,), (cpp_source.ENUM_SCOPE,)],
         )
 
     def test_a_constexpr_lambda_has_a_code_body(self):
-        source = "const std::function<int()> kMake = []() constexpr { return 3; };\n"
-        self.assertEqual(self._number_scopes(source), [(cpp_source.CODE_SCOPE,)])
+        source = (
+            "const std::function<int()> kMake = []() constexpr { return 3; };\n"
+        )
+        self.assertEqual(
+            self._number_scopes(source), [(cpp_source.CODE_SCOPE,)]
+        )
 
 
 class CodeBodiesInInitializersTest(unittest.TestCase):
@@ -278,7 +303,8 @@ class CodeBodiesInInitializersTest(unittest.TestCase):
     def test_the_lambda_bodies_of_a_braced_initializer_are_found(self):
         self.assertEqual(
             self._bodies(
-                "const std::vector<Fn> kFns = {[](double x) { return 3.0 * x; }, [] { return 2; }};\n"
+                "const std::vector<Fn> kFns = {[](double x) { return 3.0 * x;"
+                " }, [] { return 2; }};\n"
             ),
             ["{ return 3.0 * x ; }", "{ return 2 ; }"],
         )
@@ -286,15 +312,24 @@ class CodeBodiesInInitializersTest(unittest.TestCase):
     def test_the_lambda_bodies_after_lambda_specifiers_are_found(self):
         self.assertEqual(
             self._bodies(
-                "const Foo kFoo{.a = []() constexpr { return 3; }, .b = []() noexcept(true) { return 4; },"
-                " .c = []() -> int { return 5; }, .d = [](int x) mutable { return x; }};\n"
+                "const Foo kFoo{.a = []() constexpr { return 3; }, .b = []()"
+                " noexcept(true) { return 4; }, .c = []() -> int { return 5; },"
+                " .d = [](int x) mutable { return x; }};\n"
             ),
-            ["{ return 3 ; }", "{ return 4 ; }", "{ return 5 ; }", "{ return x ; }"],
+            [
+                "{ return 3 ; }",
+                "{ return 4 ; }",
+                "{ return 5 ; }",
+                "{ return x ; }",
+            ],
         )
 
     def test_nested_braced_initializers_are_not_bodies(self):
         self.assertEqual(
-            self._bodies("const Foo kFoo{{1, 2}, Bar{3}, std::array<int, 1>{4}};\n"), []
+            self._bodies(
+                "const Foo kFoo{{1, 2}, Bar{3}, std::array<int, 1>{4}};\n"
+            ),
+            [],
         )
 
 

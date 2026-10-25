@@ -38,29 +38,40 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-absl::Status HeightCompensationHeuristic::configure(const LocomotionHeuristicConfig& config,
-                                                    const LocomotionHeuristicModelParameters& /*model*/) {
+absl::Status HeightCompensationHeuristic::configure(
+    const LocomotionHeuristicConfig& config,
+    const LocomotionHeuristicModelParameters& /*model*/) {
   parameters_ = config.heightCompensation;
   return absl::OkStatus();
 }
 
-BasePoseOffset HeightCompensationHeuristic::offset(const BasePoseHeuristicContext& context) const {
+BasePoseOffset HeightCompensationHeuristic::offset(
+    const BasePoseHeuristicContext& context) const {
   BasePoseOffset result;
-  // H_z(v) = a2 v^2 + a1 v + a0 in the MAGNITUDE of the commanded horizontal velocity. The magnitude rather than the
-  // signed forward component, because crouching to walk forwards and rising to walk backwards is not a thing any
-  // legged system does, and an odd polynomial in a signed speed would do exactly that.
+  // H_z(v) = a2 v^2 + a1 v + a0 in the MAGNITUDE of the commanded horizontal
+  // velocity. The magnitude rather than the signed forward component, because
+  // crouching to walk forwards and rising to walk backwards is not a thing any
+  // legged system does, and an odd polynomial in a signed speed would do
+  // exactly that.
   const scalar_t speed = context.commandedVelocityInBaseFrame.norm();
-  const scalar_t height = parameters_.heightPerSpeedSquared * speed * speed + parameters_.heightPerSpeed * speed + parameters_.heightOffset;
-  // Clamped for the same reason as the orientation tilt, and with a sharper consequence: this channel is also where
-  // adaptToCurrentGroundHeight() writes the terrain, and a runaway offset added on top of it would look like the
+  const scalar_t height = parameters_.heightPerSpeedSquared * speed * speed +
+                          parameters_.heightPerSpeed * speed +
+                          parameters_.heightOffset;
+  // Clamped for the same reason as the orientation tilt, and with a sharper
+  // consequence: this channel is also where adaptToCurrentGroundHeight() writes
+  // the terrain, and a runaway offset added on top of it would look like the
   // ground moving rather than like a bad coefficient.
-  result.height = std::clamp(height, -parameters_.maximumHeightOffset, parameters_.maximumHeightOffset);
+  result.height = std::clamp(height, -parameters_.maximumHeightOffset,
+                             parameters_.maximumHeightOffset);
   return result;
 }
 
 std::string HeightCompensationHeuristic::describe() const {
-  return absl::StrCat("height_compensation: dz = ", parameters_.heightPerSpeedSquared, " * |v|^2 + ", parameters_.heightPerSpeed,
-                      " * |v| + ", parameters_.heightOffset, " [m], clamped to +/- ", parameters_.maximumHeightOffset, " m");
+  return absl::StrCat(
+      "height_compensation: dz = ", parameters_.heightPerSpeedSquared,
+      " * |v|^2 + ", parameters_.heightPerSpeed, " * |v| + ",
+      parameters_.heightOffset, " [m], clamped to +/- ",
+      parameters_.maximumHeightOffset, " m");
 }
 
 }  // namespace ocs2::humanoid

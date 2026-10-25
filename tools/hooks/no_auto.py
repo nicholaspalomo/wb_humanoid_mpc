@@ -43,7 +43,9 @@ NAME = "no-auto"
 _FACTORIES = frozenset({"make_unique", "make_shared"})
 
 
-def _is_factory_initializer(code: tuple[cpp_source.Token, ...], index: int) -> bool:
+def _is_factory_initializer(
+    code: tuple[cpp_source.Token, ...], index: int
+) -> bool:
     """True for the `auto` of `[const] auto name = std::make_unique<T>(...);` (or make_shared).
 
     The call is the whole initializer: `auto p = std::make_unique<T>().get();` deduces a raw `T*` (which dangles), and
@@ -78,7 +80,9 @@ def _is_factory_initializer(code: tuple[cpp_source.Token, ...], index: int) -> b
     return call_end + 1 < len(code) and code[call_end + 1].text == ";"
 
 
-def check_source(source: str, path: str = "<source>") -> list[check_types.Finding]:
+def check_source(
+    source: str, path: str = "<source>"
+) -> list[check_types.Finding]:
     """The findings of `no-auto` in C++ `source`, the file at `path`."""
     code = cpp_source.code_tokens(source)
     findings = []
@@ -93,8 +97,9 @@ def check_source(source: str, path: str = "<source>") -> list[check_types.Findin
                 token.line,
                 token.col,
                 NAME,
-                "`auto`: write the type (AGENTS.md: no `auto` except `auto x = std::make_unique<T>(...)` or "
-                "`std::make_shared<T>(...)`; map elements are `std::pair<const K, V>`).",
+                "`auto`: write the type (AGENTS.md: no `auto` except `auto x ="
+                " std::make_unique<T>(...)` or `std::make_shared<T>(...)`; map"
+                " elements are `std::pair<const K, V>`).",
             )
         )
     return findings
@@ -106,8 +111,13 @@ CHECKS = [
         languages=frozenset({check_types.Language.CPP}),
         scope=lint_files.Scope.FIRST_PARTY,
         check_source=check_source,
-        description="no `auto` except `auto x = std::make_unique<T>(...)` / `std::make_shared<T>(...)` (AGENTS.md; "
-        "stricter than ToTW #232).",
-        hint="Spell out every type: range-for elements, structured bindings, lambdas, iterators and return types.",
+        description=(
+            "no `auto` except `auto x = std::make_unique<T>(...)` /"
+            " `std::make_shared<T>(...)` (AGENTS.md; stricter than ToTW #232)."
+        ),
+        hint=(
+            "Spell out every type: range-for elements, structured bindings,"
+            " lambdas, iterators and return types."
+        ),
     )
 ]

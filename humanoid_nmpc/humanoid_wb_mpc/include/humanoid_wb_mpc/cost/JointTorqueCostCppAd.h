@@ -46,62 +46,76 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The joint-torque cost of the whole-body MPC: a Gauss-Newton cost, taped with CppAD, on the joint torques of the
- * inverse dynamics (computeJointTorques, the full mass matrix), each weighted by the square root of its entry of
- * `weights`. The weights are the parameters of the taped function, so setWeights() retunes a running cost without
- * taping or compiling anything. Not thread-safe; the solver clones one per worker thread, and each clone owns its own
- * copy of the robot model.
+ * The joint-torque cost of the whole-body MPC: a Gauss-Newton cost, taped with
+ * CppAD, on the joint torques of the inverse dynamics (computeJointTorques, the
+ * full mass matrix), each weighted by the square root of its entry of
+ * `weights`. The weights are the parameters of the taped function, so
+ * setWeights() retunes a running cost without taping or compiling anything. Not
+ * thread-safe; the solver clones one per worker thread, and each clone owns its
+ * own copy of the robot model.
  */
 class JointTorqueCostCppAd final : public StateInputCostGaussNewtonAd {
  public:
   // LINT.IfChange(joint_torque_cost_names)
-  /** The name WBMpcInterface adds the cost under in the problem's cost collection. */
+  /** The name WBMpcInterface adds the cost under in the problem's cost
+   * collection. */
   static constexpr char kTermName[] = "jointTorqueCost";
   /**
-   * The cost name WBMpcInterface builds its CppAD library name from (libraryName(kLibraryCostName)). It is spelled apart
-   * from kTermName so that renaming the term never renames - and so regenerates - the library.
+   * The cost name WBMpcInterface builds its CppAD library name from
+   * (libraryName(kLibraryCostName)). It is spelled apart from kTermName so that
+   * renaming the term never renames - and so regenerates - the library.
    */
   static constexpr char kLibraryCostName[] = "jointTorqueCost";
   // LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/test/testJointTorqueCostLibraryName.cpp:term_and_library_names)
 
   /**
-   * Tapes, or loads, the library libraryName(costName) under modelSettings.modelFolderCppAd; the robot model is cloned.
+   * Tapes, or loads, the library libraryName(costName) under
+   * modelSettings.modelFolderCppAd; the robot model is cloned.
    *
-   * @return InvalidArgument when `weights` does not have one entry per joint of `mpcRobotModel`, or has one that is
-   *         negative or not finite (the cost weighs each torque by the square root of its weight).
+   * @return InvalidArgument when `weights` does not have one entry per joint of
+   * `mpcRobotModel`, or has one that is negative or not finite (the cost weighs
+   * each torque by the square root of its weight).
    */
-  static absl::StatusOr<std::unique_ptr<JointTorqueCostCppAd>> Create(const vector_t& weights,
-                                                                      const PinocchioInterface& pinocchioInterface,
-                                                                      const WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
-                                                                      const std::string& costName,
-                                                                      const ModelSettings& modelSettings);
+  static absl::StatusOr<std::unique_ptr<JointTorqueCostCppAd>> Create(
+      const vector_t& weights,
+      const PinocchioInterface& pinocchioInterface,
+      const WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
+      const std::string& costName,
+      const ModelSettings& modelSettings);
 
   ~JointTorqueCostCppAd() override = default;
   JointTorqueCostCppAd& operator=(const JointTorqueCostCppAd&) = delete;
   JointTorqueCostCppAd(JointTorqueCostCppAd&&) = delete;
   JointTorqueCostCppAd& operator=(JointTorqueCostCppAd&&) = delete;
-  JointTorqueCostCppAd* absl_nonnull clone() const override { return new JointTorqueCostCppAd(*this); }
+  JointTorqueCostCppAd* absl_nonnull clone() const override {
+    return new JointTorqueCostCppAd(*this);
+  }
 
-  vector_t getParameters(scalar_t /*time*/,
-                         const TargetTrajectories& /*targetTrajectories*/,
-                         const PreComputation& /*preComputation*/) const override {
+  vector_t getParameters(
+      scalar_t /*time*/,
+      const TargetTrajectories& /*targetTrajectories*/,
+      const PreComputation& /*preComputation*/) const override {
     return sqrtWeights_;
   }
 
   /**
-   * The name the CppAD library of the cost called `costName` is compiled and cached under. It carries the version of the
-   * taped inverse dynamics, so that a library taped from an earlier computeJointTorques - the one that left out the base
-   * coupling of the mass matrix - is never loaded from the cache in its place (the robots ship
-   * model_settings.recompile_libraries_cpp_ad: false).
+   * The name the CppAD library of the cost called `costName` is compiled and
+   * cached under. It carries the version of the taped inverse dynamics, so that
+   * a library taped from an earlier computeJointTorques - the one that left out
+   * the base coupling of the mass matrix - is never loaded from the cache in
+   * its place (the robots ship model_settings.recompile_libraries_cpp_ad:
+   * false).
    */
   static std::string libraryName(absl::string_view costName);
 
   /**
-   * Weighs the joint torques by `weights` from the next evaluation on, as a cost built with them would: they are the
-   * parameters of the taped function. For the parameter updater, between solves.
+   * Weighs the joint torques by `weights` from the next evaluation on, as a
+   * cost built with them would: they are the parameters of the taped function.
+   * For the parameter updater, between solves.
    *
-   * @return InvalidArgument when `weights` does not have one entry per joint of the cost, or has one that is negative or
-   *         not finite; the cost then keeps its weights.
+   * @return InvalidArgument when `weights` does not have one entry per joint of
+   * the cost, or has one that is negative or not finite; the cost then keeps
+   * its weights.
    */
   absl::Status setWeights(const vector_t& weights);
 
@@ -121,7 +135,8 @@ class JointTorqueCostCppAd final : public StateInputCostGaussNewtonAd {
   vector_t sqrtWeights_;
 
   PinocchioInterfaceCppAd pinocchioInterfaceCppAd_;
-  // The cost's own copy of the robot model, cloned by the constructor and by every copy; never null.
+  // The cost's own copy of the robot model, cloned by the constructor and by
+  // every copy; never null.
   std::unique_ptr<WBAccelMpcRobotModel<ad_scalar_t>> mpcRobotModelPtr_;
 };
 

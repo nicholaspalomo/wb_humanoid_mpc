@@ -42,16 +42,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/AtomicFileWrite.h"
 
 /*
- * The contract of the crash-safe writes (AtomicFileWrite.h): a write replaces the file and leaves no temporary, and an
- * error that is not DataLoss leaves the file as it was. DataLoss - the file replaced, its directory not synced - cannot
- * be provoked on a test's file system, whose directories always sync; ConfigFileStore and RobotConfigDirectory take it
- * as written.
+ * The contract of the crash-safe writes (AtomicFileWrite.h): a write replaces
+ * the file and leaves no temporary, and an error that is not DataLoss leaves
+ * the file as it was. DataLoss - the file replaced, its directory not synced -
+ * cannot be provoked on a test's file system, whose directories always sync;
+ * ConfigFileStore and RobotConfigDirectory take it as written.
  */
 namespace ocs2::humanoid {
 namespace {
 
 std::string scratch(absl::string_view name) {
-  const std::filesystem::path directory = std::filesystem::path(std::getenv("TEST_TMPDIR")) / std::string(name);
+  const std::filesystem::path directory =
+      std::filesystem::path(std::getenv("TEST_TMPDIR")) / std::string(name);
   std::error_code error;
   std::filesystem::remove_all(directory, error);
   std::filesystem::create_directories(directory, error);
@@ -60,12 +62,14 @@ std::string scratch(absl::string_view name) {
 
 std::string contentsOf(const std::string& path) {
   std::ifstream file(path);
-  return std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+  return std::string(std::istreambuf_iterator<char>(file),
+                     std::istreambuf_iterator<char>());
 }
 
 /** Whether `directory` holds anything but `name`. */
 bool holdsOnly(const std::string& directory, absl::string_view name) {
-  for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(directory)) {
+  for (const std::filesystem::directory_entry& entry :
+       std::filesystem::directory_iterator(directory)) {
     if (entry.path().filename() != std::string(name)) return false;
   }
   return true;
@@ -83,19 +87,24 @@ TEST(AtomicFileWrite, AWriteReplacesTheFileAndLeavesNoTemporary) {
   EXPECT_EQ(*read, "second\n");
 }
 
-TEST(AtomicFileWrite, AWriteThatFailsBeforeTheRenameLeavesTheFileAsItWasAndIsNoDataLoss) {
+TEST(AtomicFileWrite,
+     AWriteThatFailsBeforeTheRenameLeavesTheFileAsItWasAndIsNoDataLoss) {
   const std::string directory = scratch("fails");
-  // The target is a directory that is not empty: the temporary is written, and the rename over it fails.
+  // The target is a directory that is not empty: the temporary is written, and
+  // the rename over it fails.
   const std::string target = directory + "/occupied";
   std::filesystem::create_directories(target + "/inside");
   const absl::Status failed = writeFileAtomically(target, "text\n");
   EXPECT_FALSE(failed.ok());
   EXPECT_FALSE(absl::IsDataLoss(failed)) << failed;
-  EXPECT_TRUE(std::filesystem::is_directory(target + "/inside")) << "the target was touched";
-  EXPECT_TRUE(holdsOnly(directory, "occupied")) << "the temporary was left behind";
+  EXPECT_TRUE(std::filesystem::is_directory(target + "/inside"))
+      << "the target was touched";
+  EXPECT_TRUE(holdsOnly(directory, "occupied"))
+      << "the temporary was left behind";
 
   // No directory to write into: nothing is created.
-  const absl::Status missing = writeFileAtomically(directory + "/no/such/directory/file", "text\n");
+  const absl::Status missing =
+      writeFileAtomically(directory + "/no/such/directory/file", "text\n");
   EXPECT_FALSE(missing.ok());
   EXPECT_FALSE(absl::IsDataLoss(missing)) << missing;
 }

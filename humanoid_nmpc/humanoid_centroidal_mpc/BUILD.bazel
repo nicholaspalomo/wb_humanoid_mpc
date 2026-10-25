@@ -592,6 +592,28 @@ cc_test(
     ],
 )
 
+# FootCollisionCbfConstraint against FootCollisionConstraint on the DRC Atlas model: its rows at rest, its rate along a
+# joint motion and a turn of the base, and its Jacobians. "large": a cold cache generates its two CppAD libraries.
+cc_test(
+    name = "testFootCollisionCbfConstraint",
+    size = "large",
+    srcs = ["test/testFootCollisionCbfConstraint.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":contact_test_support",
+        ":humanoid_centroidal_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
+        "//lib/ocs2:ocs2_core",
+        "@abseil-cpp//absl/status:statusor",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
 cc_test(
     name = "testRelaxedContactConstraints",
     # Deliberately "large" even though a warm run takes about 70 s, which makes Bazel suggest "medium". The first run

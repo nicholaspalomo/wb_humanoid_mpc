@@ -44,50 +44,68 @@ namespace {
 vector2_t toWorld(const vector2_t& inBaseFrame, scalar_t yaw) {
   const scalar_t cosYaw = std::cos(yaw);
   const scalar_t sinYaw = std::sin(yaw);
-  return vector2_t(cosYaw * inBaseFrame.x() - sinYaw * inBaseFrame.y(), sinYaw * inBaseFrame.x() + cosYaw * inBaseFrame.y());
+  return vector2_t(cosYaw * inBaseFrame.x() - sinYaw * inBaseFrame.y(),
+                   sinYaw * inBaseFrame.x() + cosYaw * inBaseFrame.y());
 }
 
 }  // namespace
 
-absl::Status InPlaceTurningHeuristic::configure(const LocomotionHeuristicConfig& config,
-                                                const LocomotionHeuristicModelParameters& /*model*/) {
+absl::Status InPlaceTurningHeuristic::configure(
+    const LocomotionHeuristicConfig& config,
+    const LocomotionHeuristicModelParameters& /*model*/) {
   parameters_ = config.inPlaceTurning;
   return absl::OkStatus();
 }
 
-vector2_t InPlaceTurningHeuristic::offset(const FootholdHeuristicContext& context) const {
+vector2_t InPlaceTurningHeuristic::offset(
+    const FootholdHeuristicContext& context) const {
   // H_r(psidot) = a1 psidot + a0, Bledt Table C.2, in the base's yaw frame.
   //
-  // WHICH WAY EACH FOOT GOES. A foot at position r relative to the base moves at omega x r, so with
-  // omega = psidot e_z the LEFT foot, which sits at r = (0, +d, 0), moves at
+  // WHICH WAY EACH FOOT GOES. A foot at position r relative to the base moves
+  // at omega x r, so with omega = psidot e_z the LEFT foot, which sits at r =
+  // (0, +d, 0), moves at
   //
   //     (0, 0, psidot) x (0, d, 0) = (-psidot d, 0, 0),
   //
-  // i.e. BACKWARDS for a positive (counter-clockwise) yaw rate, while the right foot at (0, -d, 0) moves forwards.
-  // That is how a turn in place is actually done: to turn left you swing the right foot forward and around it and
-  // the left foot back. The fore-aft displacements of the two feet are therefore equal and opposite, which is why
-  // this term is signed per foot and the translational one is not.
+  // i.e. BACKWARDS for a positive (counter-clockwise) yaw rate, while the right
+  // foot at (0, -d, 0) moves forwards. That is how a turn in place is actually
+  // done: to turn left you swing the right foot forward and around it and the
+  // left foot back. The fore-aft displacements of the two feet are therefore
+  // equal and opposite, which is why this term is signed per foot and the
+  // translational one is not.
   //
-  // The sign below carries the MINUS so that a POSITIVE forwardPerYawRate means "place each foot further along the
-  // direction its own hip is traveling", i.e. lead the hips into the turn - which is what the heuristic is for
-  // (figure 4-10: without it the feet trail the hips until they run out of workspace). Leaving the minus out would
-  // make a positive coefficient drive the feet to trail the hips by twice the intended amount, which is the very
+  // The sign below carries the MINUS so that a POSITIVE forwardPerYawRate means
+  // "place each foot further along the direction its own hip is traveling",
+  // i.e. lead the hips into the turn - which is what the heuristic is for
+  // (figure 4-10: without it the feet trail the hips until they run out of
+  // workspace). Leaving the minus out would make a positive coefficient drive
+  // the feet to trail the hips by twice the intended amount, which is the very
   // failure being fixed.
   //
-  // The lateral RATE term is not signed per foot: it moves the whole stance sideways, which is what a turn with a
-  // radius does. The lateral CONSTANT is signed, and that one opens or closes the stance.
+  // The lateral RATE term is not signed per foot: it moves the whole stance
+  // sideways, which is what a turn with a radius does. The lateral CONSTANT is
+  // signed, and that one opens or closes the stance.
   //
-  // As in translational_stepping, a1 is Bledt's constant plus a term proportional to the stance about to begin: the hip
-  // travels its lever arm times psidot, and Raibert's lead is half a stance of that travel.
-  const scalar_t forwardGain = parameters_.forwardPerYawRate + parameters_.forwardStanceLever * context.stanceDuration;
-  const vector2_t offsetInBaseFrame(-context.side * forwardGain * context.commandedYawRate + parameters_.forwardOffset,
-                                    parameters_.lateralPerYawRate * context.commandedYawRate + context.side * parameters_.lateralOffset);
+  // As in translational_stepping, a1 is Bledt's constant plus a term
+  // proportional to the stance about to begin: the hip travels its lever arm
+  // times psidot, and Raibert's lead is half a stance of that travel.
+  const scalar_t forwardGain =
+      parameters_.forwardPerYawRate +
+      parameters_.forwardStanceLever * context.stanceDuration;
+  const vector2_t offsetInBaseFrame(
+      -context.side * forwardGain * context.commandedYawRate +
+          parameters_.forwardOffset,
+      parameters_.lateralPerYawRate * context.commandedYawRate +
+          context.side * parameters_.lateralOffset);
   return toWorld(offsetInBaseFrame, context.baseYaw);
 }
 
 std::string InPlaceTurningHeuristic::describe() const {
-  return absl::StrCat("in_place_turning: d_forward = -side * (", parameters_.forwardPerYawRate, " + ", parameters_.forwardStanceLever,
-                      " * T_stance) * psidot + ", parameters_.forwardOffset, " [m], d_lateral = ", parameters_.lateralPerYawRate,
+  return absl::StrCat("in_place_turning: d_forward = -side * (",
+                      parameters_.forwardPerYawRate, " + ",
+                      parameters_.forwardStanceLever,
+                      " * T_stance) * psidot + ", parameters_.forwardOffset,
+                      " [m], d_lateral = ", parameters_.lateralPerYawRate,
                       " * psidot + side * ", parameters_.lateralOffset, " [m]");
 }
 

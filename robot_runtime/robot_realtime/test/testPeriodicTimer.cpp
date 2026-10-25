@@ -55,40 +55,55 @@ void busyWaitFor(nanoseconds duration) {
 // ---------------------------------------------------------------------------------------------------------------------
 
 TEST(AdvanceDeadlineTest, anOnTimeWakeupMovesOnePeriodUnderEitherPolicy) {
-  for (const OverrunPolicy policy : {OverrunPolicy::kSkipMissedPeriods, OverrunPolicy::kCatchUp}) {
-    const DeadlineAdvance advance = advanceDeadline(nanoseconds(100), nanoseconds(105), nanoseconds(10), policy);
+  for (const OverrunPolicy policy :
+       {OverrunPolicy::kSkipMissedPeriods, OverrunPolicy::kCatchUp}) {
+    const DeadlineAdvance advance = advanceDeadline(
+        nanoseconds(100), nanoseconds(105), nanoseconds(10), policy);
     EXPECT_EQ(advance.nextDeadline, nanoseconds(110));
     EXPECT_EQ(advance.missedPeriods, 0);
   }
 }
 
 TEST(AdvanceDeadlineTest, skippingDropsEveryDeadlineThatHasPassed) {
-  const DeadlineAdvance late = advanceDeadline(nanoseconds(100), nanoseconds(123), nanoseconds(10), OverrunPolicy::kSkipMissedPeriods);
+  const DeadlineAdvance late =
+      advanceDeadline(nanoseconds(100), nanoseconds(123), nanoseconds(10),
+                      OverrunPolicy::kSkipMissedPeriods);
   EXPECT_EQ(late.nextDeadline, nanoseconds(130));
-  EXPECT_EQ(late.missedPeriods, 2) << "the deadlines at 110 and 120 passed while the cycle served 100";
+  EXPECT_EQ(late.missedPeriods, 2)
+      << "the deadlines at 110 and 120 passed while the cycle served 100";
 
   // A deadline reached exactly has passed too: the loop is already due for it.
-  const DeadlineAdvance onTheNext = advanceDeadline(nanoseconds(100), nanoseconds(110), nanoseconds(10), OverrunPolicy::kSkipMissedPeriods);
+  const DeadlineAdvance onTheNext =
+      advanceDeadline(nanoseconds(100), nanoseconds(110), nanoseconds(10),
+                      OverrunPolicy::kSkipMissedPeriods);
   EXPECT_EQ(onTheNext.nextDeadline, nanoseconds(120));
   EXPECT_EQ(onTheNext.missedPeriods, 1);
 }
 
 TEST(AdvanceDeadlineTest, catchingUpServesTheNextDeadlineEvenWhenItHasPassed) {
-  const DeadlineAdvance late = advanceDeadline(nanoseconds(100), nanoseconds(123), nanoseconds(10), OverrunPolicy::kCatchUp);
+  const DeadlineAdvance late =
+      advanceDeadline(nanoseconds(100), nanoseconds(123), nanoseconds(10),
+                      OverrunPolicy::kCatchUp);
   EXPECT_EQ(late.nextDeadline, nanoseconds(110));
   EXPECT_EQ(late.missedPeriods, 0);
 }
 
-TEST(AdvanceDeadlineTest, skippingAlwaysLandsOnTheFirstGridDeadlineAfterTheWakeup) {
+TEST(AdvanceDeadlineTest,
+     skippingAlwaysLandsOnTheFirstGridDeadlineAfterTheWakeup) {
   const nanoseconds served(1000);
   const nanoseconds period(7);
   for (int64_t offset = 0; offset < 1000; ++offset) {
     const nanoseconds wakeup = served + nanoseconds(offset);
-    const DeadlineAdvance advance = advanceDeadline(served, wakeup, period, OverrunPolicy::kSkipMissedPeriods);
-    EXPECT_EQ((advance.nextDeadline - served) % period, nanoseconds(0)) << "offset " << offset;
+    const DeadlineAdvance advance = advanceDeadline(
+        served, wakeup, period, OverrunPolicy::kSkipMissedPeriods);
+    EXPECT_EQ((advance.nextDeadline - served) % period, nanoseconds(0))
+        << "offset " << offset;
     EXPECT_GT(advance.nextDeadline, wakeup) << "offset " << offset;
-    EXPECT_LE(advance.nextDeadline - period, std::max(wakeup, served)) << "offset " << offset;
-    EXPECT_EQ(advance.missedPeriods, (advance.nextDeadline - served) / period - 1) << "offset " << offset;
+    EXPECT_LE(advance.nextDeadline - period, std::max(wakeup, served))
+        << "offset " << offset;
+    EXPECT_EQ(advance.missedPeriods,
+              (advance.nextDeadline - served) / period - 1)
+        << "offset " << offset;
   }
 }
 
@@ -114,9 +129,12 @@ TEST(PeriodicTimerTest, neverWakesBeforeItsDeadlineAndKeepsDeadlinesOnTheGrid) {
   }
 }
 
-TEST(PeriodicTimerTest, pacesWithAbsoluteDeadlinesSoComputeTimeDoesNotAccumulate) {
-  // Half of every period is spent computing. A timer that slept one period after each cycle would take 1.5 times as
-  // long; with absolute deadlines (and catching up after any scheduling hiccup) the loop ends on its last deadline.
+TEST(PeriodicTimerTest,
+     pacesWithAbsoluteDeadlinesSoComputeTimeDoesNotAccumulate) {
+  // Half of every period is spent computing. A timer that slept one period
+  // after each cycle would take 1.5 times as long; with absolute deadlines (and
+  // catching up after any scheduling hiccup) the loop ends on its last
+  // deadline.
   const nanoseconds period = milliseconds(3);
   constexpr int kCycles = 100;
   PeriodicTimer timer(period, OverrunPolicy::kCatchUp);
@@ -133,10 +151,12 @@ TEST(PeriodicTimerTest, pacesWithAbsoluteDeadlinesSoComputeTimeDoesNotAccumulate
 
   EXPECT_EQ(last.deadline, firstDeadline + (kCycles - 1) * period);
   EXPECT_GE(elapsed, kCycles * period);
-  EXPECT_LT(elapsed, kCycles * period + period / 2 + milliseconds(100)) << "a drifting timer would take about 450 ms";
+  EXPECT_LT(elapsed, kCycles * period + period / 2 + milliseconds(100))
+      << "a drifting timer would take about 450 ms";
 }
 
-TEST(PeriodicTimerTest, skippingAfterAnOverrunDropsTheMissedDeadlinesAndSleepsAgain) {
+TEST(PeriodicTimerTest,
+     skippingAfterAnOverrunDropsTheMissedDeadlinesAndSleepsAgain) {
   const nanoseconds period = milliseconds(2);
   PeriodicTimer timer(period, OverrunPolicy::kSkipMissedPeriods);
   timer.start();
@@ -151,9 +171,10 @@ TEST(PeriodicTimerTest, skippingAfterAnOverrunDropsTheMissedDeadlinesAndSleepsAg
   EXPECT_GE(late.lateness, 2 * period + period / 2);
   EXPECT_GE(late.missedPeriods, 2);
   EXPECT_EQ(timer.totalMissedPeriods(), late.missedPeriods);
-  // The next deadline is the first of the grid after the late wake-up, so the loop sleeps again instead of running
-  // the missed cycles back to back.
-  EXPECT_EQ(timer.nextDeadline(), late.deadline + (late.missedPeriods + 1) * period);
+  // The next deadline is the first of the grid after the late wake-up, so the
+  // loop sleeps again instead of running the missed cycles back to back.
+  EXPECT_EQ(timer.nextDeadline(),
+            late.deadline + (late.missedPeriods + 1) * period);
   EXPECT_GT(timer.nextDeadline(), wokeAt);
   EXPECT_LE(timer.nextDeadline() - period, wokeAt);
 
@@ -169,8 +190,9 @@ TEST(PeriodicTimerTest, catchingUpAfterAnOverrunRunsTheMissedCyclesBackToBack) {
   const TimerWakeup onTime = timer.waitForNextPeriod();
 
   std::this_thread::sleep_for(microseconds(7000));
-  // The deadlines one, two and three periods after onTime all passed during the overrun: each wake-up returns at once
-  // (it is late) and serves the next one of them.
+  // The deadlines one, two and three periods after onTime all passed during the
+  // overrun: each wake-up returns at once (it is late) and serves the next one
+  // of them.
   for (int k = 1; k <= 3; ++k) {
     const TimerWakeup wakeup = timer.waitForNextPeriod();
     EXPECT_EQ(wakeup.deadline, onTime.deadline + k * period);
@@ -187,7 +209,8 @@ TEST(PeriodicTimerTest, startAtSetsTheFirstDeadline) {
   const TimerWakeup wakeup = timer.waitForNextPeriod();
   EXPECT_EQ(wakeup.deadline, firstDeadline);
   EXPECT_GE(monotonicNow(), firstDeadline);
-  EXPECT_EQ(timer.nextDeadline(), firstDeadline + (wakeup.missedPeriods + 1) * milliseconds(1));
+  EXPECT_EQ(timer.nextDeadline(),
+            firstDeadline + (wakeup.missedPeriods + 1) * milliseconds(1));
 }
 
 TEST(PeriodicTimerTest, waitingWithoutStartStartsTheSchedule) {
@@ -217,7 +240,8 @@ TEST(PeriodicTimerTest, sleepUntilAPastDeadlineReturnsAtOnce) {
 }
 
 TEST(PeriodicTimerDeathTest, refusesANonPositivePeriod) {
-  EXPECT_DEATH(PeriodicTimer(nanoseconds(0), OverrunPolicy::kCatchUp), "positive period");
+  EXPECT_DEATH(PeriodicTimer(nanoseconds(0), OverrunPolicy::kCatchUp),
+               "positive period");
 }
 
 }  // namespace

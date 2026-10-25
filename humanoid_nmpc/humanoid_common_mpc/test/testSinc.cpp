@@ -27,7 +27,8 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// sinc(): sin(x) / x away from zero, its two-term series near it, and continuous across the threshold between them.
+// sinc(): sin(x) / x away from zero, its two-term series near it, and
+// continuous across the threshold between them.
 
 #include <cmath>
 #include <limits>
@@ -52,7 +53,8 @@ TEST(Sinc, IsTheQuotientAwayFromZero) {
 TEST(Sinc, IsTheTwoTermSeriesNearZero) {
   for (const scalar_t x : {-5.0e-5, -1.0e-8, 1.0e-12, 3.0e-5, 9.9e-5}) {
     EXPECT_DOUBLE_EQ(sinc(x), 1.0 - x * x / 6.0) << "x = " << x;
-    // The series is the quotient to within the next term, x^4 / 5!, below 1e-18.
+    // The series is the quotient to within the next term, x^4 / 5!, below
+    // 1e-18.
     EXPECT_NEAR(sinc(x), std::sin(x) / x, 1.0e-15) << "x = " << x;
   }
 }
@@ -60,7 +62,8 @@ TEST(Sinc, IsTheTwoTermSeriesNearZero) {
 TEST(Sinc, IsEvenAndContinuousAtTheThreshold) {
   EXPECT_DOUBLE_EQ(sinc(0.3), sinc(-0.3));
   // An |x| just below the threshold, where sinc() is still the series.
-  const scalar_t below = kSincSeriesThreshold * (1.0 - std::numeric_limits<scalar_t>::epsilon());
+  const scalar_t below =
+      kSincSeriesThreshold * (1.0 - std::numeric_limits<scalar_t>::epsilon());
   EXPECT_NEAR(sinc(below), sinc(kSincSeriesThreshold), 1.0e-15);
 }
 

@@ -66,8 +66,8 @@ def _findings(source: str, path: str) -> list[check_types.Finding]:
             token.line,
             token.col,
             NAME,
-            f"`{token.text}` is the Euler root joint; the MPC's base is Composite(Translation, Spherical) on the "
-            "quaternion state.",
+            f"`{token.text}` is the Euler root joint; the MPC's base is"
+            " Composite(Translation, Spherical) on the quaternion state.",
         )
         for token in cpp_source.code_tokens(source)
         if token.kind == cpp_source.IDENTIFIER and _BANNED in token.text
@@ -80,10 +80,18 @@ CHECKS = [
         languages=frozenset({check_types.Language.CPP}),
         scope=lint_files.Scope.FIRST_PARTY_AND_OCS2,
         check_source=_findings,
-        description="no SphericalZYX root joint in humanoid_nmpc/, robot_runtime/ or lib/ocs2/pinocchio/centroidal_model/: "
-        "the base is a unit quaternion (humanoid_nmpc/docs/quaternion_base_orientation/README.md).",
-        hint="Build the root as pinocchio::JointModelComposite of JointModelTranslation and JointModelSpherical "
-        "(humanoid_common_mpc/pinocchio_model/createPinocchioModel.cpp); read Euler angles through "
-        "humanoid_common_mpc/orientation/EulerBoundary.h.",
+        description=(
+            "no SphericalZYX root joint in humanoid_nmpc/, robot_runtime/ or"
+            " lib/ocs2/pinocchio/centroidal_model/: the base is a unit"
+            " quaternion"
+            " (humanoid_nmpc/docs/quaternion_base_orientation/README.md)."
+        ),
+        hint=(
+            "Build the root as pinocchio::JointModelComposite of"
+            " JointModelTranslation and JointModelSpherical"
+            " (humanoid_common_mpc/pinocchio_model/createPinocchioModel.cpp);"
+            " read Euler angles through"
+            " humanoid_common_mpc/orientation/EulerBoundary.h."
+        ),
     ),
 ]

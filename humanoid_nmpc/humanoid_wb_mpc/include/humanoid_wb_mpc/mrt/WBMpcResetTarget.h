@@ -39,24 +39,31 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The target trajectories the whole-body MPC restarts from after a reset served at `observation`: the observed
- * configuration held still and upright, with the weight on both feet.
+ * The target trajectories the whole-body MPC restarts from after a reset served
+ * at `observation`: the observed configuration held still and upright, with the
+ * weight on both feet.
  *
- *  - the state is the observation's, with every generalized velocity zeroed and the base upright at the observed
- *    heading: the attitude is the heading quaternion of the observed one (its twist about the world z axis,
- *    headingQuaternion()), so the yaw is the observation's getBaseHeading(), wrapped into (-pi, pi], and the pitch and
- *    roll are zero;
- *  - the input carries the robot's weight evenly on both feet (weightCompensatingInput()), as the centroidal MPC's
- *    reset target does: a zero input asked the first solve after a reset to hold the robot up with no contact force;
- *  - two nodes, at the observation time and 2 s later, so that the target holds over the horizon rather than being a
- *    single knot extrapolated.
+ *  - the state is the observation's, with every generalized velocity zeroed and
+ * the base upright at the observed heading: the attitude is the heading
+ * quaternion of the observed one (its twist about the world z axis,
+ *    headingQuaternion()), so the yaw is the observation's getBaseHeading(),
+ * wrapped into (-pi, pi], and the pitch and roll are zero;
+ *  - the input carries the robot's weight evenly on both feet
+ * (weightCompensatingInput()), as the centroidal MPC's reset target does: a
+ * zero input asked the first solve after a reset to hold the robot up with no
+ * contact force;
+ *  - two nodes, at the observation time and 2 s later, so that the target holds
+ * over the horizon rather than being a single knot extrapolated.
  *
- * The one definition of the reset target for every path that serves a reset: WBMpcMrtJointController hands it to its
- * MPC link (InProcessMpcLink serves its resets from it), and the MPC node's MpcServer resets from it. Pure: it reads
- * `pinocchioInterface` (the robot's mass) and the model, and may be called on any thread.
+ * The one definition of the reset target for every path that serves a reset:
+ * WBMpcMrtJointController hands it to its MPC link (InProcessMpcLink serves its
+ * resets from it), and the MPC node's MpcServer resets from it. Pure: it reads
+ * `pinocchioInterface` (the robot's mass) and the model, and may be called on
+ * any thread.
  */
-TargetTrajectories wbMpcResetTargetTrajectories(const SystemObservation& observation,
-                                                const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                                const PinocchioInterface& pinocchioInterface);
+TargetTrajectories wbMpcResetTargetTrajectories(
+    const SystemObservation& observation,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    const PinocchioInterface& pinocchioInterface);
 
 }  // namespace ocs2::humanoid

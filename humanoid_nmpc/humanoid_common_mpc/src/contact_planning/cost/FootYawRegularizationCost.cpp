@@ -43,9 +43,14 @@ void FootYawRegularizationCost::configure(const ContactPlanningConfig& config) {
   weight_ = config.footYawRegularization.weight;
 }
 
-void FootYawRegularizationCost::addToStage(const ContactPlanningContext& /*ctx*/, int /*node*/, StageAccumulator& stage) const {
+void FootYawRegularizationCost::addToStage(
+    const ContactPlanningContext& /*ctx*/,
+    int /*node*/,
+    StageAccumulator& stage) const {
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
-    stage.addQuadraticResidual(/*xCoefficients=*/{}, {{idx_.footYawDelta[foot], 1.0}}, /*offset=*/0.0, weight_);
+    stage.addQuadraticResidual(/*xCoefficients=*/{},
+                               {{idx_.footYawDelta[foot], 1.0}}, /*offset=*/0.0,
+                               weight_);
   }
 }
 

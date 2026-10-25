@@ -101,7 +101,11 @@ so.
 
 The generated code is clang-format clean, follows the repository's C++ lint rules (no `auto`, nullability on every
 raw pointer, integer types without `std::`, no magic numbers), and compiles with `FIRST_PARTY_COPTS`
-(`bazel/copts.bzl`) and `-Werror`.
+(`bazel/copts.bzl`) and `-Werror`. The plugin runs without clang-format, so the generator breaks a line longer than the
+column limit of `.clang-format` itself, exactly as clang-format 18 breaks it: `nproto_layout.py` ports clang-format's
+line breaking (its split penalties, indentation rules and search for the cheapest layout) for the statements, function
+signatures and member declarations the generator writes, and breaks the comments copied from the `.proto` file at the
+last space that fits.
 The conversions drop `-Wpedantic`, under which the Abseil headers they include warn; the struct headers compile with
 it and `-Werror` (`//tools/nproto/test:test_struct_headers`, `:test_generated_code`).
 
@@ -369,8 +373,8 @@ names the file and the definition when:
 - a name cannot be a C++ name: a field, oneof or message named like a C++ keyword, a nested type and a member of one
   name, two enum values that give one enumerator, two fields that give one constant (a oneof index constant or a
   default constant), a constant named like a member or a nested type;
-- a name is too long for the generated code: an enum whose full name, or an enumerator whose `case` label, does not
-  fit a line;
+- a name is too long for the generated code: a line that is longer than the column limit even broken as clang-format
+  breaks it, because a name in it (an enumerator, a type, a field) does not fit a line by itself;
 - `(nproto.optional_message)` is set on a field that is not a singular message, or on a oneof alternative;
 - a `(nproto.retired_field)` names a live field of its message, names one field twice, or lacks a name or a
   replacement.
@@ -385,6 +389,7 @@ protoc passes custom options to a plugin as extension fields of `MessageOptions`
 | `options.proto` | the struct options and `optional_message` (`:options_proto`, `:options_py_proto`, `:options_cc_proto`) |
 | `retired_field.proto`, `retired_field_options.proto` | the retired-field options and their message, in the same library |
 | `nproto_generator.py`, `protoc_gen_nproto.py` | the generator and the protoc plugin (`:nproto_generator`, `:protoc-gen-nproto`) |
+| `nproto_layout.py` | clang-format's line breaking, for the generator's lines (`:nproto_layout`) |
 | `nproto.bzl` | `nproto_cc_library` and its aspect; `:nproto_toolchain` is how it runs the plugin |
 | `include/nproto/Conversions.h`, `src/Conversions.cpp` | the helpers the generated code calls (`nproto::internal`, not an API) |
 | `include/nproto/Textproto.h`, `src/Textproto.cpp` | the textproto helpers |
@@ -408,8 +413,9 @@ bazel test //tools/nproto/... //humanoid_nmpc/humanoid_mpc_msgs:messages_nproto_
 - `//tools/nproto/test:test_nproto_textproto`: the same for the Python parser, plus deprecated fields.
 - `:test_nproto_generator`: the generator's output and every error above (the misplaced `optional_message` and the bad
   retired names included), on requests built in the test, and the plugin binary speaking protoc's protocol.
-- `:test_generated_code`: the generated code of the test protos, of `humanoid_mpc_msgs` and of `humanoid_mpc_config`
-  is clang-format clean, the repository's C++ lint checks (`no-auto`, `pointer-nullability`, `magic-number`, ...)
+- `:test_nproto_layout`: the line breaking of `nproto_layout.py`, on lines whose layout clang-format decided.
+- `:test_generated_code`: the generated code of the test protos (`long_names.proto` among them, whose names make every
+  kind of line wrap), of `humanoid_mpc_msgs` and of `humanoid_mpc_config` is clang-format clean, the repository's C++ lint checks (`no-auto`, `pointer-nullability`, `magic-number`, ...)
   find nothing in it (`make lint` never sees `bazel-out`), its output parameters are `absl_nonnull`, and its struct
   headers include neither protobuf nor Abseil.
 - `ExpectRoundTrips<Struct, Proto>()` (`:proto_test_values`) is the round-trip check any package can run over its own

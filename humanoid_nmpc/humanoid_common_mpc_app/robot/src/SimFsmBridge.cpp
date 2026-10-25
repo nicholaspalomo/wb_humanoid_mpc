@@ -38,20 +38,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-SimFsmBridge::SimFsmBridge(const robot::model::RobotDescription& robotDescription,
-                           const robot::model::RobotState& initState,
-                           OperatorCommandMailbox* absl_nonnull commands,
-                           FsmStateMailbox* absl_nonnull fsmStates,
-                           robot::mujoco_sim_interface::MujocoSimInterface* absl_nonnull simulator,
-                           RealtimeEventLog* absl_nullable eventLog)
+SimFsmBridge::SimFsmBridge(
+    const robot::model::RobotDescription& robotDescription,
+    const robot::model::RobotState& initState,
+    OperatorCommandMailbox* absl_nonnull commands,
+    FsmStateMailbox* absl_nonnull fsmStates,
+    robot::mujoco_sim_interface::MujocoSimInterface* absl_nonnull simulator,
+    RealtimeEventLog* absl_nullable eventLog)
     : simulator_(simulator),
       eventLog_(eventLog),
-      state_(robotDescription, initState, commands, fsmStates, /*gantryLocked=*/simulator->isGantryLocked()) {}
+      state_(robotDescription,
+             initState,
+             commands,
+             fsmStates,
+             /*gantryLocked=*/simulator->isGantryLocked()) {}
 
 bool SimFsmBridge::processCommands(std::string& currentModeName) {
   OperatorCommandMailbox& commands = state_.commands();
-  // Handed over first and unconditionally: a throw is independent of the FSM, and the early return below fires on
-  // every cycle in which no mode change is pending - which is almost all of them.
+  // Handed over first and unconditionally: a throw is independent of the FSM,
+  // and the early return below fires on every cycle in which no mode change is
+  // pending - which is almost all of them.
   robot::mujoco_sim_interface::MujocoSimInterface::DodgeballThrow throwCommand;
   if (commands.takeDodgeballThrow(throwCommand)) {
     simulator_->throwDodgeball(throwCommand);
@@ -59,8 +65,8 @@ bool SimFsmBridge::processCommands(std::string& currentModeName) {
 
   FsmCommandEvent command;
   if (!commands.takeFsmCommand(command)) {
-    // No FSM command pending, but the gantry still follows the height slider while it is locked - once the GUI has
-    // sent a height at all.
+    // No FSM command pending, but the gantry still follows the height slider
+    // while it is locked - once the GUI has sent a height at all.
     if (simulator_->isGantryLocked()) {
       const std::optional<double> height = commands.desiredGantryHeight();
       if (height.has_value()) simulator_->setGantryHeight(*height);
@@ -73,20 +79,26 @@ bool SimFsmBridge::processCommands(std::string& currentModeName) {
     case FsmCommandKind::kZeroTorque:
       // 1. Zero-torque mode commands
       if (!simulator_->isZeroTorqueMode()) {
-        if (eventLog_ != nullptr) eventLog_->post(RealtimeEventCode::kTorquesDisabled, /*detail=*/0, name);
+        if (eventLog_ != nullptr)
+          eventLog_->post(RealtimeEventCode::kTorquesDisabled, /*detail=*/0,
+                          name);
         simulator_->disableTorques();
       }
-      currentModeName.assign(control_mode::kZeroTorque.data(), control_mode::kZeroTorque.size());
+      currentModeName.assign(control_mode::kZeroTorque.data(),
+                             control_mode::kZeroTorque.size());
       publishFsmState(currentModeName);
       return true;
     case FsmCommandKind::kJointPd:
     case FsmCommandKind::kGravityComp:
     case FsmCommandKind::kWbMpc:
     case FsmCommandKind::kSafety: {
-      // 2. Active torque modes (JOINT_PD, GRAVITY_COMP, WB_MPC, SAFETY, MPC_ACTIVE, ENABLE_TORQUES)
-      // Every mode command is reported, also one between two active modes (JOINT_PD to WB_MPC), which switches nothing.
+      // 2. Active torque modes (JOINT_PD, GRAVITY_COMP, WB_MPC, SAFETY,
+      // MPC_ACTIVE, ENABLE_TORQUES) Every mode command is reported, also one
+      // between two active modes (JOINT_PD to WB_MPC), which switches nothing.
       if (simulator_->isZeroTorqueMode()) {
-        if (eventLog_ != nullptr) eventLog_->post(RealtimeEventCode::kTorquesEnabled, /*detail=*/0, name);
+        if (eventLog_ != nullptr)
+          eventLog_->post(RealtimeEventCode::kTorquesEnabled, /*detail=*/0,
+                          name);
         simulator_->enableTorques();
       } else if (eventLog_ != nullptr) {
         eventLog_->post(RealtimeEventCode::kModeCommanded, /*detail=*/0, name);
@@ -99,13 +111,15 @@ bool SimFsmBridge::processCommands(std::string& currentModeName) {
     case FsmCommandKind::kLockGantry:
       // 3. Virtual gantry locking / unlocking commands
       if (simulator_->isGantryLocked()) return false;
-      if (eventLog_ != nullptr) eventLog_->post(RealtimeEventCode::kGantryLockCommanded);
+      if (eventLog_ != nullptr)
+        eventLog_->post(RealtimeEventCode::kGantryLockCommanded);
       simulator_->lockGantry();
       publishFsmState(currentModeName);
       return true;
     case FsmCommandKind::kUnlockGantry:
       if (!simulator_->isGantryLocked()) return false;
-      if (eventLog_ != nullptr) eventLog_->post(RealtimeEventCode::kGantryUnlockCommanded);
+      if (eventLog_ != nullptr)
+        eventLog_->post(RealtimeEventCode::kGantryUnlockCommanded);
       simulator_->unlockGantry();
       publishFsmState(currentModeName);
       return true;

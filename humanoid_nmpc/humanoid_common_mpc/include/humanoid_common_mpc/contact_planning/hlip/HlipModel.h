@@ -37,39 +37,49 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The Hybrid Linear Inverted Pendulum (H-LIP) of Xiong and Ames, as used by the reduced-order layer of
- * "Reduced-Order Model Guided Contact-Implicit Model Predictive Control for Humanoid Locomotion"
- * (Esteban, Kurtz, Ghansah, Ames, arXiv:2502.15630).
+ * The Hybrid Linear Inverted Pendulum (H-LIP) of Xiong and Ames, as used by the
+ * reduced-order layer of "Reduced-Order Model Guided Contact-Implicit Model
+ * Predictive Control for Humanoid Locomotion" (Esteban, Kurtz, Ghansah, Ames,
+ * arXiv:2502.15630).
  *
- * One planar pendulum of fixed height z0. The state is the horizontal position and velocity of the point mass
- * relative to the stance foot, x = [p, v]^T. A step consists of a single support phase (SSP) of `sspDuration`, during
- * which the pendulum is unactuated, an instantaneous impact that hands the stance over to the foot placed a step
- * length ahead, and a double support phase (DSP) of `dspDuration`, during which the mass is assumed to drift at
- * constant velocity. Composing the three gives the step-to-step (S2S) dynamics on the pre-impact state,
+ * One planar pendulum of fixed height z0. The state is the horizontal position
+ * and velocity of the point mass relative to the stance foot, x = [p, v]^T. A
+ * step consists of a single support phase (SSP) of `sspDuration`, during which
+ * the pendulum is unactuated, an instantaneous impact that hands the stance
+ * over to the foot placed a step length ahead, and a double support phase (DSP)
+ * of `dspDuration`, during which the mass is assumed to drift at constant
+ * velocity. Composing the three gives the step-to-step (S2S) dynamics on the
+ * pre-impact state,
  *
  *   x_{k+1} = A x_k + B u_k,   A = A_ssp A_dsp,   B = -A e_1,
  *
- * with A_ssp = [[cosh(w T_ssp), sinh(w T_ssp) / w], [w sinh(w T_ssp), cosh(w T_ssp)]], A_dsp = [[1, T_dsp], [0, 1]]
- * and w = sqrt(g / z0). The S2S map is the whole planner: the step length is the only input, and the gain that drives
- * the error to zero in two steps is closed form,
+ * with A_ssp = [[cosh(w T_ssp), sinh(w T_ssp) / w], [w sinh(w T_ssp), cosh(w
+ * T_ssp)]], A_dsp = [[1, T_dsp], [0, 1]] and w = sqrt(g / z0). The S2S map is
+ * the whole planner: the step length is the only input, and the gain that
+ * drives the error to zero in two steps is closed form,
  *
- *   K = [1, T_dsp + coth(w T_ssp) / w],   A + B K = [[0, -1 / (w sinh(w T_ssp))], [0, 0]],
+ *   K = [1, T_dsp + coth(w T_ssp) / w],   A + B K = [[0, -1 / (w sinh(w
+ * T_ssp))], [0, 0]],
  *
- * which is nilpotent, so no gain is tuned anywhere in this class. Three dimensional walking is the orthogonal
- * composition of two of these models, a period-one orbit along the heading and a period-two orbit laterally; both
+ * which is nilpotent, so no gain is tuned anywhere in this class. Three
+ * dimensional walking is the orthogonal composition of two of these models, a
+ * period-one orbit along the heading and a period-two orbit laterally; both
  * orbits are solved here as linear systems rather than approximated.
  *
- * The model carries no state. It is a cheap value type: create it from the configuration and copy it freely. Every
- * method is const or static, so concurrent calls on one model are safe.
+ * The model carries no state. It is a cheap value type: create it from the
+ * configuration and copy it freely. Every method is const or static, so
+ * concurrent calls on one model are safe.
  */
 class HlipModel {
  public:
   static constexpr int kStateDim = 2;  // [p, v]
 
-  using State = vector2_t;  // [p, v] of the point mass relative to the stance foot
+  using State =
+      vector2_t;  // [p, v] of the point mass relative to the stance foot
   using Matrix2 = Eigen::Matrix<scalar_t, kStateDim, kStateDim>;
 
-  /** The pre-impact states of the period-two orbit, one per step of the orbit. */
+  /** The pre-impact states of the period-two orbit, one per step of the orbit.
+   */
   struct PeriodTwoOrbit {
     State beforeFirstStep;   // precedes the step of `firstStepLength`
     State beforeSecondStep;  // precedes the step of `secondStepLength`
@@ -79,13 +89,18 @@ class HlipModel {
    * Builds the model of a cadence and a pendulum.
    *
    * @param sspDuration  [s] single support duration, must be positive.
-   * @param dspDuration  [s] double support duration, must not be negative (the paper uses 0).
+   * @param dspDuration  [s] double support duration, must not be negative (the
+   * paper uses 0).
    * @param comHeight    [m] pendulum height z0, must be positive.
    * @param gravity      [m/s^2] must be positive.
-   * @return InvalidArgument when a parameter violates its bound (NaN included); ContactPlanningConfig::validateStatus()
-   *         rejects such a configuration before a model is built from it.
+   * @return InvalidArgument when a parameter violates its bound (NaN included);
+   * ContactPlanningConfig::validateStatus() rejects such a configuration before
+   * a model is built from it.
    */
-  static absl::StatusOr<HlipModel> Create(scalar_t sspDuration, scalar_t dspDuration, scalar_t comHeight, scalar_t gravity);
+  static absl::StatusOr<HlipModel> Create(scalar_t sspDuration,
+                                          scalar_t dspDuration,
+                                          scalar_t comHeight,
+                                          scalar_t gravity);
 
   HlipModel(const HlipModel&) = default;
   HlipModel& operator=(const HlipModel&) = default;
@@ -107,31 +122,42 @@ class HlipModel {
 
   /** Flows the unactuated single support dynamics for `duration` seconds. */
   State flowSingleSupport(const State& state, scalar_t duration) const;
-  /** Drifts at constant velocity for `duration` seconds, the model's double support. */
+  /** Drifts at constant velocity for `duration` seconds, the model's double
+   * support. */
   static State flowDoubleSupport(const State& state, scalar_t duration);
-  /** The impact: the foot placed `stepLength` ahead of the stance foot becomes the stance foot. */
+  /** The impact: the foot placed `stepLength` ahead of the stance foot becomes
+   * the stance foot. */
   static State applyStepTransition(const State& state, scalar_t stepLength);
 
-  /** The pre-impact state after one whole step of length `stepLength`, i.e. A x + B u. */
+  /** The pre-impact state after one whole step of length `stepLength`, i.e. A x
+   * + B u. */
   State applyStepToStep(const State& state, scalar_t stepLength) const;
 
-  /** The pre-impact fixed point of the period-one orbit walked with a constant step length. */
+  /** The pre-impact fixed point of the period-one orbit walked with a constant
+   * step length. */
   State periodOneOrbit(scalar_t stepLength) const;
   /**
-   * The two pre-impact states of the period-two orbit that alternates the two step lengths, the lateral orbit of a
-   * biped.
+   * The two pre-impact states of the period-two orbit that alternates the two
+   * step lengths, the lateral orbit of a biped.
    */
-  PeriodTwoOrbit periodTwoOrbit(scalar_t firstStepLength, scalar_t secondStepLength) const;
+  PeriodTwoOrbit periodTwoOrbit(scalar_t firstStepLength,
+                                scalar_t secondStepLength) const;
 
   /**
-   * The deadbeat step length u = nominalStepLength + K (state - nominalState). Applied at the pre-impact state of a
-   * step, it returns the model to the nominal orbit within two steps.
+   * The deadbeat step length u = nominalStepLength + K (state - nominalState).
+   * Applied at the pre-impact state of a step, it returns the model to the
+   * nominal orbit within two steps.
    */
-  scalar_t deadbeatStepLength(const State& state, const State& nominalState, scalar_t nominalStepLength) const;
+  scalar_t deadbeatStepLength(const State& state,
+                              const State& nominalState,
+                              scalar_t nominalStepLength) const;
 
  private:
   /** Requires the bounds Create() checks. */
-  HlipModel(scalar_t sspDuration, scalar_t dspDuration, scalar_t comHeight, scalar_t gravity);
+  HlipModel(scalar_t sspDuration,
+            scalar_t dspDuration,
+            scalar_t comHeight,
+            scalar_t gravity);
 
   scalar_t sspDuration_;
   scalar_t dspDuration_;

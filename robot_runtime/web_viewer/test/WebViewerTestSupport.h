@@ -51,36 +51,46 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace robot::web_viewer::test_support {
 
-/** Returns a width x height RGB gradient, top row first, whose colors shift with `phase`. */
+/** Returns a width x height RGB gradient, top row first, whose colors shift
+ * with `phase`. */
 std::vector<uint8_t> gradientImage(int width, int height, int phase);
 
-/** Returns gradientImage(width, height, phase) as a JPEG frame (quality 80) with `simTime`, ready to publish. */
+/** Returns gradientImage(width, height, phase) as a JPEG frame (quality 80)
+ * with `simTime`, ready to publish. */
 EncodedFrame gradientFrame(int width, int height, int phase, double simTime);
 
-/** Returns a frame of `bytes` arbitrary bytes, for the tests that only move frames (the server never decodes them). */
+/** Returns a frame of `bytes` arbitrary bytes, for the tests that only move
+ * frames (the server never decodes them). */
 EncodedFrame opaqueFrame(int64_t bytes);
 
-/** Returns true as soon as `condition` holds, polling every 5 ms; false when `timeout` passes first. */
+/** Returns true as soon as `condition` holds, polling every 5 ms; false when
+ * `timeout` passes first. */
 bool waitUntil(absl::FunctionRef<bool()> condition, absl::Duration timeout);
 
-// A server on its own mailbox and input queue. The members are destroyed in reverse order: the server first.
+// A server on its own mailbox and input queue. The members are destroyed in
+// reverse order: the server first.
 struct TestServer {
   std::unique_ptr<ViewerFrameMailbox> mailbox;
   std::unique_ptr<ViewerInputQueue> inputs;
   std::unique_ptr<WebViewerServer> server;
 };
 
-/** Returns the options of a test server: an ephemeral port of 127.0.0.1, 4 clients, two visualizations. */
+/** Returns the options of a test server: an ephemeral port of 127.0.0.1, 4
+ * clients, two visualizations. */
 WebViewerServerOptions testServerOptions();
 
-/** Starts a server with `options` and a mailbox for options.maxClients clients. */
+/** Starts a server with `options` and a mailbox for options.maxClients clients.
+ */
 absl::StatusOr<TestServer> startTestServer(WebViewerServerOptions options);
 
-/** A blocking TCP connection to 127.0.0.1 for the tests, closed on destruction. Not thread-safe. */
+/** A blocking TCP connection to 127.0.0.1 for the tests, closed on destruction.
+ * Not thread-safe. */
 class TestConnection {
  public:
-  /** Connects to 127.0.0.1:`port`, with SO_RCVBUF set to `receiveBufferBytes` first when given. */
-  static absl::StatusOr<std::unique_ptr<TestConnection>> Connect(int port, std::optional<int> receiveBufferBytes);
+  /** Connects to 127.0.0.1:`port`, with SO_RCVBUF set to `receiveBufferBytes`
+   * first when given. */
+  static absl::StatusOr<std::unique_ptr<TestConnection>> Connect(
+      int port, std::optional<int> receiveBufferBytes);
 
   ~TestConnection();
   TestConnection(const TestConnection&) = delete;
@@ -90,8 +100,9 @@ class TestConnection {
   absl::Status send(absl::string_view bytes) const;
 
   /**
-   * Returns the bytes that arrive within `timeout` (at least one): DeadlineExceeded when none do, OutOfRange when the
-   * peer has closed the connection.
+   * Returns the bytes that arrive within `timeout` (at least one):
+   * DeadlineExceeded when none do, OutOfRange when the peer has closed the
+   * connection.
    */
   absl::StatusOr<std::string> receive(absl::Duration timeout);
 
@@ -101,7 +112,8 @@ class TestConnection {
   int socket_;
 };
 
-// One HTTP/1.1 request of a test. The Host header is `host`, or 127.0.0.1:<port> when it is empty.
+// One HTTP/1.1 request of a test. The Host header is `host`, or
+// 127.0.0.1:<port> when it is empty.
 struct HttpRequest {
   std::string method = "GET";
   std::string target = "/";
@@ -122,21 +134,26 @@ struct HttpReply {
   std::optional<std::string> header(absl::string_view name) const;
 };
 
-/** Returns `request` as the bytes of an HTTP/1.1 request to 127.0.0.1:`port`. */
+/** Returns `request` as the bytes of an HTTP/1.1 request to 127.0.0.1:`port`.
+ */
 std::string formatRequest(int port, const HttpRequest& request);
 
 /**
- * Reads HTTP responses from one connection: the head, then the body, with Content-Length, chunked or up to the close.
- * Reusable for the next response of a keep-alive connection. Retains `connection`, which must outlive the reader.
+ * Reads HTTP responses from one connection: the head, then the body, with
+ * Content-Length, chunked or up to the close. Reusable for the next response of
+ * a keep-alive connection. Retains `connection`, which must outlive the reader.
  */
 class HttpResponseReader {
  public:
-  explicit HttpResponseReader(TestConnection* absl_nonnull connection) : connection_(connection) {}
+  explicit HttpResponseReader(TestConnection* absl_nonnull connection)
+      : connection_(connection) {}
 
-  /** Reads the status line and the headers of the next response (`body` empty). `headRequest` means no body follows. */
+  /** Reads the status line and the headers of the next response (`body` empty).
+   * `headRequest` means no body follows. */
   absl::StatusOr<HttpReply> readHead(absl::Duration timeout, bool headRequest);
 
-  /** Returns the next decoded body bytes, waiting up to `timeout` for some; OutOfRange once the body has ended. */
+  /** Returns the next decoded body bytes, waiting up to `timeout` for some;
+   * OutOfRange once the body has ended. */
   absl::StatusOr<std::string> readBody(absl::Duration timeout);
 
   /** Reads the next whole response. */
@@ -161,7 +178,8 @@ class HttpResponseReader {
   bool ended_ = true;
 };
 
-/** Sends `request` on a new connection to 127.0.0.1:`port` and reads the whole response. */
+/** Sends `request` on a new connection to 127.0.0.1:`port` and reads the whole
+ * response. */
 absl::StatusOr<HttpReply> fetch(int port, const HttpRequest& request);
 
 // One part of a GET /stream.mjpg.
@@ -170,12 +188,16 @@ struct MjpegPart {
   std::string jpeg = "";
 };
 
-/** Splits the parts out of a multipart/x-mixed-replace body (boundary "mujocoframe") as its bytes arrive. */
+/** Splits the parts out of a multipart/x-mixed-replace body (boundary
+ * "mujocoframe") as its bytes arrive. */
 class MjpegPartParser {
  public:
-  void append(absl::string_view bytes) { buffered_.append(bytes.data(), bytes.size()); }
+  void append(absl::string_view bytes) {
+    buffered_.append(bytes.data(), bytes.size());
+  }
 
-  /** Returns the next complete part, or nullopt while it has not fully arrived; Internal for a malformed part. */
+  /** Returns the next complete part, or nullopt while it has not fully arrived;
+   * Internal for a malformed part. */
   absl::StatusOr<std::optional<MjpegPart>> nextPart();
 
  private:

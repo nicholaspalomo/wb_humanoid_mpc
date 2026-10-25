@@ -139,8 +139,8 @@ class PackageResolutionTest(TemporaryDirectoryTestCase):
     def urdf_with_mesh(self, relative_path: str, uri: str) -> str:
         return self.write(
             relative_path,
-            f'<robot name="r"><link name="a"><visual><geometry><mesh filename="{uri}"/></geometry></visual>'
-            "</link></robot>",
+            '<robot name="r"><link name="a"><visual><geometry><mesh'
+            f' filename="{uri}"/></geometry></visual></link></robot>',
         )
 
     def mesh(self, relative_path: str) -> str:
@@ -158,7 +158,9 @@ class PackageResolutionTest(TemporaryDirectoryTestCase):
 
     def test_the_package_the_urdf_lives_in(self) -> None:
         mesh = self.mesh("ws/pkg/meshes/a.stl")
-        urdf = self.urdf_with_mesh("ws/pkg/urdf/r.urdf", "package://pkg/meshes/a.stl")
+        urdf = self.urdf_with_mesh(
+            "ws/pkg/urdf/r.urdf", "package://pkg/meshes/a.stl"
+        )
         self.assertEqual(self.resolved(urdf), mesh)
 
     def test_a_package_next_to_a_directory_above_the_urdf(self) -> None:
@@ -176,32 +178,46 @@ class PackageResolutionTest(TemporaryDirectoryTestCase):
         )
 
     def test_a_package_nowhere_is_a_missing_mesh(self) -> None:
-        urdf = self.urdf_with_mesh("other/r.urdf", "package://nowhere/meshes/a.stl")
+        urdf = self.urdf_with_mesh(
+            "other/r.urdf", "package://nowhere/meshes/a.stl"
+        )
         model = urdf_model.load_urdf(urdf)
-        self.assertEqual(model.missing_meshes, ("package://nowhere/meshes/a.stl",))
+        self.assertEqual(
+            model.missing_meshes, ("package://nowhere/meshes/a.stl",)
+        )
         self.assertEqual(model.visuals, ())
 
     def test_file_uris_and_relative_paths(self) -> None:
         mesh = self.mesh("ws/meshes/a.stl")
         self.assertEqual(
-            self.resolved(self.urdf_with_mesh("ws/urdf/r1.urdf", f"file://{mesh}")),
+            self.resolved(
+                self.urdf_with_mesh("ws/urdf/r1.urdf", f"file://{mesh}")
+            ),
             mesh,
         )
         self.assertEqual(
-            self.resolved(self.urdf_with_mesh("ws/urdf/r2.urdf", "../meshes/a.stl")),
+            self.resolved(
+                self.urdf_with_mesh("ws/urdf/r2.urdf", "../meshes/a.stl")
+            ),
             mesh,
         )
 
     def test_a_format_rerun_cannot_draw_without_a_twin_is_skipped(self) -> None:
         self.write("ws/pkg/meshes/a.dae", "<COLLADA/>")
-        urdf = self.urdf_with_mesh("ws/pkg/urdf/r.urdf", "package://pkg/meshes/a.dae")
+        urdf = self.urdf_with_mesh(
+            "ws/pkg/urdf/r.urdf", "package://pkg/meshes/a.dae"
+        )
         model = urdf_model.load_urdf(urdf)
-        self.assertEqual(model.unsupported_meshes, ("package://pkg/meshes/a.dae",))
+        self.assertEqual(
+            model.unsupported_meshes, ("package://pkg/meshes/a.dae",)
+        )
         self.assertEqual(model.visuals, ())
 
     def test_the_resolver_remembers_packages(self) -> None:
         self.mesh("ws/pkg/meshes/a.stl")
-        urdf = self.urdf_with_mesh("ws/pkg/urdf/r.urdf", "package://pkg/meshes/a.stl")
+        urdf = self.urdf_with_mesh(
+            "ws/pkg/urdf/r.urdf", "package://pkg/meshes/a.stl"
+        )
         resolver = urdf_model.PackageResolver(urdf)
         first = resolver.package_directory("pkg")
         shutil.rmtree(os.path.join(self.directory, "ws", "pkg", "meshes"))
@@ -225,33 +241,38 @@ class MalformedUrdfTest(TemporaryDirectoryTestCase):
             '<robot><link name="a"/><link name="a"/></robot>', "defined twice"
         )
         self.assert_error(
-            '<robot><link name="a"><visual/></link></robot>', "link 'a', visual 0"
+            '<robot><link name="a"><visual/></link></robot>',
+            "link 'a', visual 0",
         )
         self.assert_error(
-            '<robot><link name="a"><visual><origin xyz="1 2"/><geometry><box size="1 1 1"/></geometry>'
-            "</visual></link></robot>",
+            '<robot><link name="a"><visual><origin xyz="1 2"/><geometry><box'
+            ' size="1 1 1"/></geometry></visual></link></robot>',
             'xyz="1 2" is not 3 numbers',
         )
         self.assert_error(
-            '<robot><link name="a"><visual><geometry><capsule/></geometry></visual></link></robot>',
+            "<robot><link"
+            ' name="a"><visual><geometry><capsule/></geometry></visual></link></robot>',
             "unknown geometry <capsule>",
         )
         self.assert_error(
-            '<robot><link name="a"><visual><geometry><mesh/></geometry></visual></link></robot>',
+            "<robot><link"
+            ' name="a"><visual><geometry><mesh/></geometry></visual></link></robot>',
             "<mesh> has no filename",
         )
         self.assert_error(
-            '<robot><link name="a"><visual><geometry><sphere/></geometry></visual></link></robot>',
+            "<robot><link"
+            ' name="a"><visual><geometry><sphere/></geometry></visual></link></robot>',
             "<sphere> has no radius",
         )
         self.assert_error(
-            '<robot><link name="a"><visual><geometry><box size="1 nan 1"/></geometry></visual></link>'
-            "</robot>",
+            '<robot><link name="a"><visual><geometry><box size="1 nan'
+            ' 1"/></geometry></visual></link></robot>',
             "is not 3 numbers",
         )
         self.assert_error(
-            '<robot><link name="a"/><link name="b"/><joint name="j"><parent link="a"/><child link="b"/>'
-            '</joint><joint name="k"><parent link="b"/><child link="a"/></joint></robot>',
+            '<robot><link name="a"/><link name="b"/><joint name="j"><parent'
+            ' link="a"/><child link="b"/></joint><joint name="k"><parent'
+            ' link="b"/><child link="a"/></joint></robot>',
             "no root link",
         )
 
@@ -264,21 +285,27 @@ class MalformedUrdfTest(TemporaryDirectoryTestCase):
 
 class QuaternionTest(unittest.TestCase):
     def test_identity_and_quarter_turns(self) -> None:
-        self.assertEqual(urdf_model.quaternion_from_rpy(0.0, 0.0, 0.0), (0, 0, 0, 1))
+        self.assertEqual(
+            urdf_model.quaternion_from_rpy(0.0, 0.0, 0.0), (0, 0, 0, 1)
+        )
         half = math.sqrt(0.5)
         for rpy, expected in (
             ((math.pi / 2, 0.0, 0.0), (half, 0.0, 0.0, half)),
             ((0.0, math.pi / 2, 0.0), (0.0, half, 0.0, half)),
             ((0.0, 0.0, math.pi / 2), (0.0, 0.0, half, half)),
         ):
-            for actual, value in zip(urdf_model.quaternion_from_rpy(*rpy), expected):
+            for actual, value in zip(
+                urdf_model.quaternion_from_rpy(*rpy), expected
+            ):
                 self.assertAlmostEqual(actual, value)
 
     def test_fixed_axis_order_rz_ry_rx(self) -> None:
         # Rotating the x axis by roll then pitch then yaw about the fixed axes.
         generator = random.Random(4)
         for _ in range(20):
-            roll, pitch, yaw = (generator.uniform(-math.pi, math.pi) for _ in range(3))
+            roll, pitch, yaw = (
+                generator.uniform(-math.pi, math.pi) for _ in range(3)
+            )
             x, y, z, w = urdf_model.quaternion_from_rpy(roll, pitch, yaw)
             self.assertAlmostEqual(x * x + y * y + z * z + w * w, 1.0)
             # First column of the rotation matrix of the quaternion, against Rz Ry Rx's.
@@ -321,7 +348,9 @@ class RepositoryUrdfTest(unittest.TestCase):
                 self.assertTrue(meshes)
                 for mesh in meshes:
                     self.assertTrue(os.path.isfile(mesh.path), mesh.uri)
-                    self.assertIn(mesh.media_type, urdf_model.MESH_MEDIA_TYPES.values())
+                    self.assertIn(
+                        mesh.media_type, urdf_model.MESH_MEDIA_TYPES.values()
+                    )
 
     def test_the_search_roots_hold_robot_models(self) -> None:
         path = os.path.join(ROBOT_MODELS, SHIPPED_URDFS[0])

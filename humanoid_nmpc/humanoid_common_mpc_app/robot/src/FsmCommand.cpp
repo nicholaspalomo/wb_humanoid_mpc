@@ -38,10 +38,14 @@ namespace ocs2::humanoid {
 
 std::optional<FsmCommandKind> parseFsmCommand(absl::string_view command) {
   // LINT.IfChange(fsm_command_names)
-  if (command == control_mode::kZeroTorque || command == "DISABLE_TORQUES") return FsmCommandKind::kZeroTorque;
+  if (command == control_mode::kZeroTorque || command == "DISABLE_TORQUES")
+    return FsmCommandKind::kZeroTorque;
   if (command == control_mode::kJointPd) return FsmCommandKind::kJointPd;
-  if (command == control_mode::kGravityComp) return FsmCommandKind::kGravityComp;
-  if (command == control_mode::kWbMpc || command == control_mode::kMpcActive || command == "ENABLE_TORQUES") return FsmCommandKind::kWbMpc;
+  if (command == control_mode::kGravityComp)
+    return FsmCommandKind::kGravityComp;
+  if (command == control_mode::kWbMpc || command == control_mode::kMpcActive ||
+      command == "ENABLE_TORQUES")
+    return FsmCommandKind::kWbMpc;
   if (command == control_mode::kSafety) return FsmCommandKind::kSafety;
   if (command == "LOCK_GANTRY") return FsmCommandKind::kLockGantry;
   if (command == "UNLOCK_GANTRY") return FsmCommandKind::kUnlockGantry;
@@ -70,7 +74,8 @@ absl::string_view fsmCommandModeName(FsmCommandKind kind) {
   return {};  // not an enumerator (ToTW #147)
 }
 
-FsmCommandEvent makeFsmCommandEvent(FsmCommandKind kind, absl::string_view command) {
+FsmCommandEvent makeFsmCommandEvent(FsmCommandKind kind,
+                                    absl::string_view command) {
   FsmCommandEvent event;
   event.kind = kind;
   const size_t length = std::min(command.size(), event.name.size() - 1);
@@ -80,7 +85,8 @@ FsmCommandEvent makeFsmCommandEvent(FsmCommandKind kind, absl::string_view comma
 }
 
 absl::string_view fsmCommandEventName(const FsmCommandEvent& event) {
-  return absl::string_view(event.name.data(), ::strnlen(event.name.data(), event.name.size()));
+  return absl::string_view(event.name.data(),
+                           ::strnlen(event.name.data(), event.name.size()));
 }
 
 }  // namespace ocs2::humanoid

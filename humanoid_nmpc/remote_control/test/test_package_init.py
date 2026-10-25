@@ -40,8 +40,9 @@ import unittest
 import remote_control
 
 _LOADED_SUBMODULES = (
-    "import sys, remote_control, remote_control.tk_app; "
-    "print(sorted(m for m in sys.modules if m.startswith('remote_control.') and m != 'remote_control.tk_app'))"
+    "import sys, remote_control, remote_control.tk_app; print(sorted(m for m in"
+    " sys.modules if m.startswith('remote_control.') and m !="
+    " 'remote_control.tk_app'))"
 )
 
 
@@ -58,17 +59,22 @@ class TestPackageInit(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), "[]", result.stderr)
 
     def test_the_package_has_no_attributes_but_its_own(self):
-        public = [name for name in vars(remote_control) if not name.startswith("_")]
+        public = [
+            name for name in vars(remote_control) if not name.startswith("_")
+        ]
         # Submodules other tests imported become attributes; nothing else may be one.
         for name in public:
             with self.subTest(name=name):
                 self.assertTrue(
                     os.path.exists(
-                        os.path.join(os.path.dirname(remote_control.__file__), name)
+                        os.path.join(
+                            os.path.dirname(remote_control.__file__), name
+                        )
                     )
                     or os.path.exists(
                         os.path.join(
-                            os.path.dirname(remote_control.__file__), f"{name}.py"
+                            os.path.dirname(remote_control.__file__),
+                            f"{name}.py",
                         )
                     ),
                     f"remote_control.{name} is not a module of the package",

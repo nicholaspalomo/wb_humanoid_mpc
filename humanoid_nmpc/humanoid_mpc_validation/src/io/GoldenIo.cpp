@@ -60,7 +60,8 @@ constexpr absl::string_view kGitCommitPrefix = "# git_commit: ";
 constexpr absl::string_view kWorktreePrefix = "# worktree: ";
 constexpr absl::string_view kConfigPrefix = "# config_sha256: ";
 constexpr absl::string_view kNotePrefix = "# note ";
-constexpr absl::string_view kNoteSeparator = ": ";  // between a note's key and its value
+constexpr absl::string_view kNoteSeparator =
+    ": ";  // between a note's key and its value
 constexpr absl::string_view kMatrixPrefix = "matrix ";
 // The fields of a matrix line after kMatrixPrefix: `<label> <rows> <cols>`.
 constexpr int kMatrixLabelField = 0;
@@ -88,21 +89,24 @@ std::string formatValue(double value) {
 }
 
 absl::Status lineError(size_t lineNumber, absl::string_view what) {
-  return absl::InvalidArgumentError(absl::StrCat("[parseGoldenFile] line ", lineNumber, ": ", what));
+  return absl::InvalidArgumentError(
+      absl::StrCat("[parseGoldenFile] line ", lineNumber, ": ", what));
 }
 
 }  // namespace
 
-const golden_matrix_t* absl_nullable GoldenFile::find(absl::string_view label) const {
+const golden_matrix_t* absl_nullable GoldenFile::find(
+    absl::string_view label) const {
   for (const GoldenEntry& entry : entries) {
     if (entry.label == label) return &entry.value;
   }
   return nullptr;
 }
 
-absl::StatusOr<GoldenProvenance> makeGoldenProvenance(std::string gitCommit,
-                                                      std::string worktreeState,
-                                                      const std::vector<std::string>& configurationFiles) {
+absl::StatusOr<GoldenProvenance> makeGoldenProvenance(
+    std::string gitCommit,
+    std::string worktreeState,
+    const std::vector<std::string>& configurationFiles) {
   GoldenProvenance provenance;
   provenance.gitCommit = std::move(gitCommit);
   provenance.worktreeState = std::move(worktreeState);
@@ -116,33 +120,47 @@ absl::StatusOr<GoldenProvenance> makeGoldenProvenance(std::string gitCommit,
 
 absl::StatusOr<std::string> formatGoldenFile(const GoldenFile& golden) {
   const GoldenProvenance& provenance = golden.provenance;
-  if (hasLineBreak(provenance.gitCommit) || hasLineBreak(provenance.worktreeState)) {
-    return absl::InvalidArgumentError("[formatGoldenFile] the commit and the worktree state must be single lines");
+  if (hasLineBreak(provenance.gitCommit) ||
+      hasLineBreak(provenance.worktreeState)) {
+    return absl::InvalidArgumentError(
+        "[formatGoldenFile] the commit and the worktree state must be single "
+        "lines");
   }
   std::string text = absl::StrCat(kMagicLine, "\n");
   absl::StrAppend(&text, kGitCommitPrefix, provenance.gitCommit, "\n");
   absl::StrAppend(&text, kWorktreePrefix, provenance.worktreeState, "\n");
-  for (const std::pair<std::string, std::string>& file : provenance.configurationHashes) {
-    if (hasLineBreak(file.first) || hasWhitespace(file.second) || file.second.empty()) {
-      return absl::InvalidArgumentError(absl::StrCat("[formatGoldenFile] invalid configuration hash entry for '", file.first, "'"));
+  for (const std::pair<std::string, std::string>& file :
+       provenance.configurationHashes) {
+    if (hasLineBreak(file.first) || hasWhitespace(file.second) ||
+        file.second.empty()) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[formatGoldenFile] invalid configuration hash entry for '",
+          file.first, "'"));
     }
     absl::StrAppend(&text, kConfigPrefix, file.second, " ", file.first, "\n");
   }
   for (const std::pair<std::string, std::string>& note : provenance.notes) {
-    if (note.first.empty() || hasWhitespace(note.first) || absl::StrContains(note.first, ':') || hasLineBreak(note.second)) {
-      return absl::InvalidArgumentError(absl::StrCat("[formatGoldenFile] invalid note '", note.first, "'"));
+    if (note.first.empty() || hasWhitespace(note.first) ||
+        absl::StrContains(note.first, ':') || hasLineBreak(note.second)) {
+      return absl::InvalidArgumentError(
+          absl::StrCat("[formatGoldenFile] invalid note '", note.first, "'"));
     }
-    absl::StrAppend(&text, kNotePrefix, note.first, kNoteSeparator, note.second, "\n");
+    absl::StrAppend(&text, kNotePrefix, note.first, kNoteSeparator, note.second,
+                    "\n");
   }
   absl::flat_hash_set<std::string> labels;
   for (const GoldenEntry& entry : golden.entries) {
     if (entry.label.empty() || hasWhitespace(entry.label)) {
-      return absl::InvalidArgumentError(absl::StrCat("[formatGoldenFile] the label '", entry.label, "' is empty or holds whitespace"));
+      return absl::InvalidArgumentError(
+          absl::StrCat("[formatGoldenFile] the label '", entry.label,
+                       "' is empty or holds whitespace"));
     }
     if (!labels.insert(entry.label).second) {
-      return absl::InvalidArgumentError(absl::StrCat("[formatGoldenFile] the label '", entry.label, "' is used twice"));
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[formatGoldenFile] the label '", entry.label, "' is used twice"));
     }
-    absl::StrAppend(&text, kMatrixPrefix, entry.label, " ", entry.value.rows(), " ", entry.value.cols(), "\n");
+    absl::StrAppend(&text, kMatrixPrefix, entry.label, " ", entry.value.rows(),
+                    " ", entry.value.cols(), "\n");
     if (entry.value.cols() == 0) continue;
     for (Eigen::Index row = 0; row < entry.value.rows(); ++row) {
       for (Eigen::Index col = 0; col < entry.value.cols(); ++col) {
@@ -159,7 +177,9 @@ absl::StatusOr<GoldenFile> parseGoldenFile(absl::string_view text) {
   const std::vector<absl::string_view> lines = absl::StrSplit(text, '\n');
   GoldenFile golden;
   size_t index = 0;
-  if (lines.empty() || lines[0] != kMagicLine) return lineError(/*lineNumber=*/1, absl::StrCat("expected '", kMagicLine, "'"));
+  if (lines.empty() || lines[0] != kMagicLine)
+    return lineError(/*lineNumber=*/1,
+                     absl::StrCat("expected '", kMagicLine, "'"));
   ++index;
   absl::flat_hash_set<std::string> labels;
   while (index < lines.size()) {
@@ -174,41 +194,58 @@ absl::StatusOr<GoldenFile> parseGoldenFile(absl::string_view text) {
       golden.provenance.worktreeState = std::string(rest);
     } else if (absl::ConsumePrefix(&rest, kConfigPrefix)) {
       const size_t space = rest.find(' ');
-      if (space == absl::string_view::npos) return lineError(lineNumber, "a configuration hash without a path");
-      golden.provenance.configurationHashes.emplace_back(std::string(rest.substr(space + 1)), std::string(rest.substr(0, space)));
+      if (space == absl::string_view::npos)
+        return lineError(lineNumber, "a configuration hash without a path");
+      golden.provenance.configurationHashes.emplace_back(
+          std::string(rest.substr(space + 1)),
+          std::string(rest.substr(0, space)));
     } else if (absl::ConsumePrefix(&rest, kNotePrefix)) {
       const size_t colon = rest.find(kNoteSeparator);
-      if (colon == absl::string_view::npos) return lineError(lineNumber, "a note without ': '");
-      golden.provenance.notes.emplace_back(std::string(rest.substr(0, colon)), std::string(rest.substr(colon + kNoteSeparator.size())));
+      if (colon == absl::string_view::npos)
+        return lineError(lineNumber, "a note without ': '");
+      golden.provenance.notes.emplace_back(
+          std::string(rest.substr(0, colon)),
+          std::string(rest.substr(colon + kNoteSeparator.size())));
     } else if (absl::StartsWith(line, "#")) {
       continue;  // a comment of a later version
     } else if (absl::ConsumePrefix(&rest, kMatrixPrefix)) {
       const std::vector<absl::string_view> fields = absl::StrSplit(rest, ' ');
       int64_t rows = 0;
       int64_t cols = 0;
-      if (fields.size() != kMatrixHeaderFields || !absl::SimpleAtoi(fields[kMatrixRowsField], &rows) ||
-          !absl::SimpleAtoi(fields[kMatrixColsField], &cols) || rows < 0 || cols < 0) {
+      if (fields.size() != kMatrixHeaderFields ||
+          !absl::SimpleAtoi(fields[kMatrixRowsField], &rows) ||
+          !absl::SimpleAtoi(fields[kMatrixColsField], &cols) || rows < 0 ||
+          cols < 0) {
         return lineError(lineNumber, "expected 'matrix <label> <rows> <cols>'");
       }
       GoldenEntry entry;
       entry.label = std::string(fields[kMatrixLabelField]);
-      if (!labels.insert(entry.label).second) return lineError(lineNumber, absl::StrCat("the label '", entry.label, "' is used twice"));
+      if (!labels.insert(entry.label).second)
+        return lineError(lineNumber, absl::StrCat("the label '", entry.label,
+                                                  "' is used twice"));
       entry.value.resize(rows, cols);
       if (cols > 0) {
         for (int64_t row = 0; row < rows; ++row) {
           if (index >= lines.size()) {
-            return lineError(lineNumber, absl::StrCat("'", entry.label, "' ends after ", row, " of ", rows, " rows"));
+            return lineError(
+                lineNumber, absl::StrCat("'", entry.label, "' ends after ", row,
+                                         " of ", rows, " rows"));
           }
-          const std::vector<absl::string_view> values = absl::StrSplit(lines[index], ' ');
+          const std::vector<absl::string_view> values =
+              absl::StrSplit(lines[index], ' ');
           if (static_cast<int64_t>(values.size()) != cols) {
-            return lineError(index + 1, absl::StrCat("expected ", cols, " values of '", entry.label, "', found ", values.size()));
+            return lineError(
+                index + 1,
+                absl::StrCat("expected ", cols, " values of '", entry.label,
+                             "', found ", values.size()));
           }
           for (int64_t col = 0; col < cols; ++col) {
             const std::string value(values[col]);
             char* absl_nullable end = nullptr;
             entry.value(row, col) = std::strtod(value.c_str(), &end);
             if (value.empty() || end != value.c_str() + value.size()) {
-              return lineError(index + 1, absl::StrCat("'", value, "' is not a number"));
+              return lineError(index + 1,
+                               absl::StrCat("'", value, "' is not a number"));
             }
           }
           ++index;
@@ -216,30 +253,40 @@ absl::StatusOr<GoldenFile> parseGoldenFile(absl::string_view text) {
       }
       golden.entries.push_back(std::move(entry));
     } else {
-      return lineError(lineNumber, absl::StrCat("unexpected line '", line, "'"));
+      return lineError(lineNumber,
+                       absl::StrCat("unexpected line '", line, "'"));
     }
   }
   return golden;
 }
 
-absl::Status writeGoldenFile(const std::string& path, const GoldenFile& golden) {
+absl::Status writeGoldenFile(const std::string& path,
+                             const GoldenFile& golden) {
   absl::StatusOr<std::string> text = formatGoldenFile(golden);
   if (!text.ok()) return text.status();
-  const std::filesystem::path parent = std::filesystem::path(path).parent_path();
+  const std::filesystem::path parent =
+      std::filesystem::path(path).parent_path();
   std::error_code error;
   if (!parent.empty()) std::filesystem::create_directories(parent, error);
   std::ofstream file(path, std::ios::binary | std::ios::trunc);
-  if (!file.is_open()) return absl::InternalError(absl::StrCat("[writeGoldenFile] cannot write '", path, "'"));
+  if (!file.is_open())
+    return absl::InternalError(
+        absl::StrCat("[writeGoldenFile] cannot write '", path, "'"));
   file << *text;
   file.close();
-  if (!file) return absl::InternalError(absl::StrCat("[writeGoldenFile] writing '", path, "' failed"));
+  if (!file)
+    return absl::InternalError(
+        absl::StrCat("[writeGoldenFile] writing '", path, "' failed"));
   return absl::OkStatus();
 }
 
 absl::StatusOr<GoldenFile> readGoldenFile(const std::string& path) {
   std::ifstream file(path, std::ios::binary);
-  if (!file.is_open()) return absl::NotFoundError(absl::StrCat("[readGoldenFile] cannot read '", path, "'"));
-  const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+  if (!file.is_open())
+    return absl::NotFoundError(
+        absl::StrCat("[readGoldenFile] cannot read '", path, "'"));
+  const std::string text((std::istreambuf_iterator<char>(file)),
+                         std::istreambuf_iterator<char>());
   return parseGoldenFile(text);
 }
 

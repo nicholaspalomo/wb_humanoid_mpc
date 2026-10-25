@@ -38,20 +38,32 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 std::string PreviousFootholdConsistencyCost::describe() const {
-  return weightLine("w sum_i ||p_{i,k} - p_{i,prev}(k + shift)||^2 at every node, when a previous plan is usable");
+  return weightLine(
+      "w sum_i ||p_{i,k} - p_{i,prev}(k + shift)||^2 at every node, when a "
+      "previous plan is usable");
 }
 
-void PreviousFootholdConsistencyCost::configure(const ContactPlanningConfig& config) {
+void PreviousFootholdConsistencyCost::configure(
+    const ContactPlanningConfig& config) {
   weight_ = config.previousFootholdConsistency.weight;
 }
 
-void PreviousFootholdConsistencyCost::addToStage(const ContactPlanningContext& ctx, int node, StageAccumulator& stage) const {
-  if (!ctx.previousPlanShift.has_value() || ctx.previousPlan == nullptr || weight_ <= 0.0) return;
-  const int source = std::min(node + *ctx.previousPlanShift, static_cast<int>(ctx.previousPlan->footholds.size()) - 1);
+void PreviousFootholdConsistencyCost::addToStage(
+    const ContactPlanningContext& ctx,
+    int node,
+    StageAccumulator& stage) const {
+  if (!ctx.previousPlanShift.has_value() || ctx.previousPlan == nullptr ||
+      weight_ <= 0.0)
+    return;
+  const int source =
+      std::min(node + *ctx.previousPlanShift,
+               static_cast<int>(ctx.previousPlan->footholds.size()) - 1);
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
     for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
-      stage.addQuadraticResidual({{idx_.foot[foot][axis], 1.0}}, /*uCoefficients=*/{},
-                                 -ctx.previousPlan->footholds[static_cast<size_t>(source)][foot](axis), weight_);
+      stage.addQuadraticResidual(
+          {{idx_.foot[foot][axis], 1.0}}, /*uCoefficients=*/{},
+          -ctx.previousPlan->footholds[static_cast<size_t>(source)][foot](axis),
+          weight_);
     }
   }
 }

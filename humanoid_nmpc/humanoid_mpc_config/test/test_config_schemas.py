@@ -140,7 +140,9 @@ class PackageLayoutTest(unittest.TestCase):
 
     def test_every_message_names_its_struct_in_the_namespace(self):
         for stem in proto_stems():
-            for name, message in file_descriptor(stem).message_types_by_name.items():
+            for name, message in file_descriptor(
+                stem
+            ).message_types_by_name.items():
                 with self.subTest(message=name):
                     options = descriptor_pb2.MessageOptions.FromString(
                         message.GetOptions().SerializeToString()
@@ -150,7 +152,9 @@ class PackageLayoutTest(unittest.TestCase):
                         STRUCT_NAMESPACE + name,
                     )
 
-    def test_every_message_is_reachable_from_a_file_message_or_is_an_option(self):
+    def test_every_message_is_reachable_from_a_file_message_or_is_an_option(
+        self,
+    ):
         reached = reachable(ROOTS)
         for stem in proto_stems():
             for message in file_descriptor(stem).message_types_by_name.values():
@@ -159,7 +163,8 @@ class PackageLayoutTest(unittest.TestCase):
                         self.assertIn(
                             descriptor.full_name,
                             reached,
-                            "no file message holds it; add it to one or drop it",
+                            "no file message holds it; add it to one or"
+                            " drop it",
                         )
 
     def test_field_names_are_snake_case(self):
@@ -177,8 +182,14 @@ class FileMessagesTest(unittest.TestCase):
             full_name = message_class.DESCRIPTOR.full_name
             with self.subTest(message=full_name):
                 message = message_class()
-                text = f"# proto-file: humanoid_nmpc/humanoid_mpc_config/x.proto\n# proto-message: {full_name}\n"
-                nproto_textproto.parse_textproto(text, message, "header_only.textproto")
+                text = (
+                    "# proto-file:"
+                    " humanoid_nmpc/humanoid_mpc_config/x.proto\n#"
+                    f" proto-message: {full_name}\n"
+                )
+                nproto_textproto.parse_textproto(
+                    text, message, "header_only.textproto"
+                )
                 self.assertEqual(message.ListFields(), [])
 
     def test_the_retired_keys_name_their_replacement(self):
@@ -194,19 +205,26 @@ class FileMessagesTest(unittest.TestCase):
             self.assertIn(name, retired)
         with self.assertRaises(nproto_textproto.TextprotoError) as caught:
             nproto_textproto.parse_textproto(
-                "useDcmTerminalCost: true\n", task_file_pb2.TaskFile(), "task.textproto"
+                "useDcmTerminalCost: true\n",
+                task_file_pb2.TaskFile(),
+                "task.textproto",
             )
         self.assertTrue(
             str(caught.exception).startswith(
                 "task.textproto:1:1: 'useDcmTerminalCost' is retired: "
             )
         )
-        self.assertIn("list dcm_terminal_cost under costs", str(caught.exception))
+        self.assertIn(
+            "list dcm_terminal_cost under costs", str(caught.exception)
+        )
 
     def test_the_formulation_switches_that_became_names_are_answered(self):
         cases = (
             (
-                "model_settings {\n  foot_constraint {\n    constrain_orientation: true\n  }\n}\n",
+                (
+                    "model_settings {\n  foot_constraint {\n   "
+                    " constrain_orientation: true\n  }\n}\n"
+                ),
                 task_file_pb2.TaskFile(),
                 "task.textproto:3:5: 'constrain_orientation' is retired: ",
                 '"position_and_tilt" where it was true',
@@ -226,7 +244,10 @@ class FileMessagesTest(unittest.TestCase):
             (
                 "multiple_shooting {\n  inequality_constraint_delta: 5.0\n}\n",
                 task_file_pb2.TaskFile(),
-                "task.textproto:2:3: 'inequality_constraint_delta' is retired: ",
+                (
+                    "task.textproto:2:3: 'inequality_constraint_delta' is"
+                    " retired: "
+                ),
                 "nothing in the SQP solver reads it",
             ),
             (
@@ -236,9 +257,15 @@ class FileMessagesTest(unittest.TestCase):
                 "the SQP solver no longer stores one; delete the line",
             ),
             (
-                "multiple_shooting {\n  extract_projection_multiplier: false\n}\n",
+                (
+                    "multiple_shooting {\n  extract_projection_multiplier:"
+                    " false\n}\n"
+                ),
                 task_file_pb2.TaskFile(),
-                "task.textproto:2:3: 'extract_projection_multiplier' is retired: ",
+                (
+                    "task.textproto:2:3: 'extract_projection_multiplier' is"
+                    " retired: "
+                ),
                 "the SQP solver no longer extracts one; delete the line",
             ),
             (
@@ -251,7 +278,9 @@ class FileMessagesTest(unittest.TestCase):
         for text, message, position, replacement in cases:
             with self.subTest(text=text):
                 path = position.split(":", maxsplit=1)[0]
-                with self.assertRaises(nproto_textproto.TextprotoError) as caught:
+                with self.assertRaises(
+                    nproto_textproto.TextprotoError
+                ) as caught:
                     nproto_textproto.parse_textproto(text, message, path)
                 self.assertTrue(str(caught.exception).startswith(position))
                 self.assertIn(replacement, str(caught.exception))
@@ -267,8 +296,12 @@ class FileMessagesTest(unittest.TestCase):
                     for name, replacement in nproto_textproto.retired_fields(
                         descriptor
                     ):
-                        with self.subTest(message=descriptor.full_name, retired=name):
-                            self.assertNotIn(nproto_textproto.snake_case(name), live)
+                        with self.subTest(
+                            message=descriptor.full_name, retired=name
+                        ):
+                            self.assertNotIn(
+                                nproto_textproto.snake_case(name), live
+                            )
                             self.assertTrue(replacement)
 
 

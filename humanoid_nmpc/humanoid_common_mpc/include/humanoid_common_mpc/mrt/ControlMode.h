@@ -34,9 +34,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::control_mode {
 
 /**
- * The names of the supervisory control modes, as the FSM commands and publishes them (the bus topics
- * `operator/fsm_command` and `robot/fsm_state`, humanoid_mpc_ipc/Topics.h), and the two families the MRT joint controllers and the sim fall
- * recovery tell apart: the passive modes, whose action is computed without the MPC, and the modes that execute the MPC policy.
+ * The names of the supervisory control modes, as the FSM commands and publishes
+ * them (the bus topics `operator/fsm_command` and `robot/fsm_state`,
+ * humanoid_mpc_ipc/Topics.h), and the two families the MRT joint controllers
+ * and the sim fall recovery tell apart: the passive modes, whose action is
+ * computed without the MPC, and the modes that execute the MPC policy.
  */
 // LINT.IfChange(control_mode_names)
 inline constexpr absl::string_view kZeroTorque = "ZERO_TORQUE";
@@ -49,9 +51,11 @@ inline constexpr absl::string_view kMpcActive = "MPC_ACTIVE";
 // LINT.ThenChange(//humanoid_nmpc/remote_control/remote_control/humanoid_finite_state_machine.py:control_mode_names)
 
 // LINT.IfChange(control_mode_families)
-/** ZERO_TORQUE, JOINT_PD, GRAVITY_COMP or SAFETY: an action computed without the MPC. */
+/** ZERO_TORQUE, JOINT_PD, GRAVITY_COMP or SAFETY: an action computed without
+ * the MPC. */
 inline bool isPassive(absl::string_view mode) {
-  return mode == kZeroTorque || mode == kJointPd || mode == kGravityComp || mode == kSafety;
+  return mode == kZeroTorque || mode == kJointPd || mode == kGravityComp ||
+         mode == kSafety;
 }
 
 /** WB_MPC (or MPC_ACTIVE): the MPC policy is executed. */

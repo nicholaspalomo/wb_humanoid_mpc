@@ -134,7 +134,9 @@ class FilteringContractTabsTest(unittest.TestCase):
 
     def test_unmatched_custom_signals(self) -> None:
         signals = ["base_pose/position_x", "custom/random_signal"]
-        _, matched = plot_config.filter_contract_tabs(telemetry_contract.TABS, signals)
+        _, matched = plot_config.filter_contract_tabs(
+            telemetry_contract.TABS, signals
+        )
         _, status_matched = plot_config.filter_status_series(signals)
         matched.update(status_matched)
         unmatched = plot_config.unmatched_signals(signals, matched)
@@ -144,7 +146,11 @@ class FilteringContractTabsTest(unittest.TestCase):
 class BlueprintConfiguredTabsTest(unittest.TestCase):
     def test_build_blueprint_with_filtered_and_custom_signals(self) -> None:
         config = plot_config.PlotConfig(
-            signals=("base_pose/position_x", "status/mpc/solve_time", "custom/sensor"),
+            signals=(
+                "base_pose/position_x",
+                "status/mpc/solve_time",
+                "custom/sensor",
+            ),
             custom_tab_title="CustomSignals",
         )
         bp = blueprint.build_blueprint(tracked_link="pelvis", config=config)
@@ -167,7 +173,9 @@ class BlueprintConfiguredTabsTest(unittest.TestCase):
     def test_has_telemetry_signals(self) -> None:
         self.assertTrue(plot_config.has_telemetry_signals(None))
         self.assertFalse(
-            plot_config.has_telemetry_signals(plot_config.PlotConfig(signals=()))
+            plot_config.has_telemetry_signals(
+                plot_config.PlotConfig(signals=())
+            )
         )
         self.assertFalse(
             plot_config.has_telemetry_signals(
@@ -236,12 +244,18 @@ class MujocoViewerConfigTest(unittest.TestCase):
         )
         self.assertEqual(cfg.mujoco_viewer, ("web", "none"))
 
-    def test_without_the_field_the_list_is_empty_and_the_robot_chooses(self) -> None:
+    def test_without_the_field_the_list_is_empty_and_the_robot_chooses(
+        self,
+    ) -> None:
         # The robot process's built-in default (web) applies; the C++ tests pin it (testRobotAppOptions.cpp).
-        cfg = plot_config.parse_plot_config(f'{_HEADER}signals: "base_pose/*"\n')
+        cfg = plot_config.parse_plot_config(
+            f'{_HEADER}signals: "base_pose/*"\n'
+        )
         self.assertEqual(cfg.mujoco_viewer, ())
         self.assertEqual(plot_config.PlotConfig().mujoco_viewer, ())
-        self.assertEqual(plot_config.MUJOCO_VIEWER_NAMES, ("glfw", "web", "none"))
+        self.assertEqual(
+            plot_config.MUJOCO_VIEWER_NAMES, ("glfw", "web", "none")
+        )
 
     def test_an_unknown_name_is_refused_with_the_valid_ones(self) -> None:
         with self.assertRaises(plot_config.PlotConfigError) as raised:
@@ -258,7 +272,9 @@ class MujocoViewerConfigTest(unittest.TestCase):
         with self.assertRaises(plot_config.PlotConfigError):
             plot_config.check_mujoco_viewer([""])
 
-    def test_a_list_whose_later_entry_could_never_start_is_refused(self) -> None:
+    def test_a_list_whose_later_entry_could_never_start_is_refused(
+        self,
+    ) -> None:
         for names, reason in (
             (["web", "web"], "listed twice"),
             (["none", "web"], "always starts"),
@@ -271,7 +287,9 @@ class MujocoViewerConfigTest(unittest.TestCase):
                 self.assertIn(reason, str(raised.exception))
         for names in (["web"], ["web", "none"], ["web", "glfw"], ["none"], []):
             with self.subTest(names=names):
-                self.assertEqual(plot_config.check_mujoco_viewer(names), tuple(names))
+                self.assertEqual(
+                    plot_config.check_mujoco_viewer(names), tuple(names)
+                )
 
     def test_the_shipped_plot_config_starts_the_web_viewer(self) -> None:
         cfg = plot_config.load_plot_config(
@@ -283,7 +301,9 @@ class MujocoViewerConfigTest(unittest.TestCase):
 class ShippedPlotConfigTest(unittest.TestCase):
     """The shipped plot configuration shows the base's Euler angles, Euler rates and body angular velocity."""
 
-    def test_the_default_tabs_plot_the_angles_and_both_angular_rates(self) -> None:
+    def test_the_default_tabs_plot_the_angles_and_both_angular_rates(
+        self,
+    ) -> None:
         cfg = plot_config.load_plot_config(
             "humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto"
         )
@@ -309,13 +329,19 @@ class TelemetryRecordingConfigTest(unittest.TestCase):
         self.assertEqual(cfg.telemetry_rate_hz, 25.0)
         cfg = plot_config.parse_plot_config(f"{_HEADER}telemetry_rate_hz: 0\n")
         self.assertEqual(cfg.telemetry_rate_hz, 0.0)
-        cfg = plot_config.parse_plot_config(f'{_HEADER}signals: "base_pose/*"\n')
-        self.assertEqual(cfg.telemetry_rate_hz, plot_config.DEFAULT_TELEMETRY_RATE_HZ)
+        cfg = plot_config.parse_plot_config(
+            f'{_HEADER}signals: "base_pose/*"\n'
+        )
+        self.assertEqual(
+            cfg.telemetry_rate_hz, plot_config.DEFAULT_TELEMETRY_RATE_HZ
+        )
         self.assertEqual(
             plot_config.PlotConfig().telemetry_rate_hz,
             plot_config.DEFAULT_TELEMETRY_RATE_HZ,
         )
-        cfg = plot_config.parse_plot_config("base_pose/*\ntelemetry_rate_hz: 12.5\n")
+        cfg = plot_config.parse_plot_config(
+            "base_pose/*\ntelemetry_rate_hz: 12.5\n"
+        )
         self.assertEqual(cfg.telemetry_rate_hz, 12.5)
         self.assertEqual(cfg.signals, ("base_pose/*",))
 
@@ -326,12 +352,18 @@ class TelemetryRecordingConfigTest(unittest.TestCase):
                 f"base_pose/*\ntelemetry_rate_hz: {value}\n",
             ):
                 with self.subTest(text=text):
-                    with self.assertRaises(plot_config.PlotConfigError) as raised:
-                        plot_config.parse_plot_config(text, source="my.textproto")
+                    with self.assertRaises(
+                        plot_config.PlotConfigError
+                    ) as raised:
+                        plot_config.parse_plot_config(
+                            text, source="my.textproto"
+                        )
                     self.assertIn("telemetry_rate_hz", str(raised.exception))
                     self.assertIn("my.textproto", str(raised.exception))
         with self.assertRaises(plot_config.PlotConfigError):
-            plot_config.parse_plot_config("base_pose/*\ntelemetry_rate_hz: fast\n")
+            plot_config.parse_plot_config(
+                "base_pose/*\ntelemetry_rate_hz: fast\n"
+            )
 
     def test_record_unplotted_telemetry_is_parsed(self) -> None:
         self.assertFalse(plot_config.PlotConfig().record_unplotted_telemetry)
@@ -347,11 +379,18 @@ class TelemetryRecordingConfigTest(unittest.TestCase):
 
     def test_the_selection_records_exactly_the_plotted_groups(self) -> None:
         cfg = plot_config.PlotConfig(
-            signals=("Base Pose & Euler", "frames/pose/*", "my/custom", "status/mpc/*")
+            signals=(
+                "Base Pose & Euler",
+                "frames/pose/*",
+                "my/custom",
+                "status/mpc/*",
+            )
         )
         records = plot_config.telemetry_selection(cfg)
         assert records is not None
-        tabs, _ = plot_config.filter_contract_tabs(telemetry_contract.TABS, cfg.signals)
+        tabs, _ = plot_config.filter_contract_tabs(
+            telemetry_contract.TABS, cfg.signals
+        )
         panel_paths: list[str] = []
         for tab in tabs:
             for panel in tab.panels():
@@ -360,7 +399,10 @@ class TelemetryRecordingConfigTest(unittest.TestCase):
         for group in telemetry_contract.all_groups(frames):
             plotted = any(
                 group.path == path
-                or (path.endswith("/**") and group.path.startswith(path[: -len("**")]))
+                or (
+                    path.endswith("/**")
+                    and group.path.startswith(path[: -len("**")])
+                )
                 for path in panel_paths
             )
             with self.subTest(path=group.path):
@@ -421,7 +463,9 @@ class ResolveAllowedInstancesTest(unittest.TestCase):
     def test_cli_flags_take_precedence(self) -> None:
         cfg = plot_config.PlotConfig(draw_terminal_state=True)
         self.assertEqual(
-            plot_config.resolve_allowed_instances(cfg, cli_terminal_state=False),
+            plot_config.resolve_allowed_instances(
+                cfg, cli_terminal_state=False
+            ),
             ("measured",),
         )
         self.assertEqual(
@@ -456,9 +500,13 @@ class ResolveAllowedInstancesTest(unittest.TestCase):
             robot_instances=("measured", "terminal_state", "terminal_target"),
             draw_terminal_state=False,
         )
-        self.assertEqual(plot_config.resolve_allowed_instances(cfg), ("measured",))
+        self.assertEqual(
+            plot_config.resolve_allowed_instances(cfg), ("measured",)
+        )
 
-    def test_the_flag_brings_back_the_robots_the_shipped_file_drops(self) -> None:
+    def test_the_flag_brings_back_the_robots_the_shipped_file_drops(
+        self,
+    ) -> None:
         cfg = plot_config.load_plot_config(
             "humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto"
         )
@@ -475,11 +523,15 @@ class ResolveAllowedInstancesTest(unittest.TestCase):
             text = schema.read()
         instances = text[: text.index("repeated string robot_instances")]
         instances = instances[instances.rindex("string custom_tab_title") :]
-        self.assertNotIn('defaults to ("measured", "terminal_state")', instances)
+        self.assertNotIn(
+            'defaults to ("measured", "terminal_state")', instances
+        )
         self.assertIn("every instance", instances)
         self.assertIn("terminal_target", instances)
         terminal = text[: text.index("optional bool draw_terminal_state")]
-        terminal = terminal[terminal.rindex("repeated string robot_instances") :]
+        terminal = terminal[
+            terminal.rindex("repeated string robot_instances") :
+        ]
         self.assertIn('only "measured"', terminal)
         self.assertIn("whatever robot_instances", terminal)
 

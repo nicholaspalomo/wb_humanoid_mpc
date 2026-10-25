@@ -27,8 +27,9 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// The task file's solver blocks become OCS2's settings: an empty block gives the settings structs' defaults, every
-// field reaches its setting, integrators are named as OCS2 names them, and what the settings cannot hold is refused
+// The task file's solver blocks become OCS2's settings: an empty block gives
+// the settings structs' defaults, every field reaches its setting, integrators
+// are named as OCS2 names them, and what the settings cannot hold is refused
 // naming the field. The schema refuses the keys it retired, naming what to do.
 
 #include <functional>
@@ -63,7 +64,9 @@ namespace {
 
 /** The task file of the textproto `text`, parsed strictly. */
 absl::StatusOr<mpc_config::TaskFile> parseTaskFile(absl::string_view text) {
-  absl::StatusOr<humanoid_mpc_config::TaskFile> message = nproto::ParseTextproto<humanoid_mpc_config::TaskFile>(text, "task.textproto");
+  absl::StatusOr<humanoid_mpc_config::TaskFile> message =
+      nproto::ParseTextproto<humanoid_mpc_config::TaskFile>(text,
+                                                            "task.textproto");
   if (!message.ok()) {
     return message.status();
   }
@@ -72,7 +75,8 @@ absl::StatusOr<mpc_config::TaskFile> parseTaskFile(absl::string_view text) {
   return task;
 }
 
-void expectSameSqpSettings(const sqp::Settings& actual, const sqp::Settings& expected) {
+void expectSameSqpSettings(const sqp::Settings& actual,
+                           const sqp::Settings& expected) {
   EXPECT_EQ(actual.sqpIteration, expected.sqpIteration);
   EXPECT_EQ(actual.deltaTol, expected.deltaTol);
   EXPECT_EQ(actual.costTol, expected.costTol);
@@ -85,7 +89,8 @@ void expectSameSqpSettings(const sqp::Settings& actual, const sqp::Settings& exp
   EXPECT_EQ(actual.useFeedbackPolicy, expected.useFeedbackPolicy);
   EXPECT_EQ(actual.dt, expected.dt);
   EXPECT_EQ(actual.integratorType, expected.integratorType);
-  EXPECT_EQ(actual.projectStateInputEqualityConstraints, expected.projectStateInputEqualityConstraints);
+  EXPECT_EQ(actual.projectStateInputEqualityConstraints,
+            expected.projectStateInputEqualityConstraints);
   EXPECT_EQ(actual.printSolverStatus, expected.printSolverStatus);
   EXPECT_EQ(actual.printSolverStatistics, expected.printSolverStatistics);
   EXPECT_EQ(actual.printLinesearch, expected.printLinesearch);
@@ -99,17 +104,20 @@ void expectSameSqpSettings(const sqp::Settings& actual, const sqp::Settings& exp
   EXPECT_EQ(actual.hpipmSettings.tol_stat, expected.hpipmSettings.tol_stat);
 }
 
-void expectSameRolloutSettings(const rollout::Settings& actual, const rollout::Settings& expected) {
+void expectSameRolloutSettings(const rollout::Settings& actual,
+                               const rollout::Settings& expected) {
   EXPECT_EQ(actual.absTolODE, expected.absTolODE);
   EXPECT_EQ(actual.relTolODE, expected.relTolODE);
   EXPECT_EQ(actual.maxNumStepsPerSecond, expected.maxNumStepsPerSecond);
   EXPECT_EQ(actual.timeStep, expected.timeStep);
   EXPECT_EQ(actual.integratorType, expected.integratorType);
   EXPECT_EQ(actual.checkNumericalStability, expected.checkNumericalStability);
-  EXPECT_EQ(actual.reconstructInputTrajectory, expected.reconstructInputTrajectory);
+  EXPECT_EQ(actual.reconstructInputTrajectory,
+            expected.reconstructInputTrajectory);
 }
 
-void expectSameMpcSettings(const mpc::Settings& actual, const mpc::Settings& expected) {
+void expectSameMpcSettings(const mpc::Settings& actual,
+                           const mpc::Settings& expected) {
   EXPECT_EQ(actual.timeHorizon_, expected.timeHorizon_);
   EXPECT_EQ(actual.solutionTimeWindow_, expected.solutionTimeWindow_);
   EXPECT_EQ(actual.debugPrint_, expected.debugPrint_);
@@ -121,17 +129,22 @@ void expectSameMpcSettings(const mpc::Settings& actual, const mpc::Settings& exp
 /** `status` is InvalidArgument and says `expected`. */
 void expectRefused(const absl::Status& status, absl::string_view expected) {
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument) << status;
-  EXPECT_TRUE(absl::StrContains(status.message(), expected)) << status << " does not say " << expected;
+  EXPECT_TRUE(absl::StrContains(status.message(), expected))
+      << status << " does not say " << expected;
 }
 
-TEST(SolverSettingsFromConfigTest, AnEmptyBlockGivesTheDefaultsOfTheSettingsStructs) {
-  const absl::StatusOr<sqp::Settings> sqpSettings = toSqpSettings(mpc_config::SqpSettingsConfig{});
+TEST(SolverSettingsFromConfigTest,
+     AnEmptyBlockGivesTheDefaultsOfTheSettingsStructs) {
+  const absl::StatusOr<sqp::Settings> sqpSettings =
+      toSqpSettings(mpc_config::SqpSettingsConfig{});
   ASSERT_TRUE(sqpSettings.ok()) << sqpSettings.status();
   expectSameSqpSettings(*sqpSettings, sqp::Settings{});
-  const absl::StatusOr<rollout::Settings> rolloutSettings = toRolloutSettings(mpc_config::RolloutSettingsConfig{});
+  const absl::StatusOr<rollout::Settings> rolloutSettings =
+      toRolloutSettings(mpc_config::RolloutSettingsConfig{});
   ASSERT_TRUE(rolloutSettings.ok()) << rolloutSettings.status();
   expectSameRolloutSettings(*rolloutSettings, rollout::Settings{});
-  const absl::StatusOr<mpc::Settings> mpcSettings = toMpcSettings(mpc_config::MpcSettingsConfig{});
+  const absl::StatusOr<mpc::Settings> mpcSettings =
+      toMpcSettings(mpc_config::MpcSettingsConfig{});
   ASSERT_TRUE(mpcSettings.ok()) << mpcSettings.status();
   expectSameMpcSettings(*mpcSettings, mpc::Settings{});
 }
@@ -139,7 +152,8 @@ TEST(SolverSettingsFromConfigTest, AnEmptyBlockGivesTheDefaultsOfTheSettingsStru
 TEST(SolverSettingsFromConfigTest, AnEmptyTaskFileGivesTheDefaults) {
   const absl::StatusOr<mpc_config::TaskFile> task = parseTaskFile(/*text=*/"");
   ASSERT_TRUE(task.ok()) << task.status();
-  const absl::StatusOr<SolverSettings> settings = solverSettingsFromConfig(*task);
+  const absl::StatusOr<SolverSettings> settings =
+      solverSettingsFromConfig(*task);
   ASSERT_TRUE(settings.ok()) << settings.status();
   expectSameSqpSettings(settings->sqpSettings, sqp::Settings{});
   expectSameRolloutSettings(settings->rolloutSettings, rollout::Settings{});
@@ -192,7 +206,8 @@ TEST(SolverSettingsFromConfigTest, EveryFieldReachesItsSetting) {
     }
   )pb");
   ASSERT_TRUE(task.ok()) << task.status();
-  const absl::StatusOr<SolverSettings> settings = solverSettingsFromConfig(*task);
+  const absl::StatusOr<SolverSettings> settings =
+      solverSettingsFromConfig(*task);
   ASSERT_TRUE(settings.ok()) << settings.status();
 
   sqp::Settings sqpSettings;
@@ -246,18 +261,25 @@ TEST(SolverSettingsFromConfigTest, TheIntegratorsAreNamedAsOcs2NamesThem) {
     config.integrator_type = std::string(name);
     const absl::StatusOr<sqp::Settings> settings = toSqpSettings(config);
     ASSERT_TRUE(settings.ok()) << settings.status();
-    EXPECT_EQ(settings->integratorType, sensitivity_integrator::fromString(std::string(name))) << name;
+    EXPECT_EQ(settings->integratorType,
+              sensitivity_integrator::fromString(std::string(name)))
+        << name;
   }
-  for (const absl::string_view name : {"EULER", "ODE45", "ODE45_OCS2", "MODIFIED_MIDPOINT", "RK4"}) {
+  for (const absl::string_view name :
+       {"EULER", "ODE45", "ODE45_OCS2", "MODIFIED_MIDPOINT", "RK4"}) {
     mpc_config::RolloutSettingsConfig config;
     config.integrator_type = std::string(name);
-    const absl::StatusOr<rollout::Settings> settings = toRolloutSettings(config);
+    const absl::StatusOr<rollout::Settings> settings =
+        toRolloutSettings(config);
     ASSERT_TRUE(settings.ok()) << settings.status();
-    EXPECT_EQ(settings->integratorType, integrator_type::fromString(std::string(name))) << name;
+    EXPECT_EQ(settings->integratorType,
+              integrator_type::fromString(std::string(name)))
+        << name;
   }
 }
 
-TEST(SolverSettingsFromConfigTest, AnUnknownIntegratorIsRefusedListingTheIntegrators) {
+TEST(SolverSettingsFromConfigTest,
+     AnUnknownIntegratorIsRefusedListingTheIntegrators) {
   mpc_config::SqpSettingsConfig sqpConfig;
   sqpConfig.integrator_type = "RK3";
   const absl::Status sqpStatus = toSqpSettings(sqpConfig).status();
@@ -268,22 +290,28 @@ TEST(SolverSettingsFromConfigTest, AnUnknownIntegratorIsRefusedListingTheIntegra
   rolloutConfig.integrator_type = "ode45";
   const absl::Status rolloutStatus = toRolloutSettings(rolloutConfig).status();
   expectRefused(rolloutStatus, "rollout.integrator_type: 'ode45'");
-  expectRefused(rolloutStatus, "the integrators are EULER, ODE45, ODE45_OCS2, MODIFIED_MIDPOINT, RK4");
+  expectRefused(
+      rolloutStatus,
+      "the integrators are EULER, ODE45, ODE45_OCS2, MODIFIED_MIDPOINT, RK4");
 }
 
 TEST(SolverSettingsFromConfigTest, ANegativeCountIsRefusedNamingTheField) {
   mpc_config::SqpSettingsConfig iterations;
   iterations.sqp_iteration = -1;
-  expectRefused(toSqpSettings(iterations).status(), "multiple_shooting.sqp_iteration: -1");
+  expectRefused(toSqpSettings(iterations).status(),
+                "multiple_shooting.sqp_iteration: -1");
   mpc_config::SqpSettingsConfig logSize;
   logSize.log_size = -1;
-  expectRefused(toSqpSettings(logSize).status(), "multiple_shooting.log_size: -1");
+  expectRefused(toSqpSettings(logSize).status(),
+                "multiple_shooting.log_size: -1");
   mpc_config::SqpSettingsConfig threads;
   threads.n_threads = -2;
-  expectRefused(toSqpSettings(threads).status(), "multiple_shooting.n_threads: -2");
+  expectRefused(toSqpSettings(threads).status(),
+                "multiple_shooting.n_threads: -2");
   mpc_config::RolloutSettingsConfig steps;
   steps.max_num_steps_per_second = -1;
-  expectRefused(toRolloutSettings(steps).status(), "rollout.max_num_steps_per_second: -1");
+  expectRefused(toRolloutSettings(steps).status(),
+                "rollout.max_num_steps_per_second: -1");
 
   // 0 is a count.
   mpc_config::SqpSettingsConfig none;
@@ -291,19 +319,22 @@ TEST(SolverSettingsFromConfigTest, ANegativeCountIsRefusedNamingTheField) {
   EXPECT_TRUE(toSqpSettings(none).ok());
 }
 
-/** A field of a solver block, by its path, and how a test writes a value into it. */
+/** A field of a solver block, by its path, and how a test writes a value into
+ * it. */
 template <typename Config>
 struct RangedField {
   std::string path;
   std::function<void(Config&, double)> set;
-  // Values outside the field's range besides NaN (0 and -1 for a positive field, -1 for a non-negative one, the upper
-  // ends for a factor below 1).
+  // Values outside the field's range besides NaN (0 and -1 for a positive
+  // field, -1 for a non-negative one, the upper ends for a factor below 1).
   std::vector<double> outOfRange;
 };
 
-/** Expects `convert` to refuse every out-of-range value and NaN of every field, naming the field. */
+/** Expects `convert` to refuse every out-of-range value and NaN of every field,
+ * naming the field. */
 template <typename Config, typename Convert>
-void expectEveryOutOfRangeValueRefused(const std::vector<RangedField<Config>>& fields, Convert convert) {
+void expectEveryOutOfRangeValueRefused(
+    const std::vector<RangedField<Config>>& fields, Convert convert) {
   for (const RangedField<Config>& field : fields) {
     std::vector<double> values = field.outOfRange;
     values.push_back(std::numeric_limits<double>::quiet_NaN());
@@ -315,44 +346,80 @@ void expectEveryOutOfRangeValueRefused(const std::vector<RangedField<Config>>& f
   }
 }
 
-TEST(SolverSettingsFromConfigTest, ARealValueOutOfItsRangeIsRefusedNamingTheField) {
+TEST(SolverSettingsFromConfigTest,
+     ARealValueOutOfItsRangeIsRefusedNamingTheField) {
   using Sqp = mpc_config::SqpSettingsConfig;
   const std::vector<RangedField<Sqp>> sqpFields = {
       {"multiple_shooting.dt", [](Sqp& c, double v) { c.dt = v; }, {0.0, -1.0}},
-      {"multiple_shooting.alpha_decay", [](Sqp& c, double v) { c.alpha_decay = v; }, {0.0, -1.0, 1.0, 1.5}},
-      {"multiple_shooting.alpha_min", [](Sqp& c, double v) { c.alpha_min = v; }, {0.0, -1.0, 1.5}},
-      {"multiple_shooting.delta_tol", [](Sqp& c, double v) { c.delta_tol = v; }, {0.0, -1.0}},
-      {"multiple_shooting.cost_tol", [](Sqp& c, double v) { c.cost_tol = v; }, {0.0, -1.0}},
-      {"multiple_shooting.g_max", [](Sqp& c, double v) { c.g_max = v; }, {0.0, -1.0}},
-      {"multiple_shooting.g_min", [](Sqp& c, double v) { c.g_min = v; }, {-1.0}},
-      {"multiple_shooting.armijo_factor", [](Sqp& c, double v) { c.armijo_factor = v; }, {-1.0, 1.0}},
-      {"multiple_shooting.gamma_c", [](Sqp& c, double v) { c.gamma_c = v; }, {-1.0, 1.0}},
+      {"multiple_shooting.alpha_decay",
+       [](Sqp& c, double v) { c.alpha_decay = v; },
+       {0.0, -1.0, 1.0, 1.5}},
+      {"multiple_shooting.alpha_min",
+       [](Sqp& c, double v) { c.alpha_min = v; },
+       {0.0, -1.0, 1.5}},
+      {"multiple_shooting.delta_tol",
+       [](Sqp& c, double v) { c.delta_tol = v; },
+       {0.0, -1.0}},
+      {"multiple_shooting.cost_tol",
+       [](Sqp& c, double v) { c.cost_tol = v; },
+       {0.0, -1.0}},
+      {"multiple_shooting.g_max",
+       [](Sqp& c, double v) { c.g_max = v; },
+       {0.0, -1.0}},
+      {"multiple_shooting.g_min",
+       [](Sqp& c, double v) { c.g_min = v; },
+       {-1.0}},
+      {"multiple_shooting.armijo_factor",
+       [](Sqp& c, double v) { c.armijo_factor = v; },
+       {-1.0, 1.0}},
+      {"multiple_shooting.gamma_c",
+       [](Sqp& c, double v) { c.gamma_c = v; },
+       {-1.0, 1.0}},
   };
-  expectEveryOutOfRangeValueRefused(sqpFields, [](const Sqp& c) { return toSqpSettings(c); });
+  expectEveryOutOfRangeValueRefused(
+      sqpFields, [](const Sqp& c) { return toSqpSettings(c); });
 
   using Rollout = mpc_config::RolloutSettingsConfig;
   const std::vector<RangedField<Rollout>> rolloutFields = {
-      {"rollout.abs_tol_ode", [](Rollout& c, double v) { c.abs_tol_ode = v; }, {0.0, -1.0}},
-      {"rollout.rel_tol_ode", [](Rollout& c, double v) { c.rel_tol_ode = v; }, {0.0, -1.0}},
-      {"rollout.time_step", [](Rollout& c, double v) { c.time_step = v; }, {0.0, -1.0}},
+      {"rollout.abs_tol_ode",
+       [](Rollout& c, double v) { c.abs_tol_ode = v; },
+       {0.0, -1.0}},
+      {"rollout.rel_tol_ode",
+       [](Rollout& c, double v) { c.rel_tol_ode = v; },
+       {0.0, -1.0}},
+      {"rollout.time_step",
+       [](Rollout& c, double v) { c.time_step = v; },
+       {0.0, -1.0}},
   };
-  expectEveryOutOfRangeValueRefused(rolloutFields, [](const Rollout& c) { return toRolloutSettings(c); });
+  expectEveryOutOfRangeValueRefused(
+      rolloutFields, [](const Rollout& c) { return toRolloutSettings(c); });
 
   using Mpc = mpc_config::MpcSettingsConfig;
   const std::vector<RangedField<Mpc>> mpcFields = {
-      {"mpc.time_horizon", [](Mpc& c, double v) { c.time_horizon = v; }, {0.0, -1.0}},
-      {"mpc.solution_time_window", [](Mpc& c, double v) { c.solution_time_window = v; }, {0.0, -1.0}},
-      {"mpc.mpc_desired_frequency", [](Mpc& c, double v) { c.mpc_desired_frequency = v; }, {0.0, -1.0}},
-      {"mpc.mrt_desired_frequency", [](Mpc& c, double v) { c.mrt_desired_frequency = v; }, {0.0, -1.0}},
+      {"mpc.time_horizon",
+       [](Mpc& c, double v) { c.time_horizon = v; },
+       {0.0, -1.0}},
+      {"mpc.solution_time_window",
+       [](Mpc& c, double v) { c.solution_time_window = v; },
+       {0.0, -1.0}},
+      {"mpc.mpc_desired_frequency",
+       [](Mpc& c, double v) { c.mpc_desired_frequency = v; },
+       {0.0, -1.0}},
+      {"mpc.mrt_desired_frequency",
+       [](Mpc& c, double v) { c.mrt_desired_frequency = v; },
+       {0.0, -1.0}},
   };
-  expectEveryOutOfRangeValueRefused(mpcFields, [](const Mpc& c) { return toMpcSettings(c); });
+  expectEveryOutOfRangeValueRefused(
+      mpcFields, [](const Mpc& c) { return toMpcSettings(c); });
 }
 
 TEST(SolverSettingsFromConfigTest, GMinAboveGMaxIsRefused) {
   mpc_config::SqpSettingsConfig config;
   config.g_min = 2.0;
   config.g_max = 1.0;
-  expectRefused(toSqpSettings(config).status(), "multiple_shooting.g_min (2) is greater than multiple_shooting.g_max (1)");
+  expectRefused(toSqpSettings(config).status(),
+                "multiple_shooting.g_min (2) is greater than "
+                "multiple_shooting.g_max (1)");
   config.g_min = 1.0;
   EXPECT_TRUE(toSqpSettings(config).ok()) << "g_min == g_max is an interval";
 }
@@ -369,9 +436,10 @@ TEST(SolverSettingsFromConfigTest, TheEndsOfTheRangesAreAccepted) {
 }
 
 TEST(SolverSettingsFromConfigTest, AnAbsentWindowOrRateIsOcs2sSentinel) {
-  // The schema has no sentinel: an absent field is the whole horizon and solving as fast as possible, which OCS2's
-  // struct spells -1.
-  const absl::StatusOr<mpc::Settings> settings = toMpcSettings(mpc_config::MpcSettingsConfig{});
+  // The schema has no sentinel: an absent field is the whole horizon and
+  // solving as fast as possible, which OCS2's struct spells -1.
+  const absl::StatusOr<mpc::Settings> settings =
+      toMpcSettings(mpc_config::MpcSettingsConfig{});
   ASSERT_TRUE(settings.ok()) << settings.status();
   EXPECT_LT(settings->solutionTimeWindow_, 0.0);
   EXPECT_LT(settings->mpcDesiredFrequency_, 0.0);
@@ -385,14 +453,17 @@ TEST(SolverSettingsFromConfigTest, AnAbsentWindowOrRateIsOcs2sSentinel) {
 }
 
 TEST(SolverSettingsFromConfigTest, AnErrorOfABlockIsTheErrorOfTheTaskFile) {
-  const absl::StatusOr<mpc_config::TaskFile> task = parseTaskFile(R"pb(rollout { integrator_type: "RK45" })pb");
+  const absl::StatusOr<mpc_config::TaskFile> task =
+      parseTaskFile(R"pb(rollout { integrator_type: "RK45" })pb");
   ASSERT_TRUE(task.ok()) << task.status();
-  expectRefused(solverSettingsFromConfig(*task).status(), "rollout.integrator_type: 'RK45'");
+  expectRefused(solverSettingsFromConfig(*task).status(),
+                "rollout.integrator_type: 'RK45'");
 }
 
 TEST(SolverSettingsSchemaTest, TheRetiredKeysAreRefusedSayingWhatToDo) {
   for (const absl::string_view text :
-       {"interface { useAnalyticalGradientsDynamics: false }", "interface { use_analytical_gradients_constraints: false }"}) {
+       {"interface { useAnalyticalGradientsDynamics: false }",
+        "interface { use_analytical_gradients_constraints: false }"}) {
     const absl::Status status = parseTaskFile(text).status();
     expectRefused(status, "is retired");
     expectRefused(status, "delete the key");
@@ -401,20 +472,28 @@ TEST(SolverSettingsSchemaTest, TheRetiredKeysAreRefusedSayingWhatToDo) {
   expectRefused(ddp, "'ddp' is retired");
   expectRefused(ddp, "multiple_shooting");
   // The settings of the state-triggered rollout, which the fork no longer has.
-  for (const absl::string_view key : {"rootFindingAlgorithm: 1", "root_finder_type: \"ILLINOIS\"", "max_single_event_iterations: 7",
-                                      "useTrajectorySpreadingController: true"}) {
-    const absl::Status status = parseTaskFile(absl::StrCat("rollout {\n  ", key, "\n}\n")).status();
+  for (const absl::string_view key :
+       {"rootFindingAlgorithm: 1", "root_finder_type: \"ILLINOIS\"",
+        "max_single_event_iterations: 7",
+        "useTrajectorySpreadingController: true"}) {
+    const absl::Status status =
+        parseTaskFile(absl::StrCat("rollout {\n  ", key, "\n}\n")).status();
     expectRefused(status, "task.textproto:2:3: '");
-    expectRefused(status, "' is retired: it tuned OCS2's state-triggered rollout");
+    expectRefused(status,
+                  "' is retired: it tuned OCS2's state-triggered rollout");
     expectRefused(status, "delete the line");
   }
-  const absl::Status valueFunction = parseTaskFile("multiple_shooting {\n  createValueFunction: true\n}\n").status();
-  expectRefused(valueFunction, "task.textproto:2:3: 'createValueFunction' is retired");
+  const absl::Status valueFunction =
+      parseTaskFile("multiple_shooting {\n  createValueFunction: true\n}\n")
+          .status();
+  expectRefused(valueFunction,
+                "task.textproto:2:3: 'createValueFunction' is retired");
   expectRefused(valueFunction, "delete the line");
 }
 
 TEST(SolverSettingsSchemaTest, AnOldKeyOfALiveFieldIsRefusedNamingTheField) {
-  const absl::Status status = parseTaskFile("multiple_shooting {\n  nThreads: 4\n}\n").status();
+  const absl::Status status =
+      parseTaskFile("multiple_shooting {\n  nThreads: 4\n}\n").status();
   expectRefused(status, "task.textproto:2:");
   expectRefused(status, "n_threads");
 }

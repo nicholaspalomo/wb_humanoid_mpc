@@ -61,29 +61,36 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-/** The robot packages' directory, which a configuration file's identity starts at. */
+/** The robot packages' directory, which a configuration file's identity starts
+ * at. */
 // LINT.IfChange(robot_models_directory)
 constexpr absl::string_view kRobotModelsDirectory = "robot_models";
 // LINT.ThenChange(//humanoid_nmpc/remote_control/remote_control/config_files.py:robot_models_dir)
 
 /**
- * The textproto `text` of a file as the nproto struct `Struct` of its message `Message`, as nproto::LoadTextprotoFile()
- * reads a file: its header must name its schema (nproto::CheckProtoMessageHeader()), since the text is written to disk.
+ * The textproto `text` of a file as the nproto struct `Struct` of its message
+ * `Message`, as nproto::LoadTextprotoFile() reads a file: its header must name
+ * its schema (nproto::CheckProtoMessageHeader()), since the text is written to
+ * disk.
  */
 template <typename Struct, typename Message>
-absl::StatusOr<Struct> parseTextprotoAs(absl::string_view text, absl::string_view source) {
-  absl::Status header = nproto::CheckProtoMessageHeader(text, source, *Message::descriptor());
+absl::StatusOr<Struct> parseTextprotoAs(absl::string_view text,
+                                        absl::string_view source) {
+  absl::Status header =
+      nproto::CheckProtoMessageHeader(text, source, *Message::descriptor());
   if (!header.ok()) {
     return header;
   }
-  absl::StatusOr<Message> message = nproto::ParseTextproto<Message>(text, source);
+  absl::StatusOr<Message> message =
+      nproto::ParseTextproto<Message>(text, source);
   if (!message.ok()) {
     return message.status();
   }
   Struct value;
   const absl::Status status = FromProto(*message, &value);
   if (!status.ok()) {
-    return absl::Status(status.code(), absl::StrCat(source, ": ", status.message()));
+    return absl::Status(status.code(),
+                        absl::StrCat(source, ": ", status.message()));
   }
   return value;
 }
@@ -91,41 +98,58 @@ absl::StatusOr<Struct> parseTextprotoAs(absl::string_view text, absl::string_vie
 }  // namespace
 
 absl::StatusOr<mpc_config::TaskFile> loadTaskFile(absl::string_view path) {
-  return nproto::LoadTextprotoFile<mpc_config::TaskFile, humanoid_mpc_config::TaskFile>(path);
+  return nproto::LoadTextprotoFile<mpc_config::TaskFile,
+                                   humanoid_mpc_config::TaskFile>(path);
 }
 
-absl::StatusOr<mpc_config::ReferenceFile> loadReferenceFile(absl::string_view path) {
-  return nproto::LoadTextprotoFile<mpc_config::ReferenceFile, humanoid_mpc_config::ReferenceFile>(path);
+absl::StatusOr<mpc_config::ReferenceFile> loadReferenceFile(
+    absl::string_view path) {
+  return nproto::LoadTextprotoFile<mpc_config::ReferenceFile,
+                                   humanoid_mpc_config::ReferenceFile>(path);
 }
 
 absl::StatusOr<mpc_config::GaitFile> loadGaitFile(absl::string_view path) {
-  return nproto::LoadTextprotoFile<mpc_config::GaitFile, humanoid_mpc_config::GaitFile>(path);
+  return nproto::LoadTextprotoFile<mpc_config::GaitFile,
+                                   humanoid_mpc_config::GaitFile>(path);
 }
 
-absl::StatusOr<mpc_config::ContactPlanningFile> loadContactPlanningFile(absl::string_view path) {
-  return nproto::LoadTextprotoFile<mpc_config::ContactPlanningFile, humanoid_mpc_config::ContactPlanningFile>(path);
+absl::StatusOr<mpc_config::ContactPlanningFile> loadContactPlanningFile(
+    absl::string_view path) {
+  return nproto::LoadTextprotoFile<mpc_config::ContactPlanningFile,
+                                   humanoid_mpc_config::ContactPlanningFile>(
+      path);
 }
 
-absl::StatusOr<mpc_config::JointPdGainsFile> loadJointPdGainsFile(absl::string_view path) {
-  return nproto::LoadTextprotoFile<mpc_config::JointPdGainsFile, humanoid_mpc_config::JointPdGainsFile>(path);
+absl::StatusOr<mpc_config::JointPdGainsFile> loadJointPdGainsFile(
+    absl::string_view path) {
+  return nproto::LoadTextprotoFile<mpc_config::JointPdGainsFile,
+                                   humanoid_mpc_config::JointPdGainsFile>(path);
 }
 
-absl::StatusOr<mpc_config::TaskFile> parseTaskFile(absl::string_view text, absl::string_view source) {
-  return parseTextprotoAs<mpc_config::TaskFile, humanoid_mpc_config::TaskFile>(text, source);
+absl::StatusOr<mpc_config::TaskFile> parseTaskFile(absl::string_view text,
+                                                   absl::string_view source) {
+  return parseTextprotoAs<mpc_config::TaskFile, humanoid_mpc_config::TaskFile>(
+      text, source);
 }
 
-absl::StatusOr<mpc_config::ReferenceFile> parseReferenceFile(absl::string_view text, absl::string_view source) {
-  return parseTextprotoAs<mpc_config::ReferenceFile, humanoid_mpc_config::ReferenceFile>(text, source);
+absl::StatusOr<mpc_config::ReferenceFile> parseReferenceFile(
+    absl::string_view text, absl::string_view source) {
+  return parseTextprotoAs<mpc_config::ReferenceFile,
+                          humanoid_mpc_config::ReferenceFile>(text, source);
 }
 
-absl::StatusOr<mpc_config::JointPdGainsFile> parseJointPdGainsFile(absl::string_view text, absl::string_view source) {
-  return parseTextprotoAs<mpc_config::JointPdGainsFile, humanoid_mpc_config::JointPdGainsFile>(text, source);
+absl::StatusOr<mpc_config::JointPdGainsFile> parseJointPdGainsFile(
+    absl::string_view text, absl::string_view source) {
+  return parseTextprotoAs<mpc_config::JointPdGainsFile,
+                          humanoid_mpc_config::JointPdGainsFile>(text, source);
 }
 
-// The tuning GUI stamps the same identity on what it sends; a receiver compares the two.
+// The tuning GUI stamps the same identity on what it sends; a receiver compares
+// the two.
 // LINT.IfChange(config_file_identity)
 std::string configFileIdentity(absl::string_view path) {
-  const std::filesystem::path normal = std::filesystem::path(std::string(path)).lexically_normal();
+  const std::filesystem::path normal =
+      std::filesystem::path(std::string(path)).lexically_normal();
   std::vector<std::filesystem::path> components(normal.begin(), normal.end());
   // The last robot_models/ component that has something below it.
   size_t start = components.size();
@@ -136,7 +160,8 @@ std::string configFileIdentity(absl::string_view path) {
     return normal.generic_string();
   }
   std::filesystem::path identity;
-  for (size_t index = start; index < components.size(); ++index) identity /= components[index];
+  for (size_t index = start; index < components.size(); ++index)
+    identity /= components[index];
   return identity.generic_string();
 }
 // LINT.ThenChange(//humanoid_nmpc/remote_control/remote_control/robot_config_save.py:config_path_of)
@@ -147,47 +172,60 @@ std::string contactPlanningFileBeside(absl::string_view taskFile) {
 }
 
 std::string jointPdGainsFileBeside(absl::string_view taskFile) {
-  const std::filesystem::path configDirectory = std::filesystem::path(std::string(taskFile)).parent_path().parent_path();
-  return (configDirectory / std::string(kJointPdGainsFileInConfigDirectory)).string();
+  const std::filesystem::path configDirectory =
+      std::filesystem::path(std::string(taskFile)).parent_path().parent_path();
+  return (configDirectory / std::string(kJointPdGainsFileInConfigDirectory))
+      .string();
 }
 
-absl::StatusOr<std::string> existingJointPdGainsFileBeside(absl::string_view taskFile) {
+absl::StatusOr<std::string> existingJointPdGainsFileBeside(
+    absl::string_view taskFile) {
   std::string path = jointPdGainsFileBeside(taskFile);
   std::error_code error;
   if (!std::filesystem::is_regular_file(path, error)) {
-    return absl::NotFoundError(absl::StrCat("the joint PD gains file ", path, " of the task file ", taskFile, " is not there (",
-                                            error ? error.message() : "no regular file of that name",
-                                            "): the controller would run on built-in gains that are no robot's"));
+    return absl::NotFoundError(absl::StrCat(
+        "the joint PD gains file ", path, " of the task file ", taskFile,
+        " is not there (",
+        error ? error.message() : "no regular file of that name",
+        "): the controller would run on built-in gains that are no robot's"));
   }
   return path;
 }
 
-absl::StatusOr<std::optional<mpc_config::ContactPlanningFile>> loadContactPlanningFileBeside(absl::string_view taskFile) {
+absl::StatusOr<std::optional<mpc_config::ContactPlanningFile>>
+loadContactPlanningFileBeside(absl::string_view taskFile) {
   const std::string path = contactPlanningFileBeside(taskFile);
   std::error_code error;
-  const std::filesystem::file_status status = std::filesystem::status(path, error);
-  // Only a file that is not there is the robot without one; one that cannot be looked at is not taken for absent.
+  const std::filesystem::file_status status =
+      std::filesystem::status(path, error);
+  // Only a file that is not there is the robot without one; one that cannot be
+  // looked at is not taken for absent.
   if (status.type() == std::filesystem::file_type::not_found) {
     return std::nullopt;
   }
   if (error) {
-    return absl::UnavailableError(absl::StrCat(path, ": cannot be read: ", error.message()));
+    return absl::UnavailableError(
+        absl::StrCat(path, ": cannot be read: ", error.message()));
   }
   if (status.type() != std::filesystem::file_type::regular) {
-    return absl::FailedPreconditionError(absl::StrCat(path, " is not a regular file"));
+    return absl::FailedPreconditionError(
+        absl::StrCat(path, " is not a regular file"));
   }
-  absl::StatusOr<mpc_config::ContactPlanningFile> file = loadContactPlanningFile(path);
+  absl::StatusOr<mpc_config::ContactPlanningFile> file =
+      loadContactPlanningFile(path);
   if (!file.ok()) {
     return file.status();
   }
   return std::optional<mpc_config::ContactPlanningFile>(*std::move(file));
 }
 
-absl::Status withConfigFile(const absl::Status& status, absl::string_view path) {
+absl::Status withConfigFile(const absl::Status& status,
+                            absl::string_view path) {
   if (status.ok()) {
     return status;
   }
-  return absl::Status(status.code(), absl::StrCat(path, ": ", status.message()));
+  return absl::Status(status.code(),
+                      absl::StrCat(path, ": ", status.message()));
 }
 
 }  // namespace ocs2::humanoid

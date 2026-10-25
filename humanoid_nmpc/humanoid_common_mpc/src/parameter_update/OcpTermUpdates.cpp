@@ -45,21 +45,28 @@ namespace ocs2::humanoid {
 absl::Status exceptionsToStatus(absl::FunctionRef<void()> call) {
   try {  // NOLINT(exceptions): the boundary to OCS2's throwing term API, converted to a Status at once.
     call();
-  } catch (const std::exception& e) {  // NOLINT(exceptions): the boundary of the try above.
+    // NOLINTNEXTLINE(exceptions): the boundary of the try above.
+  } catch (const std::exception& e) {
     return absl::InternalError(e.what());
-  } catch (...) {  // NOLINT(exceptions): the boundary of the try above; no exception may escape preSolverRun().
+    // NOLINTNEXTLINE(exceptions): the boundary of the try above; no exception may escape preSolverRun().
+  } catch (...) {
     return absl::UnknownError("an exception that is not a std::exception");
   }
   return absl::OkStatus();
 }
 
-void reportFailedTermUpdate(absl::string_view name, const absl::Status& status) {
-  LOG(WARNING) << "[MpcParameterUpdaterModule] Failed to update " << name << ": " << status.message();
+void reportFailedTermUpdate(absl::string_view name,
+                            const absl::Status& status) {
+  LOG(WARNING) << "[MpcParameterUpdaterModule] Failed to update " << name
+               << ": " << status.message();
 }
 
-void reportNotApplied(absl::string_view source, absl::string_view what, const absl::Status& status) {
+void reportNotApplied(absl::string_view source,
+                      absl::string_view what,
+                      const absl::Status& status) {
   LOG(WARNING) << "[MpcParameterUpdaterModule] " << what << " of " << source
-               << " was not applied, the running values are kept: " << status.message();
+               << " was not applied, the running values are kept: "
+               << status.message();
 }
 
 void setSoftTermWeight(std::vector<OptimalControlProblem>& problems,
@@ -69,8 +76,11 @@ void setSoftTermWeight(std::vector<OptimalControlProblem>& problems,
   const vector_t scaleParam = (vector_t(1) << weight).finished();
   for (OptimalControlProblem& ocp : problems) {
     for (const std::string& footName : contactNames) {
-      updateTermIfPresent<StateInputSoftConstraint>(*ocp.softConstraintPtr, absl::StrCat(footName, termSuffix),
-                                                    [&](StateInputSoftConstraint& softCon) { setPenaltyParameters(softCon, scaleParam); });
+      updateTermIfPresent<StateInputSoftConstraint>(
+          *ocp.softConstraintPtr, absl::StrCat(footName, termSuffix),
+          [&](StateInputSoftConstraint& softCon) {
+            setPenaltyParameters(softCon, scaleParam);
+          });
     }
   }
 }

@@ -29,7 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "bazel/first_party_copts_probe.h"
 
-// Pinocchio's forward declarations come first: they set the Boost MPL limits the rest of Pinocchio needs.
+// Pinocchio's forward declarations come first: they set the Boost MPL limits
+// the rest of Pinocchio needs.
 #include "pinocchio/fwd.hpp"
 
 #include <cstddef>
@@ -49,7 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "hpipm_d_ocp_qp_ipm.h"  // NOLINT(build/include_subdir): HPIPM installs its headers in no directory
-#include "httplib.h"             // NOLINT(build/include_subdir): cpp-httplib is a single header without a directory
+#include "httplib.h"  // NOLINT(build/include_subdir): cpp-httplib is a single header without a directory
 #include "mujoco/mujoco.h"
 #include "ocs2_core/Types.h"
 #include "pinocchio/algorithm/frames.hpp"
@@ -64,7 +65,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace wb_humanoid_mpc::copts_probe {
 namespace {
 
-// The rotation angle [rad] and the state size of the probe's Eigen and OCS2 instantiations; any value compiles the same.
+// The rotation angle [rad] and the state size of the probe's Eigen and OCS2
+// instantiations; any value compiles the same.
 constexpr double kProbeRotationAngle = 0.5;
 constexpr int kProbeStateSize = 3;
 
@@ -76,7 +78,8 @@ int instantiateThirdPartyTemplates() {
   const absl::StatusOr<int> parsed = absl::InvalidArgumentError("probe");
   const absl::Status& status = parsed.status();
 
-  const Eigen::Quaterniond rotation(Eigen::AngleAxisd(kProbeRotationAngle, Eigen::Vector3d::UnitZ()));
+  const Eigen::Quaterniond rotation(
+      Eigen::AngleAxisd(kProbeRotationAngle, Eigen::Vector3d::UnitZ()));
   const Eigen::Vector3d rotated = rotation * Eigen::Vector3d::UnitX();
   const ocs2::vector_t state = ocs2::vector_t::Zero(kProbeStateSize);
 
@@ -96,10 +99,14 @@ int instantiateThirdPartyTemplates() {
   const int rgbPixelSize = tjPixelSize[TJPF_RGB];
   const EGLint eglStatus = EGL_SUCCESS;
 
-  const size_t total =
-      counts.size() + serialized.size() + static_cast<size_t>(timeout) + static_cast<size_t>(sample.joint_positions.size());
-  return static_cast<int>(total) + static_cast<int>(rotated.x() + state.sum()) + (status.ok() ? 1 : 0) + (matcher.Matches(1) ? 1 : 0) +
-         (CppAD::Variable(taped) ? 1 : 0) + model.nq + static_cast<int>(headers.size()) + rgbPixelSize + static_cast<int>(eglStatus);
+  const size_t total = counts.size() + serialized.size() +
+                       static_cast<size_t>(timeout) +
+                       static_cast<size_t>(sample.joint_positions.size());
+  return static_cast<int>(total) + static_cast<int>(rotated.x() + state.sum()) +
+         (status.ok() ? 1 : 0) + (matcher.Matches(1) ? 1 : 0) +
+         (CppAD::Variable(taped) ? 1 : 0) + model.nq +
+         static_cast<int>(headers.size()) + rgbPixelSize +
+         static_cast<int>(eglStatus);
 }
 
 }  // namespace wb_humanoid_mpc::copts_probe

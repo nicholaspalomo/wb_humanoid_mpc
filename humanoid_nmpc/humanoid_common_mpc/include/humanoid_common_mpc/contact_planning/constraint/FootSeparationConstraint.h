@@ -37,10 +37,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `foot_separation` (soft, every node): |e_x . (p_L - p_R)| <= maxStepLength and minStepWidth <= e_y . (p_L - p_R) <=
- * maxStepWidth (the self-collision margin), with the first-order heading term of the frame.
+ * `foot_separation` (soft, every node): |e_x . (p_L - p_R)| <= maxStepLength
+ * and minStepWidth <= e_y . (p_L - p_R) <= maxStepWidth (the self-collision
+ * margin), with the first-order heading term of the frame.
  *
- * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
  */
 class FootSeparationConstraint final : public LipConstraintBase {
  public:
@@ -48,7 +50,9 @@ class FootSeparationConstraint final : public LipConstraintBase {
   void configure(const ContactPlanningConfig& config) override;
   NodeSet nodeSet() const override { return NodeSet::kAll; }
   Softness softness() const override { return Softness::kSoft; }
-  void addRows(const ContactPlanningContext& ctx, int node, RowBuilder& rows) const override;
+  void addRows(const ContactPlanningContext& ctx,
+               int node,
+               RowBuilder& rows) const override;
 
  private:
   FootSeparationParameters params_;

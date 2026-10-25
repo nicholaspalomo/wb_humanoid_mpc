@@ -130,7 +130,9 @@ def child_environment(
         The environment, without the runfiles variables and the runfiles entries of PYTHONPATH.
     """
     environment = {
-        key: value for key, value in base.items() if key not in RUNFILES_ENVIRONMENT
+        key: value
+        for key, value in base.items()
+        if key not in RUNFILES_ENVIRONMENT
     }
     if "PYTHONPATH" in environment:
         entries = [
@@ -231,7 +233,8 @@ class OutputSink:
     ) -> None:
         if color_mode not in COLOR_MODES:
             raise ValueError(
-                f"unknown color mode {color_mode!r}; the modes are: {', '.join(COLOR_MODES)}"
+                f"unknown color mode {color_mode!r}; the modes are:"
+                f" {', '.join(COLOR_MODES)}"
             )
         if color_mode == "auto":
             is_tty = getattr(stream, "isatty", lambda: False)()
@@ -246,7 +249,11 @@ class OutputSink:
         """`[name]`, colored by the process's position in the launch file; bold for the launcher (index None)."""
         if not self._use_color:
             return f"[{name}]"
-        code = "1" if index is None else str(PREFIX_COLORS[index % len(PREFIX_COLORS)])
+        code = (
+            "1"
+            if index is None
+            else str(PREFIX_COLORS[index % len(PREFIX_COLORS)])
+        )
         return f"\x1b[{code}m[{name}]\x1b[0m"
 
     def write_line(self, prefix: str, line: str) -> None:
@@ -316,12 +323,16 @@ class Supervisor:
         self._repo_root = repo_root
         self._shutdown = shutdown
         self._terminal_command = list(terminal_command)
-        self._environment = dict(os.environ if environment is None else environment)
+        self._environment = dict(
+            os.environ if environment is None else environment
+        )
         self._sink = OutputSink(output, color_mode, self._environment)
         self._launcher_prefix = self._sink.prefix(LAUNCHER_NAME, None)
         self._processes = [
             _ManagedProcess(
-                spec=spec, index=index, prefix=self._sink.prefix(spec.name, index)
+                spec=spec,
+                index=index,
+                prefix=self._sink.prefix(spec.name, index),
             )
             for index, spec in enumerate(processes)
         ]
@@ -372,7 +383,9 @@ class Supervisor:
                 if isinstance(error, FileNotFoundError)
                 else EXIT_CANNOT_EXECUTE
             )
-            self.log(f"cannot start {process.spec.name}: {argv[0]}: {error.strerror}")
+            self.log(
+                f"cannot start {process.spec.name}: {argv[0]}: {error.strerror}"
+            )
             return
         self.log(f"started {process.spec.name} (pid {process.popen.pid})")
         process.reader = threading.Thread(
@@ -394,7 +407,9 @@ class Supervisor:
             if process.exit_code is not None and not process.reported:
                 process.reported = True
                 if process.popen is not None:
-                    self.log(f"{process.spec.name} {describe_exit(process.exit_code)}")
+                    self.log(
+                        f"{process.spec.name} {describe_exit(process.exit_code)}"
+                    )
                 exited.append(process)
         return exited
 
@@ -431,12 +446,15 @@ class Supervisor:
         )
         for signum, grace_period in stages[first_stage:]:
             alive = [
-                process for process in self._processes if self._group_alive(process)
+                process
+                for process in self._processes
+                if self._group_alive(process)
             ]
             if not alive:
                 break
             self.log(
-                f"sending {signal.Signals(signum).name} to {', '.join(process.spec.name for process in alive)}"
+                f"sending {signal.Signals(signum).name} to"
+                f" {', '.join(process.spec.name for process in alive)}"
             )
             for process in alive:
                 self._signal_group(process, signum)
@@ -456,14 +474,18 @@ class Supervisor:
             if self._group_alive(process)
         ]
         if survivors:
-            self.log(f"could not stop the process group of {', '.join(survivors)}")
+            self.log(
+                f"could not stop the process group of {', '.join(survivors)}"
+            )
 
     def _drain_output(self) -> None:
         """Waits up to OUTPUT_DRAIN_TIMEOUT_S, in all, for the output of every process to reach the console."""
         deadline = time.monotonic() + OUTPUT_DRAIN_TIMEOUT_S
         for process in self._processes:
             if process.reader is not None:
-                process.reader.join(timeout=max(deadline - time.monotonic(), 0.0))
+                process.reader.join(
+                    timeout=max(deadline - time.monotonic(), 0.0)
+                )
 
     def run(self) -> int:
         """Starts every process after its delay, supervises them, and stops them all.
@@ -475,22 +497,32 @@ class Supervisor:
             The launcher's exit status (see the class comment).
         """
         start = time.monotonic()
-        pending = sorted(self._processes, key=lambda process: process.spec.delay)
+        pending = sorted(
+            self._processes, key=lambda process: process.spec.delay
+        )
         status = 0
         first_stage: int | None = None
         try:
             while first_stage is None:
                 signum = self._next_request()
                 if signum is not None:
-                    self.log(f"received {signal.Signals(signum).name}; stopping")
+                    self.log(
+                        f"received {signal.Signals(signum).name}; stopping"
+                    )
                     first_stage = _teardown_stage(signum)
                     break
-                while pending and start + pending[0].spec.delay <= time.monotonic():
+                while (
+                    pending
+                    and start + pending[0].spec.delay <= time.monotonic()
+                ):
                     self._start(pending.pop(0))
                 for process in self._collect_exits():
                     if process.spec.required and first_stage is None:
                         # Not None: _collect_exits() returns exited processes only.
-                        if process.exit_code is not None and process.exit_code != 0:
+                        if (
+                            process.exit_code is not None
+                            and process.exit_code != 0
+                        ):
                             status = process.exit_code
                         self.log(f"{process.spec.name} is required; stopping")
                         first_stage = 0
@@ -498,7 +530,8 @@ class Supervisor:
                     first_stage is None
                     and not pending
                     and all(
-                        process.exit_code is not None for process in self._processes
+                        process.exit_code is not None
+                        for process in self._processes
                     )
                 ):
                     self.log("every process has exited")

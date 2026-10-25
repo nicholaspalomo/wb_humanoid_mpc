@@ -16,8 +16,9 @@ Run everything from the repository root, as modules: `python3 -m tools.hooks.<mo
 | `python3 -m tools.hooks.lint_code --paths <dir> ...` | Only the files under the given paths. |
 | `python3 -m tools.hooks.lint_code --summary` | Counts per check and per Bazel package instead of the findings (token checks). |
 | `python3 -m tools.hooks.lint_code --fix --only <check>` | Applies the check's `fix_source` to the working tree first. |
+| `python3 -m tools.hooks.lint_code --fix-only [--git-staged]` | Applies every selected check's `fix_source` and exits without linting (`make fix`; with `--git-staged`, to the working-tree copies of the staged files, as the pre-commit hook does). |
 | `python3 -m tools.hooks.lint_code --git-staged` | The pre-commit hook's run: the token checks read the staged blobs, the tools the staged paths. |
-| `make install-hooks` | Links `.git/hooks/pre-commit` to `pre-commit`: IFTTT, `make format`, restaging, then `--git-staged`. |
+| `make install-hooks` | Links `.git/hooks/pre-commit` to `pre-commit`: IFTTT, `--fix-only --git-staged`, `make format`, restaging, then `--git-staged`. |
 
 ## The steps of `make lint`
 

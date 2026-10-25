@@ -47,16 +47,22 @@ double toSeconds(std::chrono::nanoseconds duration) {
 
 }  // namespace
 
-LoopTimingStats::LoopTimingStats(std::chrono::nanoseconds targetPeriod, std::chrono::nanoseconds reportingWindow)
+LoopTimingStats::LoopTimingStats(std::chrono::nanoseconds targetPeriod,
+                                 std::chrono::nanoseconds reportingWindow)
     : targetPeriod_(targetPeriod), reportingWindow_(reportingWindow) {
-  CHECK_GT(targetPeriod_.count(), 0) << "LoopTimingStats needs a positive target period";
-  CHECK_GT(reportingWindow_.count(), 0) << "LoopTimingStats needs a positive reporting window";
+  CHECK_GT(targetPeriod_.count(), 0)
+      << "LoopTimingStats needs a positive target period";
+  CHECK_GT(reportingWindow_.count(), 0)
+      << "LoopTimingStats needs a positive reporting window";
   snapshot_.targetPeriodS = toSeconds(targetPeriod_);
 }
 
-bool LoopTimingStats::addCycle(const TimerWakeup& wakeup, std::chrono::nanoseconds end) {
-  return addCycle(CycleTiming{
-      .start = wakeup.deadline + wakeup.lateness, .end = end, .lateness = wakeup.lateness, .missedPeriods = wakeup.missedPeriods});
+bool LoopTimingStats::addCycle(const TimerWakeup& wakeup,
+                               std::chrono::nanoseconds end) {
+  return addCycle(CycleTiming{.start = wakeup.deadline + wakeup.lateness,
+                              .end = end,
+                              .lateness = wakeup.lateness,
+                              .missedPeriods = wakeup.missedPeriods});
 }
 
 bool LoopTimingStats::addCycle(const CycleTiming& cycle) {
@@ -64,8 +70,10 @@ bool LoopTimingStats::addCycle(const CycleTiming& cycle) {
     window_.start = cycle.start;
   } else {
     const std::chrono::nanoseconds period = cycle.start - previousStart_;
-    window_.minPeriod = window_.periods == 0 ? period : std::min(window_.minPeriod, period);
-    window_.maxPeriod = window_.periods == 0 ? period : std::max(window_.maxPeriod, period);
+    window_.minPeriod =
+        window_.periods == 0 ? period : std::min(window_.minPeriod, period);
+    window_.maxPeriod =
+        window_.periods == 0 ? period : std::max(window_.maxPeriod, period);
     window_.periodSum += period;
     ++window_.periods;
   }
@@ -74,10 +82,15 @@ bool LoopTimingStats::addCycle(const CycleTiming& cycle) {
 
   const std::chrono::nanoseconds computeTime = cycle.end - cycle.start;
   const bool overran = computeTime > targetPeriod_;
-  const uint64_t missedPeriods = cycle.missedPeriods > 0 ? static_cast<uint64_t>(cycle.missedPeriods) : 0;
+  const uint64_t missedPeriods =
+      cycle.missedPeriods > 0 ? static_cast<uint64_t>(cycle.missedPeriods) : 0;
   window_.computeTimeSum += computeTime;
-  window_.maxComputeTime = window_.cycles == 0 ? computeTime : std::max(window_.maxComputeTime, computeTime);
-  window_.maxLateness = window_.cycles == 0 ? cycle.lateness : std::max(window_.maxLateness, cycle.lateness);
+  window_.maxComputeTime = window_.cycles == 0
+                               ? computeTime
+                               : std::max(window_.maxComputeTime, computeTime);
+  window_.maxLateness = window_.cycles == 0
+                            ? cycle.lateness
+                            : std::max(window_.maxLateness, cycle.lateness);
   window_.overruns += overran ? 1 : 0;
   window_.missedPeriods += missedPeriods;
   ++window_.cycles;
@@ -103,14 +116,19 @@ void LoopTimingStats::closeWindow(std::chrono::nanoseconds end) {
   snapshot_.windowCycles = window_.cycles;
   snapshot_.windowOverruns = window_.overruns;
   snapshot_.windowMissedPeriods = window_.missedPeriods;
-  snapshot_.meanPeriodS = window_.periods == 0 ? 0.0 : toSeconds(window_.periodSum) / static_cast<double>(window_.periods);
+  snapshot_.meanPeriodS =
+      window_.periods == 0
+          ? 0.0
+          : toSeconds(window_.periodSum) / static_cast<double>(window_.periods);
   snapshot_.minPeriodS = toSeconds(window_.minPeriod);
   snapshot_.maxPeriodS = toSeconds(window_.maxPeriod);
-  snapshot_.meanComputeTimeS = toSeconds(window_.computeTimeSum) / static_cast<double>(window_.cycles);
+  snapshot_.meanComputeTimeS =
+      toSeconds(window_.computeTimeSum) / static_cast<double>(window_.cycles);
   snapshot_.maxComputeTimeS = toSeconds(window_.maxComputeTime);
   snapshot_.maxLatenessS = toSeconds(window_.maxLateness);
 
-  // The closing cycle's start opens the next window, so the next period measured belongs to it.
+  // The closing cycle's start opens the next window, so the next period
+  // measured belongs to it.
   window_ = Window{};
   window_.start = end;
 }

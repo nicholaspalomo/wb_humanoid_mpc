@@ -39,13 +39,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::node {
 namespace {
 
-// Lock-free, so that the handler may write it (a lock-free atomic is async-signal-safe).
+// Lock-free, so that the handler may write it (a lock-free atomic is
+// async-signal-safe).
 std::atomic<bool> shutdownRequestedFlag{false};
-static_assert(std::atomic<bool>::is_always_lock_free, "the signal handler needs a lock-free flag");
+static_assert(std::atomic<bool>::is_always_lock_free,
+              "the signal handler needs a lock-free flag");
 
 void onShutdownSignal(int signalNumber) {
   if (shutdownRequestedFlag.exchange(true)) {
-    // The second signal: the default action (termination) at once. signal() and raise() are async-signal-safe.
+    // The second signal: the default action (termination) at once. signal() and
+    // raise() are async-signal-safe.
     std::signal(signalNumber, SIG_DFL);
     std::raise(signalNumber);
   }
@@ -55,7 +58,8 @@ void installHandler(int signalNumber) {
   struct sigaction action {};
   action.sa_handler = &onShutdownSignal;
   sigemptyset(&action.sa_mask);
-  // No SA_RESTART: a blocking read in the main thread returns EINTR, so that it can look at the flag.
+  // No SA_RESTART: a blocking read in the main thread returns EINTR, so that it
+  // can look at the flag.
   action.sa_flags = 0;
   sigaction(signalNumber, &action, /*oact=*/nullptr);
 }

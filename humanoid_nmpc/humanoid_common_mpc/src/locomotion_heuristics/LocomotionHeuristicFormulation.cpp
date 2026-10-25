@@ -50,8 +50,9 @@ std::string joinNames(const std::vector<std::string>& names) {
 }  // namespace
 
 const std::array<HeuristicKind, kNumHeuristicKinds>& allHeuristicKinds() {
-  static const std::array<HeuristicKind, kNumHeuristicKinds> kKinds{HeuristicKind::kBasePose, HeuristicKind::kFoothold,
-                                                                    HeuristicKind::kWrench};
+  static const std::array<HeuristicKind, kNumHeuristicKinds> kKinds{
+      HeuristicKind::kBasePose, HeuristicKind::kFoothold,
+      HeuristicKind::kWrench};
   return kKinds;
 }
 
@@ -79,17 +80,24 @@ std::string normalizeHeuristicName(absl::string_view name) {
 }
 
 const std::vector<std::string>& knownHeuristicNames(HeuristicKind kind) {
-  // The single source of truth for which heuristics exist. In the order of Bledt's Appendix C: the analytic ones of
-  // Table C.1 before the data-extracted ones of Table C.2 within each kind, because that is the order the
-  // dissertation introduces them and the order the README derives them.
+  // The single source of truth for which heuristics exist. In the order of
+  // Bledt's Appendix C: the analytic ones of Table C.1 before the
+  // data-extracted ones of Table C.2 within each kind, because that is the
+  // order the dissertation introduces them and the order the README derives
+  // them.
   // LINT.IfChange(known_heuristic_names)
   static const std::vector<std::string>& kBasePose =
-      *new std::vector<std::string>{heuristic::kOrientationCompensation, heuristic::kPeriodicOrientation, heuristic::kHeightCompensation};
+      *new std::vector<std::string>{heuristic::kOrientationCompensation,
+                                    heuristic::kPeriodicOrientation,
+                                    heuristic::kHeightCompensation};
   static const std::vector<std::string>& kFoothold =
-      *new std::vector<std::string>{heuristic::kHipCenteredStepping, heuristic::kCapturePoint, heuristic::kTranslationalStepping,
-                                    heuristic::kInPlaceTurning, heuristic::kHighSpeedTurning};
+      *new std::vector<std::string>{
+          heuristic::kHipCenteredStepping, heuristic::kCapturePoint,
+          heuristic::kTranslationalStepping, heuristic::kInPlaceTurning,
+          heuristic::kHighSpeedTurning};
   static const std::vector<std::string>& kWrench =
-      *new std::vector<std::string>{heuristic::kImpulseScaling, heuristic::kCentripetalAcceleration};
+      *new std::vector<std::string>{heuristic::kImpulseScaling,
+                                    heuristic::kCentripetalAcceleration};
   // clang-format off
   // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/locomotion_heuristics/LocomotionHeuristicFactory.cpp:heuristic_factory, //tools/locomotion_heuristics/derive_parameters.py:derived_heuristic_keys, //tools/locomotion_heuristics/test_derive_parameters.py:expected_heuristic_names, //humanoid_nmpc/docs/locomotion_heuristics/README.md:heuristic_summary_table, //humanoid_nmpc/humanoid_mpc_config/locomotion_heuristics_config.proto:locomotion_heuristic_keys)
   // clang-format on
@@ -119,7 +127,8 @@ std::optional<HeuristicKind> heuristicKindOf(absl::string_view name) {
   return std::nullopt;
 }
 
-std::vector<std::string>& LocomotionHeuristicFormulation::list(HeuristicKind kind) {
+std::vector<std::string>& LocomotionHeuristicFormulation::list(
+    HeuristicKind kind) {
   switch (kind) {
     case HeuristicKind::kBasePose:
       return basePose;
@@ -131,16 +140,20 @@ std::vector<std::string>& LocomotionHeuristicFormulation::list(HeuristicKind kin
   return basePose;
 }
 
-const std::vector<std::string>& LocomotionHeuristicFormulation::list(HeuristicKind kind) const {
+const std::vector<std::string>& LocomotionHeuristicFormulation::list(
+    HeuristicKind kind) const {
   return const_cast<LocomotionHeuristicFormulation*>(this)->list(kind);
 }
 
-bool LocomotionHeuristicFormulation::listed(HeuristicKind kind, absl::string_view name) const {
+bool LocomotionHeuristicFormulation::listed(HeuristicKind kind,
+                                            absl::string_view name) const {
   const std::string canonical = canonicalHeuristicName(kind, name);
   if (canonical.empty()) return false;
   const std::vector<std::string>& names = list(kind);
   return std::any_of(names.begin(), names.end(),
-                     [&canonical, kind](const std::string& entry) { return canonicalHeuristicName(kind, entry) == canonical; });
+                     [&canonical, kind](const std::string& entry) {
+                       return canonicalHeuristicName(kind, entry) == canonical;
+                     });
 }
 
 absl::Status LocomotionHeuristicFormulation::validate() const {
@@ -149,29 +162,40 @@ absl::Status LocomotionHeuristicFormulation::validate() const {
     for (const std::string& entry : list(kind)) {
       const std::string canonical = canonicalHeuristicName(kind, entry);
       if (canonical.empty()) {
-        // A name that IS a heuristic but sits in the wrong list gets told where it belongs. The three kinds shape
-        // three different reference channels and are evaluated at three different seams, so this is a genuine
-        // mistake rather than a spelling one, and "unknown foothold heuristic 'periodic_orientation'" would send the
-        // operator looking for a typo that is not there.
+        // A name that IS a heuristic but sits in the wrong list gets told where
+        // it belongs. The three kinds shape three different reference channels
+        // and are evaluated at three different seams, so this is a genuine
+        // mistake rather than a spelling one, and "unknown foothold heuristic
+        // 'periodic_orientation'" would send the operator looking for a typo
+        // that is not there.
         const std::optional<HeuristicKind> actualKind = heuristicKindOf(entry);
         if (actualKind.has_value()) {
-          return absl::InvalidArgumentError(
-              absl::StrCat("[LocomotionHeuristicFormulation] '", entry, "' is a ", heuristicKindName(*actualKind),
-                           " heuristic and is listed under locomotion_heuristics.", heuristicKindName(kind),
-                           ". Move it to the locomotion_heuristics.", heuristicKindName(*actualKind), " list. Valid ",
-                           heuristicKindName(kind), " heuristics are: ", joinNames(knownHeuristicNames(kind)), "."));
+          return absl::InvalidArgumentError(absl::StrCat(
+              "[LocomotionHeuristicFormulation] '", entry, "' is a ",
+              heuristicKindName(*actualKind),
+              " heuristic and is listed under locomotion_heuristics.",
+              heuristicKindName(kind),
+              ". Move it to the locomotion_heuristics.",
+              heuristicKindName(*actualKind), " list. Valid ",
+              heuristicKindName(kind),
+              " heuristics are: ", joinNames(knownHeuristicNames(kind)), "."));
         }
-        return absl::InvalidArgumentError(absl::StrCat("[LocomotionHeuristicFormulation] unknown ", heuristicKindName(kind), " heuristic '",
-                                                       entry, "' in locomotion_heuristics.", heuristicKindName(kind),
-                                                       "; supported: ", joinNames(knownHeuristicNames(kind)), "."));
+        return absl::InvalidArgumentError(absl::StrCat(
+            "[LocomotionHeuristicFormulation] unknown ",
+            heuristicKindName(kind), " heuristic '", entry,
+            "' in locomotion_heuristics.", heuristicKindName(kind),
+            "; supported: ", joinNames(knownHeuristicNames(kind)), "."));
       }
       if (!seen.insert(canonical).second) {
-        // Listing a heuristic twice would double its offset, which looks exactly like a coefficient that is twice
-        // what the file says and is correspondingly hard to find by tuning.
-        return absl::InvalidArgumentError(absl::StrCat("[LocomotionHeuristicFormulation] '", canonical,
-                                                       "' is listed more than once in locomotion_heuristics.", heuristicKindName(kind),
-                                                       ". The offsets of a list are summed, so a repeated name would "
-                                                       "silently double its contribution."));
+        // Listing a heuristic twice would double its offset, which looks
+        // exactly like a coefficient that is twice what the file says and is
+        // correspondingly hard to find by tuning.
+        return absl::InvalidArgumentError(absl::StrCat(
+            "[LocomotionHeuristicFormulation] '", canonical,
+            "' is listed more than once in locomotion_heuristics.",
+            heuristicKindName(kind),
+            ". The offsets of a list are summed, so a repeated name would "
+            "silently double its contribution."));
       }
     }
   }
@@ -180,23 +204,34 @@ absl::Status LocomotionHeuristicFormulation::validate() const {
 
 std::vector<std::string> LocomotionHeuristicFormulation::warnings() const {
   std::vector<std::string> out;
-  // hip_centered_stepping is the base term of Bledt's foot placement, the one the velocity-dependent heuristics are
-  // summed on top of (section 4.3, figures 4-8 to 4-11). Neither half of that sum on its own is a configuration the
-  // dissertation validates, and each fails in its own way, so both halves are reported.
-  const bool hasAnchor = listed(HeuristicKind::kFoothold, heuristic::kHipCenteredStepping);
+  // hip_centered_stepping is the base term of Bledt's foot placement, the one
+  // the velocity-dependent heuristics are summed on top of (section 4.3,
+  // figures 4-8 to 4-11). Neither half of that sum on its own is a
+  // configuration the dissertation validates, and each fails in its own way, so
+  // both halves are reported.
+  const bool hasAnchor =
+      listed(HeuristicKind::kFoothold, heuristic::kHipCenteredStepping);
   if (hasAnchor && foothold.size() == 1) {
     out.push_back(
-        "locomotion_heuristics.foothold lists only 'hip_centered_stepping'. That places each foot under its own hip "
-        "at touch-down and nowhere else, which is the base case Bledt measures the others against (figure 4-8): it "
-        "stands and takes a few slow steps, and falls as soon as it has any speed, because a foot placed under the hip "
-        "has no lead on a moving body. Add 'translational_stepping' before drawing conclusions from it.");
+        "locomotion_heuristics.foothold lists only 'hip_centered_stepping'. "
+        "That places each foot under its own hip "
+        "at touch-down and nowhere else, which is the base case Bledt measures "
+        "the others against (figure 4-8): it "
+        "stands and takes a few slow steps, and falls as soon as it has any "
+        "speed, because a foot placed under the hip "
+        "has no lead on a moving body. Add 'translational_stepping' before "
+        "drawing conclusions from it.");
   }
   if (!hasAnchor && !foothold.empty()) {
     out.push_back(
-        "locomotion_heuristics.foothold does not list 'hip_centered_stepping'. The other foothold heuristics are "
-        "corrections that Bledt sums onto the hip placement; here they are summed onto the base predicted at touch-down, "
-        "with the lateral separation taken from half of nominal_foothold.step_width to each side of it instead "
-        "of from the hips. Along the heading that IS the dissertation's anchor, so the leads mean what they mean there; "
+        "locomotion_heuristics.foothold does not list 'hip_centered_stepping'. "
+        "The other foothold heuristics are "
+        "corrections that Bledt sums onto the hip placement; here they are "
+        "summed onto the base predicted at touch-down, "
+        "with the lateral separation taken from half of "
+        "nominal_foothold.step_width to each side of it instead "
+        "of from the hips. Along the heading that IS the dissertation's "
+        "anchor, so the leads mean what they mean there; "
         "across it the stance width is this controller's, not the hips'.");
   }
   return out;
@@ -205,7 +240,8 @@ std::vector<std::string> LocomotionHeuristicFormulation::warnings() const {
 std::string LocomotionHeuristicFormulation::summary() const {
   std::string out;
   for (HeuristicKind kind : allHeuristicKinds()) {
-    absl::StrAppend(&out, "  ", heuristicKindName(kind), ": ", joinNames(list(kind)), "\n");
+    absl::StrAppend(&out, "  ", heuristicKindName(kind), ": ",
+                    joinNames(list(kind)), "\n");
   }
   return out;
 }

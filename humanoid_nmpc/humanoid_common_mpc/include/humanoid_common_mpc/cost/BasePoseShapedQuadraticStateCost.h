@@ -43,42 +43,57 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The terminal cost (terminal_cost), 1/2 r' Q_final r of the tuning-layout residual against the reference state with
- * its base pose shaped by the locomotion heuristics exactly as the running state costs shape it.
+ * The terminal cost (terminal_cost), 1/2 r' Q_final r of the tuning-layout
+ * residual against the reference state with its base pose shaped by the
+ * locomotion heuristics exactly as the running state costs shape it.
  *
- * Measured against the target trajectories' desired state directly, the reference would be the UNSHAPED target: level
- * roll and pitch and the operator's height. On a robot whose base-pose heuristics are live, that left one term -
- * weighted by terminalCostScaling on the last node, easily more than the whole running horizon's base-pose weight -
- * pulling the end of every horizon back to the pose the heuristics had just moved every other node away from. This
- * routes the reference through SwitchedModelReferenceManager::shapeBasePose(), the one definition of the shaped pose,
- * and nothing else: in particular not through the reference manager's getDesiredState(), which would also pull the
- * procedural arm swing into Q_final. The target is interpolated by the robot model (getDesiredState()).
+ * Measured against the target trajectories' desired state directly, the
+ * reference would be the UNSHAPED target: level roll and pitch and the
+ * operator's height. On a robot whose base-pose heuristics are live, that left
+ * one term - weighted by terminalCostScaling on the last node, easily more than
+ * the whole running horizon's base-pose weight - pulling the end of every
+ * horizon back to the pose the heuristics had just moved every other node away
+ * from. This routes the reference through
+ * SwitchedModelReferenceManager::shapeBasePose(), the one definition of the
+ * shaped pose, and nothing else: in particular not through the reference
+ * manager's getDesiredState(), which would also pull the procedural arm swing
+ * into Q_final. The target is interpolated by the robot model
+ * (getDesiredState()).
  *
- * With no base-pose heuristic listed it is TuningQuadraticStateCost of the unshaped target. The reference manager and
- * the robot model must outlive it. Like every OCS2 term it is cloned for each solver thread; its const functions are safe to call
- * concurrently, setStateWeights() is not.
+ * With no base-pose heuristic listed it is TuningQuadraticStateCost of the
+ * unshaped target. The reference manager and the robot model must outlive it.
+ * Like every OCS2 term it is cloned for each solver thread; its const functions
+ * are safe to call concurrently, setStateWeights() is not.
  */
 class BasePoseShapedQuadraticStateCost final : public TuningQuadraticStateCost {
  public:
   /**
-   * The cost of `stateWeights` (Q_final, the tuning layout's: getStateTangentDim() square) on `mpcRobotModel`, retained
-   * with `referenceManager`. InvalidArgument when Q_final is refused (setStateWeights()).
+   * The cost of `stateWeights` (Q_final, the tuning layout's:
+   * getStateTangentDim() square) on `mpcRobotModel`, retained with
+   * `referenceManager`. InvalidArgument when Q_final is refused
+   * (setStateWeights()).
    */
-  static absl::StatusOr<std::unique_ptr<BasePoseShapedQuadraticStateCost>> Create(
-      matrix_t stateWeights,
-      const SwitchedModelReferenceManager* absl_nonnull referenceManager,
-      const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModel);
+  static absl::StatusOr<std::unique_ptr<BasePoseShapedQuadraticStateCost>>
+  Create(matrix_t stateWeights,
+         const SwitchedModelReferenceManager* absl_nonnull referenceManager,
+         const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModel);
 
   ~BasePoseShapedQuadraticStateCost() override = default;
-  BasePoseShapedQuadraticStateCost& operator=(const BasePoseShapedQuadraticStateCost&) = delete;
+  BasePoseShapedQuadraticStateCost& operator=(
+      const BasePoseShapedQuadraticStateCost&) = delete;
   BasePoseShapedQuadraticStateCost(BasePoseShapedQuadraticStateCost&&) = delete;
-  BasePoseShapedQuadraticStateCost& operator=(BasePoseShapedQuadraticStateCost&&) = delete;
-  BasePoseShapedQuadraticStateCost* absl_nonnull clone() const override { return new BasePoseShapedQuadraticStateCost(*this); }
+  BasePoseShapedQuadraticStateCost& operator=(
+      BasePoseShapedQuadraticStateCost&&) = delete;
+  BasePoseShapedQuadraticStateCost* absl_nonnull clone() const override {
+    return new BasePoseShapedQuadraticStateCost(*this);
+  }
 
  private:
-  BasePoseShapedQuadraticStateCost(const SwitchedModelReferenceManager* absl_nonnull referenceManager,
-                                   const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModel);
-  BasePoseShapedQuadraticStateCost(const BasePoseShapedQuadraticStateCost& other) = default;
+  BasePoseShapedQuadraticStateCost(
+      const SwitchedModelReferenceManager* absl_nonnull referenceManager,
+      const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModel);
+  BasePoseShapedQuadraticStateCost(
+      const BasePoseShapedQuadraticStateCost& other) = default;
 
   vector_t getReference(scalar_t time,
                         const vector_t& state,

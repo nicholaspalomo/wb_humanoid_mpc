@@ -98,16 +98,23 @@ class SampleModelTest(RecordingTestCase):
         contents = self.contents()
         for style in scene_contract.ROBOT_INSTANCES:
             for visual in self.model.visuals:
-                path = scene_contract.visual_path(style.name, visual.link, visual.index)
+                path = scene_contract.visual_path(
+                    style.name, visual.link, visual.index
+                )
                 with self.subTest(path=path):
                     entity = contents.entities[path]
                     self.assertEqual(entity.temporal_components, set())
-                    self.assertIn("Transform3D:translation", entity.static_components)
-                    self.assertIn("Transform3D:quaternion", entity.static_components)
+                    self.assertIn(
+                        "Transform3D:translation", entity.static_components
+                    )
+                    self.assertIn(
+                        "Transform3D:quaternion", entity.static_components
+                    )
             # The link entities carry only the poses of viz/scene, never static data that would hide them.
             for link in self.model.links:
                 self.assertNotIn(
-                    scene_contract.link_path(style.name, link), contents.entities
+                    scene_contract.link_path(style.name, link),
+                    contents.entities,
                 )
         base = contents.entities[
             scene_contract.visual_path(scene_contract.MEASURED, "base_link", 0)
@@ -142,7 +149,9 @@ class SampleModelTest(RecordingTestCase):
                 scene_contract.visual_path(style.name, "base_link", 0)
             ]
             expected = robot_meshes.visual_color(self.model.visuals[0], style)
-            self.assertEqual(base.values("Asset3D:albedo_factor"), [[packed(expected)]])
+            self.assertEqual(
+                base.values("Asset3D:albedo_factor"), [[packed(expected)]]
+            )
             self.assertEqual(expected[3], round(style.alpha * 255))
 
     def test_each_mesh_file_is_read_once(self) -> None:
@@ -166,7 +175,9 @@ class VisualColorTest(unittest.TestCase):
 
     def test_the_tint_wins_over_the_material(self) -> None:
         style = scene_contract.instance_style(scene_contract.TERMINAL_STATE)
-        visual = self.visual(urdf_model.Sphere(radius=1.0), color=(1.0, 0.0, 0.0, 1.0))
+        visual = self.visual(
+            urdf_model.Sphere(radius=1.0), color=(1.0, 0.0, 0.0, 1.0)
+        )
         self.assertEqual(
             robot_meshes.visual_color(visual, style),
             palette.to_rgba8(palette.with_alpha(palette.BLUE, style.alpha)),
@@ -174,7 +185,9 @@ class VisualColorTest(unittest.TestCase):
 
     def test_the_material_at_the_instance_opacity(self) -> None:
         style = scene_contract.instance_style(scene_contract.MEASURED)
-        visual = self.visual(urdf_model.Sphere(radius=1.0), color=(1.0, 0.0, 0.0, 0.5))
+        visual = self.visual(
+            urdf_model.Sphere(radius=1.0), color=(1.0, 0.0, 0.0, 0.5)
+        )
         self.assertEqual(
             robot_meshes.visual_color(visual, style),
             palette.to_rgba8((1.0, 0.0, 0.0, 0.5 * style.alpha)),
@@ -183,7 +196,9 @@ class VisualColorTest(unittest.TestCase):
     def test_without_a_material(self) -> None:
         style = scene_contract.instance_style(scene_contract.MEASURED)
         stl = urdf_model.Mesh(uri="a.stl", path="a.stl", media_type="model/stl")
-        glb = urdf_model.Mesh(uri="a.glb", path="a.glb", media_type="model/gltf-binary")
+        glb = urdf_model.Mesh(
+            uri="a.glb", path="a.glb", media_type="model/gltf-binary"
+        )
         self.assertEqual(
             robot_meshes.visual_color(self.visual(stl), style),
             palette.to_rgba8(
@@ -192,7 +207,8 @@ class VisualColorTest(unittest.TestCase):
         )
         # A glTF carries its own colors, which a gray albedo would darken.
         self.assertEqual(
-            robot_meshes.visual_color(self.visual(glb), style)[:3], (255, 255, 255)
+            robot_meshes.visual_color(self.visual(glb), style)[:3],
+            (255, 255, 255),
         )
 
 
@@ -225,7 +241,9 @@ class ShippedRobotTest(RecordingTestCase):
             len(assets), len(mesh_files) * len(scene_contract.ROBOT_INSTANCES)
         )
         for path in assets:
-            self.assertTrue(path.startswith(f"{scene_contract.ROBOTS_ROOT}/"), path)
+            self.assertTrue(
+                path.startswith(f"{scene_contract.ROBOTS_ROOT}/"), path
+            )
             with open(
                 next(
                     mesh_file_path

@@ -39,8 +39,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-// The kinds of configuration file a robot process stores (RobotConfigDirectory, ConfigFileStore): every kind of
-// msgs::ConfigFileKind but kUnspecified, in the order of the stores' arrays. A kind not listed here is refused by both.
+// The kinds of configuration file a robot process stores (RobotConfigDirectory,
+// ConfigFileStore): every kind of msgs::ConfigFileKind but kUnspecified, in the
+// order of the stores' arrays. A kind not listed here is refused by both.
 // LINT.IfChange(stored_config_file_kinds)
 inline constexpr std::array<msgs::ConfigFileKind, 3> kStoredConfigFileKinds = {
     msgs::ConfigFileKind::kTask,
@@ -49,19 +50,23 @@ inline constexpr std::array<msgs::ConfigFileKind, 3> kStoredConfigFileKinds = {
 };
 // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_msgs/config_file_kind.proto:config_file_kinds)
 
-inline constexpr size_t kNumStoredConfigFileKinds = kStoredConfigFileKinds.size();
+inline constexpr size_t kNumStoredConfigFileKinds =
+    kStoredConfigFileKinds.size();
 
-/** The suffix of the copy of a stored file's previous contents both stores write before they replace the file. */
+/** The suffix of the copy of a stored file's previous contents both stores
+ * write before they replace the file. */
 // LINT.IfChange(stored_config_backup_suffix)
 inline constexpr absl::string_view kStoredConfigFileBackupSuffix = ".bak";
 // clang-format off
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/README.md:config_store_layout, //tools/deploy/README.md:config_store_layout)
 // clang-format on
 
-/** Returns the index of `kind` in kStoredConfigFileKinds; nullopt for a kind the robot does not store (kUnspecified). */
+/** Returns the index of `kind` in kStoredConfigFileKinds; nullopt for a kind
+ * the robot does not store (kUnspecified). */
 std::optional<size_t> storedConfigFileKindIndex(msgs::ConfigFileKind kind);
 
-/** Returns what the messages and the log call the file of `kind`: "task file", ...; "file of no kind" for kUnspecified. */
+/** Returns what the messages and the log call the file of `kind`: "task file",
+ * ...; "file of no kind" for kUnspecified. */
 absl::string_view configFileKindName(msgs::ConfigFileKind kind);
 
 }  // namespace ocs2::humanoid

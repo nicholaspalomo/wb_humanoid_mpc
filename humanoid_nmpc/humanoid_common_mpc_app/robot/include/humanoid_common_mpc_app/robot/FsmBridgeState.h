@@ -44,15 +44,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * What every FsmBridge keeps, whatever it switches: the nominal posture of JOINT_PD with the operator's joint targets
- * merged in, the controller resets counted so far and the MPC's health, and the FSM state it writes to the
- * FsmStateMailbox. The bridges hold one each (composition). Realtime thread; allocates nothing after construction.
+ * What every FsmBridge keeps, whatever it switches: the nominal posture of
+ * JOINT_PD with the operator's joint targets merged in, the controller resets
+ * counted so far and the MPC's health, and the FSM state it writes to the
+ * FsmStateMailbox. The bridges hold one each (composition). Realtime thread;
+ * allocates nothing after construction.
  */
 class FsmBridgeState {
  public:
   /**
-   * Captures the nominal joint positions from `initState` and writes the initial FSM state (ZERO_TORQUE, the gantry as
-   * `gantryLocked` says) to `fsmStates`. The mailboxes must outlive the state.
+   * Captures the nominal joint positions from `initState` and writes the
+   * initial FSM state (ZERO_TORQUE, the gantry as `gantryLocked` says) to
+   * `fsmStates`. The mailboxes must outlive the state.
    */
   FsmBridgeState(const robot::model::RobotDescription& robotDescription,
                  const robot::model::RobotState& initState,
@@ -66,16 +69,23 @@ class FsmBridgeState {
 
   OperatorCommandMailbox& commands() { return *commands_; }
 
-  /** Takes the operator's newest joint targets into the nominal posture, if new ones have arrived. */
-  void applyJointTargetUpdates() { commands_->takeNominalPosture(nominalJointPositions_); }
-  const std::vector<scalar_t>& nominalJointPositions() const { return nominalJointPositions_; }
+  /** Takes the operator's newest joint targets into the nominal posture, if new
+   * ones have arrived. */
+  void applyJointTargetUpdates() {
+    commands_->takeNominalPosture(nominalJointPositions_);
+  }
+  const std::vector<scalar_t>& nominalJointPositions() const {
+    return nominalJointPositions_;
+  }
 
   /** Writes the FSM state of `modeName` and the gantry. */
   void publish(absl::string_view modeName, bool gantryLocked);
   /** Counts one controller reset and writes the state. */
   void publishControllerReset(absl::string_view modeName, bool gantryLocked);
   /** Records the MPC's health and writes the state when it changed. */
-  void setMpcHealthy(bool mpcHealthy, absl::string_view modeName, bool gantryLocked);
+  void setMpcHealthy(bool mpcHealthy,
+                     absl::string_view modeName,
+                     bool gantryLocked);
 
   uint64_t controllerResets() const { return controllerResets_; }
   bool mpcHealthy() const { return mpcHealthy_; }

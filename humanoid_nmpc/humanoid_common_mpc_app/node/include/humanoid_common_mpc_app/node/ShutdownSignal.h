@@ -34,19 +34,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::node {
 
 /**
- * How the laptop-side binaries (the MPC nodes, the dummy simulators, the keyboard teleoperation) end: SIGINT (Ctrl-C)
- * and SIGTERM (the launcher's stop, `docker stop`) ask them to shut down cleanly, and a second one ends the process at
- * once with the signal's default action, so that a shutdown that hangs can still be cut short.
+ * How the laptop-side binaries (the MPC nodes, the dummy simulators, the
+ * keyboard teleoperation) end: SIGINT (Ctrl-C) and SIGTERM (the launcher's
+ * stop, `docker stop`) ask them to shut down cleanly, and a second one ends the
+ * process at once with the signal's default action, so that a shutdown that
+ * hangs can still be cut short.
  */
 
-/** Installs the handlers of SIGINT and SIGTERM. Idempotent; call it before starting any thread. */
+/** Installs the handlers of SIGINT and SIGTERM. Idempotent; call it before
+ * starting any thread. */
 void installShutdownSignalHandlers();
 
-/** True once SIGINT or SIGTERM has arrived since installShutdownSignalHandlers(). */
+/** True once SIGINT or SIGTERM has arrived since
+ * installShutdownSignalHandlers(). */
 bool shutdownRequested();
 
 /** How often waitForShutdown() checks shutdownRequested() by default. */
-inline constexpr absl::Duration kDefaultShutdownPollPeriod = absl::Milliseconds(50);
+inline constexpr absl::Duration kDefaultShutdownPollPeriod =
+    absl::Milliseconds(50);
 
 /** Returns once shutdownRequested(), checking every `pollPeriod`. */
 void waitForShutdown(absl::Duration pollPeriod = kDefaultShutdownPollPeriod);

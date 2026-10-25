@@ -47,25 +47,36 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** A shipped configuration of the centroidal MPC; the files of each are the data of :shipped_centroidal_robot. */
+/** A shipped configuration of the centroidal MPC; the files of each are the
+ * data of :shipped_centroidal_robot. */
 // LINT.IfChange(shipped_centroidal_robots)
-enum class ShippedCentroidalRobot { kDrcAtlas, kEngineAiSa01, kUnitreeG1, kUnitreeR1 };
+enum class ShippedCentroidalRobot {
+  kDrcAtlas,
+  kEngineAiSa01,
+  kUnitreeG1,
+  kUnitreeR1
+};
 // LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/BUILD.bazel:shipped_centroidal_robot_data)
 
-/** The configuration's name for a test case: "drc_atlas", "engineai_sa01", "unitree_g1", "unitree_r1". */
+/** The configuration's name for a test case: "drc_atlas", "engineai_sa01",
+ * "unitree_g1", "unitree_r1". */
 std::string shippedCentroidalRobotName(ShippedCentroidalRobot robot);
 
-/** The test-case name of a parameterized test over the shipped configurations. */
-std::string shippedCentroidalRobotTestName(const ::testing::TestParamInfo<ShippedCentroidalRobot>& info);
+/** The test-case name of a parameterized test over the shipped configurations.
+ */
+std::string shippedCentroidalRobotTestName(
+    const ::testing::TestParamInfo<ShippedCentroidalRobot>& info);
 
 /** The configuration's files in the test's runfiles (TypedConfigFiles.h). */
 CentroidalRobotFiles shippedCentroidalRobotFiles(ShippedCentroidalRobot robot);
 
 /**
- * The robot model of a shipped configuration, with what it refers to, as CentroidalMpcInterface builds it but without
- * its solver or any CppAD library: the typed files, the model settings, the reduced Pinocchio model, the centroidal model
- * info and the wrench-input robot model on them. The members are owned by pointer, so that a move keeps the model's
- * references valid. Not thread-safe (the robot model updates its Pinocchio data).
+ * The robot model of a shipped configuration, with what it refers to, as
+ * CentroidalMpcInterface builds it but without its solver or any CppAD library:
+ * the typed files, the model settings, the reduced Pinocchio model, the
+ * centroidal model info and the wrench-input robot model on them. The members
+ * are owned by pointer, so that a move keeps the model's references valid. Not
+ * thread-safe (the robot model updates its Pinocchio data).
  */
 struct LoadedCentroidalRobot {
   std::string name;
@@ -78,9 +89,11 @@ struct LoadedCentroidalRobot {
 };
 
 /**
- * Loads `robot`, with the task file's centroidal_model replaced by `centroidalModel` (e.g. "single_rigid_body_dynamics")
- * when it is not empty. Fails like the loaders it calls (a missing or invalid file).
+ * Loads `robot`, with the task file's centroidal_model replaced by
+ * `centroidalModel` (e.g. "single_rigid_body_dynamics") when it is not empty.
+ * Fails like the loaders it calls (a missing or invalid file).
  */
-absl::StatusOr<LoadedCentroidalRobot> loadShippedCentroidalRobot(ShippedCentroidalRobot robot, absl::string_view centroidalModel);
+absl::StatusOr<LoadedCentroidalRobot> loadShippedCentroidalRobot(
+    ShippedCentroidalRobot robot, absl::string_view centroidalModel);
 
 }  // namespace ocs2::humanoid

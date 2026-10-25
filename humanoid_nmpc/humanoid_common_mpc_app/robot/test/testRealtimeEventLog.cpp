@@ -40,8 +40,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/RealtimeEventLog.h"
 
 /*
- * The reports of the realtime thread: posted in order, logged by the communication thread with the wording of
- * formatRealtimeEvent(), and dropped (and counted) rather than waited for when the queue is full.
+ * The reports of the realtime thread: posted in order, logged by the
+ * communication thread with the wording of formatRealtimeEvent(), and dropped
+ * (and counted) rather than waited for when the queue is full.
  */
 
 namespace ocs2::humanoid {
@@ -49,12 +50,18 @@ namespace {
 
 TEST(RealtimeEventLog, DrainsTheReportsInTheOrderTheyWerePosted) {
   RealtimeEventLog log(/*capacity=*/8);
-  ASSERT_TRUE(log.post(RealtimeEventCode::kTorquesEnabled, /*detail=*/0, "JOINT_PD"));
+  ASSERT_TRUE(
+      log.post(RealtimeEventCode::kTorquesEnabled, /*detail=*/0, "JOINT_PD"));
   ASSERT_TRUE(log.post(RealtimeEventCode::kGantryUnlockCommanded));
-  ASSERT_TRUE(log.post(RealtimeEventCode::kModeCommanded, /*detail=*/0, "WB_MPC"));
-  ASSERT_TRUE(log.post(RealtimeEventCode::kTorquesDisabled, /*detail=*/0, "ZERO_TORQUE"));
+  ASSERT_TRUE(
+      log.post(RealtimeEventCode::kModeCommanded, /*detail=*/0, "WB_MPC"));
+  ASSERT_TRUE(log.post(RealtimeEventCode::kTorquesDisabled, /*detail=*/0,
+                       "ZERO_TORQUE"));
   std::vector<std::string> lines;
-  EXPECT_EQ(log.drain([&](const RealtimeEvent& event) { lines.push_back(formatRealtimeEvent(event)); }), 4u);
+  EXPECT_EQ(log.drain([&](const RealtimeEvent& event) {
+    lines.push_back(formatRealtimeEvent(event));
+  }),
+            4u);
   ASSERT_EQ(lines.size(), 4u);
   EXPECT_EQ(lines[0], "FSM command received: JOINT_PD - enabling torques.");
   EXPECT_EQ(lines[1], "FSM command received: Unlocking gantry.");
@@ -65,26 +72,39 @@ TEST(RealtimeEventLog, DrainsTheReportsInTheOrderTheyWerePosted) {
 
 TEST(RealtimeEventLog, ACatchNamesItsCauseAndTheLift) {
   RealtimeEventLog log;
-  ASSERT_TRUE(log.post(RealtimeEventCode::kCaughtAndSettling, static_cast<int32_t>(DiscontinuityCause::kSimulatorReset),
-                       /*text=*/{}, /*value0=*/0.0, /*value1=*/1.0, /*value2=*/0.15, /*count=*/3));
-  ASSERT_TRUE(log.post(RealtimeEventCode::kDiscontinuity, static_cast<int32_t>(DiscontinuityCause::kTiltCaught), /*text=*/{},
+  ASSERT_TRUE(
+      log.post(RealtimeEventCode::kCaughtAndSettling,
+               static_cast<int32_t>(DiscontinuityCause::kSimulatorReset),
+               /*text=*/{}, /*value0=*/0.0, /*value1=*/1.0, /*value2=*/0.15,
+               /*count=*/3));
+  ASSERT_TRUE(log.post(RealtimeEventCode::kDiscontinuity,
+                       static_cast<int32_t>(DiscontinuityCause::kTiltCaught),
+                       /*text=*/{},
                        /*value0=*/1.2, /*value1=*/1.0));
   std::vector<RealtimeEvent> events;
   log.drain([&](const RealtimeEvent& event) { events.push_back(event); });
   ASSERT_EQ(events.size(), 2u);
   const std::string caught = formatRealtimeEvent(events[0]);
   EXPECT_NE(caught.find("reset epoch 3"), std::string::npos) << caught;
-  EXPECT_NE(caught.find("0.15 m (sim_gantry_catch_lift)"), std::string::npos) << caught;
+  EXPECT_NE(caught.find("0.15 m (sim_gantry_catch_lift)"), std::string::npos)
+      << caught;
   EXPECT_TRUE(isWarningEvent(events[0]));
   const std::string tilted = formatRealtimeEvent(events[1]);
-  EXPECT_NE(tilted.find("the base tilted 1.2 rad, past sim_max_base_tilt_angle 1 rad"), std::string::npos) << tilted;
+  EXPECT_NE(tilted.find(
+                "the base tilted 1.2 rad, past sim_max_base_tilt_angle 1 rad"),
+            std::string::npos)
+      << tilted;
 }
 
 TEST(RealtimeEventLog, TheTextIsCutToFitAndTerminated) {
   RealtimeEventLog log;
   const std::string longName(100, 'x');
-  ASSERT_TRUE(log.post(RealtimeEventCode::kContactEstimatorSwapped, /*detail=*/0, longName));
-  log.drain([&](const RealtimeEvent& event) { EXPECT_EQ(realtimeEventText(event), std::string(event.text.size() - 1, 'x')); });
+  ASSERT_TRUE(log.post(RealtimeEventCode::kContactEstimatorSwapped,
+                       /*detail=*/0, longName));
+  log.drain([&](const RealtimeEvent& event) {
+    EXPECT_EQ(realtimeEventText(event),
+              std::string(event.text.size() - 1, 'x'));
+  });
 }
 
 TEST(RealtimeEventLog, AFullQueueDropsAndCountsInsteadOfWaiting) {
@@ -94,30 +114,43 @@ TEST(RealtimeEventLog, AFullQueueDropsAndCountsInsteadOfWaiting) {
   EXPECT_FALSE(log.post(RealtimeEventCode::kSettled));
   EXPECT_EQ(log.dropped(), 1u);
   EXPECT_EQ(log.drainToLog(), 2u);
-  EXPECT_TRUE(log.post(RealtimeEventCode::kSettled)) << "room again once drained";
+  EXPECT_TRUE(log.post(RealtimeEventCode::kSettled))
+      << "room again once drained";
 }
 
-TEST(RealtimeEventLog, IsTheControllersSinkAndLogsItsReportsAsTheControllerDid) {
+TEST(RealtimeEventLog,
+     IsTheControllersSinkAndLogsItsReportsAsTheControllerDid) {
   RealtimeEventLog log;
   ControllerEventSink& sink = log;
-  ASSERT_TRUE(sink.post(makeControllerEvent(ControllerEventCode::kPolicyDiverged, "CentroidalMpcMrtJointController", /*value0=*/0.62)));
-  ASSERT_TRUE(sink.post(makeControllerEvent(ControllerEventCode::kContactEstimatorChanged, "WBMpcMrtJointController", /*value0=*/0.0,
-                                            /*value1=*/0.0, "CheaterSimContactEstimator")));
+  ASSERT_TRUE(sink.post(
+      makeControllerEvent(ControllerEventCode::kPolicyDiverged,
+                          "CentroidalMpcMrtJointController", /*value0=*/0.62)));
+  ASSERT_TRUE(sink.post(
+      makeControllerEvent(ControllerEventCode::kContactEstimatorChanged,
+                          "WBMpcMrtJointController", /*value0=*/0.0,
+                          /*value1=*/0.0, "CheaterSimContactEstimator")));
   std::vector<RealtimeEvent> events;
-  EXPECT_EQ(log.drain([&](const RealtimeEvent& event) { events.push_back(event); }), 2u);
+  EXPECT_EQ(
+      log.drain([&](const RealtimeEvent& event) { events.push_back(event); }),
+      2u);
   ASSERT_EQ(events.size(), 2u);
   EXPECT_EQ(events[0].code, RealtimeEventCode::kControllerEvent);
   EXPECT_TRUE(isWarningEvent(events[0])) << "a diverged policy is a warning";
   const std::string diverged = formatRealtimeEvent(events[0]);
-  EXPECT_EQ(diverged.rfind("[CentroidalMpcMrtJointController] MPC policy diverged", 0), 0u) << diverged;
+  EXPECT_EQ(diverged.rfind(
+                "[CentroidalMpcMrtJointController] MPC policy diverged", 0),
+            0u)
+      << diverged;
   EXPECT_NE(diverged.find("0.62"), std::string::npos) << diverged;
   EXPECT_FALSE(isWarningEvent(events[1]));
-  EXPECT_NE(formatRealtimeEvent(events[1]).find("CheaterSimContactEstimator"), std::string::npos);
+  EXPECT_NE(formatRealtimeEvent(events[1]).find("CheaterSimContactEstimator"),
+            std::string::npos);
 }
 
 TEST(RealtimeEventLog, ARefusedContactEstimateIsLoggedOnceAsAWarning) {
-  // The controller's control thread refuses an estimate of one flag on every cycle; the communication thread logs one
-  // warning naming the estimator and both counts.
+  // The controller's control thread refuses an estimate of one flag on every
+  // cycle; the communication thread logs one warning naming the estimator and
+  // both counts.
   RealtimeEventLog log;
   ContactEstimateIntake intake("CentroidalMpcMrtJointController");
   intake.resetEstimator("FixedContactEstimator");
@@ -127,18 +160,24 @@ TEST(RealtimeEventLog, ARefusedContactEstimateIsLoggedOnceAsAWarning) {
   }
   absl::ScopedMockLog mockLog(absl::MockLogDefault::kIgnoreUnexpected);
   EXPECT_CALL(mockLog, Log(absl::LogSeverity::kWarning, ::testing::_,
-                           ::testing::HasSubstr("[CentroidalMpcMrtJointController] the contact estimator 'FixedContactEstimator' "
-                                                "reported 1 contact flags, expected 2")))
+                           ::testing::HasSubstr(
+                               "[CentroidalMpcMrtJointController] the contact "
+                               "estimator 'FixedContactEstimator' "
+                               "reported 1 contact flags, expected 2")))
       .Times(1);
   mockLog.StartCapturingLogs();
   EXPECT_EQ(log.drainToLog(), 1u) << "one report for the run of refusals";
 }
 
 TEST(SettlePhaseDescription, EveryPhaseSaysWhatTheRobotWaitsFor) {
-  EXPECT_EQ(settlePhaseDescription(SettlePhase::kLifting), "lifting the robot clear of the ground");
-  EXPECT_EQ(settlePhaseDescription(SettlePhase::kSettlingOnFeet), "waiting for the robot to come to rest on its feet");
-  EXPECT_EQ(discontinuityReason(DiscontinuityCause::kGantryLocked, /*resetEpoch=*/0, /*tilt=*/0.0, /*maxTilt=*/0.0),
-            "the gantry was locked");
+  EXPECT_EQ(settlePhaseDescription(SettlePhase::kLifting),
+            "lifting the robot clear of the ground");
+  EXPECT_EQ(settlePhaseDescription(SettlePhase::kSettlingOnFeet),
+            "waiting for the robot to come to rest on its feet");
+  EXPECT_EQ(
+      discontinuityReason(DiscontinuityCause::kGantryLocked, /*resetEpoch=*/0,
+                          /*tilt=*/0.0, /*maxTilt=*/0.0),
+      "the gantry was locked");
 }
 
 }  // namespace

@@ -37,13 +37,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-HardwareFsmBridge::HardwareFsmBridge(const robot::model::RobotDescription& robotDescription,
-                                     const robot::model::RobotState& initState,
-                                     OperatorCommandMailbox* absl_nonnull commands,
-                                     FsmStateMailbox* absl_nonnull fsmStates,
-                                     RobotBackend* absl_nonnull backend,
-                                     RealtimeEventLog* absl_nullable eventLog)
-    : backend_(backend), eventLog_(eventLog), state_(robotDescription, initState, commands, fsmStates, /*gantryLocked=*/false) {}
+HardwareFsmBridge::HardwareFsmBridge(
+    const robot::model::RobotDescription& robotDescription,
+    const robot::model::RobotState& initState,
+    OperatorCommandMailbox* absl_nonnull commands,
+    FsmStateMailbox* absl_nonnull fsmStates,
+    RobotBackend* absl_nonnull backend,
+    RealtimeEventLog* absl_nullable eventLog)
+    : backend_(backend),
+      eventLog_(eventLog),
+      state_(robotDescription,
+             initState,
+             commands,
+             fsmStates,
+             /*gantryLocked=*/false) {}
 
 bool HardwareFsmBridge::processCommands(std::string& currentModeName) {
   FsmCommandEvent command;
@@ -54,19 +61,25 @@ bool HardwareFsmBridge::processCommands(std::string& currentModeName) {
   switch (command.kind) {
     case FsmCommandKind::kZeroTorque:
       if (backend_->acceptsJointAction()) {
-        if (eventLog_ != nullptr) eventLog_->post(RealtimeEventCode::kTorquesDisabled, /*detail=*/0, name);
+        if (eventLog_ != nullptr)
+          eventLog_->post(RealtimeEventCode::kTorquesDisabled, /*detail=*/0,
+                          name);
         backend_->enterSafeState();
       }
-      currentModeName.assign(control_mode::kZeroTorque.data(), control_mode::kZeroTorque.size());
+      currentModeName.assign(control_mode::kZeroTorque.data(),
+                             control_mode::kZeroTorque.size());
       publishFsmState(currentModeName);
       return true;
     case FsmCommandKind::kJointPd:
     case FsmCommandKind::kGravityComp:
     case FsmCommandKind::kWbMpc:
     case FsmCommandKind::kSafety: {
-      // Every mode command is reported, also one between two active modes (JOINT_PD to WB_MPC), which switches nothing.
+      // Every mode command is reported, also one between two active modes
+      // (JOINT_PD to WB_MPC), which switches nothing.
       if (!backend_->acceptsJointAction()) {
-        if (eventLog_ != nullptr) eventLog_->post(RealtimeEventCode::kTorquesEnabled, /*detail=*/0, name);
+        if (eventLog_ != nullptr)
+          eventLog_->post(RealtimeEventCode::kTorquesEnabled, /*detail=*/0,
+                          name);
         backend_->enableTorques();
       } else if (eventLog_ != nullptr) {
         eventLog_->post(RealtimeEventCode::kModeCommanded, /*detail=*/0, name);
@@ -78,7 +91,9 @@ bool HardwareFsmBridge::processCommands(std::string& currentModeName) {
     }
     case FsmCommandKind::kLockGantry:
     case FsmCommandKind::kUnlockGantry:
-      if (eventLog_ != nullptr) eventLog_->post(RealtimeEventCode::kGantryCommandIgnored, /*detail=*/0, name);
+      if (eventLog_ != nullptr)
+        eventLog_->post(RealtimeEventCode::kGantryCommandIgnored, /*detail=*/0,
+                        name);
       return false;
   }
   return false;

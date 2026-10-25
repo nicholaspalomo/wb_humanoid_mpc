@@ -47,54 +47,79 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
 
 /*
- * stateManifoldOf() on the tuning layouts of both MPCs: the product of the blocks with a unit quaternion for the base
- * orientation, which every robot model stores as one, and the refusal of a layout that does not describe the state - an
- * orientation on other rows than the quaternion's 4 among them.
+ * stateManifoldOf() on the tuning layouts of both MPCs: the product of the
+ * blocks with a unit quaternion for the base orientation, which every robot
+ * model stores as one, and the refusal of a layout that does not describe the
+ * state - an orientation on other rows than the quaternion's 4 among them.
  */
 
 namespace ocs2::humanoid {
 namespace {
 
-/** Five joints and two contacts: a centroidal tuning layout of 17 rows, a whole-body one of 22. */
+/** Five joints and two contacts: a centroidal tuning layout of 17 rows, a
+ * whole-body one of 22. */
 StateInputLayout layoutOf(StateInputLayout::Mpc mpc) {
-  return StateInputLayout{.mpc = mpc, .jointNames = {"a", "b", "c", "d", "e"}, .fixedJointNames = {}, .contactNames = {"left", "right"}};
+  return StateInputLayout{.mpc = mpc,
+                          .jointNames = {"a", "b", "c", "d", "e"},
+                          .fixedJointNames = {},
+                          .contactNames = {"left", "right"}};
 }
 
 /**
- * A state of `layout` (placed with a quaternion) with distinct entries from `first` on and the unit quaternion `xi` in
- * its orientation block.
+ * A state of `layout` (placed with a quaternion) with distinct entries from
+ * `first` on and the unit quaternion `xi` in its orientation block.
  */
-vector_t stateWithOrientation(const TuningLayout& layout, scalar_t first, const vector4_t& xi) {
-  vector_t state = vector_t::LinSpaced(static_cast<Eigen::Index>(getTuningLayoutStateDim(layout)), first, first + 2.2);
+vector_t stateWithOrientation(const TuningLayout& layout,
+                              scalar_t first,
+                              const vector4_t& xi) {
+  vector_t state = vector_t::LinSpaced(
+      static_cast<Eigen::Index>(getTuningLayoutStateDim(layout)), first,
+      first + 2.2);
   for (const TuningSegment& segment : layout.segments) {
-    if (segment.kind == TuningSegmentKind::kEulerZyxOrientation) state.segment<4>(static_cast<Eigen::Index>(segment.stateStart)) = xi;
+    if (segment.kind == TuningSegmentKind::kEulerZyxOrientation)
+      state.segment<4>(static_cast<Eigen::Index>(segment.stateStart)) = xi;
   }
   return state;
 }
 
 TEST(StateManifoldFactory, AQuaternionLayoutIsTheProductOfItsBlocks) {
-  // Centroidal [h(6), p(3), xi(4), q_j(5)] and whole body [p(3), xi(4), q_j(5), pd(3), w_B(3), qd_j(5)].
-  const std::vector<std::pair<StateInputLayout::Mpc, std::vector<StateManifoldSegment>>> expectations = {
-      {StateInputLayout::Mpc::kCentroidal,
-       {StateManifoldSegment::euclidean(9), StateManifoldSegment::unitQuaternion(), StateManifoldSegment::euclidean(5)}},
-      {StateInputLayout::Mpc::kWholeBody,
-       {StateManifoldSegment::euclidean(3), StateManifoldSegment::unitQuaternion(), StateManifoldSegment::euclidean(16)}},
-  };
-  for (const std::pair<StateInputLayout::Mpc, std::vector<StateManifoldSegment>>& expected : expectations) {
-    const TuningLayout layout = placeTuningLayout(tuningLayoutOf(layoutOf(expected.first)));
+  // Centroidal [h(6), p(3), xi(4), q_j(5)] and whole body [p(3), xi(4), q_j(5),
+  // pd(3), w_B(3), qd_j(5)].
+  const std::vector<
+      std::pair<StateInputLayout::Mpc, std::vector<StateManifoldSegment>>>
+      expectations = {
+          {StateInputLayout::Mpc::kCentroidal,
+           {StateManifoldSegment::euclidean(9),
+            StateManifoldSegment::unitQuaternion(),
+            StateManifoldSegment::euclidean(5)}},
+          {StateInputLayout::Mpc::kWholeBody,
+           {StateManifoldSegment::euclidean(3),
+            StateManifoldSegment::unitQuaternion(),
+            StateManifoldSegment::euclidean(16)}},
+      };
+  for (const std::pair<StateInputLayout::Mpc,
+                       std::vector<StateManifoldSegment>>& expected :
+       expectations) {
+    const TuningLayout layout =
+        placeTuningLayout(tuningLayoutOf(layoutOf(expected.first)));
     const size_t stateDim = getTuningLayoutStateDim(layout);
     ASSERT_EQ(stateDim, getTuningLayoutDim(layout) + 1);
-    const absl::StatusOr<std::shared_ptr<const StateManifold>> manifold = stateManifoldOf(layout, stateDim);
+    const absl::StatusOr<std::shared_ptr<const StateManifold>> manifold =
+        stateManifoldOf(layout, stateDim);
     ASSERT_TRUE(manifold.ok()) << manifold.status();
     ASSERT_NE(*manifold, nullptr);
     EXPECT_EQ((*manifold)->getAmbientDim(), stateDim);
     EXPECT_EQ((*manifold)->getTangentDim(), getTuningLayoutDim(layout));
 
-    // It is the manifold of the expected blocks: the same difference and retraction, bit for bit.
-    const absl::StatusOr<std::shared_ptr<const ProductStateManifold>> reference = ProductStateManifold::create(expected.second);
+    // It is the manifold of the expected blocks: the same difference and
+    // retraction, bit for bit.
+    const absl::StatusOr<std::shared_ptr<const ProductStateManifold>>
+        reference = ProductStateManifold::create(expected.second);
     ASSERT_TRUE(reference.ok()) << reference.status();
-    const vector_t x0 = stateWithOrientation(layout, /*first=*/0.1, vector4_t(0.1, -0.2, 0.3, 0.9).normalized());
-    const vector_t x1 = stateWithOrientation(layout, /*first=*/0.35, vector4_t(-0.3, 0.1, 0.2, 0.8).normalized());
+    const vector_t x0 = stateWithOrientation(
+        layout, /*first=*/0.1, vector4_t(0.1, -0.2, 0.3, 0.9).normalized());
+    const vector_t x1 = stateWithOrientation(
+        layout, /*first=*/0.35, vector4_t(-0.3, 0.1, 0.2, 0.8).normalized());
     const vector_t delta = (*manifold)->difference(x0, x1);
     EXPECT_EQ(delta, (*reference)->difference(x0, x1));
     vector_t retracted;
@@ -106,37 +131,52 @@ TEST(StateManifoldFactory, AQuaternionLayoutIsTheProductOfItsBlocks) {
 }
 
 TEST(StateManifoldFactory, ALayoutThatDoesNotDescribeTheStateIsRefused) {
-  const TuningLayout placed = placeTuningLayout(tuningLayoutOf(layoutOf(StateInputLayout::Mpc::kCentroidal)));
+  const TuningLayout placed = placeTuningLayout(
+      tuningLayoutOf(layoutOf(StateInputLayout::Mpc::kCentroidal)));
 
   // A state of another size.
-  const absl::StatusOr<std::shared_ptr<const StateManifold>> wrongSize = stateManifoldOf(placed, getTuningLayoutStateDim(placed) - 1);
+  const absl::StatusOr<std::shared_ptr<const StateManifold>> wrongSize =
+      stateManifoldOf(placed, getTuningLayoutStateDim(placed) - 1);
   ASSERT_FALSE(wrongSize.ok());
   EXPECT_EQ(wrongSize.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(absl::StrContains(wrongSize.status().message(), "centroidal tuning layout")) << wrongSize.status();
+  EXPECT_TRUE(absl::StrContains(wrongSize.status().message(),
+                                "centroidal tuning layout"))
+      << wrongSize.status();
 
   // A layout that placeTuningLayout() has not placed.
   const absl::StatusOr<std::shared_ptr<const StateManifold>> unplaced =
-      stateManifoldOf(tuningLayoutOf(layoutOf(StateInputLayout::Mpc::kCentroidal)), getTuningLayoutStateDim(placed));
+      stateManifoldOf(
+          tuningLayoutOf(layoutOf(StateInputLayout::Mpc::kCentroidal)),
+          getTuningLayoutStateDim(placed));
   ASSERT_FALSE(unplaced.ok());
   EXPECT_EQ(unplaced.status().code(), absl::StatusCode::kInvalidArgument);
 
-  // An orientation placed by hand on another number of state rows than the quaternion's 4, the blocks after it moved to
-  // follow on: the 3 of its Euler angles and 5.
+  // An orientation placed by hand on another number of state rows than the
+  // quaternion's 4, the blocks after it moved to follow on: the 3 of its Euler
+  // angles and 5.
   const std::vector<size_t> malformedOrientationRows = {3, 5};
   for (const size_t orientationRows : malformedOrientationRows) {
     TuningLayout malformed = placed;
     size_t stateStart = 0;
     for (TuningSegment& segment : malformed.segments) {
       segment.stateStart = stateStart;
-      if (segment.kind == TuningSegmentKind::kEulerZyxOrientation) segment.stateDim = orientationRows;
+      if (segment.kind == TuningSegmentKind::kEulerZyxOrientation)
+        segment.stateDim = orientationRows;
       stateStart += segment.stateDim;
     }
-    const absl::StatusOr<std::shared_ptr<const StateManifold>> wrongOrientation =
-        stateManifoldOf(malformed, getTuningLayoutStateDim(malformed));
-    ASSERT_FALSE(wrongOrientation.ok()) << orientationRows << " orientation rows got a manifold";
-    EXPECT_EQ(wrongOrientation.status().code(), absl::StatusCode::kInvalidArgument);
-    EXPECT_TRUE(absl::StrContains(wrongOrientation.status().message(), "'base_orientation'")) << wrongOrientation.status();
-    EXPECT_TRUE(absl::StrContains(wrongOrientation.status().message(), "as a quaternion, on 4 rows")) << wrongOrientation.status();
+    const absl::StatusOr<std::shared_ptr<const StateManifold>>
+        wrongOrientation =
+            stateManifoldOf(malformed, getTuningLayoutStateDim(malformed));
+    ASSERT_FALSE(wrongOrientation.ok())
+        << orientationRows << " orientation rows got a manifold";
+    EXPECT_EQ(wrongOrientation.status().code(),
+              absl::StatusCode::kInvalidArgument);
+    EXPECT_TRUE(absl::StrContains(wrongOrientation.status().message(),
+                                  "'base_orientation'"))
+        << wrongOrientation.status();
+    EXPECT_TRUE(absl::StrContains(wrongOrientation.status().message(),
+                                  "as a quaternion, on 4 rows"))
+        << wrongOrientation.status();
   }
 }
 

@@ -37,7 +37,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace robot::model {
 
-RobotState::RobotState(const RobotDescription& robotDescription, size_t contactSize)
+RobotState::RobotState(const RobotDescription& robotDescription,
+                       size_t contactSize)
     : jointStateMap_(robotDescription),
       rootPosition_(vector3_t::Zero()),
       rootLinearVelocity_(vector3_t::Zero()),
@@ -51,7 +52,8 @@ RobotState::RobotState(const RobotDescription& robotDescription, size_t contactS
 
   setConfigurationToZero();
 
-  std::fill(contactFlags_.begin(), contactFlags_.end(), true);  // Assume robot is in contact
+  std::fill(contactFlags_.begin(), contactFlags_.end(),
+            true);  // Assume robot is in contact
 }
 
 const JointState* absl_nullable RobotState::findJoint(size_t jointId) const {
@@ -105,7 +107,8 @@ void RobotState::setConfigurationToZero() {
     joint.measuredEffort = 0.0;
   }
 
-  std::fill(contactFlags_.begin(), contactFlags_.end(), true);  // Assume robot is in contact
+  std::fill(contactFlags_.begin(), contactFlags_.end(),
+            true);  // Assume robot is in contact
 }
 
 }  // namespace robot::model

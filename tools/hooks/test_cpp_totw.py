@@ -84,7 +84,10 @@ class TotwTest(unittest.TestCase):
             path="src/a.h",
         )
         self.assertEqual(
-            _count(totw.check_header_constant, "constexpr int kN = 2;", "src/a.cpp"), 0
+            _count(
+                totw.check_header_constant, "constexpr int kN = 2;", "src/a.cpp"
+            ),
+            0,
         )
 
     def test_string_constant(self):
@@ -104,19 +107,36 @@ class TotwTest(unittest.TestCase):
         )
 
     def test_enum_switch_default(self):
-        flagged = "switch (mode) {\n  case Mode::kWalk:\n    break;\n  default:\n    break;\n}"
+        flagged = (
+            "switch (mode) {\n  case Mode::kWalk:\n    break;\n  default:\n   "
+            " break;\n}"
+        )
         self.assertEqual(
-            _count(totw.check_enum_switch_default, f"void f() {{\n{flagged}\n}}"), 1
+            _count(
+                totw.check_enum_switch_default, f"void f() {{\n{flagged}\n}}"
+            ),
+            1,
         )
         for clean in [
-            "void f() { switch (mode) { case Mode::kWalk: break; case Mode::kStand: break; } }",
+            (
+                "void f() { switch (mode) { case Mode::kWalk: break; case"
+                " Mode::kStand: break; } }"
+            ),
             "void f() { switch (c) { case 'a': break; default: break; } }",
-            "void f() { switch (proto) { case Proto::WALK: break; default: break; } }",
+            (
+                "void f() { switch (proto) { case Proto::WALK: break; default:"
+                " break; } }"
+            ),
             # A std::variant's index, against index constants (nproto's oneofs).
-            "void f() { switch (value.shape.index()) { case Oneofs::kRadiusIndex: break; default: break; } }",
+            (
+                "void f() { switch (value.shape.index()) { case"
+                " Oneofs::kRadiusIndex: break; default: break; } }"
+            ),
         ]:
             with self.subTest(clean=clean):
-                self.assertEqual(_count(totw.check_enum_switch_default, clean), 0)
+                self.assertEqual(
+                    _count(totw.check_enum_switch_default, clean), 0
+                )
 
     def test_at(self):
         self.assert_cases(
@@ -184,7 +204,10 @@ class TotwTest(unittest.TestCase):
                 "void f(const absl::Span<const int>& s);",
                 "void f(const absl::Duration& d);",
             ],
-            ["void f(absl::string_view s);", "void f(absl::Span<const int> s);"],
+            [
+                "void f(absl::string_view s);",
+                "void f(absl::Span<const int> s);",
+            ],
         )
 
     def test_optional_ref_param(self):
@@ -219,7 +242,12 @@ class TotwTest(unittest.TestCase):
                 'std::string mode_{"WB_MPC"};',
                 "size_t n{0};",
             ],
-            ["bool done_ = false;", "vector_t x{3};", "Foo foo{1};", "int x{y};"],
+            [
+                "bool done_ = false;",
+                "vector_t x{3};",
+                "Foo foo{1};",
+                "int x{y};",
+            ],
         )
         self.assertEqual(
             totw.fix_brace_literal_init(
@@ -289,14 +317,20 @@ class TotwTest(unittest.TestCase):
                 "template <> struct ::std::hash<Bar> {};",
                 "template <> class std::numeric_limits<Bar> {};",
                 "template <> struct formatter<Bar> {};",
-                "template <> struct std::tuple_size<Bar> : std::integral_constant<size_t, 2> {};",
+                (
+                    "template <> struct std::tuple_size<Bar> :"
+                    " std::integral_constant<size_t, 2> {};"
+                ),
                 "template <> struct absl::hash_internal::HashImpl<Bar> {};",
             ],
             [
                 "namespace stdx {}",
                 "std::hash<int> h;",
                 "template <typename T> struct Hasher<T> {};",
-                "struct Bar { template <typename H> friend H AbslHashValue(H h, const Bar& b); };",
+                (
+                    "struct Bar { template <typename H> friend H"
+                    " AbslHashValue(H h, const Bar& b); };"
+                ),
                 "size_t n = std::tuple_size<std::tuple<int>>::value;",
             ],
         )
@@ -335,12 +369,18 @@ class TotwTest(unittest.TestCase):
             0,
         )
         self.assertEqual(
-            _count(totw.check_flag_location, "ABSL_DECLARE_FLAG(int, x);", "src/A.cpp"),
+            _count(
+                totw.check_flag_location,
+                "ABSL_DECLARE_FLAG(int, x);",
+                "src/A.cpp",
+            ),
             1,
         )
         self.assertEqual(
             _count(
-                totw.check_flag_location, "ABSL_DECLARE_FLAG(int, x);", "src/AppFlags.h"
+                totw.check_flag_location,
+                "ABSL_DECLARE_FLAG(int, x);",
+                "src/AppFlags.h",
             ),
             0,
         )
@@ -397,8 +437,16 @@ class RegistryTest(unittest.TestCase):
             ("totw-at", "int x = v.at(3);\n", "src/a.cpp"),
             ("totw-raw-new", "Foo* p = new Foo();\n", "src/a.cpp"),
             ("totw-printf", 'int n = printf("%d", x);\n', "src/a.cpp"),
-            ("totw-small-by-const-ref", "void f(const double& x);\n", "src/a.cpp"),
-            ("totw-view-param", "void f(const absl::string_view& s);\n", "src/a.cpp"),
+            (
+                "totw-small-by-const-ref",
+                "void f(const double& x);\n",
+                "src/a.cpp",
+            ),
+            (
+                "totw-view-param",
+                "void f(const absl::string_view& s);\n",
+                "src/a.cpp",
+            ),
             (
                 "totw-optional-ref-param",
                 "void f(const std::optional<Foo>& foo);\n",
@@ -410,7 +458,11 @@ class RegistryTest(unittest.TestCase):
                 "src/a.cpp",
             ),
             ("totw-brace-literal-init", "bool done_{false};\n", "src/a.h"),
-            ("totw-namespace-name", "namespace robot::testing {}\n", "src/a.cpp"),
+            (
+                "totw-namespace-name",
+                "namespace robot::testing {}\n",
+                "src/a.cpp",
+            ),
             ("totw-unscoped-enum", "enum Index : int { kA };\n", "src/a.cpp"),
             (
                 "totw-view-member",
@@ -423,19 +475,30 @@ class RegistryTest(unittest.TestCase):
                 "src/a.h",
             ),
             ("totw-std-specialization", "namespace std {\n}\n", "src/a.cpp"),
-            ("totw-flag-location", 'ABSL_FLAG(int, x, 1, "x");\n', "src/Library.cpp"),
+            (
+                "totw-flag-location",
+                'ABSL_FLAG(int, x, 1, "x");\n',
+                "src/Library.cpp",
+            ),
             ("totw-size-minus", "bool b = i < v.size() - 1;\n", "src/a.cpp"),
-            ("totw-c-str-stored", "const char* name = Name().c_str();\n", "src/a.cpp"),
+            (
+                "totw-c-str-stored",
+                "const char* name = Name().c_str();\n",
+                "src/a.cpp",
+            ),
             ("totw-reader-lock", "std::shared_mutex mutex_;\n", "src/a.cpp"),
         ]:
             with self.subTest(check=name):
-                check_test_support.assert_check_behaves(self, name, flagged, path)
+                check_test_support.assert_check_behaves(
+                    self, name, flagged, path
+                )
 
     def test_the_enum_switch_default_check_behaves(self):
         check_test_support.assert_check_behaves(
             self,
             "totw-enum-switch-default",
-            "void f() {\n  switch (mode) {\n    case Mode::kWalk:\n      break;\n    default:\n      break;\n  }\n}\n",
+            "void f() {\n  switch (mode) {\n    case Mode::kWalk:\n     "
+            " break;\n    default:\n      break;\n  }\n}\n",
             "src/a.cpp",
         )
 

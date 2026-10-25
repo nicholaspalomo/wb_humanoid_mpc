@@ -38,9 +38,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::teleop {
 
 /**
- * Reads lines from a file descriptor (the terminal's standard input) without blocking a shutdown: it waits for input
- * in slices of `pollPeriod` and gives up when the caller's stop predicate holds, so that Ctrl-C ends a program waiting
- * for a line.
+ * Reads lines from a file descriptor (the terminal's standard input) without
+ * blocking a shutdown: it waits for input in slices of `pollPeriod` and gives
+ * up when the caller's stop predicate holds, so that Ctrl-C ends a program
+ * waiting for a line.
  *
  * Not thread-safe: one thread reads.
  */
@@ -49,11 +50,13 @@ class LineReader {
   /** The default of `pollPeriod`. */
   static constexpr absl::Duration kDefaultPollPeriod = absl::Milliseconds(100);
 
-  explicit LineReader(int fileDescriptor, absl::Duration pollPeriod = kDefaultPollPeriod);
+  explicit LineReader(int fileDescriptor,
+                      absl::Duration pollPeriod = kDefaultPollPeriod);
 
   /**
-   * The next line, without its line break; nullopt at the end of the input (a last line without a line break is still
-   * returned first), on a read error, or once `shouldStop()` holds.
+   * The next line, without its line break; nullopt at the end of the input (a
+   * last line without a line break is still returned first), on a read error,
+   * or once `shouldStop()` holds.
    */
   std::optional<std::string> readLine(absl::FunctionRef<bool()> shouldStop);
 

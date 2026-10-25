@@ -38,21 +38,29 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::ipc {
 
 /**
- * Returns the controller of a policy as one of the three controller types the MPC link carries
- * (MpcMessageConversions.h), when it is of exactly that type, and null when it is of another type. The conversions, the
- * solution time window and the realtime evaluator tell them apart through these; nothing else in the package asks for a
- * controller's type.
+ * Returns the controller of a policy as one of the three controller types the
+ * MPC link carries (MpcMessageConversions.h), when it is of exactly that type,
+ * and null when it is of another type. The conversions, the solution time
+ * window and the realtime evaluator tell them apart through these; nothing else
+ * in the package asks for a controller's type.
  *
- * ControllerBase::getType() cannot tell them apart: a controller of another class may report one of the three types.
- * The three classes are final, so the exact type is the one dynamic_cast would find. A call compares two
- * std::type_info objects, allocates nothing and does not log, so the realtime thread may make it. Each pair of overloads
- * is the same function for a const and a mutable controller, and returns `controller` itself or null.
+ * ControllerBase::getType() cannot tell them apart: a controller of another
+ * class may report one of the three types. The three classes are final, so the
+ * exact type is the one dynamic_cast would find. A call compares two
+ * std::type_info objects, allocates nothing and does not log, so the realtime
+ * thread may make it. Each pair of overloads is the same function for a const
+ * and a mutable controller, and returns `controller` itself or null.
  */
-const FeedforwardController* absl_nullable asFeedforwardController(const ControllerBase& controller);
-FeedforwardController* absl_nullable asFeedforwardController(ControllerBase& controller);
-const LinearController* absl_nullable asLinearController(const ControllerBase& controller);
+const FeedforwardController* absl_nullable asFeedforwardController(
+    const ControllerBase& controller);
+FeedforwardController* absl_nullable asFeedforwardController(
+    ControllerBase& controller);
+const LinearController* absl_nullable asLinearController(
+    const ControllerBase& controller);
 LinearController* absl_nullable asLinearController(ControllerBase& controller);
-const ManifoldLinearController* absl_nullable asManifoldLinearController(const ControllerBase& controller);
-ManifoldLinearController* absl_nullable asManifoldLinearController(ControllerBase& controller);
+const ManifoldLinearController* absl_nullable asManifoldLinearController(
+    const ControllerBase& controller);
+ManifoldLinearController* absl_nullable asManifoldLinearController(
+    ControllerBase& controller);
 
 }  // namespace ocs2::humanoid::ipc

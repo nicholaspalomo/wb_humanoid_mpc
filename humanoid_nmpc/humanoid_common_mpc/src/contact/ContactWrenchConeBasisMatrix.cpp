@@ -52,90 +52,132 @@ namespace ocs2::humanoid {
 
 namespace {
 
-constexpr size_t kNumConservativeExtraGenerators = 7;  // 1 normal + 4 CoP corners + 2 torsional
+constexpr size_t kNumConservativeExtraGenerators =
+    7;  // 1 normal + 4 CoP corners + 2 torsional
 
-constexpr scalar_t kPatchInsideTolerance = 1.0e-9;      // [m] slack when checking that the patch point is on the footprint
-constexpr scalar_t kConeFeasibilityTolerance = 1.0e-9;  // slack of the generator feasibility self-check
+constexpr scalar_t kPatchInsideTolerance =
+    1.0e-9;  // [m] slack when checking that the patch point is on the footprint
+constexpr scalar_t kConeFeasibilityTolerance =
+    1.0e-9;  // slack of the generator feasibility self-check
 constexpr scalar_t kPseudoInverseRelativeTolerance = 1.0e-6;
-constexpr scalar_t kNonNegativeRelativeTolerance = 1.0e-12;  // how negative B+ W may be and still count as non-negative
-constexpr scalar_t kNnlsRelativeTolerance = 1.0e-12;         // Lawson-Hanson optimality tolerance, relative to |A| |b|
+constexpr scalar_t kNonNegativeRelativeTolerance =
+    1.0e-12;  // how negative B+ W may be and still count as non-negative
+constexpr scalar_t kNnlsRelativeTolerance =
+    1.0e-12;  // Lawson-Hanson optimality tolerance, relative to |A| |b|
 constexpr size_t kNnlsIterationsPerColumn = 5;
 
-constexpr absl::string_view kContactRectanglePrefix = "contacts.contact_rectangle.";
+constexpr absl::string_view kContactRectanglePrefix =
+    "contacts.contact_rectangle.";
 
-constexpr scalar_t kHashZeroThreshold = 1.0e-12;  // entries below this magnitude are hashed as zero
+constexpr scalar_t kHashZeroThreshold =
+    1.0e-12;  // entries below this magnitude are hashed as zero
 
 /**
- * Wrench of a force applied at the planar point `point` of the contact frame, plus a torsion about the contact normal.
- * The moment is taken about the contact frame origin.
+ * Wrench of a force applied at the planar point `point` of the contact frame,
+ * plus a torsion about the contact normal. The moment is taken about the
+ * contact frame origin.
  */
-vector6_t wrenchAt(const vector2_t& point, const vector3_t& force, scalar_t torsion) {
+vector6_t wrenchAt(const vector2_t& point,
+                   const vector3_t& force,
+                   scalar_t torsion) {
   vector6_t wrench;
   wrench.head<kForceDim>() = force;
-  wrench.tail<kTorqueDim>() = vector3_t(point.x(), point.y(), 0.0).cross(force) + vector3_t(0.0, 0.0, torsion);
+  wrench.tail<kTorqueDim>() =
+      vector3_t(point.x(), point.y(), 0.0).cross(force) +
+      vector3_t(0.0, 0.0, torsion);
   return wrench;
 }
 
 /** The N + 7 set, see kConservativeInnerApproximationGeneratorSet. */
-absl::StatusOr<matrix_t> buildConservativeInnerApproximation(const ContactWrenchConeConstraint::Config& config,
-                                                             const ContactRectangle& contactRectangle) {
+absl::StatusOr<matrix_t> buildConservativeInnerApproximation(
+    const ContactWrenchConeConstraint::Config& config,
+    const ContactRectangle& contactRectangle) {
   const PolygonBounds& bounds = contactRectangle.getBounds();
-  const vector3_t patchPoint = contactPatchReferencePoint(config, contactRectangle);
-  if (patchPoint.x() < bounds.x_min - kPatchInsideTolerance || patchPoint.x() > bounds.x_max + kPatchInsideTolerance ||
-      patchPoint.y() < bounds.y_min - kPatchInsideTolerance || patchPoint.y() > bounds.y_max + kPatchInsideTolerance) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("[ContactWrenchConeBasisMatrix] the patch point (", patchPoint.x(), ", ", patchPoint.y(), ") lies outside ",
-                     kContactRectanglePrefix, "{x_min, x_max, y_min, y_max} = [", bounds.x_min, ", ", bounds.x_max, "] x [", bounds.y_min,
-                     ", ", bounds.y_max, "]. The '", kConservativeInnerApproximationGeneratorSet,
-                     "' generator set applies its friction and torsion rays at that point, so they would leave the footprint; enlarge the "
-                     "footprint, move the patch offset onto it, or set ",
-                     kBasisGeneratorSetKey, ": ", kExactWrenchConeGeneratorSet, "."));
+  const vector3_t patchPoint =
+      contactPatchReferencePoint(config, contactRectangle);
+  if (patchPoint.x() < bounds.x_min - kPatchInsideTolerance ||
+      patchPoint.x() > bounds.x_max + kPatchInsideTolerance ||
+      patchPoint.y() < bounds.y_min - kPatchInsideTolerance ||
+      patchPoint.y() > bounds.y_max + kPatchInsideTolerance) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[ContactWrenchConeBasisMatrix] the patch point (", patchPoint.x(),
+        ", ", patchPoint.y(), ") lies outside ", kContactRectanglePrefix,
+        "{x_min, x_max, y_min, y_max} = [", bounds.x_min, ", ", bounds.x_max,
+        "] x [", bounds.y_min, ", ", bounds.y_max, "]. The '",
+        kConservativeInnerApproximationGeneratorSet,
+        "' generator set applies its friction and torsion rays at that point, "
+        "so they would leave the footprint; enlarge the "
+        "footprint, move the patch offset onto it, or set ",
+        kBasisGeneratorSetKey, ": ", kExactWrenchConeGeneratorSet, "."));
   }
   const vector2_t patchXy(patchPoint.x(), patchPoint.y());
-  // The torsion a unit normal force at the patch point can carry, from the cone's own rows: the corner friction decides
-  // it, not a separate coefficient. A patch point on the footprint boundary is clamped onto it first.
-  const vector2_t clampedPatch(std::clamp(patchXy.x(), bounds.x_min, bounds.x_max), std::clamp(patchXy.y(), bounds.y_min, bounds.y_max));
+  // The torsion a unit normal force at the patch point can carry, from the
+  // cone's own rows: the corner friction decides it, not a separate
+  // coefficient. A patch point on the footprint boundary is clamped onto it
+  // first.
+  const vector2_t clampedPatch(
+      std::clamp(patchXy.x(), bounds.x_min, bounds.x_max),
+      std::clamp(patchXy.y(), bounds.y_min, bounds.y_max));
   const std::optional<TorsionInterval> torsionLimits =
-      torsionLimitsOfNormalForceAt(buildLocalWrenchConeRows(config, contactRectangle), clampedPatch);
+      torsionLimitsOfNormalForceAt(
+          buildLocalWrenchConeRows(config, contactRectangle), clampedPatch);
   if (!torsionLimits.has_value()) {
-    return absl::InternalError("[ContactWrenchConeBasisMatrix] a unit normal force at the patch point is outside the wrench cone");
+    return absl::InternalError(
+        "[ContactWrenchConeBasisMatrix] a unit normal force at the patch point "
+        "is outside the wrench cone");
   }
   if (torsionLimits->upper - torsionLimits->lower <= kPatchInsideTolerance) {
-    // On a corner the whole load sits on one corner force, whose friction has no lever arm: the torsion rays would
-    // carry no torsion and the set would not span the yaw moment at all.
-    return absl::InvalidArgumentError(
-        absl::StrCat("[ContactWrenchConeBasisMatrix] the patch point (", patchPoint.x(), ", ", patchPoint.y(), ") is a corner of ",
-                     kContactRectanglePrefix, "{x_min, x_max, y_min, y_max}, where a normal force can carry no torsion, so the '",
-                     kConservativeInnerApproximationGeneratorSet,
-                     "' generator set would not span the yaw moment; move the patch offset off the corner or set ", kBasisGeneratorSetKey,
-                     ": ", kExactWrenchConeGeneratorSet, "."));
+    // On a corner the whole load sits on one corner force, whose friction has
+    // no lever arm: the torsion rays would carry no torsion and the set would
+    // not span the yaw moment at all.
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[ContactWrenchConeBasisMatrix] the patch point (", patchPoint.x(),
+        ", ", patchPoint.y(), ") is a corner of ", kContactRectanglePrefix,
+        "{x_min, x_max, y_min, y_max}, where a normal force can carry no "
+        "torsion, so the '",
+        kConservativeInnerApproximationGeneratorSet,
+        "' generator set would not span the yaw moment; move the patch offset "
+        "off the corner or set ",
+        kBasisGeneratorSetKey, ": ", kExactWrenchConeGeneratorSet, "."));
   }
 
   const size_t numDirections = config.numBasisVectors;
-  matrix_t basis = matrix_t::Zero(kWrenchDim, static_cast<Eigen::Index>(numDirections + kNumConservativeExtraGenerators));
+  matrix_t basis = matrix_t::Zero(
+      kWrenchDim, static_cast<Eigen::Index>(numDirections +
+                                            kNumConservativeExtraGenerators));
   Eigen::Index column = 0;
   // 1. Friction-pyramid edges at the patch point.
   for (const vector3_t& edge : frictionPyramidEdges(config)) {
     basis.col(column++) = wrenchAt(clampedPatch, edge, /*torsion=*/0.0);
   }
   // 2. A pure normal force at the patch point.
-  basis.col(column++) = wrenchAt(clampedPatch, vector3_t::UnitZ(), /*torsion=*/0.0);
-  // 3. A unit normal force at each footprint corner, which puts the center of pressure on that corner.
+  basis.col(column++) =
+      wrenchAt(clampedPatch, vector3_t::UnitZ(), /*torsion=*/0.0);
+  // 3. A unit normal force at each footprint corner, which puts the center of
+  // pressure on that corner.
   for (const vector2_t& corner : footprintCorners(contactRectangle)) {
     basis.col(column++) = wrenchAt(corner, vector3_t::UnitZ(), /*torsion=*/0.0);
   }
-  // 4. A unit normal force at the patch point with the torsional limit of either sign.
-  basis.col(column++) = wrenchAt(clampedPatch, vector3_t::UnitZ(), torsionLimits->upper);
-  basis.col(column++) = wrenchAt(clampedPatch, vector3_t::UnitZ(), torsionLimits->lower);
-  ABSL_CHECK_EQ(column, basis.cols()) << "ContactWrenchConeBasisMatrix: a generator set filled another number of columns than it has";
+  // 4. A unit normal force at the patch point with the torsional limit of
+  // either sign.
+  basis.col(column++) =
+      wrenchAt(clampedPatch, vector3_t::UnitZ(), torsionLimits->upper);
+  basis.col(column++) =
+      wrenchAt(clampedPatch, vector3_t::UnitZ(), torsionLimits->lower);
+  ABSL_CHECK_EQ(column, basis.cols())
+      << "ContactWrenchConeBasisMatrix: a generator set filled another number "
+         "of columns than it has";
   return basis;
 }
 
 /**
- * The 4N set, see kExactWrenchConeGeneratorSet: the corner generators the wrench cone is defined by
- * (cornerContactWrenchGenerators), whose conic hull the rows of buildLocalWrenchConeRows describe.
+ * The 4N set, see kExactWrenchConeGeneratorSet: the corner generators the
+ * wrench cone is defined by (cornerContactWrenchGenerators), whose conic hull
+ * the rows of buildLocalWrenchConeRows describe.
  */
-absl::StatusOr<matrix_t> buildExactWrenchCone(const ContactWrenchConeConstraint::Config& config, const ContactRectangle& contactRectangle) {
+absl::StatusOr<matrix_t> buildExactWrenchCone(
+    const ContactWrenchConeConstraint::Config& config,
+    const ContactRectangle& contactRectangle) {
   return cornerContactWrenchGenerators(config, contactRectangle);
 }
 
@@ -147,36 +189,47 @@ struct GeneratorSetEntry {
 
 // LINT.IfChange(basis_generator_set_registry)
 constexpr std::array<GeneratorSetEntry, 2> kGeneratorSetRegistry = {{
-    {.name = kConservativeInnerApproximationGeneratorSet, .builder = &buildConservativeInnerApproximation},
+    {.name = kConservativeInnerApproximationGeneratorSet,
+     .builder = &buildConservativeInnerApproximation},
     {.name = kExactWrenchConeGeneratorSet, .builder = &buildExactWrenchCone},
 }};
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h:basis_generator_set_names)
 
 /**
- * The configuration checks every generator set shares, with messages naming the key to change: the cone's own
- * (ContactWrenchConeConstraint::validateConfig, the one definition of its ranges) and the footprint's
- * (ContactWrenchConeConstraint::validateFootprint: finite, positive length and width).
+ * The configuration checks every generator set shares, with messages naming the
+ * key to change: the cone's own (ContactWrenchConeConstraint::validateConfig,
+ * the one definition of its ranges) and the footprint's
+ * (ContactWrenchConeConstraint::validateFootprint: finite, positive length and
+ * width).
  */
-absl::Status validateConeConfiguration(const ContactWrenchConeConstraint::Config& config, const ContactRectangle& contactRectangle) {
+absl::Status validateConeConfiguration(
+    const ContactWrenchConeConstraint::Config& config,
+    const ContactRectangle& contactRectangle) {
   RETURN_IF_ERROR(ContactWrenchConeConstraint::validateConfig(config));
   return ContactWrenchConeConstraint::validateFootprint(contactRectangle);
 }
 
 matrix_t pseudoInverse(const matrix_t& matrix) {
-  const Eigen::JacobiSVD<matrix_t> svd(matrix, Eigen::ComputeThinU | Eigen::ComputeThinV);
+  const Eigen::JacobiSVD<matrix_t> svd(
+      matrix, Eigen::ComputeThinU | Eigen::ComputeThinV);
   const vector_t& singularValues = svd.singularValues();
-  const scalar_t tolerance = kPseudoInverseRelativeTolerance * singularValues(0);
+  const scalar_t tolerance =
+      kPseudoInverseRelativeTolerance * singularValues(0);
   vector_t singularValuesInverse = vector_t::Zero(singularValues.size());
   for (Eigen::Index i = 0; i < singularValues.size(); ++i) {
     if (singularValues(i) > tolerance) {
       singularValuesInverse(i) = 1.0 / singularValues(i);
     }
   }
-  return svd.matrixV() * singularValuesInverse.asDiagonal() * svd.matrixU().transpose();
+  return svd.matrixV() * singularValuesInverse.asDiagonal() *
+         svd.matrixU().transpose();
 }
 
-/** Least-squares solution restricted to the columns flagged in `passive`, scattered back to the full length. */
-vector_t solvePassiveLeastSquares(const matrix_t& A, const vector_t& b, const std::vector<bool>& passive) {
+/** Least-squares solution restricted to the columns flagged in `passive`,
+ * scattered back to the full length. */
+vector_t solvePassiveLeastSquares(const matrix_t& A,
+                                  const vector_t& b,
+                                  const std::vector<bool>& passive) {
   std::vector<Eigen::Index> passiveColumns;
   for (Eigen::Index j = 0; j < A.cols(); ++j) {
     if (passive[static_cast<size_t>(j)]) {
@@ -210,24 +263,30 @@ std::vector<std::string> basisGeneratorSetNames() {
   return names;
 }
 
-absl::StatusOr<BasisGeneratorSetBuilder> getBasisGeneratorSetBuilder(absl::string_view name) {
+absl::StatusOr<BasisGeneratorSetBuilder> getBasisGeneratorSetBuilder(
+    absl::string_view name) {
   for (const GeneratorSetEntry& entry : kGeneratorSetRegistry) {
     if (entry.name == name) {
       return entry.builder;
     }
   }
-  return absl::InvalidArgumentError(absl::StrCat("[ContactWrenchConeBasisMatrix] unknown ", kBasisGeneratorSetKey, " '", name,
-                                                 "'; valid names are: ", absl::StrJoin(basisGeneratorSetNames(), ", "), "."));
+  return absl::InvalidArgumentError(
+      absl::StrCat("[ContactWrenchConeBasisMatrix] unknown ",
+                   kBasisGeneratorSetKey, " '", name, "'; valid names are: ",
+                   absl::StrJoin(basisGeneratorSetNames(), ", "), "."));
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-absl::StatusOr<ContactWrenchConeBasisMatrix> ContactWrenchConeBasisMatrix::Create(const ContactWrenchConeConstraint::Config& config,
-                                                                                  const ContactRectangle& contactRectangle,
-                                                                                  absl::string_view generatorSet) {
-  const absl::StatusOr<BasisGeneratorSetBuilder> builder = getBasisGeneratorSetBuilder(generatorSet);
+absl::StatusOr<ContactWrenchConeBasisMatrix>
+ContactWrenchConeBasisMatrix::Create(
+    const ContactWrenchConeConstraint::Config& config,
+    const ContactRectangle& contactRectangle,
+    absl::string_view generatorSet) {
+  const absl::StatusOr<BasisGeneratorSetBuilder> builder =
+      getBasisGeneratorSetBuilder(generatorSet);
   if (!builder.ok()) {
     return builder.status();
   }
@@ -237,31 +296,44 @@ absl::StatusOr<ContactWrenchConeBasisMatrix> ContactWrenchConeBasisMatrix::Creat
     return basis.status();
   }
 
-  // Guard the invariant the whole formulation rests on: a non-negative combination of the generators is inside the
-  // cone if and only if every generator is. A violation here would silently remove the friction or torsion limit from
-  // the MPC, because the explicit cone constraint is dropped when basis-vector inputs are active.
-  const ContactWrenchConeRows coneRows = buildLocalWrenchConeRows(config, contactRectangle);
+  // Guard the invariant the whole formulation rests on: a non-negative
+  // combination of the generators is inside the cone if and only if every
+  // generator is. A violation here would silently remove the friction or
+  // torsion limit from the MPC, because the explicit cone constraint is dropped
+  // when basis-vector inputs are active.
+  const ContactWrenchConeRows coneRows =
+      buildLocalWrenchConeRows(config, contactRectangle);
   for (Eigen::Index j = 0; j < basis->cols(); ++j) {
     const vector_t rowValues = coneRows.evaluateCone(vector6_t(basis->col(j)));
     if (rowValues.minCoeff() < -kConeFeasibilityTolerance) {
       Eigen::Index worstRow = 0;
       rowValues.minCoeff(&worstRow);
-      return absl::InternalError(absl::StrCat("[ContactWrenchConeBasisMatrix] generator ", j, " of the '", generatorSet,
-                                              "' set lies outside the contact wrench cone: row ", worstRow, " evaluates to ",
-                                              rowValues(worstRow), ". This is a bug in the generator set, not a configuration error."));
+      return absl::InternalError(absl::StrCat(
+          "[ContactWrenchConeBasisMatrix] generator ", j, " of the '",
+          generatorSet, "' set lies outside the contact wrench cone: row ",
+          worstRow, " evaluates to ", rowValues(worstRow),
+          ". This is a bug in the generator set, not a configuration error."));
     }
   }
-  return ContactWrenchConeBasisMatrix(std::string(generatorSet), *std::move(basis));
+  return ContactWrenchConeBasisMatrix(std::string(generatorSet),
+                                      *std::move(basis));
 }
 
-ContactWrenchConeBasisMatrix::ContactWrenchConeBasisMatrix(std::string generatorSet, matrix_t basisMatrix)
-    : generatorSet_(std::move(generatorSet)), B_local_(std::move(basisMatrix)), B_pinv_local_(pseudoInverse(B_local_)) {
-  nullSpaceProjector_ = matrix_t::Identity(B_local_.cols(), B_local_.cols()) - B_pinv_local_ * B_local_;
-  // Symmetrize away the round-off, so that the projector can go straight into a quadratic cost.
-  nullSpaceProjector_ = (0.5 * (nullSpaceProjector_ + nullSpaceProjector_.transpose())).eval();
+ContactWrenchConeBasisMatrix::ContactWrenchConeBasisMatrix(
+    std::string generatorSet, matrix_t basisMatrix)
+    : generatorSet_(std::move(generatorSet)),
+      B_local_(std::move(basisMatrix)),
+      B_pinv_local_(pseudoInverse(B_local_)) {
+  nullSpaceProjector_ = matrix_t::Identity(B_local_.cols(), B_local_.cols()) -
+                        B_pinv_local_ * B_local_;
+  // Symmetrize away the round-off, so that the projector can go straight into a
+  // quadratic cost.
+  nullSpaceProjector_ =
+      (0.5 * (nullSpaceProjector_ + nullSpaceProjector_.transpose())).eval();
 }
 
-vector_t ContactWrenchConeBasisMatrix::solveNonNegativeScalings(const vector6_t& wrenchLocal) const {
+vector_t ContactWrenchConeBasisMatrix::solveNonNegativeScalings(
+    const vector6_t& wrenchLocal) const {
   return solveNonNegativeBasisScalings(B_local_, B_pinv_local_, wrenchLocal);
 }
 
@@ -275,15 +347,20 @@ vector_t solveNonNegativeLeastSquares(const matrix_t& A, const vector_t& b) {
   if (numColumns == 0) {
     return x;
   }
-  // Stationarity tolerance of the gradient A^T (b - A x), relative to the scale of the problem.
+  // Stationarity tolerance of the gradient A^T (b - A x), relative to the scale
+  // of the problem.
   const scalar_t gradientTolerance =
-      kNnlsRelativeTolerance * std::max<scalar_t>(1.0, A.cwiseAbs().maxCoeff()) * std::max<scalar_t>(1.0, b.norm());
+      kNnlsRelativeTolerance *
+      std::max<scalar_t>(1.0, A.cwiseAbs().maxCoeff()) *
+      std::max<scalar_t>(1.0, b.norm());
   std::vector<bool> passive(static_cast<size_t>(numColumns), false);
-  // A column whose least-squares coefficient came out non-positive right after it entered the passive set is left out
-  // until the next outer step, which is the textbook guard against cycling on round-off.
+  // A column whose least-squares coefficient came out non-positive right after
+  // it entered the passive set is left out until the next outer step, which is
+  // the textbook guard against cycling on round-off.
   std::vector<bool> blocked(static_cast<size_t>(numColumns), false);
 
-  const size_t maxIterations = kNnlsIterationsPerColumn * static_cast<size_t>(numColumns);
+  const size_t maxIterations =
+      kNnlsIterationsPerColumn * static_cast<size_t>(numColumns);
   for (size_t iteration = 0; iteration < maxIterations; ++iteration) {
     const vector_t gradient = A.transpose() * (b - A * x);
     Eigen::Index entering = -1;
@@ -301,12 +378,16 @@ vector_t solveNonNegativeLeastSquares(const matrix_t& A, const vector_t& b) {
     std::fill(blocked.begin(), blocked.end(), false);
     passive[static_cast<size_t>(entering)] = true;
 
-    // Inner loop: step towards the unconstrained least-squares solution on the passive set, dropping every column
-    // whose coefficient would turn negative, until that solution is strictly positive.
-    for (size_t inner = 0; inner < static_cast<size_t>(numColumns) + 1; ++inner) {
+    // Inner loop: step towards the unconstrained least-squares solution on the
+    // passive set, dropping every column whose coefficient would turn negative,
+    // until that solution is strictly positive.
+    for (size_t inner = 0; inner < static_cast<size_t>(numColumns) + 1;
+         ++inner) {
       const vector_t z = solvePassiveLeastSquares(A, b, passive);
-      if (z(entering) <= 0.0 && passive[static_cast<size_t>(entering)] && x(entering) <= 0.0) {
-        // Round-off: the entering column does not actually reduce the residual. Undo it and try another one.
+      if (z(entering) <= 0.0 && passive[static_cast<size_t>(entering)] &&
+          x(entering) <= 0.0) {
+        // Round-off: the entering column does not actually reduce the residual.
+        // Undo it and try another one.
         passive[static_cast<size_t>(entering)] = false;
         blocked[static_cast<size_t>(entering)] = true;
         break;
@@ -328,7 +409,9 @@ vector_t solveNonNegativeLeastSquares(const matrix_t& A, const vector_t& b) {
         if (passive[static_cast<size_t>(j)] && x(j) <= 0.0) {
           passive[static_cast<size_t>(j)] = false;
           x(j) = 0.0;
-        } else if (passive[static_cast<size_t>(j)] && z(j) <= 0.0 && x(j) <= kNnlsRelativeTolerance * std::max<scalar_t>(1.0, x.norm())) {
+        } else if (passive[static_cast<size_t>(j)] && z(j) <= 0.0 &&
+                   x(j) <= kNnlsRelativeTolerance *
+                               std::max<scalar_t>(1.0, x.norm())) {
           passive[static_cast<size_t>(j)] = false;
           x(j) = 0.0;
         }
@@ -338,9 +421,13 @@ vector_t solveNonNegativeLeastSquares(const matrix_t& A, const vector_t& b) {
   return x.cwiseMax(0.0);
 }
 
-vector_t solveNonNegativeBasisScalings(const matrix_t& basisMatrix, const matrix_t& basisPseudoInverse, const vector_t& wrench) {
+vector_t solveNonNegativeBasisScalings(const matrix_t& basisMatrix,
+                                       const matrix_t& basisPseudoInverse,
+                                       const vector_t& wrench) {
   const vector_t minimumNorm = basisPseudoInverse * wrench;
-  const scalar_t tolerance = kNonNegativeRelativeTolerance * std::max<scalar_t>(1.0, minimumNorm.cwiseAbs().maxCoeff());
+  const scalar_t tolerance =
+      kNonNegativeRelativeTolerance *
+      std::max<scalar_t>(1.0, minimumNorm.cwiseAbs().maxCoeff());
   if (minimumNorm.size() == 0 || minimumNorm.minCoeff() >= -tolerance) {
     return minimumNorm.cwiseMax(0.0);
   }
@@ -357,10 +444,14 @@ uint64_t basisContentHash(const feet_array_t<matrix_t>& localBasisMatrices) {
     absl::StrAppend(&serialized, basis.rows(), "x", basis.cols(), ":");
     for (Eigen::Index row = 0; row < basis.rows(); ++row) {
       for (Eigen::Index column = 0; column < basis.cols(); ++column) {
-        // Entries that are zero up to round-off (a cosine of pi / 2, say) print as zero, and adding zero turns -0.0 into
-        // 0.0, so that neither the last bits of a libm nor the sign of a zero can change the key.
-        const scalar_t entry = std::abs(basis(row, column)) < kHashZeroThreshold ? 0.0 : basis(row, column);
-        absl::StrAppend(&serialized, absl::StrFormat("%.12g", entry + 0.0), ",");
+        // Entries that are zero up to round-off (a cosine of pi / 2, say) print
+        // as zero, and adding zero turns -0.0 into 0.0, so that neither the
+        // last bits of a libm nor the sign of a zero can change the key.
+        const scalar_t entry = std::abs(basis(row, column)) < kHashZeroThreshold
+                                   ? 0.0
+                                   : basis(row, column);
+        absl::StrAppend(&serialized, absl::StrFormat("%.12g", entry + 0.0),
+                        ",");
       }
     }
     absl::StrAppend(&serialized, ";");
@@ -373,8 +464,11 @@ uint64_t basisContentHash(const feet_array_t<matrix_t>& localBasisMatrices) {
   return hash;
 }
 
-std::string basisInputsLibraryKey(const feet_array_t<matrix_t>& localBasisMatrices) {
-  return absl::StrCat("basis", localBasisMatrices[0].cols(), "_", absl::Hex(basisContentHash(localBasisMatrices), absl::kZeroPad16));
+std::string basisInputsLibraryKey(
+    const feet_array_t<matrix_t>& localBasisMatrices) {
+  return absl::StrCat(
+      "basis", localBasisMatrices[0].cols(), "_",
+      absl::Hex(basisContentHash(localBasisMatrices), absl::kZeroPad16));
 }
 
 }  // namespace ocs2::humanoid

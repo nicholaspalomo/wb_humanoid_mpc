@@ -71,7 +71,9 @@ def _gains(kp: float) -> joint_pd_gains_file_pb2.JointPdGainsFile:
 
 
 def _gains_update(kp: float) -> joint_pd_gains_update_pb2.JointPdGainsUpdate:
-    return operator_bus.joint_pd_gains_update(_gains(kp), config_path=CONFIG_PATH)
+    return operator_bus.joint_pd_gains_update(
+        _gains(kp), config_path=CONFIG_PATH
+    )
 
 
 def wait_for(condition, timeout=TIMEOUT):
@@ -86,7 +88,9 @@ def wait_for(condition, timeout=TIMEOUT):
 class TestTopicPublisher(unittest.TestCase):
     def test_it_publishes_its_message_on_its_topic(self):
         bus = operator_test_support.RecordingBus()
-        publisher = operator_bus.TopicPublisher.for_topic(bus, topics.OPERATOR_PD_GAINS)
+        publisher = operator_bus.TopicPublisher.for_topic(
+            bus, topics.OPERATOR_PD_GAINS
+        )
         self.assertTrue(publisher.publish(_gains_update(1.0)))
         self.assertEqual(len(bus.published), 1)
         topic, message = bus.published[0]
@@ -98,7 +102,9 @@ class TestTopicPublisher(unittest.TestCase):
         publisher = operator_bus.TopicPublisher.for_topic(
             bus, topics.OPERATOR_JOINT_TARGETS
         )
-        with self.assertRaisesRegex(TypeError, "humanoid_mpc_msgs.JointTargets"):
+        with self.assertRaisesRegex(
+            TypeError, "humanoid_mpc_msgs.JointTargets"
+        ):
             publisher.publish(_gains(1.0))
         self.assertEqual(bus.published, [])
 
@@ -107,7 +113,9 @@ class TestTopicPublisher(unittest.TestCase):
             operator_bus.TopicPublisher.for_topic(
                 operator_test_support.RecordingBus(), topics.ROBOT_FSM_STATE
             )
-        with self.assertRaisesRegex(ValueError, "operator/walking_velocity_command"):
+        with self.assertRaisesRegex(
+            ValueError, "operator/walking_velocity_command"
+        ):
             operator_bus.TopicPublisher.for_topic(
                 operator_test_support.RecordingBus(), topics.MPC_POLICY
             )
@@ -121,7 +129,9 @@ class TestTopicPublisher(unittest.TestCase):
             )
         with self.assertRaises(ValueError):
             operator_bus.TopicPublisher(
-                operator_test_support.RecordingBus(), topics.OPERATOR_PD_GAINS, str
+                operator_test_support.RecordingBus(),
+                topics.OPERATOR_PD_GAINS,
+                str,
             )
 
 
@@ -161,7 +171,9 @@ class TestMessageBuilders(unittest.TestCase):
         )
         self.assertEqual(update.config_path, CONFIG_PATH)
 
-    def test_the_parameter_update_carries_the_fingerprint_of_this_builds_schema(self):
+    def test_the_parameter_update_carries_the_fingerprint_of_this_builds_schema(
+        self,
+    ):
         # The receivers refuse an update whose fingerprint is not their own (OperatorPayloadChecks.h).
         update = operator_bus.mpc_parameter_update(
             task_file_pb2.TaskFile(), config_path=CONFIG_PATH
@@ -175,7 +187,9 @@ class TestMessageBuilders(unittest.TestCase):
         self.assertRegex(update.schema_fingerprint, r"^[0-9a-f]{16}$")
 
     def test_joint_targets_is_the_map(self):
-        message = operator_bus.joint_targets({"l_leg_kny": 0.5, "r_leg_kny": -0.25})
+        message = operator_bus.joint_targets(
+            {"l_leg_kny": 0.5, "r_leg_kny": -0.25}
+        )
         self.assertEqual(
             dict(message.positions), {"l_leg_kny": 0.5, "r_leg_kny": -0.25}
         )
@@ -186,7 +200,9 @@ class TestFsmCommandSender(unittest.TestCase):
     def _sender(self, clock_ns):
         bus = operator_test_support.RecordingBus()
         return bus, operator_bus.FsmCommandSender(
-            operator_bus.TopicPublisher.for_topic(bus, topics.OPERATOR_FSM_COMMAND),
+            operator_bus.TopicPublisher.for_topic(
+                bus, topics.OPERATOR_FSM_COMMAND
+            ),
             clock_ns=lambda: clock_ns,
         )
 
@@ -210,19 +226,25 @@ class TestFsmCommandSender(unittest.TestCase):
         for _ in range(5):
             first.send("JOINT_PD")
         _, second = self._sender(2_000)
-        self.assertGreater(second.send("JOINT_PD").sequence, first.last_sequence)
+        self.assertGreater(
+            second.send("JOINT_PD").sequence, first.last_sequence
+        )
 
     def test_the_real_clock_seeds_a_sequence_above_zero(self):
         bus = operator_test_support.RecordingBus()
         sender = operator_bus.FsmCommandSender(
-            operator_bus.TopicPublisher.for_topic(bus, topics.OPERATOR_FSM_COMMAND)
+            operator_bus.TopicPublisher.for_topic(
+                bus, topics.OPERATOR_FSM_COMMAND
+            )
         )
         self.assertGreater(sender.send("ZERO_TORQUE").sequence, 0)
 
     def test_concurrent_senders_never_share_a_sequence(self):
         bus, sender = self._sender(0)
         threads = [
-            threading.Thread(target=lambda: [sender.send("SAFETY") for _ in range(200)])
+            threading.Thread(
+                target=lambda: [sender.send("SAFETY") for _ in range(200)]
+            )
             for _ in range(4)
         ]
         for thread in threads:
@@ -230,19 +252,23 @@ class TestFsmCommandSender(unittest.TestCase):
         for thread in threads:
             thread.join()
         sequences = [
-            message.sequence for message in bus.messages_on(topics.OPERATOR_FSM_COMMAND)
+            message.sequence
+            for message in bus.messages_on(topics.OPERATOR_FSM_COMMAND)
         ]
         self.assertEqual(len(sequences), 800)
         self.assertEqual(len(set(sequences)), 800)
 
-    def test_an_empty_command_or_a_publisher_of_another_message_is_refused(self):
+    def test_an_empty_command_or_a_publisher_of_another_message_is_refused(
+        self,
+    ):
         _, sender = self._sender(0)
         with self.assertRaises(ValueError):
             sender.send("")
         with self.assertRaises(ValueError):
             operator_bus.FsmCommandSender(
                 operator_bus.TopicPublisher.for_topic(
-                    operator_test_support.RecordingBus(), topics.OPERATOR_PD_GAINS
+                    operator_test_support.RecordingBus(),
+                    topics.OPERATOR_PD_GAINS,
                 )
             )
 
@@ -262,7 +288,9 @@ class TestFsmStateMailbox(unittest.TestCase):
     def test_a_full_mailbox_drops_the_oldest(self):
         mailbox = operator_bus.FsmStateMailbox(capacity=2)
         for count in range(5):
-            mailbox.put(fsm_state_pb2.FsmState(mode="SAFETY", controller_resets=count))
+            mailbox.put(
+                fsm_state_pb2.FsmState(mode="SAFETY", controller_resets=count)
+            )
         self.assertEqual(
             [state.controller_resets for state in mailbox.take_all()], [3, 4]
         )
@@ -276,9 +304,13 @@ class TestFsmStateMailbox(unittest.TestCase):
         mailbox = operator_bus.ConfigSaveStatusMailbox(capacity=2)
         for sequence in (1, 2, 3):
             mailbox.put(
-                config_file_save_status_pb2.ConfigFileSaveStatus(sequence=sequence)
+                config_file_save_status_pb2.ConfigFileSaveStatus(
+                    sequence=sequence
+                )
             )
-        self.assertEqual([status.sequence for status in mailbox.take_all()], [2, 3])
+        self.assertEqual(
+            [status.sequence for status in mailbox.take_all()], [2, 3]
+        )
         self.assertEqual(mailbox.dropped, 1)
         self.assertEqual(mailbox.take_all(), [])
 
@@ -305,7 +337,9 @@ class TestOperatorBusOverARecordingBus(unittest.TestCase):
             with self.subTest(topic=topic):
                 message_class, _, delivery = self.bus.subscriptions[topic]
                 self.assertIs(message_class, expected)
-                self.assertEqual(delivery, operator_bus.operator_topic(topic).delivery)
+                self.assertEqual(
+                    delivery, operator_bus.operator_topic(topic).delivery
+                )
 
     def test_a_received_save_status_waits_in_its_mailbox(self):
         status = config_file_save_status_pb2.ConfigFileSaveStatus(
@@ -335,10 +369,16 @@ class TestOperatorBusOverARecordingBus(unittest.TestCase):
             )
         )
         self.gui_bus.pd_gains.publish(_gains_update(1.0))
-        self.gui_bus.joint_targets.publish(operator_bus.joint_targets({"j": 0.1}))
-        self.gui_bus.dodgeball_throw.publish(dodgeball_throw_pb2.DodgeballThrow())
+        self.gui_bus.joint_targets.publish(
+            operator_bus.joint_targets({"j": 0.1})
+        )
+        self.gui_bus.dodgeball_throw.publish(
+            dodgeball_throw_pb2.DodgeballThrow()
+        )
         self.gui_bus.config_save.publish(config_file_save_pb2.ConfigFileSave())
-        published = {topic: type(message) for topic, message in self.bus.published}
+        published = {
+            topic: type(message) for topic, message in self.bus.published
+        }
         self.assertEqual(
             published,
             {
@@ -368,7 +408,9 @@ class TestOperatorBusOverARecordingBus(unittest.TestCase):
 
 
 def _test_network():
-    return robot_ipc.isolated_test_network(["robot", operator_bus.OPERATOR_NODE])
+    return robot_ipc.isolated_test_network(
+        ["robot", operator_bus.OPERATOR_NODE]
+    )
 
 
 class TestOperatorBusOverLoopback(unittest.TestCase):
@@ -436,22 +478,32 @@ class TestOperatorBusOverLoopback(unittest.TestCase):
     def test_a_parameter_update_reaches_the_robot_field_for_field(self):
         task = task_file_pb2.TaskFile(contact_estimator="cheater_sim")
         task.state_weights.scaling = 1.5e-3
-        update = operator_bus.mpc_parameter_update(task, config_path=CONFIG_PATH)
+        update = operator_bus.mpc_parameter_update(
+            task, config_path=CONFIG_PATH
+        )
 
         def publish() -> None:
             self.gui_bus.mpc_parameters.publish(update)
 
-        received = self._publish_until_received(publish, topics.OPERATOR_MPC_PARAMETERS)
+        received = self._publish_until_received(
+            publish, topics.OPERATOR_MPC_PARAMETERS
+        )
         self.assertEqual(received, update)
-        self.assertEqual(received.SerializeToString(), update.SerializeToString())
+        self.assertEqual(
+            received.SerializeToString(), update.SerializeToString()
+        )
 
     def test_joint_targets_reach_the_robot_as_a_map(self):
         targets = {"l_leg_kny": 0.5, "r_leg_kny": -0.125}
 
         def publish() -> None:
-            self.gui_bus.joint_targets.publish(operator_bus.joint_targets(targets))
+            self.gui_bus.joint_targets.publish(
+                operator_bus.joint_targets(targets)
+            )
 
-        received = self._publish_until_received(publish, topics.OPERATOR_JOINT_TARGETS)
+        received = self._publish_until_received(
+            publish, topics.OPERATOR_JOINT_TARGETS
+        )
         self.assertEqual(dict(received.positions), targets)
 
     def test_fsm_commands_arrive_in_order_with_rising_sequences(self):
@@ -463,7 +515,10 @@ class TestOperatorBusOverLoopback(unittest.TestCase):
             self.gui_bus.fsm_command.send(command)
 
         def last_is_wb_mpc() -> bool:
-            return self._received(topics.OPERATOR_FSM_COMMAND)[-1].command == "WB_MPC"
+            return (
+                self._received(topics.OPERATOR_FSM_COMMAND)[-1].command
+                == "WB_MPC"
+            )
 
         self.assertTrue(wait_for(last_is_wb_mpc))
         received = self._received(topics.OPERATOR_FSM_COMMAND)
@@ -477,7 +532,10 @@ class TestOperatorBusOverLoopback(unittest.TestCase):
 
     def test_the_robots_fsm_state_reaches_the_gui_mailbox(self):
         state = fsm_state_pb2.FsmState(
-            mode="JOINT_PD", gantry_locked=True, controller_resets=4, mpc_healthy=True
+            mode="JOINT_PD",
+            gantry_locked=True,
+            controller_resets=4,
+            mpc_healthy=True,
         )
         taken = []
 
@@ -497,13 +555,16 @@ class TestOperatorBusOverLoopback(unittest.TestCase):
             config_path=CONFIG_PATH, text="terrain_height: 0.0\n", sequence=42
         )
         received = self._publish_until_received(
-            lambda: self.gui_bus.config_save.publish(save), topics.OPERATOR_CONFIG_SAVE
+            lambda: self.gui_bus.config_save.publish(save),
+            topics.OPERATOR_CONFIG_SAVE,
         )
         self.assertEqual(received, save)
         status = config_file_save_status_pb2.ConfigFileSaveStatus(
             sequence=received.sequence,
             result=config_file_save_status_pb2.ConfigFileSaveStatus.RESULT_SAVED,
-            stored_path="/var/lib/wb-humanoid-robot/config/atlas/mpc/task.textproto",
+            stored_path=(
+                "/var/lib/wb-humanoid-robot/config/atlas/mpc/task.textproto"
+            ),
         )
         taken = []
 
@@ -513,7 +574,9 @@ class TestOperatorBusOverLoopback(unittest.TestCase):
             taken.extend(self.gui_bus.config_save_statuses.take_all())
             return bool(taken)
 
-        self.assertTrue(wait_for(answered), "the save status never reached the GUI")
+        self.assertTrue(
+            wait_for(answered), "the save status never reached the GUI"
+        )
         self.assertEqual(taken[-1], status)
 
 
@@ -527,7 +590,9 @@ class TestOperatorBusConnect(unittest.TestCase):
                 operator_bus.OperatorBus.connect(path)
 
     def test_a_missing_network_file_is_an_error_that_names_it(self):
-        with self.assertRaisesRegex(FileNotFoundError, "no_such_network.textproto"):
+        with self.assertRaisesRegex(
+            FileNotFoundError, "no_such_network.textproto"
+        ):
             operator_bus.OperatorBus.connect(
                 "/does/not/exist/no_such_network.textproto"
             )

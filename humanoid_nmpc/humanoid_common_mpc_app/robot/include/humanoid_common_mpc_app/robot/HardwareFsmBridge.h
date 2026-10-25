@@ -49,18 +49,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The FsmBridge of a robot without a simulator (the `hardware` supervisor of RobotSupervisorRegistry): the FSM commands
- * switch the backend's torques - ZERO_TORQUE (or DISABLE_TORQUES) puts it in its safe state (enterSafeState()), JOINT_PD,
- * GRAVITY_COMP, WB_MPC (or MPC_ACTIVE, ENABLE_TORQUES) and SAFETY switch them on (enableTorques()) and enter the mode.
- * The process drives no gantry here: a gantry, if the robot hangs in one, is the operator's, so LOCK_GANTRY and
- * UNLOCK_GANTRY are reported and ignored, the FSM state reports the gantry unlocked, the height slider moves nothing
+ * The FsmBridge of a robot without a simulator (the `hardware` supervisor of
+ * RobotSupervisorRegistry): the FSM commands switch the backend's torques -
+ * ZERO_TORQUE (or DISABLE_TORQUES) puts it in its safe state
+ * (enterSafeState()), JOINT_PD, GRAVITY_COMP, WB_MPC (or MPC_ACTIVE,
+ * ENABLE_TORQUES) and SAFETY switch them on (enableTorques()) and enter the
+ * mode. The process drives no gantry here: a gantry, if the robot hangs in one,
+ * is the operator's, so LOCK_GANTRY and UNLOCK_GANTRY are reported and ignored,
+ * the FSM state reports the gantry unlocked, the height slider moves nothing
  * and a dodgeball throw is not taken. Every call is for the realtime thread.
  */
 class HardwareFsmBridge final : public FsmBridge {
  public:
   /**
-   * Captures the nominal joint positions from `initState` and writes the initial state (ZERO_TORQUE) to `fsmStates`.
-   * The mailboxes, the backend and the log must outlive the bridge; `eventLog` may be nullptr.
+   * Captures the nominal joint positions from `initState` and writes the
+   * initial state (ZERO_TORQUE) to `fsmStates`. The mailboxes, the backend and
+   * the log must outlive the bridge; `eventLog` may be nullptr.
    */
   HardwareFsmBridge(const robot::model::RobotDescription& robotDescription,
                     const robot::model::RobotState& initState,
@@ -74,15 +78,23 @@ class HardwareFsmBridge final : public FsmBridge {
   ~HardwareFsmBridge() override = default;
 
   void applyJointTargetUpdates() override { state_.applyJointTargetUpdates(); }
-  const std::vector<scalar_t>& getNominalJointPositions() const override { return state_.nominalJointPositions(); }
+  const std::vector<scalar_t>& getNominalJointPositions() const override {
+    return state_.nominalJointPositions();
+  }
   bool processCommands(std::string& currentModeName) override;
   bool isGantryLocked() const override { return false; }
-  void publishFsmState(absl::string_view modeName) override { state_.publish(modeName, /*gantryLocked=*/false); }
-  void publishControllerReset(absl::string_view modeName) override { state_.publishControllerReset(modeName, /*gantryLocked=*/false); }
+  void publishFsmState(absl::string_view modeName) override {
+    state_.publish(modeName, /*gantryLocked=*/false);
+  }
+  void publishControllerReset(absl::string_view modeName) override {
+    state_.publishControllerReset(modeName, /*gantryLocked=*/false);
+  }
   void setMpcHealthy(bool mpcHealthy, absl::string_view modeName) override {
     state_.setMpcHealthy(mpcHealthy, modeName, /*gantryLocked=*/false);
   }
-  uint64_t controllerResets() const override { return state_.controllerResets(); }
+  uint64_t controllerResets() const override {
+    return state_.controllerResets();
+  }
   bool mpcHealthy() const override { return state_.mpcHealthy(); }
 
  private:

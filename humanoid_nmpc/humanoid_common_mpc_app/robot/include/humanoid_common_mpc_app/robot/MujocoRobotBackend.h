@@ -45,46 +45,67 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The `mujoco` backend: robot_runtime/mujoco_sim_interface's MujocoSimInterface, configured from the backend options (the
- * scene, the initial state, the contact frames, the simulator keys of the task file and the viewer's target patches)
- * with the viewer the options name. initialize() is initSim(), which starts the first viewer of the list
- * that starts, and answers with its viewerStatus(): a viewer list none of whose viewers starts (`web` without EGL or
- * with its port taken) refuses the start, and `web,none` falls back to no viewer. start() is startSim() with the
- * physics thread pinned to the cores given.
+ * The `mujoco` backend: robot_runtime/mujoco_sim_interface's
+ * MujocoSimInterface, configured from the backend options (the scene, the
+ * initial state, the contact frames, the simulator keys of the task file and
+ * the viewer's target patches) with the viewer the options name. initialize()
+ * is initSim(), which starts the first viewer of the list that starts, and
+ * answers with its viewerStatus(): a viewer list none of whose viewers starts
+ * (`web` without EGL or with its port taken) refuses the start, and `web,none`
+ * falls back to no viewer. start() is startSim() with the physics thread pinned
+ * to the cores given.
  */
 class MujocoRobotBackend final : public RobotBackend {
  public:
-  /** InvalidArgument when the options lack the scene or the initial state, or name an unknown gantry hold. */
-  static absl::StatusOr<std::unique_ptr<MujocoRobotBackend>> Create(const RobotBackendOptions& options);
+  /** InvalidArgument when the options lack the scene or the initial state, or
+   * name an unknown gantry hold. */
+  static absl::StatusOr<std::unique_ptr<MujocoRobotBackend>> Create(
+      const RobotBackendOptions& options);
 
   absl::string_view name() const override;
-  robot::model::RobotHWInterfaceBase& hardware() override { return *simulator_; }
-  const robot::model::RobotHWInterfaceBase& hardware() const override { return *simulator_; }
+  robot::model::RobotHWInterfaceBase& hardware() override {
+    return *simulator_;
+  }
+  const robot::model::RobotHWInterfaceBase& hardware() const override {
+    return *simulator_;
+  }
   absl::Status initialize() override;
   absl::Status start(const std::vector<int>& cores) override;
-  bool acceptsJointAction() const override { return !simulator_->isZeroTorqueMode(); }
+  bool acceptsJointAction() const override {
+    return !simulator_->isZeroTorqueMode();
+  }
   void enableTorques() override { simulator_->enableTorques(); }
-  void readMeasuredContactForces(std::array<vector3_t, kNumContacts>& forces) override;
+  void readMeasuredContactForces(
+      std::array<vector3_t, kNumContacts>& forces) override;
   /** Zero torque (disableTorques()): the start-up state of the simulator. */
   void enterSafeState() override { simulator_->disableTorques(); }
-  void registerContactEstimators(robot::model::ContactEstimatorRegistry& registry) const override;
-  /** `sim`: SimFsmBridge and SimFallRecovery drive the simulator's gantry, torque switch and resets. */
+  void registerContactEstimators(
+      robot::model::ContactEstimatorRegistry& registry) const override;
+  /** `sim`: SimFsmBridge and SimFallRecovery drive the simulator's gantry,
+   * torque switch and resets. */
   absl::string_view supervisorName() const override;
-  robot::mujoco_sim_interface::MujocoSimInterface* absl_nullable simulator() override { return simulator_.get(); }
+  robot::mujoco_sim_interface::MujocoSimInterface* absl_nullable simulator()
+      override {
+    return simulator_.get();
+  }
 
   /** The MujocoSimConfig the options make (for tests). */
-  static absl::StatusOr<robot::mujoco_sim_interface::MujocoSimConfig> makeConfig(const RobotBackendOptions& options);
+  static absl::StatusOr<robot::mujoco_sim_interface::MujocoSimConfig>
+  makeConfig(const RobotBackendOptions& options);
 
   /**
-   * What Create() would refuse in `options` without loading the scene: makeConfig()'s refusals (no scene, no initial
-   * state, an unknown gantry_hold, viewer settings that validateViewerSettings() refuses) and an unknown sim_projectile.
-   * The viewer's sim_visualizations are not refused: the viewer skips an unknown name with a message, at start-up as
-   * later.
+   * What Create() would refuse in `options` without loading the scene:
+   * makeConfig()'s refusals (no scene, no initial state, an unknown
+   * gantry_hold, viewer settings that validateViewerSettings() refuses) and an
+   * unknown sim_projectile. The viewer's sim_visualizations are not refused:
+   * the viewer skips an unknown name with a message, at start-up as later.
    */
   static absl::Status checkOptions(const RobotBackendOptions& options);
 
  private:
-  explicit MujocoRobotBackend(std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface> simulator);
+  explicit MujocoRobotBackend(
+      std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface>
+          simulator);
 
   std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface> simulator_;
 };

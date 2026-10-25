@@ -74,7 +74,10 @@ class SchemaTest(unittest.TestCase):
         # The reader turns every field of the schema into a field of its own type, so a field added to the schema
         # and not read fails here.
         cases = {
-            "Process": (launch_file.ProcessSpec, launch_file_pb2.LaunchFile.Process),
+            "Process": (
+                launch_file.ProcessSpec,
+                launch_file_pb2.LaunchFile.Process,
+            ),
             "Shutdown": (
                 launch_file.ShutdownPolicy,
                 launch_file_pb2.LaunchFile.Shutdown,
@@ -87,7 +90,10 @@ class SchemaTest(unittest.TestCase):
                     [field.name for field in message.DESCRIPTOR.fields],
                 )
         self.assertEqual(
-            {field.name for field in launch_file_pb2.LaunchFile.DESCRIPTOR.fields},
+            {
+                field.name
+                for field in launch_file_pb2.LaunchFile.DESCRIPTOR.fields
+            },
             {"variables", "shutdown", "processes"},
         )
 
@@ -119,7 +125,8 @@ class ExampleTest(unittest.TestCase):
         self.assertTrue(launch.processes[0].required)
         self.assertEqual(launch.processes[1].env, (("GREETING", "hello"),))
         self.assertEqual(
-            launch.processes[2].command[-1], 'echo "hello from /repo"; exec sleep 60'
+            launch.processes[2].command[-1],
+            'echo "hello from /repo"; exec sleep 60',
         )
         self.assertEqual(launch.shutdown, launch_file.ShutdownPolicy(2.0, 1.0))
         # Every field of the schema appears in the example, so the example documents all of them.
@@ -127,14 +134,17 @@ class ExampleTest(unittest.TestCase):
         for message in schema_messages(launch_file_pb2.LaunchFile.DESCRIPTOR):
             for field in message.fields:
                 with self.subTest(field=field.full_name):
-                    self.assertRegex(without_comments, rf"\b{field.name}\s*[:\{{]")
+                    self.assertRegex(
+                        without_comments, rf"\b{field.name}\s*[:\{{]"
+                    )
 
     def test_the_header_names_the_schema(self) -> None:
         header = dict(
             re.findall(r"(?m)^# (proto-file|proto-message): (\S+)$", self.text)
         )
         self.assertEqual(
-            header["proto-message"], launch_file_pb2.LaunchFile.DESCRIPTOR.full_name
+            header["proto-message"],
+            launch_file_pb2.LaunchFile.DESCRIPTOR.full_name,
         )
         self.assertTrue(
             os.path.isfile(os.path.join(REPO_ROOT, header["proto-file"])),
@@ -159,7 +169,9 @@ class DefaultsTest(unittest.TestCase):
         launch = parse(minimal())
         self.assertEqual(
             launch.processes[0],
-            launch_file.ProcessSpec(name="mpc", machine="laptop", command=("prog",)),
+            launch_file.ProcessSpec(
+                name="mpc", machine="laptop", command=("prog",)
+            ),
         )
         self.assertEqual(launch.shutdown, launch_file.ShutdownPolicy())
         self.assertFalse(launch.processes[0].required)
@@ -179,7 +191,9 @@ class DefaultsTest(unittest.TestCase):
     def test_the_command_may_be_a_list_or_repeated_entries(self) -> None:
         listed = parse(minimal(process='command: ["--port", "5600"]'))
         repeated = parse(minimal(process='command: "--port" command: "5600"'))
-        self.assertEqual(listed.processes[0].command, ("prog", "--port", "5600"))
+        self.assertEqual(
+            listed.processes[0].command, ("prog", "--port", "5600")
+        )
         self.assertEqual(listed.processes, repeated.processes)
 
     def test_comments_and_single_quoted_strings_are_text_format(self) -> None:
@@ -190,7 +204,9 @@ class DefaultsTest(unittest.TestCase):
             "  command: ['sh', '-c', 'echo \"$HOME\"']\n"
             "}\n"
         )
-        self.assertEqual(launch.processes[0].command, ("sh", "-c", 'echo "$HOME"'))
+        self.assertEqual(
+            launch.processes[0].command, ("sh", "-c", 'echo "$HOME"')
+        )
 
 
 class SubstitutionTest(unittest.TestCase):
@@ -198,30 +214,41 @@ class SubstitutionTest(unittest.TestCase):
     def test_variables_may_refer_to_variables_and_builtins(self) -> None:
         launch = parse(
             minimal(
-                process='command: "--task_file={config}/task.textproto" '
-                'env { name: "CONFIG" value: "{config}" }',
-                extra='variables { name: "robot" value: "g1" } '
-                'variables { name: "config" value: "{repo_root}/robots/{robot}" }',
+                process=(
+                    'command: "--task_file={config}/task.textproto" '
+                    'env { name: "CONFIG" value: "{config}" }'
+                ),
+                extra=(
+                    'variables { name: "robot" value: "g1" } variables { name:'
+                    ' "config" value: "{repo_root}/robots/{robot}" }'
+                ),
             ).replace('command: "prog"', 'command: "bin/{robot}_mpc"')
         )
         self.assertEqual(
             launch.processes[0].command,
             ("bin/g1_mpc", "--task_file=/repo/robots/g1/task.textproto"),
         )
-        self.assertEqual(launch.processes[0].env, (("CONFIG", "/repo/robots/g1"),))
+        self.assertEqual(
+            launch.processes[0].env, (("CONFIG", "/repo/robots/g1"),)
+        )
 
     def test_overrides_apply_before_references_are_resolved(self) -> None:
         text = minimal(
             process='command: "{config}"',
-            extra='variables { name: "robot" value: "g1" } '
-            'variables { name: "config" value: "robots/{robot}" }',
+            extra=(
+                'variables { name: "robot" value: "g1" } '
+                'variables { name: "config" value: "robots/{robot}" }'
+            ),
         )
         self.assertEqual(
-            parse(text, robot="sa01").processes[0].command, ("prog", "robots/sa01")
+            parse(text, robot="sa01").processes[0].command,
+            ("prog", "robots/sa01"),
         )
 
     def test_doubled_braces_are_literal(self) -> None:
-        launch = parse(minimal(process="command: ['-c', 'echo ${{HOME}} {{}}']"))
+        launch = parse(
+            minimal(process="command: ['-c', 'echo ${{HOME}} {{}}']")
+        )
         self.assertEqual(launch.processes[0].command[-1], "echo ${HOME} {}")
 
     def test_a_repo_root_with_spaces_is_a_valid_program(self) -> None:
@@ -230,7 +257,9 @@ class SubstitutionTest(unittest.TestCase):
             SOURCE,
             builtins={"repo_root": "/home/me/my checkout"},
         )
-        self.assertEqual(launch.processes[0].command, ("/home/me/my checkout/bin/mpc",))
+        self.assertEqual(
+            launch.processes[0].command, ("/home/me/my checkout/bin/mpc",)
+        )
 
     def test_errors_name_the_problem_and_the_known_variables(self) -> None:
         cases = {
@@ -258,9 +287,11 @@ class SubstitutionTest(unittest.TestCase):
 
     def test_a_cycle_of_references_is_reported(self) -> None:
         text = minimal(
-            extra='variables { name: "a" value: "{b}" } '
-            'variables { name: "b" value: "{c}" } '
-            'variables { name: "c" value: "{a}" }'
+            extra=(
+                'variables { name: "a" value: "{b}" } '
+                'variables { name: "b" value: "{c}" } '
+                'variables { name: "c" value: "{a}" }'
+            )
         )
         with self.assertRaises(launch_file.LaunchFileError) as raised:
             parse(text)
@@ -274,7 +305,9 @@ class SubstitutionTest(unittest.TestCase):
         self.assertIn("declares: robot", str(raised.exception))
 
     def test_builtins_cannot_be_redefined(self) -> None:
-        text = minimal(extra='variables { name: "repo_root" value: "/elsewhere" }')
+        text = minimal(
+            extra='variables { name: "repo_root" value: "/elsewhere" }'
+        )
         with self.assertRaises(launch_file.LaunchFileError) as raised:
             parse(text)
         self.assertIn("built-in", str(raised.exception))
@@ -309,8 +342,12 @@ class StrictParsingTest(unittest.TestCase):
     def test_malformed_documents_are_rejected_with_their_location(self) -> None:
         cases = {
             "unknown top-level field": minimal(extra="nodes {}"),
-            "unknown machine": minimal().replace("MACHINE_LAPTOP", "MACHINE_DESKTOP"),
-            "machine as a string": minimal().replace("MACHINE_LAPTOP", '"laptop"'),
+            "unknown machine": minimal().replace(
+                "MACHINE_LAPTOP", "MACHINE_DESKTOP"
+            ),
+            "machine as a string": minimal().replace(
+                "MACHINE_LAPTOP", '"laptop"'
+            ),
             "number as an argument": minimal(process="command: 5600"),
             "boolean as an argument": minimal(process="command: true"),
             "required not a bool": minimal(process='required: "yes"'),
@@ -336,7 +373,9 @@ class StrictParsingTest(unittest.TestCase):
 class ValidationTest(unittest.TestCase):
     """What the launcher rejects after parsing: the error names the process or the variable."""
 
-    def test_invalid_documents_are_rejected_with_the_offending_entry(self) -> None:
+    def test_invalid_documents_are_rejected_with_the_offending_entry(
+        self,
+    ) -> None:
         two_processes = minimal() + minimal()
         cases = {
             "no processes": ("", "has no processes"),
@@ -354,7 +393,10 @@ class ValidationTest(unittest.TestCase):
             ),
             "missing machine": (
                 'processes { name: "a" command: "p" }',
-                "process 'a': 'machine' must be one of MACHINE_ROBOT, MACHINE_LAPTOP, got MACHINE_UNSPECIFIED",
+                (
+                    "process 'a': 'machine' must be one of MACHINE_ROBOT,"
+                    " MACHINE_LAPTOP, got MACHINE_UNSPECIFIED"
+                ),
             ),
             "machine by an unknown number": (
                 minimal().replace("MACHINE_LAPTOP", "7"),
@@ -378,7 +420,10 @@ class ValidationTest(unittest.TestCase):
             ),
             "env set twice": (
                 minimal(
-                    process='env { name: "A" value: "1" } env { name: "A" value: "2" }'
+                    process=(
+                        'env { name: "A" value: "1" } env { name: "A" value:'
+                        ' "2" }'
+                    )
                 ),
                 "environment variable A is set twice",
             ),
@@ -401,7 +446,10 @@ class ValidationTest(unittest.TestCase):
             ),
             "variable declared twice": (
                 minimal(
-                    extra='variables { name: "a" value: "1" } variables { name: "a" value: "2" }'
+                    extra=(
+                        'variables { name: "a" value: "1" } variables { name:'
+                        ' "a" value: "2" }'
+                    )
                 ),
                 "variable 'a' is declared twice",
             ),
@@ -436,11 +484,15 @@ class SelectMachineTest(unittest.TestCase):
     def test_filters_by_machine_in_file_order(self) -> None:
         launch = launch_file.load_launch_file(EXAMPLE, builtins=BUILTINS)
         selected: list[str] = [
-            p.name for p in launch_file.select_machine(launch.processes, "laptop")
+            p.name
+            for p in launch_file.select_machine(launch.processes, "laptop")
         ]
         self.assertEqual(selected, ["mpc", "viewer"])
         self.assertEqual(
-            [p.name for p in launch_file.select_machine(launch.processes, "robot")],
+            [
+                p.name
+                for p in launch_file.select_machine(launch.processes, "robot")
+            ],
             ["robot_loop"],
         )
         self.assertEqual(

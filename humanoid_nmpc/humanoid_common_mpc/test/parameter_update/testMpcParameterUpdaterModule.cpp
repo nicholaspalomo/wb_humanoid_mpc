@@ -71,10 +71,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_config/task_file.nproto.h"
 
 /**
- * The mechanics of MpcParameterUpdaterModule, the live-tuning machinery both formulations share, with fake appliers on a
- * solver without terms: which update a solve applies, when the watched files are reloaded, how a refusing reloader or a
- * throwing applier leaves the rest to run, what a reload reports, and in which order the appliers run. What the real
- * appliers write is the formulations' tests' (humanoid_centroidal_mpc:testMpcParameterUpdaterModule,
+ * The mechanics of MpcParameterUpdaterModule, the live-tuning machinery both
+ * formulations share, with fake appliers on a solver without terms: which
+ * update a solve applies, when the watched files are reloaded, how a refusing
+ * reloader or a throwing applier leaves the rest to run, what a reload reports,
+ * and in which order the appliers run. What the real appliers write is the
+ * formulations' tests' (humanoid_centroidal_mpc:testMpcParameterUpdaterModule,
  * testLiveUpdateEqualsFreshStart; humanoid_wb_mpc:test_wb_live_tuning).
  */
 namespace ocs2::humanoid {
@@ -82,7 +84,8 @@ namespace {
 
 constexpr size_t kInputDim = 2;
 
-/** What the fake appliers did, in order, as "<applier>:<event>"; thread-safe. */
+/** What the fake appliers did, in order, as "<applier>:<event>"; thread-safe.
+ */
 class EventLog {
  public:
   void record(std::string event) {
@@ -103,26 +106,41 @@ class EventLog {
   std::vector<std::string> events_ ABSL_GUARDED_BY(mutex_);
 };
 
-/** An applier that records what it is called with: "<name>:apply <state_weights.scaling>" and "<name>:beforeEverySolve". */
+/** An applier that records what it is called with: "<name>:apply
+ * <state_weights.scaling>" and "<name>:beforeEverySolve". */
 class FakeApplier final : public HotFieldApplier {
  public:
   /** What apply() does besides recording. */
   enum class Behavior {
     kRecord,
-    // Throws after recording, as an OCS2 term API does on a term of another type.
+    // Throws after recording, as an OCS2 term API does on a term of another
+    // type.
     kThrow,
   };
 
-  FakeApplier(std::string name, std::vector<absl::string_view> fields, EventLog* absl_nonnull log, Behavior behavior)
-      : name_(std::move(name)), fields_(std::move(fields)), log_(log), behavior_(behavior) {}
+  FakeApplier(std::string name,
+              std::vector<absl::string_view> fields,
+              EventLog* absl_nonnull log,
+              Behavior behavior)
+      : name_(std::move(name)),
+        fields_(std::move(fields)),
+        log_(log),
+        behavior_(behavior) {}
 
   absl::string_view name() const override { return name_; }
-  absl::Span<const absl::string_view> fields() const override { return fields_; }
-  void apply(HotUpdateTarget& target) override {
-    log_->record(absl::StrCat(name_, ":apply ", target.task().state_weights.scaling));
-    if (behavior_ == Behavior::kThrow) throw std::runtime_error("a term of another type");
+  absl::Span<const absl::string_view> fields() const override {
+    return fields_;
   }
-  void beforeEverySolve(SqpSolver& /*solver*/, const SwitchedModelReferenceManager* absl_nullable /*referenceManager*/) override {
+  void apply(HotUpdateTarget& target) override {
+    log_->record(
+        absl::StrCat(name_, ":apply ", target.task().state_weights.scaling));
+    if (behavior_ == Behavior::kThrow)
+      throw std::runtime_error("a term of another type");
+  }
+  void beforeEverySolve(
+      SqpSolver& /*solver*/,
+      const SwitchedModelReferenceManager* absl_nullable /*referenceManager*/)
+      override {
     log_->record(absl::StrCat(name_, ":beforeEverySolve"));
   }
 
@@ -133,9 +151,12 @@ class FakeApplier final : public HotFieldApplier {
   Behavior behavior_;
 };
 
-/** A solver without terms, which is all the module needs to hand its appliers a target. */
+/** A solver without terms, which is all the module needs to hand its appliers a
+ * target. */
 struct TermlessMpc {
-  TermlessMpc() : initializer(kInputDim), mpc(mpc::Settings(), settings(), problem, initializer) {}
+  TermlessMpc()
+      : initializer(kInputDim),
+        mpc(mpc::Settings(), settings(), problem, initializer) {}
 
   static sqp::Settings settings() {
     sqp::Settings sqpSettings;
@@ -151,7 +172,8 @@ struct TermlessMpc {
 
 /** A directory of the test's own, emptied. */
 std::filesystem::path freshDirectory(absl::string_view name) {
-  const std::filesystem::path directory = std::filesystem::path(testing::TempDir()) / std::string(name);
+  const std::filesystem::path directory =
+      std::filesystem::path(testing::TempDir()) / std::string(name);
   std::error_code error;
   std::filesystem::remove_all(directory, error);
   std::filesystem::create_directories(directory, error);
@@ -159,24 +181,33 @@ std::filesystem::path freshDirectory(absl::string_view name) {
   return directory;
 }
 
-/** Writes `text` to `path` with a modification time `seconds` after now, so that every write is seen. */
-void writeWatched(const std::filesystem::path& path, absl::string_view text, int seconds) {
+/** Writes `text` to `path` with a modification time `seconds` after now, so
+ * that every write is seen. */
+void writeWatched(const std::filesystem::path& path,
+                  absl::string_view text,
+                  int seconds) {
   {
     std::ofstream out(path, std::ios::trunc);
     out << text;
   }
   std::error_code error;
-  std::filesystem::last_write_time(path, std::filesystem::file_time_type::clock::now() + std::chrono::seconds(seconds), error);
+  std::filesystem::last_write_time(
+      path,
+      std::filesystem::file_time_type::clock::now() +
+          std::chrono::seconds(seconds),
+      error);
   ASSERT_FALSE(error) << error.message();
 }
 
 /** Runs the pre-solve hook of `updater` once. */
 void solve(MpcParameterUpdaterModule& updater) {
   const ReferenceManager referenceManager;
-  updater.preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0, vector_t::Zero(1), referenceManager);
+  updater.preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0, vector_t::Zero(1),
+                       referenceManager);
 }
 
-// The command limits a reference file must give (referenceSettingsFromConfig()), but max_rotation_velocity.
+// The command limits a reference file must give
+// (referenceSettingsFromConfig()), but max_rotation_velocity.
 constexpr char kReferenceFileLimits[] =
     "# proto-message: humanoid_mpc_config.ReferenceFile\n"
     "target_displacement_velocity: 0.5\n"
@@ -193,35 +224,41 @@ mpc_config::MpcParameterUpdate updateWithScaling(scalar_t scaling) {
   return update;
 }
 
-/** The fixture: a termless MPC, an event log and the options of an updater watching nothing. */
+/** The fixture: a termless MPC, an event log and the options of an updater
+ * watching nothing. */
 class MpcParameterUpdaterModuleMechanicsTest : public ::testing::Test {
  protected:
   absl::Time now_ = absl::FromUnixSeconds(1000);
 
   /** The updater of the termless MPC with `appliers` and `options`'s files. */
-  std::unique_ptr<MpcParameterUpdaterModule> makeUpdater(std::vector<std::unique_ptr<HotFieldApplier>> appliers,
-                                                         MpcParameterUpdaterModule::Options options = {}) {
+  std::unique_ptr<MpcParameterUpdaterModule> makeUpdater(
+      std::vector<std::unique_ptr<HotFieldApplier>> appliers,
+      MpcParameterUpdaterModule::Options options = {}) {
     options.inputDim = kInputDim;
     options.appliers = std::move(appliers);
     if (!options.clock) {
       options.clock = [this]() { return now_; };
     }
-    absl::StatusOr<std::unique_ptr<MpcParameterUpdaterModule>> created = MpcParameterUpdaterModule::Create(&mpc_.mpc, std::move(options));
+    absl::StatusOr<std::unique_ptr<MpcParameterUpdaterModule>> created =
+        MpcParameterUpdaterModule::Create(&mpc_.mpc, std::move(options));
     EXPECT_TRUE(created.ok()) << created.status();
     return created.ok() ? *std::move(created) : nullptr;
   }
 
-  /** Drives `updater` past its ~1 Hz poll of the watched files by advancing the test clock and running solve(). */
+  /** Drives `updater` past its ~1 Hz poll of the watched files by advancing the
+   * test clock and running solve(). */
   void runFileWatch(MpcParameterUpdaterModule& updater) {
     now_ += absl::Seconds(1);
     solve(updater);
   }
 
   /** A recording applier `name` declaring `fields`. */
-  std::unique_ptr<HotFieldApplier> fake(std::string name,
-                                        std::vector<absl::string_view> fields = {},
-                                        FakeApplier::Behavior behavior = FakeApplier::Behavior::kRecord) {
-    return std::make_unique<FakeApplier>(std::move(name), std::move(fields), &log_, behavior);
+  std::unique_ptr<HotFieldApplier> fake(
+      std::string name,
+      std::vector<absl::string_view> fields = {},
+      FakeApplier::Behavior behavior = FakeApplier::Behavior::kRecord) {
+    return std::make_unique<FakeApplier>(std::move(name), std::move(fields),
+                                         &log_, behavior);
   }
 
   /** The appliers `fake("first")` and `fake("second")`. */
@@ -245,14 +282,19 @@ class MpcParameterUpdaterModuleMechanicsTest : public ::testing::Test {
   EventLog log_;
 };
 
-TEST_F(MpcParameterUpdaterModuleMechanicsTest, TheAppliedFieldsAreTheSortedUnionOfTheAppliersFields) {
+TEST_F(MpcParameterUpdaterModuleMechanicsTest,
+       TheAppliedFieldsAreTheSortedUnionOfTheAppliersFields) {
   std::vector<std::unique_ptr<HotFieldApplier>> appliers;
-  appliers.push_back(fake("first", {"state_weights", "multiple_shooting.g_max"}));
+  appliers.push_back(
+      fake("first", {"state_weights", "multiple_shooting.g_max"}));
   appliers.push_back(fake("second", {"input_weights", "state_weights"}));
   appliers.push_back(fake("third"));
-  std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(std::move(appliers));
+  std::unique_ptr<MpcParameterUpdaterModule> updater =
+      makeUpdater(std::move(appliers));
   ASSERT_NE(updater, nullptr);
-  EXPECT_THAT(updater->appliedFields(), testing::ElementsAre("input_weights", "multiple_shooting.g_max", "state_weights"));
+  EXPECT_THAT(updater->appliedFields(),
+              testing::ElementsAre("input_weights", "multiple_shooting.g_max",
+                                   "state_weights"));
 }
 
 TEST_F(MpcParameterUpdaterModuleMechanicsTest, ANullApplierIsRefused) {
@@ -263,37 +305,47 @@ TEST_F(MpcParameterUpdaterModuleMechanicsTest, ANullApplierIsRefused) {
   const absl::StatusOr<std::unique_ptr<MpcParameterUpdaterModule>> created =
       MpcParameterUpdaterModule::Create(&mpc_.mpc, std::move(options));
   EXPECT_EQ(created.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_THAT(created.status().message(), testing::HasSubstr("applier 2 of 3 is null"));
+  EXPECT_THAT(created.status().message(),
+              testing::HasSubstr("applier 2 of 3 is null"));
 }
 
-TEST_F(MpcParameterUpdaterModuleMechanicsTest, TheNewestEnqueuedUpdateIsTheOneTheNextSolveApplies) {
+TEST_F(MpcParameterUpdaterModuleMechanicsTest,
+       TheNewestEnqueuedUpdateIsTheOneTheNextSolveApplies) {
   std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(twoFakes());
   ASSERT_NE(updater, nullptr);
   updater->enqueueParameterUpdate(updateWithScaling(/*scaling=*/2.0));
   updater->enqueueParameterUpdate(updateWithScaling(/*scaling=*/3.0));
-  EXPECT_THAT(applies(), testing::IsEmpty()) << "an enqueued update was applied before the next solve";
+  EXPECT_THAT(applies(), testing::IsEmpty())
+      << "an enqueued update was applied before the next solve";
   solve(*updater);
   // Every applier, in order, once, with the newest file.
-  EXPECT_THAT(applies(), testing::ElementsAre("first:apply 3", "second:apply 3"));
+  EXPECT_THAT(applies(),
+              testing::ElementsAre("first:apply 3", "second:apply 3"));
   log_.clear();
   solve(*updater);
-  EXPECT_THAT(applies(), testing::IsEmpty()) << "an applied update was applied again";
+  EXPECT_THAT(applies(), testing::IsEmpty())
+      << "an applied update was applied again";
 }
 
-TEST_F(MpcParameterUpdaterModuleMechanicsTest, AnUpdateEnqueuedWhileASolveAppliesOneIsAppliedByTheNextSolve) {
-  // The first applier holds its apply() until another thread has enqueued an update: the enqueue may not wait for the
-  // solve, and the solve applies the update it took, not the one that came in meanwhile.
+TEST_F(MpcParameterUpdaterModuleMechanicsTest,
+       AnUpdateEnqueuedWhileASolveAppliesOneIsAppliedByTheNextSolve) {
+  // The first applier holds its apply() until another thread has enqueued an
+  // update: the enqueue may not wait for the solve, and the solve applies the
+  // update it took, not the one that came in meanwhile.
   absl::Notification applying;
   absl::Notification enqueued;
   /** An applier that waits inside apply() for `enqueued`. */
   class BlockingApplier final : public HotFieldApplier {
    public:
-    BlockingApplier(absl::Notification* absl_nonnull applying, absl::Notification* absl_nonnull enqueued, EventLog* absl_nonnull log)
+    BlockingApplier(absl::Notification* absl_nonnull applying,
+                    absl::Notification* absl_nonnull enqueued,
+                    EventLog* absl_nonnull log)
         : applying_(applying), enqueued_(enqueued), log_(log) {}
     absl::string_view name() const override { return "blocking"; }
     absl::Span<const absl::string_view> fields() const override { return {}; }
     void apply(HotUpdateTarget& target) override {
-      log_->record(absl::StrCat("blocking:apply ", target.task().state_weights.scaling));
+      log_->record(
+          absl::StrCat("blocking:apply ", target.task().state_weights.scaling));
       if (!applying_->HasBeenNotified()) applying_->Notify();
       enqueued_->WaitForNotification();
     }
@@ -304,8 +356,10 @@ TEST_F(MpcParameterUpdaterModuleMechanicsTest, AnUpdateEnqueuedWhileASolveApplie
     EventLog* absl_nonnull log_;
   };
   std::vector<std::unique_ptr<HotFieldApplier>> appliers;
-  appliers.push_back(std::make_unique<BlockingApplier>(&applying, &enqueued, &log_));
-  std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(std::move(appliers));
+  appliers.push_back(
+      std::make_unique<BlockingApplier>(&applying, &enqueued, &log_));
+  std::unique_ptr<MpcParameterUpdaterModule> updater =
+      makeUpdater(std::move(appliers));
   ASSERT_NE(updater, nullptr);
   updater->enqueueParameterUpdate(updateWithScaling(/*scaling=*/2.0));
   std::thread producer([&updater, &applying, &enqueued]() {
@@ -317,107 +371,155 @@ TEST_F(MpcParameterUpdaterModuleMechanicsTest, AnUpdateEnqueuedWhileASolveApplie
   producer.join();
   EXPECT_THAT(applies(), testing::ElementsAre("blocking:apply 2"));
   solve(*updater);
-  EXPECT_THAT(applies(), testing::ElementsAre("blocking:apply 2", "blocking:apply 5")) << "the update enqueued during the solve was lost";
+  EXPECT_THAT(applies(),
+              testing::ElementsAre("blocking:apply 2", "blocking:apply 5"))
+      << "the update enqueued during the solve was lost";
 }
 
-TEST_F(MpcParameterUpdaterModuleMechanicsTest, AWatchedTaskFileIsReloadedOncePerChange) {
-  const std::filesystem::path taskFile = freshDirectory("updater_mechanics_task") / "task.textproto";
-  writeWatched(taskFile, "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { scaling: 1.5 }\n", /*seconds=*/1);
+TEST_F(MpcParameterUpdaterModuleMechanicsTest,
+       AWatchedTaskFileIsReloadedOncePerChange) {
+  const std::filesystem::path taskFile =
+      freshDirectory("updater_mechanics_task") / "task.textproto";
+  writeWatched(taskFile,
+               "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { "
+               "scaling: 1.5 }\n",
+               /*seconds=*/1);
   MpcParameterUpdaterModule::Options options;
   options.taskFile = taskFile.string();
-  std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(twoFakes(), std::move(options));
+  std::unique_ptr<MpcParameterUpdaterModule> updater =
+      makeUpdater(twoFakes(), std::move(options));
   ASSERT_NE(updater, nullptr);
   runFileWatch(*updater);
   runFileWatch(*updater);
-  EXPECT_THAT(applies(), testing::IsEmpty()) << "an untouched task file was reloaded";
-  writeWatched(taskFile, "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { scaling: 2.5 }\n", /*seconds=*/2);
+  EXPECT_THAT(applies(), testing::IsEmpty())
+      << "an untouched task file was reloaded";
+  writeWatched(taskFile,
+               "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { "
+               "scaling: 2.5 }\n",
+               /*seconds=*/2);
   runFileWatch(*updater);
   runFileWatch(*updater);
   runFileWatch(*updater);
-  EXPECT_THAT(applies(), testing::ElementsAre("first:apply 2.5", "second:apply 2.5")) << "one change, one reload";
+  EXPECT_THAT(applies(),
+              testing::ElementsAre("first:apply 2.5", "second:apply 2.5"))
+      << "one change, one reload";
 }
 
-TEST_F(MpcParameterUpdaterModuleMechanicsTest, ARefusingReferenceFileReloaderDoesNotStopTheOthers) {
-  const std::filesystem::path referenceFile = freshDirectory("updater_mechanics_reference") / "reference.textproto";
-  writeWatched(referenceFile, absl::StrCat(kReferenceFileLimits, "max_rotation_velocity: 0.5\n"), /*seconds=*/1);
+TEST_F(MpcParameterUpdaterModuleMechanicsTest,
+       ARefusingReferenceFileReloaderDoesNotStopTheOthers) {
+  const std::filesystem::path referenceFile =
+      freshDirectory("updater_mechanics_reference") / "reference.textproto";
+  writeWatched(
+      referenceFile,
+      absl::StrCat(kReferenceFileLimits, "max_rotation_velocity: 0.5\n"),
+      /*seconds=*/1);
   MpcParameterUpdaterModule::Options options;
   options.referenceFile = referenceFile.string();
-  std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(twoFakes(), std::move(options));
+  std::unique_ptr<MpcParameterUpdaterModule> updater =
+      makeUpdater(twoFakes(), std::move(options));
   ASSERT_NE(updater, nullptr);
   std::vector<scalar_t> reloaded;
-  updater->addReferenceFileReloader(
-      [](const ReferenceSettings& /*settings*/) { return absl::InvalidArgumentError("refused by the first"); });
-  updater->addReferenceFileReloader([&reloaded](const ReferenceSettings& settings) {
-    reloaded.push_back(settings.maxRotationVelocity);
-    return absl::OkStatus();
+  updater->addReferenceFileReloader([](const ReferenceSettings& /*settings*/) {
+    return absl::InvalidArgumentError("refused by the first");
   });
-  writeWatched(referenceFile, absl::StrCat(kReferenceFileLimits, "max_rotation_velocity: 0.75\n"), /*seconds=*/2);
+  updater->addReferenceFileReloader(
+      [&reloaded](const ReferenceSettings& settings) {
+        reloaded.push_back(settings.maxRotationVelocity);
+        return absl::OkStatus();
+      });
+  writeWatched(
+      referenceFile,
+      absl::StrCat(kReferenceFileLimits, "max_rotation_velocity: 0.75\n"),
+      /*seconds=*/2);
   absl::ScopedMockLog log(absl::MockLogDefault::kIgnoreUnexpected);
-  EXPECT_CALL(log, Log(absl::LogSeverity::kWarning, testing::_,
-                       testing::AllOf(testing::HasSubstr("Failed to reload"), testing::HasSubstr("refused by the first"))))
+  EXPECT_CALL(log,
+              Log(absl::LogSeverity::kWarning, testing::_,
+                  testing::AllOf(testing::HasSubstr("Failed to reload"),
+                                 testing::HasSubstr("refused by the first"))))
       .Times(1);
   log.StartCapturingLogs();
   runFileWatch(*updater);
   runFileWatch(*updater);
   log.StopCapturingLogs();
-  EXPECT_EQ(reloaded, std::vector<scalar_t>({0.75})) << "the reloader after the refusing one did not run, or ran twice";
-  EXPECT_THAT(applies(), testing::IsEmpty()) << "a reference file reached the task file's appliers";
+  EXPECT_EQ(reloaded, std::vector<scalar_t>({0.75}))
+      << "the reloader after the refusing one did not run, or ran twice";
+  EXPECT_THAT(applies(), testing::IsEmpty())
+      << "a reference file reached the task file's appliers";
 }
 
-TEST_F(MpcParameterUpdaterModuleMechanicsTest, AThrowingApplierIsLoggedAndTheNextOneRuns) {
+TEST_F(MpcParameterUpdaterModuleMechanicsTest,
+       AThrowingApplierIsLoggedAndTheNextOneRuns) {
   std::vector<std::unique_ptr<HotFieldApplier>> appliers;
-  appliers.push_back(fake("throwing", /*fields=*/{}, FakeApplier::Behavior::kThrow));
+  appliers.push_back(
+      fake("throwing", /*fields=*/{}, FakeApplier::Behavior::kThrow));
   appliers.push_back(fake("next"));
-  std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(std::move(appliers));
+  std::unique_ptr<MpcParameterUpdaterModule> updater =
+      makeUpdater(std::move(appliers));
   ASSERT_NE(updater, nullptr);
   absl::ScopedMockLog log(absl::MockLogDefault::kIgnoreUnexpected);
-  EXPECT_CALL(log, Log(absl::LogSeverity::kError, testing::_,
-                       testing::AllOf(testing::HasSubstr("throwing"), testing::HasSubstr("stopped part-way"),
-                                      testing::HasSubstr("a term of another type"))))
+  EXPECT_CALL(log,
+              Log(absl::LogSeverity::kError, testing::_,
+                  testing::AllOf(testing::HasSubstr("throwing"),
+                                 testing::HasSubstr("stopped part-way"),
+                                 testing::HasSubstr("a term of another type"))))
       .Times(1);
-  EXPECT_CALL(log, Log(absl::LogSeverity::kInfo, testing::_, testing::HasSubstr("Successfully applied"))).Times(0);
+  EXPECT_CALL(log, Log(absl::LogSeverity::kInfo, testing::_,
+                       testing::HasSubstr("Successfully applied")))
+      .Times(0);
   log.StartCapturingLogs();
   updater->enqueueParameterUpdate(updateWithScaling(/*scaling=*/4.0));
   solve(*updater);
   log.StopCapturingLogs();
-  EXPECT_THAT(applies(), testing::ElementsAre("throwing:apply 4", "next:apply 4"));
+  EXPECT_THAT(applies(),
+              testing::ElementsAre("throwing:apply 4", "next:apply 4"));
 }
 
-TEST_F(MpcParameterUpdaterModuleMechanicsTest, AStartUpOnlyEditChangesNoHotFieldAndIsReportedByPath) {
+TEST_F(MpcParameterUpdaterModuleMechanicsTest,
+       AStartUpOnlyEditChangesNoHotFieldAndIsReportedByPath) {
   MpcParameterUpdaterModule::Options options;
   options.runningTask.state_weights.scaling = 1.25;
-  std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(twoFakes(), std::move(options));
+  std::unique_ptr<MpcParameterUpdaterModule> updater =
+      makeUpdater(twoFakes(), std::move(options));
   ASSERT_NE(updater, nullptr);
   mpc_config::MpcParameterUpdate update = updateWithScaling(/*scaling=*/1.25);
   update.task.multiple_shooting.dt = 0.02;
   update.task.contact_schedule_source = "contact_planner";
   absl::ScopedMockLog log(absl::MockLogDefault::kIgnoreUnexpected);
-  EXPECT_CALL(log, Log(absl::LogSeverity::kWarning, testing::_,
-                       testing::AllOf(testing::HasSubstr("2 field(s)"), testing::HasSubstr("next start"),
-                                      testing::HasSubstr("multiple_shooting.dt"), testing::HasSubstr("contact_schedule_source"))))
+  EXPECT_CALL(
+      log, Log(absl::LogSeverity::kWarning, testing::_,
+               testing::AllOf(testing::HasSubstr("2 field(s)"),
+                              testing::HasSubstr("next start"),
+                              testing::HasSubstr("multiple_shooting.dt"),
+                              testing::HasSubstr("contact_schedule_source"))))
       .Times(1);
   log.StartCapturingLogs();
   updater->enqueueParameterUpdate(update);
   solve(*updater);
   log.StopCapturingLogs();
   // The appliers see the running hot values: nothing they write changes.
-  EXPECT_THAT(applies(), testing::ElementsAre("first:apply 1.25", "second:apply 1.25"));
+  EXPECT_THAT(applies(),
+              testing::ElementsAre("first:apply 1.25", "second:apply 1.25"));
 
   // A hot-only edit reports nothing.
   absl::ScopedMockLog quiet(absl::MockLogDefault::kIgnoreUnexpected);
-  EXPECT_CALL(quiet, Log(absl::LogSeverity::kWarning, testing::_, testing::HasSubstr("next start"))).Times(0);
+  EXPECT_CALL(quiet, Log(absl::LogSeverity::kWarning, testing::_,
+                         testing::HasSubstr("next start")))
+      .Times(0);
   quiet.StartCapturingLogs();
   updater->enqueueParameterUpdate(updateWithScaling(/*scaling=*/7.0));
   solve(*updater);
   quiet.StopCapturingLogs();
 }
 
-TEST_F(MpcParameterUpdaterModuleMechanicsTest, TheStartUpReportNamesWhatThisMpcReadsAndTheRobotsFieldsApart) {
-  // A whole-body MPC: the centroidal model is the other formulation's, telemetry_frequency the robot process's, and
-  // enable_online_tuning the GUI's own switch, which no one applies.
+TEST_F(MpcParameterUpdaterModuleMechanicsTest,
+       TheStartUpReportNamesWhatThisMpcReadsAndTheRobotsFieldsApart) {
+  // A whole-body MPC: the centroidal model is the other formulation's,
+  // telemetry_frequency the robot process's, and enable_online_tuning the GUI's
+  // own switch, which no one applies.
   MpcParameterUpdaterModule::Options options;
   options.layout.mpc = StateInputLayout::Mpc::kWholeBody;
-  std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(twoFakes(), std::move(options));
+  std::unique_ptr<MpcParameterUpdaterModule> updater =
+      makeUpdater(twoFakes(), std::move(options));
   ASSERT_NE(updater, nullptr);
   mpc_config::MpcParameterUpdate others;
   others.task.centroidal_model = "single_rigid_body_dynamics";
@@ -425,10 +527,14 @@ TEST_F(MpcParameterUpdaterModuleMechanicsTest, TheStartUpReportNamesWhatThisMpcR
   others.task.enable_online_tuning = !others.task.enable_online_tuning;
   {
     absl::ScopedMockLog log(absl::MockLogDefault::kIgnoreUnexpected);
-    EXPECT_CALL(log, Log(absl::LogSeverity::kWarning, testing::_, testing::HasSubstr("next start"))).Times(0);
-    EXPECT_CALL(log,
-                Log(absl::LogSeverity::kInfo, testing::_,
-                    testing::AllOf(testing::HasSubstr("1 field(s) the robot process reads"), testing::HasSubstr("telemetry_frequency"))))
+    EXPECT_CALL(log, Log(absl::LogSeverity::kWarning, testing::_,
+                         testing::HasSubstr("next start")))
+        .Times(0);
+    EXPECT_CALL(
+        log, Log(absl::LogSeverity::kInfo, testing::_,
+                 testing::AllOf(
+                     testing::HasSubstr("1 field(s) the robot process reads"),
+                     testing::HasSubstr("telemetry_frequency"))))
         .Times(1);
     log.StartCapturingLogs();
     updater->enqueueParameterUpdate(others);
@@ -440,9 +546,13 @@ TEST_F(MpcParameterUpdaterModuleMechanicsTest, TheStartUpReportNamesWhatThisMpcR
   mpc_config::MpcParameterUpdate own = others;
   own.task.costs.emplace_back("joint_torque_cost");
   absl::ScopedMockLog log(absl::MockLogDefault::kIgnoreUnexpected);
-  EXPECT_CALL(log, Log(absl::LogSeverity::kWarning, testing::_,
-                       testing::AllOf(testing::HasSubstr("1 field(s)"), testing::HasSubstr("MPC's next start"), testing::HasSubstr("costs"),
-                                      testing::Not(testing::HasSubstr("centroidal_model")))))
+  EXPECT_CALL(
+      log,
+      Log(absl::LogSeverity::kWarning, testing::_,
+          testing::AllOf(testing::HasSubstr("1 field(s)"),
+                         testing::HasSubstr("MPC's next start"),
+                         testing::HasSubstr("costs"),
+                         testing::Not(testing::HasSubstr("centroidal_model")))))
       .Times(1);
   log.StartCapturingLogs();
   updater->enqueueParameterUpdate(own);
@@ -450,18 +560,24 @@ TEST_F(MpcParameterUpdaterModuleMechanicsTest, TheStartUpReportNamesWhatThisMpcR
   log.StopCapturingLogs();
 }
 
-TEST_F(MpcParameterUpdaterModuleMechanicsTest, EveryApplierRunsBeforeEverySolveFirstAndInOrder) {
+TEST_F(MpcParameterUpdaterModuleMechanicsTest,
+       EveryApplierRunsBeforeEverySolveFirstAndInOrder) {
   std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(twoFakes());
   ASSERT_NE(updater, nullptr);
   solve(*updater);
-  EXPECT_THAT(log_.events(), testing::ElementsAre("first:beforeEverySolve", "second:beforeEverySolve"));
+  EXPECT_THAT(log_.events(), testing::ElementsAre("first:beforeEverySolve",
+                                                  "second:beforeEverySolve"));
   log_.clear();
   updater->enqueueParameterUpdate(updateWithScaling(/*scaling=*/2.0));
   solve(*updater);
-  EXPECT_THAT(log_.events(), testing::ElementsAre("first:beforeEverySolve", "second:beforeEverySolve", "first:apply 2", "second:apply 2"));
+  EXPECT_THAT(
+      log_.events(),
+      testing::ElementsAre("first:beforeEverySolve", "second:beforeEverySolve",
+                           "first:apply 2", "second:apply 2"));
 }
 
-TEST_F(MpcParameterUpdaterModuleMechanicsTest, WithoutAnMpcNothingIsAppliedAndNothingThrows) {
+TEST_F(MpcParameterUpdaterModuleMechanicsTest,
+       WithoutAnMpcNothingIsAppliedAndNothingThrows) {
   MpcParameterUpdaterModule::Options options;
   options.appliers = twoFakes();
   absl::StatusOr<std::unique_ptr<MpcParameterUpdaterModule>> created =
@@ -472,99 +588,152 @@ TEST_F(MpcParameterUpdaterModuleMechanicsTest, WithoutAnMpcNothingIsAppliedAndNo
   EXPECT_THAT(log_.events(), testing::IsEmpty());
 }
 
-TEST_F(MpcParameterUpdaterModuleMechanicsTest, FileCheckOnlyRunsWhenClockAdvancesByPeriod) {
-  const std::filesystem::path taskFile = freshDirectory("updater_clock_period") / "task.textproto";
-  writeWatched(taskFile, "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { scaling: 1.0 }\n", /*seconds=*/1);
+TEST_F(MpcParameterUpdaterModuleMechanicsTest,
+       FileCheckOnlyRunsWhenClockAdvancesByPeriod) {
+  const std::filesystem::path taskFile =
+      freshDirectory("updater_clock_period") / "task.textproto";
+  writeWatched(taskFile,
+               "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { "
+               "scaling: 1.0 }\n",
+               /*seconds=*/1);
   MpcParameterUpdaterModule::Options options;
   options.taskFile = taskFile.string();
   options.fileCheckPeriod = absl::Seconds(1);
-  std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(twoFakes(), std::move(options));
+  std::unique_ptr<MpcParameterUpdaterModule> updater =
+      makeUpdater(twoFakes(), std::move(options));
   ASSERT_NE(updater, nullptr);
   // Initial solve initializes lastFileCheck_ to now_.
   solve(*updater);
 
   // Modify file on disk.
-  writeWatched(taskFile, "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { scaling: 2.0 }\n", /*seconds=*/2);
+  writeWatched(taskFile,
+               "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { "
+               "scaling: 2.0 }\n",
+               /*seconds=*/2);
 
   // Advance time by only 500ms (less than period of 1s).
   now_ += absl::Milliseconds(500);
   solve(*updater);
-  EXPECT_THAT(applies(), testing::IsEmpty()) << "file was checked before the fileCheckPeriod elapsed";
+  EXPECT_THAT(applies(), testing::IsEmpty())
+      << "file was checked before the fileCheckPeriod elapsed";
 
   // Advance time past the 1s threshold.
   now_ += absl::Milliseconds(500);
   solve(*updater);
-  EXPECT_THAT(applies(), testing::ElementsAre("first:apply 2", "second:apply 2")) << "file was not reloaded after fileCheckPeriod elapsed";
+  EXPECT_THAT(applies(),
+              testing::ElementsAre("first:apply 2", "second:apply 2"))
+      << "file was not reloaded after fileCheckPeriod elapsed";
 }
 
-TEST_F(MpcParameterUpdaterModuleMechanicsTest, TaskFileReadAtControlsReloadBaseline) {
-  const std::filesystem::path taskFile = freshDirectory("updater_read_at") / "task.textproto";
-  writeWatched(taskFile, "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { scaling: 1.0 }\n", /*seconds=*/1);
-  const std::optional<std::filesystem::file_time_type> baselineReadAt = lastWriteTime(taskFile.string());
+TEST_F(MpcParameterUpdaterModuleMechanicsTest,
+       TaskFileReadAtControlsReloadBaseline) {
+  const std::filesystem::path taskFile =
+      freshDirectory("updater_read_at") / "task.textproto";
+  writeWatched(taskFile,
+               "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { "
+               "scaling: 1.0 }\n",
+               /*seconds=*/1);
+  const std::optional<std::filesystem::file_time_type> baselineReadAt =
+      lastWriteTime(taskFile.string());
   ASSERT_TRUE(baselineReadAt.has_value());
 
   // An edit occurs before updater is constructed.
-  writeWatched(taskFile, "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { scaling: 2.0 }\n", /*seconds=*/2);
-  const std::optional<std::filesystem::file_time_type> editedTime = lastWriteTime(taskFile.string());
+  writeWatched(taskFile,
+               "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { "
+               "scaling: 2.0 }\n",
+               /*seconds=*/2);
+  const std::optional<std::filesystem::file_time_type> editedTime =
+      lastWriteTime(taskFile.string());
   ASSERT_TRUE(editedTime.has_value());
   if (baselineReadAt.has_value() && editedTime.has_value()) {
     ASSERT_NE(*baselineReadAt, *editedTime);
   }
 
-  // Case A: updater given baselineReadAt detects the change made during startup.
+  // Case A: updater given baselineReadAt detects the change made during
+  // startup.
   {
     MpcParameterUpdaterModule::Options options;
     options.taskFile = taskFile.string();
     options.taskFileReadAt = baselineReadAt;
-    std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(twoFakes(), std::move(options));
+    std::unique_ptr<MpcParameterUpdaterModule> updater =
+        makeUpdater(twoFakes(), std::move(options));
     ASSERT_NE(updater, nullptr);
     runFileWatch(*updater);
-    EXPECT_THAT(applies(), testing::ElementsAre("first:apply 2", "second:apply 2"))
-        << "updater with earlier taskFileReadAt did not reload file modified after readAt";
+    EXPECT_THAT(applies(),
+                testing::ElementsAre("first:apply 2", "second:apply 2"))
+        << "updater with earlier taskFileReadAt did not reload file modified "
+           "after readAt";
   }
 
   log_.clear();
 
-  // Case B: updater given editedTime as taskFileReadAt considers it already the baseline.
+  // Case B: updater given editedTime as taskFileReadAt considers it already the
+  // baseline.
   {
     MpcParameterUpdaterModule::Options options;
     options.taskFile = taskFile.string();
     options.taskFileReadAt = editedTime;
-    std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(twoFakes(), std::move(options));
+    std::unique_ptr<MpcParameterUpdaterModule> updater =
+        makeUpdater(twoFakes(), std::move(options));
     ASSERT_NE(updater, nullptr);
     runFileWatch(*updater);
-    EXPECT_THAT(applies(), testing::IsEmpty()) << "updater with matching taskFileReadAt reloaded without change";
+    EXPECT_THAT(applies(), testing::IsEmpty())
+        << "updater with matching taskFileReadAt reloaded without change";
   }
 }
 
-TEST_F(MpcParameterUpdaterModuleMechanicsTest, AFileSavedBeforeTheNewestUpdateDoesNotUndoIt) {
-  // A Save followed by more tuning within one poll period: the poll notices the saved file after the newer update.
-  const std::filesystem::path taskFile = freshDirectory("updater_superseded_file") / "task.textproto";
-  writeWatched(taskFile, "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { scaling: 1.0 }\n", /*seconds=*/1);
+TEST_F(MpcParameterUpdaterModuleMechanicsTest,
+       AFileSavedBeforeTheNewestUpdateDoesNotUndoIt) {
+  // A Save followed by more tuning within one poll period: the poll notices the
+  // saved file after the newer update.
+  const std::filesystem::path taskFile =
+      freshDirectory("updater_superseded_file") / "task.textproto";
+  writeWatched(taskFile,
+               "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { "
+               "scaling: 1.0 }\n",
+               /*seconds=*/1);
   MpcParameterUpdaterModule::Options options;
   options.taskFile = taskFile.string();
-  std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(twoFakes(), std::move(options));
+  std::unique_ptr<MpcParameterUpdaterModule> updater =
+      makeUpdater(twoFakes(), std::move(options));
   ASSERT_NE(updater, nullptr);
-  writeWatched(taskFile, "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { scaling: 2.0 }\n", /*seconds=*/-5);
+  writeWatched(taskFile,
+               "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { "
+               "scaling: 2.0 }\n",
+               /*seconds=*/-5);
   updater->enqueueParameterUpdate(updateWithScaling(/*scaling=*/7.0));
   runFileWatch(*updater);
   runFileWatch(*updater);
-  EXPECT_THAT(applies(), testing::ElementsAre("first:apply 7", "second:apply 7")) << "the older saved file undid the newer update";
+  EXPECT_THAT(applies(),
+              testing::ElementsAre("first:apply 7", "second:apply 7"))
+      << "the older saved file undid the newer update";
 }
 
-TEST_F(MpcParameterUpdaterModuleMechanicsTest, AFileWrittenAfterTheNewestUpdateIsAppliedOverIt) {
-  const std::filesystem::path taskFile = freshDirectory("updater_newer_file") / "task.textproto";
-  writeWatched(taskFile, "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { scaling: 1.0 }\n", /*seconds=*/1);
+TEST_F(MpcParameterUpdaterModuleMechanicsTest,
+       AFileWrittenAfterTheNewestUpdateIsAppliedOverIt) {
+  const std::filesystem::path taskFile =
+      freshDirectory("updater_newer_file") / "task.textproto";
+  writeWatched(taskFile,
+               "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { "
+               "scaling: 1.0 }\n",
+               /*seconds=*/1);
   MpcParameterUpdaterModule::Options options;
   options.taskFile = taskFile.string();
-  std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(twoFakes(), std::move(options));
+  std::unique_ptr<MpcParameterUpdaterModule> updater =
+      makeUpdater(twoFakes(), std::move(options));
   ASSERT_NE(updater, nullptr);
   solve(*updater);
-  // Both reach the same solve; the file is the newer edit, so it is the one the MPC runs.
+  // Both reach the same solve; the file is the newer edit, so it is the one the
+  // MPC runs.
   updater->enqueueParameterUpdate(updateWithScaling(/*scaling=*/3.0));
-  writeWatched(taskFile, "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { scaling: 2.0 }\n", /*seconds=*/2);
+  writeWatched(taskFile,
+               "# proto-message: humanoid_mpc_config.TaskFile\nstate_weights { "
+               "scaling: 2.0 }\n",
+               /*seconds=*/2);
   runFileWatch(*updater);
-  EXPECT_THAT(applies(), testing::ElementsAre("first:apply 3", "second:apply 3", "first:apply 2", "second:apply 2"));
+  EXPECT_THAT(applies(),
+              testing::ElementsAre("first:apply 3", "second:apply 3",
+                                   "first:apply 2", "second:apply 2"));
 }
 
 }  // namespace

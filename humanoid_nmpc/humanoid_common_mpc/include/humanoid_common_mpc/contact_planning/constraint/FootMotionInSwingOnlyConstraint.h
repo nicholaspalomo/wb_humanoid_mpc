@@ -37,9 +37,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `foot_motion_in_swing_only` (hard, running nodes): +-dp_{ij} + M c_i <= M, a foot only moves while it is not in contact.
+ * `foot_motion_in_swing_only` (hard, running nodes): +-dp_{ij} + M c_i <= M, a
+ * foot only moves while it is not in contact.
  *
- * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
  */
 class FootMotionInSwingOnlyConstraint final : public LipConstraintBase {
  public:
@@ -47,7 +49,9 @@ class FootMotionInSwingOnlyConstraint final : public LipConstraintBase {
   void configure(const ContactPlanningConfig& config) override;
   NodeSet nodeSet() const override { return NodeSet::kRunning; }
   Softness softness() const override { return Softness::kHard; }
-  void addRows(const ContactPlanningContext& ctx, int node, RowBuilder& rows) const override;
+  void addRows(const ContactPlanningContext& ctx,
+               int node,
+               RowBuilder& rows) const override;
 
  private:
   scalar_t bigM_ = 0.0;

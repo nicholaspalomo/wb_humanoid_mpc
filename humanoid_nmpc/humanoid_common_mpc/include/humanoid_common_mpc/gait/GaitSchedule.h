@@ -45,73 +45,95 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The mode schedule of the MPC: an initial schedule, extended over the horizon by tiling the current mode sequence
- * template (the gait), into which a new gait is inserted from a given time on.
+ * The mode schedule of the MPC: an initial schedule, extended over the horizon
+ * by tiling the current mode sequence template (the gait), into which a new
+ * gait is inserted from a given time on.
  *
- * Not thread-safe: SwitchedModelReferenceManager and ProceduralMpcMotionManager share it, and both use it on the solver
- * thread.
+ * Not thread-safe: SwitchedModelReferenceManager and ProceduralMpcMotionManager
+ * share it, and both use it on the solver thread.
  */
 class GaitSchedule {
  public:
-  GaitSchedule(ModeSchedule initModeSchedule, ModeSequenceTemplate initModeSequenceTemplate, scalar_t phaseTransitionStanceTime);
+  GaitSchedule(ModeSchedule initModeSchedule,
+               ModeSequenceTemplate initModeSequenceTemplate,
+               scalar_t phaseTransitionStanceTime);
 
-  // Shared by the reference manager and the gait updaters through one std::shared_ptr; a copy would fork the schedule.
+  // Shared by the reference manager and the gait updaters through one
+  // std::shared_ptr; a copy would fork the schedule.
   GaitSchedule(const GaitSchedule&) = delete;
   GaitSchedule& operator=(const GaitSchedule&) = delete;
   ~GaitSchedule() = default;
 
   /**
-   * @param [in] lowerBoundTime: The smallest time for which the ModeSchedule should be defined.
-   * @param [in] upperBoundTime: The greatest time for which the ModeSchedule should be defined.
+   * @param [in] lowerBoundTime: The smallest time for which the ModeSchedule
+   * should be defined.
+   * @param [in] upperBoundTime: The greatest time for which the ModeSchedule
+   * should be defined.
    */
-  ModeSchedule getModeSchedule(scalar_t lowerBoundTime, scalar_t upperBoundTime);
+  ModeSchedule getModeSchedule(scalar_t lowerBoundTime,
+                               scalar_t upperBoundTime);
 
   ModeSchedule getCurrentModeSchedule() const { return modeSchedule_; }
 
   /**
    * Used to insert a new user defined logic in the given time period.
    *
-   * @param [in] startTime: The initial time from which the new mode sequence template should start.
-   * @param [in] finalTime: The final time until when the new mode sequence needs to be defined.
+   * @param [in] startTime: The initial time from which the new mode sequence
+   * template should start.
+   * @param [in] finalTime: The final time until when the new mode sequence
+   * needs to be defined.
    */
-  void insertModeSequenceTemplate(const ModeSequenceTemplate& modeSequenceTemplate, scalar_t startTime, scalar_t finalTime);
+  void insertModeSequenceTemplate(
+      const ModeSequenceTemplate& modeSequenceTemplate,
+      scalar_t startTime,
+      scalar_t finalTime);
 
   /**
-   * The schedule of a typed reference file: its initial_mode_schedule (initialModeScheduleFromConfig()), extended with
-   * its default_mode_sequence_template (defaultModeSequenceTemplateFromConfig()), and fails like those.
+   * The schedule of a typed reference file: its initial_mode_schedule
+   * (initialModeScheduleFromConfig()), extended with its
+   * default_mode_sequence_template (defaultModeSequenceTemplateFromConfig()),
+   * and fails like those.
    */
-  static absl::StatusOr<std::shared_ptr<GaitSchedule>> Create(const mpc_config::ReferenceFile& referenceFile,
-                                                              const ModelSettings& modelSettings,
-                                                              bool verbose = false);
+  static absl::StatusOr<std::shared_ptr<GaitSchedule>> Create(
+      const mpc_config::ReferenceFile& referenceFile,
+      const ModelSettings& modelSettings,
+      bool verbose = false);
 
   /**
-   * The schedule above of the reference file at `referenceFile` (loadReferenceFile()): the path form of a root of the
-   * MPC's configuration.
+   * The schedule above of the reference file at `referenceFile`
+   * (loadReferenceFile()): the path form of a root of the MPC's configuration.
    *
-   * @return loadReferenceFile()'s error for a file that cannot be read or does not parse, and the typed Create()'s
-   *         errors, prefixed with the file.
+   * @return loadReferenceFile()'s error for a file that cannot be read or does
+   * not parse, and the typed Create()'s errors, prefixed with the file.
    */
-  static absl::StatusOr<std::shared_ptr<GaitSchedule>> Create(absl::string_view referenceFile,
-                                                              const ModelSettings& modelSettings,
-                                                              bool verbose = false);
+  static absl::StatusOr<std::shared_ptr<GaitSchedule>> Create(
+      absl::string_view referenceFile,
+      const ModelSettings& modelSettings,
+      bool verbose = false);
 
   void updateModeSchedule(const ModeSchedule& modeSchedule);
 
   /**
-   * Puts the schedule and the template back to the ones this schedule was constructed with, i.e. the reference file's
-   * initial_mode_schedule and default_mode_sequence_template, both STANCE on every shipped robot. Every gait inserted since
-   * is forgotten, including its events in the future: after a reset of the controller, or a clock that ran backwards,
-   * those would hold the robot in whatever the old schedule said until the clock caught up with them. The next
-   * getModeSchedule() then answers exactly as it would on a freshly constructed schedule.
+   * Puts the schedule and the template back to the ones this schedule was
+   * constructed with, i.e. the reference file's initial_mode_schedule and
+   * default_mode_sequence_template, both STANCE on every shipped robot. Every
+   * gait inserted since is forgotten, including its events in the future: after
+   * a reset of the controller, or a clock that ran backwards, those would hold
+   * the robot in whatever the old schedule said until the clock caught up with
+   * them. The next getModeSchedule() then answers exactly as it would on a
+   * freshly constructed schedule.
    */
   void reset();
 
  private:
   /**
-   * Extends the switch information from lowerBoundTime to upperBoundTime based on the template mode sequence.
+   * Extends the switch information from lowerBoundTime to upperBoundTime based
+   * on the template mode sequence.
    *
-   * @param [in] startTime: The initial time from which the mode schedule should be appended with the template.
-   * @param [in] finalTime: The final time to which the mode schedule should be appended with the template.
+   * @param [in] startTime: The initial time from which the mode schedule should
+   * be appended with the template.
+   * @param [in] finalTime: The final time to which the mode schedule should be
+   * appended with the template.
    */
   void tileModeSequenceTemplate(scalar_t startTime, scalar_t finalTime);
 

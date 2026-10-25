@@ -45,14 +45,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_msgs/walking_velocity_command.pb.h"
 
 /*
- * The messages the MPC node converts: the operator's walking command, clamped to the normalized ranges the motion
- * manager scales and refused when a value is not finite, and the annotations sent with every policy.
+ * The messages the MPC node converts: the operator's walking command, clamped
+ * to the normalized ranges the motion manager scales and refused when a value
+ * is not finite, and the annotations sent with every policy.
  */
 
 namespace ocs2::humanoid::node {
 namespace {
 
-humanoid_mpc_msgs::WalkingVelocityCommand commandMessage(double vx, double vy, double height, double yawRate) {
+humanoid_mpc_msgs::WalkingVelocityCommand commandMessage(double vx,
+                                                         double vy,
+                                                         double height,
+                                                         double yawRate) {
   humanoid_mpc_msgs::WalkingVelocityCommand message;
   message.set_linear_velocity_x(vx);
   message.set_linear_velocity_y(vy);
@@ -63,7 +67,8 @@ humanoid_mpc_msgs::WalkingVelocityCommand commandMessage(double vx, double vy, d
 
 TEST(WalkingVelocityCommandFromProto, PassesACommandInsideTheRangesThrough) {
   const absl::StatusOr<WalkingVelocityCommand> command =
-      walkingVelocityCommandFromProto(commandMessage(/*vx=*/0.5, /*vy=*/-0.25, /*height=*/0.8, /*yawRate=*/0.125));
+      walkingVelocityCommandFromProto(commandMessage(
+          /*vx=*/0.5, /*vy=*/-0.25, /*height=*/0.8, /*yawRate=*/0.125));
   ASSERT_TRUE(command.ok()) << command.status();
   EXPECT_EQ(command->linear_velocity_x, 0.5);
   EXPECT_EQ(command->linear_velocity_y, -0.25);
@@ -73,7 +78,8 @@ TEST(WalkingVelocityCommandFromProto, PassesACommandInsideTheRangesThrough) {
 
 TEST(WalkingVelocityCommandFromProto, ClampsToTheNormalizedRanges) {
   const absl::StatusOr<WalkingVelocityCommand> high =
-      walkingVelocityCommandFromProto(commandMessage(/*vx=*/3.0, /*vy=*/2.0, /*height=*/5.0, /*yawRate=*/7.0));
+      walkingVelocityCommandFromProto(commandMessage(
+          /*vx=*/3.0, /*vy=*/2.0, /*height=*/5.0, /*yawRate=*/7.0));
   ASSERT_TRUE(high.ok()) << high.status();
   EXPECT_EQ(high->linear_velocity_x, kMaxNormalizedVelocity);
   EXPECT_EQ(high->linear_velocity_y, kMaxNormalizedVelocity);
@@ -81,7 +87,8 @@ TEST(WalkingVelocityCommandFromProto, ClampsToTheNormalizedRanges) {
   EXPECT_EQ(high->angular_velocity_z, kMaxNormalizedVelocity);
 
   const absl::StatusOr<WalkingVelocityCommand> low =
-      walkingVelocityCommandFromProto(commandMessage(/*vx=*/-3.0, /*vy=*/-2.0, /*height=*/0.0, /*yawRate=*/-7.0));
+      walkingVelocityCommandFromProto(commandMessage(
+          /*vx=*/-3.0, /*vy=*/-2.0, /*height=*/0.0, /*yawRate=*/-7.0));
   ASSERT_TRUE(low.ok()) << low.status();
   EXPECT_EQ(low->linear_velocity_x, -kMaxNormalizedVelocity);
   EXPECT_EQ(low->linear_velocity_y, -kMaxNormalizedVelocity);
@@ -89,29 +96,42 @@ TEST(WalkingVelocityCommandFromProto, ClampsToTheNormalizedRanges) {
   EXPECT_EQ(low->angular_velocity_z, -kMaxNormalizedVelocity);
 }
 
-TEST(WalkingVelocityCommandFromProto, RefusesAValueThatIsNotFiniteNamingTheField) {
+TEST(WalkingVelocityCommandFromProto,
+     RefusesAValueThatIsNotFiniteNamingTheField) {
   const double nan = std::numeric_limits<double>::quiet_NaN();
   const double infinity = std::numeric_limits<double>::infinity();
   const absl::StatusOr<WalkingVelocityCommand> notANumber =
-      walkingVelocityCommandFromProto(commandMessage(/*vx=*/nan, /*vy=*/0.0, /*height=*/0.8, /*yawRate=*/0.0));
+      walkingVelocityCommandFromProto(commandMessage(
+          /*vx=*/nan, /*vy=*/0.0, /*height=*/0.8, /*yawRate=*/0.0));
   EXPECT_EQ(notANumber.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_NE(notANumber.status().message().find("linear_velocity_x"), absl::string_view::npos) << notANumber.status();
+  EXPECT_NE(notANumber.status().message().find("linear_velocity_x"),
+            absl::string_view::npos)
+      << notANumber.status();
 
   const absl::StatusOr<WalkingVelocityCommand> infinite =
-      walkingVelocityCommandFromProto(commandMessage(/*vx=*/0.0, /*vy=*/0.0, /*height=*/infinity, /*yawRate=*/0.0));
+      walkingVelocityCommandFromProto(commandMessage(
+          /*vx=*/0.0, /*vy=*/0.0, /*height=*/infinity, /*yawRate=*/0.0));
   EXPECT_EQ(infinite.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_NE(infinite.status().message().find("desired_pelvis_height"), absl::string_view::npos) << infinite.status();
+  EXPECT_NE(infinite.status().message().find("desired_pelvis_height"),
+            absl::string_view::npos)
+      << infinite.status();
 }
 
 TEST(ClampWalkingVelocityCommand, IsTheClampOfTheConversion) {
-  // The clamp the lockstep closed loop applies to the GUI's messages is the one a received message goes through.
+  // The clamp the lockstep closed loop applies to the GUI's messages is the one
+  // a received message goes through.
   for (const WalkingVelocityCommand& command :
-       {WalkingVelocityCommand(/*v_x=*/0.3, /*v_y=*/-0.2, /*desired_pelvis_h=*/0.8, /*v_yaw=*/0.1),
-        WalkingVelocityCommand(/*v_x=*/2.0, /*v_y=*/-3.0, /*desired_pelvis_h=*/0.05, /*v_yaw=*/1.5),
-        WalkingVelocityCommand(/*v_x=*/-7.0, /*v_y=*/4.0, /*desired_pelvis_h=*/1.7, /*v_yaw=*/-2.5)}) {
+       {WalkingVelocityCommand(/*v_x=*/0.3, /*v_y=*/-0.2,
+                               /*desired_pelvis_h=*/0.8, /*v_yaw=*/0.1),
+        WalkingVelocityCommand(/*v_x=*/2.0, /*v_y=*/-3.0,
+                               /*desired_pelvis_h=*/0.05, /*v_yaw=*/1.5),
+        WalkingVelocityCommand(/*v_x=*/-7.0, /*v_y=*/4.0,
+                               /*desired_pelvis_h=*/1.7, /*v_yaw=*/-2.5)}) {
     const WalkingVelocityCommand clamped = clampWalkingVelocityCommand(command);
-    const absl::StatusOr<WalkingVelocityCommand> converted = walkingVelocityCommandFromProto(
-        commandMessage(command.linear_velocity_x, command.linear_velocity_y, command.desired_pelvis_height, command.angular_velocity_z));
+    const absl::StatusOr<WalkingVelocityCommand> converted =
+        walkingVelocityCommandFromProto(commandMessage(
+            command.linear_velocity_x, command.linear_velocity_y,
+            command.desired_pelvis_height, command.angular_velocity_z));
     ASSERT_TRUE(converted.ok()) << converted.status();
     EXPECT_EQ(clamped.linear_velocity_x, converted->linear_velocity_x);
     EXPECT_EQ(clamped.linear_velocity_y, converted->linear_velocity_y);
@@ -121,10 +141,14 @@ TEST(ClampWalkingVelocityCommand, IsTheClampOfTheConversion) {
     EXPECT_GE(clamped.desired_pelvis_height, kMinPelvisHeight);
     EXPECT_LE(clamped.desired_pelvis_height, kMaxPelvisHeight);
   }
-  // A value that is not finite is the conversion's to refuse; the clamp passes it on.
-  const WalkingVelocityCommand notANumber(/*v_x=*/std::numeric_limits<double>::quiet_NaN(), /*v_y=*/0.0, /*desired_pelvis_h=*/0.8,
-                                          /*v_yaw=*/0.0);
-  EXPECT_TRUE(std::isnan(clampWalkingVelocityCommand(notANumber).linear_velocity_x));
+  // A value that is not finite is the conversion's to refuse; the clamp passes
+  // it on.
+  const WalkingVelocityCommand notANumber(
+      /*v_x=*/std::numeric_limits<double>::quiet_NaN(), /*v_y=*/0.0,
+      /*desired_pelvis_h=*/0.8,
+      /*v_yaw=*/0.0);
+  EXPECT_TRUE(
+      std::isnan(clampWalkingVelocityCommand(notANumber).linear_velocity_x));
 }
 
 TargetContactPose pose(TargetContactPose::Kind kind, scalar_t x) {
@@ -139,31 +163,39 @@ TargetContactPose pose(TargetContactPose::Kind kind, scalar_t x) {
 }
 
 TEST(FillViewerAnnotations, SendsOnePatchPerFootAndTheScaledCommand) {
-  const feet_array_t<TargetContactPose> poses = {pose(TargetContactPose::Kind::kSwingInFlight, /*x=*/0.4),
-                                                 pose(TargetContactPose::Kind::kNextSwing, /*x=*/0.1)};
-  const WalkingVelocityCommand scaled(/*v_x=*/0.3, /*v_y=*/-0.1, /*desired_pelvis_h=*/0.8, /*v_yaw=*/0.2);
+  const feet_array_t<TargetContactPose> poses = {
+      pose(TargetContactPose::Kind::kSwingInFlight, /*x=*/0.4),
+      pose(TargetContactPose::Kind::kNextSwing, /*x=*/0.1)};
+  const WalkingVelocityCommand scaled(/*v_x=*/0.3, /*v_y=*/-0.1,
+                                      /*desired_pelvis_h=*/0.8, /*v_yaw=*/0.2);
   humanoid_mpc_msgs::ViewerAnnotations annotations;
   fillViewerAnnotations(&poses, scaled, &annotations);
 
-  ASSERT_EQ(annotations.target_contact_patches_size(), static_cast<int>(kNumContacts));
-  const humanoid_mpc_msgs::TargetContactPatch& left = annotations.target_contact_patches(0);
+  ASSERT_EQ(annotations.target_contact_patches_size(),
+            static_cast<int>(kNumContacts));
+  const humanoid_mpc_msgs::TargetContactPatch& left =
+      annotations.target_contact_patches(0);
   ASSERT_TRUE(left.has_pose());
-  EXPECT_EQ(left.kind(), humanoid_mpc_msgs::TargetContactPatch::KIND_SWING_IN_FLIGHT);
+  EXPECT_EQ(left.kind(),
+            humanoid_mpc_msgs::TargetContactPatch::KIND_SWING_IN_FLIGHT);
   EXPECT_EQ(left.pose().x(), 0.4);
   EXPECT_EQ(left.pose().y(), -0.4);
   EXPECT_EQ(left.pose().z(), 0.02);
   EXPECT_EQ(left.pose().yaw(), 0.3);
   EXPECT_TRUE(left.pose().yaw_planned());
-  EXPECT_EQ(annotations.target_contact_patches(1).kind(), humanoid_mpc_msgs::TargetContactPatch::KIND_NEXT_SWING);
+  EXPECT_EQ(annotations.target_contact_patches(1).kind(),
+            humanoid_mpc_msgs::TargetContactPatch::KIND_NEXT_SWING);
   EXPECT_EQ(annotations.scaled_velocity_x(), 0.3);
   EXPECT_EQ(annotations.scaled_velocity_y(), -0.1);
   EXPECT_EQ(annotations.scaled_yaw_rate(), 0.2);
 }
 
-TEST(FillViewerAnnotations, SendsNoPatchWithoutAContactPlannerAndReplacesWhatTheMessageHeld) {
+TEST(FillViewerAnnotations,
+     SendsNoPatchWithoutAContactPlannerAndReplacesWhatTheMessageHeld) {
   humanoid_mpc_msgs::ViewerAnnotations annotations;
   annotations.add_target_contact_patches()->mutable_pose()->set_x(1.0);
-  fillViewerAnnotations(/*targetContactPoses=*/nullptr, WalkingVelocityCommand(), &annotations);
+  fillViewerAnnotations(/*targetContactPoses=*/nullptr,
+                        WalkingVelocityCommand(), &annotations);
   EXPECT_EQ(annotations.target_contact_patches_size(), 0);
   EXPECT_EQ(annotations.scaled_velocity_x(), 0.0);
 }
@@ -177,7 +209,8 @@ TEST(TargetContactPatchToProto, SendsNoPoseForAPoseThatIsInvalidOrNotFinite) {
   EXPECT_EQ(patch.kind(), humanoid_mpc_msgs::TargetContactPatch::KIND_STANCE);
 
   // A patch that had a pose loses it: the message is replaced, not merged.
-  targetContactPatchToProto(pose(TargetContactPose::Kind::kNextSwing, /*x=*/0.2), &patch);
+  targetContactPatchToProto(
+      pose(TargetContactPose::Kind::kNextSwing, /*x=*/0.2), &patch);
   ASSERT_TRUE(patch.has_pose());
   TargetContactPose invalid = pose(TargetContactPose::Kind::kStance, /*x=*/0.0);
   invalid.valid = false;
@@ -186,17 +219,27 @@ TEST(TargetContactPatchToProto, SendsNoPoseForAPoseThatIsInvalidOrNotFinite) {
   EXPECT_EQ(patch.kind(), humanoid_mpc_msgs::TargetContactPatch::KIND_STANCE);
 }
 
-TEST(TargetContactPatchToProto, EveryKindIsSentAsItsOwnEnumeratorNeverUnspecified) {
-  const std::array<std::pair<TargetContactPose::Kind, humanoid_mpc_msgs::TargetContactPatch::Kind>, 3> kinds = {{
-      {TargetContactPose::Kind::kStance, humanoid_mpc_msgs::TargetContactPatch::KIND_STANCE},
-      {TargetContactPose::Kind::kSwingInFlight, humanoid_mpc_msgs::TargetContactPatch::KIND_SWING_IN_FLIGHT},
-      {TargetContactPose::Kind::kNextSwing, humanoid_mpc_msgs::TargetContactPatch::KIND_NEXT_SWING},
-  }};
-  for (const std::pair<TargetContactPose::Kind, humanoid_mpc_msgs::TargetContactPatch::Kind>& kind : kinds) {
+TEST(TargetContactPatchToProto,
+     EveryKindIsSentAsItsOwnEnumeratorNeverUnspecified) {
+  const std::array<std::pair<TargetContactPose::Kind,
+                             humanoid_mpc_msgs::TargetContactPatch::Kind>,
+                   3>
+      kinds = {{
+          {TargetContactPose::Kind::kStance,
+           humanoid_mpc_msgs::TargetContactPatch::KIND_STANCE},
+          {TargetContactPose::Kind::kSwingInFlight,
+           humanoid_mpc_msgs::TargetContactPatch::KIND_SWING_IN_FLIGHT},
+          {TargetContactPose::Kind::kNextSwing,
+           humanoid_mpc_msgs::TargetContactPatch::KIND_NEXT_SWING},
+      }};
+  for (const std::pair<TargetContactPose::Kind,
+                       humanoid_mpc_msgs::TargetContactPatch::Kind>& kind :
+       kinds) {
     humanoid_mpc_msgs::TargetContactPatch patch;
     targetContactPatchToProto(pose(kind.first, /*x=*/0.1), &patch);
     EXPECT_EQ(patch.kind(), kind.second);
-    EXPECT_NE(patch.kind(), humanoid_mpc_msgs::TargetContactPatch::KIND_UNSPECIFIED);
+    EXPECT_NE(patch.kind(),
+              humanoid_mpc_msgs::TargetContactPatch::KIND_UNSPECIFIED);
     EXPECT_TRUE(patch.has_pose());
   }
 }

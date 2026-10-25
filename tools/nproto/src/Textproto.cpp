@@ -59,18 +59,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace nproto {
 namespace {
 
-// The protobuf tokenizer counts lines and columns from 0; editors and compilers count them from 1.
+// The protobuf tokenizer counts lines and columns from 0; editors and compilers
+// count them from 1.
 constexpr int kFirstLine = 1;
 constexpr int kFirstColumn = 1;
-// The protobuf tokenizer moves a tab to the next multiple of this column (io/tokenizer.cc) and counts every other byte
-// as one column; Python's text_format and nproto_textproto count characters.
+// The protobuf tokenizer moves a tab to the next multiple of this column
+// (io/tokenizer.cc) and counts every other byte as one column; Python's
+// text_format and nproto_textproto count characters.
 constexpr int kTokenizerTabWidth = 8;
 // The bits of a UTF-8 continuation byte (10xxxxxx), which starts no character.
 constexpr unsigned char kUtf8ContinuationMask = 0xC0;
 constexpr unsigned char kUtf8ContinuationBits = 0x80;
 
-// The problems TextFormat::Parser notices only after it has consumed the token at fault, and so reports at the token
-// after it: an unknown field name at the ':' that follows it, a bad bool or enum value at the next field.
+// The problems TextFormat::Parser notices only after it has consumed the token
+// at fault, and so reports at the token after it: an unknown field name at the
+// ':' that follows it, a bad bool or enum value at the next field.
 constexpr absl::string_view kReportedAfterTheirToken[] = {
     "Message type \"",                     // ... has no field named "x".
     "Invalid value for boolean field \"",  // ... Value: "maybe".
@@ -86,13 +89,17 @@ bool isReportedAfterItsToken(absl::string_view message) {
     }
   }
   // Field "y" is specified along with field "x", another member of oneof "o".
-  return absl::StartsWith(message, "Field \"") && absl::StrContains(message, "\" is specified along with field \"");
+  return absl::StartsWith(message, "Field \"") &&
+         absl::StrContains(message, "\" is specified along with field \"");
 }
 
-// The tokenizer below reports nothing: the parser has already reported every problem of the text.
+// The tokenizer below reports nothing: the parser has already reported every
+// problem of the text.
 class SilentErrorCollector final : public google::protobuf::io::ErrorCollector {
  public:
-  void RecordError(int /*line*/, google::protobuf::io::ColumnNumber /*column*/, absl::string_view /*message*/) override {}
+  void RecordError(int /*line*/,
+                   google::protobuf::io::ColumnNumber /*column*/,
+                   absl::string_view /*message*/) override {}
 };
 
 struct Position {
@@ -100,18 +107,21 @@ struct Position {
   int column = 0;
 };
 
-// The start of the last token of `text` that starts before `position`, tokenized as TextFormat::Parser does; `position`
-// itself when no token does.
+// The start of the last token of `text` that starts before `position`,
+// tokenized as TextFormat::Parser does; `position` itself when no token does.
 Position previousTokenStart(absl::string_view text, Position position) {
-  google::protobuf::io::ArrayInputStream input(text.data(), static_cast<int>(text.size()));
+  google::protobuf::io::ArrayInputStream input(text.data(),
+                                               static_cast<int>(text.size()));
   SilentErrorCollector silent;
   google::protobuf::io::Tokenizer tokenizer(&input, &silent);
   tokenizer.set_allow_f_after_float(/*value=*/true);
-  tokenizer.set_comment_style(google::protobuf::io::Tokenizer::SH_COMMENT_STYLE);
+  tokenizer.set_comment_style(
+      google::protobuf::io::Tokenizer::SH_COMMENT_STYLE);
   Position previous = position;
   while (tokenizer.Next()) {
     const google::protobuf::io::Tokenizer::Token& token = tokenizer.current();
-    if (token.line > position.line || (token.line == position.line && token.column >= position.column)) {
+    if (token.line > position.line ||
+        (token.line == position.line && token.column >= position.column)) {
       break;
     }
     previous = Position{.line = token.line, .column = token.column};
@@ -119,8 +129,9 @@ Position previousTokenStart(absl::string_view text, Position position) {
   return previous;
 }
 
-// The 0-based column, in characters, of the tokenizer's 0-based `column` on the 0-based `line` of `text`: a tab is one
-// character, as is a multi-byte UTF-8 character, so that the C++ and the Python parsers report the same position.
+// The 0-based column, in characters, of the tokenizer's 0-based `column` on the
+// 0-based `line` of `text`: a tab is one character, as is a multi-byte UTF-8
+// character, so that the C++ and the Python parsers report the same position.
 int characterColumn(absl::string_view text, int line, int column) {
   size_t start = 0;
   for (int skipped = 0; skipped < line; ++skipped) {
@@ -130,22 +141,27 @@ int characterColumn(absl::string_view text, int line, int column) {
   }
   int tokenizerColumn = 0;
   int characters = 0;
-  for (size_t i = start; i < text.size() && text[i] != '\n' && tokenizerColumn < column; ++i) {
+  for (size_t i = start;
+       i < text.size() && text[i] != '\n' && tokenizerColumn < column; ++i) {
     const unsigned char byte = static_cast<unsigned char>(text[i]);
-    tokenizerColumn += byte == '\t' ? kTokenizerTabWidth - tokenizerColumn % kTokenizerTabWidth : 1;
+    tokenizerColumn +=
+        byte == '\t' ? kTokenizerTabWidth - tokenizerColumn % kTokenizerTabWidth
+                     : 1;
     if ((byte & kUtf8ContinuationMask) != kUtf8ContinuationBits) ++characters;
   }
   return characters;
 }
 
 struct Problem {
-  int line = 0;  // negative: a problem of the whole message, which has no position
+  int line =
+      0;  // negative: a problem of the whole message, which has no position
   int column = 0;
   std::string message;
 };
 
-// The header line a configuration file names its message with (tools/nproto/README.md, "Textproto configuration
-// files"), in its leading comment block.
+// The header line a configuration file names its message with
+// (tools/nproto/README.md, "Textproto configuration files"), in its leading
+// comment block.
 // LINT.IfChange(header_lines)
 constexpr absl::string_view kProtoMessageHeader = "proto-message:";
 // LINT.ThenChange(//tools/nproto/nproto_textproto.py:header_lines, //tools/hooks/textproto_headers.py:header_lines)
@@ -155,14 +171,16 @@ struct HeaderMessage {
   std::string fullName;
 };
 
-// The message the leading comment block of `text` names with `# proto-message: <full name>`, if it names one.
+// The message the leading comment block of `text` names with `# proto-message:
+// <full name>`, if it names one.
 std::optional<HeaderMessage> headerMessage(absl::string_view text) {
   int line = 0;
   absl::string_view rest = text;
   while (!rest.empty()) {
     const size_t end = rest.find('\n');
     absl::string_view current = rest.substr(0, end);
-    rest = end == absl::string_view::npos ? absl::string_view() : rest.substr(end + 1);
+    rest = end == absl::string_view::npos ? absl::string_view()
+                                          : rest.substr(end + 1);
     ++line;
     current = absl::StripAsciiWhitespace(current);
     if (current.empty()) {
@@ -173,17 +191,21 @@ std::optional<HeaderMessage> headerMessage(absl::string_view text) {
     }
     current = absl::StripLeadingAsciiWhitespace(current);
     if (absl::ConsumePrefix(&current, kProtoMessageHeader)) {
-      return HeaderMessage{.line = line, .fullName = std::string(absl::StripAsciiWhitespace(current))};
+      return HeaderMessage{
+          .line = line,
+          .fullName = std::string(absl::StripAsciiWhitespace(current))};
     }
   }
   return std::nullopt;
 }
 
-// The underscores snakeCase() reserves room for beyond the characters of the name; a name that needs more reallocates.
+// The underscores snakeCase() reserves room for beyond the characters of the
+// name; a name that needs more reallocates.
 constexpr int kReservedUnderscores = 4;
 
-// `name` snake-cased and lower-cased, as tools/hooks/proto_file_layout.py names files: "useDcmTerminalCost" ->
-// "use_dcm_terminal_cost", "HTTPRequest" -> "http_request". The form in which a retired name and an unknown field name
+// `name` snake-cased and lower-cased, as tools/hooks/proto_file_layout.py names
+// files: "useDcmTerminalCost" -> "use_dcm_terminal_cost", "HTTPRequest" ->
+// "http_request". The form in which a retired name and an unknown field name
 // are compared.
 std::string snakeCase(absl::string_view name) {
   std::string result;
@@ -192,8 +214,10 @@ std::string snakeCase(absl::string_view name) {
     const char character = name[i];
     if (absl::ascii_isupper(character) && i > 0) {
       const char previous = name[i - 1];
-      const bool nextIsLower = i + 1 < name.size() && absl::ascii_islower(name[i + 1]);
-      if (absl::ascii_islower(previous) || absl::ascii_isdigit(previous) || (absl::ascii_isupper(previous) && nextIsLower)) {
+      const bool nextIsLower =
+          i + 1 < name.size() && absl::ascii_islower(name[i + 1]);
+      if (absl::ascii_islower(previous) || absl::ascii_isdigit(previous) ||
+          (absl::ascii_isupper(previous) && nextIsLower)) {
         result.push_back('_');
       }
     }
@@ -202,7 +226,8 @@ std::string snakeCase(absl::string_view name) {
   return result;
 }
 
-// The message type and the field name of TextFormat::Parser's `Message type "M" has no field named "x".`
+// The message type and the field name of TextFormat::Parser's `Message type "M"
+// has no field named "x".`
 struct UnknownField {
   std::string messageType;
   std::string fieldName;
@@ -222,12 +247,14 @@ std::optional<UnknownField> unknownField(absl::string_view problem) {
   if (close == absl::string_view::npos) {
     return std::nullopt;
   }
-  return UnknownField{.messageType = std::string(problem.substr(0, middle)), .fieldName = std::string(field.substr(0, close))};
+  return UnknownField{.messageType = std::string(problem.substr(0, middle)),
+                      .fieldName = std::string(field.substr(0, close))};
 }
 
 // The (nproto.retired_field) entry of `type` that retires `fieldName`, or null.
 // LINT.IfChange(retired_options)
-const RetiredField* absl_nullable findRetiredField(const google::protobuf::Descriptor& type, absl::string_view fieldName) {
+const RetiredField* absl_nullable findRetiredField(
+    const google::protobuf::Descriptor& type, absl::string_view fieldName) {
   const std::string key = snakeCase(fieldName);
   const google::protobuf::MessageOptions& options = type.options();
   for (int i = 0; i < options.ExtensionSize(retired_field); ++i) {
@@ -239,20 +266,26 @@ const RetiredField* absl_nullable findRetiredField(const google::protobuf::Descr
   return nullptr;
 }
 
-// An unknown-field problem answered from the schema: "'x' is retired: <replacement>" for a retired name; otherwise the
-// parser's message, with "Did you mean "y"?" when the snake-cased name is a field and the message's layout hint.
-std::string explainProblem(const google::protobuf::DescriptorPool& pool, const std::string& message) {
+// An unknown-field problem answered from the schema: "'x' is retired:
+// <replacement>" for a retired name; otherwise the parser's message, with "Did
+// you mean "y"?" when the snake-cased name is a field and the message's layout
+// hint.
+std::string explainProblem(const google::protobuf::DescriptorPool& pool,
+                           const std::string& message) {
   const std::optional<UnknownField> unknown = unknownField(message);
   if (!unknown.has_value()) {
     return message;
   }
-  const google::protobuf::Descriptor* absl_nullable type = pool.FindMessageTypeByName(unknown->messageType);
+  const google::protobuf::Descriptor* absl_nullable type =
+      pool.FindMessageTypeByName(unknown->messageType);
   if (type == nullptr) {
     return message;
   }
-  const RetiredField* absl_nullable retired = findRetiredField(*type, unknown->fieldName);
+  const RetiredField* absl_nullable retired =
+      findRetiredField(*type, unknown->fieldName);
   if (retired != nullptr) {
-    return absl::StrCat("'", unknown->fieldName, "' is retired: ", retired->replacement());
+    return absl::StrCat("'", unknown->fieldName,
+                        "' is retired: ", retired->replacement());
   }
   std::string explained = message;
   const std::string snake = snakeCase(unknown->fieldName);
@@ -268,15 +301,22 @@ std::string explainProblem(const google::protobuf::DescriptorPool& pool, const s
 // LINT.ThenChange(//tools/nproto/retired_field_options.proto:retired_options, //tools/nproto/nproto_textproto.py:retired_options)
 
 // Collects the parser's problems instead of letting it log them.
-class TextprotoErrorCollector final : public google::protobuf::io::ErrorCollector {
+class TextprotoErrorCollector final
+    : public google::protobuf::io::ErrorCollector {
  public:
-  void RecordError(int line, google::protobuf::io::ColumnNumber column, absl::string_view message) override {
-    problems_.push_back(Problem{.line = line, .column = column, .message = std::string(message)});
+  void RecordError(int line,
+                   google::protobuf::io::ColumnNumber column,
+                   absl::string_view message) override {
+    problems_.push_back(Problem{
+        .line = line, .column = column, .message = std::string(message)});
   }
 
   // Strict: what the parser would only warn about is an error of the file too.
-  void RecordWarning(int line, google::protobuf::io::ColumnNumber column, absl::string_view message) override {
-    problems_.push_back(Problem{.line = line, .column = column, .message = std::string(message)});
+  void RecordWarning(int line,
+                     google::protobuf::io::ColumnNumber column,
+                     absl::string_view message) override {
+    problems_.push_back(Problem{
+        .line = line, .column = column, .message = std::string(message)});
   }
 
   const std::vector<Problem>& problems() const { return problems_; }
@@ -285,8 +325,8 @@ class TextprotoErrorCollector final : public google::protobuf::io::ErrorCollecto
   std::vector<Problem> problems_;
 };
 
-// "<source>:<line>:<column>: <problem>", the position being the token at fault, 1-based, the problem explained from
-// the schema (explainProblem()).
+// "<source>:<line>:<column>: <problem>", the position being the token at fault,
+// 1-based, the problem explained from the schema (explainProblem()).
 std::string formatProblem(absl::string_view text,
                           absl::string_view source,
                           const google::protobuf::DescriptorPool& pool,
@@ -299,32 +339,46 @@ std::string formatProblem(absl::string_view text,
   if (isReportedAfterItsToken(problem.message)) {
     position = previousTokenStart(text, position);
   }
-  return absl::StrCat(source, ":", position.line + kFirstLine, ":", characterColumn(text, position.line, position.column) + kFirstColumn,
-                      ": ", explained);
+  return absl::StrCat(
+      source, ":", position.line + kFirstLine, ":",
+      characterColumn(text, position.line, position.column) + kFirstColumn,
+      ": ", explained);
 }
 
 }  // namespace
 
-absl::Status CheckProtoMessageHeader(absl::string_view text, absl::string_view sourceName, const google::protobuf::Descriptor& descriptor) {
+absl::Status CheckProtoMessageHeader(
+    absl::string_view text,
+    absl::string_view sourceName,
+    const google::protobuf::Descriptor& descriptor) {
   if (!headerMessage(text).has_value()) {
-    return absl::InvalidArgumentError(absl::StrCat(sourceName, ":1:1: ", sourceName,
-                                                   " names no schema: a configuration file opens with '# ", kProtoMessageHeader, " ",
-                                                   descriptor.full_name(), "' in its leading comment block"));
+    return absl::InvalidArgumentError(
+        absl::StrCat(sourceName, ":1:1: ", sourceName,
+                     " names no schema: a configuration file opens with '# ",
+                     kProtoMessageHeader, " ", descriptor.full_name(),
+                     "' in its leading comment block"));
   }
   return absl::OkStatus();
 }
 
-absl::Status ParseTextprotoInto(absl::string_view text, absl::string_view sourceName, google::protobuf::Message* absl_nonnull message) {
-  const google::protobuf::Descriptor* absl_nonnull descriptor = message->GetDescriptor();
+absl::Status ParseTextprotoInto(
+    absl::string_view text,
+    absl::string_view sourceName,
+    google::protobuf::Message* absl_nonnull message) {
+  const google::protobuf::Descriptor* absl_nonnull descriptor =
+      message->GetDescriptor();
   const std::optional<HeaderMessage> header = headerMessage(text);
   if (header.has_value() && header->fullName != descriptor->full_name()) {
-    return absl::InvalidArgumentError(absl::StrCat(sourceName, ":", header->line, ":1: ", sourceName, " is a ", header->fullName,
-                                                   " (its '# proto-message:' header), not a ", descriptor->full_name()));
+    return absl::InvalidArgumentError(absl::StrCat(
+        sourceName, ":", header->line, ":1: ", sourceName, " is a ",
+        header->fullName, " (its '# proto-message:' header), not a ",
+        descriptor->full_name()));
   }
   TextprotoErrorCollector errors;
   google::protobuf::TextFormat::Parser parser;
   parser.RecordErrorsTo(&errors);
-  // These are the parser's defaults; set them anyway, so that the strictness does not hang on a default.
+  // These are the parser's defaults; set them anyway, so that the strictness
+  // does not hang on a default.
   parser.AllowUnknownField(/*allow=*/false);
   parser.AllowUnknownExtension(/*allow=*/false);
   parser.AllowPartialMessage(/*allow=*/false);
@@ -335,22 +389,26 @@ absl::Status ParseTextprotoInto(absl::string_view text, absl::string_view source
     std::vector<std::string> lines;
     lines.reserve(errors.problems().size());
     for (const Problem& problem : errors.problems()) {
-      lines.push_back(formatProblem(text, sourceName, *descriptor->file()->pool(), problem));
+      lines.push_back(formatProblem(text, sourceName,
+                                    *descriptor->file()->pool(), problem));
     }
     return absl::InvalidArgumentError(absl::StrJoin(lines, "\n"));
   }
   if (!parsed) {
-    return absl::InvalidArgumentError(absl::StrCat(sourceName, ": not a valid textproto of ", descriptor->full_name()));
+    return absl::InvalidArgumentError(absl::StrCat(
+        sourceName, ": not a valid textproto of ", descriptor->full_name()));
   }
   return absl::OkStatus();
 }
 
-absl::Status ParseTextprotoFileInto(absl::string_view path, google::protobuf::Message* absl_nonnull message) {
+absl::Status ParseTextprotoFileInto(
+    absl::string_view path, google::protobuf::Message* absl_nonnull message) {
   absl::StatusOr<std::string> text = ReadTextFile(path);
   if (!text.ok()) {
     return text.status();
   }
-  absl::Status header = CheckProtoMessageHeader(*text, path, *message->GetDescriptor());
+  absl::Status header =
+      CheckProtoMessageHeader(*text, path, *message->GetDescriptor());
   if (!header.ok()) {
     return header;
   }
@@ -362,7 +420,8 @@ absl::StatusOr<std::string> ReadTextFile(absl::string_view path) {
   std::ifstream file(pathString, std::ios::binary);
   if (!file) {
     const int error = errno;
-    return absl::ErrnoToStatus(error == 0 ? ENOENT : error, absl::StrCat("cannot open '", path, "'"));
+    return absl::ErrnoToStatus(error == 0 ? ENOENT : error,
+                               absl::StrCat("cannot open '", path, "'"));
   }
   std::ostringstream text;
   text << file.rdbuf();
@@ -384,7 +443,9 @@ std::string WriteTextproto(const google::protobuf::Message& message) {
 }
 
 std::string WriteTextprotoFile(const google::protobuf::Message& message) {
-  return absl::StrCat("# ", kProtoMessageHeader, " ", message.GetDescriptor()->full_name(), "\n", WriteTextproto(message));
+  return absl::StrCat("# ", kProtoMessageHeader, " ",
+                      message.GetDescriptor()->full_name(), "\n",
+                      WriteTextproto(message));
 }
 
 }  // namespace nproto

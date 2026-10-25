@@ -60,9 +60,11 @@ uint64_t foldWord(uint64_t hash, uint64_t word) {
 }
 
 /**
- * `value` with the bits of every zero and every NaN made one: +0.0 for -0.0, and the quiet NaN for every NaN payload and
- * sign. The two zeros are equal values (the nonzero count and the sum of a fingerprint do not tell them apart), and an
- * arithmetic change that flips the sign of a zero, invisible in a matrix too large to dump, would otherwise change the hash.
+ * `value` with the bits of every zero and every NaN made one: +0.0 for -0.0,
+ * and the quiet NaN for every NaN payload and sign. The two zeros are equal
+ * values (the nonzero count and the sum of a fingerprint do not tell them
+ * apart), and an arithmetic change that flips the sign of a zero, invisible in
+ * a matrix too large to dump, would otherwise change the hash.
  */
 double canonicalValue(double value) {
   if (value == 0.0) return 0.0;
@@ -96,49 +98,61 @@ void ValueDump::addString(absl::string_view path, absl::string_view value) {
   addLine(path, absl::StrCat("\"", absl::CEscape(value), "\""));
 }
 
-void ValueDump::addStrings(absl::string_view path, const std::vector<std::string>& values) {
+void ValueDump::addStrings(absl::string_view path,
+                           const std::vector<std::string>& values) {
   addInteger(absl::StrCat(path, ".size"), static_cast<int64_t>(values.size()));
   for (size_t i = 0; i < values.size(); ++i) {
     addString(absl::StrCat(path, "[", i, "]"), values[i]);
   }
 }
 
-void ValueDump::addDoubles(absl::string_view path, const std::vector<double>& values) {
+void ValueDump::addDoubles(absl::string_view path,
+                           const std::vector<double>& values) {
   addInteger(absl::StrCat(path, ".size"), static_cast<int64_t>(values.size()));
   for (size_t i = 0; i < values.size(); ++i) {
     addDouble(absl::StrCat(path, "[", i, "]"), values[i]);
   }
 }
 
-void ValueDump::addSizes(absl::string_view path, const std::vector<size_t>& values) {
+void ValueDump::addSizes(absl::string_view path,
+                         const std::vector<size_t>& values) {
   addInteger(absl::StrCat(path, ".size"), static_cast<int64_t>(values.size()));
   for (size_t i = 0; i < values.size(); ++i) {
-    addInteger(absl::StrCat(path, "[", i, "]"), static_cast<int64_t>(values[i]));
+    addInteger(absl::StrCat(path, "[", i, "]"),
+               static_cast<int64_t>(values[i]));
   }
 }
 
-void ValueDump::addMatrix(absl::string_view path, const Eigen::Ref<const Eigen::MatrixXd>& matrix) {
-  addLine(absl::StrCat(path, ".size"), absl::StrCat(matrix.rows(), "x", matrix.cols()));
+void ValueDump::addMatrix(absl::string_view path,
+                          const Eigen::Ref<const Eigen::MatrixXd>& matrix) {
+  addLine(absl::StrCat(path, ".size"),
+          absl::StrCat(matrix.rows(), "x", matrix.cols()));
   for (Eigen::Index row = 0; row < matrix.rows(); ++row) {
     for (Eigen::Index col = 0; col < matrix.cols(); ++col) {
-      const std::string element = matrix.cols() == 1 ? absl::StrCat(path, "[", row, "]") : absl::StrCat(path, "(", row, ",", col, ")");
+      const std::string element =
+          matrix.cols() == 1 ? absl::StrCat(path, "[", row, "]")
+                             : absl::StrCat(path, "(", row, ",", col, ")");
       addDouble(element, matrix(row, col));
     }
   }
 }
 
-void ValueDump::addDiagonal(absl::string_view path, const Eigen::Ref<const Eigen::MatrixXd>& matrix) {
-  addLine(absl::StrCat(path, ".size"), absl::StrCat(matrix.rows(), "x", matrix.cols()));
+void ValueDump::addDiagonal(absl::string_view path,
+                            const Eigen::Ref<const Eigen::MatrixXd>& matrix) {
+  addLine(absl::StrCat(path, ".size"),
+          absl::StrCat(matrix.rows(), "x", matrix.cols()));
   const Eigen::Index size = std::min(matrix.rows(), matrix.cols());
   for (Eigen::Index i = 0; i < size; ++i) {
     addDouble(absl::StrCat(path, "[", i, "]"), matrix(i, i));
   }
 }
 
-void ValueDump::addFingerprint(absl::string_view path, const Eigen::Ref<const Eigen::MatrixXd>& matrix) {
+void ValueDump::addFingerprint(
+    absl::string_view path, const Eigen::Ref<const Eigen::MatrixXd>& matrix) {
   const Eigen::Index nonzeros = (matrix.array() != 0.0).count();
-  addLine(path,
-          absl::StrFormat("%dx%d nonzeros %d sum %a hash %016x", matrix.rows(), matrix.cols(), nonzeros, matrix.sum(), matrixHash(matrix)));
+  addLine(path, absl::StrFormat("%dx%d nonzeros %d sum %a hash %016x",
+                                matrix.rows(), matrix.cols(), nonzeros,
+                                matrix.sum(), matrixHash(matrix)));
 }
 
 uint64_t matrixHash(const Eigen::Ref<const Eigen::MatrixXd>& matrix) {

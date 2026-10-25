@@ -91,4 +91,6 @@ class LEDIndicatorGui(tk.Frame):
             )  # Lighter blue for depth
         else:
             # When off, use the darker gray with standard border
-            self.canvas.itemconfig(self.led, fill=self.color_off, outline="#4a90e2")
+            self.canvas.itemconfig(
+                self.led, fill=self.color_off, outline="#4a90e2"
+            )

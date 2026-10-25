@@ -39,11 +39,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The FSM state on its way from the realtime thread to the communication thread, which publishes it on
- * robot/fsm_state: when it changes, and again at 2 Hz (RobotProcess). The realtime thread writes the newest state into
- * a robot::TripleBuffer of msgs::FsmState (latest wins: the state is a value, and the controller reset count it carries
- * cannot be lost between two writes); the communication thread takes it. Writing allocates nothing while the mode
- * names fit the small-string buffer of std::string, as every control mode name does.
+ * The FSM state on its way from the realtime thread to the communication
+ * thread, which publishes it on robot/fsm_state: when it changes, and again at
+ * 2 Hz (RobotProcess). The realtime thread writes the newest state into a
+ * robot::TripleBuffer of msgs::FsmState (latest wins: the state is a value, and
+ * the controller reset count it carries cannot be lost between two writes); the
+ * communication thread takes it. Writing allocates nothing while the mode names
+ * fit the small-string buffer of std::string, as every control mode name does.
  */
 class FsmStateMailbox {
  public:
@@ -54,9 +56,13 @@ class FsmStateMailbox {
   ~FsmStateMailbox() = default;
 
   /** Realtime thread. */
-  void write(absl::string_view mode, bool gantryLocked, uint64_t controllerResets, bool mpcHealthy);
+  void write(absl::string_view mode,
+             bool gantryLocked,
+             uint64_t controllerResets,
+             bool mpcHealthy);
 
-  /** Communication thread: the newest state, when one was written since the last call. */
+  /** Communication thread: the newest state, when one was written since the
+   * last call. */
   bool take(msgs::FsmState& state);
 
  private:

@@ -38,9 +38,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/node/MpcAppFlags.h"
 #include "humanoid_common_mpc_app/robot/RobotAppOptions.h"
 
-// The flags of the robot binaries besides those they share with the MPC node (--robot_name, --task_file,
-// --reference_file, --urdf_file, --gait_file, --network_config; node/MpcAppFlags.h). Defined by :robot_app_flags, for
-// binaries only.
+// The flags of the robot binaries besides those they share with the MPC node
+// (--robot_name, --task_file,
+// --reference_file, --urdf_file, --gait_file, --network_config;
+// node/MpcAppFlags.h). Defined by :robot_app_flags, for binaries only.
 ABSL_DECLARE_FLAG(std::string, mjcf_file);
 ABSL_DECLARE_FLAG(std::string, ipc_node);
 ABSL_DECLARE_FLAG(std::string, backend);
@@ -59,21 +60,27 @@ ABSL_DECLARE_FLAG(std::string, config_seed);
 namespace ocs2::humanoid {
 
 /**
- * The robot binary's options from its flags, checked: the files exist, the core lists parse, the realtime priority is
- * 0-99, --config_seed names a seed policy, the viewer flags and MUJOCO_EGL_DEVICE_ID make valid viewer settings
- * (viewerSettingsFromFlags(); the viewer is --viewer, else the mujoco_viewer of --plot_config, else web). In `cores`,
- * the MRT, simulation and viewer cores are what `default` stands for in --realtime_cores, --backend_cores and
- * --viewer_cores. Reads the environment once (MUJOCO_EGL_DEVICE_ID) and, without --viewer, the plot configuration;
- * call it from the main thread before other threads start.
+ * The robot binary's options from its flags, checked: the files exist, the core
+ * lists parse, the realtime priority is 0-99, --config_seed names a seed
+ * policy, the viewer flags and MUJOCO_EGL_DEVICE_ID make valid viewer settings
+ * (viewerSettingsFromFlags(); the viewer is --viewer, else the mujoco_viewer of
+ * --plot_config, else web). In `cores`, the MRT, simulation and viewer cores
+ * are what `default` stands for in --realtime_cores, --backend_cores and
+ * --viewer_cores. Reads the environment once (MUJOCO_EGL_DEVICE_ID) and,
+ * without --viewer, the plot configuration; call it from the main thread before
+ * other threads start.
  */
-absl::StatusOr<RobotAppOptions> robotAppOptionsFromFlags(const SystemCoreAllocation& cores);
+absl::StatusOr<RobotAppOptions> robotAppOptionsFromFlags(
+    const SystemCoreAllocation& cores);
 
 /**
- * Bounds llvmpipe's rasterizer threads to the web viewer's cores: sets LP_NUM_THREADS to softwareRasterizerThreadsToSet()
- * when that gives a value (`viewer` lists the web viewer and the environment sets none), and logs it
- * (describeSoftwareRasterizerThreads()). Call it from the main thread before other threads start, since setenv() races
- * with a getenv() on another thread.
+ * Bounds llvmpipe's rasterizer threads to the web viewer's cores: sets
+ * LP_NUM_THREADS to softwareRasterizerThreadsToSet() when that gives a value
+ * (`viewer` lists the web viewer and the environment sets none), and logs it
+ * (describeSoftwareRasterizerThreads()). Call it from the main thread before
+ * other threads start, since setenv() races with a getenv() on another thread.
  */
-void exportSoftwareRasterizerThreads(const robot::mujoco_sim_interface::ViewerSettings& viewer);
+void exportSoftwareRasterizerThreads(
+    const robot::mujoco_sim_interface::ViewerSettings& viewer);
 
 }  // namespace ocs2::humanoid

@@ -37,7 +37,9 @@ import numpy as np
 
 
 def export_to_json(
-    params: list[tuple[np.ndarray, np.ndarray]], filepath: str, omega_0: float = 30.0
+    params: list[tuple[np.ndarray, np.ndarray]],
+    filepath: str,
+    omega_0: float = 30.0,
 ) -> None:
     """Exports model parameters to a JSON file."""
     layers: list[dict[str, object]] = []
@@ -96,7 +98,10 @@ def export_to_cpp_header(
 
     lines = [
         "/******************************************************************************",
-        " * Auto-generated Angular Center of Mass (aCOM) SIREN Model Parameters",
+        (
+            " * Auto-generated Angular Center of Mass (aCOM) SIREN Model"
+            " Parameters"
+        ),
         " * Generated from JAX training pipeline. Do not edit by hand.",
     ]
     if provenance:
@@ -108,11 +113,15 @@ def export_to_cpp_header(
             lines.append(f" *   {text}")
     # The joint names are raw pointers, so they carry nullability (AGENTS.md); the header needs the annotation's macro.
     nullability_include = (
-        ['#include "absl/base/nullability.h"', ""] if joint_names is not None else []
+        ['#include "absl/base/nullability.h"', ""]
+        if joint_names is not None
+        else []
     )
     lines.extend(
         [
-            " ******************************************************************************/",
+            (
+                " ******************************************************************************/"
+            ),
             "",
             "#pragma once",
             "",
@@ -131,11 +140,14 @@ def export_to_cpp_header(
     )
 
     if joint_names is not None:
-        lines.append("  // Joint ordering the network was trained on. Must match the")
+        lines.append(
+            "  // Joint ordering the network was trained on. Must match the"
+        )
         lines.append("  // MPC's Pinocchio joint ordering exactly.")
         joined = ", ".join(f'"{name}"' for name in joint_names)
         lines.append(
-            f"  static inline const char* absl_nonnull const joint_names[{input_dim}] = {{{joined}}};"
+            "  static inline const char* absl_nonnull const"
+            f" joint_names[{input_dim}] = {{{joined}}};"
         )
         lines.append("")
 
@@ -151,12 +163,15 @@ def export_to_cpp_header(
         # Flattened row-major weight array
         w_str = ", ".join(f"{val:.10e}" for val in w_np.flatten())
         lines.append(
-            f"  static inline const double W{idx}[{out_dim * in_dim}] = {{{w_str}}};"
+            f"  static inline const double W{idx}[{out_dim * in_dim}] ="
+            f" {{{w_str}}};"
         )
 
         # Bias array
         b_str = ", ".join(f"{val:.10e}" for val in b_np.flatten())
-        lines.append(f"  static inline const double b{idx}[{out_dim}] = {{{b_str}}};")
+        lines.append(
+            f"  static inline const double b{idx}[{out_dim}] = {{{b_str}}};"
+        )
         lines.append("")
 
     lines.extend(

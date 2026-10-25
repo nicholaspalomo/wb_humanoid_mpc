@@ -61,15 +61,18 @@ TEXTPROTO_EXTENSION = ".textproto"
 _PROTO_FILE = re.compile(r"#\s*proto-file:\s*(\S+)")
 _PROTO_MESSAGE = re.compile(r"#\s*proto-message:\s*(\S+)")
 # LINT.ThenChange(//tools/nproto/src/Textproto.cpp:header_lines, //tools/nproto/nproto_textproto.py:header_lines, //tools/deploy/session.sh:plot_config_header)
-_PACKAGE = re.compile(r"^\s*package\s+([A-Za-z_][A-Za-z0-9_.]*)\s*;", re.MULTILINE)
+_PACKAGE = re.compile(
+    r"^\s*package\s+([A-Za-z_][A-Za-z0-9_.]*)\s*;", re.MULTILINE
+)
 
 # The repository root, against which the proto-file paths are resolved; the tests pass another one.
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 _EXAMPLE = (
-    "'# proto-file: <the .proto file, from the repository root>' and '# proto-message: <package>.<Message>', "
-    "e.g. '# proto-file: humanoid_nmpc/humanoid_mpc_config/task_file.proto' and "
-    "'# proto-message: humanoid_mpc_config.TaskFile'"
+    "'# proto-file: <the .proto file, from the repository root>' and '#"
+    " proto-message: <package>.<Message>', e.g. '# proto-file:"
+    " humanoid_nmpc/humanoid_mpc_config/task_file.proto' and '# proto-message:"
+    " humanoid_mpc_config.TaskFile'"
 )
 
 
@@ -137,8 +140,9 @@ def check_header(source: str, path: str, root: str = ROOT) -> list[Violation]:
             Violation(
                 path,
                 1,
-                f"the leading comment block has no {' and no '.join(missing)} line; a configuration file names its "
-                f"schema with {_EXAMPLE}",
+                "the leading comment block has no"
+                f" {' and no '.join(missing)} line; a configuration file names"
+                f" its schema with {_EXAMPLE}",
             )
         ]
     file_line, proto_path = header.proto_file
@@ -149,7 +153,8 @@ def check_header(source: str, path: str, root: str = ROOT) -> list[Violation]:
             Violation(
                 path,
                 file_line,
-                f"'# proto-file: {proto_path}' names no file of the repository (the path is from its root)",
+                f"'# proto-file: {proto_path}' names no file of the repository"
+                " (the path is from its root)",
             )
         ]
     with open(proto, encoding="utf-8") as f:
@@ -159,8 +164,9 @@ def check_header(source: str, path: str, root: str = ROOT) -> list[Violation]:
             Violation(
                 path,
                 message_line,
-                f"'# proto-message: {message_name}' is not a top-level message of {proto_path}, which defines "
-                f"{', '.join(messages) or 'none'}",
+                f"'# proto-message: {message_name}' is not a top-level message"
+                f" of {proto_path}, which defines"
+                f" {', '.join(messages) or 'none'}",
             )
         ]
     return []
@@ -179,9 +185,15 @@ CHECKS = [
         languages=frozenset({check_types.Language.TEXT}),
         scope=lint_files.Scope.FIRST_PARTY,
         check_source=_findings,
-        description="every .textproto names its schema (# proto-file: / # proto-message:) in its leading comment "
-        "block, and the schema is a message of a .proto file of the repository.",
-        hint="Start the file with '# proto-file: <path of the .proto from the repository root>' and "
-        "'# proto-message: <package>.<Message>' (tools/nproto/README.md).",
+        description=(
+            "every .textproto names its schema (# proto-file: / #"
+            " proto-message:) in its leading comment block, and the schema is a"
+            " message of a .proto file of the repository."
+        ),
+        hint=(
+            "Start the file with '# proto-file: <path of the .proto from the"
+            " repository root>' and '# proto-message: <package>.<Message>'"
+            " (tools/nproto/README.md)."
+        ),
     )
 ]

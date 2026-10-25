@@ -27,8 +27,9 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// The conversions of every test message allocate nothing once the objects they convert into have the value's shape,
-// and the message side keeps that capacity when a repeated field shrinks. A binary of its own, because the allocation
+// The conversions of every test message allocate nothing once the objects they
+// convert into have the value's shape, and the message side keeps that capacity
+// when a repeated field shrinks. A binary of its own, because the allocation
 // counter replaces malloc for the whole process.
 
 #include <cstddef>
@@ -62,18 +63,21 @@ struct Conversion {
 template <typename T>
 class AllocationTest : public ::testing::Test {};
 
-using Messages = ::testing::Types<Conversion<Scalars, nproto_test::Scalars>,
-                                  Conversion<Outer, nproto_test::Outer>,
-                                  Conversion<RepeatedFields, nproto_test::RepeatedFields>,
-                                  Conversion<Maps, nproto_test::Maps>,
-                                  Conversion<Oneofs, nproto_test::Oneofs>,
-                                  Conversion<Optionals, nproto_test::Optionals>,
-                                  Conversion<Editions, nproto_test::Editions>,
-                                  Conversion<Imports, nproto_test::Imports>>;
+using Messages =
+    ::testing::Types<Conversion<Scalars, nproto_test::Scalars>,
+                     Conversion<Outer, nproto_test::Outer>,
+                     Conversion<RepeatedFields, nproto_test::RepeatedFields>,
+                     Conversion<Maps, nproto_test::Maps>,
+                     Conversion<Oneofs, nproto_test::Oneofs>,
+                     Conversion<Optionals, nproto_test::Optionals>,
+                     Conversion<Editions, nproto_test::Editions>,
+                     Conversion<Imports, nproto_test::Imports>>;
 TYPED_TEST_SUITE(AllocationTest, Messages);
 
-TYPED_TEST(AllocationTest, ConvertingIntoObjectsOfTheValuesShapeDoesNotAllocate) {
-  test_support::ExpectConversionsIntoSizedObjectsDoNotAllocate<typename TypeParam::Struct, typename TypeParam::Proto>();
+TYPED_TEST(AllocationTest,
+           ConvertingIntoObjectsOfTheValuesShapeDoesNotAllocate) {
+  test_support::ExpectConversionsIntoSizedObjectsDoNotAllocate<
+      typename TypeParam::Struct, typename TypeParam::Proto>();
 }
 
 TEST(AllocationCounterTest, SeesTheFirstConversion) {
@@ -83,7 +87,8 @@ TEST(AllocationCounterTest, SeesTheFirstConversion) {
   nproto_test::RepeatedFields proto;
   const size_t before = heapAllocationCount();
   ToProto(value, &proto);
-  EXPECT_GT(heapAllocationCount() - before, 0u) << "the first conversion sizes the message";
+  EXPECT_GT(heapAllocationCount() - before, 0u)
+      << "the first conversion sizes the message";
 }
 
 TEST(RepeatedCapacityTest, AMessageKeepsTheElementsAShorterValueRemoves) {

@@ -97,10 +97,13 @@ CONFIG_STORE_TARGET = "/var/lib/wb-humanoid-robot/config"
 # Where the simulated robot reads its plot configuration (docker-compose.robot.sim.yaml).
 SIM_PLOT_CONFIG_TARGET = "/etc/wb-humanoid-robot/plot_config.textproto"
 # The shipped plot configuration, and the header that makes a file one the robot reads its viewer from.
-SHIPPED_PLOT_CONFIG = "humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto"
+SHIPPED_PLOT_CONFIG = (
+    "humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto"
+)
 PLOT_CONFIG_HEADER = (
-    "# proto-file: humanoid_nmpc/humanoid_rerun_viewer/proto/plot_config.proto\n"
-    "# proto-message: humanoid_rerun_viewer_proto.PlotConfig\n"
+    "# proto-file:"
+    " humanoid_nmpc/humanoid_rerun_viewer/proto/plot_config.proto\n#"
+    " proto-message: humanoid_rerun_viewer_proto.PlotConfig\n"
 )
 # Stand-ins for what a sim session runs, which record their command lines to SESSION_LOG: Docker, with the network file,
 # the viewer and the plot configuration it would give the robot container, has nothing running, answers `compose logs`
@@ -137,7 +140,8 @@ if [ "$1" = "qdisc" ] && [ "$2" = "show" ]; then cat "$TC_SHOW" 2>/dev/null; fi
 exit 0
 """
 OUR_QDISC = (
-    "qdisc prio 5600: root refcnt 2 bands 4 priomap 1 2 2 2 1 2 0 0 1 1 1 1 1 1 1 1\n"
+    "qdisc prio 5600: root refcnt 2 bands 4 priomap 1 2 2 2 1 2 0 0 1 1 1 1 1 1"
+    " 1 1\n"
 )
 
 
@@ -147,7 +151,9 @@ class FakeTc:
     def __init__(self, directory: str) -> None:
         self.bin = os.path.join(directory, "fake_bin")
         os.makedirs(self.bin)
-        with open(os.path.join(self.bin, "tc"), "w", encoding="utf-8") as stream:
+        with open(
+            os.path.join(self.bin, "tc"), "w", encoding="utf-8"
+        ) as stream:
             stream.write(FAKE_TC)
         os.chmod(os.path.join(self.bin, "tc"), 0o755)
         self.log = os.path.join(directory, "tc.log")
@@ -155,9 +161,13 @@ class FakeTc:
 
     def environment(self, installed: bool) -> dict[str, str]:
         with open(self.show, "w", encoding="utf-8") as stream:
-            stream.write(OUR_QDISC if installed else "qdisc noqueue 0: root refcnt 2\n")
+            stream.write(
+                OUR_QDISC if installed else "qdisc noqueue 0: root refcnt 2\n"
+            )
         return {
-            "PATH": self.bin + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin"),
+            "PATH": self.bin
+            + os.pathsep
+            + os.environ.get("PATH", "/usr/bin:/bin"),
             "TC_LOG": self.log,
             "TC_SHOW": self.show,
         }
@@ -190,27 +200,49 @@ class NetemTest(unittest.TestCase):
         )
 
     def test_apply_shapes_only_the_bus_ports(self) -> None:
-        result = self.netem("apply", "lo", "delay", "3ms", "1ms", "loss", "0.5%")
+        result = self.netem(
+            "apply", "lo", "delay", "3ms", "1ms", "loss", "0.5%"
+        )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
             [call for call in self.tc.calls() if "show" not in call],
             [
-                "qdisc replace dev lo root handle 5600: prio bands 4 priomap 1 2 2 2 1 2 0 0 1 1 1 1 1 1 1 1",
-                "qdisc add dev lo parent 5600:4 handle 5601: netem delay 3ms 1ms loss 0.5%",
-                "filter add dev lo parent 5600: protocol ip prio 1 u32 match ip protocol 17 0xff match ip sport 7168 0xfe00 "
-                "flowid 5600:4",
-                "filter add dev lo parent 5600: protocol ipv6 prio 2 u32 match ip6 protocol 17 0xff match ip6 sport 7168 0xfe00 "
-                "flowid 5600:4",
-                "filter add dev lo parent 5600: protocol ip prio 1 u32 match ip protocol 17 0xff match ip dport 7168 0xfe00 "
-                "flowid 5600:4",
-                "filter add dev lo parent 5600: protocol ipv6 prio 2 u32 match ip6 protocol 17 0xff match ip6 dport 7168 0xfe00 "
-                "flowid 5600:4",
+                (
+                    "qdisc replace dev lo root handle 5600: prio bands 4"
+                    " priomap 1 2 2 2 1 2 0 0 1 1 1 1 1 1 1 1"
+                ),
+                (
+                    "qdisc add dev lo parent 5600:4 handle 5601: netem delay"
+                    " 3ms 1ms loss 0.5%"
+                ),
+                (
+                    "filter add dev lo parent 5600: protocol ip prio 1 u32"
+                    " match ip protocol 17 0xff match ip sport 7168 0xfe00"
+                    " flowid 5600:4"
+                ),
+                (
+                    "filter add dev lo parent 5600: protocol ipv6 prio 2 u32"
+                    " match ip6 protocol 17 0xff match ip6 sport 7168 0xfe00"
+                    " flowid 5600:4"
+                ),
+                (
+                    "filter add dev lo parent 5600: protocol ip prio 1 u32"
+                    " match ip protocol 17 0xff match ip dport 7168 0xfe00"
+                    " flowid 5600:4"
+                ),
+                (
+                    "filter add dev lo parent 5600: protocol ipv6 prio 2 u32"
+                    " match ip6 protocol 17 0xff match ip6 dport 7168 0xfe00"
+                    " flowid 5600:4"
+                ),
             ],
         )
 
     def test_every_filter_matches_udp_only(self) -> None:
         self.netem("apply", "lo", "delay", "3ms")
-        filters = [call for call in self.tc.calls() if call.startswith("filter add")]
+        filters = [
+            call for call in self.tc.calls() if call.startswith("filter add")
+        ]
         self.assertEqual(len(filters), 4, "both directions, IPv4 and IPv6")
         for call in filters:
             with self.subTest(call=call):
@@ -223,11 +255,17 @@ class NetemTest(unittest.TestCase):
         self.assertIn("qdisc del dev lo root", self.tc.calls())
 
     def test_clear_removes_its_own_qdisc_and_nothing_else(self) -> None:
-        self.assertEqual(self.netem("clear", "eth0", installed=True).returncode, 0)
+        self.assertEqual(
+            self.netem("clear", "eth0", installed=True).returncode, 0
+        )
         self.assertIn("qdisc del dev eth0 root", self.tc.calls())
         os.remove(self.tc.log)
-        self.assertEqual(self.netem("clear", "eth0", installed=False).returncode, 0)
-        self.assertEqual([call for call in self.tc.calls() if "del" in call], [])
+        self.assertEqual(
+            self.netem("clear", "eth0", installed=False).returncode, 0
+        )
+        self.assertEqual(
+            [call for call in self.tc.calls() if "del" in call], []
+        )
 
     def test_a_usage_error_changes_nothing(self) -> None:
         for arguments in (
@@ -238,14 +276,20 @@ class NetemTest(unittest.TestCase):
         ):
             with self.subTest(arguments=arguments):
                 self.assertEqual(self.netem(*arguments).returncode, 2)
-        self.assertEqual([call for call in self.tc.calls() if "show" not in call], [])
+        self.assertEqual(
+            [call for call in self.tc.calls() if "show" not in call], []
+        )
 
-    def test_the_port_range_holds_the_dds_ports_of_the_network_files(self) -> None:
+    def test_the_port_range_holds_the_dds_ports_of_the_network_files(
+        self,
+    ) -> None:
         # Every process's discovery and data port of the file's domain: 7400 + 250 * domain_id + 10 + 2 * index and
         # the port after it, for the 20 indices of one machine (robot_ipc/DomainConfig.h unicastPortRange()).
         script = read("tools/deploy/netem.sh")
         base = int(search(r"^BUS_PORT=(\d+)$", script, re.M).group(1))
-        mask = int(search(r"^BUS_PORT_MASK=(0x[0-9a-f]+)$", script, re.M).group(1), 16)
+        mask = int(
+            search(r"^BUS_PORT_MASK=(0x[0-9a-f]+)$", script, re.M).group(1), 16
+        )
         for network in (
             "config/ipc/network.textproto",
             "config/ipc/two_machine.example.textproto",
@@ -254,7 +298,9 @@ class NetemTest(unittest.TestCase):
             first = 7400 + 250 * int(domain.group(1)) + 10
             ports = range(first, first + 2 * 20)
             with self.subTest(network=network):
-                self.assertEqual([port for port in ports if port & mask != base], [])
+                self.assertEqual(
+                    [port for port in ports if port & mask != base], []
+                )
 
 
 class EntrypointTest(unittest.TestCase):
@@ -274,11 +320,13 @@ class EntrypointTest(unittest.TestCase):
             )
         self.write_robot(
             "fake",
-            'echo "pid=$$"\necho "viewer=${WB_ROBOT_VIEWER:-}"\nexit "${FAKE_STATUS:-0}"\n',
+            'echo "pid=$$"\necho "viewer=${WB_ROBOT_VIEWER:-}"\nexit'
+            ' "${FAKE_STATUS:-0}"\n',
         )
         self.write_robot(
             "patient",
-            "trap 'echo got-term; exit 0' TERM\necho ready\nwhile :; do sleep 0.05; done\n",
+            "trap 'echo got-term; exit 0' TERM\necho ready\nwhile :; do sleep"
+            " 0.05; done\n",
         )
         self.tc = FakeTc(directory)
 
@@ -311,7 +359,9 @@ class EntrypointTest(unittest.TestCase):
     def test_robot_must_name_a_robot_script(self) -> None:
         for robot in (None, "nope", "../fake", "fa ke"):
             with self.subTest(robot=robot):
-                result = self.run_entrypoint({} if robot is None else {"ROBOT": robot})
+                result = self.run_entrypoint(
+                    {} if robot is None else {"ROBOT": robot}
+                )
                 self.assertEqual(result.returncode, 2)
                 self.assertIn("fake patient", result.stderr)
 
@@ -327,21 +377,31 @@ class EntrypointTest(unittest.TestCase):
         self.assertIn("realtime priority limit", output)
         self.assertEqual(self.tc.calls(), [], "no NETEM, no tc")
 
-    def test_the_image_decides_the_viewer_unless_the_environment_does(self) -> None:
+    def test_the_image_decides_the_viewer_unless_the_environment_does(
+        self,
+    ) -> None:
         cases: tuple[tuple[dict[str, str], str], ...] = (
             ({}, "viewer="),
             ({"WB_ROBOT_DEFAULT_VIEWER": "none"}, "viewer=none"),
-            ({"WB_ROBOT_DEFAULT_VIEWER": "none", "WB_ROBOT_VIEWER": ""}, "viewer=none"),
+            (
+                {"WB_ROBOT_DEFAULT_VIEWER": "none", "WB_ROBOT_VIEWER": ""},
+                "viewer=none",
+            ),
             ({"WB_ROBOT_DEFAULT_VIEWER": "glfw"}, "viewer=glfw"),
             (
-                {"WB_ROBOT_DEFAULT_VIEWER": "none", "WB_ROBOT_VIEWER": "web,none"},
+                {
+                    "WB_ROBOT_DEFAULT_VIEWER": "none",
+                    "WB_ROBOT_VIEWER": "web,none",
+                },
                 "viewer=web,none",
             ),
             # A plot configuration the environment names chooses instead of the image (robot-sim's mount).
             (
                 {
                     "WB_ROBOT_DEFAULT_VIEWER": "none",
-                    "WB_ROBOT_PLOT_CONFIG": "/etc/wb-humanoid-robot/plot_config.textproto",
+                    "WB_ROBOT_PLOT_CONFIG": (
+                        "/etc/wb-humanoid-robot/plot_config.textproto"
+                    ),
                 },
                 "viewer=",
             ),
@@ -356,20 +416,33 @@ class EntrypointTest(unittest.TestCase):
 
     def test_netem_is_applied_for_the_run_and_cleared_after(self) -> None:
         result = self.run_entrypoint(
-            {"ROBOT": "fake", "NETEM": "delay 3ms 1ms loss 0.5%", "FAKE_STATUS": "3"}
+            {
+                "ROBOT": "fake",
+                "NETEM": "delay 3ms 1ms loss 0.5%",
+                "FAKE_STATUS": "3",
+            }
         )
-        self.assertEqual(result.returncode, 3, "the robot process's exit status")
+        self.assertEqual(
+            result.returncode, 3, "the robot process's exit status"
+        )
         calls = self.tc.calls()
         self.assertIn(
-            "qdisc add dev lo parent 5600:4 handle 5601: netem delay 3ms 1ms loss 0.5%",
+            "qdisc add dev lo parent 5600:4 handle 5601: netem delay 3ms 1ms"
+            " loss 0.5%",
             calls,
         )
         self.assertEqual(calls[-1], "qdisc show dev lo", "cleared last")
 
-    def test_sigterm_reaches_the_robot_process_and_netem_is_cleared(self) -> None:
+    def test_sigterm_reaches_the_robot_process_and_netem_is_cleared(
+        self,
+    ) -> None:
         env = self.tc.environment(installed=False)
         env.update(
-            {"ROBOT": "patient", "NETEM": "delay 3ms", "NETEM_INTERFACE": "eth9"}
+            {
+                "ROBOT": "patient",
+                "NETEM": "delay 3ms",
+                "NETEM_INTERFACE": "eth9",
+            }
         )
         # pylint: disable-next=consider-using-with  # The cleanup kills and reaps it, should the test fail first.
         process = subprocess.Popen(
@@ -413,7 +486,9 @@ class ComposeTest(unittest.TestCase):
     ) -> None:
         self.assertEqual(self.robot["network_mode"], "host")
         self.assertIs(self.robot["init"], True)
-        self.assertEqual(sorted(self.robot["cap_add"]), ["IPC_LOCK", "SYS_NICE"])
+        self.assertEqual(
+            sorted(self.robot["cap_add"]), ["IPC_LOCK", "SYS_NICE"]
+        )
         self.assertEqual(self.robot["ulimits"], {"rtprio": 99, "memlock": -1})
         for key in ("privileged", "ports", "devices", "pid", "ipc"):
             self.assertNotIn(key, self.robot)
@@ -438,7 +513,9 @@ class ComposeTest(unittest.TestCase):
         )
         self.assertIn(
             "./config/ipc/network.textproto",
-            load_yaml("docker-compose.robot.yaml")["configs"]["network"]["file"],
+            load_yaml("docker-compose.robot.yaml")["configs"]["network"][
+                "file"
+            ],
         )
 
     def test_the_stored_configuration_is_a_host_directory_that_outlives_the_container(
@@ -449,7 +526,9 @@ class ComposeTest(unittest.TestCase):
         self.assertEqual(store["type"], "bind")
         self.assertEqual(store["target"], CONFIG_STORE_TARGET)
         self.assertNotIn("read_only", store)
-        self.assertEqual(store["source"], "${WB_ROBOT_CONFIG_SOURCE:-./robot_config}")
+        self.assertEqual(
+            store["source"], "${WB_ROBOT_CONFIG_SOURCE:-./robot_config}"
+        )
         # A bind of the long syntax creates a missing host directory only when it says so.
         self.assertIs(store["bind"]["create_host_path"], True)
         # One directory per robot configuration below it.
@@ -465,7 +544,8 @@ class ComposeTest(unittest.TestCase):
         script = read("tools/deploy/deploy_robot.sh")
         self.assertIn('ROBOT_CONFIG_DIR="robot_config"', script)
         self.assertIn(
-            "mkdir -p '${remote_dir}' '${remote_dir}/${ROBOT_CONFIG_DIR}'", script
+            "mkdir -p '${remote_dir}' '${remote_dir}/${ROBOT_CONFIG_DIR}'",
+            script,
         )
         # LINT.ThenChange(//docker-compose.robot.yaml:robot_config_store)
 
@@ -478,7 +558,9 @@ class ComposeTest(unittest.TestCase):
             for name in re.findall(r'variables \{ name: "(\w+)"', launch)
         }
         passed = {
-            name for name in self.robot["environment"] if name.startswith("WB_ROBOT_")
+            name
+            for name in self.robot["environment"]
+            if name.startswith("WB_ROBOT_")
         }
         self.assertEqual(passed, set(ROBOT_ENVIRONMENT))
         self.assertEqual(passed - variables, set())
@@ -488,7 +570,9 @@ class ComposeTest(unittest.TestCase):
     ) -> None:
         document = load_yaml("docker-compose.robot.sim.yaml")
         sim = document["services"]["robot"]
-        self.assertEqual(set(sim), {"image", "restart", "environment", "volumes"})
+        self.assertEqual(
+            set(sim), {"image", "restart", "environment", "volumes"}
+        )
         self.assertIn("wb-humanoid-robot-sim", sim["image"])
         self.assertEqual(sim["restart"], "no")
         self.assertIn("DISPLAY", sim["environment"])
@@ -545,11 +629,15 @@ class ComposeTest(unittest.TestCase):
             'WB_ROBOT_SIM_PLOT_CONFIG="${WB_HOST_CHECKOUT:-$(host_checkout)}/${robot_plot_config}"',
             session,
         )
-        self.assertIn(f'sim_plot_config_target="{SIM_PLOT_CONFIG_TARGET}"', session)
+        self.assertIn(
+            f'sim_plot_config_target="{SIM_PLOT_CONFIG_TARGET}"', session
+        )
         # LINT.ThenChange(//docker-compose.robot.sim.yaml:sim_plot_config_mount)
 
     def test_net_admin_only_with_the_netem_override(self) -> None:
-        netem = load_yaml("docker-compose.robot.netem.yaml")["services"]["robot"]
+        netem = load_yaml("docker-compose.robot.netem.yaml")["services"][
+            "robot"
+        ]
         self.assertEqual(netem, {"cap_add": ["NET_ADMIN"]})
         self.assertNotIn("NET_ADMIN", self.robot["cap_add"])
 
@@ -569,7 +657,9 @@ def read_unit() -> configparser.ConfigParser:
 
 
 class SystemdUnitTest(unittest.TestCase):
-    def test_the_unit_starts_the_deployment_after_docker_and_at_boot(self) -> None:
+    def test_the_unit_starts_the_deployment_after_docker_and_at_boot(
+        self,
+    ) -> None:
         unit = read_unit()
         self.assertIn("docker.service", unit["Unit"]["Requires"])
         self.assertIn("network-online.target", unit["Unit"]["After"])
@@ -588,7 +678,9 @@ class SystemdUnitTest(unittest.TestCase):
         unit = read_unit()
         guard = unit["Service"]["ExecStartPre"]
         with tempfile.TemporaryDirectory() as directory:
-            with open(os.path.join(directory, ".env"), "w", encoding="utf-8") as stream:
+            with open(
+                os.path.join(directory, ".env"), "w", encoding="utf-8"
+            ) as stream:
                 stream.write(
                     "COMPOSE_PROJECT_NAME=wb-humanoid-robot\nROBOT=unitree_g1_wb\n"
                 )
@@ -617,7 +709,11 @@ def dockerfile_stages() -> dict[str, str]:
     stages: dict[str, str] = {}
     matches = list(re.finditer(r"^FROM (\S+) AS (\S+)$", text, re.M))
     for index, match in enumerate(matches):
-        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        end = (
+            matches[index + 1].start()
+            if index + 1 < len(matches)
+            else len(text)
+        )
         stages[match.group(2)] = text[match.start() : end]
     return stages
 
@@ -626,7 +722,9 @@ def installed_packages(stage: str) -> list[str]:
     """The packages the `apt-get install` commands of a Dockerfile stage install."""
     joined = without_comments(stage).replace("\\\n", " ")
     packages: list[str] = []
-    for match in re.finditer(r"apt-get install([^\n]*?)(?:&&|<|$)", joined, re.M):
+    for match in re.finditer(
+        r"apt-get install([^\n]*?)(?:&&|<|$)", joined, re.M
+    ):
         packages += [
             word for word in match.group(1).split() if not word.startswith("-")
         ]
@@ -653,7 +751,9 @@ class DockerfileTest(unittest.TestCase):
             )
         )
         self.assertTrue(
-            self.stages["robot-sim"].startswith("FROM robot-runtime AS robot-sim")
+            self.stages["robot-sim"].startswith(
+                "FROM robot-runtime AS robot-sim"
+            )
         )
         self.assertTrue(
             self.stages["robot-libraries"].startswith(
@@ -663,7 +763,9 @@ class DockerfileTest(unittest.TestCase):
 
     def test_the_runtime_image_has_nothing_to_build_or_view_with(self) -> None:
         runtime = without_comments(self.stages["robot-runtime"])
-        self.assertEqual(installed_packages(self.stages["robot-runtime"]), ["iproute2"])
+        self.assertEqual(
+            installed_packages(self.stages["robot-runtime"]), ["iproute2"]
+        )
         self.assertRegex(runtime, r"< /tmp/robot-packages.txt")
         self.assertNotRegex(
             runtime + without_comments(self.stages["robot-sim"]),
@@ -672,7 +774,8 @@ class DockerfileTest(unittest.TestCase):
         self.assertIn("COPY --from=robot-libraries", runtime)
         self.assertNotIn("--from=base", runtime)
         self.assertIn(
-            'ENTRYPOINT ["/opt/wb-humanoid-robot/bin/robot_entrypoint.sh"]', runtime
+            'ENTRYPOINT ["/opt/wb-humanoid-robot/bin/robot_entrypoint.sh"]',
+            runtime,
         )
         # No viewer by default: the image has no GL to draw with.
         self.assertIn("ENV WB_ROBOT_DEFAULT_VIEWER=none", runtime)
@@ -694,16 +797,21 @@ class DockerfileTest(unittest.TestCase):
             re.compile(r"^ENV WB_ROBOT_DEFAULT_VIEWER=$", re.M),
         )
 
-    def test_pinocchio_from_robotpkg_on_amd64_and_from_source_on_arm64(self) -> None:
+    def test_pinocchio_from_robotpkg_on_amd64_and_from_source_on_arm64(
+        self,
+    ) -> None:
         self.assertIn(
-            "RUN sh /tmp/install_robotpkg.sh", self.stages["robot-pinocchio-amd64"]
+            "RUN sh /tmp/install_robotpkg.sh",
+            self.stages["robot-pinocchio-amd64"],
         )
         self.assertIn(
-            "build_pinocchio_from_source.sh", self.stages["robot-pinocchio-arm64"]
+            "build_pinocchio_from_source.sh",
+            self.stages["robot-pinocchio-arm64"],
         )
         base = self.stages["base"]
         self.assertIn(
-            'if [ "$(dpkg --print-architecture)" = "amd64" ]; then sh /tmp/install_robotpkg.sh',
+            'if [ "$(dpkg --print-architecture)" = "amd64" ]; then sh'
+            " /tmp/install_robotpkg.sh",
             base,
         )
         self.assertIn("else sh /tmp/build_pinocchio_from_source.sh", base)
@@ -724,7 +832,9 @@ class DevContainerPlatformTest(unittest.TestCase):
             r"### aarch64\n(.*?)\n## ", read("tools/deploy/README.md"), re.S
         )
         self.assertIn(f"{variable}=linux/arm64", section.group(1))
-        self.assertIn(f"{variable}=linux/", read("tools/deploy/deploy_robot.sh"))
+        self.assertIn(
+            f"{variable}=linux/", read("tools/deploy/deploy_robot.sh")
+        )
 
 
 class DeployScriptTest(unittest.TestCase):
@@ -745,10 +855,13 @@ class DeployScriptTest(unittest.TestCase):
         for script in ("deploy_robot.sh", "session.sh", "in_dev_container.sh"):
             with self.subTest(script=script):
                 subprocess.run(
-                    ["bash", "-n", runfile(f"tools/deploy/{script}")], check=True
+                    ["bash", "-n", runfile(f"tools/deploy/{script}")],
+                    check=True,
                 )
         for script in ("robot_entrypoint.sh", "netem.sh"):
-            subprocess.run(["sh", "-n", runfile(f"tools/deploy/{script}")], check=True)
+            subprocess.run(
+                ["sh", "-n", runfile(f"tools/deploy/{script}")], check=True
+            )
 
     def test_the_environment_of_a_deployment(self) -> None:
         result = self.deploy(
@@ -780,13 +893,17 @@ class DeployScriptTest(unittest.TestCase):
             "WB_ROBOT_CONFIG_SEED=never",
         ):
             self.assertIn(expected, lines)
-        plain = self.deploy("environment", "--robot", "drc_atlas").stdout.splitlines()
+        plain = self.deploy(
+            "environment", "--robot", "drc_atlas"
+        ).stdout.splitlines()
         self.assertIn("COMPOSE_FILE=docker-compose.robot.yaml", plain)
         self.assertEqual([line for line in plain if "REALTIME" in line], [])
         # Without --config_seed the launch file's policy applies (when_bundle_changes).
         self.assertEqual([line for line in plain if "CONFIG_SEED" in line], [])
 
-    def test_a_remote_deployment_ships_the_image_and_installs_the_unit(self) -> None:
+    def test_a_remote_deployment_ships_the_image_and_installs_the_unit(
+        self,
+    ) -> None:
         result = self.deploy(
             "deploy",
             "--dry_run",
@@ -804,10 +921,12 @@ class DeployScriptTest(unittest.TestCase):
         output = result.stdout
         self.assertRegex(
             output,
-            r"docker build .*--target robot-runtime -t wb-humanoid-robot:latest \.",
+            r"docker build .*--target robot-runtime -t"
+            r" wb-humanoid-robot:latest \.",
         )
         self.assertIn(
-            "docker save wb-humanoid-robot:latest | gzip -1 | ssh robot.local", output
+            "docker save wb-humanoid-robot:latest | gzip -1 | ssh robot.local",
+            output,
         )
         for file in (
             "docker-compose.robot.yaml",
@@ -816,7 +935,8 @@ class DeployScriptTest(unittest.TestCase):
             ".env",
         ):
             self.assertRegex(
-                output, rf"scp -q \S+ robot\.local:wb-humanoid-robot/{re.escape(file)}"
+                output,
+                rf"scp -q \S+ robot\.local:wb-humanoid-robot/{re.escape(file)}",
             )
         self.assertIn("wb-humanoid-robot@drc_atlas.service", output)
         # The stored configuration's directory, which a deploy never empties.
@@ -826,20 +946,24 @@ class DeployScriptTest(unittest.TestCase):
         self.assertNotIn("enable --now", output)
         self.assertRegex(
             output,
-            r"systemctl enable '\S+' && sudo systemctl restart '\S+@drc_atlas\.service'",
+            r"systemctl enable '\S+' && sudo systemctl restart"
+            r" '\S+@drc_atlas\.service'",
         )
         self.assertIn("systemctl disable --now", output)
         # The image is built for the robot's architecture, which its Docker is asked for.
         self.assertIn("ssh robot.local docker version --format", output)
 
-    def test_a_redeploy_restarts_a_running_deployment_on_the_new_image(self) -> None:
+    def test_a_redeploy_restarts_a_running_deployment_on_the_new_image(
+        self,
+    ) -> None:
         result = self.deploy(
             "deploy", "--dry_run", "--skip_bundle", "--robot", "drc_atlas"
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertRegex(
             result.stdout,
-            r"docker compose ps --quiet robot .*then\s+docker compose up --detach --no-build",
+            r"docker compose ps --quiet robot .*then\s+docker compose up"
+            r" --detach --no-build",
         )
 
     def test_up_refuses_a_robot_other_than_the_deployed_one(self) -> None:
@@ -850,17 +974,24 @@ class DeployScriptTest(unittest.TestCase):
             deployment = os.path.join(home, "wb-humanoid-robot")
             os.makedirs(os.path.join(home, "bin"))
             os.makedirs(deployment)
-            with open(os.path.join(deployment, ".env"), "w", encoding="utf-8") as env:
-                env.write("COMPOSE_PROJECT_NAME=wb-humanoid-robot\nROBOT=unitree_g1\n")
+            with open(
+                os.path.join(deployment, ".env"), "w", encoding="utf-8"
+            ) as env:
+                env.write(
+                    "COMPOSE_PROJECT_NAME=wb-humanoid-robot\nROBOT=unitree_g1\n"
+                )
             log = os.path.join(home, "docker.log")
             docker = os.path.join(home, "bin", "docker")
             with open(docker, "w", encoding="utf-8") as stream:
                 stream.write(
-                    '#!/bin/sh\necho "$* ROBOT=${ROBOT-unset} cwd=$(pwd)" >> "$DOCKER_LOG"\n'
+                    '#!/bin/sh\necho "$* ROBOT=${ROBOT-unset} cwd=$(pwd)" >>'
+                    ' "$DOCKER_LOG"\n'
                 )
             os.chmod(docker, 0o755)
 
-            def up(robot: str, caller_robot: str | None) -> subprocess.CompletedProcess:
+            def up(
+                robot: str, caller_robot: str | None
+            ) -> subprocess.CompletedProcess:
                 env = dict(os.environ)
                 env["HOME"] = home
                 env["DOCKER_LOG"] = log
@@ -932,7 +1063,9 @@ class DeployScriptTest(unittest.TestCase):
         self.assertNotIn("docker save", output)
         self.assertNotIn("systemctl", output)
 
-    def test_a_registry_deployment_pulls_the_image_and_builds_nothing(self) -> None:
+    def test_a_registry_deployment_pulls_the_image_and_builds_nothing(
+        self,
+    ) -> None:
         result = self.deploy(
             "deploy",
             "--dry_run",
@@ -956,7 +1089,8 @@ class DeployScriptTest(unittest.TestCase):
             output, rf"\+ ssh robot\.local .*docker pull .*{re.escape(image)}"
         )
         self.assertIn(
-            f"check that {image} on robot.local is of the host's architecture", output
+            f"check that {image} on robot.local is of the host's architecture",
+            output,
         )
         for built in (
             "docker build",
@@ -966,7 +1100,9 @@ class DeployScriptTest(unittest.TestCase):
         ):
             self.assertNotIn(built, output)
         # The deployment's compose file runs the pulled image.
-        self.assertIn(f"deployed to robot.local:wb-humanoid-robot ({image})", output)
+        self.assertIn(
+            f"deployed to robot.local:wb-humanoid-robot ({image})", output
+        )
 
     def test_a_registry_deployment_needs_the_registry(self) -> None:
         for arguments in (
@@ -983,7 +1119,9 @@ class DeployScriptTest(unittest.TestCase):
     def test_the_makefile_passes_the_tag_and_the_image_source(self) -> None:
         makefile = read("Makefile")
         self.assertIn("$(if $(TAG),--tag $(TAG))", makefile)
-        self.assertIn("$(if $(IMAGE_SOURCE),--image_source $(IMAGE_SOURCE))", makefile)
+        self.assertIn(
+            "$(if $(IMAGE_SOURCE),--image_source $(IMAGE_SOURCE))", makefile
+        )
 
     def test_what_a_deployment_cannot_do_is_refused(self) -> None:
         remote = self.deploy(
@@ -998,11 +1136,24 @@ class DeployScriptTest(unittest.TestCase):
         self.assertEqual(remote.returncode, 1)
         self.assertIn("two_machine.example.textproto", remote.stderr)
         for arguments in (
-            ("deploy", "--dry_run", "--robot", "drc_atlas", "--service", "always"),
+            (
+                "deploy",
+                "--dry_run",
+                "--robot",
+                "drc_atlas",
+                "--service",
+                "always",
+            ),
             ("image", "--dry_run", "--target", "robot-dev"),
             ("deploy", "--dry_run", "--robot", "../x"),
             ("deploy", "--dry_run"),
-            ("environment", "--robot", "drc_atlas", "--config_seed", "sometimes"),
+            (
+                "environment",
+                "--robot",
+                "drc_atlas",
+                "--config_seed",
+                "sometimes",
+            ),
         ):
             with self.subTest(arguments=arguments):
                 self.assertNotEqual(self.deploy(*arguments).returncode, 0)
@@ -1061,7 +1212,8 @@ VIEWS = {
 def make_dry_run(*arguments: str) -> subprocess.CompletedProcess:
     """`make -n` of the checkout's Makefile with `arguments`: the commands a target would run, without running them."""
     return subprocess.run(
-        ["make", "-n", "--no-print-directory", "-C", RUNFILES] + list(arguments),
+        ["make", "-n", "--no-print-directory", "-C", RUNFILES]
+        + list(arguments),
         capture_output=True,
         text=True,
         timeout=60,
@@ -1074,7 +1226,8 @@ def session_command(output: str) -> str:
     lines = [
         line
         for line in output.splitlines()
-        if "tools/deploy/session.sh" in line and not line.rstrip().endswith(" stop")
+        if "tools/deploy/session.sh" in line
+        and not line.rstrip().endswith(" stop")
     ]
     assert len(lines) == 1, output
     return lines[0]
@@ -1116,16 +1269,25 @@ class MakefileTest(unittest.TestCase):
                 for suffix in CONFIGURATION_TARGETS
             )
         for name in sandbox_robots(self.makefile):
-            self.targets.update(f"launch-{name}-{suffix}" for suffix in SANDBOX_TARGETS)
+            self.targets.update(
+                f"launch-{name}-{suffix}" for suffix in SANDBOX_TARGETS
+            )
 
     def test_every_configuration_names_a_robot_package_and_its_formulation(
         self,
     ) -> None:
-        for name, robot, package, formulation, description in self.configurations:
+        for (
+            name,
+            robot,
+            package,
+            formulation,
+            description,
+        ) in self.configurations:
             with self.subTest(name=name):
                 self.assertRegex(robot, r"^[a-z0-9_]+$")
                 self.assertTrue(
-                    package.startswith("robot_models/") and package.endswith("_mpc")
+                    package.startswith("robot_models/")
+                    and package.endswith("_mpc")
                 )
                 self.assertTrue(description.endswith("_description"))
                 self.assertEqual(
@@ -1152,7 +1314,11 @@ class MakefileTest(unittest.TestCase):
         words: list[str] = []
         for word in match.group(1).split():
             reference = re.fullmatch(r"\$\((\w+)\)", word)
-            words += self.makefile_variable(reference.group(1)) if reference else [word]
+            words += (
+                self.makefile_variable(reference.group(1))
+                if reference
+                else [word]
+            )
         return words
 
     # LINT.IfChange(launch_binaries)
@@ -1163,9 +1329,14 @@ class MakefileTest(unittest.TestCase):
         for name, _, package, formulation, description in self.configurations:
             for launch, built in (
                 ("mpc", self.makefile_variable(f"mpc_binaries_{formulation}")),
-                ("dummy_sim", self.makefile_variable(f"dummy_binaries_{formulation}")),
+                (
+                    "dummy_sim",
+                    self.makefile_variable(f"dummy_binaries_{formulation}"),
+                ),
             ):
-                started = launch_binaries(f"{package}/launch/{launch}.textproto")
+                started = launch_binaries(
+                    f"{package}/launch/{launch}.textproto"
+                )
                 with self.subTest(target=f"launch-{name}", launch=launch):
                     self.assertTrue(started)
                     self.assertEqual(
@@ -1184,7 +1355,9 @@ class MakefileTest(unittest.TestCase):
     # LINT.ThenChange(//Makefile:launch_binaries)
 
     # LINT.IfChange(robot_names)
-    def test_the_deployment_script_knows_the_robots_of_the_makefile(self) -> None:
+    def test_the_deployment_script_knows_the_robots_of_the_makefile(
+        self,
+    ) -> None:
         robots = search(
             r'^ROBOTS="([^"]*)"$', read("tools/deploy/deploy_robot.sh"), re.M
         ).group(1)
@@ -1209,7 +1382,9 @@ class MakefileTest(unittest.TestCase):
                 check=False,  # The test checks the return code.
             )
 
-        network = os.path.join(RUNFILES, "config/ipc/two_machine.example.textproto")
+        network = os.path.join(
+            RUNFILES, "config/ipc/two_machine.example.textproto"
+        )
         result = make(
             "deploy-robot",
             "ROBOT=drc_atlas",
@@ -1226,7 +1401,9 @@ class MakefileTest(unittest.TestCase):
         self.assertIn(
             "--network config/ipc/two_machine.example.textproto", result.stdout
         )
-        outside = make("deploy-robot", "ROBOT=drc_atlas", "NETWORK=/etc/hostname")
+        outside = make(
+            "deploy-robot", "ROBOT=drc_atlas", "NETWORK=/etc/hostname"
+        )
         self.assertNotEqual(outside.returncode, 0)
         self.assertIn("outside the checkout", outside.stderr)
 
@@ -1254,12 +1431,19 @@ class MakefileTest(unittest.TestCase):
         ):
             with self.subTest(target=target):
                 result = make(
-                    target, f"PLOT_CONFIG={plots}", f"RRD_PATH={recording}", *extra
+                    target,
+                    f"PLOT_CONFIG={plots}",
+                    f"RRD_PATH={recording}",
+                    *extra,
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn(f"--set plot_config={SHIPPED_PLOT_CONFIG}", result.stdout)
+                self.assertIn(
+                    f"--set plot_config={SHIPPED_PLOT_CONFIG}", result.stdout
+                )
                 self.assertIn("--set rrd_path=walk.rrd", result.stdout)
-        outside = make("launch-drc-atlas-dummy-sim", "PLOT_CONFIG=/etc/hostname")
+        outside = make(
+            "launch-drc-atlas-dummy-sim", "PLOT_CONFIG=/etc/hostname"
+        )
         self.assertNotEqual(outside.returncode, 0)
         self.assertIn(
             "PLOT_CONFIG=/etc/hostname is outside the checkout", outside.stderr
@@ -1271,16 +1455,24 @@ class MakefileTest(unittest.TestCase):
 
     def test_the_views_are_the_sessions(self) -> None:
         self.assertEqual(
-            search(r"^VIEWS_NAMES := (.*)$", self.makefile, re.M).group(1).split(),
-            list(VIEWS),
-        )
-        self.assertEqual(
-            search(r'^VIEWS_NAMES="([^"]*)"$', read("tools/deploy/session.sh"), re.M)
+            search(r"^VIEWS_NAMES := (.*)$", self.makefile, re.M)
             .group(1)
             .split(),
             list(VIEWS),
         )
-        self.assertRegex(self.makefile, re.compile(r"^VIEWS \?= browser$", re.M))
+        self.assertEqual(
+            search(
+                r'^VIEWS_NAMES="([^"]*)"$',
+                read("tools/deploy/session.sh"),
+                re.M,
+            )
+            .group(1)
+            .split(),
+            list(VIEWS),
+        )
+        self.assertRegex(
+            self.makefile, re.compile(r"^VIEWS \?= browser$", re.M)
+        )
         for view, (viewer, sink) in VIEWS.items():
             with self.subTest(view=view):
                 self.assertEqual(
@@ -1304,7 +1496,8 @@ class MakefileTest(unittest.TestCase):
                 self.assertRegex(
                     self.makefile,
                     re.compile(
-                        rf"^(?:\S+ )*launch-\$\(call field,\$\(1\),1\)-{twin}-vnc[ :]"
+                        r"^(?:\S+ )*launch-\$\(call"
+                        rf" field,\$\(1\),1\)-{twin}-vnc[ :]"
                         r".*override VIEWS = vnc$",
                         re.M,
                     ),
@@ -1316,12 +1509,31 @@ class MakefileTest(unittest.TestCase):
         cases = (
             # (arguments, the session's view, its sink, the robot's viewer or None for the plot configuration's)
             (("launch-drc-atlas-sim",), "browser", "serve_web", None),
-            (("launch-drc-atlas-sim", "VIEWS=browser"), "browser", "serve_web", "web"),
-            (("launch-drc-atlas-sim-vnc",), "vnc", "spawn", "glfw"),
-            (("launch-drc-atlas-sim-vnc", "VIEWS=browser"), "vnc", "spawn", "glfw"),
-            (("launch-drc-atlas-sim", "VIEWS=display"), "display", "spawn", "glfw"),
             (
-                ("launch-drc-atlas-sim-vnc", "VIEWER=web", "RERUN_SINK=serve_web"),
+                ("launch-drc-atlas-sim", "VIEWS=browser"),
+                "browser",
+                "serve_web",
+                "web",
+            ),
+            (("launch-drc-atlas-sim-vnc",), "vnc", "spawn", "glfw"),
+            (
+                ("launch-drc-atlas-sim-vnc", "VIEWS=browser"),
+                "vnc",
+                "spawn",
+                "glfw",
+            ),
+            (
+                ("launch-drc-atlas-sim", "VIEWS=display"),
+                "display",
+                "spawn",
+                "glfw",
+            ),
+            (
+                (
+                    "launch-drc-atlas-sim-vnc",
+                    "VIEWER=web",
+                    "RERUN_SINK=serve_web",
+                ),
                 "vnc",
                 "serve_web",
                 "web",
@@ -1342,7 +1554,9 @@ class MakefileTest(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 command = session_command(result.stdout)
                 self.assertIn(f"--views {view} ", command)
-                self.assertEqual(re.findall(r"--set rerun_sink=(\S+)", command), [sink])
+                self.assertEqual(
+                    re.findall(r"--set rerun_sink=(\S+)", command), [sink]
+                )
                 if viewer is None:
                     self.assertNotIn("--viewer", command)
                 else:
@@ -1360,7 +1574,9 @@ class MakefileTest(unittest.TestCase):
         self.assertNotIn("in_process", code)
         self.assertRegex(code, r"\$\(session\) sim --robot")
 
-    def test_launch_and_deploy_targets_raise_the_udp_buffers_first(self) -> None:
+    def test_launch_and_deploy_targets_raise_the_udp_buffers_first(
+        self,
+    ) -> None:
         """Every target that starts the bus first raises the kernel's UDP buffer limits on the machine that runs it."""
         network = "config/ipc/two_machine.example.textproto"
         cases = (
@@ -1389,7 +1605,12 @@ class MakefileTest(unittest.TestCase):
                 "deploy_robot.sh up",
             ),
             (
-                ("deploy-robot", "ROBOT=drc_atlas", "HOST=robot", f"NETWORK={network}"),
+                (
+                    "deploy-robot",
+                    "ROBOT=drc_atlas",
+                    "HOST=robot",
+                    f"NETWORK={network}",
+                ),
                 network,
                 "robot",
                 "deploy_robot.sh deploy",
@@ -1417,11 +1638,16 @@ class MakefileTest(unittest.TestCase):
                     command, rf"--network \S*/{re.escape(expected_network)} "
                 )
                 self.assertTrue(
-                    command.rstrip().endswith(f"--host {expected_host}"), command
+                    command.rstrip().endswith(f"--host {expected_host}"),
+                    command,
                 )
                 if starter is not None:
-                    starts = [i for i, line in enumerate(lines) if starter in line]
-                    self.assertTrue(starts and buffers[0] < starts[0], result.stdout)
+                    starts = [
+                        i for i, line in enumerate(lines) if starter in line
+                    ]
+                    self.assertTrue(
+                        starts and buffers[0] < starts[0], result.stdout
+                    )
 
 
 class SessionTest(unittest.TestCase):
@@ -1444,7 +1670,9 @@ class SessionTest(unittest.TestCase):
                 projects.append(result.stdout.strip())
         self.assertNotEqual(projects[0], projects[1])
         for project in projects:
-            self.assertTrue(project.startswith("wb-humanoid-robot-sim-"), project)
+            self.assertTrue(
+                project.startswith("wb-humanoid-robot-sim-"), project
+            )
             self.assertRegex(
                 project, r"^[a-z0-9][a-z0-9_-]*$", "a compose project name"
             )
@@ -1466,7 +1694,9 @@ class SessionTest(unittest.TestCase):
 
     def test_an_unknown_option_stops_the_session_at_its_usage(self) -> None:
         # The usage is the script's header comment, all of it and no code, printed before Docker is reached.
-        unknown = self.session("sim", "--robot", "drc_atlas", "--no_such_option")
+        unknown = self.session(
+            "sim", "--robot", "drc_atlas", "--no_such_option"
+        )
         self.assertEqual(unknown.returncode, 2)
         self.assertIn("unknown option --no_such_option", unknown.stderr)
         self.assertIn("Environment: DISPLAY", unknown.stderr)
@@ -1486,11 +1716,21 @@ class SessionTest(unittest.TestCase):
         self.assertNotIn("unknown option", configured.stderr)
         self.assertIn("[--plot_config <file>]", configured.stderr)
         # A file the robot container cannot see, or none, is refused before anything is built or stopped.
-        launch = ("sim", "--robot", "drc_atlas", "--launch_file", "mpc.textproto")
-        outside = self.session(*launch, "--plot_config", "/elsewhere/plots.textproto")
+        launch = (
+            "sim",
+            "--robot",
+            "drc_atlas",
+            "--launch_file",
+            "mpc.textproto",
+        )
+        outside = self.session(
+            *launch, "--plot_config", "/elsewhere/plots.textproto"
+        )
         self.assertEqual(outside.returncode, 2)
         self.assertIn("is outside the checkout", outside.stderr)
-        missing = self.session(*launch, "--plot_config", "no_such_plots.textproto")
+        missing = self.session(
+            *launch, "--plot_config", "no_such_plots.textproto"
+        )
         self.assertEqual(missing.returncode, 2)
         self.assertIn("no such file in the checkout", missing.stderr)
 
@@ -1560,7 +1800,9 @@ class SessionTest(unittest.TestCase):
         env = dict(os.environ)
         env.pop("WB_ROBOT_WEB_VIEWER_PORT", None)
         env.update(
-            PATH=os.pathsep.join((os.path.join(checkout, "fake_bin"), env["PATH"])),
+            PATH=os.pathsep.join(
+                (os.path.join(checkout, "fake_bin"), env["PATH"])
+            ),
             SESSION_LOG=log,
             WB_HOST_CHECKOUT=HOST_CHECKOUT,
         )
@@ -1645,9 +1887,9 @@ class SessionTest(unittest.TestCase):
         mountinfo = os.path.join(checkout, "mountinfo")
         with open(mountinfo, "w", encoding="utf-8") as stream:
             stream.write(
-                "1 0 259:8 / / rw - ext4 /dev/root rw\n"
-                f"2 1 259:8 /var/lib/docker/containers/{container_id}/hostname /etc/hostname rw,relatime - ext4 "
-                "/dev/nvme0n1p5 rw\n"
+                "1 0 259:8 / / rw - ext4 /dev/root rw\n2 1 259:8"
+                f" /var/lib/docker/containers/{container_id}/hostname"
+                " /etc/hostname rw,relatime - ext4 /dev/nvme0n1p5 rw\n"
             )
         result, recorded = self.run_sim(
             checkout,
@@ -1676,22 +1918,32 @@ class SessionTest(unittest.TestCase):
         # relative to the checkout: the robot container its file of the host, the launcher the same file in the dev
         # container's checkout.
         checkout = self.fake_checkout(
-            {"plots/mine.textproto": f'{PLOT_CONFIG_HEADER}mujoco_viewer: "none"\n'}
+            {
+                "plots/mine.textproto": (
+                    f'{PLOT_CONFIG_HEADER}mujoco_viewer: "none"\n'
+                )
+            }
         )
         absolute = os.path.join(checkout, "plots", "mine.textproto")
         result, recorded = self.run_sim(
-            checkout, "--set", f"plot_config={absolute}", "--plot_config", absolute
+            checkout,
+            "--set",
+            f"plot_config={absolute}",
+            "--plot_config",
+            absolute,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.laptop_plot_config(recorded), "plots/mine.textproto")
+        self.assertEqual(
+            self.laptop_plot_config(recorded), "plots/mine.textproto"
+        )
         self.assertEqual(
             self.robot_container(recorded),
             ("", f"{HOST_CHECKOUT}/plots/mine.textproto"),
         )
         # The robot's errors name the file by the path the container sees: the session says which file that is.
         self.assertIn(
-            "the robot reads its MuJoCo viewer from plots/mine.textproto, which it sees as "
-            f"{SIM_PLOT_CONFIG_TARGET}",
+            "the robot reads its MuJoCo viewer from plots/mine.textproto,"
+            f" which it sees as {SIM_PLOT_CONFIG_TARGET}",
             result.stdout,
         )
         self.assertNotIn("localhost:6090", result.stdout, "its viewer is none")
@@ -1701,11 +1953,16 @@ class SessionTest(unittest.TestCase):
     ) -> None:
         # A plain list of signals, which the Rerun bridge reads, is no PlotConfig textproto: without a viewer named, the
         # robot would refuse it at start-up, after the build and the stop of the running simulation.
-        checkout = self.fake_checkout({"plots/signals.txt": "base_pose/*\njoints/*\n"})
-        refused, recorded = self.run_sim(checkout, "--plot_config", "plots/signals.txt")
+        checkout = self.fake_checkout(
+            {"plots/signals.txt": "base_pose/*\njoints/*\n"}
+        )
+        refused, recorded = self.run_sim(
+            checkout, "--plot_config", "plots/signals.txt"
+        )
         self.assertEqual(refused.returncode, 2)
         self.assertIn(
-            "does not declare '# proto-message: humanoid_rerun_viewer_proto.PlotConfig'",
+            "does not declare '# proto-message:"
+            " humanoid_rerun_viewer_proto.PlotConfig'",
             refused.stderr,
         )
         self.assertIn("VIEWER=web|glfw|none", refused.stderr)
@@ -1722,7 +1979,9 @@ class SessionTest(unittest.TestCase):
         self.assertEqual(self.laptop_plot_config(recorded), "plots/signals.txt")
         self.assertNotIn("the robot reads its MuJoCo viewer from", named.stdout)
 
-    def test_without_plots_the_robot_gets_the_shipped_plot_configuration(self) -> None:
+    def test_without_plots_the_robot_gets_the_shipped_plot_configuration(
+        self,
+    ) -> None:
         # The Rerun bridge's "none" turns its plots off; the robot reads the shipped file's viewer, web.
         checkout = self.fake_checkout({})
         result, recorded = self.run_sim(
@@ -1750,7 +2009,10 @@ class SessionTest(unittest.TestCase):
         Returns:
             The variables run_sim() gives the session.
         """
-        return {"WB_HOST_CHECKOUT": HOST_CHECKOUT, "FAKE_ROBOT_LOG": "\n".join(lines)}
+        return {
+            "WB_HOST_CHECKOUT": HOST_CHECKOUT,
+            "FAKE_ROBOT_LOG": "\n".join(lines),
+        }
 
     def announcements(self, stdout: str) -> list[str]:
         """The session's lines that give the web viewer's address."""
@@ -1775,7 +2037,8 @@ class SessionTest(unittest.TestCase):
             checkout,
             environment=self.robot_log(
                 _SERVING_LOCALHOST,
-                "[MujocoSimInterface] the 'web' viewer did not start (no EGL); trying 'none'",
+                "[MujocoSimInterface] the 'web' viewer did not start (no EGL);"
+                " trying 'none'",
                 "[MujocoSimInterface] viewer: none",
             ),
         )
@@ -1788,7 +2051,8 @@ class SessionTest(unittest.TestCase):
         result, _ = self.run_sim(
             checkout,
             environment=self.robot_log(
-                "I1019 [WebViewerServer] serving the MuJoCo viewer at http://192.0.2.10:6090/",
+                "I1019 [WebViewerServer] serving the MuJoCo viewer at"
+                " http://192.0.2.10:6090/",
                 _VIEWER_WEB,
             ),
         )
@@ -1815,7 +2079,9 @@ class SessionTest(unittest.TestCase):
         self.assertEqual(len(starts), 1, recorded)
         # The desktop comes up before the robot container, whose glfw window would need it.
         compose_up = next(
-            i for i, line in enumerate(recorded) if " up " in line and "docker" in line
+            i
+            for i, line in enumerate(recorded)
+            if " up " in line and "docker" in line
         )
         self.assertLess(recorded.index(starts[0]), compose_up)
         for url in (
@@ -1861,7 +2127,11 @@ class SessionTest(unittest.TestCase):
         self.assertIn("no X server answers on DISPLAY=:42", no_server.stderr)
         self.assertIn("VIEWS=browser", no_server.stderr)
         self.assertFalse(
-            [line for line in recorded if "tools/launch" in line or " up " in line],
+            [
+                line
+                for line in recorded
+                if "tools/launch" in line or " up " in line
+            ],
             recorded,
         )
         answered, recorded = self.run_sim(
@@ -1884,9 +2154,12 @@ class SessionTest(unittest.TestCase):
 
 # The robot's log lines the session announces the web viewer from (WebViewerServer.cpp, MujocoSimInterface.cpp).
 _SERVING_LOCALHOST = (
-    "I1019 [WebViewerServer] serving the MuJoCo viewer at http://localhost:6090/"
+    "I1019 [WebViewerServer] serving the MuJoCo viewer at"
+    " http://localhost:6090/"
 )
-_VIEWER_WEB = "I1019 MujocoSimInterface.cpp:915] [MujocoSimInterface] viewer: web"
+_VIEWER_WEB = (
+    "I1019 MujocoSimInterface.cpp:915] [MujocoSimInterface] viewer: web"
+)
 
 
 def _arm64_workflow() -> dict:
@@ -1921,7 +2194,9 @@ class Arm64WorkflowTest(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertEqual(job["runs-on"], "ubuntu-24.04-arm")
         self.assertEqual(self.jobs["image"]["needs"], "bundle")
-        bazelisk = _step(self.jobs["bundle"], "Install Bazel (via Bazelisk)")["run"]
+        bazelisk = _step(self.jobs["bundle"], "Install Bazel (via Bazelisk)")[
+            "run"
+        ]
         self.assertIn("bazelisk-linux-arm64", bazelisk)
 
     def test_the_bundle_job_builds_pinocchio_from_source(self) -> None:
@@ -1933,18 +2208,23 @@ class Arm64WorkflowTest(unittest.TestCase):
         restore = _step(bundle, "Restore Pinocchio")
         self.assertEqual(restore["with"]["path"], "/opt/openrobots")
         self.assertIn(
-            "hashFiles('docker/build_pinocchio_from_source.sh')", restore["with"]["key"]
+            "hashFiles('docker/build_pinocchio_from_source.sh')",
+            restore["with"]["key"],
         )
 
-    def test_the_bundle_is_the_deploys_bundle_in_the_deploys_context(self) -> None:
+    def test_the_bundle_is_the_deploys_bundle_in_the_deploys_context(
+        self,
+    ) -> None:
         bundle = self.jobs["bundle"]
         target = _script_value("BUNDLE_TARGET")
         self.assertIn(
-            f"bazel build {target}", _step(bundle, "Build the Robot Bundle")["run"]
+            f"bazel build {target}",
+            _step(bundle, "Build the Robot Bundle")["run"],
         )
         keep = _step(bundle, "Keep the Bundle for the Image")["run"]
         self.assertIn(
-            f"cp -L {_script_value('BUNDLE_OUTPUT')} bundle/robot_bundle.tar", keep
+            f"cp -L {_script_value('BUNDLE_OUTPUT')} bundle/robot_bundle.tar",
+            keep,
         )
         upload = _step(bundle, "Upload the Bundle")
         download = _step(self.jobs["image"], "Download the Bundle")
@@ -1958,7 +2238,8 @@ class Arm64WorkflowTest(unittest.TestCase):
         self.assertEqual(image["permissions"]["packages"], "write")
         build = _step(image, "Build the Robot Image")["run"]
         self.assertIn(
-            "tools/deploy/deploy_robot.sh image --skip_bundle --platform linux/arm64",
+            "tools/deploy/deploy_robot.sh image --skip_bundle --platform"
+            " linux/arm64",
             build,
         )
         for name in (
@@ -1980,7 +2261,8 @@ class Arm64WorkflowTest(unittest.TestCase):
             r"### aarch64\n(.*?)\n## ", read("tools/deploy/README.md"), re.S
         ).group(1)
         self.assertIn(
-            "IMAGE_SOURCE=registry REGISTRY=ghcr.io/<owner> TAG=main-arm64", section
+            "IMAGE_SOURCE=registry REGISTRY=ghcr.io/<owner> TAG=main-arm64",
+            section,
         )
         self.assertIn(".github/workflows/robot_arm64.yml", section)
 
@@ -2020,13 +2302,16 @@ class PinocchioSourceBuildTest(unittest.TestCase):
                     commands = stream.read()
             return result, commands
 
-    def test_dependencies_installs_the_packages_and_builds_nothing(self) -> None:
+    def test_dependencies_installs_the_packages_and_builds_nothing(
+        self,
+    ) -> None:
         result, commands = self.run_script("dependencies")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("libboost-serialization-dev", commands)
         self.assertIn("liburdfdom-dev", commands)
         self.assertEqual(
-            [line for line in commands.splitlines() if line.startswith("git ")], []
+            [line for line in commands.splitlines() if line.startswith("git ")],
+            [],
         )
 
     def test_an_unknown_step_is_refused_before_anything_runs(self) -> None:

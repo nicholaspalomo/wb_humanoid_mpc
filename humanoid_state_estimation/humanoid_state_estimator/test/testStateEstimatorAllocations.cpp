@@ -27,9 +27,10 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// The realtime property of the state estimators: once built, the kalman estimator's estimate() and reset() make no
-// heap allocation, through stance changes. A target of its own, because the allocation counter replaces malloc for
-// the whole binary.
+// The realtime property of the state estimators: once built, the kalman
+// estimator's estimate() and reset() make no heap allocation, through stance
+// changes. A target of its own, because the allocation counter replaces malloc
+// for the whole binary.
 
 #include <cstddef>
 #include <memory>
@@ -51,33 +52,41 @@ namespace {
 
 constexpr scalar_t kDt = 0.002;
 
-TEST(StateEstimatorAllocationTest, TheKalmanEstimatorEstimatesAndResetsWithoutAllocating) {
+TEST(StateEstimatorAllocationTest,
+     TheKalmanEstimatorEstimatesAndResetsWithoutAllocating) {
   const absl::StatusOr<robot::model::RobotDescription> description =
       robot::model::RobotDescription::Create(test_support::kPrismaticBipedUrdf);
   ASSERT_TRUE(description.ok()) << description.status();
   absl::StatusOr<std::unique_ptr<StateEstimator>> created =
-      StateEstimatorRegistry().create("kalman", StateEstimatorContext{.urdfFile = test_support::kPrismaticBipedUrdf,
-                                                                      .contactFrameNames = test_support::prismaticBipedFootFrames(),
-                                                                      .contactParentJointNames = {},
-                                                                      .description = &*description,
-                                                                      .kalman = KalmanBaseEstimator::Config()});
+      StateEstimatorRegistry().create(
+          "kalman",
+          StateEstimatorContext{
+              .urdfFile = test_support::kPrismaticBipedUrdf,
+              .contactFrameNames = test_support::prismaticBipedFootFrames(),
+              .contactParentJointNames = {},
+              .description = &*description,
+              .kalman = KalmanBaseEstimator::Config()});
   ASSERT_TRUE(created.ok()) << created.status();
   StateEstimator& estimator = **created;
   robot::model::RobotState measured(*description);
-  // The samples are computed before counting: the trajectory generator allocates.
+  // The samples are computed before counting: the trajectory generator
+  // allocates.
   constexpr int kSteps = 1000;
   std::vector<test_support::WalkingSample> samples;
-  for (int step = 0; step <= kSteps; ++step) samples.push_back(test_support::walkingSample(step * kDt));
+  for (int step = 0; step <= kSteps; ++step)
+    samples.push_back(test_support::walkingSample(step * kDt));
   test_support::writeMeasuredState(samples[0], measured);
   estimator.reset(measured);
-  // One step first, so that the estimated state owns its storage as every later one does.
+  // One step first, so that the estimated state owns its storage as every later
+  // one does.
   test_support::writeMeasuredState(samples[1], measured);
   estimator.estimate(measured);
 
   bool sawStanceChange = false;
   const size_t before = heapAllocationCount();
   for (int step = 2; step <= kSteps; ++step) {
-    sawStanceChange = sawStanceChange || samples[step].contactFlags != samples[step - 1].contactFlags;
+    sawStanceChange = sawStanceChange || samples[step].contactFlags !=
+                                             samples[step - 1].contactFlags;
     test_support::writeMeasuredState(samples[step], measured);
     estimator.estimate(measured);
     if (step == kSteps / 2) estimator.reset(measured);

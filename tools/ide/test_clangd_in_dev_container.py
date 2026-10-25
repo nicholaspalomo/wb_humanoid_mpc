@@ -67,7 +67,9 @@ def _runfile(relative_path: str) -> str:
     roots = []
     if "TEST_SRCDIR" in os.environ:
         roots.append(os.path.join(os.environ["TEST_SRCDIR"], "_main"))
-    roots.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+    roots.append(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
+    )
     for root in roots:
         candidate = os.path.join(root, relative_path)
         if os.path.exists(candidate):
@@ -95,7 +97,9 @@ class ClangdInDevContainerTest(unittest.TestCase):
             self.repo, "tools", "ide", "clangd_in_dev_container.sh"
         )
         os.makedirs(os.path.dirname(self.script))
-        shutil.copy(_runfile("tools/ide/clangd_in_dev_container.sh"), self.script)
+        shutil.copy(
+            _runfile("tools/ide/clangd_in_dev_container.sh"), self.script
+        )
         os.chmod(self.script, 0o755)
         self.bin = os.path.join(self.home, "bin")
         _write_executable(os.path.join(self.bin, "docker"), _FAKE_DOCKER)
@@ -163,7 +167,9 @@ class ClangdInDevContainerTest(unittest.TestCase):
         self.assertIn("-j=2", clangd)
         self.assertEqual(clangd[-1], "--log=verbose")
 
-    def test_maps_the_checkout_to_the_path_named_inside_the_container(self) -> None:
+    def test_maps_the_checkout_to_the_path_named_inside_the_container(
+        self,
+    ) -> None:
         _write_executable(os.path.join(self.bin, "clangd-21"), _FAKE_CLANGD)
         completed = self._run(WB_DEV_CONTAINER_REPO="/srv/checkout")
         self.assertEqual(completed.returncode, 0, completed.stderr)
@@ -209,7 +215,11 @@ class ClangdInDevContainerTest(unittest.TestCase):
         clangd = self._logged("clangd")
         self.assertIn(f"--compile-commands-dir={self.repo}", clangd)
         self.assertFalse(
-            [argument for argument in clangd if argument.startswith("--path-mappings")]
+            [
+                argument
+                for argument in clangd
+                if argument.startswith("--path-mappings")
+            ]
         )
         self.assertEqual(clangd[-1], "--log=verbose")
 

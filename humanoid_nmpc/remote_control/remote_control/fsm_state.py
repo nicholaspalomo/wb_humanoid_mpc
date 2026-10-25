@@ -51,7 +51,8 @@ from remote_control import humanoid_finite_state_machine
 
 #: The mode names a message may carry.
 _MODE_NAMES = frozenset(
-    control_mode.value for control_mode in humanoid_finite_state_machine.ControlMode
+    control_mode.value
+    for control_mode in humanoid_finite_state_machine.ControlMode
 )
 
 
@@ -97,8 +98,11 @@ def should_recenter(previous: FsmState | None, current: FsmState) -> bool:
         previous is None or previous.mode != current.mode
     ):
         return True
-    if current.gantry_locked and (previous is None or not previous.gantry_locked):
+    if current.gantry_locked and (
+        previous is None or not previous.gantry_locked
+    ):
         return True
     return (
-        previous is not None and current.controller_resets != previous.controller_resets
+        previous is not None
+        and current.controller_resets != previous.controller_resets
     )

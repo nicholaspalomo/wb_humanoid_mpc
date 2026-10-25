@@ -35,8 +35,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "mujoco_sim_interface/StepLatenessHistogram.h"
 
 /*
- * The physics loop's lateness histogram: its percentiles to the bin, its exact maximum, its count of late steps, and
- * what it does with early, far-too-late and forgotten samples.
+ * The physics loop's lateness histogram: its percentiles to the bin, its exact
+ * maximum, its count of late steps, and what it does with early, far-too-late
+ * and forgotten samples.
  */
 
 namespace robot::mujoco_sim_interface {
@@ -53,12 +54,15 @@ TEST(StepLatenessHistogram, IsEmptyAtFirst) {
 TEST(StepLatenessHistogram, ReportsPercentilesToTheBinAndTheMaximumExactly) {
   StepLatenessHistogram histogram;
   // 98 steps in time, one 12 us late and one 3.2 ms late.
-  for (int step = 0; step < 98; ++step) histogram.record(std::chrono::microseconds(-40));
+  for (int step = 0; step < 98; ++step)
+    histogram.record(std::chrono::microseconds(-40));
   histogram.record(std::chrono::microseconds(12));
   histogram.record(std::chrono::microseconds(3200));
   EXPECT_EQ(histogram.count(), 100);
-  EXPECT_EQ(histogram.percentile(/*fraction=*/0.5), absl::Microseconds(5)) << "an early step is on time: the first bin, 0 to 5 us";
-  EXPECT_EQ(histogram.percentile(/*fraction=*/0.99), absl::Microseconds(15)) << "the upper edge of the 10-15 us bin";
+  EXPECT_EQ(histogram.percentile(/*fraction=*/0.5), absl::Microseconds(5))
+      << "an early step is on time: the first bin, 0 to 5 us";
+  EXPECT_EQ(histogram.percentile(/*fraction=*/0.99), absl::Microseconds(15))
+      << "the upper edge of the 10-15 us bin";
   EXPECT_EQ(histogram.percentile(/*fraction=*/1.0), absl::Microseconds(3200));
   EXPECT_EQ(histogram.max(), absl::Microseconds(3200));
   EXPECT_EQ(histogram.countLaterThan(absl::Milliseconds(1)), 1);
@@ -69,9 +73,11 @@ TEST(StepLatenessHistogram, KeepsTheMaximumOfASamplePastTheLastBin) {
   StepLatenessHistogram histogram;
   histogram.record(std::chrono::seconds(1));
   EXPECT_EQ(histogram.max(), absl::Seconds(1));
-  EXPECT_EQ(histogram.percentile(/*fraction=*/0.5), absl::Seconds(1)) << "the last bin's upper edge is the maximum";
+  EXPECT_EQ(histogram.percentile(/*fraction=*/0.5), absl::Seconds(1))
+      << "the last bin's upper edge is the maximum";
   EXPECT_EQ(histogram.countLaterThan(absl::Milliseconds(19)), 1);
-  EXPECT_EQ(histogram.countLaterThan(absl::Seconds(5)), 1) << "every sample past the last bin shares it";
+  EXPECT_EQ(histogram.countLaterThan(absl::Seconds(5)), 1)
+      << "every sample past the last bin shares it";
 }
 
 TEST(StepLatenessHistogram, ResetForgetsEverySample) {

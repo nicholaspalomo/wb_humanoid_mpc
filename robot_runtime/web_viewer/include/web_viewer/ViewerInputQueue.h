@@ -41,13 +41,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::web_viewer {
 
 /**
- * The bounded queue of input events from the web server's request threads to the viewer's render thread, which drains
- * it once per frame.
+ * The bounded queue of input events from the web server's request threads to
+ * the viewer's render thread, which drains it once per frame.
  *
- * It never grows past kCapacity: a push into a full queue drops the oldest event (counted by droppedCount()). A drag
- * that follows a drag with the same button and shift is merged into it while the motions add up to no more than one
- * drag may move ([-2, 2] on each axis), so a burst of mouse motion between two frames costs one entry and a fast swipe
- * none of its motion.
+ * It never grows past kCapacity: a push into a full queue drops the oldest
+ * event (counted by droppedCount()). A drag that follows a drag with the same
+ * button and shift is merged into it while the motions add up to no more than
+ * one drag may move ([-2, 2] on each axis), so a burst of mouse motion between
+ * two frames costs one entry and a fast swipe none of its motion.
  *
  * Thread-safe.
  */
@@ -62,8 +63,10 @@ class ViewerInputQueue {
   ViewerInputQueue& operator=(const ViewerInputQueue&) = delete;
 
   /**
-   * Appends `input`, or merges it into the last event when both are drags with the same button and shift whose sum is
-   * within [-ViewerInput::kMaxDragFraction, ViewerInput::kMaxDragFraction] on each axis.
+   * Appends `input`, or merges it into the last event when both are drags with
+   * the same button and shift whose sum is within
+   * [-ViewerInput::kMaxDragFraction, ViewerInput::kMaxDragFraction] on each
+   * axis.
    */
   void push(ViewerInput input);
 
@@ -73,7 +76,8 @@ class ViewerInputQueue {
   /** Returns the number of events queued now. */
   int size() const;
 
-  /** Returns the number of events dropped because the queue was full, since construction. */
+  /** Returns the number of events dropped because the queue was full, since
+   * construction. */
   int64_t droppedCount() const;
 
  private:

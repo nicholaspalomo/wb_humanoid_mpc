@@ -64,7 +64,9 @@ def network() -> robot_ipc.NetworkConfig:
     return robot_ipc.isolated_test_network(list(NODES))
 
 
-def message(topic: str, type_name: str, payload: bytes) -> tuple[str, str, bytes]:
+def message(
+    topic: str, type_name: str, payload: bytes
+) -> tuple[str, str, bytes]:
     """A message of `topic` carrying `payload` as the type `type_name` names."""
     return (topic, type_name, payload)
 
@@ -103,7 +105,9 @@ class MessagePublisher:
         self._thread.start()
         return self
 
-    def _publish(self, messages: list[tuple[str, str, bytes]], period_s: float) -> None:
+    def _publish(
+        self, messages: list[tuple[str, str, bytes]], period_s: float
+    ) -> None:
         index = 0
         while not self._stop.is_set():
             topic, type_name, payload = messages[index % len(messages)]
@@ -137,20 +141,28 @@ class RawEnvelopeWriter:
     """
 
     def __init__(self, topic: str) -> None:
-        self._participant = cyclonedds.domain.DomainParticipant(network().domain_id)
+        self._participant = cyclonedds.domain.DomainParticipant(
+            network().domain_id
+        )
         self._writer = cyclonedds.pub.DataWriter(
             self._participant,
-            cyclonedds.topic.Topic(self._participant, topic, robot_ipc.Envelope),
+            cyclonedds.topic.Topic(
+                self._participant, topic, robot_ipc.Envelope
+            ),
             qos=cyclonedds.qos.Qos(
                 cyclonedds.qos.Policy.Reliability.Reliable(
                     max_blocking_time=_RAW_WRITE_BLOCKING_NS
                 ),
-                cyclonedds.qos.Policy.History.KeepLast(_RAW_WRITER_HISTORY_DEPTH),
+                cyclonedds.qos.Policy.History.KeepLast(
+                    _RAW_WRITER_HISTORY_DEPTH
+                ),
             ),
         )
         self._sequence = 0
 
-    def write(self, protocol_version: int, type_name: str, payload: bytes) -> None:
+    def write(
+        self, protocol_version: int, type_name: str, payload: bytes
+    ) -> None:
         """Writes one envelope with the next sequence number."""
         self._sequence += 1
         self._writer.write(

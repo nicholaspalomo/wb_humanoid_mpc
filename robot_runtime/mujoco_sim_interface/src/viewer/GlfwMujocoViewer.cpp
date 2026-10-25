@@ -58,46 +58,68 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::mujoco_sim_interface {
 
 namespace {
-constexpr int kInitPollPeriodMilliseconds = 10;  // how often waitForInit() looks whether the render thread is set up
+constexpr int kInitPollPeriodMilliseconds =
+    10;  // how often waitForInit() looks whether the render thread is set up
 }  // namespace
 
 std::optional<char> viewerKeyFromGlfwKey(int glfwKey) {
-  if (glfwKey >= GLFW_KEY_0 && glfwKey < GLFW_KEY_0 + kNumToggledGeomGroups) return static_cast<char>('0' + (glfwKey - GLFW_KEY_0));
+  if (glfwKey >= GLFW_KEY_0 && glfwKey < GLFW_KEY_0 + kNumToggledGeomGroups)
+    return static_cast<char>('0' + (glfwKey - GLFW_KEY_0));
   // GLFW letter keys equal the upper-case ASCII code.
-  if (glfwKey >= GLFW_KEY_A && glfwKey <= GLFW_KEY_Z) return static_cast<char>('a' + (glfwKey - GLFW_KEY_A));
+  if (glfwKey >= GLFW_KEY_A && glfwKey <= GLFW_KEY_Z)
+    return static_cast<char>('a' + (glfwKey - GLFW_KEY_A));
   return std::nullopt;
 }
 
-CameraDragFractions cameraDragFractions(double dxPixels, double dyPixels, int windowHeight) {
+CameraDragFractions cameraDragFractions(double dxPixels,
+                                        double dyPixels,
+                                        int windowHeight) {
   const double height = std::max(windowHeight, 1);
   return CameraDragFractions{.dx = dxPixels / height, .dy = dyPixels / height};
 }
 
 /// GLFW callbacks
 
-void GlfwMujocoViewer::keyboard(GLFWwindow* absl_nonnull window, int key, int /*unused*/, int act, int /*unused*/) {
-  GlfwMujocoViewer* absl_nonnull viewer = static_cast<GlfwMujocoViewer*>(glfwGetWindowUserPointer(window));
+void GlfwMujocoViewer::keyboard(GLFWwindow* absl_nonnull window,
+                                int key,
+                                int /*unused*/,
+                                int act,
+                                int /*unused*/) {
+  GlfwMujocoViewer* absl_nonnull viewer =
+      static_cast<GlfwMujocoViewer*>(glfwGetWindowUserPointer(window));
   if (act != GLFW_PRESS) return;
-  if (const std::optional<char> viewerKey = viewerKeyFromGlfwKey(key); viewerKey.has_value()) {
+  if (const std::optional<char> viewerKey = viewerKeyFromGlfwKey(key);
+      viewerKey.has_value()) {
     viewer->frameRenderer_->handleKey(*viewerKey);
   }
 }
 
-void GlfwMujocoViewer::mouseButton(GLFWwindow* absl_nonnull window, int /*unused*/, int /*unused*/, int /*unused*/) {
-  GlfwMujocoViewer* absl_nonnull viewer = static_cast<GlfwMujocoViewer*>(glfwGetWindowUserPointer(window));
+void GlfwMujocoViewer::mouseButton(GLFWwindow* absl_nonnull window,
+                                   int /*unused*/,
+                                   int /*unused*/,
+                                   int /*unused*/) {
+  GlfwMujocoViewer* absl_nonnull viewer =
+      static_cast<GlfwMujocoViewer*>(glfwGetWindowUserPointer(window));
   // update button state
-  viewer->buttonLeft_ = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS);
-  viewer->buttonMiddle_ = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_MIDDLE) == GLFW_PRESS);
-  viewer->buttonRight_ = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS);
+  viewer->buttonLeft_ =
+      (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS);
+  viewer->buttonMiddle_ =
+      (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_MIDDLE) == GLFW_PRESS);
+  viewer->buttonRight_ =
+      (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS);
 
   // update mouse position
   glfwGetCursorPos(window, &(viewer->lastX_), &(viewer->lastY_));
 }
 
-void GlfwMujocoViewer::mouseMove(GLFWwindow* absl_nonnull window, double xpos, double ypos) {
-  GlfwMujocoViewer* absl_nonnull viewer = static_cast<GlfwMujocoViewer*>(glfwGetWindowUserPointer(window));
+void GlfwMujocoViewer::mouseMove(GLFWwindow* absl_nonnull window,
+                                 double xpos,
+                                 double ypos) {
+  GlfwMujocoViewer* absl_nonnull viewer =
+      static_cast<GlfwMujocoViewer*>(glfwGetWindowUserPointer(window));
   // no buttons down: nothing to do
-  if (!viewer->buttonLeft_ && !viewer->buttonMiddle_ && !viewer->buttonRight_) return;
+  if (!viewer->buttonLeft_ && !viewer->buttonMiddle_ && !viewer->buttonRight_)
+    return;
 
   // compute mouse displacement, save
   const double dx = xpos - viewer->lastX_;
@@ -105,12 +127,15 @@ void GlfwMujocoViewer::mouseMove(GLFWwindow* absl_nonnull window, double xpos, d
   viewer->lastX_ = xpos;
   viewer->lastY_ = ypos;
 
-  // get current window size: a drag is in fractions of its height on both axes (cameraDragFractions())
+  // get current window size: a drag is in fractions of its height on both axes
+  // (cameraDragFractions())
   int height = 0;
   glfwGetWindowSize(window, /*width=*/nullptr, &height);
 
   // get shift key state
-  const bool modShift = (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS);
+  const bool modShift =
+      (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
+       glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS);
 
   // determine action based on mouse button: the middle one zooms
   mjtMouse action = mjMOUSE_ZOOM;
@@ -124,23 +149,31 @@ void GlfwMujocoViewer::mouseMove(GLFWwindow* absl_nonnull window, double xpos, d
   viewer->frameRenderer_->moveCamera(action, fractions.dx, fractions.dy);
 }
 
-void GlfwMujocoViewer::scroll(GLFWwindow* absl_nonnull window, double /*unused*/, double yoffset) {
-  GlfwMujocoViewer* absl_nonnull viewer = static_cast<GlfwMujocoViewer*>(glfwGetWindowUserPointer(window));
+void GlfwMujocoViewer::scroll(GLFWwindow* absl_nonnull window,
+                              double /*unused*/,
+                              double yoffset) {
+  GlfwMujocoViewer* absl_nonnull viewer =
+      static_cast<GlfwMujocoViewer*>(glfwGetWindowUserPointer(window));
   viewer->frameRenderer_->scroll(yoffset);
 }
 
 //// Public
 
-absl::StatusOr<std::unique_ptr<GlfwMujocoViewer>> GlfwMujocoViewer::Create(const MujocoSimInterface* absl_nonnull sim) {
+absl::StatusOr<std::unique_ptr<GlfwMujocoViewer>> GlfwMujocoViewer::Create(
+    const MujocoSimInterface* absl_nonnull sim) {
   MjModelPtr model(mj_copyModel(/*dest=*/nullptr, sim->getModel()));
-  if (model == nullptr) return absl::InternalError("the GLFW viewer could not copy the simulator's model (mj_copyModel)");
+  if (model == nullptr)
+    return absl::InternalError(
+        "the GLFW viewer could not copy the simulator's model (mj_copyModel)");
   return absl::WrapUnique(new GlfwMujocoViewer(sim, std::move(model)));
 }
 
-GlfwMujocoViewer::GlfwMujocoViewer(const MujocoSimInterface* absl_nonnull sim, MjModelPtr model)
+GlfwMujocoViewer::GlfwMujocoViewer(const MujocoSimInterface* absl_nonnull sim,
+                                   MjModelPtr model)
     : sim_(sim),
       model_(std::move(model)),
-      timeStepMicro_(static_cast<size_t>(::ocs2::kMicrosecondsPerSecond / sim->getConfig().renderFrequencyHz)) {}
+      timeStepMicro_(static_cast<size_t>(::ocs2::kMicrosecondsPerSecond /
+                                         sim->getConfig().renderFrequencyHz)) {}
 
 GlfwMujocoViewer::~GlfwMujocoViewer() {
   LOG(INFO) << "Cleaning up renderer ...";
@@ -159,27 +192,35 @@ absl::Status GlfwMujocoViewer::start() {
 
 void GlfwMujocoViewer::waitForInit() const {
   while (!initComplete_.load(std::memory_order_acquire)) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(kInitPollPeriodMilliseconds));
+    std::this_thread::sleep_for(
+        std::chrono::milliseconds(kInitPollPeriodMilliseconds));
   }
 }
 
 void GlfwMujocoViewer::renderLoop() {
   const absl::Status initialized = initialize();
   if (!initialized.ok()) {
-    LOG(ERROR) << "[GlfwMujocoViewer] the viewer did not start, so the simulation runs without it: " << initialized;
+    LOG(ERROR) << "[GlfwMujocoViewer] the viewer did not start, so the "
+                  "simulation runs without it: "
+               << initialized;
     windowClosed_.store(true);
     initComplete_.store(true);
     return;
   }
   initComplete_.store(true);
 
-  const std::chrono::steady_clock::time_point startTime = std::chrono::steady_clock::now();
+  const std::chrono::steady_clock::time_point startTime =
+      std::chrono::steady_clock::now();
 
   while (!glfwWindowShouldClose(window_) && !stopRequested_.load()) {
-    const std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+    const std::chrono::steady_clock::time_point start =
+        std::chrono::steady_clock::now();
 
     glfwGetFramebufferSize(window_, &viewport_.width, &viewport_.height);
-    frameRenderer_->drawFrame(viewport_, std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime).count());
+    frameRenderer_->drawFrame(viewport_,
+                              std::chrono::duration<double>(
+                                  std::chrono::steady_clock::now() - startTime)
+                                  .count());
     if (captureRequested_.load(std::memory_order_relaxed)) serveCapture();
 
     // swap OpenGL buffers (blocking call due to v-sync)
@@ -188,7 +229,8 @@ void GlfwMujocoViewer::renderLoop() {
     glfwPollEvents();
 
     // Sleep in case render loop is faster than specified sim rate.
-    std::this_thread::sleep_until(start + std::chrono::microseconds(timeStepMicro_));
+    std::this_thread::sleep_until(start +
+                                  std::chrono::microseconds(timeStepMicro_));
   }
 
   LOG(INFO) << "Exited Mujoco renderLoop.";
@@ -201,8 +243,11 @@ void GlfwMujocoViewer::serveCapture() {
   WindowCapture capture;
   capture.width = viewport_.width;
   capture.height = viewport_.height;
-  capture.rgb.resize(static_cast<size_t>(capture.width) * capture.height * web_viewer::kRgbBytesPerPixel);
-  if (const absl::Status read = frameRenderer_->readPixels(viewport_, absl::MakeSpan(capture.rgb)); !read.ok()) {
+  capture.rgb.resize(static_cast<size_t>(capture.width) * capture.height *
+                     web_viewer::kRgbBytesPerPixel);
+  if (const absl::Status read =
+          frameRenderer_->readPixels(viewport_, absl::MakeSpan(capture.rgb));
+      !read.ok()) {
     LOG(ERROR) << "[GlfwMujocoViewer] window capture: " << read;
     capture.rgb.clear();
   }
@@ -213,10 +258,14 @@ void GlfwMujocoViewer::serveCapture() {
 
 absl::Status GlfwMujocoViewer::initialize() {
   // init GLFW
-  if (glfwInit() != GLFW_TRUE) return absl::UnavailableError("GLFW could not initialize (is there a display?)");
+  if (glfwInit() != GLFW_TRUE)
+    return absl::UnavailableError(
+        "GLFW could not initialize (is there a display?)");
 
   // create window, make OpenGL context current, request v-sync
-  window_ = glfwCreateWindow(viewportWidth_, viewportHeight_, "Mujoco Robot Sim", /*monitor=*/nullptr, /*share=*/nullptr);
+  window_ =
+      glfwCreateWindow(viewportWidth_, viewportHeight_, "Mujoco Robot Sim",
+                       /*monitor=*/nullptr, /*share=*/nullptr);
   if (window_ == nullptr) {
     glfwTerminate();
     return absl::UnavailableError("GLFW could not create the viewer's window");
@@ -228,13 +277,16 @@ absl::Status GlfwMujocoViewer::initialize() {
     glfwDestroyWindow(window_);
     window_ = nullptr;
     glfwTerminate();
-    return absl::UnavailableError("GLEW could not initialize the viewer's OpenGL context");
+    return absl::UnavailableError(
+        "GLEW could not initialize the viewer's OpenGL context");
   }
 
   glfwSwapInterval(1);
 
-  // The camera, the options, the scene and the GPU context, drawn with the private model copy.
-  absl::StatusOr<std::unique_ptr<MujocoFrameRenderer>> frameRenderer = MujocoFrameRenderer::Create(sim_, model_.get());
+  // The camera, the options, the scene and the GPU context, drawn with the
+  // private model copy.
+  absl::StatusOr<std::unique_ptr<MujocoFrameRenderer>> frameRenderer =
+      MujocoFrameRenderer::Create(sim_, model_.get());
   if (!frameRenderer.ok()) {
     glfwDestroyWindow(window_);
     window_ = nullptr;

@@ -52,7 +52,9 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-GaitSchedule::GaitSchedule(ModeSchedule initModeSchedule, ModeSequenceTemplate initModeSequenceTemplate, scalar_t phaseTransitionStanceTime)
+GaitSchedule::GaitSchedule(ModeSchedule initModeSchedule,
+                           ModeSequenceTemplate initModeSequenceTemplate,
+                           scalar_t phaseTransitionStanceTime)
     : initModeSchedule_(initModeSchedule),
       initModeSequenceTemplate_(initModeSequenceTemplate),
       modeSchedule_(std::move(initModeSchedule)),
@@ -72,13 +74,18 @@ void GaitSchedule::reset() {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-void GaitSchedule::insertModeSequenceTemplate(const ModeSequenceTemplate& modeSequenceTemplate, scalar_t startTime, scalar_t finalTime) {
+void GaitSchedule::insertModeSequenceTemplate(
+    const ModeSequenceTemplate& modeSequenceTemplate,
+    scalar_t startTime,
+    scalar_t finalTime) {
   modeSequenceTemplate_ = modeSequenceTemplate;
   std::vector<scalar_t>& eventTimes = modeSchedule_.eventTimes;
   std::vector<size_t>& modeSequence = modeSchedule_.modeSequence;
 
   // find the index on which the new gait should be added
-  const size_t index = std::lower_bound(eventTimes.begin(), eventTimes.end(), startTime) - eventTimes.begin();
+  const size_t index =
+      std::lower_bound(eventTimes.begin(), eventTimes.end(), startTime) -
+      eventTimes.begin();
 
   // delete the old logic from the index
   if (index < eventTimes.size()) {
@@ -97,22 +104,27 @@ void GaitSchedule::insertModeSequenceTemplate(const ModeSequenceTemplate& modeSe
     modeSequence.push_back(ModeNumber::kStance);
   }
 
-  // tile the mode sequence template from startTime+phaseTransitionStanceTime to finalTime.
+  // tile the mode sequence template from startTime+phaseTransitionStanceTime to
+  // finalTime.
   tileModeSequenceTemplate(startTime + phaseTransitionStanceTime, finalTime);
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-ModeSchedule GaitSchedule::getModeSchedule(scalar_t lowerBoundTime, scalar_t upperBoundTime) {
+ModeSchedule GaitSchedule::getModeSchedule(scalar_t lowerBoundTime,
+                                           scalar_t upperBoundTime) {
   std::vector<scalar_t>& eventTimes = modeSchedule_.eventTimes;
   std::vector<size_t>& modeSequence = modeSchedule_.modeSequence;
-  const size_t index = std::lower_bound(eventTimes.begin(), eventTimes.end(), lowerBoundTime) - eventTimes.begin();
+  const size_t index =
+      std::lower_bound(eventTimes.begin(), eventTimes.end(), lowerBoundTime) -
+      eventTimes.begin();
 
   if (index > 0) {
     // delete the old logic from index and set the default start phase to stance
     eventTimes.erase(eventTimes.begin(),
-                     eventTimes.begin() + index - 1);  // keep the one before the last to make it stance
+                     eventTimes.begin() + index -
+                         1);  // keep the one before the last to make it stance
     modeSequence.erase(modeSequence.begin(), modeSequence.begin() + index - 1);
 
     // set the default initial phase
@@ -120,7 +132,8 @@ ModeSchedule GaitSchedule::getModeSchedule(scalar_t lowerBoundTime, scalar_t upp
   }
 
   // Start tiling at time
-  const scalar_t tilingStartTime = eventTimes.empty() ? upperBoundTime : eventTimes.back();
+  const scalar_t tilingStartTime =
+      eventTimes.empty() ? upperBoundTime : eventTimes.back();
 
   // delete the last default stance phase
   eventTimes.erase(eventTimes.end() - 1, eventTimes.end());
@@ -134,21 +147,28 @@ ModeSchedule GaitSchedule::getModeSchedule(scalar_t lowerBoundTime, scalar_t upp
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void GaitSchedule::tileModeSequenceTemplate(scalar_t startTime, scalar_t finalTime) {
+void GaitSchedule::tileModeSequenceTemplate(scalar_t startTime,
+                                            scalar_t finalTime) {
   std::vector<scalar_t>& eventTimes = modeSchedule_.eventTimes;
   std::vector<size_t>& modeSequence = modeSchedule_.modeSequence;
-  const std::vector<scalar_t>& templateTimes = modeSequenceTemplate_.switchingTimes;
-  const std::vector<size_t>& templateModeSequence = modeSequenceTemplate_.modeSequence;
-  const size_t numTemplateSubsystems = modeSequenceTemplate_.modeSequence.size();
+  const std::vector<scalar_t>& templateTimes =
+      modeSequenceTemplate_.switchingTimes;
+  const std::vector<size_t>& templateModeSequence =
+      modeSequenceTemplate_.modeSequence;
+  const size_t numTemplateSubsystems =
+      modeSequenceTemplate_.modeSequence.size();
 
-  // If no template subsystem is defined, the last subsystem should continue for ever
+  // If no template subsystem is defined, the last subsystem should continue for
+  // ever
   if (numTemplateSubsystems == 0) {
     return;
   }
 
   if (!eventTimes.empty() && startTime <= eventTimes.back()) {
     // NOLINTNEXTLINE(exceptions): reached from the solve through OCS2 overrides with no status channel; it fails the solve.
-    throw std::runtime_error("The initial time for template-tiling is not greater than the last event time.");
+    throw std::runtime_error(
+        "The initial time for template-tiling is not greater than the last "
+        "event time.");
   }
 
   // add a initial time
@@ -173,36 +193,52 @@ void GaitSchedule::tileModeSequenceTemplate(scalar_t startTime, scalar_t finalTi
 
 namespace {
 
-/** The gait schedule of `initModeSchedule` and `defaultModeSequenceTemplate`, logged when `verbose` (GaitSchedule::Create()). */
-std::shared_ptr<GaitSchedule> makeGaitSchedule(const ModeSchedule& initModeSchedule,
-                                               const ModeSequenceTemplate& defaultModeSequenceTemplate,
-                                               const ModelSettings& modelSettings,
-                                               bool verbose) {
+/** The gait schedule of `initModeSchedule` and `defaultModeSequenceTemplate`,
+ * logged when `verbose` (GaitSchedule::Create()). */
+std::shared_ptr<GaitSchedule> makeGaitSchedule(
+    const ModeSchedule& initModeSchedule,
+    const ModeSequenceTemplate& defaultModeSequenceTemplate,
+    const ModelSettings& modelSettings,
+    bool verbose) {
   if (verbose) {
     LOG(INFO) << "\n#### Modes Schedule: ";
-    LOG(INFO) << "\n#### =============================================================================\n";
+    LOG(INFO) << "\n#### "
+                 "============================================================="
+                 "================\n";
     LOG(INFO) << "Initial Modes Schedule: \n" << initModeSchedule;
-    LOG(INFO) << "Default Modes Sequence Template: \n" << defaultModeSequenceTemplate;
-    LOG(INFO) << "#### =============================================================================\n";
+    LOG(INFO) << "Default Modes Sequence Template: \n"
+              << defaultModeSequenceTemplate;
+    LOG(INFO) << "#### "
+                 "============================================================="
+                 "================\n";
   }
-  return std::make_shared<GaitSchedule>(initModeSchedule, defaultModeSequenceTemplate, modelSettings.phaseTransitionStanceTime);
+  return std::make_shared<GaitSchedule>(
+      initModeSchedule, defaultModeSequenceTemplate,
+      modelSettings.phaseTransitionStanceTime);
 }
 
 }  // namespace
 
-absl::StatusOr<std::shared_ptr<GaitSchedule>> GaitSchedule::Create(const mpc_config::ReferenceFile& referenceFile,
-                                                                   const ModelSettings& modelSettings,
-                                                                   bool verbose) {
-  ASSIGN_OR_RETURN(const ModeSchedule initModeSchedule, initialModeScheduleFromConfig(referenceFile));
-  ASSIGN_OR_RETURN(const ModeSequenceTemplate defaultModeSequenceTemplate, defaultModeSequenceTemplateFromConfig(referenceFile));
-  return makeGaitSchedule(initModeSchedule, defaultModeSequenceTemplate, modelSettings, verbose);
+absl::StatusOr<std::shared_ptr<GaitSchedule>> GaitSchedule::Create(
+    const mpc_config::ReferenceFile& referenceFile,
+    const ModelSettings& modelSettings,
+    bool verbose) {
+  ASSIGN_OR_RETURN(const ModeSchedule initModeSchedule,
+                   initialModeScheduleFromConfig(referenceFile));
+  ASSIGN_OR_RETURN(const ModeSequenceTemplate defaultModeSequenceTemplate,
+                   defaultModeSequenceTemplateFromConfig(referenceFile));
+  return makeGaitSchedule(initModeSchedule, defaultModeSequenceTemplate,
+                          modelSettings, verbose);
 }
 
-absl::StatusOr<std::shared_ptr<GaitSchedule>> GaitSchedule::Create(absl::string_view referenceFile,
-                                                                   const ModelSettings& modelSettings,
-                                                                   bool verbose) {
-  ASSIGN_OR_RETURN(const mpc_config::ReferenceFile reference, loadReferenceFile(referenceFile));
-  absl::StatusOr<std::shared_ptr<GaitSchedule>> schedule = Create(reference, modelSettings, verbose);
+absl::StatusOr<std::shared_ptr<GaitSchedule>> GaitSchedule::Create(
+    absl::string_view referenceFile,
+    const ModelSettings& modelSettings,
+    bool verbose) {
+  ASSIGN_OR_RETURN(const mpc_config::ReferenceFile reference,
+                   loadReferenceFile(referenceFile));
+  absl::StatusOr<std::shared_ptr<GaitSchedule>> schedule =
+      Create(reference, modelSettings, verbose);
   if (!schedule.ok()) {
     return withConfigFile(schedule.status(), referenceFile);
   }

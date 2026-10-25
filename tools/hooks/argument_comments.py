@@ -212,7 +212,9 @@ CONVENTIONAL_TYPE_PATTERNS = [
     re.compile(
         r"^(LOG|VLOG|PLOG|LOG_EVERY_N|LOG_FIRST_N|LOG_IF|DLOG)\w*$"
     ),  # Abseil logging
-    re.compile(r"^ABSL_(RETIRED_)?FLAG$"),  # ABSL_FLAG(type, name, default, help)
+    re.compile(
+        r"^ABSL_(RETIRED_)?FLAG$"
+    ),  # ABSL_FLAG(type, name, default, help)
     re.compile(
         r"^(Vector|Matrix|Array|Quaternion|AngleAxis|Translation|RowVector)\w*$"
     ),  # Eigen types
@@ -350,8 +352,16 @@ def _literal_text(argument: list[Token]) -> str | None:
       The literal's text (`-1`, `{}`, `std::nullopt`), or None when the argument is anything else.
     """
     body = [t for t in argument if t.kind != "comment"]
-    if len(body) == 2 and body[0].text in ("-", "+") and body[1].kind == "number":
-        body = [Token("number", body[0].text + body[1].text, body[0].line, body[0].col)]
+    if (
+        len(body) == 2
+        and body[0].text in ("-", "+")
+        and body[1].kind == "number"
+    ):
+        body = [
+            Token(
+                "number", body[0].text + body[1].text, body[0].line, body[0].col
+            )
+        ]
     joined = "".join(t.text for t in body)
     if joined in _EMPTY_VALUES and len(body) in (1, 2, 3):
         return joined
@@ -384,7 +394,9 @@ def _is_number(text: str | None) -> bool:
 
 
 # A one-argument call whose name already says what its argument is: a setter, or a protobuf repeated-field adder.
-_SETTER = re.compile(r"^(?:(?:set|Set|enable|Enable|disable|Disable)[A-Z_]|add_[a-z])")
+_SETTER = re.compile(
+    r"^(?:(?:set|Set|enable|Enable|disable|Disable)[A-Z_]|add_[a-z])"
+)
 
 
 def _single_argument_needs_comment(
@@ -406,7 +418,11 @@ def _single_argument_needs_comment(
     """
     if literal not in _BOOL_OR_NULL:
         return False
-    if _SETTER.match(callee) or callee.endswith("_") or declared_type is not None:
+    if (
+        _SETTER.match(callee)
+        or callee.endswith("_")
+        or declared_type is not None
+    ):
         return False
     return not _is_conventional(callee)
 
@@ -421,11 +437,17 @@ def _has_argument_comment(argument: list[Token]) -> bool:
     return False
 
 
-def unsuppressed_violations(source: str, path: str = "<source>") -> list[Violation]:
+def unsuppressed_violations(
+    source: str, path: str = "<source>"
+) -> list[Violation]:
     """Every bare literal argument in `source`, whatever NOLINT markers it carries (the registry applies those)."""
     tokens = cpp_source.tokenize(source)
     # Line comments are irrelevant to the analysis; block comments stay, to see argument comments.
-    code = [t for t in tokens if not (t.kind == "comment" and t.text.startswith("//"))]
+    code = [
+        t
+        for t in tokens
+        if not (t.kind == "comment" and t.text.startswith("//"))
+    ]
     violations: list[Violation] = []
     for index, token in enumerate(code):
         if token.text != "(":
@@ -480,7 +502,9 @@ def unsuppressed_violations(source: str, path: str = "<source>") -> list[Violati
             continue  # element access and coordinates: R(2, 2), vector3_t(0.0, 0.0, 1.0)
         if _is_conventional(callee) or _is_conventional(declared_type):
             continue
-        for position, (argument, text) in enumerate(zip(arguments, literals), start=1):
+        for position, (argument, text) in enumerate(
+            zip(arguments, literals), start=1
+        ):
             if text is None or _has_argument_comment(argument):
                 continue
             first = next(t for t in argument if t.kind != "comment")
@@ -497,9 +521,10 @@ def _findings(source: str, path: str) -> list[check_types.Finding]:
             v.line,
             v.col,
             NAME,
-            f"bare literal `{v.literal}` as argument {v.position} of `{v.callee}(...)`: name it with an argument "
-            f"comment, `/*parameterName=*/{v.literal}`, with the name from the callee's declaration (Google C++ style, "
-            "Function argument comments).",
+            f"bare literal `{v.literal}` as argument {v.position} of"
+            f" `{v.callee}(...)`: name it with an argument comment,"
+            f" `/*parameterName=*/{v.literal}`, with the name from the callee's"
+            " declaration (Google C++ style, Function argument comments).",
         )
         for v in unsuppressed_violations(source, path)
     ]
@@ -511,8 +536,14 @@ CHECKS = [
         languages=frozenset({check_types.Language.CPP}),
         scope=lint_files.Scope.FIRST_PARTY,
         check_source=_findings,
-        description="literal arguments carry a /*parameterName=*/ comment (AGENTS.md; Google C++ style).",
-        hint="Write /*parameterName=*/ in front of each literal, with the name from the callee's declaration "
-        "(tools/hooks/argument_comments.py says what is exempt).",
+        description=(
+            "literal arguments carry a /*parameterName=*/ comment (AGENTS.md;"
+            " Google C++ style)."
+        ),
+        hint=(
+            "Write /*parameterName=*/ in front of each literal, with the name"
+            " from the callee's declaration (tools/hooks/argument_comments.py"
+            " says what is exempt)."
+        ),
     )
 ]

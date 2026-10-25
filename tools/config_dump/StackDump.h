@@ -38,15 +38,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::config_dump {
 
 /**
- * Every value the start-up of `configuration`'s stack builds from its files, as the MPC node, the robot process and the
- * lockstep driver build them: through the entry points that take the files by path, the calls the binaries make at
+ * Every value the start-up of `configuration`'s stack builds from its files, as
+ * the MPC node, the robot process and the lockstep driver build them: through
+ * the entry points that take the files by path, the calls the binaries make at
  * start-up, and nothing else (tools/config_dump/README.md). The MPC interface's
- * settings and problem (dumpProblem()), the target trajectories of a saturating command, the motion manager's gaits and
- * ramps, the MRT joint controller's resolved PD gains, the robot process's settings, the visualization's and the
+ * settings and problem (dumpProblem()), the target trajectories of a saturating
+ * command, the motion manager's gaits and ramps, the MRT joint controller's
+ * resolved PD gains, the robot process's settings, the visualization's and the
  * keyboard teleoperation's limits.
  *
  * @return The dump, or the error of the root that refused the configuration.
  */
-absl::StatusOr<std::string> dumpConfiguration(const validation::RobotConfiguration& configuration);
+absl::StatusOr<std::string> dumpConfiguration(
+    const validation::RobotConfiguration& configuration);
 
 }  // namespace ocs2::humanoid::config_dump

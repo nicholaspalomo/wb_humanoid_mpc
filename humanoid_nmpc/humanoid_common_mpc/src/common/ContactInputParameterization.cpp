@@ -50,8 +50,10 @@ struct ParameterizationEntry {
 // The single place a parameterization is added.
 // LINT.IfChange(contact_input_parameterization_registry)
 constexpr std::array<ParameterizationEntry, 2> kParameterizationRegistry = {{
-    {.name = kWrenchContactInputParameterization, .parameterization = ContactInputParameterization::kWrench},
-    {.name = kBasisVectorsContactInputParameterization, .parameterization = ContactInputParameterization::kBasisVectors},
+    {.name = kWrenchContactInputParameterization,
+     .parameterization = ContactInputParameterization::kWrench},
+    {.name = kBasisVectorsContactInputParameterization,
+     .parameterization = ContactInputParameterization::kBasisVectors},
 }};
 // clang-format off
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/ContactInputParameterization.h:contact_input_parameterization_names)
@@ -68,25 +70,30 @@ std::vector<std::string> contactInputParameterizationNames() {
   return names;
 }
 
-absl::string_view contactInputParameterizationName(ContactInputParameterization parameterization) {
+absl::string_view contactInputParameterizationName(
+    ContactInputParameterization parameterization) {
   for (const ParameterizationEntry& entry : kParameterizationRegistry) {
     if (entry.parameterization == parameterization) {
       return entry.name;
     }
   }
-  // Unreachable while every enumerator is registered; the registry test walks the enum to keep it so.
+  // Unreachable while every enumerator is registered; the registry test walks
+  // the enum to keep it so.
   return "unregistered";
 }
 
-absl::StatusOr<ContactInputParameterization> contactInputParameterizationFromName(absl::string_view name) {
+absl::StatusOr<ContactInputParameterization>
+contactInputParameterizationFromName(absl::string_view name) {
   for (const ParameterizationEntry& entry : kParameterizationRegistry) {
     if (entry.name == name) {
       return entry.parameterization;
     }
   }
-  return absl::InvalidArgumentError(absl::StrCat("[ContactInputParameterization] unknown ", kContactInputParameterizationKey, " '", name,
-                                                 "'; valid names are: ", absl::StrJoin(contactInputParameterizationNames(), ", "),
-                                                 " (humanoid_nmpc/docs/contact_basis_vectors/README.md)."));
+  return absl::InvalidArgumentError(absl::StrCat(
+      "[ContactInputParameterization] unknown ",
+      kContactInputParameterizationKey, " '", name, "'; valid names are: ",
+      absl::StrJoin(contactInputParameterizationNames(), ", "),
+      " (humanoid_nmpc/docs/contact_basis_vectors/README.md)."));
 }
 
 }  // namespace ocs2::humanoid

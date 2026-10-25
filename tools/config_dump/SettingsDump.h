@@ -50,19 +50,44 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::config_dump {
 
-// Every value of a settings struct the start-up of the stack builds, one line each, under the path `path`.
+// Every value of a settings struct the start-up of the stack builds, one line
+// each, under the path `path`.
 
-void dumpModelSettings(ValueDump& dump, absl::string_view path, const ModelSettings& settings);
-void dumpSqpSettings(ValueDump& dump, absl::string_view path, const sqp::Settings& settings);
-void dumpRolloutSettings(ValueDump& dump, absl::string_view path, const rollout::Settings& settings);
-void dumpMpcSettings(ValueDump& dump, absl::string_view path, const mpc::Settings& settings);
-void dumpSwingSettings(ValueDump& dump, absl::string_view path, const SwingTrajectoryPlanner::Config& settings);
-void dumpModeSchedule(ValueDump& dump, absl::string_view path, const ModeSchedule& schedule);
-void dumpGaitMap(ValueDump& dump, absl::string_view path, const std::map<std::string, ModeSequenceTemplate>& gaits);
-void dumpTargetTrajectories(ValueDump& dump, absl::string_view path, const TargetTrajectories& targets);
-void dumpJointPdGains(ValueDump& dump, absl::string_view path, const JointPdGains& gains);
-void dumpRobotProcessSettings(ValueDump& dump, absl::string_view path, const RobotProcessSettings& settings);
-void dumpVisualizationConfig(ValueDump& dump, absl::string_view path, const visualization::VisualizationConfig& config);
-void dumpKeyboardCommandLimits(ValueDump& dump, absl::string_view path, const teleop::KeyboardCommandLimits& limits);
+void dumpModelSettings(ValueDump& dump,
+                       absl::string_view path,
+                       const ModelSettings& settings);
+void dumpSqpSettings(ValueDump& dump,
+                     absl::string_view path,
+                     const sqp::Settings& settings);
+void dumpRolloutSettings(ValueDump& dump,
+                         absl::string_view path,
+                         const rollout::Settings& settings);
+void dumpMpcSettings(ValueDump& dump,
+                     absl::string_view path,
+                     const mpc::Settings& settings);
+void dumpSwingSettings(ValueDump& dump,
+                       absl::string_view path,
+                       const SwingTrajectoryPlanner::Config& settings);
+void dumpModeSchedule(ValueDump& dump,
+                      absl::string_view path,
+                      const ModeSchedule& schedule);
+void dumpGaitMap(ValueDump& dump,
+                 absl::string_view path,
+                 const std::map<std::string, ModeSequenceTemplate>& gaits);
+void dumpTargetTrajectories(ValueDump& dump,
+                            absl::string_view path,
+                            const TargetTrajectories& targets);
+void dumpJointPdGains(ValueDump& dump,
+                      absl::string_view path,
+                      const JointPdGains& gains);
+void dumpRobotProcessSettings(ValueDump& dump,
+                              absl::string_view path,
+                              const RobotProcessSettings& settings);
+void dumpVisualizationConfig(ValueDump& dump,
+                             absl::string_view path,
+                             const visualization::VisualizationConfig& config);
+void dumpKeyboardCommandLimits(ValueDump& dump,
+                               absl::string_view path,
+                               const teleop::KeyboardCommandLimits& limits);
 
 }  // namespace ocs2::humanoid::config_dump

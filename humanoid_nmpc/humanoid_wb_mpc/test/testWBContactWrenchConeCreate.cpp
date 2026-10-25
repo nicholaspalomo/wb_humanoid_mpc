@@ -63,33 +63,43 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
 
 /**
- * ContactWrenchConeConstraint::Create() on a real wrench-space model, the G1 whole-body one. A Config built in code
- * never passes through loadConfig()'s checks, and Create() used to hand it to the constructor, whose range checks were
- * assert()s that the optimized build compiles out: a cone with two friction facets, a negative friction coefficient or
- * a NaN offset was built and enforced. Create() now refuses it with the InvalidArgument of
- * ContactWrenchConeConstraint::validateConfig(), naming the task-file field to change (testContactWrenchConeBasisMatrix
- * pins validateConfig() itself).
+ * ContactWrenchConeConstraint::Create() on a real wrench-space model, the G1
+ * whole-body one. A Config built in code never passes through loadConfig()'s
+ * checks, and Create() used to hand it to the constructor, whose range checks
+ * were assert()s that the optimized build compiles out: a cone with two
+ * friction facets, a negative friction coefficient or a NaN offset was built
+ * and enforced. Create() now refuses it with the InvalidArgument of
+ * ContactWrenchConeConstraint::validateConfig(), naming the task-file field to
+ * change (testContactWrenchConeBasisMatrix pins validateConfig() itself).
  */
 namespace ocs2::humanoid {
 namespace {
 
-constexpr char kTaskFile[] = "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto";
-constexpr char kUrdfFile[] = "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf";
-constexpr char kReferenceFile[] = "robot_models/unitree_g1/g1_wb_mpc/config/command/reference.textproto";
+constexpr char kTaskFile[] =
+    "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto";
+constexpr char kUrdfFile[] =
+    "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf";
+constexpr char kReferenceFile[] =
+    "robot_models/unitree_g1/g1_wb_mpc/config/command/reference.textproto";
 
-/** `text` lowercased and without underscores: the same for a field's camelCase and snake_case spellings. */
+/** `text` lowercased and without underscores: the same for a field's camelCase
+ * and snake_case spellings. */
 std::string withoutCaseAndUnderscores(absl::string_view text) {
   return absl::StrReplaceAll(absl::AsciiStrToLower(text), {{"_", ""}});
 }
 
 /**
- * Whether `message` names the field `field` of the contact wrench cone block of the task file
- * (contacts.contact_wrench_cone_soft_constraint). The test pins that the refusal names the field, not how it spells
- * it: compared without case and underscores, frictionCoefficient and friction_coefficient are the same field.
+ * Whether `message` names the field `field` of the contact wrench cone block of
+ * the task file (contacts.contact_wrench_cone_soft_constraint). The test pins
+ * that the refusal names the field, not how it spells it: compared without case
+ * and underscores, frictionCoefficient and friction_coefficient are the same
+ * field.
  */
 bool namesConeField(absl::string_view message, absl::string_view field) {
-  return absl::StrContains(withoutCaseAndUnderscores(message),
-                           withoutCaseAndUnderscores(absl::StrCat("contacts.contact_wrench_cone_soft_constraint.", field)));
+  return absl::StrContains(
+      withoutCaseAndUnderscores(message),
+      withoutCaseAndUnderscores(absl::StrCat(
+          "contacts.contact_wrench_cone_soft_constraint.", field)));
 }
 
 std::string runfilePath(absl::string_view relativePath) {
@@ -111,29 +121,42 @@ class WBContactWrenchConeCreateTest : public ::testing::Test {
     const std::string taskFile = runfilePath(kTaskFile);
     const std::string urdfFile = runfilePath(kUrdfFile);
     const std::string referenceFile = runfilePath(kReferenceFile);
-    ASSERT_FALSE(taskFile.empty() || urdfFile.empty() || referenceFile.empty()) << "the G1 whole-body files are not in the runfiles";
+    ASSERT_FALSE(taskFile.empty() || urdfFile.empty() || referenceFile.empty())
+        << "the G1 whole-body files are not in the runfiles";
     absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(taskFile);
     ASSERT_TRUE(task.ok()) << task.status();
     task_ = *std::move(task);
-    absl::StatusOr<ModelSettings> modelSettings = ModelSettings::Create(task_, urdfFile, "wb_mpc_", /*verbose=*/false);
+    absl::StatusOr<ModelSettings> modelSettings =
+        ModelSettings::Create(task_, urdfFile, "wb_mpc_", /*verbose=*/false);
     ASSERT_TRUE(modelSettings.ok()) << modelSettings.status();
     modelSettings_ = std::make_unique<ModelSettings>(*std::move(modelSettings));
-    absl::StatusOr<PinocchioInterface> pinocchioInterface = loadCustomPinocchioInterface(task_, urdfFile, *modelSettings_);
+    absl::StatusOr<PinocchioInterface> pinocchioInterface =
+        loadCustomPinocchioInterface(task_, urdfFile, *modelSettings_);
     ASSERT_TRUE(pinocchioInterface.ok()) << pinocchioInterface.status();
-    pinocchioInterface_ = std::make_unique<PinocchioInterface>(*std::move(pinocchioInterface));
+    pinocchioInterface_ =
+        std::make_unique<PinocchioInterface>(*std::move(pinocchioInterface));
     model_ = std::make_unique<WBAccelMpcRobotModel<scalar_t>>(*modelSettings_);
-    absl::StatusOr<std::shared_ptr<GaitSchedule>> gaitSchedule = GaitSchedule::Create(referenceFile, *modelSettings_, /*verbose=*/false);
+    absl::StatusOr<std::shared_ptr<GaitSchedule>> gaitSchedule =
+        GaitSchedule::Create(referenceFile, *modelSettings_, /*verbose=*/false);
     ASSERT_TRUE(gaitSchedule.ok()) << gaitSchedule.status();
-    absl::StatusOr<SwingTrajectoryPlanner::Config> swingConfig = swingTrajectorySettingsFromConfig(task_.swing_trajectory_config);
+    absl::StatusOr<SwingTrajectoryPlanner::Config> swingConfig =
+        swingTrajectorySettingsFromConfig(task_.swing_trajectory_config);
     ASSERT_TRUE(swingConfig.ok()) << swingConfig.status();
     referenceManager_ = std::make_unique<SwitchedModelReferenceManager>(
-        *std::move(gaitSchedule), std::make_unique<SwingTrajectoryPlanner>(*swingConfig, kNumContacts), *pinocchioInterface_, *model_);
+        *std::move(gaitSchedule),
+        std::make_unique<SwingTrajectoryPlanner>(*swingConfig, kNumContacts),
+        *pinocchioInterface_, *model_);
   }
 
-  absl::StatusOr<std::unique_ptr<ContactWrenchConeConstraint>> create(const ContactWrenchConeConstraint::Config& config) const {
-    ASSIGN_OR_RETURN(const ContactRectangle footprint,
-                     contactRectangleFromConfig(task_.contacts, *modelSettings_, static_cast<int>(kContactLeftIndex)));
-    return ContactWrenchConeConstraint::Create(*referenceManager_, footprint, kContactLeftIndex, *pinocchioInterface_, *model_, config);
+  absl::StatusOr<std::unique_ptr<ContactWrenchConeConstraint>> create(
+      const ContactWrenchConeConstraint::Config& config) const {
+    ASSIGN_OR_RETURN(
+        const ContactRectangle footprint,
+        contactRectangleFromConfig(task_.contacts, *modelSettings_,
+                                   static_cast<int>(kContactLeftIndex)));
+    return ContactWrenchConeConstraint::Create(
+        *referenceManager_, footprint, kContactLeftIndex, *pinocchioInterface_,
+        *model_, config);
   }
 
   mpc_config::TaskFile task_;
@@ -145,11 +168,13 @@ class WBContactWrenchConeCreateTest : public ::testing::Test {
 
 }  // namespace
 
-TEST_F(WBContactWrenchConeCreateTest, aConfigOutOfRangeIsRefusedNamingItsField) {
-  // Positive control: a Config in range - the boundary values included - builds the cone on this model, so each
-  // refusal below is the value's.
+TEST_F(WBContactWrenchConeCreateTest,
+       aConfigOutOfRangeIsRefusedNamingItsField) {
+  // Positive control: a Config in range - the boundary values included - builds
+  // the cone on this model, so each refusal below is the value's.
   const ContactWrenchConeConstraint::Config valid;
-  const absl::StatusOr<std::unique_ptr<ContactWrenchConeConstraint>> built = create(valid);
+  const absl::StatusOr<std::unique_ptr<ContactWrenchConeConstraint>> built =
+      create(valid);
   ASSERT_TRUE(built.ok()) << built.status();
   ASSERT_NE(*built, nullptr);
   ContactWrenchConeConstraint::Config boundary(/*numBasisVectorsParam=*/3);
@@ -158,13 +183,16 @@ TEST_F(WBContactWrenchConeCreateTest, aConfigOutOfRangeIsRefusedNamingItsField) 
   boundary.gripperForce = 0.0;
   EXPECT_TRUE(create(boundary).ok()) << create(boundary).status();
 
-  std::vector<std::pair<std::string, ContactWrenchConeConstraint::Config>> refused;
-  refused.emplace_back("num_basis_vectors", ContactWrenchConeConstraint::Config(/*numBasisVectorsParam=*/2));
+  std::vector<std::pair<std::string, ContactWrenchConeConstraint::Config>>
+      refused;
+  refused.emplace_back("num_basis_vectors", ContactWrenchConeConstraint::Config(
+                                                /*numBasisVectorsParam=*/2));
   ContactWrenchConeConstraint::Config friction = valid;
   friction.frictionCoefficient = -0.7;
   refused.emplace_back("friction_coefficient", friction);
   ContactWrenchConeConstraint::Config torsion = valid;
-  torsion.torsionalFrictionCoefficient = std::numeric_limits<scalar_t>::quiet_NaN();
+  torsion.torsionalFrictionCoefficient =
+      std::numeric_limits<scalar_t>::quiet_NaN();
   refused.emplace_back("torsional_friction_coefficient", torsion);
   ContactWrenchConeConstraint::Config minForce = valid;
   minForce.minNormalForce = -5.0;
@@ -172,17 +200,24 @@ TEST_F(WBContactWrenchConeCreateTest, aConfigOutOfRangeIsRefusedNamingItsField) 
   ContactWrenchConeConstraint::Config gripper = valid;
   gripper.gripperForce = std::numeric_limits<scalar_t>::infinity();
   refused.emplace_back("gripper_force", gripper);
-  for (const std::pair<std::string, ContactWrenchConeConstraint::Config>& entry : refused) {
+  for (const std::pair<std::string, ContactWrenchConeConstraint::Config>&
+           entry : refused) {
     SCOPED_TRACE(entry.first);
-    const absl::StatusOr<std::unique_ptr<ContactWrenchConeConstraint>> cone = create(entry.second);
-    ASSERT_FALSE(cone.ok()) << "Create() built a cone from an out-of-range " << entry.first;
-    EXPECT_EQ(cone.status().code(), absl::StatusCode::kInvalidArgument) << cone.status();
-    EXPECT_TRUE(namesConeField(cone.status().message(), entry.first)) << cone.status();
+    const absl::StatusOr<std::unique_ptr<ContactWrenchConeConstraint>> cone =
+        create(entry.second);
+    ASSERT_FALSE(cone.ok())
+        << "Create() built a cone from an out-of-range " << entry.first;
+    EXPECT_EQ(cone.status().code(), absl::StatusCode::kInvalidArgument)
+        << cone.status();
+    EXPECT_TRUE(namesConeField(cone.status().message(), entry.first))
+        << cone.status();
   }
 
   ContactWrenchConeConstraint::Config offPatch = valid;
-  offPatch.patchOffset = vector3_t(0.0, std::numeric_limits<scalar_t>::quiet_NaN(), 0.0);
-  EXPECT_EQ(create(offPatch).status().code(), absl::StatusCode::kInvalidArgument);
+  offPatch.patchOffset =
+      vector3_t(0.0, std::numeric_limits<scalar_t>::quiet_NaN(), 0.0);
+  EXPECT_EQ(create(offPatch).status().code(),
+            absl::StatusCode::kInvalidArgument);
 }
 
 }  // namespace ocs2::humanoid

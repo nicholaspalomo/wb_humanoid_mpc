@@ -37,16 +37,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::web_viewer {
 
 /**
- * Places the calling thread for viewer work: pins it to `cores` (CPU indices; empty leaves the affinity as it is) and,
- * for ViewerThreadPriority::kIdle, switches it to SCHED_IDLE, so that a physics or MPC thread it shares a core with
- * takes the core whenever it wakes. Threads it creates afterwards inherit both, which is why the viewer's threads call
- * it first, before they start libraries that spawn workers (llvmpipe, the HTTP server's pool).
+ * Places the calling thread for viewer work: pins it to `cores` (CPU indices;
+ * empty leaves the affinity as it is) and, for ViewerThreadPriority::kIdle,
+ * switches it to SCHED_IDLE, so that a physics or MPC thread it shares a core
+ * with takes the core whenever it wakes. Threads it creates afterwards inherit
+ * both, which is why the viewer's threads call it first, before they start
+ * libraries that spawn workers (llvmpipe, the HTTP server's pool).
  *
- * InvalidArgument, with nothing applied, for a core index out of [0, CPU_SETSIZE) or a `priority` that is none of
- * ViewerThreadPriority's. Otherwise it applies what it can: when one of the two system calls fails (a core outside the
- * process's allowed set, for one), the other is still applied, and the Status carries the error of
- * pthread_setaffinity_np or pthread_setschedparam. The viewer logs it as a warning and runs on.
+ * InvalidArgument, with nothing applied, for a core index out of [0,
+ * CPU_SETSIZE) or a `priority` that is none of ViewerThreadPriority's.
+ * Otherwise it applies what it can: when one of the two system calls fails (a
+ * core outside the process's allowed set, for one), the other is still applied,
+ * and the Status carries the error of pthread_setaffinity_np or
+ * pthread_setschedparam. The viewer logs it as a warning and runs on.
  */
-absl::Status placeCurrentThread(absl::Span<const int> cores, ViewerThreadPriority priority);
+absl::Status placeCurrentThread(absl::Span<const int> cores,
+                                ViewerThreadPriority priority);
 
 }  // namespace robot::web_viewer

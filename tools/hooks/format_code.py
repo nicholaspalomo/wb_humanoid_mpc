@@ -122,7 +122,10 @@ def _run_formatter(command: list[str], root: str) -> FormatterOutcome:
     )
     if result.returncode != 0:
         return FormatterOutcome(
-            error=f"{tool} failed with status {result.returncode}: {result.stderr.strip()[:2000]}"
+            error=(
+                f"{tool} failed with status {result.returncode}:"
+                f" {result.stderr.strip()[:2000]}"
+            )
         )
     return FormatterOutcome()
 
@@ -146,7 +149,9 @@ def format_repository(root: str) -> tuple[list[str], list[FormatterOutcome]]:
             changed = _rewrite(root, path, fix_whitespace) or changed
         if fixes:
             changed = (
-                _rewrite(root, path, functools.partial(_fix, path=path, fixes=fixes))
+                _rewrite(
+                    root, path, functools.partial(_fix, path=path, fixes=fixes)
+                )
                 or changed
             )
         if changed:
@@ -154,7 +159,8 @@ def format_repository(root: str) -> tuple[list[str], list[FormatterOutcome]]:
     cpp = [
         path
         for path in files
-        if path.endswith(lint_files.CPP_EXTENSIONS) and lint_files.is_first_party(path)
+        if path.endswith(lint_files.CPP_EXTENSIONS)
+        and lint_files.is_first_party(path)
     ]
     python = [
         path
@@ -175,7 +181,15 @@ def format_repository(root: str) -> tuple[list[str], list[FormatterOutcome]]:
                 *python,
             ]
         )
-        commands.append(["black", "--quiet", *python])
+        commands.append(
+            [
+                "black",
+                "--quiet",
+                "--line-length",
+                str(lint_code.BLACK_LINE_LENGTH),
+                *python,
+            ]
+        )
     outcomes = [_run_formatter(command, root) for command in commands]
     return modified, [o for o in outcomes if o.warning or o.error]
 
@@ -188,10 +202,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.parse_args(argv)
     modified, problems = format_repository(REPO_ROOT)
     if modified:
-        print(f"✨ Formatted and ensured trailing newlines on {len(modified)} file(s).")
+        print(
+            "✨ Formatted and ensured trailing newlines on"
+            f" {len(modified)} file(s)."
+        )
     else:
         print(
-            "✅ All files properly formatted with required blank lines and trailing newlines."
+            "✅ All files properly formatted with required blank lines and"
+            " trailing newlines."
         )
     for outcome in problems:
         if outcome.warning:

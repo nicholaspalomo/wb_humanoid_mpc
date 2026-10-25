@@ -55,48 +55,67 @@ constexpr double kLogPeriodSeconds = 5.0;
 
 }  // namespace
 
-absl::StatusOr<std::shared_ptr<IoThreadOutbox>> IoThreadOutbox::Attach(robot::ipc::Bus& bus, absl::Duration period, size_t capacity) {
+absl::StatusOr<std::shared_ptr<IoThreadOutbox>> IoThreadOutbox::Attach(
+    robot::ipc::Bus& bus, absl::Duration period, size_t capacity) {
   if (capacity == 0) {
-    return absl::InvalidArgumentError("the visualization's outbox must hold at least one message.");
+    return absl::InvalidArgumentError(
+        "the visualization's outbox must hold at least one message.");
   }
-  std::shared_ptr<IoThreadOutbox> outbox = absl::WrapUnique(new IoThreadOutbox(&bus, capacity));
-  // The callback keeps the outbox: it runs on the IO thread until the bus stops, whatever the poster does meanwhile.
-  if (absl::Status added = bus.addPeriodicCallback(period, [outbox] { outbox->drain(); }); !added.ok()) {
+  std::shared_ptr<IoThreadOutbox> outbox =
+      absl::WrapUnique(new IoThreadOutbox(&bus, capacity));
+  // The callback keeps the outbox: it runs on the IO thread until the bus
+  // stops, whatever the poster does meanwhile.
+  if (absl::Status added =
+          bus.addPeriodicCallback(period, [outbox] { outbox->drain(); });
+      !added.ok()) {
     return added;
   }
   return outbox;
 }
 
-IoThreadOutbox::IoThreadOutbox(robot::ipc::Bus* absl_nonnull bus, size_t capacity) : bus_(bus), queue_(capacity) {}
+IoThreadOutbox::IoThreadOutbox(robot::ipc::Bus* absl_nonnull bus,
+                               size_t capacity)
+    : bus_(bus), queue_(capacity) {}
 
-absl::Status IoThreadOutbox::post(absl::string_view topic, const google::protobuf::Message& message) {
-  const google::protobuf::Descriptor* absl_nonnull type = message.GetDescriptor();
-  const bool isTelemetry = type == humanoid_mpc_msgs::TelemetrySeries::descriptor();
-  if (!isTelemetry && type != humanoid_mpc_msgs::VisualizationScene::descriptor()) {
+absl::Status IoThreadOutbox::post(absl::string_view topic,
+                                  const google::protobuf::Message& message) {
+  const google::protobuf::Descriptor* absl_nonnull type =
+      message.GetDescriptor();
+  const bool isTelemetry =
+      type == humanoid_mpc_msgs::TelemetrySeries::descriptor();
+  if (!isTelemetry &&
+      type != humanoid_mpc_msgs::VisualizationScene::descriptor()) {
     return absl::InvalidArgumentError(
-        absl::StrCat("the visualization's outbox carries TelemetrySeries and VisualizationScene, not ", type->full_name()));
+        absl::StrCat("the visualization's outbox carries TelemetrySeries and "
+                     "VisualizationScene, not ",
+                     type->full_name()));
   }
   const bool queued = queue_.tryPushInPlace([&](Slot& slot) {
     slot.topic.assign(topic.data(), topic.size());
     if (isTelemetry) {
       slot.kind = Slot::Kind::kTelemetry;
-      slot.telemetry = static_cast<const humanoid_mpc_msgs::TelemetrySeries&>(message);
+      slot.telemetry =
+          static_cast<const humanoid_mpc_msgs::TelemetrySeries&>(message);
     } else {
       slot.kind = Slot::Kind::kScene;
-      slot.scene = static_cast<const humanoid_mpc_msgs::VisualizationScene&>(message);
+      slot.scene =
+          static_cast<const humanoid_mpc_msgs::VisualizationScene&>(message);
     }
   });
   if (!queued) {
-    return absl::ResourceExhaustedError(absl::StrCat("the visualization's outbox to the bus's IO thread is full (", queue_.capacity(),
-                                                     " messages); dropped one on '", topic, "'"));
+    return absl::ResourceExhaustedError(absl::StrCat(
+        "the visualization's outbox to the bus's IO thread is full (",
+        queue_.capacity(), " messages); dropped one on '", topic, "'"));
   }
   return absl::OkStatus();
 }
 
 void IoThreadOutbox::drain() {
-  // At most a queue's worth per call, so that a poster that keeps up cannot keep the IO thread here.
+  // At most a queue's worth per call, so that a poster that keeps up cannot
+  // keep the IO thread here.
   for (size_t count = 0; count < queue_.capacity(); ++count) {
-    const bool popped = queue_.tryPopInPlace([this](const Slot& slot) { publish(slot); });
+    const bool popped =
+        queue_.tryPopInPlace([this](const Slot& slot) { publish(slot); });
     if (!popped) {
       return;
     }
@@ -105,10 +124,16 @@ void IoThreadOutbox::drain() {
 
 void IoThreadOutbox::publish(const Slot& slot) {
   const google::protobuf::Message& message =
-      slot.kind == Slot::Kind::kTelemetry ? static_cast<const google::protobuf::Message&>(slot.telemetry) : slot.scene;
-  if (const absl::Status published = bus_->publishFromIoThread(slot.topic, message); !published.ok()) {
+      slot.kind == Slot::Kind::kTelemetry
+          ? static_cast<const google::protobuf::Message&>(slot.telemetry)
+          : slot.scene;
+  if (const absl::Status published =
+          bus_->publishFromIoThread(slot.topic, message);
+      !published.ok()) {
     publishFailures_.fetch_add(1, std::memory_order_relaxed);
-    LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds) << "[IoThreadOutbox] " << slot.topic << " was not published: " << published;
+    LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds)
+        << "[IoThreadOutbox] " << slot.topic
+        << " was not published: " << published;
   }
 }
 

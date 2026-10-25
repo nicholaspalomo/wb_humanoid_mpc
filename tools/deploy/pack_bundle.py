@@ -57,12 +57,19 @@ def read_manifest(path: str) -> list[Entry]:
             if not line:
                 continue
             fields = line.split("\t")
-            if len(fields) != 3 or not fields[0] or fields[2] not in ("0", "1", "auto"):
+            if (
+                len(fields) != 3
+                or not fields[0]
+                or fields[2] not in ("0", "1", "auto")
+            ):
                 raise ValueError(
-                    f"{path}:{number}: not '<path>\\t<source>\\t<0|1|auto>': {line!r}"
+                    f"{path}:{number}: not '<path>\\t<source>\\t<0|1|auto>':"
+                    f" {line!r}"
                 )
             if fields[0].startswith("/") or ".." in fields[0].split("/"):
-                raise ValueError(f"{path}:{number}: {fields[0]} leaves the bundle")
+                raise ValueError(
+                    f"{path}:{number}: {fields[0]} leaves the bundle"
+                )
             entries.append((fields[0], fields[1], fields[2]))
     return entries
 
@@ -92,7 +99,9 @@ def pack(entries: Sequence[Entry], output: str) -> None:
             archive.addfile(_info(directory, tarfile.DIRTYPE, 0o755))
         for path, source, mode in sorted(entries):
             if mode == "0":
-                archive.addfile(_info(path, tarfile.REGTYPE, 0o644), io.BytesIO(b""))
+                archive.addfile(
+                    _info(path, tarfile.REGTYPE, 0o644), io.BytesIO(b"")
+                )
                 continue
             status = os.stat(source)
             if not stat.S_ISREG(status.st_mode):

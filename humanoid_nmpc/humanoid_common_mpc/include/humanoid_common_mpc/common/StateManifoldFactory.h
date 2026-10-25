@@ -42,21 +42,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The state manifold of a robot model's state layout, for OptimalControlProblem::stateManifoldPtr, the rollout, the MRT,
- * the MPC link and the policy evaluator: the product (ProductStateManifold) of the blocks of the model's
- * getTuningLayout(), a unit quaternion for the base orientation and Euclidean for every other block. Never null.
+ * The state manifold of a robot model's state layout, for
+ * OptimalControlProblem::stateManifoldPtr, the rollout, the MRT, the MPC link
+ * and the policy evaluator: the product (ProductStateManifold) of the blocks of
+ * the model's getTuningLayout(), a unit quaternion for the base orientation and
+ * Euclidean for every other block. Never null.
  *
- * A free factory rather than a member of the model, so that the robot models' constructors stay infallible; the
- * interfaces and the MRT controllers call it in their Create(). A std::shared_ptr because
- * OptimalControlProblem::stateManifoldPtr, ManifoldLinearController, MRT_BASE::setStateManifold and
- * RolloutBase::setStateManifold take one.
+ * A free factory rather than a member of the model, so that the robot models'
+ * constructors stay infallible; the interfaces and the MRT controllers call it
+ * in their Create(). A std::shared_ptr because
+ * OptimalControlProblem::stateManifoldPtr, ManifoldLinearController,
+ * MRT_BASE::setStateManifold and RolloutBase::setStateManifold take one.
  *
- * InvalidArgument, naming the layout, when it is not placed on a state of model.getStateDim() entries or places its
- * orientation on another number of rows than the quaternion's 4.
+ * InvalidArgument, naming the layout, when it is not placed on a state of
+ * model.getStateDim() entries or places its orientation on another number of
+ * rows than the quaternion's 4.
  */
-absl::StatusOr<std::shared_ptr<const StateManifold>> stateManifoldOf(const MpcRobotModelBase<scalar_t>& model);
+absl::StatusOr<std::shared_ptr<const StateManifold>> stateManifoldOf(
+    const MpcRobotModelBase<scalar_t>& model);
 
-/** The same for the tuning layout `placedLayout` (placeTuningLayout()) of a state of `stateDim` entries. */
-absl::StatusOr<std::shared_ptr<const StateManifold>> stateManifoldOf(const TuningLayout& placedLayout, size_t stateDim);
+/** The same for the tuning layout `placedLayout` (placeTuningLayout()) of a
+ * state of `stateDim` entries. */
+absl::StatusOr<std::shared_ptr<const StateManifold>> stateManifoldOf(
+    const TuningLayout& placedLayout, size_t stateDim);
 
 }  // namespace ocs2::humanoid

@@ -27,8 +27,9 @@
 
 """Tests for the pre-commit hook in a temporary repository: formatting is staged, but never a partial file's hunks.
 
-`make` and `python3` are stand-ins on PATH: the formatter rewrites UNFORMATTED to FORMATTED in every tracked file, and
-the linter passes, so what is under test is the hook's own staging.
+`make` and `python3` are stand-ins on PATH: the formatter rewrites UNFORMATTED to FORMATTED in every tracked file, the
+linter's automatic fixes rewrite MISFIXED to FIXED in the staged files, and the linter fails on a staged UNFIXABLE, so
+what is under test is the hook's own staging and blocking.
 """
 
 import os
@@ -45,7 +46,17 @@ for file in $(git ls-files); do
     sed -i 's/UNFORMATTED/FORMATTED/' "$file"
 done
 """
-_FAKE_PYTHON = "#!/bin/sh\nexit 0\n"
+_FAKE_PYTHON = """#!/bin/sh
+[ "$1 $2" = "-m tools.hooks.lint_code" ] || exit 2
+if [ "$3 $4" = "--fix-only --git-staged" ]; then
+    for file in $(git diff --cached --name-only); do
+        sed -i 's/MISFIXED/FIXED/' "$file"
+    done
+    exit 0
+fi
+[ "$3" = "--git-staged" ] || exit 2
+! git grep --cached -q UNFIXABLE
+"""
 
 
 class PreCommitHookTest(unittest.TestCase):
@@ -63,11 +74,14 @@ class PreCommitHookTest(unittest.TestCase):
             os.chmod(path, 0o755)
         self.hook = os.path.join(self.directory.name, "pre-commit")
         shutil.copy(
-            check_test_support.repository_file("tools/hooks/pre-commit"), self.hook
+            check_test_support.repository_file("tools/hooks/pre-commit"),
+            self.hook,
         )
         os.chmod(self.hook, 0o755)
         self.environment = dict(os.environ)
-        self.environment["PATH"] = self.bin + os.pathsep + os.environ.get("PATH", "")
+        self.environment["PATH"] = (
+            self.bin + os.pathsep + os.environ.get("PATH", "")
+        )
         self.git("init", "-q")
         self.git("config", "user.email", "test@example.com")
         self.git("config", "user.name", "Test")
@@ -89,7 +103,9 @@ class PreCommitHookTest(unittest.TestCase):
         ).stdout
 
     def write(self, name: str, content: str) -> None:
-        with open(os.path.join(self.repository, name), "w", encoding="utf-8") as f:
+        with open(
+            os.path.join(self.repository, name), "w", encoding="utf-8"
+        ) as f:
             f.write(content)
 
     def run_hook(self) -> subprocess.CompletedProcess[str]:
@@ -112,7 +128,9 @@ class PreCommitHookTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.staged("a.txt"), "one FORMATTED\ntwo\nthree\n")
 
-    def test_a_partially_staged_file_the_formatter_changes_blocks_the_commit(self):
+    def test_a_partially_staged_file_the_formatter_changes_blocks_the_commit(
+        self,
+    ):
         # The first line is staged; the change of the last line, which the formatter rewrites, is not.
         self.write("a.txt", "one staged\ntwo\nthree\n")
         self.git("add", "a.txt")
@@ -126,7 +144,9 @@ class PreCommitHookTest(unittest.TestCase):
             "the unstaged hunk was staged",
         )
 
-    def test_a_partially_staged_file_the_formatter_leaves_alone_keeps_its_index(self):
+    def test_a_partially_staged_file_the_formatter_leaves_alone_keeps_its_index(
+        self,
+    ):
         self.write("a.txt", "one staged\ntwo\nthree\n")
         self.git("add", "a.txt")
         self.write("a.txt", "one staged\ntwo\nthree unstaged\n")
@@ -137,6 +157,37 @@ class PreCommitHookTest(unittest.TestCase):
             "one staged\ntwo\nthree\n",
             "the unstaged hunk was staged",
         )
+
+    def test_the_automatic_fixes_of_a_staged_file_are_staged(self):
+        self.write("a.txt", "one MISFIXED UNFORMATTED\ntwo\nthree\n")
+        self.git("add", "a.txt")
+        result = self.run_hook()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(
+            self.staged("a.txt"), "one FIXED FORMATTED\ntwo\nthree\n"
+        )
+
+    def test_the_automatic_fixes_leave_unstaged_files_alone(self):
+        self.write("b.txt", "base\n")
+        self.git("add", "b.txt")
+        self.git("commit", "-q", "-m", "b")
+        self.write("a.txt", "one staged\ntwo\nthree\n")
+        self.git("add", "a.txt")
+        self.write("b.txt", "base MISFIXED\n")
+        result = self.run_hook()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        with open(
+            os.path.join(self.repository, "b.txt"), encoding="utf-8"
+        ) as f:
+            self.assertEqual(f.read(), "base MISFIXED\n")
+        self.assertEqual(self.staged("b.txt"), "base\n")
+
+    def test_a_finding_without_an_automatic_fix_blocks_the_commit(self):
+        self.write("a.txt", "one UNFIXABLE\ntwo\nthree\n")
+        self.git("add", "a.txt")
+        result = self.run_hook()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("Fix them by hand", result.stdout)
 
 
 if __name__ == "__main__":

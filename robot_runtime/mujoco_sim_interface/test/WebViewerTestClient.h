@@ -38,37 +38,47 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 
 /*
- * A browser's side of the web viewer for the tests: requests to its server on 127.0.0.1, field reads of its /state
- * JSON, and a client that keeps a /stream.mjpg open.
+ * A browser's side of the web viewer for the tests: requests to its server on
+ * 127.0.0.1, field reads of its /state JSON, and a client that keeps a
+ * /stream.mjpg open.
  */
 
 namespace robot::mujoco_sim_interface {
 
-/** One answer of the viewer's server; status 0 when the request failed (no connection, a timeout). */
+/** One answer of the viewer's server; status 0 when the request failed (no
+ * connection, a timeout). */
 struct HttpReply {
   int status = 0;
   std::string body;
   int64_t frameSequence = 0;  // X-Frame-Sequence, 0 without one
 };
 
-/** GET `target` (such as "/frame.jpg?after=3") from the server on 127.0.0.1:`port`. */
+/** GET `target` (such as "/frame.jpg?after=3") from the server on
+ * 127.0.0.1:`port`. */
 HttpReply httpGet(int port, absl::string_view target);
 
-/** POST `target` (such as "/input?type=key&key=k") as the page does it, with the X-MuJoCo-Viewer header. */
+/** POST `target` (such as "/input?type=key&key=k") as the page does it, with
+ * the X-MuJoCo-Viewer header. */
 HttpReply httpPost(int port, absl::string_view target);
 
-/** The number `"key":<number>` of the /state JSON `json`, the first one in it; none without one. */
-std::optional<double> jsonNumberField(absl::string_view json, absl::string_view key);
+/** The number `"key":<number>` of the /state JSON `json`, the first one in it;
+ * none without one. */
+std::optional<double> jsonNumberField(absl::string_view json,
+                                      absl::string_view key);
 
-/** The string `"key":"<text>"` of the /state JSON `json`, the first one in it; none without one. */
-std::optional<std::string> jsonStringField(absl::string_view json, absl::string_view key);
+/** The string `"key":"<text>"` of the /state JSON `json`, the first one in it;
+ * none without one. */
+std::optional<std::string> jsonStringField(absl::string_view json,
+                                           absl::string_view key);
 
-/** Whether the visualization `name` of the /state JSON `json` is enabled; none when it lists no such visualization. */
-std::optional<bool> visualizationEnabled(absl::string_view json, absl::string_view name);
+/** Whether the visualization `name` of the /state JSON `json` is enabled; none
+ * when it lists no such visualization. */
+std::optional<bool> visualizationEnabled(absl::string_view json,
+                                         absl::string_view name);
 
 /**
- * A client that opens GET /stream.mjpg on 127.0.0.1:`port` on a thread of its own and reads it until the server ends
- * it (or stop()). Thread-safe.
+ * A client that opens GET /stream.mjpg on 127.0.0.1:`port` on a thread of its
+ * own and reads it until the server ends it (or stop()). Thread-safe.
  */
 class MjpegStreamTestClient {
  public:

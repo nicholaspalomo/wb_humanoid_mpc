@@ -41,10 +41,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_runtime/robot_realtime/test/AllocationCounter.h"
 
 /*
- * MjRuntimeModelFields on a scene with what the simulator changes while it runs: a damped robot joint, a gantry weld and
- * a parked ball. A start-up copy of the model with the fields written into it is the model again, byte for byte; nothing
- * is copied between models of other sizes; capturing, applying and handing the fields over allocate nothing; and an
- * MjState carries them through its copies and moves.
+ * MjRuntimeModelFields on a scene with what the simulator changes while it
+ * runs: a damped robot joint, a gantry weld and a parked ball. A start-up copy
+ * of the model with the fields written into it is the model again, byte for
+ * byte; nothing is copied between models of other sizes; capturing, applying
+ * and handing the fields over allocate nothing; and an MjState carries them
+ * through its copies and moves.
  */
 
 namespace robot::mujoco_sim_interface {
@@ -86,7 +88,8 @@ constexpr char kOtherScene[] = R"(
 
 MjModelPtr compile(const char* absl_nonnull xml) {
   char error[1000] = "";
-  const MjSpecPtr spec(mj_parseXMLString(xml, /*vfs=*/nullptr, error, sizeof(error)));
+  const MjSpecPtr spec(
+      mj_parseXMLString(xml, /*vfs=*/nullptr, error, sizeof(error)));
   EXPECT_NE(spec, nullptr) << error;
   if (spec == nullptr) return nullptr;
   MjModelPtr model(mj_compile(spec.get(), /*vfs=*/nullptr));
@@ -98,12 +101,17 @@ MjModelPtr copyOf(const mjModel* absl_nonnull model) {
   return MjModelPtr(mj_copyModel(/*dest=*/nullptr, model));
 }
 
-/** True when the arrays of the two models, which have one layout, hold the same bytes. */
-bool sameArrays(const mjModel* absl_nonnull first, const mjModel* absl_nonnull second) {
-  return first->nbuffer == second->nbuffer && std::memcmp(first->buffer, second->buffer, static_cast<size_t>(first->nbuffer)) == 0;
+/** True when the arrays of the two models, which have one layout, hold the same
+ * bytes. */
+bool sameArrays(const mjModel* absl_nonnull first,
+                const mjModel* absl_nonnull second) {
+  return first->nbuffer == second->nbuffer &&
+         std::memcmp(first->buffer, second->buffer,
+                     static_cast<size_t>(first->nbuffer)) == 0;
 }
 
-/** Changes `model` as the simulator does while it runs: the ragdoll damping, the gantry's weld, a throw of the ball. */
+/** Changes `model` as the simulator does while it runs: the ragdoll damping,
+ * the gantry's weld, a throw of the ball. */
 void changeAsTheSimulatorDoes(mjModel* absl_nonnull model) {
   model->dof_damping[6] = 8.0;  // the arm's hinge, after the base's six
   const int weld = mj_name2id(model, mjOBJ_EQUALITY, "gantry");
@@ -117,7 +125,8 @@ void changeAsTheSimulatorDoes(mjModel* absl_nonnull model) {
   model->body_contype[ball] = 0;
   model->body_conaffinity[ball] = 0;
   model->body_mass[ball] = 1.5;
-  for (int axis = 0; axis < 3; ++axis) model->body_inertia[3 * ball + axis] = 0.006;
+  for (int axis = 0; axis < 3; ++axis)
+    model->body_inertia[3 * ball + axis] = 0.006;
   model->body_invweight0[2 * ball] = 1.0 / 1.5;
   model->body_invweight0[2 * ball + 1] = 1.0 / 0.006;
   model->body_subtreemass[ball] = 1.5;
@@ -129,7 +138,8 @@ void changeAsTheSimulatorDoes(mjModel* absl_nonnull model) {
   }
 }
 
-TEST(MjRuntimeModelFields, AStartUpCopyWithTheFieldsWrittenIntoItIsTheModelAgain) {
+TEST(MjRuntimeModelFields,
+     AStartUpCopyWithTheFieldsWrittenIntoItIsTheModelAgain) {
   const MjModelPtr model = compile(kScene);
   ASSERT_NE(model, nullptr);
   const MjModelPtr startUp = copyOf(model.get());
@@ -138,10 +148,12 @@ TEST(MjRuntimeModelFields, AStartUpCopyWithTheFieldsWrittenIntoItIsTheModelAgain
   ASSERT_TRUE(fields.fits(model.get()));
 
   changeAsTheSimulatorDoes(model.get());
-  ASSERT_FALSE(sameArrays(startUp.get(), model.get())) << "the changes reach nothing the comparison sees";
+  ASSERT_FALSE(sameArrays(startUp.get(), model.get()))
+      << "the changes reach nothing the comparison sees";
   fields.captureFrom(model.get());
   fields.applyTo(startUp.get());
-  EXPECT_TRUE(sameArrays(startUp.get(), model.get())) << "a run-time change that MjRuntimeModelFields does not carry";
+  EXPECT_TRUE(sameArrays(startUp.get(), model.get()))
+      << "a run-time change that MjRuntimeModelFields does not carry";
 }
 
 TEST(MjRuntimeModelFields, TheFieldsOfAModelHoldItsValuesAtConstruction) {
@@ -166,14 +178,16 @@ TEST(MjRuntimeModelFields, NothingIsCopiedBetweenModelsOfOtherSizes) {
   const MjModelPtr otherBefore = copyOf(other.get());
   ASSERT_NE(otherBefore, nullptr);
   fields.applyTo(other.get());
-  EXPECT_TRUE(sameArrays(other.get(), otherBefore.get())) << "applyTo wrote into a model of other sizes";
+  EXPECT_TRUE(sameArrays(other.get(), otherBefore.get()))
+      << "applyTo wrote into a model of other sizes";
 
   other->body_mass[1] = 9.0;
   fields.captureFrom(other.get());
   const MjModelPtr target = compile(kScene);
   ASSERT_NE(target, nullptr);
   fields.applyTo(target.get());
-  EXPECT_TRUE(sameArrays(target.get(), model.get())) << "captureFrom read a model of other sizes";
+  EXPECT_TRUE(sameArrays(target.get(), model.get()))
+      << "captureFrom read a model of other sizes";
 }
 
 TEST(MjRuntimeModelFields, EmptyFieldsFitNoModel) {
@@ -200,7 +214,8 @@ TEST(MjRuntimeModelFields, CapturingApplyingAndHandingOverAllocateNothing) {
   published.captureFrom(model.get());  // the physics thread, at every snapshot
   received = published;                // MujocoSimInterface::readLatestMjState
   received.applyTo(startUp.get());     // the render thread, at every frame
-  const size_t allocations = realtime::heapAllocationCountOnThisThread() - before;
+  const size_t allocations =
+      realtime::heapAllocationCountOnThisThread() - before;
   EXPECT_EQ(allocations, 0u);
   EXPECT_TRUE(sameArrays(startUp.get(), model.get()));
 }
@@ -216,7 +231,8 @@ TEST(MjRuntimeModelFields, AnMjStateCarriesItsFieldsThroughCopiesAndMoves) {
   const MjState copied(original);
   MjState assigned(model.get());
   assigned = original;
-  for (const MjState* absl_nonnull state : std::vector<const MjState* absl_nonnull>{&copied, &assigned}) {
+  for (const MjState* absl_nonnull state :
+       std::vector<const MjState* absl_nonnull>{&copied, &assigned}) {
     const MjModelPtr target = compile(kScene);
     ASSERT_NE(target, nullptr);
     state->modelFields.applyTo(target.get());
@@ -225,11 +241,15 @@ TEST(MjRuntimeModelFields, AnMjStateCarriesItsFieldsThroughCopiesAndMoves) {
 
   MjState moved(std::move(original));
   EXPECT_TRUE(moved.modelFields.fits(model.get()));
-  EXPECT_FALSE(original.modelFields.fits(model.get()));  // NOLINT(bugprone-use-after-move): the moved-from state is what is tested.
+  EXPECT_FALSE(original.modelFields.fits(
+      model
+          .get()));  // NOLINT(bugprone-use-after-move): the moved-from state is what is tested.
   MjState moveAssigned(model.get());
   moveAssigned = std::move(moved);
   EXPECT_TRUE(moveAssigned.modelFields.fits(model.get()));
-  EXPECT_FALSE(moved.modelFields.fits(model.get()));  // NOLINT(bugprone-use-after-move): the moved-from state is what is tested.
+  EXPECT_FALSE(moved.modelFields.fits(
+      model
+          .get()));  // NOLINT(bugprone-use-after-move): the moved-from state is what is tested.
 }
 
 }  // namespace

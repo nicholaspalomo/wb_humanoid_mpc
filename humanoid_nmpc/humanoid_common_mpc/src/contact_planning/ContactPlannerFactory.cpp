@@ -47,27 +47,31 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-/** Lower case, without the separators, so that `lip_miqp`, `lipMiqp` and `LIP-MIQP` all name the same planner. */
+/** Lower case, without the separators, so that `lip_miqp`, `lipMiqp` and
+ * `LIP-MIQP` all name the same planner. */
 std::string normalize(absl::string_view name) {
   std::string normalized;
   normalized.reserve(name.size());
   for (const char character : name) {
     if (character == '_' || character == '-' || character == ' ') continue;
-    normalized.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(character))));
+    normalized.push_back(
+        static_cast<char>(std::tolower(static_cast<unsigned char>(character))));
   }
   return normalized;
 }
 
 absl::Status unknownPlanner(absl::string_view name) {
   return absl::InvalidArgumentError(
-      absl::StrCat("[ContactPlannerFactory] unknown planner.type '", name, "'; supported: ", absl::StrJoin(knownPlannerNames(), ", ")));
+      absl::StrCat("[ContactPlannerFactory] unknown planner.type '", name,
+                   "'; supported: ", absl::StrJoin(knownPlannerNames(), ", ")));
 }
 
 }  // namespace
 
 const std::vector<std::string>& knownPlannerNames() {
   // LINT.IfChange(known_planner_names)
-  static const std::vector<std::string>& kNames = *new std::vector<std::string>{planner::kHlip, planner::kLipMiqp};
+  static const std::vector<std::string>& kNames =
+      *new std::vector<std::string>{planner::kHlip, planner::kLipMiqp};
   // clang-format off
   // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/contact_planning/ContactPlannerFactory.h:planner_names, //humanoid_nmpc/humanoid_mpc_config/contact_planning_file.proto:planner_type)
   // clang-format on
@@ -78,30 +82,41 @@ std::string canonicalPlannerName(absl::string_view name) {
   const std::string normalized = normalize(name);
   const std::vector<std::string>::const_iterator match =
       std::find_if(knownPlannerNames().begin(), knownPlannerNames().end(),
-                   [&normalized](const std::string& known) { return normalize(known) == normalized; });
+                   [&normalized](const std::string& known) {
+                     return normalize(known) == normalized;
+                   });
   return match == knownPlannerNames().end() ? std::string() : *match;
 }
 
-absl::StatusOr<std::unique_ptr<ContactPlannerInterface>> makeContactPlanner(const ContactPlanningConfig& config) {
+absl::StatusOr<std::unique_ptr<ContactPlannerInterface>> makeContactPlanner(
+    const ContactPlanningConfig& config) {
   const std::string name = canonicalPlannerName(config.planner.type);
   if (name.empty()) return unknownPlanner(config.planner.type);
-  // An invalid configuration is returned as the Status of ContactPlanningConfig::validateStatus(), which names the key.
-  // Both planners validate in their Create() factory, so the same bad key is refused the same way by either.
+  // An invalid configuration is returned as the Status of
+  // ContactPlanningConfig::validateStatus(), which names the key. Both planners
+  // validate in their Create() factory, so the same bad key is refused the same
+  // way by either.
   if (name == planner::kLipMiqp) {
-    ASSIGN_OR_RETURN(std::unique_ptr<LipContactPlanner> lip, LipContactPlanner::Create(config));
+    ASSIGN_OR_RETURN(std::unique_ptr<LipContactPlanner> lip,
+                     LipContactPlanner::Create(config));
     return std::unique_ptr<ContactPlannerInterface>(std::move(lip));
   }
-  ASSIGN_OR_RETURN(std::unique_ptr<HlipContactPlanner> hlip, HlipContactPlanner::Create(config));
+  ASSIGN_OR_RETURN(std::unique_ptr<HlipContactPlanner> hlip,
+                   HlipContactPlanner::Create(config));
   return std::unique_ptr<ContactPlannerInterface>(std::move(hlip));
 }
 
-absl::StatusOr<std::string> contactPlannerSummary(const ContactPlanningConfig& config) {
+absl::StatusOr<std::string> contactPlannerSummary(
+    const ContactPlanningConfig& config) {
   const std::string name = canonicalPlannerName(config.planner.type);
   if (name.empty()) return unknownPlanner(config.planner.type);
-  // As in makeContactPlanner: the H-LIP summary is computed from the configuration as it is, so it is validated first
-  // (the mixed-integer summary assembles a planner through LipContactPlanner::Create(), which validates it too).
+  // As in makeContactPlanner: the H-LIP summary is computed from the
+  // configuration as it is, so it is validated first (the mixed-integer summary
+  // assembles a planner through LipContactPlanner::Create(), which validates it
+  // too).
   RETURN_IF_ERROR(config.validateStatus());
-  if (name == planner::kHlip) return HlipContactPlanner::formulationSummary(config);
+  if (name == planner::kHlip)
+    return HlipContactPlanner::formulationSummary(config);
   return LipContactPlanner::formulationSummary(config);
 }
 

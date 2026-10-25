@@ -75,7 +75,8 @@ _TrainStep: TypeAlias = Callable[
     ],
 ]
 _EvalStep: TypeAlias = Callable[
-    [models.SirenParams, jax.Array, jax.Array], tuple[jax.Array, dict[str, jax.Array]]
+    [models.SirenParams, jax.Array, jax.Array],
+    tuple[jax.Array, dict[str, jax.Array]],
 ]
 
 
@@ -102,7 +103,9 @@ def create_train_step(
         # What the runtime's composition xi (x) Exp(Delta_theta) turns joint velocities into, in base axes:
         # J_l(Delta_theta) J_Delta_theta (models.SirenACOM.acom_joint_rate_jacobian). Fitting J_Delta_theta alone
         # would be right only at Delta_theta = 0, and the shipped networks' offsets average 20 to 35 degrees.
-        rate_jacobians = jnp.einsum("bij,bjk->bik", v_left_jacobian(offsets), jacobians)
+        rate_jacobians = jnp.einsum(
+            "bij,bjk->bik", v_left_jacobian(offsets), jacobians
+        )
         frob_loss = jnp.mean(
             jnp.sum(jnp.square(rate_jacobians - target_A_bar), axis=(-2, -1))
         )
@@ -149,7 +152,8 @@ def create_train_step(
         )
         # Compute global gradient L2 norm
         grad_norm_sq = sum(
-            jnp.sum(jnp.square(w_g)) + jnp.sum(jnp.square(b_g)) for w_g, b_g in grads
+            jnp.sum(jnp.square(w_g)) + jnp.sum(jnp.square(b_g))
+            for w_g, b_g in grads
         )
         grad_norm = jnp.sqrt(grad_norm_sq)
         updates, opt_state = optimizer.update(grads, opt_state, params)
@@ -174,7 +178,8 @@ def create_jacobian_diagnostic_figure(  # pylint: disable=invalid-name  # target
 
     fig, axes = plt.subplots(3, 1, figsize=(10, 6), sharex=True)
     vmax = max(
-        float(np.max(np.abs(target_A_bar))), float(np.max(np.abs(pred_jacobian)))
+        float(np.max(np.abs(target_A_bar))),
+        float(np.max(np.abs(pred_jacobian))),
     )
     vmin = -vmax
 
@@ -192,7 +197,8 @@ def create_jacobian_diagnostic_figure(  # pylint: disable=invalid-name  # target
         pred_jacobian, aspect="auto", cmap="coolwarm", vmin=vmin, vmax=vmax
     )
     axes[1].set_title(
-        "SIREN rate map $\\mathbf{J}_l(\\Delta\\theta) \\mathbf{J}_{\\Delta\\theta}(\\mathbf{q}_j)$"
+        "SIREN rate map $\\mathbf{J}_l(\\Delta\\theta)"
+        " \\mathbf{J}_{\\Delta\\theta}(\\mathbf{q}_j)$"
     )
     axes[1].set_yticks([0, 1, 2])
     axes[1].set_yticklabels(["Roll", "Pitch", "Yaw"])
@@ -200,7 +206,8 @@ def create_jacobian_diagnostic_figure(  # pylint: disable=invalid-name  # target
 
     im2 = axes[2].imshow(diff, aspect="auto", cmap="viridis")
     axes[2].set_title(
-        "Absolute Error $|\\mathbf{J}_l \\mathbf{J}_{\\Delta\\theta} - \\bar{\\mathbf{A}}_{\\omega, j}|$"
+        "Absolute Error $|\\mathbf{J}_l \\mathbf{J}_{\\Delta\\theta} -"
+        " \\bar{\\mathbf{A}}_{\\omega, j}|$"
     )
     axes[2].set_yticks([0, 1, 2])
     axes[2].set_yticklabels(["Roll", "Pitch", "Yaw"])
@@ -272,7 +279,9 @@ def train_acom(
     lr_schedule = optax.cosine_decay_schedule(
         init_value=learning_rate, decay_steps=total_steps, alpha=0.01
     )
-    optimizer = optax.adamw(learning_rate=lr_schedule, weight_decay=_WEIGHT_DECAY)
+    optimizer = optax.adamw(
+        learning_rate=lr_schedule, weight_decay=_WEIGHT_DECAY
+    )
     opt_state = optimizer.init(params)
 
     train_step_fn, eval_step_fn = create_train_step(
@@ -354,7 +363,9 @@ def train_acom(
         val_worst_relative_error = float(np.max(val_relative_errors))
 
         # Calculate RMSE per Jacobian entry (in rad/s per rad/s)
-        val_rmse = float(np.sqrt(avg_val_frob / A_val.shape[-2] / A_val.shape[-1]))
+        val_rmse = float(
+            np.sqrt(avg_val_frob / A_val.shape[-2] / A_val.shape[-1])
+        )
 
         if avg_val_frob < best_val_frob:
             best_val_frob = avg_val_frob
@@ -365,8 +376,12 @@ def train_acom(
         val_jacobians = np.array(val_aux["rate_jacobians"])
         val_targets = np.array(A_val)
         axis_diff = val_jacobians - val_targets
-        roll_err = float(np.mean(np.sum(np.square(axis_diff[:, 0, :]), axis=-1)))
-        pitch_err = float(np.mean(np.sum(np.square(axis_diff[:, 1, :]), axis=-1)))
+        roll_err = float(
+            np.mean(np.sum(np.square(axis_diff[:, 0, :]), axis=-1))
+        )
+        pitch_err = float(
+            np.mean(np.sum(np.square(axis_diff[:, 1, :]), axis=-1))
+        )
         yaw_err = float(np.mean(np.sum(np.square(axis_diff[:, 2, :]), axis=-1)))
 
         # aCOM offset statistics
@@ -412,7 +427,9 @@ def train_acom(
             )
             # J_Delta_theta alone against the target: what the loss fitted before it composed J_l(Delta_theta).
             writer.add_scalar(
-                "diagnostics/val_jacobian_alone_frobenius", val_jacobian_frob, epoch
+                "diagnostics/val_jacobian_alone_frobenius",
+                val_jacobian_frob,
+                epoch,
             )
 
             # Gradient metrics
@@ -422,7 +439,9 @@ def train_acom(
                     w_norm = float(np.linalg.norm(np.array(w_g)))
                     b_norm = float(np.linalg.norm(np.array(b_g)))
                     writer.add_scalar(
-                        f"gradients/layer_{layer_idx}_weight_norm", w_norm, epoch
+                        f"gradients/layer_{layer_idx}_weight_norm",
+                        w_norm,
+                        epoch,
                     )
                     writer.add_scalar(
                         f"gradients/layer_{layer_idx}_bias_norm", b_norm, epoch
@@ -435,10 +454,16 @@ def train_acom(
 
             # Optimization and performance
             writer.add_scalar("optim/learning_rate", current_lr, epoch)
-            writer.add_scalar("stats/mean_acom_offset_deg", mean_offset_deg, epoch)
-            writer.add_scalar("stats/max_acom_offset_deg", max_offset_deg, epoch)
+            writer.add_scalar(
+                "stats/mean_acom_offset_deg", mean_offset_deg, epoch
+            )
+            writer.add_scalar(
+                "stats/max_acom_offset_deg", max_offset_deg, epoch
+            )
             writer.add_scalar("perf/epoch_time_ms", epoch_time_ms, epoch)
-            writer.add_scalar("perf/throughput_samples_per_sec", throughput, epoch)
+            writer.add_scalar(
+                "perf/throughput_samples_per_sec", throughput, epoch
+            )
 
             # Weight, bias, and gradient histograms
             if log_histograms and (
@@ -494,25 +519,28 @@ def train_acom(
         if verbose and (epoch % 10 == 0 or epoch == num_epochs - 1):
             elapsed = time.time() - start_time
             print(
-                f"Epoch {epoch:3d}/{num_epochs} | "
-                f"Train: {avg_train_loss:.5f} (Frob: {avg_train_frob:.5f}) | "
-                f"Val: {avg_val_loss:.5f} (RMSE: {val_rmse:.4f}, "
-                f"rel: {val_mean_relative_error:.3f} mean, {val_worst_relative_error:.3f} worst) | "
-                f"GradNorm: {avg_grad_norm:.4f} | "
-                f"Time: {elapsed:.1f}s"
+                f"Epoch {epoch:3d}/{num_epochs} | Train:"
+                f" {avg_train_loss:.5f} (Frob: {avg_train_frob:.5f}) | Val:"
+                f" {avg_val_loss:.5f} (RMSE: {val_rmse:.4f}, rel:"
+                f" {val_mean_relative_error:.3f} mean,"
+                f" {val_worst_relative_error:.3f} worst) | GradNorm:"
+                f" {avg_grad_norm:.4f} | Time: {elapsed:.1f}s"
             )
 
     if writer is not None:
         writer.flush()
         writer.close()
 
-    final_val_frob = history["val_frob"][-1] if history["val_frob"] else float("inf")
+    final_val_frob = (
+        history["val_frob"][-1] if history["val_frob"] else float("inf")
+    )
     if verbose:
         print(
-            f"Best validation Frobenius loss {best_val_frob:.7f} at epoch {best_epoch}, "
-            f"final {final_val_frob:.7f} at epoch {num_epochs - 1} "
-            f"(gap {100.0 * (final_val_frob - best_val_frob) / max(best_val_frob, 1e-12):.2f}%). "
-            "Exporting the best."
+            f"Best validation Frobenius loss {best_val_frob:.7f} at epoch"
+            f" {best_epoch}, final {final_val_frob:.7f} at epoch"
+            f" {num_epochs - 1} (gap"
+            f" {100.0 * (final_val_frob - best_val_frob) / max(best_val_frob, 1e-12):.2f}%)."
+            " Exporting the best."
         )
 
     history["best_val_frob"] = [best_val_frob]

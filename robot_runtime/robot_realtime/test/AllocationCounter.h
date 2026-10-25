@@ -36,20 +36,26 @@ namespace robot::realtime {
 /**
  * The number of heap allocations this process has made so far.
  *
- * Linking this library into a binary interposes malloc, calloc, realloc, aligned_alloc, memalign and posix_memalign for
- * the whole process, forwarding each to glibc's own implementation after counting it. That catches every allocation,
- * including Eigen's, which calls std::malloc directly rather than operator new, and operator new's for over-aligned
- * types. Only for test and benchmark binaries, and only with glibc.
+ * Linking this library into a binary interposes malloc, calloc, realloc,
+ * aligned_alloc, memalign and posix_memalign for the whole process, forwarding
+ * each to glibc's own implementation after counting it. That catches every
+ * allocation, including Eigen's, which calls std::malloc directly rather than
+ * operator new, and operator new's for over-aligned types. Only for test and
+ * benchmark binaries, and only with glibc.
  *
- * Copied from humanoid_state_estimation/humanoid_state_estimator/test/AllocationCounter.h, which counts the first three
- * only, so that robot_runtime does not depend on the estimator; the estimator's binaries can move to this target. A
- * binary must link only one of the two, since both define malloc.
+ * Copied from
+ * humanoid_state_estimation/humanoid_state_estimator/test/AllocationCounter.h,
+ * which counts the first three only, so that robot_runtime does not depend on
+ * the estimator; the estimator's binaries can move to this target. A binary
+ * must link only one of the two, since both define malloc.
  */
 size_t heapAllocationCount();
 
 /**
- * The number of heap allocations the calling thread has made so far. For a call on one thread of a process whose other
- * threads allocate at the same time (a bus's IO thread, a solver), where heapAllocationCount() would count theirs too.
+ * The number of heap allocations the calling thread has made so far. For a call
+ * on one thread of a process whose other threads allocate at the same time (a
+ * bus's IO thread, a solver), where heapAllocationCount() would count theirs
+ * too.
  */
 size_t heapAllocationCountOnThisThread();
 

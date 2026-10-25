@@ -39,9 +39,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * A mimic joint of the task file's mimic_joints block: q_child = multiplier * q_parent, held with the gains. The
- * centroidal MPC's JointMimicKinematicConstraint takes all but the velocity gain, the whole-body MPC's
- * JointMimicDynamicsConstraint all of it.
+ * A mimic joint of the task file's mimic_joints block: q_child = multiplier *
+ * q_parent, held with the gains. The centroidal MPC's
+ * JointMimicKinematicConstraint takes all but the velocity gain, the whole-body
+ * MPC's JointMimicDynamicsConstraint all of it.
  */
 struct JointMimicSettings {
   std::string parentJointName;
@@ -52,21 +53,28 @@ struct JointMimicSettings {
 };
 
 /**
- * The knee mimic joints of both legs, in the order of the contacts (left_knee, then right_knee), as the two MPC
- * interfaces read the blocks mimicJoints.left_knee and mimicJoints.right_knee: a joint name the block leaves out is
- * empty and a number 0, which the constraints' Create() then refuses by name.
+ * The knee mimic joints of both legs, in the order of the contacts (left_knee,
+ * then right_knee), as the two MPC interfaces read the blocks
+ * mimicJoints.left_knee and mimicJoints.right_knee: a joint name the block
+ * leaves out is empty and a number 0, which the constraints' Create() then
+ * refuses by name.
  *
- * @return The settings; InvalidArgument naming the field when a multiplier or gain is not finite (inf or nan).
+ * @return The settings; InvalidArgument naming the field when a multiplier or
+ * gain is not finite (inf or nan).
  */
-absl::StatusOr<feet_array_t<JointMimicSettings>> kneeMimicJointsFromConfig(const mpc_config::MimicJointsConfig& mimicJoints);
+absl::StatusOr<feet_array_t<JointMimicSettings>> kneeMimicJointsFromConfig(
+    const mpc_config::MimicJointsConfig& mimicJoints);
 
 /**
- * kneeMimicJointsFromConfig() for the centroidal MPC, whose JointMimicKinematicConstraint holds the position alone and
- * has no use for a velocity gain.
+ * kneeMimicJointsFromConfig() for the centroidal MPC, whose
+ * JointMimicKinematicConstraint holds the position alone and has no use for a
+ * velocity gain.
  *
- * @return The settings, velocity gains 0; InvalidArgument as kneeMimicJointsFromConfig(), and naming a velocity_gain
- *         that is not 0.
+ * @return The settings, velocity gains 0; InvalidArgument as
+ * kneeMimicJointsFromConfig(), and naming a velocity_gain that is not 0.
  */
-absl::StatusOr<feet_array_t<JointMimicSettings>> kneeMimicKinematicJointsFromConfig(const mpc_config::MimicJointsConfig& mimicJoints);
+absl::StatusOr<feet_array_t<JointMimicSettings>>
+kneeMimicKinematicJointsFromConfig(
+    const mpc_config::MimicJointsConfig& mimicJoints);
 
 }  // namespace ocs2::humanoid

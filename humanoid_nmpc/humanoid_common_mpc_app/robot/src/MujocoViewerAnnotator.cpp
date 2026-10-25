@@ -34,24 +34,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-robot::mujoco_sim_interface::TargetContactPatch::Kind viewerKind(msgs::TargetContactPatch::Kind kind) {
+robot::mujoco_sim_interface::TargetContactPatch::Kind viewerKind(
+    msgs::TargetContactPatch::Kind kind) {
   switch (kind) {
     case msgs::TargetContactPatch::Kind::kSwingInFlight:
-      return robot::mujoco_sim_interface::TargetContactPatch::Kind::kSwingInFlight;
+      return robot::mujoco_sim_interface::TargetContactPatch::Kind::
+          kSwingInFlight;
     case msgs::TargetContactPatch::Kind::kNextSwing:
       return robot::mujoco_sim_interface::TargetContactPatch::Kind::kNextSwing;
     case msgs::TargetContactPatch::Kind::kStance:
     case msgs::TargetContactPatch::Kind::kUnspecified:
       return robot::mujoco_sim_interface::TargetContactPatch::Kind::kStance;
   }
-  // A value from the wire that is no enumerator (the message is open, as a proto enum is) is drawn as a stance patch,
-  // as kUnspecified is (target_contact_patch.proto).
+  // A value from the wire that is no enumerator (the message is open, as a
+  // proto enum is) is drawn as a stance patch, as kUnspecified is
+  // (target_contact_patch.proto).
   return robot::mujoco_sim_interface::TargetContactPatch::Kind::kStance;
 }
 
 }  // namespace
 
-MujocoViewerAnnotator::MujocoViewerAnnotator(robot::mujoco_sim_interface::MujocoSimInterface* absl_nonnull simulator)
+MujocoViewerAnnotator::MujocoViewerAnnotator(
+    robot::mujoco_sim_interface::MujocoSimInterface* absl_nonnull simulator)
     : simulator_(simulator) {
   patches_.reserve(kNumContacts);
 }
@@ -60,12 +64,15 @@ void MujocoViewerAnnotator::apply(const msgs::ViewerAnnotations& annotations) {
   if (!annotations.target_contact_patches.empty()) {
     patches_.resize(annotations.target_contact_patches.size());
     for (size_t contact = 0; contact < patches_.size(); ++contact) {
-      const msgs::TargetContactPatch& source = annotations.target_contact_patches[contact];
-      robot::mujoco_sim_interface::TargetContactPatch& patch = patches_[contact];
+      const msgs::TargetContactPatch& source =
+          annotations.target_contact_patches[contact];
+      robot::mujoco_sim_interface::TargetContactPatch& patch =
+          patches_[contact];
       patch.kind = viewerKind(source.kind);
       // No pose: nothing is drawn for the foot (the viewer's `valid`).
       patch.valid = source.pose.has_value();
-      const msgs::TargetContactPatch::Pose pose = source.pose.value_or(msgs::TargetContactPatch::Pose{});
+      const msgs::TargetContactPatch::Pose pose =
+          source.pose.value_or(msgs::TargetContactPatch::Pose{});
       patch.x = pose.x;
       patch.y = pose.y;
       patch.z = pose.z;
@@ -74,7 +81,9 @@ void MujocoViewerAnnotator::apply(const msgs::ViewerAnnotations& annotations) {
     }
     simulator_->setTargetContactPatches(patches_);
   }
-  simulator_->setTargetVelocities(annotations.scaled_velocity_x, annotations.scaled_velocity_y, annotations.scaled_yaw_rate);
+  simulator_->setTargetVelocities(annotations.scaled_velocity_x,
+                                  annotations.scaled_velocity_y,
+                                  annotations.scaled_yaw_rate);
 }
 
 }  // namespace ocs2::humanoid

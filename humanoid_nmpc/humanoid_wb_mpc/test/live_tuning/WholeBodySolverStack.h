@@ -47,17 +47,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::live_tuning_test {
 
-/** Whether a WholeBodySolverStack registers the parameter updater with its solver. */
+/** Whether a WholeBodySolverStack registers the parameter updater with its
+ * solver. */
 enum class Updater {
   kRegistered,
   kNone,
 };
 
 /**
- * The whole-body MPC of a task file around the SQP solver, as the MPC node runs it, with or without the parameter
- * updater registered (makeWholeBodyMpcParameterUpdater(), no file watched), on the G1 standing still and then stepping
- * once with each foot (walkingSchedule()). The robot is the MPC's own model: it moves as the last policy predicts, on the
- * state manifold. Not thread-safe; one test drives it.
+ * The whole-body MPC of a task file around the SQP solver, as the MPC node runs
+ * it, with or without the parameter updater registered
+ * (makeWholeBodyMpcParameterUpdater(), no file watched), on the G1 standing
+ * still and then stepping once with each foot (walkingSchedule()). The robot is
+ * the MPC's own model: it moves as the last policy predicts, on the state
+ * manifold. Not thread-safe; one test drives it.
  */
 class WholeBodySolverStack {
  public:
@@ -75,24 +78,28 @@ class WholeBodySolverStack {
   MpcParameterUpdaterModule* absl_nullable updater() { return updater_.get(); }
 
   /**
-   * Hands `task` to the updater and applies it at once, as the preSolverRun() of the next solve would: before any
-   * worker of the solver runs. Precondition: the stack has an updater.
+   * Hands `task` to the updater and applies it at once, as the preSolverRun()
+   * of the next solve would: before any worker of the solver runs.
+   * Precondition: the stack has an updater.
    */
   void applyNow(const mpc_config::TaskFile& task);
 
   /**
-   * Runs the reference manager over the next solve's horizon, as that solve would first thing: what a reload handed it
-   * (the swing trajectory planner's configuration) is then in the swing trajectories the terms read.
+   * Runs the reference manager over the next solve's horizon, as that solve
+   * would first thing: what a reload handed it (the swing trajectory planner's
+   * configuration) is then in the swing trajectories the terms read.
    */
   void replanReferences();
 
   /**
-   * Expects the stack to solve on the quaternion layout: its interface's (expectQuaternionLayout()), and every worker of
-   * its solver on the interface's state manifold.
+   * Expects the stack to solve on the quaternion layout: its interface's
+   * (expectQuaternionLayout()), and every worker of its solver on the
+   * interface's state manifold.
    */
   void expectQuaternionLayout();
 
-  /** Runs `count` solves, one per kSolvePeriod of solver time from where the last left off, and returns each policy. */
+  /** Runs `count` solves, one per kSolvePeriod of solver time from where the
+   * last left off, and returns each policy. */
   std::vector<PrimalSolution> solve(size_t count);
 
   // [s] of solver time between two solves.
@@ -101,13 +108,16 @@ class WholeBodySolverStack {
  private:
   std::unique_ptr<WBMpcInterface> interface_;
   std::unique_ptr<SqpMpc> mpc_;
-  // Registered with the solver; OCS2's addSynchronizedModule() takes a shared_ptr. Null without an updater.
+  // Registered with the solver; OCS2's addSynchronizedModule() takes a
+  // shared_ptr. Null without an updater.
   std::shared_ptr<MpcParameterUpdaterModule> updater_;
   std::unique_ptr<MPC_MRT_Interface> mrt_;
   SystemObservation observation_;
 };
 
-/** Returns the largest difference between the policies, relative to max(1, |a|, |b|) entry by entry; 0 when bitwise equal. */
-scalar_t policyDifference(const std::vector<PrimalSolution>& expected, const std::vector<PrimalSolution>& actual);
+/** Returns the largest difference between the policies, relative to max(1, |a|,
+ * |b|) entry by entry; 0 when bitwise equal. */
+scalar_t policyDifference(const std::vector<PrimalSolution>& expected,
+                          const std::vector<PrimalSolution>& actual);
 
 }  // namespace ocs2::humanoid::live_tuning_test

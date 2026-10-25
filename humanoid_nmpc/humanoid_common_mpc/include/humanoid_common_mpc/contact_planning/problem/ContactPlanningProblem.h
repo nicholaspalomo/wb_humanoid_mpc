@@ -53,16 +53,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The contact planner's optimal control problem as a set of named terms, the analog of ocs2::OptimalControlProblem.
+ * The contact planner's optimal control problem as a set of named terms, the
+ * analog of ocs2::OptimalControlProblem.
  *
- * The collections are filled by ContactPlanningTermFactory::buildProblemStatus() from the term lists of the configuration
- * (or by hand, in the same order the factory would use). finalize() then composes the variable layout from the model
- * blocks, checks that every term finds the blocks it needs, binds the terms to the layout and configures them.
- * assemble() writes the OCP-QP of one plan, node by node and term by term in collection order, and the logic side
- * (propagate, assignmentCost) is what MixedIntegerOcpQp calls on the binaries. configure() is the hot-reload path:
- * every term re-reads its parameter block; the term lists themselves are the factory's business (re-assembly).
+ * The collections are filled by
+ * ContactPlanningTermFactory::buildProblemStatus() from the term lists of the
+ * configuration (or by hand, in the same order the factory would use).
+ * finalize() then composes the variable layout from the model blocks, checks
+ * that every term finds the blocks it needs, binds the terms to the layout and
+ * configures them. assemble() writes the OCP-QP of one plan, node by node and
+ * term by term in collection order, and the logic side (propagate,
+ * assignmentCost) is what MixedIntegerOcpQp calls on the binaries. configure()
+ * is the hot-reload path: every term re-reads its parameter block; the term
+ * lists themselves are the factory's business (re-assembly).
  *
- * Not thread-safe while it is being filled, finalized or configured; the const methods may then run concurrently.
+ * Not thread-safe while it is being filled, finalized or configured; the const
+ * methods may then run concurrently.
  */
 class ContactPlanningProblem {
  public:
@@ -74,42 +80,56 @@ class ContactPlanningProblem {
   ~ContactPlanningProblem() = default;
 
   TermCollection<LipModelBlock> model;  // order fixes the variable layout
-  TermCollection<LipCost> costs;        // order is the accumulation order of the stage matrices
+  TermCollection<LipCost>
+      costs;  // order is the accumulation order of the stage matrices
   TermCollection<LipConstraint> softConstraints;
   TermCollection<LipConstraint> hardConstraints;
-  TermCollection<ContactLogicRule> logicRules;  // order is the order within a propagation pass
+  TermCollection<ContactLogicRule>
+      logicRules;  // order is the order within a propagation pass
   TermCollection<AssignmentCost> assignmentCosts;
 
   /**
-   * Composes the layout from the model blocks, checks the required blocks of every term, binds and configures every
-   * term. A model that does not start with the LIP and foothold blocks, or a term whose block is missing, is an
-   * InvalidArgument naming it, and leaves the problem unfinalized. Must succeed before configure() and assemble().
+   * Composes the layout from the model blocks, checks the required blocks of
+   * every term, binds and configures every term. A model that does not start
+   * with the LIP and foothold blocks, or a term whose block is missing, is an
+   * InvalidArgument naming it, and leaves the problem unfinalized. Must succeed
+   * before configure() and assemble().
    */
   absl::Status finalize(const ContactPlanningConfig& config);
   bool isFinalized() const { return finalized_; }
   const Layout& layout() const { return layout_; }
 
-  /** Re-reads every term's parameter block (hot reload of the values; the lists stay); FailedPrecondition before finalize(). */
+  /** Re-reads every term's parameter block (hot reload of the values; the lists
+   * stay); FailedPrecondition before finalize(). */
   absl::Status configure(const ContactPlanningConfig& config);
 
-  /** Builds the OCP-QP of one plan from the context: N running stages and the terminal node; FailedPrecondition before finalize(). */
-  absl::StatusOr<OcpQpProblem> assemble(const ContactPlanningContext& ctx) const;
+  /** Builds the OCP-QP of one plan from the context: N running stages and the
+   * terminal node; FailedPrecondition before finalize(). */
+  absl::StatusOr<OcpQpProblem> assemble(
+      const ContactPlanningContext& ctx) const;
 
-  /** The binaries of every node, in branching order (time order, then the blocks' order). */
+  /** The binaries of every node, in branching order (time order, then the
+   * blocks' order). */
   std::vector<MiqpBinaryVariable> binaryVariables(int numNodes) const;
 
   /**
-   * Forward logical propagation: runs the listed rules in order to a fixpoint (at most 4 N passes, every rule reading
-   * the live assignment). Returns false when the assignment is provably infeasible; fixes only what every completion
-   * that satisfies the rules agrees on (ContactLogicRule).
+   * Forward logical propagation: runs the listed rules in order to a fixpoint
+   * (at most 4 N passes, every rule reading the live assignment). Returns false
+   * when the assignment is provably infeasible; fixes only what every
+   * completion that satisfies the rules agrees on (ContactLogicRule).
    */
-  bool propagate(const ContactLogicState& state, MiqpAssignment& assignment) const;
+  bool propagate(const ContactLogicState& state,
+                 MiqpAssignment& assignment) const;
 
   /** Sum of the listed assignment costs. */
-  scalar_t assignmentCost(const ContactLogicState& state, const MiqpAssignment& assignment) const;
+  scalar_t assignmentCost(const ContactLogicState& state,
+                          const MiqpAssignment& assignment) const;
 
-  /** Fills the plan's trajectories from the incumbent through the model blocks. */
-  void decode(const ContactPlanningContext& ctx, const MiqpResult& result, ContactPlan& plan) const;
+  /** Fills the plan's trajectories from the incumbent through the model blocks.
+   */
+  void decode(const ContactPlanningContext& ctx,
+              const MiqpResult& result,
+              ContactPlan& plan) const;
 
   /** The number of general rows of the nodes of an assembled problem. */
   struct GeneralRowCounts {
@@ -117,11 +137,15 @@ class ContactPlanningProblem {
     int terminal = 0;  // at the terminal node
   };
 
-  /** Number of general rows a running node and the terminal node carry, from the terms' node sets; assemble()'s errors. */
-  absl::StatusOr<GeneralRowCounts> countRows(const ContactPlanningContext& ctx) const;
+  /** Number of general rows a running node and the terminal node carry, from
+   * the terms' node sets; assemble()'s errors. */
+  absl::StatusOr<GeneralRowCounts> countRows(
+      const ContactPlanningContext& ctx) const;
 
-  /** The start-up print: the layout, every collection with its terms and their one-line descriptions. */
-  std::string summary(const ContactPlanningContext* absl_nullable ctx = nullptr) const;
+  /** The start-up print: the layout, every collection with its terms and their
+   * one-line descriptions. */
+  std::string summary(
+      const ContactPlanningContext* absl_nullable ctx = nullptr) const;
 
  private:
   Layout layout_;

@@ -32,10 +32,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::node {
 
 /**
- * The exit status of a binary of this repository for a usage error - the laptop-side binaries (the MPC nodes, the dummy
- * simulators, the keyboard teleoperation) and the tools (the configuration dump, the registry printer, the closed-loop
- * comparison): a flag, a file, a configuration or the network configuration that is missing or invalid, or a tool run
- * without `bazel run`. A failure while running exits with 1.
+ * The exit status of a binary of this repository for a usage error - the
+ * laptop-side binaries (the MPC nodes, the dummy simulators, the keyboard
+ * teleoperation) and the tools (the configuration dump, the registry printer,
+ * the closed-loop comparison): a flag, a file, a configuration or the network
+ * configuration that is missing or invalid, or a tool run without `bazel run`.
+ * A failure while running exits with 1.
  */
 inline constexpr int kUsageErrorExitCode = 2;
 

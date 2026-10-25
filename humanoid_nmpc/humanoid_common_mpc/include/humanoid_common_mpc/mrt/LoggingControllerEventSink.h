@@ -35,8 +35,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * A ControllerEventSink that logs every event at once, on the caller's thread, at its severity. NOT realtime-safe: the
- * sink of a controller that no realtime loop runs (unit tests, tools); the robot process hands its controller its
+ * A ControllerEventSink that logs every event at once, on the caller's thread,
+ * at its severity. NOT realtime-safe: the sink of a controller that no realtime
+ * loop runs (unit tests, tools); the robot process hands its controller its
  * RealtimeEventLog instead.
  */
 class LoggingControllerEventSink final : public ControllerEventSink {

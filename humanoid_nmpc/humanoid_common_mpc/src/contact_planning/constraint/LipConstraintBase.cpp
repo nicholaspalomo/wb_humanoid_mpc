@@ -35,12 +35,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-void LipConstraintBase::configurePenalty(const ContactPlanningConfig& config, std::optional<SlackPenalty> own) {
+void LipConstraintBase::configurePenalty(const ContactPlanningConfig& config,
+                                         std::optional<SlackPenalty> own) {
   penalty_ = own.value_or(config.shared.slackPenalty);
 }
 
 std::string LipConstraintBase::penaltyText() const {
-  return absl::StrCat("slack (", penalty_.quadratic, ", ", penalty_.linear, ")");
+  return absl::StrCat("slack (", penalty_.quadratic, ", ", penalty_.linear,
+                      ")");
 }
 
 }  // namespace ocs2::humanoid

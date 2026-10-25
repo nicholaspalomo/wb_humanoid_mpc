@@ -27,8 +27,9 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// The strict textproto parser (src/Textproto.h): a valid file fills the message, and every kind of malformed file is
-// an InvalidArgument error that names the file, the line and the column, a deprecated field included.
+// The strict textproto parser (src/Textproto.h): a valid file fills the
+// message, and every kind of malformed file is an InvalidArgument error that
+// names the file, the line and the column, a deprecated field included.
 
 #include <cstdlib>
 #include <fstream>
@@ -53,7 +54,8 @@ using robot_ipc_test::TestSettings;
 
 constexpr char kSource[] = "settings.textproto";
 
-// A directory the test may write to: Bazel's TEST_TMPDIR, or the working directory outside Bazel.
+// A directory the test may write to: Bazel's TEST_TMPDIR, or the working
+// directory outside Bazel.
 std::string temporaryPath(const std::string& name) {
   const char* absl_nullable directory = std::getenv("TEST_TMPDIR");
   return directory == nullptr ? name : absl::StrCat(directory, "/", name);
@@ -79,8 +81,9 @@ events { name: "second" }
 struct Malformed {
   std::string description;
   std::string text;
-  // "<source>:<line>:", with the 1-based line (the column a parser reports for one problem differs between C++ and
-  // Python, so the tests pin only that there is one).
+  // "<source>:<line>:", with the 1-based line (the column a parser reports for
+  // one problem differs between C++ and Python, so the tests pin only that
+  // there is one).
   std::string location;
   std::string fragment;
 };
@@ -91,33 +94,48 @@ TEST_P(MalformedTextprotoTest, IsAnErrorNamingTheFileLineAndColumn) {
   const Malformed& file = GetParam();
   TestSettings settings;
   const absl::Status status = parseTextproto(file.text, kSource, settings);
-  EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument) << file.description << ": " << status;
-  ASSERT_TRUE(absl::StartsWith(status.message(), file.location)) << file.description << ": " << status;
+  EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument)
+      << file.description << ": " << status;
+  ASSERT_TRUE(absl::StartsWith(status.message(), file.location))
+      << file.description << ": " << status;
   // Then the column and the problem.
   const absl::string_view rest = status.message().substr(file.location.size());
   const size_t colon = rest.find(':');
   int column = 0;
   ASSERT_NE(colon, absl::string_view::npos) << status;
-  EXPECT_TRUE(absl::SimpleAtoi(rest.substr(0, colon), &column) && column >= 1) << file.description << ": " << status;
-  EXPECT_TRUE(absl::StrContains(rest.substr(colon), file.fragment)) << file.description << ": " << status;
+  EXPECT_TRUE(absl::SimpleAtoi(rest.substr(0, colon), &column) && column >= 1)
+      << file.description << ": " << status;
+  EXPECT_TRUE(absl::StrContains(rest.substr(colon), file.fragment))
+      << file.description << ": " << status;
 }
 
-INSTANTIATE_TEST_SUITE_P(Rejections,
-                         MalformedTextprotoTest,
-                         ::testing::Values(Malformed{"an unknown field", "name: \"a\"\nnmae: \"b\"", "settings.textproto:2:", "nmae"},
-                                           Malformed{"an unknown nested field", "events {\n  nmae: \"b\"\n}",
-                                                     "settings.textproto:2:", "nmae"},
-                                           Malformed{"a field given twice", "name: \"a\"\nname: \"b\"", "settings.textproto:2:", "name"},
-                                           Malformed{"a deprecated field", "name: \"a\"\nretired: 1", "settings.textproto:2:", "retired"},
-                                           Malformed{"a string for a message", "events: \"b\"", "settings.textproto:1:", ""},
-                                           Malformed{"an unquoted string", "name: a b", "settings.textproto:1:", ""},
-                                           Malformed{"an unclosed message", "events {", "settings.textproto:1:", ""}));
+INSTANTIATE_TEST_SUITE_P(
+    Rejections,
+    MalformedTextprotoTest,
+    ::testing::Values(Malformed{"an unknown field", "name: \"a\"\nnmae: \"b\"",
+                                "settings.textproto:2:", "nmae"},
+                      Malformed{"an unknown nested field",
+                                "events {\n  nmae: \"b\"\n}",
+                                "settings.textproto:2:", "nmae"},
+                      Malformed{"a field given twice",
+                                "name: \"a\"\nname: \"b\"",
+                                "settings.textproto:2:", "name"},
+                      Malformed{"a deprecated field", "name: \"a\"\nretired: 1",
+                                "settings.textproto:2:", "retired"},
+                      Malformed{"a string for a message", "events: \"b\"",
+                                "settings.textproto:1:", ""},
+                      Malformed{"an unquoted string", "name: a b",
+                                "settings.textproto:1:", ""},
+                      Malformed{"an unclosed message", "events {",
+                                "settings.textproto:1:", ""}));
 
 TEST(TextprotoTest, LoadingNamesThePathAndAMissingFileIsNotFound) {
   TestSettings settings;
-  const absl::Status missing = loadTextproto(temporaryPath("absent.textproto"), settings);
+  const absl::Status missing =
+      loadTextproto(temporaryPath("absent.textproto"), settings);
   EXPECT_EQ(missing.code(), absl::StatusCode::kNotFound) << missing;
-  EXPECT_TRUE(absl::StrContains(missing.message(), "absent.textproto")) << missing;
+  EXPECT_TRUE(absl::StrContains(missing.message(), "absent.textproto"))
+      << missing;
 
   const std::string path = temporaryPath("settings.textproto");
   {
@@ -126,7 +144,8 @@ TEST(TextprotoTest, LoadingNamesThePathAndAMissingFileIsNotFound) {
   }
   const absl::Status malformed = loadTextproto(path, settings);
   EXPECT_EQ(malformed.code(), absl::StatusCode::kInvalidArgument) << malformed;
-  EXPECT_TRUE(absl::StartsWith(malformed.message(), absl::StrCat(path, ":2:"))) << malformed;
+  EXPECT_TRUE(absl::StartsWith(malformed.message(), absl::StrCat(path, ":2:")))
+      << malformed;
 
   {
     std::ofstream file(path);

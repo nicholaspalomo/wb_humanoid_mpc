@@ -124,7 +124,9 @@ def _strip(entity_path: str) -> str:
     return entity_path.lstrip("/")
 
 
-def _read(chunks: Iterable[Any], entities: dict[str, EntityContents]) -> set[str]:
+def _read(
+    chunks: Iterable[Any], entities: dict[str, EntityContents]
+) -> set[str]:
     """Files every chunk under its entity in `entities`; returns the timelines the chunks use."""
     all_timelines: set[str] = set()
     for chunk in chunks:
@@ -156,11 +158,13 @@ class RrdContents:
             EntityContents
         )
         self.timelines = _read(reader.stream().to_chunks(), self.entities)
-        self.blueprint_entities: dict[str, EntityContents] = collections.defaultdict(
-            EntityContents
+        self.blueprint_entities: dict[str, EntityContents] = (
+            collections.defaultdict(EntityContents)
         )
         for store in self.blueprints:
-            _read(reader.stream(store=store).to_chunks(), self.blueprint_entities)
+            _read(
+                reader.stream(store=store).to_chunks(), self.blueprint_entities
+            )
 
     def has(self, entity_path: str, component: str) -> bool:
         entity = self.entities.get(entity_path)

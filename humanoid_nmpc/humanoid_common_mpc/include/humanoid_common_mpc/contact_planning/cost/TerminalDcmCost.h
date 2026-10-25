@@ -37,19 +37,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `terminal_dcm`: terminal capturability, w ||xi_N - zmp_{N-1} - r||^2 with xi = c + v / omega the divergent component
- * of motion, r = 0 (come to rest) or, with trackCommandedVelocity, r = v_cmd / omega (keep walking). It is written on
- * the last running node, whose ZMP is a variable, as w e^{2 omega dt} ||xi_{N-1} - zmp_{N-1} - e^{-omega dt} r||^2,
- * which is the same function because xi_N - zmp_{N-1} = e^{omega dt} (xi_{N-1} - zmp_{N-1}).
+ * `terminal_dcm`: terminal capturability, w ||xi_N - zmp_{N-1} - r||^2 with xi
+ * = c + v / omega the divergent component of motion, r = 0 (come to rest) or,
+ * with trackCommandedVelocity, r = v_cmd / omega (keep walking). It is written
+ * on the last running node, whose ZMP is a variable, as w e^{2 omega dt}
+ * ||xi_{N-1} - zmp_{N-1} - e^{-omega dt} r||^2, which is the same function
+ * because xi_N - zmp_{N-1} = e^{omega dt} (xi_{N-1} - zmp_{N-1}).
  *
- * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
  */
 class TerminalDcmCost final : public LipWeightedCost {
  public:
   std::string describe() const override;
   void configure(const ContactPlanningConfig& config) override;
   NodeSet nodeSet() const override { return NodeSet::kLastRunning; }
-  void addToStage(const ContactPlanningContext& ctx, int node, StageAccumulator& stage) const override;
+  void addToStage(const ContactPlanningContext& ctx,
+                  int node,
+                  StageAccumulator& stage) const override;
   bool tracksCommandedVelocity() const { return trackCommandedVelocity_; }
 
  private:

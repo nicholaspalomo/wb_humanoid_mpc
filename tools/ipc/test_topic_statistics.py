@@ -42,7 +42,9 @@ def snapshot_of(
 
 
 def feed(
-    statistics: topic_statistics.RateStatistics, times: list[float], size: int = 100
+    statistics: topic_statistics.RateStatistics,
+    times: list[float],
+    size: int = 100,
 ) -> None:
     """Adds a message of `size` bytes to `statistics` at each of `times`."""
     for receive_time in times:
@@ -107,7 +109,9 @@ class RateStatisticsTest(unittest.TestCase):
     def test_the_report_names_the_topic_rate_jitter_and_size(self) -> None:
         statistics = topic_statistics.RateStatistics(window_size=10)
         feed(statistics, [0.0, 0.5, 1.0], size=2048)
-        report = topic_statistics.format_snapshot("mpc/status", snapshot_of(statistics))
+        report = topic_statistics.format_snapshot(
+            "mpc/status", snapshot_of(statistics)
+        )
         self.assertIn("mpc/status: average rate 2.000 Hz", report)
         self.assertIn("jitter (std dev) 0.000 ms", report)
         self.assertIn("size mean 2.0 KiB", report)
@@ -118,7 +122,9 @@ class FormatBytesTest(unittest.TestCase):
     def test_units(self) -> None:
         self.assertEqual(topic_statistics.format_bytes(512), "512 B")
         self.assertEqual(topic_statistics.format_bytes(40 * 1024), "40.0 KiB")
-        self.assertEqual(topic_statistics.format_bytes(3 * 1024 * 1024), "3.0 MiB")
+        self.assertEqual(
+            topic_statistics.format_bytes(3 * 1024 * 1024), "3.0 MiB"
+        )
 
 
 class TopicCensusTest(unittest.TestCase):
@@ -127,12 +133,15 @@ class TopicCensusTest(unittest.TestCase):
         census = topic_statistics.TopicCensus()
         for receive_time in (0.0, 0.5, 1.0):
             census.add(
-                "robot/state", "humanoid_mpc_msgs.RobotStateSample", receive_time
+                "robot/state",
+                "humanoid_mpc_msgs.RobotStateSample",
+                receive_time,
             )
         census.add("mpc/status", "humanoid_mpc_msgs.MpcStatus", 0.2)
         summaries = census.summaries()
         self.assertEqual(
-            [summary.topic for summary in summaries], ["mpc/status", "robot/state"]
+            [summary.topic for summary in summaries],
+            ["mpc/status", "robot/state"],
         )
         self.assertEqual(summaries[1].count, 3)
         rate = summaries[1].rate_hz
@@ -145,11 +154,14 @@ class TopicCensusTest(unittest.TestCase):
         census = topic_statistics.TopicCensus()
         census.add("operator/fsm_command", "humanoid_mpc_msgs.FsmCommand", 0.0)
         census.add(
-            "operator/fsm_command", "humanoid_mpc_msgs.WalkingVelocityCommand", 0.1
+            "operator/fsm_command",
+            "humanoid_mpc_msgs.WalkingVelocityCommand",
+            0.1,
         )
         table = topic_statistics.format_census(census.summaries())
         self.assertIn(
-            "humanoid_mpc_msgs.FsmCommand, humanoid_mpc_msgs.WalkingVelocityCommand",
+            "humanoid_mpc_msgs.FsmCommand,"
+            " humanoid_mpc_msgs.WalkingVelocityCommand",
             table,
         )
 

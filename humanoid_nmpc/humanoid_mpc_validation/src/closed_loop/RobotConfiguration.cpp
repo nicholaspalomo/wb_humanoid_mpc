@@ -41,15 +41,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::validation {
 namespace {
 
-// The contact planner's own file, beside the task file: kContactPlanningFileName of humanoid_common_mpc, spelled here so
-// that the metrics library does not link the MPC's.
+// The contact planner's own file, beside the task file:
+// kContactPlanningFileName of humanoid_common_mpc, spelled here so that the
+// metrics library does not link the MPC's.
 // LINT.IfChange(contact_planning_file_name)
 constexpr char kContactPlanningFile[] = "contact_planning.textproto";
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/config/ConfigFiles.h:contact_planning_file_name)
 
-constexpr char kGaitFile[] = "humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto";
+constexpr char kGaitFile[] =
+    "humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto";
 
-/** A configuration whose MPC package keeps its files in `configDir` (config/mpc, config/command, config/controller). */
+/** A configuration whose MPC package keeps its files in `configDir`
+ * (config/mpc, config/command, config/controller). */
 RobotConfiguration makeConfiguration(const std::string& name,
                                      MpcFormulation formulation,
                                      const std::string& configDir,
@@ -61,8 +64,10 @@ RobotConfiguration makeConfiguration(const std::string& name,
   configuration.formulation = formulation;
   // LINT.IfChange(config_layout)
   configuration.taskFile = absl::StrCat(configDir, "/mpc/task.textproto");
-  configuration.referenceFile = absl::StrCat(configDir, "/command/reference.textproto");
-  configuration.pdGainsFile = absl::StrCat(configDir, "/controller/joint_pd_gains.textproto");
+  configuration.referenceFile =
+      absl::StrCat(configDir, "/command/reference.textproto");
+  configuration.pdGainsFile =
+      absl::StrCat(configDir, "/controller/joint_pd_gains.textproto");
   // clang-format off
   // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/config/ConfigFiles.h:config_layout, //humanoid_nmpc/remote_control/remote_control/config_files.py:config_layout)
   // clang-format on
@@ -74,52 +79,80 @@ RobotConfiguration makeConfiguration(const std::string& name,
 }
 
 std::vector<RobotConfiguration> makeConfigurations() {
-  // The files of robot_models/<robot>/<package>/launch/robot.textproto and mpc.textproto.
+  // The files of robot_models/<robot>/<package>/launch/robot.textproto and
+  // mpc.textproto.
   return {
-      makeConfiguration("drc_atlas", MpcFormulation::kCentroidal, "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config",
-                        "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf",
-                        "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml", /*walkingScenario=*/"walk_0p5"),
-      makeConfiguration("engineai_sa01", MpcFormulation::kCentroidal, "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config",
-                        "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.urdf",
-                        "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.xml", /*walkingScenario=*/"walk_0p3"),
-      makeConfiguration("unitree_g1", MpcFormulation::kCentroidal, "robot_models/unitree_g1/g1_centroidal_mpc/config",
-                        "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf",
-                        "robot_models/unitree_g1/g1_description/urdf/g1_29dof.xml", /*walkingScenario=*/"walk_0p5"),
-      makeConfiguration("unitree_r1", MpcFormulation::kCentroidal, "robot_models/unitree_r1/unitree_r1_centroidal_mpc/config",
-                        "robot_models/unitree_r1/unitree_r1_description/urdf/R1.urdf",
-                        "robot_models/unitree_r1/unitree_r1_description/urdf/R1.xml", /*walkingScenario=*/"walk_0p3"),
-      makeConfiguration("unitree_g1_wb", MpcFormulation::kWholeBody, "robot_models/unitree_g1/g1_wb_mpc/config",
-                        "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf",
-                        "robot_models/unitree_g1/g1_description/urdf/g1_29dof.xml", /*walkingScenario=*/"walk_0p5"),
+      makeConfiguration(
+          "drc_atlas", MpcFormulation::kCentroidal,
+          "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config",
+          "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf",
+          "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml",
+          /*walkingScenario=*/"walk_0p5"),
+      makeConfiguration(
+          "engineai_sa01", MpcFormulation::kCentroidal,
+          "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config",
+          "robot_models/engineai_sa01/engineai_sa01_description/urdf/"
+          "zq_sa01.urdf",
+          "robot_models/engineai_sa01/engineai_sa01_description/urdf/"
+          "zq_sa01.xml",
+          /*walkingScenario=*/"walk_0p3"),
+      makeConfiguration(
+          "unitree_g1", MpcFormulation::kCentroidal,
+          "robot_models/unitree_g1/g1_centroidal_mpc/config",
+          "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf",
+          "robot_models/unitree_g1/g1_description/urdf/g1_29dof.xml",
+          /*walkingScenario=*/"walk_0p5"),
+      makeConfiguration(
+          "unitree_r1", MpcFormulation::kCentroidal,
+          "robot_models/unitree_r1/unitree_r1_centroidal_mpc/config",
+          "robot_models/unitree_r1/unitree_r1_description/urdf/R1.urdf",
+          "robot_models/unitree_r1/unitree_r1_description/urdf/R1.xml",
+          /*walkingScenario=*/"walk_0p3"),
+      makeConfiguration(
+          "unitree_g1_wb", MpcFormulation::kWholeBody,
+          "robot_models/unitree_g1/g1_wb_mpc/config",
+          "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf",
+          "robot_models/unitree_g1/g1_description/urdf/g1_29dof.xml",
+          /*walkingScenario=*/"walk_0p5"),
   };
 }
 
 }  // namespace
 
 std::string formulationName(MpcFormulation formulation) {
-  return formulation == MpcFormulation::kCentroidal ? "centroidal" : "whole_body";
+  return formulation == MpcFormulation::kCentroidal ? "centroidal"
+                                                    : "whole_body";
 }
 
 std::vector<std::string> RobotConfiguration::configurationFiles() const {
-  std::vector<std::string> files = {taskFile, referenceFile, gaitFile, pdGainsFile, urdfFile, sceneFile};
-  const std::string contactPlanningFile = (std::filesystem::path(taskFile).parent_path() / kContactPlanningFile).string();
-  std::error_code error;  // a file that cannot be examined is not listed, as a missing one
-  if (std::filesystem::exists(contactPlanningFile, error)) files.push_back(contactPlanningFile);
+  std::vector<std::string> files = {taskFile,    referenceFile, gaitFile,
+                                    pdGainsFile, urdfFile,      sceneFile};
+  const std::string contactPlanningFile =
+      (std::filesystem::path(taskFile).parent_path() / kContactPlanningFile)
+          .string();
+  std::error_code
+      error;  // a file that cannot be examined is not listed, as a missing one
+  if (std::filesystem::exists(contactPlanningFile, error))
+    files.push_back(contactPlanningFile);
   return files;
 }
 
 const std::vector<RobotConfiguration>& robotConfigurations() {
-  static const absl::NoDestructor<std::vector<RobotConfiguration>> kConfigurations(makeConfigurations());
+  static const absl::NoDestructor<std::vector<RobotConfiguration>>
+      kConfigurations(makeConfigurations());
   return *kConfigurations;
 }
 
-absl::StatusOr<RobotConfiguration> findRobotConfiguration(absl::string_view name) {
+absl::StatusOr<RobotConfiguration> findRobotConfiguration(
+    absl::string_view name) {
   std::string names;
   for (const RobotConfiguration& configuration : robotConfigurations()) {
     if (configuration.name == name) return configuration;
     absl::StrAppend(&names, names.empty() ? "" : ", ", configuration.name);
   }
-  return absl::NotFoundError(absl::StrCat("[findRobotConfiguration] no configuration '", name, "'; the configurations are ", names));
+  return absl::NotFoundError(
+      absl::StrCat("[findRobotConfiguration] no configuration '", name,
+                   "'; the configurations are ", names));
 }
 
 }  // namespace ocs2::humanoid::validation

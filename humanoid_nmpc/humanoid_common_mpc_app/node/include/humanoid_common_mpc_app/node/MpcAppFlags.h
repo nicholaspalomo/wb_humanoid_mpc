@@ -35,10 +35,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/node/MpcFiles.h"
 
-// The command line every laptop-side MPC binary shares (the MPC nodes and the dummy simulators of both formulations):
-// the robot and its files, and the network. Each binary defines --ipc_node itself, with the node it plays as default.
-// Defined in MpcAppFlags.cpp, so link :mpc_app_flags into binaries only: a library that defined them as well could not
-// be linked next to it.
+// The command line every laptop-side MPC binary shares (the MPC nodes and the
+// dummy simulators of both formulations): the robot and its files, and the
+// network. Each binary defines --ipc_node itself, with the node it plays as
+// default. Defined in MpcAppFlags.cpp, so link :mpc_app_flags into binaries
+// only: a library that defined them as well could not be linked next to it.
 // LINT.IfChange(mpc_app_flags)
 ABSL_DECLARE_FLAG(std::string, robot_name);
 ABSL_DECLARE_FLAG(std::string, task_file);

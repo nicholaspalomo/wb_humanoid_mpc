@@ -69,8 +69,12 @@ class AmericanSpellingTest(unittest.TestCase):
         self.assertEqual(
             fixed("HeadingRelinearisationStage"), "HeadingRelinearizationStage"
         )
-        self.assertEqual(fixed("heading_relinearisation"), "heading_relinearization")
-        self.assertEqual(fixed("MPCCentre COLOUR Colour"), "MPCCenter COLOR Color")
+        self.assertEqual(
+            fixed("heading_relinearisation"), "heading_relinearization"
+        )
+        self.assertEqual(
+            fixed("MPCCentre COLOUR Colour"), "MPCCenter COLOR Color"
+        )
 
     def test_compound_words_with_a_british_root_are_fixed(self):
         cases = {
@@ -85,7 +89,9 @@ class AmericanSpellingTest(unittest.TestCase):
         for british, american in cases.items():
             with self.subTest(british=british):
                 self.assertEqual(fixed(british), american)
-                self.assertEqual(len(american_spelling.check_source(british)), 1)
+                self.assertEqual(
+                    len(american_spelling.check_source(british)), 1
+                )
         # Inside an identifier, the compound part is fixed and the rest is kept.
         self.assertEqual(
             fixed("kNeighbourhoodRadius offcentre_throw"),
@@ -94,13 +100,19 @@ class AmericanSpellingTest(unittest.TestCase):
 
     def test_american_compound_words_are_left_alone(self):
         # Words that contain no British root, including American compounds of the roots.
-        text = "greyhound neighborhood offcenter colormap parameter diameter odometer accentuate"
+        text = (
+            "greyhound neighborhood offcenter colormap parameter diameter"
+            " odometer accentuate"
+        )
         self.assertEqual(fixed(text), text)
         self.assertEqual(american_spelling.check_source(text), [])
 
     def test_american_words_that_look_british_are_left_alone(self):
         # -ise and -our words that are American too, and "analyses", the plural of "analysis".
-        text = "advise exercise precise promise noise otherwise four hour your tour source course analyses"
+        text = (
+            "advise exercise precise promise noise otherwise four hour your"
+            " tour source course analyses"
+        )
         self.assertEqual(fixed(text), text)
         self.assertEqual(american_spelling.check_source(text), [])
 
@@ -114,7 +126,9 @@ class AmericanSpellingTest(unittest.TestCase):
         self.assertEqual(american_spelling.check_source(line), [])
 
     def test_findings_name_the_line_and_the_fix(self):
-        findings = american_spelling.check_source("ok\nthe centre of mass\n", "a.cpp")
+        findings = american_spelling.check_source(
+            "ok\nthe centre of mass\n", "a.cpp"
+        )
         self.assertEqual(
             [(f.line, f.british, f.american) for f in findings],
             [(2, "centre", "center")],
@@ -123,10 +137,16 @@ class AmericanSpellingTest(unittest.TestCase):
 
     def test_the_linter_runs_it(self):
         check_test_support.assert_check_behaves(
-            self, "american-spelling", "x = 1\n# the centre of mass\n", "src/a.py"
+            self,
+            "american-spelling",
+            "x = 1\n# the centre of mass\n",
+            "src/a.py",
         )
         check_test_support.assert_check_behaves(
-            self, "american-spelling", "int x;\n// the centre of mass\n", "src/a.cpp"
+            self,
+            "american-spelling",
+            "int x;\n// the centre of mass\n",
+            "src/a.cpp",
         )
         check_test_support.assert_registered(self, "american-spelling")
         # Robot model files are upstream data, and the checker's own word list is British on purpose.
@@ -138,7 +158,9 @@ class AmericanSpellingTest(unittest.TestCase):
         )
         self.assertEqual(
             check_test_support.findings(
-                "american-spelling", "centre\n", "tools/hooks/american_spelling.py"
+                "american-spelling",
+                "centre\n",
+                "tools/hooks/american_spelling.py",
             ),
             [],
         )

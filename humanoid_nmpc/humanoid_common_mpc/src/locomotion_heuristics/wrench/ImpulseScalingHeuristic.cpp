@@ -38,60 +38,80 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-absl::Status ImpulseScalingHeuristic::configure(const LocomotionHeuristicConfig& config,
-                                                const LocomotionHeuristicModelParameters& /*model*/) {
+absl::Status ImpulseScalingHeuristic::configure(
+    const LocomotionHeuristicConfig& config,
+    const LocomotionHeuristicModelParameters& /*model*/) {
   parameters_ = config.impulseScaling;
   return absl::OkStatus();
 }
 
-vector3_t ImpulseScalingHeuristic::forceOffset(const WrenchHeuristicContext& context, size_t contactIndex) const {
-  // H_f(Phi) = m g / (F beta), Bledt Table C.1, expressed as the OFFSET from the reference that already exists.
+vector3_t ImpulseScalingHeuristic::forceOffset(
+    const WrenchHeuristicContext& context, size_t contactIndex) const {
+  // H_f(Phi) = m g / (F beta), Bledt Table C.1, expressed as the OFFSET from
+  // the reference that already exists.
   //
-  // F is the number of FEET THE ROBOT HAS - a constant - and not the number in contact at this instant. That
-  // distinction is the whole content of the heuristic and it is easy to get wrong. The existing reference is
+  // F is the number of FEET THE ROBOT HAS - a constant - and not the number in
+  // contact at this instant. That distinction is the whole content of the
+  // heuristic and it is easy to get wrong. The existing reference is
   //
   //     f_z,now = W / n_stance(t),
   //
-  // which always sums to exactly W across the stance feet, at every instant. Bledt's reference is
+  // which always sums to exactly W across the stance feet, at every instant.
+  // Bledt's reference is
   //
   //     f_z,ref = W / (F beta),
   //
-  // the same value on every stance foot whatever n_stance(t) happens to be, so its total varies over the cycle -
-  // below W in single support, above it in double support - and averages, over one cycle,
+  // the same value on every stance foot whatever n_stance(t) happens to be, so
+  // its total varies over the cycle - below W in single support, above it in
+  // double support - and averages, over one cycle,
   //
   //     <n_stance> * W / (F beta) = (F beta) * W / (F beta) = W,
   //
-  // because the mean number of feet on the ground IS F times the duty factor. THAT is the impulse budget the
-  // heuristic exists to satisfy. Scaling W / n_stance(t) by 1/beta instead would put W/beta on the ground at every
-  // instant and deliver W T / beta over the cycle, i.e. it would regularize the solver towards accelerating the
-  // center of mass upwards for ever.
+  // because the mean number of feet on the ground IS F times the duty factor.
+  // THAT is the impulse budget the heuristic exists to satisfy. Scaling W /
+  // n_stance(t) by 1/beta instead would put W/beta on the ground at every
+  // instant and deliver W T / beta over the cycle, i.e. it would regularize the
+  // solver towards accelerating the center of mass upwards for ever.
   //
-  // Two sanity checks fall straight out. Standing (beta = 1, n_stance = F) gives W/F on each foot, which is the
-  // existing reference, so the offset is zero. A pure alternating single support (beta = 1/2, n_stance = 1) gives
-  // W on the one stance foot, which is again the existing reference. The correction therefore bites exactly where
-  // the two disagree - a gait with double support - and there it asks the feet to push harder than static
-  // equilibrium because a single-support phase is coming in which one of them will carry everything.
+  // Two sanity checks fall straight out. Standing (beta = 1, n_stance = F)
+  // gives W/F on each foot, which is the existing reference, so the offset is
+  // zero. A pure alternating single support (beta = 1/2, n_stance = 1) gives W
+  // on the one stance foot, which is again the existing reference. The
+  // correction therefore bites exactly where the two disagree - a gait with
+  // double support - and there it asks the feet to push harder than static
+  // equilibrium because a single-support phase is coming in which one of them
+  // will carry everything.
   if (context.numStanceFeet == 0) return vector3_t::Zero();
 
   const scalar_t numFeet = static_cast<scalar_t>(context.contactFlags.size());
-  const scalar_t dutyFactor = std::max(context.stanceDutyFactor[contactIndex], parameters_.minimumDutyFactor);
-  const scalar_t baseline = context.totalWeight / static_cast<scalar_t>(context.numStanceFeet);
+  const scalar_t dutyFactor = std::max(context.stanceDutyFactor[contactIndex],
+                                       parameters_.minimumDutyFactor);
+  const scalar_t baseline =
+      context.totalWeight / static_cast<scalar_t>(context.numStanceFeet);
   const scalar_t target = context.totalWeight / (numFeet * dutyFactor);
 
-  // `scale` blends between the two rather than switching, so that it can be swept from 0 without a discontinuity.
+  // `scale` blends between the two rather than switching, so that it can be
+  // swept from 0 without a discontinuity.
   scalar_t reference = baseline + parameters_.scale * (target - baseline);
-  // Clamped ABOVE by what the legs and the friction cone can deliver, and BELOW at zero because a contact force
-  // reference that pulls the robot down through the floor is not a reference any foot can track. The lower clamp is
-  // what makes a negative `scale` - which validate() also rejects - harmless rather than inverted.
-  reference = std::clamp(reference, 0.0, parameters_.maximumForceRatio * baseline);
+  // Clamped ABOVE by what the legs and the friction cone can deliver, and BELOW
+  // at zero because a contact force reference that pulls the robot down through
+  // the floor is not a reference any foot can track. The lower clamp is what
+  // makes a negative `scale` - which validate() also rejects - harmless rather
+  // than inverted.
+  reference =
+      std::clamp(reference, 0.0, parameters_.maximumForceRatio * baseline);
   return vector3_t(0.0, 0.0, reference - baseline);
 }
 
 std::string ImpulseScalingHeuristic::describe() const {
-  // The formula forceOffset() implements. Not "f_z *= scale / beta": that scales the INSTANTANEOUS weight compensation,
-  // puts W / beta on the ground at every instant, and is the form the comment on forceOffset() rejects.
-  return absl::StrCat("impulse_scaling: f_z = W/n + ", parameters_.scale, " * (W/(F max(beta, ", parameters_.minimumDutyFactor,
-                      ")) - W/n), clamped to [0, ", parameters_.maximumForceRatio, " * W/n]; beta over each foot's own stride");
+  // The formula forceOffset() implements. Not "f_z *= scale / beta": that
+  // scales the INSTANTANEOUS weight compensation, puts W / beta on the ground
+  // at every instant, and is the form the comment on forceOffset() rejects.
+  return absl::StrCat("impulse_scaling: f_z = W/n + ", parameters_.scale,
+                      " * (W/(F max(beta, ", parameters_.minimumDutyFactor,
+                      ")) - W/n), clamped to [0, ",
+                      parameters_.maximumForceRatio,
+                      " * W/n]; beta over each foot's own stride");
 }
 
 }  // namespace ocs2::humanoid

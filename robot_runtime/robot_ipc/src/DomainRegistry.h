@@ -27,7 +27,8 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// The DDS domains of this process, which every Bus of a domain shares. Private to the library: not in include/.
+// The DDS domains of this process, which every Bus of a domain shares. Private
+// to the library: not in include/.
 
 #pragma once
 
@@ -42,10 +43,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::ipc {
 
 /**
- * The Cyclone DDS domains of this process, with the configuration each was created with. A process configures a
- * domain once (dds_create_domain() refuses a second time), so the buses of one domain share it: the first bus creates
- * it, the last one to release it deletes it, and a later bus may then create it again, with another configuration.
- * Thread-safe.
+ * The Cyclone DDS domains of this process, with the configuration each was
+ * created with. A process configures a domain once (dds_create_domain() refuses
+ * a second time), so the buses of one domain share it: the first bus creates
+ * it, the last one to release it deletes it, and a later bus may then create it
+ * again, with another configuration. Thread-safe.
  */
 class DomainRegistry {
  public:
@@ -57,14 +59,16 @@ class DomainRegistry {
   DomainRegistry& operator=(DomainRegistry&&) = delete;
 
   /**
-   * Creates domain `domainId` with `config` (Cyclone DDS XML), or counts one more user of it when it exists with the
-   * same configuration. One that exists with another configuration is FailedPrecondition: two buses of one process
-   * would disagree about the network. A DDS failure (an invalid configuration, an interface that does not exist) is
-   * Internal.
+   * Creates domain `domainId` with `config` (Cyclone DDS XML), or counts one
+   * more user of it when it exists with the same configuration. One that exists
+   * with another configuration is FailedPrecondition: two buses of one process
+   * would disagree about the network. A DDS failure (an invalid configuration,
+   * an interface that does not exist) is Internal.
    */
   absl::Status acquire(int domainId, const std::string& config);
 
-  /** Releases one use of `domainId` from acquire(); the last release deletes the domain. */
+  /** Releases one use of `domainId` from acquire(); the last release deletes
+   * the domain. */
   void release(int domainId);
 
  private:

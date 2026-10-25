@@ -35,6 +35,8 @@ Run it from the repository root as a module:
     python3 -m tools.hooks.lint_code --only no-auto,boost  # some checks or steps only
     python3 -m tools.hooks.lint_code --paths robot_runtime --only pointer-nullability --summary
     python3 -m tools.hooks.lint_code --fix --only float-literal --paths humanoid_nmpc/humanoid_wb_mpc
+    python3 -m tools.hooks.lint_code --fix-only            # every automatic fix, no lint run (the first step of make fix)
+    python3 -m tools.hooks.lint_code --fix-only --git-staged   # the same on the staged files (the pre-commit hook)
 
 The steps, in order: IFTTT directives; trailing whitespace and EOF newlines; clang-format; black; isort; the token
 checks of the registry (tools/hooks/checks.py: argument comments, Boost, spelling, the protobuf layout, NOLINT markers,
@@ -79,19 +81,28 @@ LINT_LOCK_ENVIRONMENT = "WB_LINT_MACHINE_LOCK"
 LOCK_FILE = "tools/hooks/lint_requirements_lock.txt"
 # The image's clang-format major version (`ARG CLANG_FORMAT_VERSION`), which CI's format job installs too.
 DOCKERFILE = "docker/Dockerfile"
-_CLANG_FORMAT_PIN = re.compile(r"^ARG CLANG_FORMAT_VERSION=(\d+)\s*$", re.MULTILINE)
+_CLANG_FORMAT_PIN = re.compile(
+    r"^ARG CLANG_FORMAT_VERSION=(\d+)\s*$", re.MULTILINE
+)
 PYLINT_CONFIG = ".pylintrc"
 MYPY_CONFIG = "mypy.ini"
 ISORT_CONFIG = ".isort.cfg"
+# The columns black formats Python code to (make format, the black step): the C++ column limit. Comments and docstrings
+# may run longer (.pylintrc max-line-length).
+# LINT.IfChange(black_line_length)
+BLACK_LINE_LENGTH = 80
+# LINT.ThenChange(//.clang-format:column_limit, //.pylintrc:repository_changes)
 
 # cpplint reads these; the others (.inl, .tpp, ...) are textual includes it would misjudge.
 CPPLINT_EXTENSIONS = (".h", ".hpp", ".cpp", ".cc")
 CPPLINT_PROCESSES = 4
 
 _REBUILD = (
-    "rebuild the dev container (docker/Dockerfile installs tools/hooks/lint_requirements_lock.txt into /opt/wb-lint), "
-    "or install the lock into a venv on PATH: python3 -m venv ~/.cache/wb-lint && ~/.cache/wb-lint/bin/pip install "
-    "--require-hashes -r tools/hooks/lint_requirements_lock.txt"
+    "rebuild the dev container (docker/Dockerfile installs"
+    " tools/hooks/lint_requirements_lock.txt into /opt/wb-lint), or install the"
+    " lock into a venv on PATH: python3 -m venv ~/.cache/wb-lint &&"
+    " ~/.cache/wb-lint/bin/pip install --require-hashes -r"
+    " tools/hooks/lint_requirements_lock.txt"
 )
 
 
@@ -169,7 +180,8 @@ def _cpp_files(context: Context) -> list[str]:
     return [
         path
         for path in context.files
-        if path.endswith(lint_files.CPP_EXTENSIONS) and lint_files.is_first_party(path)
+        if path.endswith(lint_files.CPP_EXTENSIONS)
+        and lint_files.is_first_party(path)
     ]
 
 
@@ -183,12 +195,16 @@ def _python_files(context: Context) -> list[str]:
 
 def _python_sources(context: Context) -> list[str]:
     return [
-        path for path in _python_files(context) if not lint_files.is_test_path(path)
+        path
+        for path in _python_files(context)
+        if not lint_files.is_test_path(path)
     ]
 
 
 def _python_tests(context: Context) -> list[str]:
-    return [path for path in _python_files(context) if lint_files.is_test_path(path)]
+    return [
+        path for path in _python_files(context) if lint_files.is_test_path(path)
+    ]
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -203,7 +219,9 @@ def pinned_versions(root: str) -> dict[str, str]:
             for line in f:
                 match = re.match(r"^([A-Za-z0-9_.\-]+)==([^\s\\;]+)", line)
                 if match:
-                    pins[match.group(1).lower().replace("_", "-")] = match.group(2)
+                    pins[match.group(1).lower().replace("_", "-")] = (
+                        match.group(2)
+                    )
     return pins
 
 
@@ -229,7 +247,10 @@ _VERSION_PATTERNS = {
     "clang-format": re.compile(r"clang-format version (\d+)\."),
 }
 # What to do about a clang-format of another version than the image's.
-_INSTALL_CLANG_FORMAT = "rebuild the dev container, or install the image's clang-format with 'sudo sh docker/install_llvm_tools.sh format'"
+_INSTALL_CLANG_FORMAT = (
+    "rebuild the dev container, or install the image's clang-format with 'sudo"
+    " sh docker/install_llvm_tools.sh format'"
+)
 
 
 def installed_version(tool: str) -> str | None:
@@ -276,7 +297,8 @@ def _tool_problem(context: Context, tool: str) -> Result | None:
     if context.ci:
         return Result("failed", [f"❌ {problem}."], hint=remedy)
     return Result(
-        "skipped", [f"⚠️ Warning: {problem}; skipping {tool}. To run it, {remedy}."]
+        "skipped",
+        [f"⚠️ Warning: {problem}; skipping {tool}. To run it, {remedy}."],
     )
 
 
@@ -297,7 +319,9 @@ def _python_environment(root: str) -> dict[str, str]:
 # ----------------------------------------------------------------------------------------------------------------------
 def lint_lock_path(root: str) -> str:
     """The lint lock file: WB_LINT_MACHINE_LOCK, or .lint_machine.lock at the checkout root."""
-    return os.environ.get(LINT_LOCK_ENVIRONMENT) or os.path.join(root, LINT_LOCK)
+    return os.environ.get(LINT_LOCK_ENVIRONMENT) or os.path.join(
+        root, LINT_LOCK
+    )
 
 
 @contextlib.contextmanager
@@ -308,8 +332,9 @@ def lint_lock(root: str) -> Iterator[None]:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             print(
-                "⏳ waiting for the lint lock (another make lint is running): cpplint, pylint and mypy take turns so "
-                "that they fit next to a build (AGENTS.md, 'Builds share one machine's memory').",
+                "⏳ waiting for the lint lock (another make lint is running):"
+                " cpplint, pylint and mypy take turns so that they fit next to"
+                " a build (AGENTS.md, 'Builds share one machine's memory').",
                 flush=True,
             )
             fcntl.flock(lock, fcntl.LOCK_EX)
@@ -338,7 +363,9 @@ def _run_ifttt(context: Context) -> Result:
     )
     if result.returncode == 0:
         return _passed()
-    return Result("failed", (result.stdout + result.stderr).rstrip().splitlines())
+    return Result(
+        "failed", (result.stdout + result.stderr).rstrip().splitlines()
+    )
 
 
 def whitespace_problem(content: str) -> str | None:
@@ -396,7 +423,8 @@ def _run_clang_format(context: Context) -> Result:
         return _passed()
     return Result(
         "failed",
-        result.stderr.rstrip().splitlines() + ["clang-format violations detected."],
+        result.stderr.rstrip().splitlines()
+        + ["clang-format violations detected."],
         hint="Run 'make format' to format C++ code.",
     )
 
@@ -410,7 +438,7 @@ def _run_black(context: Context) -> Result:
     if problem:
         return problem
     result = subprocess.run(
-        ["black", "--check", *files],
+        ["black", "--check", "--line-length", str(BLACK_LINE_LENGTH), *files],
         cwd=context.root,
         capture_output=True,
         text=True,
@@ -461,7 +489,9 @@ def _run_isort(context: Context) -> Result:
 def _token_findings(context: Context) -> list[check_types.Finding]:
     findings: list[check_types.Finding] = []
     for path in context.files:
-        if not any(checks.by_name(name).applies_to(path) for name in context.selected):
+        if not any(
+            checks.by_name(name).applies_to(path) for name in context.selected
+        ):
             continue
         findings += checks.run_file(
             context.read(path), path, context.selected, context.root
@@ -476,9 +506,13 @@ def _summary_lines(findings: list[check_types.Finding], root: str) -> list[str]:
         collections.Counter
     )
     for finding in findings:
-        per_package[finding.check][lint_files.bazel_package(finding.path, root)] += 1
+        per_package[finding.check][
+            lint_files.bazel_package(finding.path, root)
+        ] += 1
     lines = []
-    for check, count in sorted(per_check.items(), key=lambda kv: (-kv[1], kv[0])):
+    for check, count in sorted(
+        per_check.items(), key=lambda kv: (-kv[1], kv[0])
+    ):
         lines.append(f"{count:6d}  {check}")
         for package, package_count in sorted(
             per_package[check].items(), key=lambda kv: (-kv[1], kv[0])
@@ -500,14 +534,18 @@ def _run_token_checks(context: Context) -> Result:
     for name in sorted({finding.check for finding in findings}):
         check = checks.by_name(name)
         count = sum(1 for finding in findings if finding.check == name)
-        hints.append(f"[{name}] {count} finding(s): {check.hint or check.description}")
+        hints.append(
+            f"[{name}] {count} finding(s): {check.hint or check.description}"
+        )
     return Result("failed", lines, hint="\n".join(hints))
 
 
 _CPPLINT_LINE = re.compile(
     r"^(?P<path>.+?):(?P<line>\d+):\s+(?P<message>.*?)\s+\[(?P<category>[^\]]+)\]\s+\[\d\]$"
 )
-_UNKNOWN_NOLINT = re.compile(r"^Unknown NOLINT error category: (?P<category>\S+)$")
+_UNKNOWN_NOLINT = re.compile(
+    r"^Unknown NOLINT error category: (?P<category>\S+)$"
+)
 _NOT_IN_A_NOLINT_BLOCK = "Not in a NOLINT block"
 # The end of a block of the repository's checks or of clang-tidy's: categories without the slash of cpplint's own.
 _FOREIGN_NOLINT_END = re.compile(r"\bNOLINTEND\((?P<categories>[^)/]+)\)")
@@ -548,7 +586,8 @@ def filter_cpplint_output(
         ):
             continue
         lines.append(
-            f"{match.group('path')}:{match.group('line')}: {match.group('message')} [{match.group('category')}]"
+            f"{match.group('path')}:{match.group('line')}:"
+            f" {match.group('message')} [{match.group('category')}]"
         )
     return lines
 
@@ -559,7 +598,11 @@ def _chunks(items: list[str], count: int) -> list[list[str]]:
 
 def _run_cpplint(context: Context) -> Result:
     """Runs cpplint (CPPLINT.cfg) over the first-party C++ files, in parallel chunks."""
-    files = [path for path in _cpp_files(context) if path.endswith(CPPLINT_EXTENSIONS)]
+    files = [
+        path
+        for path in _cpp_files(context)
+        if path.endswith(CPPLINT_EXTENSIONS)
+    ]
     if not files:
         return _passed()
     problem = _tool_problem(context, "cpplint")
@@ -576,13 +619,17 @@ def _run_cpplint(context: Context) -> Result:
         )
         return result.stdout + result.stderr
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=CPPLINT_PROCESSES) as pool:
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=CPPLINT_PROCESSES
+    ) as pool:
         outputs = list(pool.map(run_chunk, _chunks(files, CPPLINT_PROCESSES)))
 
     @functools.lru_cache(maxsize=None)
     def file_lines(path: str) -> tuple[str, ...]:
         try:
-            with open(os.path.join(context.root, path), encoding="utf-8") as source:
+            with open(
+                os.path.join(context.root, path), encoding="utf-8"
+            ) as source:
                 return tuple(source.read().splitlines())
         except OSError:
             return ()
@@ -600,8 +647,10 @@ def _run_cpplint(context: Context) -> Result:
     return Result(
         "failed",
         lines,
-        hint="cpplint checks the Google C++ Style Guide (CPPLINT.cfg); a justified exception is "
-        "`// NOLINT(<category>): <reason>`.",
+        hint=(
+            "cpplint checks the Google C++ Style Guide (CPPLINT.cfg); a"
+            " justified exception is `// NOLINT(<category>): <reason>`."
+        ),
     )
 
 
@@ -626,7 +675,9 @@ def _pylint(context: Context, files: list[str], extra: list[str]) -> Result:
         check=False,
     )
     lines = [
-        line for line in result.stdout.splitlines() if re.match(r"^\S+:\d+:\d+: ", line)
+        line
+        for line in result.stdout.splitlines()
+        if re.match(r"^\S+:\d+:\d+: ", line)
     ]
     if result.returncode == 0 and not lines:
         return _passed()
@@ -635,8 +686,10 @@ def _pylint(context: Context, files: list[str], extra: list[str]) -> Result:
     return Result(
         "failed",
         lines,
-        hint="pylint checks the Google Python Style Guide (.pylintrc); a justified exception is "
-        "`# pylint: disable=<message>  # <reason>`.",
+        hint=(
+            "pylint checks the Google Python Style Guide (.pylintrc); a"
+            " justified exception is `# pylint: disable=<message>  # <reason>`."
+        ),
     )
 
 
@@ -646,7 +699,9 @@ def _run_pylint_sources(context: Context) -> Result:
 
 def _run_pylint_tests(context: Context) -> Result:
     # Tests may reach into the unit under test (Google Python Style Guide 3.16.2).
-    return _pylint(context, _python_tests(context), ["--disable=protected-access"])
+    return _pylint(
+        context, _python_tests(context), ["--disable=protected-access"]
+    )
 
 
 def _mypy(context: Context, files: list[str], extra: list[str]) -> Result:
@@ -681,7 +736,10 @@ def _mypy(context: Context, files: list[str], extra: list[str]) -> Result:
     return Result(
         "failed",
         lines,
-        hint="mypy checks the type annotations (mypy.ini); every non-test function is fully annotated.",
+        hint=(
+            "mypy checks the type annotations (mypy.ini); every non-test"
+            " function is fully annotated."
+        ),
     )
 
 
@@ -700,8 +758,9 @@ def mypy_config_problems(root: str) -> list[str]:
     parser = configparser.ConfigParser()
     parser.read(os.path.join(root, MYPY_CONFIG), encoding="utf-8")
     return [
-        f"{MYPY_CONFIG}: [{section}] sets options for one module, and every module is held to the global ones: "
-        "delete the section and fix what it hid, or mark one line `# type: ignore[<code>]  # <reason>`."
+        f"{MYPY_CONFIG}: [{section}] sets options for one module, and every"
+        " module is held to the global ones: delete the section and fix what"
+        " it hid, or mark one line `# type: ignore[<code>]  # <reason>`."
         for section in parser.sections()
         if section.startswith("mypy-")
     ]
@@ -731,9 +790,15 @@ def _run_mypy_tests(context: Context) -> Result:
 STEPS = (
     Step("ifttt", "Checking IFTTT cross-file directives", _run_ifttt),
     Step(
-        "whitespace", "Checking trailing whitespace and EOF newlines", _run_whitespace
+        "whitespace",
+        "Checking trailing whitespace and EOF newlines",
+        _run_whitespace,
     ),
-    Step("clang-format", "Checking C++ formatting (clang-format)", _run_clang_format),
+    Step(
+        "clang-format",
+        "Checking C++ formatting (clang-format)",
+        _run_clang_format,
+    ),
     Step("black", "Checking Python formatting (black)", _run_black),
     Step("isort", "Checking the order of Python imports (isort)", _run_isort),
     Step(
@@ -742,7 +807,10 @@ STEPS = (
         _run_token_checks,
     ),
     Step(
-        "cpplint", "Checking C++ with cpplint (CPPLINT.cfg)", _run_cpplint, heavy=True
+        "cpplint",
+        "Checking C++ with cpplint (CPPLINT.cfg)",
+        _run_cpplint,
+        heavy=True,
     ),
     Step(
         "pylint",
@@ -806,12 +874,15 @@ def _parse_only(only: str | None) -> tuple[frozenset[str], frozenset[str]]:
     """The registry checks and steps --only names; with no --only, every check and step."""
     if not only:
         return checks.names(), STEP_NAMES
-    requested = frozenset(name.strip() for name in only.split(",") if name.strip())
+    requested = frozenset(
+        name.strip() for name in only.split(",") if name.strip()
+    )
     unknown = requested - checks.names() - STEP_NAMES
     if unknown:
         raise ValueError(
-            f"unknown check or step {', '.join(sorted(unknown))}: --only takes the names of tools/hooks/checks.py "
-            f"and the steps {', '.join(sorted(STEP_NAMES))}"
+            f"unknown check or step {', '.join(sorted(unknown))}: --only takes"
+            " the names of tools/hooks/checks.py and the steps"
+            f" {', '.join(sorted(STEP_NAMES))}"
         )
     selected = requested & checks.names()
     steps = requested & STEP_NAMES
@@ -822,7 +893,10 @@ def _parse_only(only: str | None) -> tuple[frozenset[str], frozenset[str]]:
     return selected, steps
 
 
-def _apply_fixes(root: str, files: list[str], selected: frozenset[str]) -> list[str]:
+def _apply_fixes(
+    root: str, files: list[str], selected: frozenset[str]
+) -> list[str]:
+    """Rewrites `files` (below `root`) with the fixes of the `selected` checks; returns the files it changed."""
     fixed = []
     for path in files:
         full = os.path.join(root, path)
@@ -854,8 +928,12 @@ def run(context: Context) -> int:
                     print(f"💡 {line}")
             results.append((step, result))
             sys.stdout.flush()
-    failed = [step.name for step, result in results if result.status == "failed"]
-    skipped = [step.name for step, result in results if result.status == "skipped"]
+    failed = [
+        step.name for step, result in results if result.status == "failed"
+    ]
+    skipped = [
+        step.name for step, result in results if result.status == "skipped"
+    ]
     skipped_note = f" (skipped: {', '.join(skipped)})" if skipped else ""
     if failed:
         print(f"❌ Lint failed in: {', '.join(failed)}{skipped_note}")
@@ -867,19 +945,31 @@ def run(context: Context) -> int:
 def main(argv: Sequence[str] | None = None) -> int:
     """Parses the command line and runs the linter."""
     parser = argparse.ArgumentParser(
-        description="The repository's linter (make lint): every check that needs no compiler."
+        description=(
+            "The repository's linter (make lint): every check that needs no"
+            " compiler."
+        )
     )
     parser.add_argument(
         "--git-staged",
         action="store_true",
-        help="lint the files staged for commit; the token checks read the index (the pre-commit hook)",
+        help=(
+            "lint the files staged for commit; the token checks read the index"
+            " (the pre-commit hook)"
+        ),
     )
     parser.add_argument(
         "--only",
-        help="comma-separated names of checks (tools/hooks/checks.py) or steps to run",
+        help=(
+            "comma-separated names of checks (tools/hooks/checks.py) or steps"
+            " to run"
+        ),
     )
     parser.add_argument(
-        "--paths", nargs="+", default=[], help="lint only files under these paths"
+        "--paths",
+        nargs="+",
+        default=[],
+        help="lint only files under these paths",
     )
     parser.add_argument(
         "--fix",
@@ -887,14 +977,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="first apply the fixes of the selected checks to the working tree",
     )
     parser.add_argument(
+        "--fix-only",
+        action="store_true",
+        help=(
+            "apply the fixes of the selected checks to the working tree and"
+            " exit without linting (make fix); with --git-staged, to the"
+            " working-tree copies of the staged files (the pre-commit hook)"
+        ),
+    )
+    parser.add_argument(
         "--summary",
         action="store_true",
-        help="print the number of token-check findings per check and Bazel package instead of the findings",
+        help=(
+            "print the number of token-check findings per check and Bazel"
+            " package instead of the findings"
+        ),
     )
     args = parser.parse_args(argv)
+    # --fix-only --git-staged fixes the working-tree copies of the staged files, which the pre-commit hook then
+    # re-stages. --fix --git-staged would lint the index, which does not hold the fixes yet.
     if args.fix and args.git_staged:
         parser.error(
-            "--fix rewrites the working tree; it cannot be combined with --git-staged"
+            "--fix rewrites the working tree and --git-staged lints the index;"
+            " use --fix-only --git-staged, stage the fixes, then lint"
         )
     try:
         selected, steps = _parse_only(args.only)
@@ -902,9 +1007,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error(str(error))
     root = REPO_ROOT
     files = _select_files(root, args.git_staged, args.paths)
-    if args.fix:
+    if args.fix or args.fix_only:
         for path in _apply_fixes(root, files, selected):
             print(f"✨ fixed {path}")
+    if args.fix_only:
+        return 0
     context = Context(
         root=root,
         files=files,

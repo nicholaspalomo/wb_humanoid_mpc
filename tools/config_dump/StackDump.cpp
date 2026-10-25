@@ -67,8 +67,9 @@ namespace ocs2::humanoid::config_dump {
 namespace {
 
 /**
- * An MpcLink with no MPC behind it, for an MRT joint controller whose PD gains are dumped: observations go nowhere and no
- * policy ever arrives, so the controller starts no solver and opens no bus.
+ * An MpcLink with no MPC behind it, for an MRT joint controller whose PD gains
+ * are dumped: observations go nowhere and no policy ever arrives, so the
+ * controller starts no solver and opens no bus.
  */
 class NullMpcLink final : public MpcLink {
  public:
@@ -81,15 +82,19 @@ class NullMpcLink final : public MpcLink {
   /** An MRT that discards what it is given. */
   class NullMrt final : public MRT_BASE {
    public:
-    void resetMpcNode(const TargetTrajectories& /*initTargetTrajectories*/) override {}
-    void setCurrentObservation(const SystemObservation& /*observation*/) override {}
+    void resetMpcNode(
+        const TargetTrajectories& /*initTargetTrajectories*/) override {}
+    void setCurrentObservation(
+        const SystemObservation& /*observation*/) override {}
   };
 
   NullMrt mrt_;
 };
 
 MpcLinkFactory nullMpcLinkFactory() {
-  return [](const MpcLink::ResetTargetFunction& /*resetTarget*/) { return std::make_unique<NullMpcLink>(); };
+  return [](const MpcLink::ResetTargetFunction& /*resetTarget*/) {
+    return std::make_unique<NullMpcLink>();
+  };
 }
 
 /** The motion manager's target function, which the dump never calls. */
@@ -101,7 +106,8 @@ TargetTrajectories noTargets(const vector4_t& /*velocityTarget*/,
   return TargetTrajectories();
 }
 
-// A velocity command beyond every shipped limit, so that the limits clamp it: [m/s], [m] and [rad/s].
+// A velocity command beyond every shipped limit, so that the limits clamp it:
+// [m/s], [m] and [rad/s].
 constexpr scalar_t kSaturatingLinearVelocity = 5.0;
 constexpr scalar_t kSaturatingHeightChange = 1.0;
 constexpr scalar_t kSaturatingYawRate = 5.0;
@@ -112,51 +118,72 @@ constexpr scalar_t kPoseCommandDeltaY = 0.5;
 constexpr scalar_t kPoseCommandDeltaHeight = 0.1;
 constexpr scalar_t kPoseCommandDeltaYaw = 0.5;
 
-/** [v_x, v_y, delta height, yaw rate]: beyond every shipped limit, so that the limits clamp it. */
+/** [v_x, v_y, delta height, yaw rate]: beyond every shipped limit, so that the
+ * limits clamp it. */
 vector4_t saturatingVelocityCommand() {
-  return vector4_t(kSaturatingLinearVelocity, kSaturatingLinearVelocity, kSaturatingHeightChange, kSaturatingYawRate);
+  return vector4_t(kSaturatingLinearVelocity, kSaturatingLinearVelocity,
+                   kSaturatingHeightChange, kSaturatingYawRate);
 }
 
 /** [delta x, delta y, delta height, delta yaw] of a pose command. */
 vector4_t poseCommand() {
-  return vector4_t(kPoseCommandDeltaX, kPoseCommandDeltaY, kPoseCommandDeltaHeight, kPoseCommandDeltaYaw);
+  return vector4_t(kPoseCommandDeltaX, kPoseCommandDeltaY,
+                   kPoseCommandDeltaHeight, kPoseCommandDeltaYaw);
 }
 
-void dumpTargets(ValueDump& dump, TargetTrajectoriesCalculatorBase& calculator, const vector_t& initialState) {
+void dumpTargets(ValueDump& dump,
+                 TargetTrajectoriesCalculatorBase& calculator,
+                 const vector_t& initialState) {
   dump.addSection("target_trajectories");
-  dumpTargetTrajectories(dump, "target_trajectories.velocity_command",
-                         // The shipped initial state is at rest: no measured motion.
-                         calculator.commandedVelocityToTargetTrajectories(saturatingVelocityCommand(), /*initTime=*/0.0, initialState,
-                                                                          /*measuredMotion=*/BasePlanarMotion{}));
+  dumpTargetTrajectories(
+      dump, "target_trajectories.velocity_command",
+      // The shipped initial state is at rest: no measured motion.
+      calculator.commandedVelocityToTargetTrajectories(
+          saturatingVelocityCommand(), /*initTime=*/0.0, initialState,
+          /*measuredMotion=*/BasePlanarMotion{}));
   dumpTargetTrajectories(dump, "target_trajectories.position_command",
-                         calculator.commandedPositionToTargetTrajectories(poseCommand(), /*initTime=*/0.0, initialState));
+                         calculator.commandedPositionToTargetTrajectories(
+                             poseCommand(), /*initTime=*/0.0, initialState));
 }
 
-absl::Status dumpMotionManager(ValueDump& dump,
-                               const validation::RobotConfiguration& configuration,
-                               std::shared_ptr<SwitchedModelReferenceManager> referenceManager,
-                               const MpcRobotModelBase<scalar_t>& commandModel) {
+absl::Status dumpMotionManager(
+    ValueDump& dump,
+    const validation::RobotConfiguration& configuration,
+    std::shared_ptr<SwitchedModelReferenceManager> referenceManager,
+    const MpcRobotModelBase<scalar_t>& commandModel) {
   ASSIGN_OR_RETURN(std::unique_ptr<ProceduralMpcMotionManager> motionManager,
-                   ProceduralMpcMotionManager::Create(configuration.gaitFile, configuration.referenceFile, std::move(referenceManager),
-                                                      commandModel, noTargets));
+                   ProceduralMpcMotionManager::Create(
+                       configuration.gaitFile, configuration.referenceFile,
+                       std::move(referenceManager), commandModel, noTargets));
   dump.addSection("motion_manager");
   dumpGaitMap(dump, "motion_manager.gaits", motionManager->gaitMap());
-  dump.addDouble("motion_manager.maxLinearAcceleration", motionManager->getMaxLinearAcceleration());
-  dump.addDouble("motion_manager.maxAngularAcceleration", motionManager->getMaxAngularAcceleration());
-  dump.addDouble("motion_manager.velocityCommandFilterBreakFrequency", motionManager->getVelocityCommandFilterBreakFrequency());
+  dump.addDouble("motion_manager.maxLinearAcceleration",
+                 motionManager->getMaxLinearAcceleration());
+  dump.addDouble("motion_manager.maxAngularAcceleration",
+                 motionManager->getMaxAngularAcceleration());
+  dump.addDouble("motion_manager.velocityCommandFilterBreakFrequency",
+                 motionManager->getVelocityCommandFilterBreakFrequency());
   return absl::OkStatus();
 }
 
-/** The robot process's, the visualization's and the keyboard teleoperation's settings, which every formulation shares. */
-absl::Status dumpApplications(ValueDump& dump, const validation::RobotConfiguration& configuration, const ModelSettings& modelSettings) {
-  ASSIGN_OR_RETURN(const RobotProcessSettings robotProcess, loadRobotProcessSettings(configuration.taskFile));
+/** The robot process's, the visualization's and the keyboard teleoperation's
+ * settings, which every formulation shares. */
+absl::Status dumpApplications(
+    ValueDump& dump,
+    const validation::RobotConfiguration& configuration,
+    const ModelSettings& modelSettings) {
+  ASSIGN_OR_RETURN(const RobotProcessSettings robotProcess,
+                   loadRobotProcessSettings(configuration.taskFile));
   dump.addSection("robot_process");
   dumpRobotProcessSettings(dump, "robot_process", robotProcess);
   ASSIGN_OR_RETURN(const visualization::VisualizationConfig visualization,
-                   visualization::loadVisualizationConfig(configuration.taskFile, modelSettings));
+                   visualization::loadVisualizationConfig(
+                       configuration.taskFile, modelSettings));
   dump.addSection("visualization");
   dumpVisualizationConfig(dump, "visualization", visualization);
-  ASSIGN_OR_RETURN(const teleop::KeyboardCommandLimits keyboard, teleop::loadKeyboardCommandLimits(configuration.referenceFile));
+  ASSIGN_OR_RETURN(
+      const teleop::KeyboardCommandLimits keyboard,
+      teleop::loadKeyboardCommandLimits(configuration.referenceFile));
   dump.addSection("keyboard_teleop");
   dumpKeyboardCommandLimits(dump, "keyboard_teleop", keyboard);
   return absl::OkStatus();
@@ -175,107 +202,165 @@ void dumpSolver(ValueDump& dump,
   dumpRolloutSettings(dump, "rollout", rolloutSettings);
 }
 
-void dumpReferenceManager(ValueDump& dump, const SwitchedModelReferenceManager& referenceManager) {
+void dumpReferenceManager(
+    ValueDump& dump, const SwitchedModelReferenceManager& referenceManager) {
   dump.addSection("reference_manager");
-  dumpSwingSettings(dump, "reference_manager.swing_trajectory", referenceManager.getSwingTrajectoryPlanner()->getConfig());
-  dumpModeSchedule(dump, "reference_manager.initial_mode_schedule", referenceManager.getGaitSchedule()->getCurrentModeSchedule());
-  dump.addDouble("reference_manager.terrainHeight", referenceManager.getTerrainHeight());
+  dumpSwingSettings(dump, "reference_manager.swing_trajectory",
+                    referenceManager.getSwingTrajectoryPlanner()->getConfig());
+  dumpModeSchedule(
+      dump, "reference_manager.initial_mode_schedule",
+      referenceManager.getGaitSchedule()->getCurrentModeSchedule());
+  dump.addDouble("reference_manager.terrainHeight",
+                 referenceManager.getTerrainHeight());
 }
 
-absl::Status dumpCentroidal(ValueDump& dump, const validation::RobotConfiguration& configuration) {
+absl::Status dumpCentroidal(
+    ValueDump& dump, const validation::RobotConfiguration& configuration) {
   ASSIGN_OR_RETURN(std::unique_ptr<CentroidalMpcInterface> interface,
-                   CentroidalMpcInterface::Create(configuration.taskFile, configuration.urdfFile, configuration.referenceFile));
-  dumpSolver(dump, interface->modelSettings(), interface->mpcSettings(), interface->sqpSettings(), interface->rolloutSettings());
+                   CentroidalMpcInterface::Create(configuration.taskFile,
+                                                  configuration.urdfFile,
+                                                  configuration.referenceFile));
+  dumpSolver(dump, interface->modelSettings(), interface->mpcSettings(),
+             interface->sqpSettings(), interface->rolloutSettings());
   dump.addSection("interface");
   dump.addMatrix("interface.initialState", interface->getInitialState());
-  dump.addDouble("interface.nominalComHeight", interface->getNominalComHeight());
-  dump.addString("interface.contactInputParameterization", contactInputParameterizationName(interface->contactInputParameterization()));
-  dump.addString("interface.contactScheduleSource", contactScheduleSourceName(interface->contactScheduleSource()));
-  dump.addBool("interface.usesContactPlanning", interface->usesContactPlanning());
-  dump.addInteger("interface.wrenchInputDim", static_cast<int64_t>(interface->getWrenchInputDim()));
-  dump.addInteger("interface.numBasisInputs", static_cast<int64_t>(interface->getNumBasisInputs()));
-  dump.addDouble("interface.basisScalingRegularization", interface->getBasisScalingRegularization());
-  dump.addString("interface.basisGeneratorSet", interface->getBasisGeneratorSet());
-  dump.addBool("interface.basisToWrenchMap.has_value", interface->getBasisToWrenchMap().has_value());
+  dump.addDouble("interface.nominalComHeight",
+                 interface->getNominalComHeight());
+  dump.addString("interface.contactInputParameterization",
+                 contactInputParameterizationName(
+                     interface->contactInputParameterization()));
+  dump.addString("interface.contactScheduleSource",
+                 contactScheduleSourceName(interface->contactScheduleSource()));
+  dump.addBool("interface.usesContactPlanning",
+               interface->usesContactPlanning());
+  dump.addInteger("interface.wrenchInputDim",
+                  static_cast<int64_t>(interface->getWrenchInputDim()));
+  dump.addInteger("interface.numBasisInputs",
+                  static_cast<int64_t>(interface->getNumBasisInputs()));
+  dump.addDouble("interface.basisScalingRegularization",
+                 interface->getBasisScalingRegularization());
+  dump.addString("interface.basisGeneratorSet",
+                 interface->getBasisGeneratorSet());
+  dump.addBool("interface.basisToWrenchMap.has_value",
+               interface->getBasisToWrenchMap().has_value());
   if (interface->getBasisToWrenchMap().has_value()) {
-    dump.addFingerprint("interface.basisToWrenchMap", *interface->getBasisToWrenchMap());
+    dump.addFingerprint("interface.basisToWrenchMap",
+                        *interface->getBasisToWrenchMap());
   }
   dump.addStrings("interface.costNames", interface->getCostNames());
-  dump.addStrings("interface.terminalCostNames", interface->getTerminalCostNames());
-  dump.addStrings("interface.softConstraintNames", interface->getSoftConstraintNames());
-  dump.addStrings("interface.stateSoftConstraintNames", interface->getStateSoftConstraintNames());
-  dump.addStrings("interface.equalityConstraintNames", interface->getEqualityConstraintNames());
-  const std::shared_ptr<LocomotionHeuristicLayer>& heuristics = interface->getLocomotionHeuristicLayerPtr();
+  dump.addStrings("interface.terminalCostNames",
+                  interface->getTerminalCostNames());
+  dump.addStrings("interface.softConstraintNames",
+                  interface->getSoftConstraintNames());
+  dump.addStrings("interface.stateSoftConstraintNames",
+                  interface->getStateSoftConstraintNames());
+  dump.addStrings("interface.equalityConstraintNames",
+                  interface->getEqualityConstraintNames());
+  const std::shared_ptr<LocomotionHeuristicLayer>& heuristics =
+      interface->getLocomotionHeuristicLayerPtr();
   dump.addBool("interface.locomotionHeuristics.present", heuristics != nullptr);
   if (heuristics != nullptr) {
-    dump.addBool("interface.locomotionHeuristics.basePoseEmpty", heuristics->basePoseEmpty());
-    dump.addBool("interface.locomotionHeuristics.footholdEmpty", heuristics->footholdEmpty());
-    dump.addBool("interface.locomotionHeuristics.wrenchEmpty", heuristics->wrenchEmpty());
-    dump.addString("interface.locomotionHeuristics.summary", heuristics->summary());
+    dump.addBool("interface.locomotionHeuristics.basePoseEmpty",
+                 heuristics->basePoseEmpty());
+    dump.addBool("interface.locomotionHeuristics.footholdEmpty",
+                 heuristics->footholdEmpty());
+    dump.addBool("interface.locomotionHeuristics.wrenchEmpty",
+                 heuristics->wrenchEmpty());
+    dump.addString("interface.locomotionHeuristics.summary",
+                   heuristics->summary());
   }
-  const std::shared_ptr<SwitchedModelReferenceManager> referenceManager = interface->getSwitchedModelReferenceManagerPtr();
+  const std::shared_ptr<SwitchedModelReferenceManager> referenceManager =
+      interface->getSwitchedModelReferenceManagerPtr();
   dumpReferenceManager(dump, *referenceManager);
-  const MpcRobotModelBase<scalar_t>& effectiveModel = interface->getEffectiveMpcRobotModel();
+  const MpcRobotModelBase<scalar_t>& effectiveModel =
+      interface->getEffectiveMpcRobotModel();
 
   // The MPC node's side: the target trajectories and the motion manager.
   ASSIGN_OR_RETURN(
       std::unique_ptr<CentroidalMpcTargetTrajectoriesCalculator> calculator,
-      CentroidalMpcTargetTrajectoriesCalculator::Create(configuration.referenceFile, effectiveModel, interface->getPinocchioInterface(),
-                                                        interface->mpcSettings().timeHorizon_));
+      CentroidalMpcTargetTrajectoriesCalculator::Create(
+          configuration.referenceFile, effectiveModel,
+          interface->getPinocchioInterface(),
+          interface->mpcSettings().timeHorizon_));
   dumpTargets(dump, *calculator, interface->getInitialState());
-  RETURN_IF_ERROR(dumpMotionManager(dump, configuration, referenceManager, effectiveModel));
+  RETURN_IF_ERROR(
+      dumpMotionManager(dump, configuration, referenceManager, effectiveModel));
 
   // The robot binary's side: the joint controller's PD gains.
-  ASSIGN_OR_RETURN(const robot::model::RobotDescription description, robot::model::RobotDescription::Create(configuration.urdfFile));
   ASSIGN_OR_RETURN(
-      std::unique_ptr<CentroidalMpcMrtJointController> controller,
-      CentroidalMpcMrtJointController::Create(description, interface->modelSettings(), interface->getMpcRobotModel(), nullMpcLinkFactory(),
-                                              interface->getPinocchioInterface(), configuration.pdGainsFile, &effectiveModel));
+      const robot::model::RobotDescription description,
+      robot::model::RobotDescription::Create(configuration.urdfFile));
+  ASSIGN_OR_RETURN(std::unique_ptr<CentroidalMpcMrtJointController> controller,
+                   CentroidalMpcMrtJointController::Create(
+                       description, interface->modelSettings(),
+                       interface->getMpcRobotModel(), nullMpcLinkFactory(),
+                       interface->getPinocchioInterface(),
+                       configuration.pdGainsFile, &effectiveModel));
   dump.addSection("pd_gains");
   dumpJointPdGains(dump, "pd_gains", controller->getPdGains());
-  RETURN_IF_ERROR(dumpApplications(dump, configuration, interface->modelSettings()));
+  RETURN_IF_ERROR(
+      dumpApplications(dump, configuration, interface->modelSettings()));
 
-  // Last, because it sets a walking schedule and target on the reference manager.
+  // Last, because it sets a walking schedule and target on the reference
+  // manager.
   dump.addSection("problem");
-  dumpProblem(dump, "problem", interface->getOptimalControlProblem(), *referenceManager, interface->getInitialState(), effectiveModel);
+  dumpProblem(dump, "problem", interface->getOptimalControlProblem(),
+              *referenceManager, interface->getInitialState(), effectiveModel);
   return absl::OkStatus();
 }
 
-absl::Status dumpWholeBody(ValueDump& dump, const validation::RobotConfiguration& configuration) {
-  ASSIGN_OR_RETURN(std::unique_ptr<WBMpcInterface> interface,
-                   WBMpcInterface::Create(configuration.taskFile, configuration.urdfFile, configuration.referenceFile));
-  dumpSolver(dump, interface->modelSettings(), interface->mpcSettings(), interface->sqpSettings(), interface->rolloutSettings());
+absl::Status dumpWholeBody(
+    ValueDump& dump, const validation::RobotConfiguration& configuration) {
+  ASSIGN_OR_RETURN(
+      std::unique_ptr<WBMpcInterface> interface,
+      WBMpcInterface::Create(configuration.taskFile, configuration.urdfFile,
+                             configuration.referenceFile));
+  dumpSolver(dump, interface->modelSettings(), interface->mpcSettings(),
+             interface->sqpSettings(), interface->rolloutSettings());
   dump.addSection("interface");
   dump.addMatrix("interface.initialState", interface->getInitialState());
-  const std::shared_ptr<SwitchedModelReferenceManager> referenceManager = interface->getSwitchedModelReferenceManagerPtr();
+  const std::shared_ptr<SwitchedModelReferenceManager> referenceManager =
+      interface->getSwitchedModelReferenceManagerPtr();
   dumpReferenceManager(dump, *referenceManager);
   const WBAccelMpcRobotModel<scalar_t>& model = interface->getMpcRobotModel();
 
-  ASSIGN_OR_RETURN(std::unique_ptr<WBMpcTargetTrajectoriesCalculator> calculator,
-                   WBMpcTargetTrajectoriesCalculator::Create(configuration.referenceFile, model, interface->mpcSettings().timeHorizon_));
+  ASSIGN_OR_RETURN(
+      std::unique_ptr<WBMpcTargetTrajectoriesCalculator> calculator,
+      WBMpcTargetTrajectoriesCalculator::Create(
+          configuration.referenceFile, model,
+          interface->mpcSettings().timeHorizon_));
   dumpTargets(dump, *calculator, interface->getInitialState());
-  RETURN_IF_ERROR(dumpMotionManager(dump, configuration, referenceManager, model));
+  RETURN_IF_ERROR(
+      dumpMotionManager(dump, configuration, referenceManager, model));
 
-  ASSIGN_OR_RETURN(const robot::model::RobotDescription description, robot::model::RobotDescription::Create(configuration.urdfFile));
-  ASSIGN_OR_RETURN(std::unique_ptr<WBMpcMrtJointController> controller,
-                   WBMpcMrtJointController::Create(description, interface->modelSettings(), nullMpcLinkFactory(),
-                                                   interface->getPinocchioInterface(), configuration.pdGainsFile));
+  ASSIGN_OR_RETURN(
+      const robot::model::RobotDescription description,
+      robot::model::RobotDescription::Create(configuration.urdfFile));
+  ASSIGN_OR_RETURN(
+      std::unique_ptr<WBMpcMrtJointController> controller,
+      WBMpcMrtJointController::Create(
+          description, interface->modelSettings(), nullMpcLinkFactory(),
+          interface->getPinocchioInterface(), configuration.pdGainsFile));
   dump.addSection("pd_gains");
   dumpJointPdGains(dump, "pd_gains", controller->getPdGains());
-  RETURN_IF_ERROR(dumpApplications(dump, configuration, interface->modelSettings()));
+  RETURN_IF_ERROR(
+      dumpApplications(dump, configuration, interface->modelSettings()));
 
   dump.addSection("problem");
-  dumpProblem(dump, "problem", interface->getOptimalControlProblem(), *referenceManager, interface->getInitialState(), model);
+  dumpProblem(dump, "problem", interface->getOptimalControlProblem(),
+              *referenceManager, interface->getInitialState(), model);
   return absl::OkStatus();
 }
 
 }  // namespace
 
-absl::StatusOr<std::string> dumpConfiguration(const validation::RobotConfiguration& configuration) {
+absl::StatusOr<std::string> dumpConfiguration(
+    const validation::RobotConfiguration& configuration) {
   ValueDump dump;
   dump.addSection("configuration");
   dump.addString("configuration.name", configuration.name);
-  dump.addString("configuration.formulation", validation::formulationName(configuration.formulation));
+  dump.addString("configuration.formulation",
+                 validation::formulationName(configuration.formulation));
   if (configuration.formulation == validation::MpcFormulation::kCentroidal) {
     RETURN_IF_ERROR(dumpCentroidal(dump, configuration));
   } else {

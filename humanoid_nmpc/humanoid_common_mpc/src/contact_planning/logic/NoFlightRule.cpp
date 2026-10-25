@@ -36,19 +36,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-static_assert(kNumContacts == kBipedFootCount, "the no-flight rule is written for a biped");
+static_assert(kNumContacts == kBipedFootCount,
+              "the no-flight rule is written for a biped");
 
 std::string NoFlightRule::describe() const {
   return "c_L + c_R >= 1 at every node";
 }
 
-bool NoFlightRule::propagate(const ContactLogicState& s, MiqpAssignment& a, bool& changed) const {
+bool NoFlightRule::propagate(const ContactLogicState& s,
+                             MiqpAssignment& a,
+                             bool& changed) const {
   for (int k = 0; k < s.numNodes; ++k) {
     const int cL = ContactLogicState::contactBinaryIndex(k, /*foot=*/0);
     const int cR = ContactLogicState::contactBinaryIndex(k, /*foot=*/1);
-    if (a[static_cast<size_t>(cL)] == 0 && a[static_cast<size_t>(cR)] == 0) return false;
-    if (a[static_cast<size_t>(cL)] == 0 && !fixBinary(a, cR, /*value=*/1, changed)) return false;
-    if (a[static_cast<size_t>(cR)] == 0 && !fixBinary(a, cL, /*value=*/1, changed)) return false;
+    if (a[static_cast<size_t>(cL)] == 0 && a[static_cast<size_t>(cR)] == 0)
+      return false;
+    if (a[static_cast<size_t>(cL)] == 0 &&
+        !fixBinary(a, cR, /*value=*/1, changed))
+      return false;
+    if (a[static_cast<size_t>(cR)] == 0 &&
+        !fixBinary(a, cL, /*value=*/1, changed))
+      return false;
   }
   return true;
 }

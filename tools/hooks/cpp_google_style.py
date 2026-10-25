@@ -121,8 +121,9 @@ def check_float_literal(source: str, path: str) -> list[check_types.Finding]:
             path,
             token,
             FLOAT_LITERAL,
-            f"floating literal `{token.text}`: write `{fixed}`, with digits on both sides of the radix point "
-            "(Google C++ style, Floating-point literals).",
+            f"floating literal `{token.text}`: write `{fixed}`, with digits on"
+            " both sides of the radix point (Google C++ style, Floating-point"
+            " literals).",
         )
         for token, fixed in _float_literals(source)
     ]
@@ -257,15 +258,17 @@ def _closes_condition(code: tuple[cpp_source.Token, ...], close: int) -> bool:
     return False
 
 
-def check_postfix_increment(source: str, path: str) -> list[check_types.Finding]:
+def check_postfix_increment(
+    source: str, path: str
+) -> list[check_types.Finding]:
     """Postfix increments and decrements whose value is unused."""
     return [
         _finding(
             path,
             token,
             POSTFIX_INCREMENT,
-            f"postfix `{token.text}` whose value is unused: write the prefix form (Google C++ style, Preincrement "
-            "and predecrement).",
+            f"postfix `{token.text}` whose value is unused: write the prefix"
+            " form (Google C++ style, Preincrement and predecrement).",
         )
         for token, _ in _postfix_increments(source)
     ]
@@ -301,7 +304,9 @@ _INTEGER_TYPES = re.compile(
 )
 
 
-def _std_integer_types(source: str) -> list[tuple[cpp_source.Token, cpp_source.Token]]:
+def _std_integer_types(
+    source: str,
+) -> list[tuple[cpp_source.Token, cpp_source.Token]]:
     """The (`std`, type) token pairs of `std::int64_t` and the like; `::std::size_t` included."""
     code = cpp_source.code_tokens(source)
     found = []
@@ -328,7 +333,8 @@ def check_std_integer_type(source: str, path: str) -> list[check_types.Finding]:
             path,
             std,
             STD_INTEGER_TYPE,
-            f"`std::{name.text}`: write `{name.text}` (Google C++ style, Integer types: omit the std:: prefix).",
+            f"`std::{name.text}`: write `{name.text}` (Google C++ style,"
+            " Integer types: omit the std:: prefix).",
         )
         for std, name in _std_integer_types(source)
     ]
@@ -370,11 +376,24 @@ _LONG_DOUBLE_LITERAL = re.compile(
     r"^(?:0[xX][0-9a-fA-F']*\.?[0-9a-fA-F']*[pP][+-]?\d+|(?:[\d']*\.[\d']*(?:[eE][+-]?\d+)?|[\d']+[eE][+-]?\d+))[lL]$"
 )
 _RATIOS = frozenset(
-    {"ratio", "milli", "micro", "nano", "pico", "kilo", "mega", "giga", "centi", "deci"}
+    {
+        "ratio",
+        "milli",
+        "micro",
+        "nano",
+        "pico",
+        "kilo",
+        "mega",
+        "giga",
+        "centi",
+        "deci",
+    }
 )
 
 
-def _is_statement_expression(code: tuple[cpp_source.Token, ...], brace: int) -> bool:
+def _is_statement_expression(
+    code: tuple[cpp_source.Token, ...], brace: int
+) -> bool:
     """True when the `{` at code[brace], right after a `(`, holds statements (`({ int x = f(); x; })`)."""
     close = cpp_source.matching(code, brace)
     depth = 0
@@ -389,7 +408,9 @@ def _is_statement_expression(code: tuple[cpp_source.Token, ...], brace: int) -> 
     return False
 
 
-def check_forbidden_construct(source: str, path: str) -> list[check_types.Finding]:
+def check_forbidden_construct(
+    source: str, path: str
+) -> list[check_types.Finding]:
     """Constructs the guide does not allow."""
     code = cpp_source.code_tokens(source)
     scopes = cpp_source.scopes(source)
@@ -398,7 +419,10 @@ def check_forbidden_construct(source: str, path: str) -> list[check_types.Findin
     def add(token: cpp_source.Token, what: str) -> None:
         findings.append(
             _finding(
-                path, token, FORBIDDEN_CONSTRUCT, f"{what} (Google C++ Style Guide)."
+                path,
+                token,
+                FORBIDDEN_CONSTRUCT,
+                f"{what} (Google C++ Style Guide).",
             )
         )
 
@@ -424,21 +448,30 @@ def check_forbidden_construct(source: str, path: str) -> list[check_types.Findin
         ):
             add(
                 token,
-                "user-defined literals are not used (`using namespace ...literals`)",
+                "user-defined literals are not used (`using namespace"
+                " ...literals`)",
             )
-        elif token.kind == cpp_source.NUMBER and not _STANDARD_NUMBER_SUFFIX.match(
-            _NUMBER_BODY.sub("", text)
+        elif (
+            token.kind == cpp_source.NUMBER
+            and not _STANDARD_NUMBER_SUFFIX.match(_NUMBER_BODY.sub("", text))
         ):
-            add(token, f"user-defined literal `{text}`: use a function or a constant")
-        elif token.kind == cpp_source.NUMBER and _LONG_DOUBLE_LITERAL.match(text):
             add(
                 token,
-                f"`{text}` is a `long double` literal, which is not portable: drop the `L`",
+                f"user-defined literal `{text}`: use a function or a constant",
+            )
+        elif token.kind == cpp_source.NUMBER and _LONG_DOUBLE_LITERAL.match(
+            text
+        ):
+            add(
+                token,
+                f"`{text}` is a `long double` literal, which is not portable:"
+                " drop the `L`",
             )
         elif text == "?" and following == ":" and not code[index + 1].ws_before:
             add(
                 token,
-                "the conditional with an omitted operand `x ?: y` is a GNU extension: write `x ? x : y`",
+                "the conditional with an omitted operand `x ?: y` is a GNU"
+                " extension: write `x ? x : y`",
             )
         elif text == "inline" and following == "namespace":
             add(token, "`inline namespace` is not used")
@@ -471,10 +504,15 @@ def check_forbidden_construct(source: str, path: str) -> list[check_types.Findin
         ):
             add(
                 token,
-                f"`std::{text}` and <ratio> are not used: use absl::Duration or a plain constant",
+                f"`std::{text}` and <ratio> are not used: use absl::Duration or"
+                " a plain constant",
             )
         elif text == "alloca" and following == "(":
-            add(token, "`alloca` is not used: use a std::vector or absl::InlinedVector")
+            add(
+                token,
+                "`alloca` is not used: use a std::vector or"
+                " absl::InlinedVector",
+            )
         elif (
             text == "("
             and following == "{"
@@ -487,7 +525,8 @@ def check_forbidden_construct(source: str, path: str) -> list[check_types.Findin
         elif text == "__attribute__" or text.startswith("__builtin_"):
             add(
                 token,
-                f"`{text}` is a compiler extension: use the standard attribute or an Abseil macro",
+                f"`{text}` is a compiler extension: use the standard attribute"
+                " or an Abseil macro",
             )
         elif text == "thread_local" and "constinit" not in [
             t.text for t in code[max(0, index - 3) : index + 4]
@@ -498,7 +537,8 @@ def check_forbidden_construct(source: str, path: str) -> list[check_types.Findin
             ):
                 add(
                     token,
-                    "a namespace- or class-scope `thread_local` must be `constinit`",
+                    "a namespace- or class-scope `thread_local` must be"
+                    " `constinit`",
                 )
         elif text == "strtok" and following == "(":
             add(token, "`strtok` is not reentrant: use absl::StrSplit")
@@ -517,7 +557,9 @@ def check_forbidden_construct(source: str, path: str) -> list[check_types.Findin
         )
     for match in _PRAGMA.finditer(without_comments):
         rest = match.group("rest").strip()
-        if rest == "once" or rest.startswith(("GCC diagnostic", "clang diagnostic")):
+        if rest == "once" or rest.startswith(
+            ("GCC diagnostic", "clang diagnostic")
+        ):
             continue
         line = without_comments.count("\n", 0, match.start()) + 1
         column = match.start() - starts[line - 1] + 1
@@ -527,8 +569,9 @@ def check_forbidden_construct(source: str, path: str) -> list[check_types.Findin
                 line,
                 max(column, 1),
                 FORBIDDEN_CONSTRUCT,
-                f"`#pragma {rest.split()[0] if rest else ''}`: only `#pragma once` and `#pragma GCC diagnostic` are "
-                "used (Google C++ Style Guide).",
+                f"`#pragma {rest.split()[0] if rest else ''}`: only `#pragma"
+                " once` and `#pragma GCC diagnostic` are used (Google C++"
+                " Style Guide).",
             )
         )
     return findings
@@ -548,9 +591,10 @@ def check_exceptions(source: str, path: str) -> list[check_types.Finding]:
             path,
             token,
             EXCEPTIONS,
-            f"`{token.text}`: first-party code returns absl::Status / absl::StatusOr instead of throwing (Google C++ "
-            "style, Exceptions; ToTW #76). A boundary with a throwing library converts once, with "
-            "`// NOLINT(exceptions): <reason>`.",
+            f"`{token.text}`: first-party code returns absl::Status /"
+            " absl::StatusOr instead of throwing (Google C++ style,"
+            " Exceptions; ToTW #76). A boundary with a throwing library"
+            " converts once, with `// NOLINT(exceptions): <reason>`.",
         )
         for token in cpp_source.code_tokens(source)
         if token.text in ("throw", "try", "catch")
@@ -579,8 +623,9 @@ def check_rtti(source: str, path: str) -> list[check_types.Finding]:
             path,
             token,
             RTTI,
-            f"`{token.text}`: avoid run-time type information; use a virtual function, a visitor or a type tag "
-            "(Google C++ style, Run-time type information).",
+            f"`{token.text}`: avoid run-time type information; use a virtual"
+            " function, a visitor or a type tag (Google C++ style, Run-time"
+            " type information).",
         )
         for token in cpp_source.code_tokens(source)
         if token.text in _RTTI_TOKENS and token.kind == cpp_source.IDENTIFIER
@@ -615,10 +660,12 @@ def check_debug_only_check(source: str, path: str) -> list[check_types.Finding]:
                 path,
                 token,
                 DEBUG_ONLY_CHECK,
-                f"`{token.text}` checks nothing: every build is -c opt (NDEBUG), which compiles it out. Use "
-                "ABSL_CHECK for an invariant established once, off the realtime path; return an absl::Status for bad "
-                "input; or state the precondition in the function's comment (AGENTS.md, 'Raw pointers carry "
-                "nullability').",
+                f"`{token.text}` checks nothing: every build is -c opt"
+                " (NDEBUG), which compiles it out. Use ABSL_CHECK for an"
+                " invariant established once, off the realtime path; return an"
+                " absl::Status for bad input; or state the precondition in the"
+                " function's comment (AGENTS.md, 'Raw pointers carry"
+                " nullability').",
             )
         )
     return findings
@@ -652,7 +699,13 @@ _CTAD_TEMPLATES = {
         }
     ),
     "absl": frozenset(
-        {"flat_hash_map", "flat_hash_set", "InlinedVector", "FixedArray", "Span"}
+        {
+            "flat_hash_map",
+            "flat_hash_set",
+            "InlinedVector",
+            "FixedArray",
+            "Span",
+        }
     ),
     "Eigen": frozenset({"Matrix", "Array"}),
 }
@@ -682,8 +735,10 @@ def check_ctad(source: str, path: str) -> list[check_types.Finding]:
                 path,
                 name,
                 CTAD,
-                f"`{namespace}::{name.text} {variable.text}` deduces its template arguments: write them out "
-                "(AGENTS.md: explicit types; Google C++ style, Class template argument deduction).",
+                f"`{namespace}::{name.text} {variable.text}` deduces its"
+                " template arguments: write them out (AGENTS.md: explicit"
+                " types; Google C++ style, Class template argument"
+                " deduction).",
             )
         )
     return findings
@@ -722,7 +777,9 @@ def _include_guard(without_comments: str) -> re.Match[str] | None:
         guarded = first.group("rest").strip()
     elif first.group("directive") == "if":
         condition = _GUARD_CONDITION.match(first.group("rest").strip())
-        guarded = (condition.group("a") or condition.group("b")) if condition else ""
+        guarded = (
+            (condition.group("a") or condition.group("b")) if condition else ""
+        )
     else:
         return None
     defined = second.group("rest").split()
@@ -745,8 +802,9 @@ def check_macro_naming(source: str, path: str) -> list[check_types.Finding]:
                 without_comments.count("\n", 0, guard.start()) + 1,
                 1,
                 MACRO_NAMING,
-                f"include guard `{guard.group('rest').split()[0]}`: headers use `#pragma once`, not `#define` guards "
-                "(AGENTS.md, C++ departures; Google C++ style, Preprocessor macros).",
+                f"include guard `{guard.group('rest').split()[0]}`: headers use"
+                " `#pragma once`, not `#define` guards (AGENTS.md, C++"
+                " departures; Google C++ style, Preprocessor macros).",
             )
         )
     for match in _DEFINE.finditer(without_comments):
@@ -760,7 +818,8 @@ def check_macro_naming(source: str, path: str) -> list[check_types.Finding]:
         message = None
         if name in _ABSEIL_MACROS:
             message = (
-                f"`{name}` redefines an Abseil macro name: give it the library's prefix"
+                f"`{name}` redefines an Abseil macro name: give it the"
+                " library's prefix"
             )
         elif (
             header
@@ -768,11 +827,15 @@ def check_macro_naming(source: str, path: str) -> list[check_types.Finding]:
             and not name.startswith(MACRO_PREFIXES)
         ):
             message = (
-                f"header macro `{name}` without the library's prefix ({', '.join(MACRO_PREFIXES)}); headers use "
-                "#pragma once, not include guards"
+                f"header macro `{name}` without the library's prefix"
+                f" ({', '.join(MACRO_PREFIXES)}); headers use #pragma once, not"
+                " include guards"
             )
         elif not header and undefined_after.get(name, -1) < match.start():
-            message = f"macro `{name}` defined in a .cpp file is not `#undef`ined at the end of it"
+            message = (
+                f"macro `{name}` defined in a .cpp file is not `#undef`ined at"
+                " the end of it"
+            )
         if message:
             findings.append(
                 check_types.Finding(
@@ -839,12 +902,22 @@ _NON_TRIVIAL_WHEN_AN_ARGUMENT_IS = frozenset(
     {"optional", "array", "variant", "pair", "tuple"}
 )
 # OCS2's dynamic-size aliases (lib/ocs2/core/include/ocs2_core/Types.h), written with `ocs2::` or without it.
-_OCS2_DYNAMIC = re.compile(r"^(?:vector_t|row_vector_t|matrix_t|\w+_array\d?_t)$")
+_OCS2_DYNAMIC = re.compile(
+    r"^(?:vector_t|row_vector_t|matrix_t|\w+_array\d?_t)$"
+)
 # Eigen's dynamic-size typedefs (MatrixXd, VectorXf, Matrix3Xd, ArrayXXd), and its templates with a Dynamic size.
 _EIGEN_DYNAMIC = re.compile(r"^(?:Matrix|Vector|RowVector|Array)\w*X\w*$")
 _EIGEN_TEMPLATES = frozenset({"Matrix", "Array"})
 _STATIC_SPECIFIERS = frozenset(
-    {"static", "inline", "const", "constexpr", "thread_local", "extern", "constinit"}
+    {
+        "static",
+        "inline",
+        "const",
+        "constexpr",
+        "thread_local",
+        "extern",
+        "constinit",
+    }
 )
 
 
@@ -896,7 +969,9 @@ def _non_trivial_type(
                     j = cpp_source.matching_angle(code, j)
                 j += 1
             j += 1
-        dynamic = dynamic or any(t.text == "Dynamic" for t in code[k + 1 : close])
+        dynamic = dynamic or any(
+            t.text == "Dynamic" for t in code[k + 1 : close]
+        )
         k = close + 1
     namespace = parts[0] if len(parts) > 1 else ""
     last = parts[-1]
@@ -908,7 +983,11 @@ def _non_trivial_type(
         _EIGEN_DYNAMIC.match(last) or (last in _EIGEN_TEMPLATES and dynamic)
     ):
         return f"Eigen::{last}", k
-    if namespace == "std" and last in _NON_TRIVIAL_WHEN_AN_ARGUMENT_IS and argument:
+    if (
+        namespace == "std"
+        and last in _NON_TRIVIAL_WHEN_AN_ARGUMENT_IS
+        and argument
+    ):
         return f"std::{last}<{argument}>", k
     return None, k
 
@@ -938,10 +1017,14 @@ def check_static_storage(source: str, path: str) -> list[check_types.Finding]:
             continue
         namespace_scope = cpp_source.at_namespace_scope(statement.scopes)
         innermost = (
-            statement.scopes[-1] if statement.scopes else cpp_source.NAMESPACE_SCOPE
+            statement.scopes[-1]
+            if statement.scopes
+            else cpp_source.NAMESPACE_SCOPE
         )
         if not (
-            namespace_scope or "static" in specifiers or "thread_local" in specifiers
+            namespace_scope
+            or "static" in specifiers
+            or "thread_local" in specifiers
         ):
             continue
         if innermost == cpp_source.ENUM_SCOPE:
@@ -967,9 +1050,11 @@ def check_static_storage(source: str, path: str) -> list[check_types.Finding]:
                 path,
                 tokens[j],
                 STATIC_STORAGE,
-                f"`{found}` with static storage duration is not trivially destructible: use "
-                "absl::NoDestructor<T>, a constexpr type (`inline constexpr char kName[]`), or "
-                "`static const T& x = *new T(...)` (Google C++ style, Static and global variables).",
+                f"`{found}` with static storage duration is not trivially"
+                " destructible: use absl::NoDestructor<T>, a constexpr type"
+                " (`inline constexpr char kName[]`), or `static const T& x ="
+                " *new T(...)` (Google C++ style, Static and global"
+                " variables).",
             )
         )
     return findings
@@ -1020,8 +1105,9 @@ def check_class_comment(source: str, path: str) -> list[check_types.Finding]:
                 path,
                 name,
                 CLASS_COMMENT,
-                f"`{tokens[key].text} {name.text}` has no comment: say what it is for, how to use it and whether it is "
-                "thread-safe (Google C++ style, Class comments).",
+                f"`{tokens[key].text} {name.text}` has no comment: say what it"
+                " is for, how to use it and whether it is thread-safe (Google"
+                " C++ style, Class comments).",
             )
         )
     return findings
@@ -1059,8 +1145,9 @@ def check_if_else_braces(source: str, path: str) -> list[check_types.Finding]:
                     path,
                     token,
                     IF_ELSE_BRACES,
-                    "`else` without braces: an `if ... else` always has braces (AGENTS.md; Google C++ style, Looping and "
-                    "branching statements).",
+                    "`else` without braces: an `if ... else` always has braces"
+                    " (AGENTS.md; Google C++ style, Looping and branching"
+                    " statements).",
                 )
             )
         elif token.text == "if" and following in ("(", "constexpr"):
@@ -1075,7 +1162,8 @@ def check_if_else_braces(source: str, path: str) -> list[check_types.Finding]:
                         path,
                         token,
                         IF_ELSE_BRACES,
-                        "`if` without braces before an `else`: an `if ... else` always has braces (AGENTS.md).",
+                        "`if` without braces before an `else`: an `if ... else`"
+                        " always has braces (AGENTS.md).",
                     )
                 )
     return findings
@@ -1092,8 +1180,14 @@ CHECKS = [
         check_source=check_float_literal,
         fix_source=fix_float_literal,
         fixed_by_format=True,
-        description="floating literals have digits on both sides of the radix point (G: Floating-point literals).",
-        hint="`make format` (or lint_code --fix --only float-literal) rewrites them.",
+        description=(
+            "floating literals have digits on both sides of the radix point (G:"
+            " Floating-point literals)."
+        ),
+        hint=(
+            "`make format` (or lint_code --fix --only float-literal) rewrites"
+            " them."
+        ),
     ),
     check_types.Check(
         name=POSTFIX_INCREMENT,
@@ -1102,8 +1196,14 @@ CHECKS = [
         check_source=check_postfix_increment,
         fix_source=fix_postfix_increment,
         fixed_by_format=True,
-        description="`++i`, not `i++`, where the value is unused (G: Preincrement and predecrement).",
-        hint="`make format` (or lint_code --fix --only postfix-increment) rewrites them.",
+        description=(
+            "`++i`, not `i++`, where the value is unused (G: Preincrement and"
+            " predecrement)."
+        ),
+        hint=(
+            "`make format` (or lint_code --fix --only postfix-increment)"
+            " rewrites them."
+        ),
     ),
     check_types.Check(
         name=STD_INTEGER_TYPE,
@@ -1112,78 +1212,115 @@ CHECKS = [
         check_source=check_std_integer_type,
         fix_source=fix_std_integer_type,
         fixed_by_format=True,
-        description="integer types without the std:: prefix: `int64_t`, `size_t` (G: Integer types).",
-        hint="`make format` (or lint_code --fix --only std-integer-type) rewrites them.",
+        description=(
+            "integer types without the std:: prefix: `int64_t`, `size_t` (G:"
+            " Integer types)."
+        ),
+        hint=(
+            "`make format` (or lint_code --fix --only std-integer-type)"
+            " rewrites them."
+        ),
     ),
     check_types.Check(
         name=FORBIDDEN_CONSTRUCT,
         languages=CPP,
         scope=FIRST_PARTY,
         check_source=check_forbidden_construct,
-        description="no long double, user-defined literals, inline namespaces, coroutines, modules, <ratio>, alloca, "
-        "GNU extensions or non-constinit global thread_local (Google C++ Style Guide).",
+        description=(
+            "no long double, user-defined literals, inline namespaces,"
+            " coroutines, modules, <ratio>, alloca, GNU extensions or"
+            " non-constinit global thread_local (Google C++ Style Guide)."
+        ),
     ),
     check_types.Check(
         name=EXCEPTIONS,
         languages=CPP,
         scope=NON_TEST,
         check_source=check_exceptions,
-        description="first-party code does not throw; it returns absl::Status (G: Exceptions; ToTW #76).",
-        hint="Return absl::Status / absl::StatusOr; a boundary with a throwing library (OCS2, Pinocchio) converts "
-        "in one try/catch with `// NOLINT(exceptions): <reason>` (AGENTS.md).",
+        description=(
+            "first-party code does not throw; it returns absl::Status (G:"
+            " Exceptions; ToTW #76)."
+        ),
+        hint=(
+            "Return absl::Status / absl::StatusOr; a boundary with a throwing"
+            " library (OCS2, Pinocchio) converts in one try/catch with `//"
+            " NOLINT(exceptions): <reason>` (AGENTS.md)."
+        ),
     ),
     check_types.Check(
         name=RTTI,
         languages=CPP,
         scope=NON_TEST,
         check_source=check_rtti,
-        description="no typeid or dynamic_cast outside tests (G: Run-time type information).",
+        description=(
+            "no typeid or dynamic_cast outside tests (G: Run-time type"
+            " information)."
+        ),
     ),
     check_types.Check(
         name=DEBUG_ONLY_CHECK,
         languages=CPP,
         scope=NON_TEST,
         check_source=check_debug_only_check,
-        description="no assert, ABSL_DCHECK or DCHECK, which -c opt compiles out (AGENTS.md: every build is -c opt).",
-        hint="ABSL_CHECK an invariant once at construction (never per tick on the realtime thread), return an "
-        "absl::Status for bad input, or document the precondition.",
+        description=(
+            "no assert, ABSL_DCHECK or DCHECK, which -c opt compiles out"
+            " (AGENTS.md: every build is -c opt)."
+        ),
+        hint=(
+            "ABSL_CHECK an invariant once at construction (never per tick on"
+            " the realtime thread), return an absl::Status for bad input, or"
+            " document the precondition."
+        ),
     ),
     check_types.Check(
         name=CTAD,
         languages=CPP,
         scope=FIRST_PARTY,
         check_source=check_ctad,
-        description="class templates are declared with their template arguments (AGENTS.md; G: Class template "
-        "argument deduction).",
+        description=(
+            "class templates are declared with their template arguments"
+            " (AGENTS.md; G: Class template argument deduction)."
+        ),
     ),
     check_types.Check(
         name=MACRO_NAMING,
         languages=CPP,
         scope=FIRST_PARTY,
         check_source=check_macro_naming,
-        description="header macros carry the library's prefix, .cpp macros are #undef'ined, Abseil names are not "
-        "redefined (G: Preprocessor macros).",
+        description=(
+            "header macros carry the library's prefix, .cpp macros are"
+            " #undef'ined, Abseil names are not redefined (G: Preprocessor"
+            " macros)."
+        ),
     ),
     check_types.Check(
         name=STATIC_STORAGE,
         languages=CPP,
         scope=FIRST_PARTY,
         check_source=check_static_storage,
-        description="no non-trivially-destructible objects with static storage duration (G: Static and global "
-        "variables).",
+        description=(
+            "no non-trivially-destructible objects with static storage duration"
+            " (G: Static and global variables)."
+        ),
     ),
     check_types.Check(
         name=CLASS_COMMENT,
         languages=CPP,
         scope=NON_TEST,
         check_source=check_class_comment,
-        description="every namespace-scope class or struct in a header has a comment (G: Class comments).",
+        description=(
+            "every namespace-scope class or struct in a header has a comment"
+            " (G: Class comments)."
+        ),
     ),
     check_types.Check(
         name=IF_ELSE_BRACES,
         languages=CPP,
         scope=FIRST_PARTY,
         check_source=check_if_else_braces,
-        description="an `if ... else` always has braces (AGENTS.md; G: Looping and branching statements).",
+        description=(
+            "an `if ... else` always has braces (AGENTS.md; G: Looping and"
+            " branching statements)."
+        ),
     ),
 ]

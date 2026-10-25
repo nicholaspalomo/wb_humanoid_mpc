@@ -47,7 +47,11 @@ RUNFILES = os.path.join(os.environ["TEST_SRCDIR"], "_main")
 # The robot configurations: (deployment name, MPC package, formulation).
 # LINT.IfChange(robot_configurations)
 ROBOT_CONFIGURATIONS = (
-    ("drc_atlas", "robot_models/drc_atlas/drc_atlas_centroidal_mpc", "centroidal"),
+    (
+        "drc_atlas",
+        "robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "centroidal",
+    ),
     (
         "engineai_sa01",
         "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
@@ -55,7 +59,11 @@ ROBOT_CONFIGURATIONS = (
     ),
     ("unitree_g1", "robot_models/unitree_g1/g1_centroidal_mpc", "centroidal"),
     ("unitree_g1_wb", "robot_models/unitree_g1/g1_wb_mpc", "wb"),
-    ("unitree_r1", "robot_models/unitree_r1/unitree_r1_centroidal_mpc", "centroidal"),
+    (
+        "unitree_r1",
+        "robot_models/unitree_r1/unitree_r1_centroidal_mpc",
+        "centroidal",
+    ),
 )
 ROBOT_DESCRIPTIONS = (
     "robot_models/drc_atlas/drc_atlas_description",
@@ -97,7 +105,9 @@ VIEWER_VARIABLES = (
 def launch_paths() -> list[str]:
     paths = []
     for _, package, _ in ROBOT_CONFIGURATIONS:
-        paths += [os.path.join(package, "launch", name) for name in MPC_LAUNCH_FILES]
+        paths += [
+            os.path.join(package, "launch", name) for name in MPC_LAUNCH_FILES
+        ]
     paths += [
         os.path.join(description, "launch", "sandbox.textproto")
         for description in ROBOT_DESCRIPTIONS
@@ -163,7 +173,9 @@ def first_party_flags_of(program: str) -> set[str]:
     for line in (result.stdout + result.stderr).splitlines():
         if group := re.match(r"\s*Flags from (\S+):$", line):
             first_party = not group.group(1).startswith("external/")
-        elif first_party and (flag := re.match(r"\s{4}--([A-Za-z0-9_]+)", line)):
+        elif first_party and (
+            flag := re.match(r"\s{4}--([A-Za-z0-9_]+)", line)
+        ):
             flags.add(flag.group(1))
     return flags
 
@@ -172,7 +184,9 @@ class LaunchFilesTest(unittest.TestCase):
     def test_every_robot_has_its_launch_files(self) -> None:
         for path in launch_paths():
             with self.subTest(path=path):
-                self.assertTrue(os.path.isfile(os.path.join(RUNFILES, path)), path)
+                self.assertTrue(
+                    os.path.isfile(os.path.join(RUNFILES, path)), path
+                )
 
     def test_every_process_starts_a_binary_with_files_that_exist(self) -> None:
         for path in launch_paths():
@@ -187,7 +201,9 @@ class LaunchFilesTest(unittest.TestCase):
                         match = _FILE_FLAG.match(argument)
                         if match is not None:
                             self.assertTrue(
-                                os.path.isfile(os.path.join(RUNFILES, match.group(2))),
+                                os.path.isfile(
+                                    os.path.join(RUNFILES, match.group(2))
+                                ),
                                 f"{argument}: no such file",
                             )
 
@@ -196,14 +212,18 @@ class LaunchFilesTest(unittest.TestCase):
             for process in load(path).processes:
                 defined = flags_of(process.command[0])
                 with self.subTest(path=path, process=process.name):
-                    self.assertGreater(len(defined), 1, "the binary listed no flags")
+                    self.assertGreater(
+                        len(defined), 1, "the binary listed no flags"
+                    )
                     for argument in process.command[1:]:
                         name = re.match(r"^--([A-Za-z0-9_]+)", argument)
                         if name is None:
                             self.fail(f"{argument} is not a --flag")
                         self.assertIn(name.group(1), defined, argument)
 
-    def test_the_processes_run_on_the_machines_of_the_hardware_split(self) -> None:
+    def test_the_processes_run_on_the_machines_of_the_hardware_split(
+        self,
+    ) -> None:
         for _, package, formulation in ROBOT_CONFIGURATIONS:
             prefix = (
                 "humanoid_centroidal_mpc"
@@ -240,14 +260,19 @@ class LaunchFilesTest(unittest.TestCase):
                     ),
                 )
         for description in ROBOT_DESCRIPTIONS:
-            launch = load(os.path.join(description, "launch", "sandbox.textproto"))
+            launch = load(
+                os.path.join(description, "launch", "sandbox.textproto")
+            )
             with self.subTest(description=description):
                 self.assertEqual(
                     [
                         (process.machine, os.path.basename(process.command[0]))
                         for process in launch.processes
                     ],
-                    [("laptop", "model_sandbox"), ("laptop", "humanoid_rerun_viewer")],
+                    [
+                        ("laptop", "model_sandbox"),
+                        ("laptop", "humanoid_rerun_viewer"),
+                    ],
                 )
 
     def test_the_launch_files_of_a_robot_agree_on_its_files(self) -> None:
@@ -285,10 +310,14 @@ class LaunchFilesTest(unittest.TestCase):
             launch = load(os.path.join(package, "launch", "robot.textproto"))
             with self.subTest(package=package):
                 self.assertEqual(launch.variables["config_store_dir"], "")
-                self.assertEqual(launch.variables["config_seed"], "when_bundle_changes")
+                self.assertEqual(
+                    launch.variables["config_seed"], "when_bundle_changes"
+                )
                 (process,) = launch.processes
                 self.assertIn("--config_store_dir=", process.command)
-                self.assertIn("--config_seed=when_bundle_changes", process.command)
+                self.assertIn(
+                    "--config_seed=when_bundle_changes", process.command
+                )
 
     def test_the_robot_side_picks_its_viewer_by_name(self) -> None:
         # The viewer is a registry name or a list of them, never a boolean: every robot side passes it, the plot
@@ -299,14 +328,19 @@ class LaunchFilesTest(unittest.TestCase):
             launch = load(os.path.join(package, "launch", "robot.textproto"))
             with self.subTest(package=package):
                 self.assertEqual(
-                    launch.variables["viewer"], "", "the plot configuration chooses"
+                    launch.variables["viewer"],
+                    "",
+                    "the plot configuration chooses",
                 )
                 (process,) = launch.processes
                 for variable in VIEWER_VARIABLES:
                     self.assertIn(
-                        f"--{variable}={launch.variables[variable]}", process.command
+                        f"--{variable}={launch.variables[variable]}",
+                        process.command,
                     )
-            values[package] = tuple(launch.variables[v] for v in VIEWER_VARIABLES)
+            values[package] = tuple(
+                launch.variables[v] for v in VIEWER_VARIABLES
+            )
         self.assertEqual(len(set(values.values())), 1, values)
 
     def test_the_plot_configuration_starts_the_web_viewer(self) -> None:
@@ -318,12 +352,16 @@ class LaunchFilesTest(unittest.TestCase):
                 path = os.path.join(RUNFILES, launch.variables["plot_config"])
                 with open(path, encoding="utf-8") as stream:
                     names = re.findall(
-                        r'^mujoco_viewer:\s*"([^"]*)"', stream.read(), re.MULTILINE
+                        r'^mujoco_viewer:\s*"([^"]*)"',
+                        stream.read(),
+                        re.MULTILINE,
                     )
                 self.assertEqual(names, ["web"])
                 self.assertLessEqual(set(names), set(VIEWER_NAMES))
 
-    def test_the_distributed_readme_lists_the_flags_each_binary_defines(self) -> None:
+    def test_the_distributed_readme_lists_the_flags_each_binary_defines(
+        self,
+    ) -> None:
         # humanoid_nmpc/docs/distributed_runtime/README.md, "Configuration": the flags every binary takes and those the
         # robot binaries add, against the flags each binary defines in the repository's sources.
         path = os.path.join(
@@ -331,14 +369,17 @@ class LaunchFilesTest(unittest.TestCase):
         )
         with open(path, encoding="utf-8") as stream:
             block = re.search(
-                r"LINT\.IfChange\(command_line_flags\) -->\n(.*?)<!-- LINT\.ThenChange",
+                r"LINT\.IfChange\(command_line_flags\) -->\n(.*?)<!--"
+                r" LINT\.ThenChange",
                 stream.read(),
                 re.S,
             )
         assert block is not None
 
         def listed(lead: str) -> set[str]:
-            words = r"\s+".join(lead.split())  # The README wraps its lines anywhere.
+            words = r"\s+".join(
+                lead.split()
+            )  # The README wraps its lines anywhere.
             match = re.search(rf"{words} `([^`]*)`", block.group(1), re.S)
             assert match is not None, lead
             return {flag.removeprefix("--") for flag in match.group(1).split()}
@@ -346,7 +387,8 @@ class LaunchFilesTest(unittest.TestCase):
         # The MPC nodes take only the common flags (their solver priority and walking command timeout are task file
         # fields); the README says so in words, which the exact comparison below holds it to.
         self.assertRegex(
-            block.group(1), r"the\s+MPC\s+nodes\s+have\s+no\s+flag\s+of\s+their\s+own"
+            block.group(1),
+            r"the\s+MPC\s+nodes\s+have\s+no\s+flag\s+of\s+their\s+own",
         )
 
         common = listed("every binary takes")
@@ -357,7 +399,9 @@ class LaunchFilesTest(unittest.TestCase):
         }
         for _, package, _ in ROBOT_CONFIGURATIONS:
             for name in MPC_LAUNCH_FILES:
-                for process in load(os.path.join(package, "launch", name)).processes:
+                for process in load(
+                    os.path.join(package, "launch", name)
+                ).processes:
                     if process.name in binaries:
                         binaries[process.name].add(process.command[0])
         for role, extra in (
@@ -370,7 +414,9 @@ class LaunchFilesTest(unittest.TestCase):
                 with self.subTest(binary=os.path.basename(program)):
                     # Exactly: a flag the README lists that the binary lacks, or one the binary defines that the
                     # README leaves out, both fail.
-                    self.assertEqual(first_party_flags_of(program), common | extra)
+                    self.assertEqual(
+                        first_party_flags_of(program), common | extra
+                    )
 
     def test_the_gui_hands_the_walking_command_over_by_a_variable(self) -> None:
         # A teleoperation publisher next to the GUI needs --set gui_walking_commands=off; the default publishes, as the
@@ -392,20 +438,28 @@ class LaunchFilesTest(unittest.TestCase):
                     )
                     overridden = launch_file.load_launch_file(
                         os.path.join(RUNFILES, path),
-                        overrides={"bin_dir": RUNFILES, "gui_walking_commands": "off"},
+                        overrides={
+                            "bin_dir": RUNFILES,
+                            "gui_walking_commands": "off",
+                        },
                         builtins={"repo_root": RUNFILES},
                     )
                     for process in overridden.processes:
-                        if os.path.basename(process.command[0]) == (
-                            "base_velocity_controller_gui"
+                        if (
+                            os.path.basename(process.command[0])
+                            == "base_velocity_controller_gui"
                         ):
-                            self.assertIn("--walking_commands=off", process.command)
+                            self.assertIn(
+                                "--walking_commands=off", process.command
+                            )
 
     def test_the_mpc_and_the_robot_are_never_in_one_launch_file(self) -> None:
         # Simulation runs the hardware topology: no launch file starts the robot process next to the MPC.
         for path in launch_paths():
             launch = load(path)
-            programs = [os.path.basename(p.command[0]) for p in launch.processes]
+            programs = [
+                os.path.basename(p.command[0]) for p in launch.processes
+            ]
             with self.subTest(path=path):
                 self.assertFalse(
                     any(p.endswith("_robot") for p in programs)
@@ -421,7 +475,10 @@ class LaunchFilesTest(unittest.TestCase):
                         stream.write(
                             launch_script.export_script(
                                 os.path.join(
-                                    RUNFILES, package, "launch", "robot.textproto"
+                                    RUNFILES,
+                                    package,
+                                    "launch",
+                                    "robot.textproto",
                                 ),
                                 "robot",
                                 env_prefix="WB_ROBOT_",

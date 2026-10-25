@@ -45,23 +45,26 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-EndEffectorKinematicsTwistConstraint::EndEffectorKinematicsTwistConstraint(const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
-                                                                           size_t numConstraints,
-                                                                           Config config)
+EndEffectorKinematicsTwistConstraint::EndEffectorKinematicsTwistConstraint(
+    const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
+    size_t numConstraints,
+    Config config)
     : StateInputConstraint(ConstraintOrder::Linear),
       ground_plane_normal_(0.0, 0.0, 1.0),
       endEffectorKinematicsPtr_(endEffectorKinematics.clone()),
       numConstraints_(numConstraints),
       config_(std::move(config)) {
   ABSL_CHECK(endEffectorKinematicsPtr_->getIds().size() == 1)
-      << "[EndEffectorKinematicsTwistConstraint] this class only accepts a single end-effector!";
+      << "[EndEffectorKinematicsTwistConstraint] this class only accepts a "
+         "single end-effector!";
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-EndEffectorKinematicsTwistConstraint::EndEffectorKinematicsTwistConstraint(const EndEffectorKinematicsTwistConstraint& rhs)
+EndEffectorKinematicsTwistConstraint::EndEffectorKinematicsTwistConstraint(
+    const EndEffectorKinematicsTwistConstraint& rhs)
     : StateInputConstraint(rhs),
       ground_plane_normal_(rhs.ground_plane_normal_),
       constrainYawRateAboutNormal_(rhs.constrainYawRateAboutNormal_),
@@ -74,7 +77,8 @@ EndEffectorKinematicsTwistConstraint::EndEffectorKinematicsTwistConstraint(const
 /******************************************************************************************************/
 
 void EndEffectorKinematicsTwistConstraint::configure(Config&& config) {
-  // Config matrices are always 6D (full pose). The constraint slices to numConstraints_ rows at evaluation time.
+  // Config matrices are always 6D (full pose). The constraint slices to
+  // numConstraints_ rows at evaluation time.
   config_ = std::move(config);
 }
 
@@ -84,27 +88,36 @@ void EndEffectorKinematicsTwistConstraint::configure(Config&& config) {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-matrix3_t EndEffectorKinematicsTwistConstraint::getAngularVelocityToOrientationErrorRateMap(const vector_t& state) const {
-  const quaternion_t orientation = endEffectorKinematicsPtr_->getOrientation(state).front();
-  const vector3_t v = orientation.toRotationMatrix() * vector3_t::UnitZ();  // end-effector normal in the world frame
+matrix3_t EndEffectorKinematicsTwistConstraint::
+    getAngularVelocityToOrientationErrorRateMap(const vector_t& state) const {
+  const quaternion_t orientation =
+      endEffectorKinematicsPtr_->getOrientation(state).front();
+  const vector3_t v =
+      orientation.toRotationMatrix() *
+      vector3_t::UnitZ();  // end-effector normal in the world frame
   const vector3_t& n = ground_plane_normal_;
 
   const scalar_t cosAngle = v.dot(n);
   const scalar_t w = 1.0 + cosAngle;
   if (w < kOrientationErrorWrtPlaneAntiParallelThreshold) {
-    // The end-effector normal points (almost) away from the plane normal: the shortest-arc correction and hence the
-    // orientation error are not differentiable there. Fall back to damping the full angular velocity: the
-    // quaternion-distance error is half the rotation angle, so its rate is half the angular velocity.
+    // The end-effector normal points (almost) away from the plane normal: the
+    // shortest-arc correction and hence the orientation error are not
+    // differentiable there. Fall back to damping the full angular velocity: the
+    // quaternion-distance error is half the rotation angle, so its rate is half
+    // the angular velocity.
     return kQuaternionHalfAngleFactor * matrix3_t::Identity();
   }
 
-  // Analytic derivative of e = -(v x n) / sqrt(2 (1 + v.n)) with respect to the angular velocity, see the header.
+  // Analytic derivative of e = -(v x n) / sqrt(2 (1 + v.n)) with respect to the
+  // angular velocity, see the header.
   const vector3_t axis = v.cross(n);
   const scalar_t s = std::sqrt(2.0 * w);
-  matrix3_t map = (cosAngle * matrix3_t::Identity() - v * n.transpose()) / s + (axis * axis.transpose()) / (s * s * s);
-  // The tilt error carries no information about the rotation about the end-effector normal. Adding that rate in the
-  // plane-normal direction makes the orientation rows full rank and stops a stance foot pivoting on the spot; without
-  // it the last row of a 6D constraint is identically zero.
+  matrix3_t map = (cosAngle * matrix3_t::Identity() - v * n.transpose()) / s +
+                  (axis * axis.transpose()) / (s * s * s);
+  // The tilt error carries no information about the rotation about the
+  // end-effector normal. Adding that rate in the plane-normal direction makes
+  // the orientation rows full rank and stops a stance foot pivoting on the
+  // spot; without it the last row of a 6D constraint is identically zero.
   if (constrainYawRateAboutNormal_) {
     map.noalias() += kQuaternionHalfAngleFactor * n * v.transpose();
   }
@@ -115,31 +128,41 @@ matrix3_t EndEffectorKinematicsTwistConstraint::getAngularVelocityToOrientationE
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-vector_t EndEffectorKinematicsTwistConstraint::getValue(scalar_t /*time*/,
-                                                        const vector_t& state,
-                                                        const vector_t& input,
-                                                        const PreComputation& /*preComp*/) const {
+vector_t EndEffectorKinematicsTwistConstraint::getValue(
+    scalar_t /*time*/,
+    const vector_t& state,
+    const vector_t& input,
+    const PreComputation& /*preComp*/) const {
   vector_t f = config_.b.head(numConstraints_);
 
   if (config_.Ax.size() > 0) {
-    // Foot pose: position and orientation error with respect to the ground normal. The orientation error (a kinematics
-    // call) is only evaluated when the active rows use it, mirroring getLinearApproximation.
+    // Foot pose: position and orientation error with respect to the ground
+    // normal. The orientation error (a kinematics call) is only evaluated when
+    // the active rows use it, mirroring getLinearApproximation.
     const Eigen::Ref<const matrix_t> Ax = config_.Ax.topRows(numConstraints_);
     vector6_t footPose = vector6_t::Zero();
-    footPose.head<kPositionDim>() = endEffectorKinematicsPtr_->getPosition(state).front();
+    footPose.head<kPositionDim>() =
+        endEffectorKinematicsPtr_->getPosition(state).front();
     if (!Ax.rightCols(kRotationTangentDim).isZero(0.0)) {
-      footPose.tail<kRotationTangentDim>() = endEffectorKinematicsPtr_->getOrientationErrorWrtPlane(state, {ground_plane_normal_}).front();
+      footPose.tail<kRotationTangentDim>() =
+          endEffectorKinematicsPtr_
+              ->getOrientationErrorWrtPlane(state, {ground_plane_normal_})
+              .front();
     }
     f.noalias() += Ax * footPose;
   }
 
   if (config_.Av.size() > 0) {
     vector6_t twist = endEffectorKinematicsPtr_->getTwist(state, input).front();
-    // The angular columns of Av act on the rate of the orientation residual, not on the raw angular velocity. The
-    // mapping is skipped (and its kinematics call avoided) when those columns are inactive, e.g. for a
+    // The angular columns of Av act on the rate of the orientation residual,
+    // not on the raw angular velocity. The mapping is skipped (and its
+    // kinematics call avoided) when those columns are inactive, e.g. for a
     // translation-only constraint.
-    if (!config_.Av.topRightCorner(numConstraints_, kRotationTangentDim).isZero(0.0)) {
-      twist.tail(kRotationTangentDim) = getAngularVelocityToOrientationErrorRateMap(state) * twist.tail(kRotationTangentDim);
+    if (!config_.Av.topRightCorner(numConstraints_, kRotationTangentDim)
+             .isZero(0.0)) {
+      twist.tail(kRotationTangentDim) =
+          getAngularVelocityToOrientationErrorRateMap(state) *
+          twist.tail(kRotationTangentDim);
     }
     f.noalias() += config_.Av.topRows(numConstraints_) * twist;
   }
@@ -150,38 +173,56 @@ vector_t EndEffectorKinematicsTwistConstraint::getValue(scalar_t /*time*/,
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-VectorFunctionLinearApproximation EndEffectorKinematicsTwistConstraint::getLinearApproximation(scalar_t /*time*/,
-                                                                                               const vector_t& state,
-                                                                                               const vector_t& input,
-                                                                                               const PreComputation& /*preComp*/) const {
+VectorFunctionLinearApproximation
+EndEffectorKinematicsTwistConstraint::getLinearApproximation(
+    scalar_t /*time*/,
+    const vector_t& state,
+    const vector_t& input,
+    const PreComputation& /*preComp*/) const {
   VectorFunctionLinearApproximation linearApproximation =
-      VectorFunctionLinearApproximation::Zero(numConstraints_, state.size(), input.size());
+      VectorFunctionLinearApproximation::Zero(numConstraints_, state.size(),
+                                              input.size());
 
   linearApproximation.f = config_.b.head(numConstraints_);
 
   if (config_.Ax.size() > 0) {
     const matrix_t Ax = config_.Ax.topRows(numConstraints_);
-    const VectorFunctionLinearApproximation positionApprox = endEffectorKinematicsPtr_->getPositionLinearApproximation(state).front();
-    linearApproximation.f.noalias() += Ax.leftCols(kPositionDim) * positionApprox.f;
-    linearApproximation.dfdx.noalias() += Ax.leftCols(kPositionDim) * positionApprox.dfdx;
+    const VectorFunctionLinearApproximation positionApprox =
+        endEffectorKinematicsPtr_->getPositionLinearApproximation(state)
+            .front();
+    linearApproximation.f.noalias() +=
+        Ax.leftCols(kPositionDim) * positionApprox.f;
+    linearApproximation.dfdx.noalias() +=
+        Ax.leftCols(kPositionDim) * positionApprox.dfdx;
 
     if (!Ax.rightCols(kRotationTangentDim).isZero(0.0)) {
       const VectorFunctionLinearApproximation orientationApprox =
-          endEffectorKinematicsPtr_->getOrientationErrorWrtPlaneLinearApproximation(state, {ground_plane_normal_}).front();
-      linearApproximation.f.noalias() += Ax.rightCols(kRotationTangentDim) * orientationApprox.f;
-      linearApproximation.dfdx.noalias() += Ax.rightCols(kRotationTangentDim) * orientationApprox.dfdx;
+          endEffectorKinematicsPtr_
+              ->getOrientationErrorWrtPlaneLinearApproximation(
+                  state, {ground_plane_normal_})
+              .front();
+      linearApproximation.f.noalias() +=
+          Ax.rightCols(kRotationTangentDim) * orientationApprox.f;
+      linearApproximation.dfdx.noalias() +=
+          Ax.rightCols(kRotationTangentDim) * orientationApprox.dfdx;
     }
   }
 
   if (config_.Av.size() > 0) {
-    const VectorFunctionLinearApproximation twistApprox = endEffectorKinematicsPtr_->getTwistLinearApproximation(state, input).front();
+    const VectorFunctionLinearApproximation twistApprox =
+        endEffectorKinematicsPtr_->getTwistLinearApproximation(state, input)
+            .front();
     matrix_t Av = config_.Av.topRows(numConstraints_);
     if (!Av.rightCols(kRotationTangentDim).isZero(0.0)) {
-      // The map is held at its value at the linearization point, so the state Jacobian lacks Av_ang (dM/dx) omega - exactly
-      // that, which testQuaternionRootTermDerivatives checks - and is exact only where the foot does not turn: at rest, or
-      // flat at a solution whose rows also hold the yaw rate (tilt rows alone leave the pivot rate about the normal free).
-      // The input Jacobian is exact: M reads no input (qdoc 2.8.5).
-      const matrix_t mappedAngularGains = Av.rightCols(kRotationTangentDim) * getAngularVelocityToOrientationErrorRateMap(state);
+      // The map is held at its value at the linearization point, so the state
+      // Jacobian lacks Av_ang (dM/dx) omega - exactly that, which
+      // testQuaternionRootTermDerivatives checks - and is exact only where the
+      // foot does not turn: at rest, or flat at a solution whose rows also hold
+      // the yaw rate (tilt rows alone leave the pivot rate about the normal
+      // free). The input Jacobian is exact: M reads no input (qdoc 2.8.5).
+      const matrix_t mappedAngularGains =
+          Av.rightCols(kRotationTangentDim) *
+          getAngularVelocityToOrientationErrorRateMap(state);
       Av.rightCols(kRotationTangentDim) = mappedAngularGains;
     }
     linearApproximation.f.noalias() += Av * twistApprox.f;

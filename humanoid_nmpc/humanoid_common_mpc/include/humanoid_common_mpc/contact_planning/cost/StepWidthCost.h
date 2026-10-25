@@ -37,16 +37,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `step_width`: w (e_y . (p_L - p_R) - w_nom)^2 at every node, with the first-order heading term of the frame.
+ * `step_width`: w (e_y . (p_L - p_R) - w_nom)^2 at every node, with the
+ * first-order heading term of the frame.
  *
- * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
  */
 class StepWidthCost final : public LipWeightedCost {
  public:
   std::string describe() const override;
   void configure(const ContactPlanningConfig& config) override;
   NodeSet nodeSet() const override { return NodeSet::kAll; }
-  void addToStage(const ContactPlanningContext& ctx, int node, StageAccumulator& stage) const override;
+  void addToStage(const ContactPlanningContext& ctx,
+                  int node,
+                  StageAccumulator& stage) const override;
 
  private:
   scalar_t nominalStepWidth_ = 0.0;

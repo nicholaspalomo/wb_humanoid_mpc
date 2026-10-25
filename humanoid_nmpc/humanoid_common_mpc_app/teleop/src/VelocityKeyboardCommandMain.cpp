@@ -60,47 +60,62 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ABSL_FLAG(std::string,
           reference_file,
           "",
-          "The robot's reference file (config/command/reference.textproto): the command limits. Required.");
+          "The robot's reference file (config/command/reference.textproto): "
+          "the command limits. Required.");
 ABSL_FLAG(std::string,
           network_config,
           "",
-          "The network file of the bus (config/ipc/network.textproto); empty: the shipped single-machine network.");
-ABSL_FLAG(std::string, ipc_node, "teleop", "The bus node this process publishes as.");
+          "The network file of the bus (config/ipc/network.textproto); empty: "
+          "the shipped single-machine network.");
+ABSL_FLAG(std::string,
+          ipc_node,
+          "teleop",
+          "The bus node this process publishes as.");
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/teleop/README.md:teleop_flags)
 
 /*
- * velocity_keyboard_command: the walking command of the pelvis typed as a line, "v_x v_y delta_height yaw_rate", and
- * published on operator/walking_velocity_command until the next line. See
+ * velocity_keyboard_command: the walking command of the pelvis typed as a line,
+ * "v_x v_y delta_height yaw_rate", and published on
+ * operator/walking_velocity_command until the next line. See
  * humanoid_nmpc/humanoid_common_mpc_app/teleop/README.md.
  */
 int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   absl::SetProgramUsageMessage(
-      "Publishes the walking command typed in the terminal on operator/walking_velocity_command.\n"
-      "  velocity_keyboard_command --reference_file=<robot>/config/command/reference.textproto [--network_config=...] [--ipc_node=teleop]");
+      "Publishes the walking command typed in the terminal on "
+      "operator/walking_velocity_command.\n"
+      "  velocity_keyboard_command "
+      "--reference_file=<robot>/config/command/reference.textproto "
+      "[--network_config=...] [--ipc_node=teleop]");
   absl::ParseCommandLine(argc, argv);
   absl::InitializeLog();
   absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
   ocs2::humanoid::node::installShutdownSignalHandlers();
 
   const std::string referenceFile = absl::GetFlag(FLAGS_reference_file);
-  if (const absl::Status valid = ocs2::humanoid::node::validateFileFlag("--reference_file", referenceFile); !valid.ok()) {
+  if (const absl::Status valid = ocs2::humanoid::node::validateFileFlag(
+          "--reference_file", referenceFile);
+      !valid.ok()) {
     LOG(ERROR) << valid.message();
     return ocs2::humanoid::node::kUsageErrorExitCode;
   }
-  absl::StatusOr<ocs2::humanoid::teleop::KeyboardCommandLimits> limits = ocs2::humanoid::teleop::loadKeyboardCommandLimits(referenceFile);
+  absl::StatusOr<ocs2::humanoid::teleop::KeyboardCommandLimits> limits =
+      ocs2::humanoid::teleop::loadKeyboardCommandLimits(referenceFile);
   if (!limits.ok()) {
     LOG(ERROR) << limits.status();
     return ocs2::humanoid::node::kUsageErrorExitCode;
   }
 
   absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus =
-      ocs2::humanoid::node::createNodeBus(absl::GetFlag(FLAGS_network_config), absl::GetFlag(FLAGS_ipc_node));
+      ocs2::humanoid::node::createNodeBus(absl::GetFlag(FLAGS_network_config),
+                                          absl::GetFlag(FLAGS_ipc_node));
   if (!bus.ok()) {
     LOG(ERROR) << "The bus: " << bus.status();
     return ocs2::humanoid::node::kUsageErrorExitCode;
   }
-  absl::StatusOr<std::unique_ptr<ocs2::humanoid::teleop::VelocityCommandRepeater>> repeater =
-      ocs2::humanoid::teleop::VelocityCommandRepeater::Create(**bus, referenceFile, *limits);
+  absl::StatusOr<
+      std::unique_ptr<ocs2::humanoid::teleop::VelocityCommandRepeater>>
+      repeater = ocs2::humanoid::teleop::VelocityCommandRepeater::Create(
+          **bus, referenceFile, *limits);
   if (!repeater.ok()) {
     LOG(ERROR) << repeater.status();
     return 1;
@@ -111,32 +126,44 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   }
 
   ocs2::humanoid::teleop::LineReader reader(STDIN_FILENO);
-  constexpr char kPrompt[] = "Enter v_x [m/s], v_y [m/s], delta_height [m], ang_vel_z [rad/s] of the PELVIS, separated by spaces: ";
+  constexpr char kPrompt[] =
+      "Enter v_x [m/s], v_y [m/s], delta_height [m], ang_vel_z [rad/s] of the "
+      "PELVIS, separated by spaces: ";
   while (!ocs2::humanoid::node::shutdownRequested()) {
     std::cout << kPrompt << std::flush;
-    const std::optional<std::string> line = reader.readLine([]() { return ocs2::humanoid::node::shutdownRequested(); });
+    const std::optional<std::string> line = reader.readLine(
+        []() { return ocs2::humanoid::node::shutdownRequested(); });
     if (!line.has_value()) break;
 
-    // Before every command, so that a limit the operator has just changed in reference.textproto - through the tuning
-    // GUI or by hand - applies to the command about to be sent: the MPC scales it back by its own copy, which its parameter
-    // updater reloads, and a stale copy here would make the robot walk at a speed nobody asked for.
+    // Before every command, so that a limit the operator has just changed in
+    // reference.textproto - through the tuning GUI or by hand - applies to the
+    // command about to be sent: the MPC scales it back by its own copy, which
+    // its parameter updater reloads, and a stale copy here would make the robot
+    // walk at a speed nobody asked for.
     absl::StatusOr<ocs2::humanoid::teleop::KeyboardCommandLimits> reloaded =
         ocs2::humanoid::teleop::loadKeyboardCommandLimits(referenceFile);
     if (reloaded.ok()) {
       limits = *std::move(reloaded);
     } else {
-      LOG(WARNING) << "Keeping the previous command limits: " << reloaded.status();
+      LOG(WARNING) << "Keeping the previous command limits: "
+                   << reloaded.status();
     }
-    const absl::StatusOr<ocs2::vector4_t> command = ocs2::humanoid::teleop::parseKeyboardCommandLine(*line);
+    const absl::StatusOr<ocs2::vector4_t> command =
+        ocs2::humanoid::teleop::parseKeyboardCommandLine(*line);
     if (!command.ok()) {
       LOG(WARNING) << command.status().message() << "; nothing is sent.";
       continue;
     }
-    const ocs2::vector4_t clamped = command->cwiseMin(limits->limits).cwiseMax(-limits->limits);
-    LOG(INFO) << "Publishing [" << absl::StrJoin(clamped.data(), clamped.data() + clamped.size(), ", ") << "]";
+    const ocs2::vector4_t clamped =
+        command->cwiseMin(limits->limits).cwiseMax(-limits->limits);
+    LOG(INFO) << "Publishing ["
+              << absl::StrJoin(clamped.data(), clamped.data() + clamped.size(),
+                               ", ")
+              << "]";
     (*repeater)->setCommand(clamped, *limits);
   }
-  // The MPC keeps the last walking command it received: leave the stop command behind before the bus closes.
+  // The MPC keeps the last walking command it received: leave the stop command
+  // behind before the bus closes.
   if ((*repeater)->publishStopCommand()) LOG(INFO) << "Sent the stop command.";
   (*bus)->stop();
   return 0;

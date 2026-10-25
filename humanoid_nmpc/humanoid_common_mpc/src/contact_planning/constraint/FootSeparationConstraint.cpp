@@ -40,11 +40,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-static_assert(kNumContacts == kBipedFootCount, "the separation rows are written for a biped");
+static_assert(kNumContacts == kBipedFootCount,
+              "the separation rows are written for a biped");
 
 std::string FootSeparationConstraint::describe() const {
-  return absl::StrCat("|e_x . (p_L - p_R)| <= ", params_.maxStepLength, " m, ", params_.minStepWidth,
-                      " <= e_y . (p_L - p_R) <= ", params_.maxStepWidth, " m at every node (first-order in the heading), ", penaltyText());
+  return absl::StrCat(
+      "|e_x . (p_L - p_R)| <= ", params_.maxStepLength, " m, ",
+      params_.minStepWidth, " <= e_y . (p_L - p_R) <= ", params_.maxStepWidth,
+      " m at every node (first-order in the heading), ", penaltyText());
 }
 
 void FootSeparationConstraint::configure(const ContactPlanningConfig& config) {
@@ -52,7 +55,9 @@ void FootSeparationConstraint::configure(const ContactPlanningConfig& config) {
   configurePenalty(config, config.footSeparation.slack);
 }
 
-void FootSeparationConstraint::addRows(const ContactPlanningContext& ctx, int node, RowBuilder& rows) const {
+void FootSeparationConstraint::addRows(const ContactPlanningContext& ctx,
+                                       int node,
+                                       RowBuilder& rows) const {
   const std::array<vector2_t, kHorizontalPositionDim>& axes = ctx.axesAt(node);
   for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
     Coefficients xc;
@@ -61,16 +66,21 @@ void FootSeparationConstraint::addRows(const ContactPlanningContext& ctx, int no
       xc.emplace_back(idx_.foot[1][w], -axes[static_cast<size_t>(axis)](w));
     }
     const vector2_t dNominal =
-        ctx.hasHeading() ? vector2_t(ctx.nominal->feet[static_cast<size_t>(node)][0] - ctx.nominal->feet[static_cast<size_t>(node)][1])
-                         : vector2_t(vector2_t::Zero());
-    const ContactPlanningContext::HeadingFrameTerm frameTerm = ctx.frameTerm(node, axis, dNominal);
+        ctx.hasHeading()
+            ? vector2_t(ctx.nominal->feet[static_cast<size_t>(node)][0] -
+                        ctx.nominal->feet[static_cast<size_t>(node)][1])
+            : vector2_t(vector2_t::Zero());
+    const ContactPlanningContext::HeadingFrameTerm frameTerm =
+        ctx.frameTerm(node, axis, dNominal);
     const scalar_t g = frameTerm.gain;
     const scalar_t offset = frameTerm.offset;
     if (ctx.hasHeading()) xc.emplace_back(idx_.heading, g);
     if (axis == 0) {
-      rows.addSoft(xc, /*uCoefficients=*/{}, -params_.maxStepLength - offset, params_.maxStepLength - offset, penalty_);
+      rows.addSoft(xc, /*uCoefficients=*/{}, -params_.maxStepLength - offset,
+                   params_.maxStepLength - offset, penalty_);
     } else {
-      rows.addSoft(xc, /*uCoefficients=*/{}, params_.minStepWidth - offset, params_.maxStepWidth - offset, penalty_);
+      rows.addSoft(xc, /*uCoefficients=*/{}, params_.minStepWidth - offset,
+                   params_.maxStepWidth - offset, penalty_);
     }
   }
 }

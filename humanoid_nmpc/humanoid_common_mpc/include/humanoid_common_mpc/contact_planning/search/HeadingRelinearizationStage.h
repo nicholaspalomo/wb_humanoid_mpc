@@ -40,17 +40,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `heading_relinearization`: the foothold frame was linearized around a nominal heading trajectory; re-linearize it
- * around the incumbent's own heading and footholds and re-solve the QP with the contacts fixed (successive
- * linearization), within the plan's time budget, so that the frame the constraints were written in is the frame the
- * plan actually turns through.
+ * `heading_relinearization`: the foothold frame was linearized around a nominal
+ * heading trajectory; re-linearize it around the incumbent's own heading and
+ * footholds and re-solve the QP with the contacts fixed (successive
+ * linearization), within the plan's time budget, so that the frame the
+ * constraints were written in is the frame the plan actually turns through.
  *
- * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
  */
 class HeadingRelinearizationStage final : public SearchStage {
  public:
   std::string describe() const override;
-  std::vector<std::string> requiredBlocks() const override { return {term::kHeadingDoubleIntegrator}; }
+  std::vector<std::string> requiredBlocks() const override {
+    return {term::kHeadingDoubleIntegrator};
+  }
   void configure(const ContactPlanningConfig& config) override;
   absl::Status afterSearch(SearchRun& run) const override;
 

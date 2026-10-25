@@ -54,13 +54,20 @@ constexpr std::array<absl::string_view, 2> kFields = {
 };
 // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/task_file.proto)
 
-/** Sets the CoM and ACoM weights of the term `termName` of `collection`; a refused matrix or a mistyped term is returned. */
+/** Sets the CoM and ACoM weights of the term `termName` of `collection`; a
+ * refused matrix or a mistyped term is returned. */
 template <typename Term>
-absl::Status setComAndAcomWeights(Collection<Term>& collection, const std::string& termName, const matrix_t& com, const matrix_t& acom) {
-  // A refused weight matrix comes back from setWeights(), a missing or mistyped term from updateTerm().
+absl::Status setComAndAcomWeights(Collection<Term>& collection,
+                                  const std::string& termName,
+                                  const matrix_t& com,
+                                  const matrix_t& acom) {
+  // A refused weight matrix comes back from setWeights(), a missing or mistyped
+  // term from updateTerm().
   absl::Status weightsSet;
-  absl::Status status = updateTerm<ComAndAcomTrackingCost>(collection, termName,
-                                                           [&](ComAndAcomTrackingCost& cost) { weightsSet = cost.setWeights(com, acom); });
+  absl::Status status = updateTerm<ComAndAcomTrackingCost>(
+      collection, termName, [&](ComAndAcomTrackingCost& cost) {
+        weightsSet = cost.setWeights(com, acom);
+      });
   if (status.ok()) status = weightsSet;
   return status;
 }
@@ -73,24 +80,36 @@ absl::Span<const absl::string_view> ComAndAcomWeightsApplier::staticFields() {
 
 void ComAndAcomWeightsApplier::apply(HotUpdateTarget& target) {
   const std::string runningTermName(ComAndAcomTrackingCost::kRunningTermName);
-  if (!carriesTerm(*target.runningProblem().stateCostPtr, runningTermName)) return;
-  // The terminal instance is weighted like final_state_weights, as at start-up; without the scaling it keeps its weights.
-  const std::optional<scalar_t>& terminalCostScaling = target.terminalCostScaling();
+  if (!carriesTerm(*target.runningProblem().stateCostPtr, runningTermName))
+    return;
+  // The terminal instance is weighted like final_state_weights, as at start-up;
+  // without the scaling it keeps its weights.
+  const std::optional<scalar_t>& terminalCostScaling =
+      target.terminalCostScaling();
   const mpc_config::TaskFile& task = target.task();
-  const absl::StatusOr<matrix_t> com = comWeightsFromConfig(task.com_weights, "com_weights");
-  const absl::StatusOr<matrix_t> acom = acomWeightsFromConfig(task.acom_weights, "acom_weights");
+  const absl::StatusOr<matrix_t> com =
+      comWeightsFromConfig(task.com_weights, "com_weights");
+  const absl::StatusOr<matrix_t> acom =
+      acomWeightsFromConfig(task.acom_weights, "acom_weights");
   if (!com.ok() || !acom.ok()) {
-    target.reportNotApplied("the CoM + ACoM tracking weights", com.ok() ? acom.status() : com.status());
+    target.reportNotApplied("the CoM + ACoM tracking weights",
+                            com.ok() ? acom.status() : com.status());
     return;
   }
   const std::string terminalTermName(ComAndAcomTrackingCost::kTerminalTermName);
   for (OptimalControlProblem& ocp : target.problems()) {
-    absl::Status status = setComAndAcomWeights(*ocp.stateCostPtr, runningTermName, *com, *acom);
-    if (status.ok() && terminalCostScaling.has_value() && carriesTerm(*ocp.finalCostPtr, terminalTermName)) {
-      status = setComAndAcomWeights(*ocp.finalCostPtr, terminalTermName, *com * *terminalCostScaling, *acom * *terminalCostScaling);
+    absl::Status status =
+        setComAndAcomWeights(*ocp.stateCostPtr, runningTermName, *com, *acom);
+    if (status.ok() && terminalCostScaling.has_value() &&
+        carriesTerm(*ocp.finalCostPtr, terminalTermName)) {
+      status = setComAndAcomWeights(*ocp.finalCostPtr, terminalTermName,
+                                    *com * *terminalCostScaling,
+                                    *acom * *terminalCostScaling);
     }
     if (!status.ok()) {
-      LOG(WARNING) << "[MpcParameterUpdaterModule] Failed to update the CoM + ACoM tracking cost: " << status.message();
+      LOG(WARNING) << "[MpcParameterUpdaterModule] Failed to update the CoM + "
+                      "ACoM tracking cost: "
+                   << status.message();
     }
   }
 }

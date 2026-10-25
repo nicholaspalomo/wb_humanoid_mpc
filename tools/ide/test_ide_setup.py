@@ -55,7 +55,10 @@ def _root() -> str:
         )
     candidates.append(
         os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "..", "..", "MODULE.bazel"
+            os.path.dirname(os.path.abspath(__file__)),
+            "..",
+            "..",
+            "MODULE.bazel",
         )
     )
     for candidate in candidates:
@@ -95,7 +98,9 @@ class CompileCommandsRefreshTest(unittest.TestCase):
             if _BUILDING_COMMAND.search(line)
         ]
         self.assertEqual(
-            unwrapped, [], "run these through $(bazel_indexed), see tools/ide/README.md"
+            unwrapped,
+            [],
+            "run these through $(bazel_indexed), see tools/ide/README.md",
         )
 
     def test_a_spelled_out_bazel_build_is_found(self) -> None:
@@ -124,15 +129,20 @@ class CompileCommandsRefreshTest(unittest.TestCase):
 
     def test_make_compile_commands_builds_the_generated_headers(self) -> None:
         recipe = re.search(
-            r"^compile-commands:\n((?:\t.*\n)+)", _read("Makefile"), re.MULTILINE
+            r"^compile-commands:\n((?:\t.*\n)+)",
+            _read("Makefile"),
+            re.MULTILINE,
         )
         self.assertIsNotNone(recipe)
         assert recipe is not None
         self.assertIn(
-            "python3 -m tools.ide.compile_commands --build_headers", recipe.group(1)
+            "python3 -m tools.ide.compile_commands --build_headers",
+            recipe.group(1),
         )
 
-    def test_the_launch_and_deployment_builds_go_through_the_runner(self) -> None:
+    def test_the_launch_and_deployment_builds_go_through_the_runner(
+        self,
+    ) -> None:
         for path in ("tools/deploy/session.sh", "tools/deploy/deploy_robot.sh"):
             source = _read(path)
             with self.subTest(path=path):
@@ -142,7 +152,9 @@ class CompileCommandsRefreshTest(unittest.TestCase):
                         continue
                     for match in _BUILDING_COMMAND.finditer(line):
                         self.assertTrue(
-                            line[: match.start()].endswith(_RUNNER[: -len("bazel")]),
+                            line[: match.start()].endswith(
+                                _RUNNER[: -len("bazel")]
+                            ),
                             f"{path}:{number}: {line.strip()}",
                         )
 
@@ -150,7 +162,8 @@ class CompileCommandsRefreshTest(unittest.TestCase):
         compose = _read("docker-compose.yaml")
         self.assertRegex(
             compose,
-            r"python3 -m tools\.ide\.compile_commands --build_headers --quiet[^;\n]*&",
+            r"python3 -m tools\.ide\.compile_commands --build_headers"
+            r" --quiet[^;\n]*&",
         )
 
 
@@ -182,7 +195,9 @@ class PythonImportRootsTest(unittest.TestCase):
 
     def test_pyright_extra_paths_are_the_bazel_import_roots(self) -> None:
         config = json.loads(_read("pyrightconfig.json"))
-        self.assertEqual(config["extraPaths"], lint_files.python_import_roots(_root()))
+        self.assertEqual(
+            config["extraPaths"], lint_files.python_import_roots(_root())
+        )
 
 
 if __name__ == "__main__":

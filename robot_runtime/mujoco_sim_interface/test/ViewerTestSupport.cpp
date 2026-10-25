@@ -75,7 +75,8 @@ constexpr char kHingeUrdf[] = R"(
 </robot>
 )";
 
-/** The hinge robot in MuJoCo, colored so that every part of it stands out from the floor and the sky. */
+/** The hinge robot in MuJoCo, colored so that every part of it stands out from
+ * the floor and the sky. */
 constexpr char kHingeScene[] = R"(
 <mujoco>
   <worldbody>
@@ -123,7 +124,8 @@ MujocoSimConfig hingeSimConfig(std::vector<std::string> viewerNames) {
   return config;
 }
 
-MujocoSimConfig atlasSimConfig(std::vector<std::string> viewerNames, std::vector<std::string> visualizations) {
+MujocoSimConfig atlasSimConfig(std::vector<std::string> viewerNames,
+                               std::vector<std::string> visualizations) {
   MujocoSimConfig config;
   config.scenePath = kAtlasScenePath;
   config.viewer.names = std::move(viewerNames);
@@ -136,20 +138,26 @@ MujocoSimConfig atlasSimConfig(std::vector<std::string> viewerNames, std::vector
 std::vector<int> processThreadIds() {
   std::vector<int> ids;
   std::error_code error;
-  for (std::filesystem::directory_iterator entry("/proc/self/task", error); !error && entry != std::filesystem::directory_iterator();
+  for (std::filesystem::directory_iterator entry("/proc/self/task", error);
+       !error && entry != std::filesystem::directory_iterator();
        entry.increment(error)) {
     int id = 0;
-    if (absl::SimpleAtoi(entry->path().filename().string(), &id)) ids.push_back(id);
+    if (absl::SimpleAtoi(entry->path().filename().string(), &id))
+      ids.push_back(id);
   }
   std::sort(ids.begin(), ids.end());
   return ids;
 }
 
-double differingPixelFraction(absl::Span<const uint8_t> first, absl::Span<const uint8_t> second) {
+double differingPixelFraction(absl::Span<const uint8_t> first,
+                              absl::Span<const uint8_t> second) {
   if (first.size() != second.size() || first.empty()) return 1.0;
   int64_t differing = 0;
   for (size_t pixel = 0; pixel + 2 < first.size(); pixel += 3) {
-    if (first[pixel] != second[pixel] || first[pixel + 1] != second[pixel + 1] || first[pixel + 2] != second[pixel + 2]) ++differing;
+    if (first[pixel] != second[pixel] ||
+        first[pixel + 1] != second[pixel + 1] ||
+        first[pixel + 2] != second[pixel + 2])
+      ++differing;
   }
   return static_cast<double>(differing) / static_cast<double>(first.size() / 3);
 }
@@ -166,58 +174,81 @@ double byteVariance(absl::Span<const uint8_t> rgb) {
   return sumOfSquares / static_cast<double>(rgb.size()) - mean * mean;
 }
 
-void writeTestImage(absl::string_view name, absl::Span<const uint8_t> rgb, int width, int height) {
-  const char* absl_nullable directory = std::getenv("TEST_UNDECLARED_OUTPUTS_DIR");
-  if (directory == nullptr || width <= 0 || height <= 0 || rgb.size() != static_cast<size_t>(width) * height * 3) return;
-  std::ofstream file(absl::StrCat(directory, "/", name, ".ppm"), std::ios::binary);
+void writeTestImage(absl::string_view name,
+                    absl::Span<const uint8_t> rgb,
+                    int width,
+                    int height) {
+  const char* absl_nullable directory =
+      std::getenv("TEST_UNDECLARED_OUTPUTS_DIR");
+  if (directory == nullptr || width <= 0 || height <= 0 ||
+      rgb.size() != static_cast<size_t>(width) * height * 3)
+    return;
+  std::ofstream file(absl::StrCat(directory, "/", name, ".ppm"),
+                     std::ios::binary);
   file << absl::StrCat("P6\n", width, " ", height, "\n255\n");
   const size_t rowBytes = static_cast<size_t>(width) * 3;
   for (int row = height - 1; row >= 0; --row) {
-    file.write(reinterpret_cast<const char*>(rgb.data() + static_cast<size_t>(row) * rowBytes), static_cast<std::streamsize>(rowBytes));
+    file.write(reinterpret_cast<const char*>(
+                   rgb.data() + static_cast<size_t>(row) * rowBytes),
+               static_cast<std::streamsize>(rowBytes));
   }
 }
 
-absl::StatusOr<std::unique_ptr<OffscreenTestRenderer>> OffscreenTestRenderer::Create(const MujocoSimInterface* absl_nonnull sim,
-                                                                                     const WebViewerOptions& options) {
-  absl::StatusOr<const EglLibrary* absl_nonnull> library = EglLibrary::Get(options.eglLibrary);
+absl::StatusOr<std::unique_ptr<OffscreenTestRenderer>>
+OffscreenTestRenderer::Create(const MujocoSimInterface* absl_nonnull sim,
+                              const WebViewerOptions& options) {
+  absl::StatusOr<const EglLibrary* absl_nonnull> library =
+      EglLibrary::Get(options.eglLibrary);
   if (!library.ok()) return library.status();
-  absl::StatusOr<std::unique_ptr<EglContext>> context = EglContext::Create(*library, EglContext::Options{.deviceId = options.eglDeviceId});
+  absl::StatusOr<std::unique_ptr<EglContext>> context = EglContext::Create(
+      *library, EglContext::Options{.deviceId = options.eglDeviceId});
   if (!context.ok()) return context.status();
   if (absl::Status current = (*context)->makeCurrent(); !current.ok()) {
     return current;
   }
-  absl::StatusOr<MjModelPtr> model = copyModelForOffscreenRendering(sim->getModel(), options);
+  absl::StatusOr<MjModelPtr> model =
+      copyModelForOffscreenRendering(sim->getModel(), options);
   if (!model.ok()) return model.status();
-  std::unique_ptr<OffscreenTestRenderer> renderer = absl::WrapUnique(new OffscreenTestRenderer(*std::move(context), *std::move(model)));
-  absl::StatusOr<std::unique_ptr<MujocoFrameRenderer>> frameRenderer = MujocoFrameRenderer::Create(sim, renderer->model_.get());
+  std::unique_ptr<OffscreenTestRenderer> renderer = absl::WrapUnique(
+      new OffscreenTestRenderer(*std::move(context), *std::move(model)));
+  absl::StatusOr<std::unique_ptr<MujocoFrameRenderer>> frameRenderer =
+      MujocoFrameRenderer::Create(sim, renderer->model_.get());
   if (!frameRenderer.ok()) return frameRenderer.status();
   renderer->frameRenderer_ = *std::move(frameRenderer);
   renderer->frameRenderer_->useOffscreenBuffer();
   return renderer;
 }
 
-OffscreenTestRenderer::OffscreenTestRenderer(std::unique_ptr<EglContext> context, MjModelPtr model)
+OffscreenTestRenderer::OffscreenTestRenderer(
+    std::unique_ptr<EglContext> context, MjModelPtr model)
     : context_(std::move(context)), model_(std::move(model)) {}
 
 OffscreenTestRenderer::~OffscreenTestRenderer() {
-  // MuJoCo frees its GPU objects in whichever context is current, which another renderer may have made its own.
+  // MuJoCo frees its GPU objects in whichever context is current, which another
+  // renderer may have made its own.
   if (const absl::Status current = context_->makeCurrent(); !current.ok()) {
-    ADD_FAILURE() << "the renderer's EGL context could not be made current to free it: " << current;
+    ADD_FAILURE()
+        << "the renderer's EGL context could not be made current to free it: "
+        << current;
     return;
   }
   if (frameRenderer_ != nullptr) frameRenderer_->release();
   EXPECT_TRUE(context_->release().ok());
 }
 
-absl::StatusOr<std::vector<uint8_t>> OffscreenTestRenderer::render(int width, int height) {
+absl::StatusOr<std::vector<uint8_t>> OffscreenTestRenderer::render(int width,
+                                                                   int height) {
   if (absl::Status current = context_->makeCurrent(); !current.ok()) {
     return current;
   }
   frameRenderer_->resizeOffscreen(width, height);
-  const mjrRect viewport = {.left = 0, .bottom = 0, .width = width, .height = height};
+  const mjrRect viewport = {
+      .left = 0, .bottom = 0, .width = width, .height = height};
   frameRenderer_->drawFrame(viewport, /*elapsedRealTime=*/0.0);
   std::vector<uint8_t> rgb(static_cast<size_t>(width) * height * 3);
-  if (absl::Status read = frameRenderer_->readPixels(viewport, absl::MakeSpan(rgb)); !read.ok()) {
+  if (absl::Status read =
+          frameRenderer_->readPixels(viewport, absl::MakeSpan(rgb));
+      !read.ok()) {
     return read;
   }
   return rgb;

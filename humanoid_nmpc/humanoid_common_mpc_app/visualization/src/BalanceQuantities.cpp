@@ -36,34 +36,42 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::visualization {
 
-std::optional<scalar_t> pendulumFrequency(scalar_t gravity, scalar_t pendulumHeight) {
-  if (!std::isfinite(gravity) || !std::isfinite(pendulumHeight) || !(gravity > 0.0) || !(pendulumHeight > 0.0)) {
+std::optional<scalar_t> pendulumFrequency(scalar_t gravity,
+                                          scalar_t pendulumHeight) {
+  if (!std::isfinite(gravity) || !std::isfinite(pendulumHeight) ||
+      !(gravity > 0.0) || !(pendulumHeight > 0.0)) {
     return std::nullopt;
   }
   return std::sqrt(gravity / pendulumHeight);
 }
 
-vector2_t divergentComponentOfMotion(const vector3_t& com, const vector3_t& comVelocity, scalar_t omega) {
-  return com.head<kHorizontalPositionDim>() + comVelocity.head<kHorizontalPositionDim>() / omega;
+vector2_t divergentComponentOfMotion(const vector3_t& com,
+                                     const vector3_t& comVelocity,
+                                     scalar_t omega) {
+  return com.head<kHorizontalPositionDim>() +
+         comVelocity.head<kHorizontalPositionDim>() / omega;
 }
 
-std::optional<vector3_t> zeroMomentPoint(const feet_array_t<vector3_t>& positions,
-                                         const feet_array_t<vector6_t>& wrenches,
-                                         scalar_t minNormalForce) {
+std::optional<vector3_t> zeroMomentPoint(
+    const feet_array_t<vector3_t>& positions,
+    const feet_array_t<vector6_t>& wrenches,
+    scalar_t minNormalForce) {
   vector3_t force = vector3_t::Zero();
   vector3_t moment = vector3_t::Zero();
   scalar_t weightedHeight = 0.0;
   for (size_t contact = 0; contact < positions.size(); ++contact) {
     const vector3_t contactForce = wrenches[contact].head<kForceDim>();
     force += contactForce;
-    moment += positions[contact].cross(contactForce) + wrenches[contact].tail<kTorqueDim>();
+    moment += positions[contact].cross(contactForce) +
+              wrenches[contact].tail<kTorqueDim>();
     weightedHeight += contactForce.z() * positions[contact].z();
   }
   if (!(force.z() > minNormalForce)) {
     return std::nullopt;
   }
   const scalar_t height = weightedHeight / force.z();
-  return vector3_t((height * force.x() - moment.y()) / force.z(), (height * force.y() + moment.x()) / force.z(), height);
+  return vector3_t((height * force.x() - moment.y()) / force.z(),
+                   (height * force.y() + moment.x()) / force.z(), height);
 }
 
 }  // namespace ocs2::humanoid::visualization

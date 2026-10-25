@@ -48,7 +48,12 @@ namespace robot::web_viewer {
 namespace {
 
 EncodedFrame frameWith(const std::string& jpeg, double simTime) {
-  return EncodedFrame{.sequence = 0, .width = 4, .height = 3, .simTime = simTime, .publishTime = absl::UnixEpoch(), .jpeg = jpeg};
+  return EncodedFrame{.sequence = 0,
+                      .width = 4,
+                      .height = 3,
+                      .simTime = simTime,
+                      .publishTime = absl::UnixEpoch(),
+                      .jpeg = jpeg};
 }
 
 TEST(ViewerFrameMailboxTest, PublishStampsSequenceAndTime) {
@@ -57,7 +62,8 @@ TEST(ViewerFrameMailboxTest, PublishStampsSequenceAndTime) {
   const absl::Time before = absl::Now();
   mailbox.publish(frameWith("a", /*simTime=*/0.5));
   mailbox.publish(frameWith("bb", /*simTime=*/1.0));
-  const std::optional<EncodedFrame> latest = mailbox.copyNewer(/*afterSequence=*/0, absl::ZeroDuration());
+  const std::optional<EncodedFrame> latest =
+      mailbox.copyNewer(/*afterSequence=*/0, absl::ZeroDuration());
   if (!latest.has_value()) FAIL() << "no frame";
   EXPECT_EQ(latest->sequence, 2);
   EXPECT_EQ(latest->jpeg, "bb");
@@ -74,14 +80,16 @@ TEST(ViewerFrameMailboxTest, CopyNewerWaitsForTheNextFrameOrTimesOut) {
   ViewerFrameMailbox mailbox(/*maxClients=*/1);
   mailbox.publish(frameWith("first", /*simTime=*/0.0));
   const absl::Time start = absl::Now();
-  EXPECT_FALSE(mailbox.copyNewer(/*afterSequence=*/1, absl::Milliseconds(100)).has_value());
+  EXPECT_FALSE(mailbox.copyNewer(/*afterSequence=*/1, absl::Milliseconds(100))
+                   .has_value());
   EXPECT_GE(absl::Now() - start, absl::Milliseconds(90));
 
   std::thread publisher([&mailbox] {
     absl::SleepFor(absl::Milliseconds(50));
     mailbox.publish(frameWith("second", /*simTime=*/0.1));
   });
-  const std::optional<EncodedFrame> next = mailbox.copyNewer(/*afterSequence=*/1, absl::Seconds(5));
+  const std::optional<EncodedFrame> next =
+      mailbox.copyNewer(/*afterSequence=*/1, absl::Seconds(5));
   publisher.join();
   if (!next.has_value()) FAIL() << "no next frame";
   EXPECT_EQ(next->sequence, 2);
@@ -95,12 +103,14 @@ TEST(ViewerFrameMailboxTest, CloseWakesWaitersForGood) {
     mailbox.close();
   });
   const absl::Time start = absl::Now();
-  EXPECT_FALSE(mailbox.copyNewer(/*afterSequence=*/0, absl::Seconds(10)).has_value());
+  EXPECT_FALSE(
+      mailbox.copyNewer(/*afterSequence=*/0, absl::Seconds(10)).has_value());
   EXPECT_LT(absl::Now() - start, absl::Seconds(2));
   closer.join();
   EXPECT_TRUE(mailbox.closed());
   mailbox.publish(frameWith("late", /*simTime=*/0.0));
-  EXPECT_FALSE(mailbox.copyNewer(/*afterSequence=*/0, absl::Seconds(1)).has_value());
+  EXPECT_FALSE(
+      mailbox.copyNewer(/*afterSequence=*/0, absl::Seconds(1)).has_value());
   EXPECT_FALSE(mailbox.waitForDemand(absl::Seconds(1)));
 }
 
@@ -167,19 +177,24 @@ TEST(ViewerFrameMailboxTest, ViewersAreThePageIdsSeenWithinTheLease) {
   absl::SleepFor(ViewerFrameMailbox::kDemandLease + absl::Milliseconds(100));
   EXPECT_EQ(mailbox.viewerCount(), 0);
   // Ids beyond the cap replace the oldest.
-  for (int viewer = 0; viewer < ViewerFrameMailbox::kMaxTrackedViewers + 5; ++viewer) mailbox.noteViewer(absl::StrCat(viewer));
+  for (int viewer = 0; viewer < ViewerFrameMailbox::kMaxTrackedViewers + 5;
+       ++viewer)
+    mailbox.noteViewer(absl::StrCat(viewer));
   EXPECT_EQ(mailbox.viewerCount(), ViewerFrameMailbox::kMaxTrackedViewers);
 }
 
-// The renderer resumes when an admission finds no demand before it: no client admitted and the lease lapsed.
+// The renderer resumes when an admission finds no demand before it: no client
+// admitted and the lease lapsed.
 TEST(ViewerFrameMailboxTest, DemandResumesOnlyAfterALapse) {
   ViewerFrameMailbox mailbox(/*maxClients=*/2);
   EXPECT_FALSE(mailbox.demandResumedAt().has_value());
   ASSERT_TRUE(mailbox.tryAcquireClient());
   mailbox.noteFrameRequest();
-  const std::optional<std::chrono::steady_clock::time_point> first = mailbox.demandResumedAt();
+  const std::optional<std::chrono::steady_clock::time_point> first =
+      mailbox.demandResumedAt();
   ASSERT_TRUE(first.has_value());
-  // A second client while the first is admitted, and a request within the lease, find the renderer busy.
+  // A second client while the first is admitted, and a request within the
+  // lease, find the renderer busy.
   ASSERT_TRUE(mailbox.tryAcquireClient());
   mailbox.releaseClient();
   mailbox.releaseClient();
@@ -191,10 +206,13 @@ TEST(ViewerFrameMailboxTest, DemandResumesOnlyAfterALapse) {
   absl::SleepFor(ViewerFrameMailbox::kDemandLease + absl::Milliseconds(100));
   ASSERT_TRUE(mailbox.tryAcquireClient());
   mailbox.releaseClient();
-  const std::optional<std::chrono::steady_clock::time_point> second = mailbox.demandResumedAt();
+  const std::optional<std::chrono::steady_clock::time_point> second =
+      mailbox.demandResumedAt();
   ASSERT_TRUE(second.has_value());
-  // value_or: clang-tidy's optional-access analysis does not follow the ASSERTs above; the fallbacks fail the check.
-  EXPECT_GT(second.value_or(std::chrono::steady_clock::time_point::min()), first.value_or(std::chrono::steady_clock::time_point::max()));
+  // value_or: clang-tidy's optional-access analysis does not follow the ASSERTs
+  // above; the fallbacks fail the check.
+  EXPECT_GT(second.value_or(std::chrono::steady_clock::time_point::min()),
+            first.value_or(std::chrono::steady_clock::time_point::max()));
 }
 
 TEST(ViewerFrameMailboxTest, ReadersAlwaysCopyWholeFrames) {
@@ -206,18 +224,25 @@ TEST(ViewerFrameMailboxTest, ReadersAlwaysCopyWholeFrames) {
     readers.emplace_back([&mailbox, &done, &torn] {
       int64_t last = 0;
       while (!done.load()) {
-        const std::optional<EncodedFrame> frame = mailbox.copyNewer(last, absl::Milliseconds(10));
+        const std::optional<EncodedFrame> frame =
+            mailbox.copyNewer(last, absl::Milliseconds(10));
         if (!frame.has_value()) continue;
-        // Each frame's bytes repeat the character of its sequence, sized by it: a torn copy would mix two.
+        // Each frame's bytes repeat the character of its sequence, sized by it:
+        // a torn copy would mix two.
         const char expected = static_cast<char>('a' + frame->sequence % 26);
-        if (frame->jpeg != std::string(static_cast<size_t>(1000 + frame->sequence % 7), expected)) torn.fetch_add(1);
+        if (frame->jpeg !=
+            std::string(static_cast<size_t>(1000 + frame->sequence % 7),
+                        expected))
+          torn.fetch_add(1);
         last = frame->sequence;
       }
     });
   }
   for (int64_t sequence = 1; sequence <= 2000; ++sequence) {
-    mailbox.publish(frameWith(std::string(static_cast<size_t>(1000 + sequence % 7), static_cast<char>('a' + sequence % 26)),
-                              /*simTime=*/0.0));
+    mailbox.publish(
+        frameWith(std::string(static_cast<size_t>(1000 + sequence % 7),
+                              static_cast<char>('a' + sequence % 26)),
+                  /*simTime=*/0.0));
   }
   done.store(true);
   for (std::thread& reader : readers) reader.join();
@@ -229,7 +254,10 @@ TEST(ViewerFrameMailboxTest, KeepsTheNewestStatus) {
   EXPECT_EQ(mailbox.status().render.width, 0);
   ViewerStatus status;
   status.render.width = 640;
-  status.visualizations.push_back({.name = "zmp", .hotkey = 'z', .enabled = true, .description = "the ZMP"});
+  status.visualizations.push_back({.name = "zmp",
+                                   .hotkey = 'z',
+                                   .enabled = true,
+                                   .description = "the ZMP"});
   mailbox.publishStatus(status);
   EXPECT_EQ(mailbox.status().render.width, 640);
   ASSERT_EQ(mailbox.status().visualizations.size(), 1U);

@@ -67,7 +67,9 @@ CPP = frozenset({check_types.Language.CPP})
 Token = cpp_source.Token
 
 
-def _finding(path: str, token: Token, name: str, message: str) -> check_types.Finding:
+def _finding(
+    path: str, token: Token, name: str, message: str
+) -> check_types.Finding:
     return check_types.Finding(path, token.line, token.col, name, message)
 
 
@@ -116,7 +118,8 @@ def _parameter_start(code: tuple[Token, ...], index: int) -> bool:
             if depth == 0:
                 return not (
                     k > 0
-                    and code[k - 1].text in ("for", "if", "while", "switch", "return")
+                    and code[k - 1].text
+                    in ("for", "if", "while", "switch", "return")
                 )
             depth -= 1
         elif text == ";" and depth == 0:
@@ -128,7 +131,12 @@ def _parameter_start(code: tuple[Token, ...], index: int) -> bool:
 # ----------------------------------------------------------------------------------------------------------------------
 TOTW_UNORDERED = "totw-unordered-container"
 _UNORDERED = frozenset(
-    {"unordered_map", "unordered_set", "unordered_multimap", "unordered_multiset"}
+    {
+        "unordered_map",
+        "unordered_set",
+        "unordered_multimap",
+        "unordered_multiset",
+    }
 )
 
 
@@ -140,8 +148,10 @@ def check_unordered(source: str, path: str) -> list[check_types.Finding]:
             path,
             code[i + 2],
             TOTW_UNORDERED,
-            f"`std::{name}`: use absl::flat_hash_{name.split('_')[1].replace('multi', '')} (ToTW #136); never let its "
-            "iteration order reach numerics, golden data, logs or serialized output.",
+            f"`std::{name}`: use"
+            f" absl::flat_hash_{name.split('_')[1].replace('multi', '')} (ToTW"
+            " #136); never let its iteration order reach numerics, golden"
+            " data, logs or serialized output.",
         )
         for i in range(len(code))
         if (name := _qualified(code, i, "std", _UNORDERED)) is not None
@@ -185,7 +195,9 @@ def check_header_constant(source: str, path: str) -> list[check_types.Finding]:
         tokens = code[statement.start : statement.end]
         texts = [t.text for t in tokens]
         specifiers, k = _declaration_specifiers(texts)
-        if not ({"const", "constexpr"} & specifiers or "const" in texts[k : k + 4]):
+        if not (
+            {"const", "constexpr"} & specifiers or "const" in texts[k : k + 4]
+        ):
             continue
         if (
             "inline" in specifiers
@@ -194,7 +206,9 @@ def check_header_constant(source: str, path: str) -> list[check_types.Finding]:
             or texts[0] in ("using", "typedef", "template")
         ):
             continue
-        if "(" in texts and ("=" not in texts or texts.index("(") < texts.index("=")):
+        if "(" in texts and (
+            "=" not in texts or texts.index("(") < texts.index("=")
+        ):
             continue  # a function declaration
         if "=" not in texts and "{" not in texts:
             continue
@@ -203,8 +217,9 @@ def check_header_constant(source: str, path: str) -> list[check_types.Finding]:
                 path,
                 tokens[0],
                 TOTW_HEADER_CONSTANT,
-                "namespace-scope constant in a header without `inline`: write `inline constexpr` (ToTW #140, #168), "
-                "so that every translation unit shares one definition.",
+                "namespace-scope constant in a header without `inline`: write"
+                " `inline constexpr` (ToTW #140, #168), so that every"
+                " translation unit shares one definition.",
             )
         )
     return findings
@@ -236,7 +251,11 @@ def check_string_constant(source: str, path: str) -> list[check_types.Finding]:
         ):
             continue
         k = star + 1
-        while k < len(texts) and texts[k] in ("absl_nonnull", "absl_nullable", "const"):
+        while k < len(texts) and texts[k] in (
+            "absl_nonnull",
+            "absl_nullable",
+            "const",
+        ):
             k += 1
         if (
             k + 2 < len(texts)
@@ -249,9 +268,10 @@ def check_string_constant(source: str, path: str) -> list[check_types.Finding]:
                     path,
                     tokens[k],
                     TOTW_STRING_CONSTANT,
-                    f"string constant `{texts[k]}` as a `const char*`: write `inline constexpr char {texts[k]}[] = "
-                    '"...";` (in a .cpp: `constexpr char` in an unnamed namespace) or `constexpr absl::string_view` '
-                    "(ToTW #140).",
+                    f"string constant `{texts[k]}` as a `const char*`: write"
+                    f' `inline constexpr char {texts[k]}[] = "...";` (in a'
+                    " .cpp: `constexpr char` in an unnamed namespace) or"
+                    " `constexpr absl::string_view` (ToTW #140).",
                 )
             )
     return findings
@@ -262,7 +282,9 @@ TOTW_ENUM_SWITCH_DEFAULT = "totw-enum-switch-default"
 _ENUMERATOR = re.compile(r"^k[A-Z0-9]")
 
 
-def check_enum_switch_default(source: str, path: str) -> list[check_types.Finding]:
+def check_enum_switch_default(
+    source: str, path: str
+) -> list[check_types.Finding]:
     """`default:` in a switch whose case labels are all enumerators of a scoped enum (`case Mode::kWalk:`)."""
     code = cpp_source.code_tokens(source)
     findings = []
@@ -291,9 +313,15 @@ def check_enum_switch_default(source: str, path: str) -> list[check_types.Findin
                 depth += 1
             elif text in ("}", ")", "]"):
                 depth -= 1
-            elif text == "switch" and k + 1 < body_end and code[k + 1].text == "(":
+            elif (
+                text == "switch"
+                and k + 1 < body_end
+                and code[k + 1].text == "("
+            ):
                 # A nested switch has labels of its own: skip its condition and its body.
-                k = cpp_source.matching(code, cpp_source.matching(code, k + 1) + 1)
+                k = cpp_source.matching(
+                    code, cpp_source.matching(code, k + 1) + 1
+                )
             elif text == "case" and depth == 0:
                 colon = k + 1
                 while colon < body_end and code[colon].text != ":":
@@ -319,8 +347,9 @@ def check_enum_switch_default(source: str, path: str) -> list[check_types.Findin
                     path,
                     default,
                     TOTW_ENUM_SWITCH_DEFAULT,
-                    "`default:` in a switch over an enum class: list every enumerator, so -Wswitch reports a new one, "
-                    "and handle an impossible value after the switch (ToTW #147).",
+                    "`default:` in a switch over an enum class: list every"
+                    " enumerator, so -Wswitch reports a new one, and handle an"
+                    " impossible value after the switch (ToTW #147).",
                 )
             )
     return findings
@@ -338,8 +367,8 @@ def check_at(source: str, path: str) -> list[check_types.Finding]:
             path,
             code[i],
             TOTW_AT,
-            "`.at()` throws: check the index once and use `operator[]` (or `contains()` and `find()` for maps) "
-            "(ToTW #224).",
+            "`.at()` throws: check the index once and use `operator[]` (or"
+            " `contains()` and `find()` for maps) (ToTW #224).",
         )
         for i in range(1, len(code) - 1)
         if code[i].text == "at"
@@ -366,9 +395,16 @@ def check_raw_new(source: str, path: str) -> list[check_types.Finding]:
             and previous[-2:-1] == ["operator"]
         ):
             continue
-        if previous[-3:] == ["WrapUnique", "("] or previous[-2:] == ["WrapUnique", "("]:
+        if previous[-3:] == ["WrapUnique", "("] or previous[-2:] == [
+            "WrapUnique",
+            "(",
+        ]:
             continue
-        if previous[-1:] == ["("] and i >= 2 and code[i - 2].text == "WrapUnique":
+        if (
+            previous[-1:] == ["("]
+            and i >= 2
+            and code[i - 2].text == "WrapUnique"
+        ):
             continue
         if previous[-1:] == ["return"] and _is_clone_return(code, i):
             continue
@@ -384,8 +420,9 @@ def check_raw_new(source: str, path: str) -> list[check_types.Finding]:
                 path,
                 token,
                 TOTW_RAW_NEW,
-                "raw `new`: use std::make_unique / std::make_shared, absl::WrapUnique(new T) for a private constructor, "
-                "or absl::NoDestructor (ToTW #126, #134).",
+                "raw `new`: use std::make_unique / std::make_shared,"
+                " absl::WrapUnique(new T) for a private constructor, or"
+                " absl::NoDestructor (ToTW #126, #134).",
             )
         )
     return findings
@@ -441,7 +478,8 @@ def check_printf(source: str, path: str) -> list[check_types.Finding]:
                     path,
                     token,
                     TOTW_PRINTF,
-                    f"`{token.text}`: use absl::StrFormat / absl::PrintF (ToTW #124).",
+                    f"`{token.text}`: use absl::StrFormat / absl::PrintF (ToTW"
+                    " #124).",
                 )
             )
         elif (
@@ -455,7 +493,8 @@ def check_printf(source: str, path: str) -> list[check_types.Finding]:
                     path,
                     token,
                     TOTW_PRINTF,
-                    f"`std::{token.text}`: format with absl::StrFormat, not stream manipulators (ToTW #124).",
+                    f"`std::{token.text}`: format with absl::StrFormat, not"
+                    " stream manipulators (ToTW #124).",
                 )
             )
     return findings
@@ -463,10 +502,14 @@ def check_printf(source: str, path: str) -> list[check_types.Finding]:
 
 # ----------------------------------------------------------------------------------------------------------------------
 TOTW_SMALL_BY_CONST_REF = "totw-small-by-const-ref"
-_SMALL = re.compile(r"^(scalar_t|double|float|int|bool|size_t|u?int\d+_t|char)$")
+_SMALL = re.compile(
+    r"^(scalar_t|double|float|int|bool|size_t|u?int\d+_t|char)$"
+)
 
 
-def check_small_by_const_ref(source: str, path: str) -> list[check_types.Finding]:
+def check_small_by_const_ref(
+    source: str, path: str
+) -> list[check_types.Finding]:
     """Parameters `const double&` and the like."""
     code = cpp_source.code_tokens(source)
     findings = []
@@ -484,7 +527,8 @@ def check_small_by_const_ref(source: str, path: str) -> list[check_types.Finding
                 path,
                 code[i + 1],
                 TOTW_SMALL_BY_CONST_REF,
-                f"`const {code[i + 1].text}&` parameter: pass `{code[i + 1].text}` by value (ToTW #234).",
+                f"`const {code[i + 1].text}&` parameter: pass"
+                f" `{code[i + 1].text}` by value (ToTW #234).",
             )
         )
     return findings
@@ -529,13 +573,16 @@ def check_view_param(source: str, path: str) -> list[check_types.Finding]:
                     path,
                     code[i],
                     TOTW_VIEW_PARAM,
-                    f"`const {namespace}::{name}&`: pass `{namespace}::{name}` by value (ToTW #1, #93).",
+                    f"`const {namespace}::{name}&`: pass `{namespace}::{name}`"
+                    " by value (ToTW #1, #93).",
                 )
             )
     return findings
 
 
-def check_optional_ref_param(source: str, path: str) -> list[check_types.Finding]:
+def check_optional_ref_param(
+    source: str, path: str
+) -> list[check_types.Finding]:
     """`const std::optional<T>&` parameters."""
     code = cpp_source.code_tokens(source)
     return [
@@ -543,15 +590,18 @@ def check_optional_ref_param(source: str, path: str) -> list[check_types.Finding
             path,
             code[i],
             TOTW_OPTIONAL_REF_PARAM,
-            "`const std::optional<T>&` parameter: take `std::optional<T>` by value if T is small, otherwise "
-            "`const T* absl_nullable` (ToTW #163).",
+            "`const std::optional<T>&` parameter: take `std::optional<T>` by"
+            " value if T is small, otherwise `const T* absl_nullable` (ToTW"
+            " #163).",
         )
         for i, _ in _const_reference_to(code, "std", frozenset({"optional"}))
         if _parameter_start(code, i)
     ]
 
 
-def check_smart_ptr_ref_param(source: str, path: str) -> list[check_types.Finding]:
+def check_smart_ptr_ref_param(
+    source: str, path: str
+) -> list[check_types.Finding]:
     """`const std::unique_ptr<T>&` and `const std::shared_ptr<T>&` parameters."""
     code = cpp_source.code_tokens(source)
     return [
@@ -559,8 +609,9 @@ def check_smart_ptr_ref_param(source: str, path: str) -> list[check_types.Findin
             path,
             code[i],
             TOTW_SMART_PTR_REF_PARAM,
-            f"`const std::{name}<T>&` parameter: take `const T&` (or `T* absl_nullable`), or the smart pointer by value "
-            "to share or transfer ownership (ToTW #188).",
+            f"`const std::{name}<T>&` parameter: take `const T&` (or `T*"
+            " absl_nullable`), or the smart pointer by value to share or"
+            " transfer ownership (ToTW #188).",
         )
         for i, name in _const_reference_to(
             code, "std", frozenset({"unique_ptr", "shared_ptr"})
@@ -571,10 +622,14 @@ def check_smart_ptr_ref_param(source: str, path: str) -> list[check_types.Findin
 
 # ----------------------------------------------------------------------------------------------------------------------
 TOTW_BRACE_LITERAL_INIT = "totw-brace-literal-init"
-_BRACE_INIT_TYPES = frozenset({"bool", "int", "double", "float", "scalar_t", "size_t"})
+_BRACE_INIT_TYPES = frozenset(
+    {"bool", "int", "double", "float", "scalar_t", "size_t"}
+)
 
 
-def _brace_literal_inits(source: str) -> list[tuple[Token, Token, Token, Token]]:
+def _brace_literal_inits(
+    source: str,
+) -> list[tuple[Token, Token, Token, Token]]:
     """(type, name, `{`, `}`) for each `Type name{literal}` of a scalar or std::string."""
     code = cpp_source.code_tokens(source)
     found = []
@@ -591,7 +646,11 @@ def _brace_literal_inits(source: str) -> list[tuple[Token, Token, Token, Token]]
         if not is_string and i > 0 and code[i - 1].text in ("::", ".", "->"):
             continue
         name, brace = code[i + 1], code[i + 2]
-        if name.kind != cpp_source.IDENTIFIER or brace.text != "{" or brace.ws_before:
+        if (
+            name.kind != cpp_source.IDENTIFIER
+            or brace.text != "{"
+            or brace.ws_before
+        ):
             continue
         k = i + 3
         if code[k].text in ("-", "+"):
@@ -608,15 +667,17 @@ def _brace_literal_inits(source: str) -> list[tuple[Token, Token, Token, Token]]
     return found
 
 
-def check_brace_literal_init(source: str, path: str) -> list[check_types.Finding]:
+def check_brace_literal_init(
+    source: str, path: str
+) -> list[check_types.Finding]:
     """`bool done{false};`: write `bool done = false;`."""
     return [
         _finding(
             path,
             name,
             TOTW_BRACE_LITERAL_INIT,
-            f"`{name.text}{{...}}`: initialize a scalar or string from a literal with `=` (`{name.text} = ...`) "
-            "(ToTW #88).",
+            f"`{name.text}{{...}}`: initialize a scalar or string from a"
+            f" literal with `=` (`{name.text} = ...`) (ToTW #88).",
         )
         for _, name, _, _ in _brace_literal_inits(source)
     ]
@@ -667,14 +728,17 @@ def check_namespace_name(source: str, path: str) -> list[check_types.Finding]:
             continue  # an alias or a using-directive
         nested = any(kind == cpp_source.NAMESPACE_SCOPE for kind in scopes[i])
         for position, component in enumerate(components):
-            if (nested or position > 0) and component.text in _RESERVED_NAMESPACES:
+            if (
+                nested or position > 0
+            ) and component.text in _RESERVED_NAMESPACES:
                 findings.append(
                     _finding(
                         path,
                         component,
                         TOTW_NAMESPACE_NAME,
-                        f"nested namespace `{component.text}` shadows the top-level `{component.text}` for code inside "
-                        "it: pick another name (ToTW #130).",
+                        f"nested namespace `{component.text}` shadows the"
+                        f" top-level `{component.text}` for code inside it:"
+                        " pick another name (ToTW #130).",
                     )
                 )
     return findings
@@ -705,8 +769,8 @@ def check_unscoped_enum(source: str, path: str) -> list[check_types.Finding]:
                     path,
                     token,
                     TOTW_UNSCOPED_ENUM,
-                    "unscoped `enum`: write `enum class` (ToTW #86); an Eigen-style index constant is "
-                    "`inline constexpr int`.",
+                    "unscoped `enum`: write `enum class` (ToTW #86); an"
+                    " Eigen-style index constant is `inline constexpr int`.",
                 )
             )
     return findings
@@ -760,8 +824,9 @@ def check_view_member(source: str, path: str) -> list[check_types.Finding]:
                     path,
                     tokens[j],
                     TOTW_VIEW_MEMBER,
-                    f"data member `{texts[j]}` of view type `{namespace}::{texts[k + 2]}`: store the data it views, or "
-                    "document what outlives it (ToTW #180).",
+                    f"data member `{texts[j]}` of view type"
+                    f" `{namespace}::{texts[k + 2]}`: store the data it views,"
+                    " or document what outlives it (ToTW #180).",
                 )
             )
     return findings
@@ -788,7 +853,8 @@ def check_friend_test(source: str, path: str) -> list[check_types.Finding]:
                     path,
                     token,
                     TOTW_FRIEND_TEST,
-                    "a test befriended: test through the public API, or give the class a `*Peer` (ToTW #135).",
+                    "a test befriended: test through the public API, or give"
+                    " the class a `*Peer` (ToTW #135).",
                 )
             )
     return findings
@@ -839,20 +905,25 @@ def _is_std_specialization(code: tuple[cpp_source.Token, ...], i: int) -> bool:
     return False
 
 
-def check_std_specialization(source: str, path: str) -> list[check_types.Finding]:
+def check_std_specialization(
+    source: str, path: str
+) -> list[check_types.Finding]:
     """`namespace std {`, and specializations of std and absl templates (`struct std::hash<Foo>`, `struct hash<`)."""
     code = cpp_source.code_tokens(source)
     findings = []
     for i in range(len(code) - 2):
         texts = _texts(code, i, 3)
-        if texts == ["namespace", "std", "{"] or _is_std_specialization(code, i):
+        if texts == ["namespace", "std", "{"] or _is_std_specialization(
+            code, i
+        ):
             findings.append(
                 _finding(
                     path,
                     code[i],
                     TOTW_STD_SPECIALIZATION,
-                    "nothing is added to namespace std: define AbslHashValue, AbslStringify or operators next to the "
-                    "type (ToTW #99, #152, #218).",
+                    "nothing is added to namespace std: define AbslHashValue,"
+                    " AbslStringify or operators next to the type (ToTW #99,"
+                    " #152, #218).",
                 )
             )
     return findings
@@ -879,8 +950,9 @@ def check_flag_location(source: str, path: str) -> list[check_types.Finding]:
                     path,
                     token,
                     TOTW_FLAG_LOCATION,
-                    "ABSL_FLAG outside a *Main.cpp or *AppFlags.{h,cpp}: define flags where the binary is, and pass "
-                    "the values to libraries as parameters (ToTW #45, #103).",
+                    "ABSL_FLAG outside a *Main.cpp or *AppFlags.{h,cpp}: define"
+                    " flags where the binary is, and pass the values to"
+                    " libraries as parameters (ToTW #45, #103).",
                 )
             )
         elif token.text == "ABSL_DECLARE_FLAG" and not path.endswith(
@@ -891,8 +963,8 @@ def check_flag_location(source: str, path: str) -> list[check_types.Finding]:
                     path,
                     token,
                     TOTW_FLAG_LOCATION,
-                    "ABSL_DECLARE_FLAG outside a header: declare a flag once, in the header next to its definition "
-                    "(ToTW #45).",
+                    "ABSL_DECLARE_FLAG outside a header: declare a flag once,"
+                    " in the header next to its definition (ToTW #45).",
                 )
             )
     return findings
@@ -917,8 +989,8 @@ def check_size_minus(source: str, path: str) -> list[check_types.Finding]:
                 line,
                 column,
                 TOTW_SIZE_MINUS,
-                "`< v.size() - N` wraps around when the container has fewer than N elements: write `i + N < v.size()` "
-                "(ToTW #227).",
+                "`< v.size() - N` wraps around when the container has fewer"
+                " than N elements: write `i + N < v.size()` (ToTW #227).",
             )
         )
     return findings
@@ -940,7 +1012,8 @@ def check_c_str_stored(source: str, path: str) -> list[check_types.Finding]:
             code.count("\n", 0, match.start()) + 1,
             match.start() - (code.rfind("\n", 0, match.start()) + 1) + 1,
             TOTW_C_STR_STORED,
-            "the `.c_str()` of a temporary is stored in a pointer that dangles at the end of the statement (ToTW #5).",
+            "the `.c_str()` of a temporary is stored in a pointer that dangles"
+            " at the end of the statement (ToTW #5).",
         )
         for match in _C_STR_STORED.finditer(code)
     ]
@@ -956,7 +1029,9 @@ def check_reader_lock(source: str, path: str) -> list[check_types.Finding]:
     code = cpp_source.code_tokens(source)
     findings = []
     for i, token in enumerate(code):
-        if _qualified(code, i, "std", _READER_LOCKS) is not None or token.text in (
+        if _qualified(
+            code, i, "std", _READER_LOCKS
+        ) is not None or token.text in (
             "ReaderMutexLock",
             "ReaderLock",
         ):
@@ -966,8 +1041,9 @@ def check_reader_lock(source: str, path: str) -> list[check_types.Finding]:
                     path,
                     target,
                     TOTW_READER_LOCK,
-                    f"reader lock `{target.text}`: use absl::Mutex with an exclusive lock; reader locks are rarely faster "
-                    "(ToTW #197).",
+                    f"reader lock `{target.text}`: use absl::Mutex with an"
+                    " exclusive lock; reader locks are rarely faster (ToTW"
+                    " #197).",
                 )
             )
     return findings
@@ -1003,7 +1079,8 @@ CHECKS = [
     _check(
         TOTW_UNORDERED,
         check_unordered,
-        "absl::flat_hash_map / flat_hash_set, not std::unordered_* (ToTW #136).",
+        "absl::flat_hash_map / flat_hash_set, not std::unordered_* (ToTW"
+        " #136).",
     ),
     _check(
         TOTW_HEADER_CONSTANT,
@@ -1020,7 +1097,9 @@ CHECKS = [
         check_enum_switch_default,
         "no default: in a switch over an owned enum class (ToTW #147).",
     ),
-    _check(TOTW_AT, check_at, "no .at() outside tests (ToTW #224).", non_test=True),
+    _check(
+        TOTW_AT, check_at, "no .at() outside tests (ToTW #224).", non_test=True
+    ),
     _check(
         TOTW_RAW_NEW,
         check_raw_new,
@@ -1028,7 +1107,9 @@ CHECKS = [
         non_test=True,
     ),
     _check(
-        TOTW_PRINTF, check_printf, "absl::StrFormat, not printf or iomanip (ToTW #124)."
+        TOTW_PRINTF,
+        check_printf,
+        "absl::StrFormat, not printf or iomanip (ToTW #124).",
     ),
     _check(
         TOTW_SMALL_BY_CONST_REF,
@@ -1056,16 +1137,25 @@ CHECKS = [
         "`=` for values, not `bool x{false};` (ToTW #88).",
         fix_source=fix_brace_literal_init,
         fixed_by_format=True,
-        hint="`make format` (or lint_code --fix --only totw-brace-literal-init) rewrites them.",
+        hint=(
+            "`make format` (or lint_code --fix --only totw-brace-literal-init)"
+            " rewrites them."
+        ),
     ),
     _check(
         TOTW_NAMESPACE_NAME,
         check_namespace_name,
         "no nested testing / std / absl / util namespaces (ToTW #130).",
     ),
-    _check(TOTW_UNSCOPED_ENUM, check_unscoped_enum, "enum class, not enum (ToTW #86)."),
     _check(
-        TOTW_VIEW_MEMBER, check_view_member, "no view-typed data members (ToTW #180)."
+        TOTW_UNSCOPED_ENUM,
+        check_unscoped_enum,
+        "enum class, not enum (ToTW #86).",
+    ),
+    _check(
+        TOTW_VIEW_MEMBER,
+        check_view_member,
+        "no view-typed data members (ToTW #180).",
     ),
     _check(
         TOTW_FRIEND_TEST,

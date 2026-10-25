@@ -69,7 +69,9 @@ GAIT_FILE = os.path.join(
 )
 CONFIG_SCHEMAS = os.path.join(REPO_ROOT, "humanoid_nmpc/humanoid_mpc_config")
 TASK_FILE_SCHEMA = os.path.join(CONFIG_SCHEMAS, "task_file.proto")
-HEURISTICS_SCHEMA = os.path.join(CONFIG_SCHEMAS, "locomotion_heuristics_config.proto")
+HEURISTICS_SCHEMA = os.path.join(
+    CONFIG_SCHEMAS, "locomotion_heuristics_config.proto"
+)
 LOADER_SOURCE = os.path.join(
     REPO_ROOT,
     "humanoid_nmpc/humanoid_common_mpc/src/locomotion_heuristics/LocomotionHeuristicConfig.cpp",
@@ -220,8 +222,12 @@ def _robot_inputs(robot):
     limits = _read_textproto(
         os.path.join(mpc_dir, "config/command/reference.textproto")
     )
-    planning_file = os.path.join(mpc_dir, "config/mpc/contact_planning.textproto")
-    planning = _read_textproto(planning_file) if os.path.isfile(planning_file) else {}
+    planning_file = os.path.join(
+        mpc_dir, "config/mpc/contact_planning.textproto"
+    )
+    planning = (
+        _read_textproto(planning_file) if os.path.isfile(planning_file) else {}
+    )
     return task, limits, planning
 
 
@@ -255,7 +261,10 @@ def _stance_width(task, geometry):
 
 def _listed_names(block):
     """The names each of the three lists of a `locomotion_heuristics` block turns on; an absent list is none."""
-    return {kind: derive.as_list(block.get(kind)) for kind in EXPECTED_HEURISTIC_NAMES}
+    return {
+        kind: derive.as_list(block.get(kind))
+        for kind in EXPECTED_HEURISTIC_NAMES
+    }
 
 
 def _commented_list_entries(lines, kind):
@@ -292,13 +301,19 @@ def _schema_table():
     """
     source = _read_text(HEURISTICS_SCHEMA)
     fields_of = {}
-    for match in re.finditer(r"\n  message (\w+) \{(.*?)\n  \}", source, re.DOTALL):
+    for match in re.finditer(
+        r"\n  message (\w+) \{(.*?)\n  \}", source, re.DOTALL
+    ):
         fields_of[match.group(1)] = re.findall(
             r"^\s+double (\w+) = ", match.group(2), re.MULTILINE
         )
     keys: list[str] = []
-    for message, block in re.findall(r"^  (\w+) (\w+) = \d+", source, re.MULTILINE):
-        keys.extend("%s.%s" % (block, field) for field in fields_of.get(message, []))
+    for message, block in re.findall(
+        r"^  (\w+) (\w+) = \d+", source, re.MULTILINE
+    ):
+        keys.extend(
+            "%s.%s" % (block, field) for field in fields_of.get(message, [])
+        )
     return keys
 
 
@@ -338,11 +353,15 @@ def _validate_range_checks():
     body = source[start : source.index("\n}\n", start)]
     positive = [
         _snake_case(key)
-        for key in re.findall(r'requirePositive\(\s*[^,()]+,\s*"([^"]+)"\)', body)
+        for key in re.findall(
+            r'requirePositive\(\s*[^,()]+,\s*"([^"]+)"\)', body
+        )
     ]
     non_negative = [
         _snake_case(key)
-        for key in re.findall(r'requireNonNegative\(\s*[^,()]+,\s*"([^"]+)"\)', body)
+        for key in re.findall(
+            r'requireNonNegative\(\s*[^,()]+,\s*"([^"]+)"\)', body
+        )
     ]
     calls = len(re.findall(r"\brequire(?:Positive|NonNegative)\(", body))
     return positive, non_negative, calls
@@ -439,7 +458,12 @@ def _synthetic_geometry():
 def _derive(geometry, task, limits, planning, gait="trot"):
     gaits = _gaits()
     return derive.derive_parameters(
-        geometry, derive.gait_cadence(gaits, gait), limits, task, planning, gaits
+        geometry,
+        derive.gait_cadence(gaits, gait),
+        limits,
+        task,
+        planning,
+        gaits,
     )
 
 
@@ -527,8 +551,8 @@ class _DerivedBlockAssertions(unittest.TestCase):
         self.assertLessEqual(
             abs(hip_width * scale - stance_width),
             0.5e-3 * hip_width + 1e-12,
-            "lateral_scale %s spreads hips %.4f m apart to %.4f m, not the %.4f m stance"
-            % (scale, hip_width, hip_width * scale, stance_width),
+            "lateral_scale %s spreads hips %.4f m apart to %.4f m, not the %.4f"
+            " m stance" % (scale, hip_width, hip_width * scale, stance_width),
         )
 
     def assert_pendulum_is_the_configured_one(
@@ -552,7 +576,9 @@ class _DerivedBlockAssertions(unittest.TestCase):
         """
         lip = _configured_lip_height(task, planning) or geometry.com_height
         capture = parameters["capture_point"]
-        self.assertAlmostEqual(capture["com_height_override"], lip, delta=ROUNDING_4)
+        self.assertAlmostEqual(
+            capture["com_height_override"], lip, delta=ROUNDING_4
+        )
         turning = parameters["high_speed_turning"]
         self.assertEqual(
             turning["forward_per_cross_term"], turning["lateral_per_cross_term"]
@@ -588,7 +614,9 @@ class _DerivedBlockAssertions(unittest.TestCase):
             "lateral_per_lateral_velocity",
             "lateral_offset",
         ):
-            self.assertEqual(stepping[key], 0.0, "translational_stepping.%s" % key)
+            self.assertEqual(
+                stepping[key], 0.0, "translational_stepping.%s" % key
+            )
 
         lever = _stance_width(task, geometry) / 2.0
         turning = parameters["in_place_turning"]
@@ -609,17 +637,16 @@ class LoadTextprotoTest(unittest.TestCase):
 
     def test_fields_blocks_and_repeated_fields(self):
         task = derive.parse_textproto(
-            "# a comment\n"
-            'costs: "state_quadratic_cost"\n'
-            'soft_constraints: "a"\n'
-            'soft_constraints: "b"\n'
-            "terrain_height: 0.25  # [m]\n"
-            "nominal_foothold { step_width: 0.3 }\n"
-            "switching_times: [0.0, 0.5]\n"
-            'initial_state { joint_positions { joint: "x" value: 1 } joint_positions { joint: "y" value: -2.5 } }\n'
+            '# a comment\ncosts: "state_quadratic_cost"\nsoft_constraints:'
+            ' "a"\nsoft_constraints: "b"\nterrain_height: 0.25  #'
+            " [m]\nnominal_foothold { step_width: 0.3 }\nswitching_times: [0.0,"
+            ' 0.5]\ninitial_state { joint_positions { joint: "x" value: 1 }'
+            ' joint_positions { joint: "y" value: -2.5 } }\n'
         )
         self.assertEqual(task["costs"], "state_quadratic_cost")
-        self.assertEqual(derive.as_list(task["costs"]), ["state_quadratic_cost"])
+        self.assertEqual(
+            derive.as_list(task["costs"]), ["state_quadratic_cost"]
+        )
         self.assertEqual(task["soft_constraints"], ["a", "b"])
         self.assertEqual(task["terrain_height"], 0.25)
         self.assertEqual(task["nominal_foothold"], {"step_width": 0.3})
@@ -636,9 +663,10 @@ class LoadTextprotoTest(unittest.TestCase):
     def test_the_gait_table_is_by_name(self):
         gaits = derive.gait_table(
             derive.parse_textproto(
-                'gait_list: "trot"\n'
-                'gaits { name: "trot" mode_sequence: "LF" mode_sequence: "RF" switching_times: [0.0, 0.5, 1.0] }\n'
-                'gaits { name: "unlisted" mode_sequence: "STANCE" switching_times: [0.0, 1.0] }\n'
+                'gait_list: "trot"\ngaits { name: "trot" mode_sequence: "LF"'
+                ' mode_sequence: "RF" switching_times: [0.0, 0.5, 1.0] }\ngaits'
+                ' { name: "unlisted" mode_sequence: "STANCE" switching_times:'
+                " [0.0, 1.0] }\n"
             )
         )
         self.assertEqual(gaits["gait_list"], ["trot"])
@@ -651,7 +679,9 @@ class LoadTextprotoTest(unittest.TestCase):
             with self.subTest(robot=robot):
                 task, limits, _ = _robot_inputs(robot)
                 self.assertIn("model_settings", task)
-                self.assertGreater(float(limits["max_displacement_velocity_x"]), 0.0)
+                self.assertGreater(
+                    float(limits["max_displacement_velocity_x"]), 0.0
+                )
         self.assertIn("trot", _gaits()["gait_list"])
 
 
@@ -667,18 +697,26 @@ class FormulationWarningsTest(unittest.TestCase):
         # The report recognizes the cost by the name the C++ loader reads; a rename there must not silently stop it.
         source = _read_text(self.MPC_FORMULATION_CONFIG)
         match = re.search(
-            r"case MpcCostType::kComAndAcomTrackingCost:\s*return \"([a-z_]+)\";",
+            r"case MpcCostType::kComAndAcomTrackingCost:\s*return"
+            r" \"([a-z_]+)\";",
             source,
         )
-        assert match is not None, "the C++ registry has no ComAndAcomTrackingCost"
+        assert (
+            match is not None
+        ), "the C++ registry has no ComAndAcomTrackingCost"
         self.assertEqual(derive.COM_AND_ACOM_TRACKING_COST, match.group(1))
 
     def test_the_acom_warning_follows_the_costs_list(self):
         without = {"costs": ["state_quadratic_cost", "input_quadratic_cost"]}
         self.assertFalse(derive.lists_com_and_acom_tracking(without))
-        self.assertFalse(_mentions(derive.formulation_warnings(without), "INERT"))
+        self.assertFalse(
+            _mentions(derive.formulation_warnings(without), "INERT")
+        )
         # Positive control, in both spellings the C++ loader accepts.
-        for spelling in ("com_and_acom_tracking_cost", "comAndAcomTrackingCost"):
+        for spelling in (
+            "com_and_acom_tracking_cost",
+            "comAndAcomTrackingCost",
+        ):
             with self.subTest(spelling=spelling):
                 listed = {"costs": ["state_quadratic_cost", spelling]}
                 self.assertTrue(derive.lists_com_and_acom_tracking(listed))
@@ -716,7 +754,10 @@ class FormulationWarningsTest(unittest.TestCase):
                     warnings = derive.formulation_warnings(task)
                     self.assertTrue(
                         _mentions(
-                            warnings, "use_com_and_acom_tracking", "retired", "refuses"
+                            warnings,
+                            "use_com_and_acom_tracking",
+                            "retired",
+                            "refuses",
                         )
                     )
                     self.assertFalse(derive.lists_com_and_acom_tracking(task))
@@ -732,7 +773,8 @@ class FormulationWarningsTest(unittest.TestCase):
                 task = _read_textproto(_task_file(robot))
                 self.assertNotIn(derive.RETIRED_ACOM_KEY, task)
                 self.assertEqual(
-                    derive.lists_com_and_acom_tracking(task), robot == "drc_atlas"
+                    derive.lists_com_and_acom_tracking(task),
+                    robot == "drc_atlas",
                 )
 
 
@@ -747,7 +789,9 @@ class ContactInputParameterizationReportTest(unittest.TestCase):
     def test_the_names_are_the_ones_the_schema_and_the_cpp_registry_read(self):
         # A rename on either side must not silently stop the report from recognizing the parameterization: the key is
         # a field of the task file's schema, the name one of the C++ registry's.
-        self.assertIn(derive.CONTACT_INPUT_PARAMETERIZATION_KEY, _task_file_fields())
+        self.assertIn(
+            derive.CONTACT_INPUT_PARAMETERIZATION_KEY, _task_file_fields()
+        )
         source = _read_text(self.CONTACT_INPUT_PARAMETERIZATION_HEADER)
         for constant, expected in (
             (
@@ -760,10 +804,14 @@ class ContactInputParameterizationReportTest(unittest.TestCase):
                     r"%s = \"([A-Za-z_]+)\";" % constant,
                     source,
                 )
-                assert match is not None, "%s is not in the C++ header" % constant
+                assert match is not None, (
+                    "%s is not in the C++ header" % constant
+                )
                 self.assertEqual(expected, match.group(1))
 
-    def test_the_forward_kinematics_note_follows_the_named_parameterization(self):
+    def test_the_forward_kinematics_note_follows_the_named_parameterization(
+        self,
+    ):
         for name, noted in (("basis_vectors", True), ("wrench", False)):
             with self.subTest(parameterization=name):
                 task = {"contact_input_parameterization": name, "costs": []}
@@ -777,7 +825,8 @@ class ContactInputParameterizationReportTest(unittest.TestCase):
         # No key is the wrench parameterization.
         self.assertFalse(
             _mentions(
-                derive.formulation_warnings({"costs": []}), "forward-kinematics path"
+                derive.formulation_warnings({"costs": []}),
+                "forward-kinematics path",
             )
         )
 
@@ -799,7 +848,8 @@ class ContactInputParameterizationReportTest(unittest.TestCase):
                 )
                 self.assertTrue(
                     _mentions(
-                        warnings, 'contact_input_parameterization: "basis_vectors"'
+                        warnings,
+                        'contact_input_parameterization: "basis_vectors"',
                     )
                 )
                 self.assertFalse(_mentions(warnings, "forward-kinematics path"))
@@ -834,11 +884,16 @@ class ContactScheduleSourceReportTest(unittest.TestCase):
         ):
             with self.subTest(constant=constant):
                 match = re.search(r"%s = \"([A-Za-z_]+)\";" % constant, source)
-                assert match is not None, "%s is not in the C++ header" % constant
+                assert match is not None, (
+                    "%s is not in the C++ header" % constant
+                )
                 self.assertEqual(expected, match.group(1))
 
     def test_the_foothold_warning_follows_the_named_source(self):
-        for name, warned in (("contact_planner", True), ("gait_schedule", False)):
+        for name, warned in (
+            ("contact_planner", True),
+            ("gait_schedule", False),
+        ):
             with self.subTest(source=name):
                 task = {"contact_schedule_source": name, "costs": []}
                 self.assertEqual(
@@ -861,10 +916,14 @@ class ContactScheduleSourceReportTest(unittest.TestCase):
                     {"use_contact_planning": value, "costs": []}
                 )
                 self.assertTrue(
-                    _mentions(warnings, "use_contact_planning", "retired", "refuses")
+                    _mentions(
+                        warnings, "use_contact_planning", "retired", "refuses"
+                    )
                 )
                 self.assertTrue(
-                    _mentions(warnings, 'contact_schedule_source: "contact_planner"')
+                    _mentions(
+                        warnings, 'contact_schedule_source: "contact_planner"'
+                    )
                 )
                 self.assertFalse(_mentions(warnings, "REJECTED"))
 
@@ -891,7 +950,8 @@ class DcmTerminalCostReportTest(unittest.TestCase):
     def test_the_names_are_the_ones_the_cpp_registry_reads(self):
         source = _read_text(self.MPC_FORMULATION_CONFIG)
         cost = re.search(
-            r"case MpcCostType::kDcmTerminalCost:\s*return \"([a-z_]+)\";", source
+            r"case MpcCostType::kDcmTerminalCost:\s*return \"([a-z_]+)\";",
+            source,
         )
         assert cost is not None, "the C++ registry has no DcmTerminalCost"
         self.assertEqual(derive.DCM_TERMINAL_COST, cost.group(1))
@@ -901,7 +961,9 @@ class DcmTerminalCostReportTest(unittest.TestCase):
             % (derive.RETIRED_DCM_TERMINAL_COST_KEY, derive.DCM_TERMINAL_COST),
             _read_text(TASK_FILE_SCHEMA),
         )
-        assert retired is not None, "the schema no longer refuses the retired key"
+        assert (
+            retired is not None
+        ), "the schema no longer refuses the retired key"
 
     def test_the_retired_boolean_is_reported_whatever_its_value(self):
         for value in (True, False):
@@ -910,7 +972,9 @@ class DcmTerminalCostReportTest(unittest.TestCase):
                     {"use_dcm_terminal_cost": value, "costs": ["terminal_cost"]}
                 )
                 self.assertTrue(
-                    _mentions(warnings, "use_dcm_terminal_cost", "retired", "refuses")
+                    _mentions(
+                        warnings, "use_dcm_terminal_cost", "retired", "refuses"
+                    )
                 )
                 self.assertTrue(_mentions(warnings, "dcm_terminal_cost"))
         # Positive control: the named cost itself is not an error.
@@ -942,13 +1006,17 @@ class ShippedConfigurationTest(unittest.TestCase):
                 os.path.join(REPO_ROOT, "robot_models/*/*_centroidal_mpc")
             )
         }
-        self.assertTrue(on_disk, "no centroidal package found; is REPO_ROOT right?")
+        self.assertTrue(
+            on_disk, "no centroidal package found; is REPO_ROOT right?"
+        )
         listed = {paths["mpc"] for paths in derive.ROBOTS.values()}
         self.assertEqual(listed, on_disk)
         for robot, paths in sorted(derive.ROBOTS.items()):
             with self.subTest(robot=robot):
                 self.assertTrue(os.path.isfile(_task_file(robot)))
-                self.assertTrue(os.path.isfile(os.path.join(REPO_ROOT, paths["urdf"])))
+                self.assertTrue(
+                    os.path.isfile(os.path.join(REPO_ROOT, paths["urdf"]))
+                )
 
     def test_every_shipped_robot_keeps_all_three_lists_empty(self):
         """The default-off rule, checked on the files as they ship.
@@ -966,7 +1034,9 @@ class ShippedConfigurationTest(unittest.TestCase):
         """
         for robot in sorted(derive.ROBOTS):
             with self.subTest(robot=robot):
-                block = _read_textproto(_task_file(robot)).get("locomotion_heuristics")
+                block = _read_textproto(_task_file(robot)).get(
+                    "locomotion_heuristics"
+                )
                 self.assertIsNotNone(
                     block, "%s has no locomotion_heuristics block" % robot
                 )
@@ -974,8 +1044,9 @@ class ShippedConfigurationTest(unittest.TestCase):
                     self.assertEqual(
                         listed,
                         [],
-                        "%s ships locomotion_heuristics.%s = %s. New controller features default OFF until they have "
-                        "been validated in simulation; comment the names out again."
+                        "%s ships locomotion_heuristics.%s = %s. New controller"
+                        " features default OFF until they have been validated"
+                        " in simulation; comment the names out again."
                         % (robot, kind, listed),
                     )
 
@@ -989,7 +1060,9 @@ class ShippedConfigurationTest(unittest.TestCase):
                 with self.subTest(robot=robot, kind=kind):
                     # Every registered name is on offer, and nothing else: a misspelt name would parse here and then be
                     # rejected by the loader at start-up.
-                    self.assertEqual(sorted(name for _, name in entries), sorted(known))
+                    self.assertEqual(
+                        sorted(name for _, name in entries), sorted(known)
+                    )
                 for index, name in entries:
                     with self.subTest(robot=robot, kind=kind, name=name):
                         edited = list(lines)
@@ -1000,7 +1073,8 @@ class ShippedConfigurationTest(unittest.TestCase):
                             task = derive.parse_textproto("".join(edited))
                         except derive.textproto_document.DocumentError as error:
                             self.fail(
-                                "uncommenting '%s' breaks the file: %s" % (name, error)
+                                "uncommenting '%s' breaks the file: %s"
+                                % (name, error)
                             )
                         listed = _listed_names(task["locomotion_heuristics"])
                         self.assertEqual(listed[kind], [name])
@@ -1012,29 +1086,40 @@ class ShippedConfigurationTest(unittest.TestCase):
         # WBMpcInterface never builds the layer, so a block there would be read by nobody. It is absent rather than
         # empty, and the file says why.
         whole_body = glob.glob(
-            os.path.join(REPO_ROOT, "robot_models/*/*_wb_mpc/config/mpc/task.textproto")
+            os.path.join(
+                REPO_ROOT, "robot_models/*/*_wb_mpc/config/mpc/task.textproto"
+            )
         )
         self.assertTrue(whole_body, "no whole-body task file found")
-        live_key = re.compile(r"^[ \t]*locomotion_heuristics[ \t]*[:{]", re.MULTILINE)
+        live_key = re.compile(
+            r"^[ \t]*locomotion_heuristics[ \t]*[:{]", re.MULTILINE
+        )
         for task_file in whole_body:
             with self.subTest(task_file=os.path.relpath(task_file, REPO_ROOT)):
                 self.assertIsNone(live_key.search(_read_text(task_file)))
-                self.assertNotIn("locomotion_heuristics", _read_textproto(task_file))
+                self.assertNotIn(
+                    "locomotion_heuristics", _read_textproto(task_file)
+                )
         # Positive control: the same search finds the block in a centroidal file.
-        self.assertIsNotNone(live_key.search(_read_text(_task_file("unitree_g1"))))
+        self.assertIsNotNone(
+            live_key.search(_read_text(_task_file("unitree_g1")))
+        )
 
     def test_admissibility_table_matches_validate(self):
         # MUST_BE_POSITIVE / MUST_NOT_BE_NEGATIVE are what the derivation tests hold every derived block to. They fell
         # behind validate() once (lateral_scale, maximum_force, maximum_force_ratio_of_weight), so they are read against it.
         positive, non_negative, calls = _validate_range_checks()
         self.assertTrue(positive, "no requirePositive call found in validate()")
-        self.assertTrue(non_negative, "no requireNonNegative call found in validate()")
+        self.assertTrue(
+            non_negative, "no requireNonNegative call found in validate()"
+        )
         # Every call parsed: a check whose argument the key patterns cannot read would otherwise drop out of BOTH sides
         # of the comparisons below, and the tables would fall behind validate() with this test still green.
         self.assertEqual(
             len(positive) + len(non_negative),
             calls,
-            "a range check of validate() was not parsed; extend _validate_range_checks()",
+            "a range check of validate() was not parsed; extend"
+            " _validate_range_checks()",
         )
         self.assertEqual(sorted(positive), sorted(MUST_BE_POSITIVE))
         self.assertEqual(sorted(non_negative), sorted(MUST_NOT_BE_NEGATIVE))
@@ -1052,7 +1137,9 @@ class ShippedConfigurationTest(unittest.TestCase):
         cpp_keys = schema_keys
         for robot in sorted(derive.ROBOTS):
             with self.subTest(robot=robot):
-                block = _read_textproto(_task_file(robot))["locomotion_heuristics"]
+                block = _read_textproto(_task_file(robot))[
+                    "locomotion_heuristics"
+                ]
                 shipped: set[str] = set()
                 for name, values in block.items():
                     if isinstance(values, dict):
@@ -1084,14 +1171,22 @@ class ShippedConfigurationTest(unittest.TestCase):
                 friction, source = derive.friction_coefficient(task)
                 self.assertIn(
                     source,
-                    ["contacts.%s.friction_coefficient" % block for block in listed],
+                    [
+                        "contacts.%s.friction_coefficient" % block
+                        for block in listed
+                    ],
                 )
                 block = source.split(".")[1]
                 self.assertEqual(
-                    friction, float(task["contacts"][block]["friction_coefficient"])
+                    friction,
+                    float(task["contacts"][block]["friction_coefficient"]),
                 )
-                if "contact_wrench_cone" not in (task.get("soft_constraints") or []):
-                    self.assertEqual(block, "friction_force_cone_soft_constraint")
+                if "contact_wrench_cone" not in (
+                    task.get("soft_constraints") or []
+                ):
+                    self.assertEqual(
+                        block, "friction_force_cone_soft_constraint"
+                    )
 
     def test_gait_cadence_reads_the_mode_names_as_contact_not_swing(self):
         gaits = _gaits()
@@ -1145,7 +1240,9 @@ class ShippedConfigurationTest(unittest.TestCase):
         self.assertEqual(name, "walk")
         self.assertAlmostEqual(ratio, 1.4 / 0.8, places=9)
 
-    def test_largest_force_ratio_counts_the_single_support_of_a_flight_gait(self):
+    def test_largest_force_ratio_counts_the_single_support_of_a_flight_gait(
+        self,
+    ):
         # A synthetic table, so the rule is pinned whatever the gait file becomes. With n feet down the reference is
         # W/(2 beta) per foot against W/n, a ratio of n/(2 beta), so a flight gait binds in single support: each foot of
         # `hop` is down 0.2 s of 0.8 s, beta = 0.25, ratio 1/(2 * 0.25) = 2; `amble` (double support, beta = 0.8 / 1.2)
@@ -1203,7 +1300,9 @@ class ShippedConfigurationTest(unittest.TestCase):
                 feet_down = sum(MODE_CONTACTS[mode])
                 if feet_down > 0:
                     worst = max(worst, (1.0 / (2.0 * beta)) / (1.0 / feet_down))
-        self.assertAlmostEqual(derive.largest_force_ratio(gaits)[1], worst, places=9)
+        self.assertAlmostEqual(
+            derive.largest_force_ratio(gaits)[1], worst, places=9
+        )
 
     def test_an_unknown_gait_is_reported_rather_than_guessed(self):
         with self.assertRaises(SystemExit):
@@ -1215,7 +1314,9 @@ class ShippedConfigurationTest(unittest.TestCase):
         # or the claim goes stale silently.
         names, rows = _motion_manager_gait_ladder()
         self.assertTrue(names, "the gaitModeStates_ initializer was not found")
-        self.assertEqual(len(names), rows, "a gaitModeStates_ row was not parsed")
+        self.assertEqual(
+            len(names), rows, "a gaitModeStates_ row was not parsed"
+        )
         # The standing state heads the C++ ladder but is not a walking gait: it has no step to place.
         self.assertEqual(names[0], "stance")
         self.assertEqual(tuple(names[1:]), SPEED_LADDER)
@@ -1227,7 +1328,9 @@ class ShippedConfigurationTest(unittest.TestCase):
                 self.assertIn(rung, gaits.get("gait_list", []))
                 left, right, stride = _foot_stance_durations(gaits[rung])
                 cadence = derive.gait_cadence(gaits, rung)
-                self.assertAlmostEqual(cadence.stride_duration, stride, places=9)
+                self.assertAlmostEqual(
+                    cadence.stride_duration, stride, places=9
+                )
                 self.assertAlmostEqual(
                     cadence.duty_factor * cadence.stride_duration,
                     min(left, right),
@@ -1256,8 +1359,12 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
         # A key the script prints that the schema does not have would be refused when pasted into a task file; a key
         # the schema has that the script does not print would never be derived.
         cpp_keys = _schema_table()
-        self.assertTrue(cpp_keys, "the heuristic blocks of the schema were not found")
-        self.assertEqual(len(set(cpp_keys)), len(cpp_keys), "a key is listed twice")
+        self.assertTrue(
+            cpp_keys, "the heuristic blocks of the schema were not found"
+        )
+        self.assertEqual(
+            len(set(cpp_keys)), len(cpp_keys), "a key is listed twice"
+        )
         for robot in sorted(derive.ROBOTS):
             with self.subTest(robot=robot):
                 derived = _derived_keys(self._derive_robot(robot)[3])
@@ -1302,19 +1409,27 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
         task = {"nominal_foothold": {"step_width": 0.30}}
         parameters, _ = _derive(geometry, task, {}, {})
         self.assertAlmostEqual(
-            parameters["hip_centered_stepping"]["lateral_scale"], 1.680, places=9
+            parameters["hip_centered_stepping"]["lateral_scale"],
+            1.680,
+            places=9,
         )
-        self.assert_lateral_scale_reproduces_the_stance(parameters, geometry, task)
+        self.assert_lateral_scale_reproduces_the_stance(
+            parameters, geometry, task
+        )
 
     def test_capture_point_and_turning_lean_use_the_configured_lip_height(self):
         for robot in sorted(derive.ROBOTS):
             with self.subTest(robot=robot):
-                geometry, task, planning, parameters, _ = self._derive_robot(robot)
+                geometry, task, planning, parameters, _ = self._derive_robot(
+                    robot
+                )
                 self.assert_pendulum_is_the_configured_one(
                     parameters, geometry, task, planning
                 )
 
-    def test_lip_height_prefers_the_dcm_cost_then_the_planner_then_the_model(self):
+    def test_lip_height_prefers_the_dcm_cost_then_the_planner_then_the_model(
+        self,
+    ):
         # Hand-picked lengths, all different from the synthetic model's 0.70 m CoM height.
         geometry = _synthetic_geometry()
         planning = {"shared": {"com_height": 0.80}}
@@ -1341,7 +1456,9 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
         for robot in sorted(derive.ROBOTS):
             with self.subTest(robot=robot):
                 geometry, task, _, parameters, _ = self._derive_robot(robot)
-                self.assert_stepping_follows_the_stance(parameters, geometry, task)
+                self.assert_stepping_follows_the_stance(
+                    parameters, geometry, task
+                )
 
     def test_stepping_coefficients_do_not_depend_on_the_gait_flag(self):
         # HC2: `--gait` defaulted to trot and sized the stepping gains from its step period, so the printed block was
@@ -1355,7 +1472,9 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
                 blocks = {}
                 for gait in SPEED_LADDER:
                     cadence = derive.gait_cadence(gaits, gait)
-                    stances.add(round(min(_foot_stance_durations(gaits[gait])[:2]), 9))
+                    stances.add(
+                        round(min(_foot_stance_durations(gaits[gait])[:2]), 9)
+                    )
                     parameters, _ = derive.derive_parameters(
                         geometry, cadence, limits, task, planning, gaits
                     )
@@ -1399,7 +1518,9 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
                 self.assert_duty_clamp_is_just_below(
                     block["minimum_duty_factor"], smallest_duty
                 )
-                self.assertGreaterEqual(block["maximum_force_ratio"], largest_ratio)
+                self.assertGreaterEqual(
+                    block["maximum_force_ratio"], largest_ratio
+                )
 
     def test_impulse_clamps_follow_a_gait_table_beyond_the_floors(self):
         # The shipped gaits never reach the part of maximum_force_ratio that reads the gait table: walk's 1/beta is 1.75
@@ -1425,7 +1546,12 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
         for gaits, smallest_duty in cases:
             with self.subTest(gaits=gaits["gait_list"]):
                 parameters, _ = derive.derive_parameters(
-                    geometry, derive.gait_cadence(gaits, "bound"), {}, {}, {}, gaits
+                    geometry,
+                    derive.gait_cadence(gaits, "bound"),
+                    {},
+                    {},
+                    {},
+                    gaits,
                 )
                 block = parameters["impulse_scaling"]
                 self.assert_duty_clamp_is_just_below(
@@ -1449,7 +1575,9 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
                 if "max_step_length" in separation:
                     robots_with_a_reach_bound.append(robot)
                     reach = float(separation["max_step_length"])
-                    self.assertLessEqual(abs(clamp - fraction * reach), ROUNDING_3)
+                    self.assertLessEqual(
+                        abs(clamp - fraction * reach), ROUNDING_3
+                    )
                 else:
                     self.assertEqual(clamp, CAPTURE_POINT_FALLBACK_CLAMP)
         # Positive control: the reach branch above was taken, so it is not the fallback that every robot passed on.
@@ -1467,19 +1595,26 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
         )
         # The note says where the clamp came from: the reach bound here, the fallback with no planning file. It once
         # printed "40% of foot_separation.max_step_length 0.00 = 0.250 m" for the fallback.
-        clamp_notes = [n for n in notes if n.startswith("capture_point.maximum_offset")]
+        clamp_notes = [
+            n for n in notes if n.startswith("capture_point.maximum_offset")
+        ]
         self.assertEqual(len(clamp_notes), 1)
         self.assertIn("foot_separation.max_step_length 0.90", clamp_notes[0])
         parameters, notes = _derive(_synthetic_geometry(), {}, {}, {})
         self.assertEqual(
-            parameters["capture_point"]["maximum_offset"], CAPTURE_POINT_FALLBACK_CLAMP
+            parameters["capture_point"]["maximum_offset"],
+            CAPTURE_POINT_FALLBACK_CLAMP,
         )
-        clamp_notes = [n for n in notes if n.startswith("capture_point.maximum_offset")]
+        clamp_notes = [
+            n for n in notes if n.startswith("capture_point.maximum_offset")
+        ]
         self.assertEqual(len(clamp_notes), 1)
         self.assertIn("fallback", clamp_notes[0])
         self.assertNotIn("max_step_length 0.00", clamp_notes[0])
 
-    def test_a_planning_file_that_leaves_a_bound_out_runs_the_schemas_default(self):
+    def test_a_planning_file_that_leaves_a_bound_out_runs_the_schemas_default(
+        self,
+    ):
         # The stack runs the schema default of a field the file leaves out, so the derivation sizes against it; only a
         # robot without a contact-planning file has no planner bound (the fallback above).
         parameters, notes = _derive(
@@ -1493,7 +1628,9 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
             ),
             ROUNDING_3,
         )
-        clamp_notes = [n for n in notes if n.startswith("capture_point.maximum_offset")]
+        clamp_notes = [
+            n for n in notes if n.startswith("capture_point.maximum_offset")
+        ]
         self.assertNotIn("fallback", clamp_notes[0])
 
     def test_a_reference_file_without_a_required_limit_is_reported(self):
@@ -1502,15 +1639,21 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
         )
         missing = [n for n in notes if "which the MPC requires" in n]
         self.assertEqual(len(missing), 2, notes)
-        self.assertTrue(any("max_displacement_velocity_x" in n for n in missing))
+        self.assertTrue(
+            any("max_displacement_velocity_x" in n for n in missing)
+        )
         self.assertTrue(any("default_base_height" in n for n in missing))
 
-    def test_lean_and_crouch_reach_their_assumed_values_at_the_forward_limit(self):
+    def test_lean_and_crouch_reach_their_assumed_values_at_the_forward_limit(
+        self,
+    ):
         # pitch_per_forward_velocity and height_per_speed are sized so that the maximum FORWARD stick gives the script's
         # stated lean and crouch. Dividing by the lateral or the yaw-rate limit instead lands on a different lean; the
         # synthetic limits keep the three apart whatever the shipped reference files come to say. The tolerance is the
         # four-decimal rounding of the coefficient, magnified by vmax.
-        cases = [(robot,) + _robot_inputs(robot) for robot in sorted(derive.ROBOTS)]
+        cases = [
+            (robot,) + _robot_inputs(robot) for robot in sorted(derive.ROBOTS)
+        ]
         cases.append(
             (
                 "synthetic",
@@ -1525,7 +1668,9 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
         )
         for name, task, limits, planning in cases:
             with self.subTest(robot=name):
-                parameters, _ = _derive(_synthetic_geometry(), task, limits, planning)
+                parameters, _ = _derive(
+                    _synthetic_geometry(), task, limits, planning
+                )
                 vmax = float(limits["max_displacement_velocity_x"])
                 orientation = parameters["orientation_compensation"]
                 height = parameters["height_compensation"]
@@ -1543,7 +1688,9 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
                 # and HeightCompensationHeuristic the offset to +/- maximum_height_offset, so a clamp below the designed
                 # value would cut the lean or the crouch short of the maximum stick.
                 self.assertGreater(orientation["maximum_tilt"], lean)
-                self.assertGreaterEqual(height["maximum_height_offset"], abs(crouch))
+                self.assertGreaterEqual(
+                    height["maximum_height_offset"], abs(crouch)
+                )
 
     def test_every_blend_starts_at_the_unattenuated_heuristic(self):
         # UNIT_GAINS scale a heuristic's whole effect, and validate() admits 0 for each: a derivation printing 0 would
@@ -1560,10 +1707,17 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
     def test_centripetal_clamp_is_sized_from_the_listed_cone(self):
         # Synthetic contacts with DIFFERENT coefficients in the two cones, so reading the wrong block cannot pass.
         contacts = {
-            "contact_wrench_cone_soft_constraint": {"friction_coefficient": 0.7},
-            "friction_force_cone_soft_constraint": {"friction_coefficient": 0.3},
+            "contact_wrench_cone_soft_constraint": {
+                "friction_coefficient": 0.7
+            },
+            "friction_force_cone_soft_constraint": {
+                "friction_coefficient": 0.3
+            },
         }
-        force_cone = {"soft_constraints": ["friction_force_cone"], "contacts": contacts}
+        force_cone = {
+            "soft_constraints": ["friction_force_cone"],
+            "contacts": contacts,
+        }
         wrench_cone = {
             "soft_constraints": ["contact_wrench_cone"],
             "contacts": contacts,
@@ -1571,11 +1725,17 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
         neither = {"soft_constraints": ["joint_limits"], "contacts": contacts}
         self.assertEqual(
             derive.friction_coefficient(force_cone),
-            (0.3, "contacts.friction_force_cone_soft_constraint.friction_coefficient"),
+            (
+                0.3,
+                "contacts.friction_force_cone_soft_constraint.friction_coefficient",
+            ),
         )
         self.assertEqual(
             derive.friction_coefficient(wrench_cone),
-            (0.7, "contacts.contact_wrench_cone_soft_constraint.friction_coefficient"),
+            (
+                0.7,
+                "contacts.contact_wrench_cone_soft_constraint.friction_coefficient",
+            ),
         )
         self.assertEqual(derive.friction_coefficient(neither), (0.5, None))
         self.assertEqual(
@@ -1587,7 +1747,9 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
         geometry = _synthetic_geometry()
         parameters, notes = _derive(geometry, force_cone, {}, {})
         self.assertAlmostEqual(
-            parameters["centripetal_acceleration"]["maximum_force_ratio_of_weight"],
+            parameters["centripetal_acceleration"][
+                "maximum_force_ratio_of_weight"
+            ],
             round(fraction * 0.3, 3),
             places=9,
         )
@@ -1595,7 +1757,9 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
         # With no cone listed the assumed coefficient is used and SAID to be assumed.
         parameters, notes = _derive(geometry, neither, {}, {})
         self.assertAlmostEqual(
-            parameters["centripetal_acceleration"]["maximum_force_ratio_of_weight"],
+            parameters["centripetal_acceleration"][
+                "maximum_force_ratio_of_weight"
+            ],
             round(fraction * 0.5, 3),
             places=9,
         )
@@ -1635,7 +1799,9 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
                 for name, values in read_back.items():
                     for key, value in values.items():
                         # 1.0, never 1: an integer would read as a count, and the C++ reads a double.
-                        self.assertIsInstance(value, float, "%s.%s" % (name, key))
+                        self.assertIsInstance(
+                            value, float, "%s.%s" % (name, key)
+                        )
                 printed = io.StringIO()
                 with contextlib.redirect_stdout(printed):
                     differences = derive.compare(
@@ -1680,18 +1846,27 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
             with self.subTest(robot=robot):
                 parameters = self._derive_robot(robot)[3]
                 self.assertEqual(
-                    parameters["orientation_compensation"]["roll_per_lateral_velocity"],
+                    parameters["orientation_compensation"][
+                        "roll_per_lateral_velocity"
+                    ],
                     0.0,
                 )
                 self.assertEqual(
                     parameters["periodic_orientation"]["pitch_amplitude"], 0.0
                 )
                 self.assertEqual(
-                    parameters["height_compensation"]["height_per_speed_squared"], 0.0
+                    parameters["height_compensation"][
+                        "height_per_speed_squared"
+                    ],
+                    0.0,
                 )
                 for name in ALL_HEURISTIC_NAMES:
-                    self.assertEqual(parameters[name].get("forward_offset", 0.0), 0.0)
-                    self.assertEqual(parameters[name].get("lateral_offset", 0.0), 0.0)
+                    self.assertEqual(
+                        parameters[name].get("forward_offset", 0.0), 0.0
+                    )
+                    self.assertEqual(
+                        parameters[name].get("lateral_offset", 0.0), 0.0
+                    )
                 # Positive control: the SIZED coefficients beside them are not zero, so a block of zeros fails.
                 self.assertGreater(
                     parameters["orientation_compensation"][
@@ -1713,8 +1888,12 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
         block = self._derive_robot("drc_atlas")[3]["periodic_orientation"]
         self.assertGreater(block["roll_amplitude"], 0.0)
         # Roll once per gait cycle, pitch once per step, i.e. twice per cycle.
-        self.assertAlmostEqual(block["roll_phase_rate"], 2.0 * math.pi, delta=1e-7)
-        self.assertAlmostEqual(block["pitch_phase_rate"], 4.0 * math.pi, delta=1e-7)
+        self.assertAlmostEqual(
+            block["roll_phase_rate"], 2.0 * math.pi, delta=1e-7
+        )
+        self.assertAlmostEqual(
+            block["pitch_phase_rate"], 4.0 * math.pi, delta=1e-7
+        )
         at_mid_left_stance = math.sin(
             block["roll_phase_rate"] * 0.25 + block["roll_phase_offset"]
         )
@@ -1727,7 +1906,8 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
 
 @unittest.skipIf(
     not HAVE_PINOCCHIO,
-    "pinocchio is not importable; the URDF-based checks run inside the dev container",
+    "pinocchio is not importable; the URDF-based checks run inside the dev"
+    " container",
 )
 class DeriveParametersTest(_DerivedBlockAssertions):
     """The real models: one case per shipped robot, built with pinocchio at the nominal posture."""
@@ -1749,7 +1929,9 @@ class DeriveParametersTest(_DerivedBlockAssertions):
 
                 # The model reconstructed at the nominal posture, not at the URDF's neutral: a humanoid standing on
                 # its feet has its center of mass around half a leg above them, and both feet on the ground.
-                self.assertGreater(geometry.total_mass, 1.0, "the model has no mass")
+                self.assertGreater(
+                    geometry.total_mass, 1.0, "the model has no mass"
+                )
                 self.assertGreater(
                     geometry.com_height,
                     0.3,
@@ -1764,13 +1946,17 @@ class DeriveParametersTest(_DerivedBlockAssertions):
                 self.assertEqual(len(geometry.hip_offset), 2)
                 for name in geometry.hip_joint_names:
                     self.assertNotIn(
-                        "not found", name, "the walk up the kinematic tree failed"
+                        "not found",
+                        name,
+                        "the walk up the kinematic tree failed",
                     )
                 # Left hip to the left, right hip to the right, and symmetric about the base.
                 self.assertGreater(geometry.hip_offset[0][1], 0.0)
                 self.assertLess(geometry.hip_offset[1][1], 0.0)
                 self.assertAlmostEqual(
-                    geometry.hip_offset[0][1], -geometry.hip_offset[1][1], places=4
+                    geometry.hip_offset[0][1],
+                    -geometry.hip_offset[1][1],
+                    places=4,
                 )
 
                 self.assertEqual(list(parameters), list(ALL_HEURISTIC_NAMES))
@@ -1789,7 +1975,9 @@ class DeriveParametersTest(_DerivedBlockAssertions):
                 self.assert_pendulum_is_the_configured_one(
                     parameters, geometry, task, planning
                 )
-                self.assert_stepping_follows_the_stance(parameters, geometry, task)
+                self.assert_stepping_follows_the_stance(
+                    parameters, geometry, task
+                )
 
     def test_every_shipped_pendulum_number_is_the_models(self):
         # The pendulum is the model's: a com_height left out of dcm_terminal_cost or the planner's shared block is resolved
@@ -1811,7 +1999,10 @@ class DeriveParametersTest(_DerivedBlockAssertions):
                         override,
                         geometry.com_height,
                         delta=ROUNDING_4,
-                        msg="capture_point.com_height_override is not the model's CoM height above its feet",
+                        msg=(
+                            "capture_point.com_height_override is not the"
+                            " model's CoM height above its feet"
+                        ),
                     )
                     checked += 1
                 turning = block.get("high_speed_turning") or {}
@@ -1823,7 +2014,10 @@ class DeriveParametersTest(_DerivedBlockAssertions):
                             value,
                             geometry.com_height / gravity,
                             delta=ROUNDING_4,
-                            msg="high_speed_turning.%s is not z_com / g of the model"
+                            msg=(
+                                "high_speed_turning.%s is not z_com / g of the"
+                                " model"
+                            )
                             % key,
                         )
                         checked += 1
@@ -1831,12 +2025,18 @@ class DeriveParametersTest(_DerivedBlockAssertions):
                     (
                         "dcm_terminal_cost.com_height",
                         float(
-                            (task.get("dcm_terminal_cost") or {}).get("com_height", 0.0)
+                            (task.get("dcm_terminal_cost") or {}).get(
+                                "com_height", 0.0
+                            )
                         ),
                     ),
                     (
                         "shared.com_height",
-                        float((planning.get("shared") or {}).get("com_height", 0.0)),
+                        float(
+                            (planning.get("shared") or {}).get(
+                                "com_height", 0.0
+                            )
+                        ),
                     ),
                 ):
                     self.assertGreaterEqual(height, 0.0, label)
@@ -1844,7 +2044,8 @@ class DeriveParametersTest(_DerivedBlockAssertions):
                         self.assertLess(
                             abs(height - geometry.com_height),
                             0.05 * geometry.com_height,
-                            "%s = %.4f is an override %.0f%% off the model's %.4f m"
+                            "%s = %.4f is an override %.0f%% off the model's"
+                            " %.4f m"
                             % (
                                 label,
                                 height,
@@ -1858,7 +2059,9 @@ class DeriveParametersTest(_DerivedBlockAssertions):
         self.assertGreater(checked, 0)
         # And the hand-set 0.85 m Atlas used to ship for its pendulum is exactly what the 5 % check refuses.
         atlas, _, _, _, _ = self._derive("drc_atlas")
-        self.assertGreater(abs(0.85 - atlas.com_height), 0.05 * atlas.com_height)
+        self.assertGreater(
+            abs(0.85 - atlas.com_height), 0.05 * atlas.com_height
+        )
 
 
 if __name__ == "__main__":

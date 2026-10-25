@@ -55,14 +55,21 @@ class FloatLiteralTest(unittest.TestCase):
                 source = f"double x = {literal};\n"
                 self.assertEqual(_lines(style.check_float_literal, source), [1])
                 self.assertEqual(
-                    style.fix_float_literal(source, "a.cpp"), f"double x = {fixed};\n"
+                    style.fix_float_literal(source, "a.cpp"),
+                    f"double x = {fixed};\n",
                 )
 
     def test_accepted(self):
-        source = "double a = 1.0e-6, b = 0.5, c = 1.0f; int d = 42, e = 0x1F, f = 1'000; auto g = 100ms; h = 1.5_m;\n"
+        source = (
+            "double a = 1.0e-6, b = 0.5, c = 1.0f; int d = 42, e = 0x1F, f ="
+            " 1'000; auto g = 100ms; h = 1.5_m;\n"
+        )
         self.assertEqual(style.check_float_literal(source, "a.cpp"), [])
         self.assertEqual(
-            style.check_float_literal('const char s[] = "1e-6"; // 1e-6\n', "a.cpp"), []
+            style.check_float_literal(
+                'const char s[] = "1e-6"; // 1e-6\n', "a.cpp"
+            ),
+            [],
         )
 
     def test_the_registry_runs_it(self):
@@ -87,7 +94,10 @@ class PostfixIncrementTest(unittest.TestCase):
                 "void g() { for (;; it++, j--) {} }\n",
                 "void g() { for (;; ++it, --j) {} }\n",
             ),
-            ("void g() { if (x) count_++; }\n", "void g() { if (x) ++count_; }\n"),
+            (
+                "void g() { if (x) count_++; }\n",
+                "void g() { if (x) ++count_; }\n",
+            ),
             ("void g() { a.b[i]++; }\n", "void g() { ++a.b[i]; }\n"),
             ("void g() { (*it)++; }\n", "void g() { ++(*it); }\n"),
         ]:
@@ -96,7 +106,9 @@ class PostfixIncrementTest(unittest.TestCase):
                     len(style.check_postfix_increment(source, "a.cpp")),
                     source.count("++") + source.count("--"),
                 )
-                self.assertEqual(style.fix_postfix_increment(source, "a.cpp"), fixed)
+                self.assertEqual(
+                    style.fix_postfix_increment(source, "a.cpp"), fixed
+                )
 
     def test_used_values_are_not(self):
         for source in [
@@ -109,7 +121,9 @@ class PostfixIncrementTest(unittest.TestCase):
             "void g() { ++i; }",
         ]:
             with self.subTest(source=source):
-                self.assertEqual(style.check_postfix_increment(source, "a.cpp"), [])
+                self.assertEqual(
+                    style.check_postfix_increment(source, "a.cpp"), []
+                )
 
     def test_the_registry_runs_it(self):
         check_test_support.assert_check_behaves(
@@ -123,7 +137,10 @@ class PostfixIncrementTest(unittest.TestCase):
 
 class StdIntegerTypeTest(unittest.TestCase):
     def test_flagged_and_fixed(self):
-        source = "std::size_t n; std::int64_t m; ::std::uint8_t b; std::ptrdiff_t d;\n"
+        source = (
+            "std::size_t n; std::int64_t m; ::std::uint8_t b; std::ptrdiff_t"
+            " d;\n"
+        )
         self.assertEqual(len(style.check_std_integer_type(source, "a.cpp")), 4)
         self.assertEqual(
             style.fix_std_integer_type(source, "a.cpp"),
@@ -176,7 +193,10 @@ class ForbiddenConstructTest(unittest.TestCase):
         ]:
             with self.subTest(source=source):
                 self.assertGreaterEqual(
-                    len(style.check_forbidden_construct(f"{source}\n", "a.cpp")), 1
+                    len(
+                        style.check_forbidden_construct(f"{source}\n", "a.cpp")
+                    ),
+                    1,
                 )
 
     def test_accepted(self):
@@ -207,7 +227,9 @@ class ForbiddenConstructTest(unittest.TestCase):
 
 class ExceptionsAndRttiTest(unittest.TestCase):
     def test_exceptions(self):
-        source = "void f() {\n  try {\n    throw 1;\n  } catch (...) {\n  }\n}\n"
+        source = (
+            "void f() {\n  try {\n    throw 1;\n  } catch (...) {\n  }\n}\n"
+        )
         self.assertEqual(_lines(style.check_exceptions, source), [2, 3, 4])
         self.assertEqual(
             style.check_exceptions(
@@ -220,7 +242,8 @@ class ExceptionsAndRttiTest(unittest.TestCase):
         self.assertEqual(
             len(
                 style.check_rtti(
-                    "auto* d = dynamic_cast<D*>(b); auto& t = typeid(x);\n", "a.cpp"
+                    "auto* d = dynamic_cast<D*>(b); auto& t = typeid(x);\n",
+                    "a.cpp",
                 )
             ),
             2,
@@ -234,7 +257,9 @@ class ExceptionsAndRttiTest(unittest.TestCase):
             "std::type_index key = std::type_index(k);\n",
         ]:
             with self.subTest(source=source):
-                self.assertGreaterEqual(len(style.check_rtti(source, "a.cpp")), 1)
+                self.assertGreaterEqual(
+                    len(style.check_rtti(source, "a.cpp")), 1
+                )
         for source in [
             "void e() { std::static_pointer_cast<Foo>(p); }\n",
             "void e() { static_cast<Foo*>(p); }\n",
@@ -313,7 +338,9 @@ class CtadTest(unittest.TestCase):
             "Eigen::Matrix m = n;",
         ]:
             with self.subTest(source=source):
-                self.assertEqual(len(style.check_ctad(f"{source}\n", "a.cpp")), 1)
+                self.assertEqual(
+                    len(style.check_ctad(f"{source}\n", "a.cpp")), 1
+                )
 
     def test_accepted(self):
         for source in [
@@ -352,13 +379,20 @@ class MacroNamingTest(unittest.TestCase):
         ]:
             with self.subTest(macro=allowed):
                 self.assertEqual(
-                    style.check_macro_naming(f"#define {allowed}\n", "src/a.h"), []
+                    style.check_macro_naming(f"#define {allowed}\n", "src/a.h"),
+                    [],
                 )
 
     def test_include_guards(self):
         for source in [
-            "#ifndef HUMANOID_NMPC_FOO_INCLUDE_FOO_FOO_H_\n#define HUMANOID_NMPC_FOO_INCLUDE_FOO_FOO_H_\nint x;\n#endif\n",
-            "// A comment first.\n#if !defined(HUMANOID_FOO_H_)\n#define HUMANOID_FOO_H_\n#endif\n",
+            (
+                "#ifndef HUMANOID_NMPC_FOO_INCLUDE_FOO_FOO_H_\n#define"
+                " HUMANOID_NMPC_FOO_INCLUDE_FOO_FOO_H_\nint x;\n#endif\n"
+            ),
+            (
+                "// A comment first.\n#if !defined(HUMANOID_FOO_H_)\n#define"
+                " HUMANOID_FOO_H_\n#endif\n"
+            ),
         ]:
             with self.subTest(source=source):
                 findings = style.check_macro_naming(source, "src/a.h")
@@ -366,14 +400,22 @@ class MacroNamingTest(unittest.TestCase):
                 self.assertIn("#pragma once", findings[0].message)
         for source in [
             "#pragma once\n#define HUMANOID_FOO 1\n",
-            "#pragma once\n#ifndef HUMANOID_FOO\n#define HUMANOID_FOO 1\n#endif\n",
+            (
+                "#pragma once\n#ifndef HUMANOID_FOO\n#define HUMANOID_FOO"
+                " 1\n#endif\n"
+            ),
         ]:
             with self.subTest(source=source):
-                self.assertEqual(style.check_macro_naming(source, "src/a.h"), [])
+                self.assertEqual(
+                    style.check_macro_naming(source, "src/a.h"), []
+                )
 
     def test_cpp_macros_are_undefined(self):
         self.assertEqual(
-            _lines(style.check_macro_naming, "#define LOCAL(x) x\nint a = LOCAL(1);\n"),
+            _lines(
+                style.check_macro_naming,
+                "#define LOCAL(x) x\nint a = LOCAL(1);\n",
+            ),
             [1],
         )
         self.assertEqual(
@@ -385,7 +427,10 @@ class MacroNamingTest(unittest.TestCase):
 
     def test_abseil_names(self):
         self.assertEqual(
-            _lines(style.check_macro_naming, "#define CHECK(x) x\n#undef CHECK\n"), [1]
+            _lines(
+                style.check_macro_naming, "#define CHECK(x) x\n#undef CHECK\n"
+            ),
+            [1],
         )
 
     def test_the_registry_runs_it(self):
@@ -442,10 +487,15 @@ class StaticStorageTest(unittest.TestCase):
             "class A { static absl::Status Create(const B& b); };",
             "class A { static absl::StatusOr<std::unique_ptr<A>> Create(); };",
             "static vector_t compute();",
-            "absl::Status FromProto(::msgs::ControllerType proto, ControllerType* absl_nonnull value);",
+            (
+                "absl::Status FromProto(::msgs::ControllerType proto,"
+                " ControllerType* absl_nonnull value);"
+            ),
         ]:
             with self.subTest(source=source):
-                self.assertEqual(style.check_static_storage(f"{source}\n", "a.cpp"), [])
+                self.assertEqual(
+                    style.check_static_storage(f"{source}\n", "a.cpp"), []
+                )
 
     def test_the_registry_runs_it(self):
         check_test_support.assert_check_behaves(
@@ -485,7 +535,9 @@ class ClassCommentTest(unittest.TestCase):
             "enum class Mode { kA };\n",
         ]:
             with self.subTest(source=source):
-                self.assertEqual(style.check_class_comment(source, "x/Foo.h"), [])
+                self.assertEqual(
+                    style.check_class_comment(source, "x/Foo.h"), []
+                )
         self.assertEqual(
             style.check_class_comment("class Foo {};\n", "x/Foo.cpp"),
             [],
@@ -509,7 +561,8 @@ class IfElseBracesTest(unittest.TestCase):
         )
         self.assertEqual(
             _lines(
-                style.check_if_else_braces, "void f() {\n  if (a) {\n  } else c();\n}\n"
+                style.check_if_else_braces,
+                "void f() {\n  if (a) {\n  } else c();\n}\n",
             ),
             [3],
         )
@@ -521,7 +574,9 @@ class IfElseBracesTest(unittest.TestCase):
             "void f() { if (a) { b(); } else if (d) { c(); } }",
         ]:
             with self.subTest(source=source):
-                self.assertEqual(style.check_if_else_braces(f"{source}\n", "a.cpp"), [])
+                self.assertEqual(
+                    style.check_if_else_braces(f"{source}\n", "a.cpp"), []
+                )
 
     def test_the_registry_runs_it(self):
         check_test_support.assert_check_behaves(

@@ -71,7 +71,9 @@ class TestFromMessage(unittest.TestCase):
             fsm_state.from_message(
                 message("WB_MPC", gantry_locked=False, controller_resets=0)
             ),
-            fsm_state.FsmState(mode="WB_MPC", gantry_locked=False, controller_resets=0),
+            fsm_state.FsmState(
+                mode="WB_MPC", gantry_locked=False, controller_resets=0
+            ),
         )
 
     def test_every_control_mode_is_read(self):
@@ -91,7 +93,9 @@ class TestFromMessage(unittest.TestCase):
 
     def test_the_count_is_read_in_full(self):
         largest = 2**64 - 1
-        state = fsm_state.from_message(message("SAFETY", controller_resets=largest))
+        state = fsm_state.from_message(
+            message("SAFETY", controller_resets=largest)
+        )
         assert state is not None
         self.assertEqual(state.controller_resets, largest)
 
@@ -99,7 +103,9 @@ class TestFromMessage(unittest.TestCase):
         # What the robot serializes is what the GUI reads.
         sent = message("GRAVITY_COMP", gantry_locked=True, controller_resets=7)
         received = fsm_state_pb2.FsmState.FromString(sent.SerializeToString())
-        self.assertEqual(fsm_state.from_message(received), fsm_state.from_message(sent))
+        self.assertEqual(
+            fsm_state.from_message(received), fsm_state.from_message(sent)
+        )
 
     def test_every_mode_but_the_mpc_is_passive(self):
         # The family of control_mode::isPassive in ControlMode.h: every mode whose action is computed without the MPC.
@@ -114,7 +120,9 @@ class TestFromMessage(unittest.TestCase):
 
 
 class TestShouldRecenter(unittest.TestCase):
-    def test_a_controller_reset_while_locked_in_joint_pd_releases_the_sticks(self):
+    def test_a_controller_reset_while_locked_in_joint_pd_releases_the_sticks(
+        self,
+    ):
         # The case the gantry and the mode cannot show: both are unchanged, only the count moved.
         before = fsm_state.from_message(message("JOINT_PD", True, 1))
         after = fsm_state.from_message(message("JOINT_PD", True, 2))
@@ -172,14 +180,20 @@ class TestShouldRecenter(unittest.TestCase):
 
     def test_the_first_message_is_a_transition_from_an_unknown_state(self):
         self.assertTrue(
-            fsm_state.should_recenter(None, fsm_state.FsmState("ZERO_TORQUE", True, 0))
+            fsm_state.should_recenter(
+                None, fsm_state.FsmState("ZERO_TORQUE", True, 0)
+            )
         )
         self.assertTrue(
-            fsm_state.should_recenter(None, fsm_state.FsmState("WB_MPC", True, 7))
+            fsm_state.should_recenter(
+                None, fsm_state.FsmState("WB_MPC", True, 7)
+            )
         )
         # A walking robot's state is not a reason to release, and its count is only the baseline.
         self.assertFalse(
-            fsm_state.should_recenter(None, fsm_state.FsmState("WB_MPC", False, 7))
+            fsm_state.should_recenter(
+                None, fsm_state.FsmState("WB_MPC", False, 7)
+            )
         )
         self.assertTrue(
             fsm_state.should_recenter(
@@ -204,7 +218,8 @@ class TestAppFollowsTheFsmState(unittest.TestCase):
                 operator_test_support.ATLAS_CONFIG, "mpc/task.textproto"
             ),
             reference_file=os.path.join(
-                operator_test_support.ATLAS_CONFIG, "command/reference.textproto"
+                operator_test_support.ATLAS_CONFIG,
+                "command/reference.textproto",
             ),
             enable_online_tuning=False,
             param_publisher=operator_test_support.RecordingPublisher(

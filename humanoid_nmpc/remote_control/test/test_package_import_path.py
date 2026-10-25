@@ -39,7 +39,9 @@ from remote_control.tk_app import dodgeball
 
 # The package next to this test, as this test's tree (the runfiles under Bazel) holds it.
 SOURCE_PACKAGE = os.path.abspath(
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "remote_control")
+    os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "..", "remote_control"
+    )
 )
 
 
@@ -54,7 +56,8 @@ class TestPackageImportPath(unittest.TestCase):
     def test_the_package_is_imported_from_this_source_tree(self):
         self.assertTrue(
             os.path.samefile(
-                remote_control.__file__, os.path.join(SOURCE_PACKAGE, "__init__.py")
+                remote_control.__file__,
+                os.path.join(SOURCE_PACKAGE, "__init__.py"),
             ),
             remote_control.__file__,
         )

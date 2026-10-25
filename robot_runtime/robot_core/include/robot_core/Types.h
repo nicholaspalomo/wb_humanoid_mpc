@@ -38,8 +38,8 @@ using joint_index_t = size_t;
 
 using scalar_t = double;
 
-// The fixed-size vectors and matrices, named for their size: each holds several quantities of that size, so the size is
-// the name's, not one quantity's.
+// The fixed-size vectors and matrices, named for their size: each holds several
+// quantities of that size, so the size is the name's, not one quantity's.
 // NOLINTBEGIN(magic-number): each alias is named for its size, which no quantity's dimension names.
 template <typename SCALAR_T>
 using VECTOR_T = Eigen::Matrix<SCALAR_T, -1, 1>;

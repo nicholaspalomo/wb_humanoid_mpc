@@ -64,83 +64,115 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::ipc {
 
 /**
- * The MPC side of the network MPC link (humanoid_nmpc/docs/distributed_runtime/README.md, "The MPC link"): the solve
- * loop that the MRT joint controllers' solverWorker() runs in process, driven by the bus. It subscribes to
- * robot/mpc_observation (the newest one wins) and, on a thread of its own:
+ * The MPC side of the network MPC link
+ * (humanoid_nmpc/docs/distributed_runtime/README.md, "The MPC link"): the solve
+ * loop that the MRT joint controllers' solverWorker() runs in process, driven
+ * by the bus. It subscribes to robot/mpc_observation (the newest one wins) and,
+ * on a thread of its own:
  *
- *   1. waits for an observation newer than the one it last solved from (after a failed attempt it retries at once on
- *      the newest one, as solverWorker() does);
- *   2. resets the MPC from that observation when the robot asks for it, fully when the robot's full-reset counter
- *      exceeds the full resets served, and when its own MpcResetSupervisor asks for it after a failed solve; the first
- *      reset, before the first solve, is a full one, and so is the reset after the robot process restarted (its
- *      sequence numbers or its counters went backwards). A reset is MPC_BASE::reset() or resetSolver(), then the
- *      reference manager's target trajectories from the caller's ResetTargetTrajectoriesFunction, as
+ *   1. waits for an observation newer than the one it last solved from (after a
+ * failed attempt it retries at once on the newest one, as solverWorker() does);
+ *   2. resets the MPC from that observation when the robot asks for it, fully
+ * when the robot's full-reset counter exceeds the full resets served, and when
+ * its own MpcResetSupervisor asks for it after a failed solve; the first reset,
+ * before the first solve, is a full one, and so is the reset after the robot
+ * process restarted (its sequence numbers or its counters went backwards). A
+ * reset is MPC_BASE::reset() or resetSolver(), then the reference manager's
+ * target trajectories from the caller's ResetTargetTrajectoriesFunction, as
  *      MPC_MRT_Interface::resetMpcNode() / resetMpcSolver() do;
- *   3. hands the observation to Hooks::preSolveObserver, solves from it (MPC_BASE::run()) and reports the result to its
- *      supervisor, which backs off and declares the MPC unhealthy exactly as in process;
- *   4. on success, publishes mpc/policy: the solution as MPC_MRT_Interface::copyToBuffer() assembles it, cut to
- *      mpc.solution_time_window (trimToSolutionWindow()), stamped with the robot's reset counters it has served and its
- *      solver status, with the annotations of Hooks::annotationsProvider; then calls Hooks::postSolveObserver;
+ *   3. hands the observation to Hooks::preSolveObserver, solves from it
+ * (MPC_BASE::run()) and reports the result to its supervisor, which backs off
+ * and declares the MPC unhealthy exactly as in process;
+ *   4. on success, publishes mpc/policy: the solution as
+ * MPC_MRT_Interface::copyToBuffer() assembles it, cut to
+ *      mpc.solution_time_window (trimToSolutionWindow()), stamped with the
+ * robot's reset counters it has served and its solver status, with the
+ * annotations of Hooks::annotationsProvider; then calls
+ * Hooks::postSolveObserver;
  *   5. after every attempt, publishes mpc/status;
- *   6. waits for the rest of the period when Config::mpcDesiredFrequency is positive.
+ *   6. waits for the rest of the period when Config::mpcDesiredFrequency is
+ * positive.
  *
- * A failed solve publishes no policy, and the robot learns of it from mpc/status; the robot drops the policies solved
- * before a reset it asked for by their counters.
+ * A failed solve publishes no policy, and the robot learns of it from
+ * mpc/status; the robot drops the policies solved before a reset it asked for
+ * by their counters.
  *
- * THREADS. The MPC (its solver, reference manager and synchronized modules) is driven from the solver thread only, from
- * start() to stop(). The IO thread of the bus only decodes observations into a mailbox. Publishing goes through
+ * THREADS. The MPC (its solver, reference manager and synchronized modules) is
+ * driven from the solver thread only, from start() to stop(). The IO thread of
+ * the bus only decodes observations into a mailbox. Publishing goes through
  * Bus::publish().
  */
 class MpcServer {
  public:
   /**
-   * The target trajectories to reset the MPC to from an observation (the controllers' currentObservationToResetTrajectory()),
-   * or why there are none: the reset then fails like a failed solve, and is retried.
+   * The target trajectories to reset the MPC to from an observation (the
+   * controllers' currentObservationToResetTrajectory()), or why there are none:
+   * the reset then fails like a failed solve, and is retried.
    */
-  using ResetTargetTrajectoriesFunction = std::function<absl::StatusOr<TargetTrajectories>(const SystemObservation& observation)>;
+  using ResetTargetTrajectoriesFunction =
+      std::function<absl::StatusOr<TargetTrajectories>(
+          const SystemObservation& observation)>;
   /**
-   * Fills MpcPolicy.annotations from the solution about to be sent, on the solver thread. Display only: when it returns
-   * an error the policy goes out without annotations.
+   * Fills MpcPolicy.annotations from the solution about to be sent, on the
+   * solver thread. Display only: when it returns an error the policy goes out
+   * without annotations.
    */
   using AnnotationsProvider = std::function<absl::Status(
-      const CommandData& command, const PrimalSolution& solution, humanoid_mpc_msgs::ViewerAnnotations* absl_nonnull annotations)>;
+      const CommandData& command,
+      const PrimalSolution& solution,
+      humanoid_mpc_msgs::ViewerAnnotations* absl_nonnull annotations)>;
   /**
-   * Called after each policy is published, on the solver thread; the visualization publisher copies what it needs. An
-   * error it returns is logged.
+   * Called after each policy is published, on the solver thread; the
+   * visualization publisher copies what it needs. An error it returns is
+   * logged.
    */
   using PostSolveObserver =
-      std::function<absl::Status(const CommandData& command, const PrimalSolution& solution, const PerformanceIndex& performance)>;
+      std::function<absl::Status(const CommandData& command,
+                                 const PrimalSolution& solution,
+                                 const PerformanceIndex& performance)>;
   /**
-   * Called with the observation each solve starts from, on the solver thread right before MPC_BASE::run(): its input
-   * carries what the MPC's run does not take, such as the measured joint velocities of a centroidal MRT
+   * Called with the observation each solve starts from, on the solver thread
+   * right before MPC_BASE::run(): its input carries what the MPC's run does not
+   * take, such as the measured joint velocities of a centroidal MRT
    * (ProceduralMpcMotionManager::observe()). Returns at once.
    */
-  using PreSolveObserver = std::function<void(const SystemObservation& observation)>;
+  using PreSolveObserver =
+      std::function<void(const SystemObservation& observation)>;
 
   struct Config {
-    /** The MPC's model: an observation of other dimensions or with a mode outside it is rejected. */
+    /** The MPC's model: an observation of other dimensions or with a mode
+     * outside it is rejected. */
     ModelDimensions dimensions;
-    /** [Hz] Solves per second at most; <= 0: one solve per new observation, as fast as they arrive. */
+    /** [Hz] Solves per second at most; <= 0: one solve per new observation, as
+     * fast as they arrive. */
     scalar_t mpcDesiredFrequency = -1.0;
     /** The failure policy of the solves. */
     MpcResetSupervisor::Config resetSupervisor;
     /**
-     * Name, CPU cores and SCHED_FIFO priority of the solver thread, set by robot::realtime::configureCurrentThread()
-     * when the thread starts. A setting it cannot be given is skipped and the others are still applied; one warning
-     * names every one skipped. The memory of the MPC process is not locked by default (MemoryLock::kNone): the solver
-     * allocates as it runs, and mlockall()'s MCL_FUTURE would make those allocations fail at a finite RLIMIT_MEMLOCK.
-     * MemoryLock::kLockProcess locks the memory of the whole process, every thread of it.
+     * Name, CPU cores and SCHED_FIFO priority of the solver thread, set by
+     * robot::realtime::configureCurrentThread() when the thread starts. A
+     * setting it cannot be given is skipped and the others are still applied;
+     * one warning names every one skipped. The memory of the MPC process is not
+     * locked by default (MemoryLock::kNone): the solver allocates as it runs,
+     * and mlockall()'s MCL_FUTURE would make those allocations fail at a finite
+     * RLIMIT_MEMLOCK. MemoryLock::kLockProcess locks the memory of the whole
+     * process, every thread of it.
      */
-    robot::realtime::RealtimeThreadConfig solverThread{.name = "mpc_solver", .cores = {}, .memoryLock = robot::realtime::MemoryLock::kNone};
+    robot::realtime::RealtimeThreadConfig solverThread{
+        .name = "mpc_solver",
+        .cores = {},
+        .memoryLock = robot::realtime::MemoryLock::kNone};
     /**
-     * The MPC's model layout (modelLayoutFingerprint() of its ModelSettings): stamped on every policy, and an
-     * observation of another layout - unstamped (0) included - is rejected (observationsRejected) and not solved, as
-     * one of other dimensions. 0: neither stamped nor checked.
+     * The MPC's model layout (modelLayoutFingerprint() of its ModelSettings):
+     * stamped on every policy, and an observation of another layout - unstamped
+     * (0) included - is rejected (observationsRejected) and not solved, as one
+     * of other dimensions. 0: neither stamped nor checked.
      */
     uint64_t modelFingerprint = 0;
   };
 
-  /** Optional; empty ones are skipped. An error they return is logged and the solve loop goes on. */
+  /** Optional; empty ones are skipped. An error they return is logged and the
+   * solve loop goes on. */
   struct Hooks {
     AnnotationsProvider annotationsProvider;
     PostSolveObserver postSolveObserver;
@@ -160,33 +192,40 @@ class MpcServer {
     uint64_t statusesPublished = 0;
     uint64_t fullResets = 0;
     uint64_t solverResets = 0;
-    /** Robot processes seen: 1 after the first observation, one more for each restart of the robot process. */
+    /** Robot processes seen: 1 after the first observation, one more for each
+     * restart of the robot process. */
     uint64_t robotSessions = 0;
-    /** The robot's counters the server has served (MpcPolicy.resets_served, full_resets_served). */
+    /** The robot's counters the server has served (MpcPolicy.resets_served,
+     * full_resets_served). */
     uint64_t robotResetsServed = 0;
     uint64_t robotFullResetsServed = 0;
     bool healthy = true;
   };
 
   /**
-   * A server on `bus`, which must not be running yet and must outlive the server; the caller starts it, and start()
-   * starts the solver thread. `mpc` must outlive the server and must not be used by anything else while it runs.
+   * A server on `bus`, which must not be running yet and must outlive the
+   * server; the caller starts it, and start() starts the solver thread. `mpc`
+   * must outlive the server and must not be used by anything else while it
+   * runs.
    */
-  static absl::StatusOr<std::unique_ptr<MpcServer>> Create(robot::ipc::Bus* absl_nonnull bus,
-                                                           MPC_BASE* absl_nonnull mpc,
-                                                           ResetTargetTrajectoriesFunction resetTargetTrajectories,
-                                                           Config config,
-                                                           Hooks hooks = Hooks());
+  static absl::StatusOr<std::unique_ptr<MpcServer>> Create(
+      robot::ipc::Bus* absl_nonnull bus,
+      MPC_BASE* absl_nonnull mpc,
+      ResetTargetTrajectoriesFunction resetTargetTrajectories,
+      Config config,
+      Hooks hooks = Hooks());
 
   /** Stops the solver thread. */
   ~MpcServer();
   MpcServer(const MpcServer&) = delete;
   MpcServer& operator=(const MpcServer&) = delete;
 
-  /** Starts the solver thread, which waits for the first observation. Once: FailedPrecondition after a start(). */
+  /** Starts the solver thread, which waits for the first observation. Once:
+   * FailedPrecondition after a start(). */
   absl::Status start();
 
-  /** Stops and joins the solver thread after the attempt in progress. Idempotent; the server cannot be started again. */
+  /** Stops and joins the solver thread after the attempt in progress.
+   * Idempotent; the server cannot be started again. */
   void stop();
 
   /** Thread-safe. */
@@ -195,11 +234,13 @@ class MpcServer {
   /** The server's own supervisor: its solves, failures and back-off. */
   const MpcResetSupervisor& resetSupervisor() const { return supervisor_; }
 
-  /** MpcSolverStatus.server_instance of everything this server publishes: random, nonzero, drawn once per server. */
+  /** MpcSolverStatus.server_instance of everything this server publishes:
+   * random, nonzero, drawn once per server. */
   uint64_t serverInstance() const { return serverInstance_; }
 
  private:
-  /** What the callbacks on the bus reach the server through, cleared by the destructor. */
+  /** What the callbacks on the bus reach the server through, cleared by the
+   * destructor. */
   struct CallbackGuard {
     absl::Mutex mutex;
     MpcServer* absl_nullable server ABSL_GUARDED_BY(mutex) = nullptr;
@@ -210,7 +251,8 @@ class MpcServer {
     SystemObservation observation;
     MpcResetSupervisor::ResetCounters requests;
     bool newSession = false;
-    /** Restarts of the robot process seen when the observation was taken (mailboxSessions_). */
+    /** Restarts of the robot process seen when the observation was taken
+     * (mailboxSessions_). */
     uint64_t sessions = 0;
   };
 
@@ -228,26 +270,34 @@ class MpcServer {
   void runSolverLoop();
   /** Which observation the solver thread waits for. */
   enum class ObservationWait {
-    kAny,  ///< any observation, the one already taken included (to retry a failed attempt at once)
+    kAny,  ///< any observation, the one already taken included (to retry a
+           ///< failed attempt at once)
     kNew,  ///< one newer than the last taken
   };
-  /** Blocks until there is an observation `wait` accepts, or stop(); false on stop(). */
+  /** Blocks until there is an observation `wait` accepts, or stop(); false on
+   * stop(). */
   bool awaitObservation(ObservationWait wait);
   bool hasWork() const ABSL_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
   /**
-   * True after stop(), or when the robot has asked for a reset since the attempt's observation was taken: its counters
-   * or its process (a restart) differ from the snapshot's. Ends the back-off wait early. A request the failed attempt
-   * did not manage to serve is not a new one, and waits out the back-off with the failure.
+   * True after stop(), or when the robot has asked for a reset since the
+   * attempt's observation was taken: its counters or its process (a restart)
+   * differ from the snapshot's. Ends the back-off wait early. A request the
+   * failed attempt did not manage to serve is not a new one, and waits out the
+   * back-off with the failure.
    */
   bool robotRequestedResetSinceSnapshot() const;
   /**
-   * Serves the resets the snapshot and the supervisor ask for. Internal when the reset cannot be made (the reset
-   * function returned an error or the MPC threw); the requests then stay unserved, and the attempt fails.
+   * Serves the resets the snapshot and the supervisor ask for. Internal when
+   * the reset cannot be made (the reset function returned an error or the MPC
+   * threw); the requests then stay unserved, and the attempt fails.
    */
   absl::Status serveResets();
   absl::Status solve();
   absl::Status buildPolicy();
-  void fillSolverStatus(const absl::Status& attempt, double solveTimeMs, humanoid_mpc_msgs::MpcSolverStatus* absl_nonnull status) const;
+  void fillSolverStatus(
+      const absl::Status& attempt,
+      double solveTimeMs,
+      humanoid_mpc_msgs::MpcSolverStatus* absl_nonnull status) const;
   void publishPolicy(const absl::Status& attempt, double solveTimeMs);
   void publishStatus(const absl::Status& attempt, double solveTimeMs);
   /** Sleeps until `deadline` or stop(). */
@@ -259,7 +309,8 @@ class MpcServer {
   const Config config_;
   const Hooks hooks_;
   MpcResetSupervisor supervisor_;
-  // MpcSolverStatus.server_instance of every policy and status: this server, drawn once.
+  // MpcSolverStatus.server_instance of every policy and status: this server,
+  // drawn once.
   const uint64_t serverInstance_;
   std::shared_ptr<CallbackGuard> guard_;
 
@@ -271,7 +322,8 @@ class MpcServer {
   uint64_t mailboxVersion_ ABSL_GUARDED_BY(mutex_) = 0;
   bool hasObservation_ ABSL_GUARDED_BY(mutex_) = false;
   bool newSession_ ABSL_GUARDED_BY(mutex_) = false;
-  // Restarts of the robot process seen so far; only grows, unlike newSession_, which the solver thread takes.
+  // Restarts of the robot process seen so far; only grows, unlike newSession_,
+  // which the solver thread takes.
   uint64_t mailboxSessions_ ABSL_GUARDED_BY(mutex_) = 0;
   uint64_t receivedSinceStatus_ ABSL_GUARDED_BY(mutex_) = 0;
   uint64_t skippedSinceStatus_ ABSL_GUARDED_BY(mutex_) = 0;

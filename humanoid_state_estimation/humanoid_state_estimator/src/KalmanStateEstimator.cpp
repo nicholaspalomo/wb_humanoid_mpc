@@ -39,57 +39,75 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::estimation {
 
-absl::StatusOr<std::unique_ptr<KalmanStateEstimator>> KalmanStateEstimator::Create(const robot::model::RobotDescription& description,
-                                                                                   std::unique_ptr<KalmanBaseEstimator> estimator) {
+absl::StatusOr<std::unique_ptr<KalmanStateEstimator>>
+KalmanStateEstimator::Create(const robot::model::RobotDescription& description,
+                             std::unique_ptr<KalmanBaseEstimator> estimator) {
   if (estimator == nullptr) {
-    return absl::InvalidArgumentError("KalmanStateEstimator: no base estimator");
+    return absl::InvalidArgumentError(
+        "KalmanStateEstimator: no base estimator");
   }
   if (estimator->kinematics().numJoints() != description.getNumJoints()) {
-    return absl::InvalidArgumentError(absl::StrCat("KalmanStateEstimator: the kinematics take ", estimator->kinematics().numJoints(),
-                                                   " joints, the robot has ", description.getNumJoints()));
+    return absl::InvalidArgumentError(
+        absl::StrCat("KalmanStateEstimator: the kinematics take ",
+                     estimator->kinematics().numJoints(),
+                     " joints, the robot has ", description.getNumJoints()));
   }
-  return absl::WrapUnique(new KalmanStateEstimator(description, std::move(estimator)));
+  return absl::WrapUnique(
+      new KalmanStateEstimator(description, std::move(estimator)));
 }
 
-KalmanStateEstimator::KalmanStateEstimator(const robot::model::RobotDescription& description,
-                                           std::unique_ptr<KalmanBaseEstimator> estimator)
+KalmanStateEstimator::KalmanStateEstimator(
+    const robot::model::RobotDescription& description,
+    std::unique_ptr<KalmanBaseEstimator> estimator)
     : estimator_(std::move(estimator)),
       estimated_(description, estimator_->numContacts()),
-      jointPositions_(vector_t::Zero(static_cast<Eigen::Index>(description.getNumJoints()))),
-      jointVelocities_(vector_t::Zero(static_cast<Eigen::Index>(description.getNumJoints()))) {}
+      jointPositions_(vector_t::Zero(
+          static_cast<Eigen::Index>(description.getNumJoints()))),
+      jointVelocities_(vector_t::Zero(
+          static_cast<Eigen::Index>(description.getNumJoints()))) {}
 
 void KalmanStateEstimator::readJoints(const robot::model::RobotState& state) {
   for (Eigen::Index joint = 0; joint < jointPositions_.size(); ++joint) {
     jointPositions_[joint] = state.getJointPosition(static_cast<size_t>(joint));
-    jointVelocities_[joint] = state.getJointVelocity(static_cast<size_t>(joint));
+    jointVelocities_[joint] =
+        state.getJointVelocity(static_cast<size_t>(joint));
   }
 }
 
 void KalmanStateEstimator::writeEstimate() {
   estimated_.setRootPositionInWorldFrame(estimator_->basePosition());
-  estimated_.setRootLinearVelocityInLocalFrame(estimated_.getRootRotationLocalToWorldFrame().inverse() * estimator_->baseLinearVelocity());
+  estimated_.setRootLinearVelocityInLocalFrame(
+      estimated_.getRootRotationLocalToWorldFrame().inverse() *
+      estimator_->baseLinearVelocity());
 }
 
 void KalmanStateEstimator::reset(const robot::model::RobotState& measured) {
   readJoints(measured);
   const quaternion_t orientation = measured.getRootRotationLocalToWorldFrame();
-  const vector3_t worldVelocity = orientation * measured.getRootLinearVelocityInLocalFrame();
-  if (!estimator_->reset(measured.getRootPositionInWorldFrame(), worldVelocity, orientation, jointPositions_, jointVelocities_).ok()) {
+  const vector3_t worldVelocity =
+      orientation * measured.getRootLinearVelocityInLocalFrame();
+  if (!estimator_
+           ->reset(measured.getRootPositionInWorldFrame(), worldVelocity,
+                   orientation, jointPositions_, jointVelocities_)
+           .ok()) {
     failedUpdates_.fetch_add(1, std::memory_order_relaxed);
   }
   previousTime_ = measured.getTime();
   initialized_ = true;
 }
 
-const robot::model::RobotState& KalmanStateEstimator::estimate(const robot::model::RobotState& measured) {
+const robot::model::RobotState& KalmanStateEstimator::estimate(
+    const robot::model::RobotState& measured) {
   if (!initialized_) reset(measured);
   estimated_ = measured;
   const scalar_t dt = measured.getTime() - previousTime_;
   if (std::isfinite(dt) && dt > 0.0) {
     readJoints(measured);
-    const absl::Status updated =
-        estimator_->update(dt, measured.getRootRotationLocalToWorldFrame(), measured.getRootAngularVelocityInLocalFrame(),
-                           measured.getImuLinearAccelerationInLocalFrame(), jointPositions_, jointVelocities_, measured.getContactFlags());
+    const absl::Status updated = estimator_->update(
+        dt, measured.getRootRotationLocalToWorldFrame(),
+        measured.getRootAngularVelocityInLocalFrame(),
+        measured.getImuLinearAccelerationInLocalFrame(), jointPositions_,
+        jointVelocities_, measured.getContactFlags());
     if (!updated.ok()) failedUpdates_.fetch_add(1, std::memory_order_relaxed);
     previousTime_ = measured.getTime();
   }

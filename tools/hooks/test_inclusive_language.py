@@ -35,7 +35,8 @@ from tools.hooks import inclusive_language
 
 def _words(source: str, path: str = "src/a.cpp") -> list[str]:
     return [
-        f.message.split("`")[1] for f in inclusive_language.check_source(source, path)
+        f.message.split("`")[1]
+        for f in inclusive_language.check_source(source, path)
     ]
 
 
@@ -43,7 +44,8 @@ class InclusiveLanguageTest(unittest.TestCase):
     def test_words_and_identifier_parts(self):
         self.assertEqual(
             _words(
-                "// 4. Test master switch\nint kWhitelist = blacklisted_ids;\nvoid redlineCheck();\n"
+                "// 4. Test master switch\nint kWhitelist ="
+                " blacklisted_ids;\nvoid redlineCheck();\n"
             ),
             ["master", "Whitelist", "blacklisted", "redline"],
         )
@@ -54,13 +56,20 @@ class InclusiveLanguageTest(unittest.TestCase):
     def test_other_words_and_urls(self):
         self.assertEqual(_words("mastery masterpiece remaster\n"), [])
         self.assertEqual(
-            _words("# see https://github.com/git/git/blob/master/README.md\n", "a.sh"),
+            _words(
+                "# see https://github.com/git/git/blob/master/README.md\n",
+                "a.sh",
+            ),
             [],
         )
 
     def test_model_files_and_the_checker_itself(self):
-        self.assertEqual(_words("<joint name='master'/>\n", "robot_models/x.urdf"), [])
-        self.assertEqual(_words("master\n", "tools/hooks/inclusive_language.py"), [])
+        self.assertEqual(
+            _words("<joint name='master'/>\n", "robot_models/x.urdf"), []
+        )
+        self.assertEqual(
+            _words("master\n", "tools/hooks/inclusive_language.py"), []
+        )
 
     def test_the_registry_runs_it(self):
         check_test_support.assert_check_behaves(

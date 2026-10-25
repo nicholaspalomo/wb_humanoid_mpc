@@ -60,10 +60,14 @@ namespace ocs2::humanoid::live_tuning_test {
 namespace {
 
 // LINT.IfChange(robot_files)
-constexpr char kTaskFile[] = "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto";
-constexpr char kUrdfFile[] = "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf";
-constexpr char kReferenceFile[] = "robot_models/unitree_g1/g1_wb_mpc/config/command/reference.textproto";
-constexpr char kGaitFile[] = "humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto";
+constexpr char kTaskFile[] =
+    "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto";
+constexpr char kUrdfFile[] =
+    "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf";
+constexpr char kReferenceFile[] =
+    "robot_models/unitree_g1/g1_wb_mpc/config/command/reference.textproto";
+constexpr char kGaitFile[] =
+    "humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto";
 // LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/BUILD.bazel:live_tuning_test_data)
 
 /** The absolute path of `relativePath` in the runfiles, or an empty string. */
@@ -75,7 +79,8 @@ std::string runfilePath(absl::string_view relativePath) {
   roots.emplace_back(std::filesystem::current_path());
   for (const std::filesystem::path& root : roots) {
     const std::filesystem::path candidate = root / std::string(relativePath);
-    if (std::filesystem::exists(candidate)) return std::filesystem::absolute(candidate).string();
+    if (std::filesystem::exists(candidate))
+      return std::filesystem::absolute(candidate).string();
   }
   return std::string();
 }
@@ -85,22 +90,28 @@ WholeBodyFiles resolveFiles() {
                        .urdfFile = runfilePath(kUrdfFile),
                        .referenceFile = runfilePath(kReferenceFile),
                        .gaitFile = runfilePath(kGaitFile)};
-  EXPECT_FALSE(files.taskFile.empty() || files.urdfFile.empty() || files.referenceFile.empty() || files.gaitFile.empty())
+  EXPECT_FALSE(files.taskFile.empty() || files.urdfFile.empty() ||
+               files.referenceFile.empty() || files.gaitFile.empty())
       << "the G1 whole-body files are not in the runfiles";
   return files;
 }
 
 /**
- * Makes a working directory for this run and enters it, once: the CppAD libraries go to a folder relative to it
- * (ModelSettings::modelFolderCppAd), and the shipped file does not force a recompile, so a library left by an earlier
- * unsandboxed run would be loaded instead of taped. The files are resolved before, as absolute paths.
+ * Makes a working directory for this run and enters it, once: the CppAD
+ * libraries go to a folder relative to it (ModelSettings::modelFolderCppAd),
+ * and the shipped file does not force a recompile, so a library left by an
+ * earlier unsandboxed run would be loaded instead of taped. The files are
+ * resolved before, as absolute paths.
  */
 void enterFreshWorkingDirectoryOnce() {
   static const bool kEntered = []() {
     g1WholeBodyFiles();
-    std::string freshDirectory = (std::filesystem::path(testing::TempDir()) / "test_wb_live_tuning_XXXXXX").string();
+    std::string freshDirectory = (std::filesystem::path(testing::TempDir()) /
+                                  "test_wb_live_tuning_XXXXXX")
+                                     .string();
     if (mkdtemp(freshDirectory.data()) == nullptr) {
-      ADD_FAILURE() << "cannot make a fresh working directory from " << freshDirectory;
+      ADD_FAILURE() << "cannot make a fresh working directory from "
+                    << freshDirectory;
       return false;
     }
     std::filesystem::current_path(freshDirectory);
@@ -109,17 +120,24 @@ void enterFreshWorkingDirectoryOnce() {
   EXPECT_TRUE(kEntered);
 }
 
-/** Moves `name` from `from` to `to`, where it must be listed once: the variant's term lists. */
-void moveListEntry(std::vector<std::string>& from, std::vector<std::string>& to, absl::string_view name) {
-  const std::vector<std::string>::iterator found = std::find(from.begin(), from.end(), name);
+/** Moves `name` from `from` to `to`, where it must be listed once: the
+ * variant's term lists. */
+void moveListEntry(std::vector<std::string>& from,
+                   std::vector<std::string>& to,
+                   absl::string_view name) {
+  const std::vector<std::string>::iterator found =
+      std::find(from.begin(), from.end(), name);
   EXPECT_NE(found, from.end()) << "the shipped file no longer lists " << name;
   if (found != from.end()) from.erase(found);
   to.emplace_back(name);
 }
 
 /** Replaces `name` in `list` with `replacement`. */
-void replaceListEntry(std::vector<std::string>& list, absl::string_view name, absl::string_view replacement) {
-  const std::vector<std::string>::iterator found = std::find(list.begin(), list.end(), name);
+void replaceListEntry(std::vector<std::string>& list,
+                      absl::string_view name,
+                      absl::string_view replacement) {
+  const std::vector<std::string>::iterator found =
+      std::find(list.begin(), list.end(), name);
   EXPECT_NE(found, list.end()) << "the shipped file no longer lists " << name;
   if (found != list.end()) *found = std::string(replacement);
 }
@@ -132,7 +150,8 @@ const WholeBodyFiles& g1WholeBodyFiles() {
 }
 
 mpc_config::TaskFile shippedTaskFile() {
-  absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(g1WholeBodyFiles().taskFile);
+  absl::StatusOr<mpc_config::TaskFile> task =
+      loadTaskFile(g1WholeBodyFiles().taskFile);
   EXPECT_TRUE(task.ok()) << task.status();
   return task.ok() ? *std::move(task) : mpc_config::TaskFile{};
 }
@@ -140,13 +159,23 @@ mpc_config::TaskFile shippedTaskFile() {
 mpc_config::TaskFile variantTaskFile() {
   mpc_config::TaskFile task = shippedTaskFile();
   moveListEntry(task.hard_constraints, task.soft_constraints, "zero_velocity");
-  moveListEntry(task.hard_constraints, task.soft_constraints, "normal_velocity");
-  replaceListEntry(task.soft_constraints, "friction_force_cone", "contact_wrench_cone");
+  moveListEntry(task.hard_constraints, task.soft_constraints,
+                "normal_velocity");
+  replaceListEntry(task.soft_constraints, "friction_force_cone",
+                   "contact_wrench_cone");
   task.costs.emplace_back("joint_torque_cost");
-  // [rad] A toe-up swing: the swing foot's cost holds its tilt to a tilted plane, which orientation_z then weighs.
+  task.soft_constraints.emplace_back("foot_collision_cbf");
+  // LINT.IfChange(variant_cbf)
+  task.collision_cbf_constraint.gamma = 10.0;
+  task.collision_cbf_constraint.mu = 5000.0;
+  task.collision_cbf_constraint.delta = 0.05;
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/test/live_tuning/RunningProblemFingerprint.cpp:cbf_band_margin)
+  // [rad] A toe-up swing: the swing foot's cost holds its tilt to a tilted
+  // plane, which orientation_z then weighs.
   task.swing_trajectory_config.swing_pitch_angle = 0.2;
 
-  mpc_config::ContactsConfig::WrenchCone& cone = task.contacts.contact_wrench_cone_soft_constraint;
+  mpc_config::ContactsConfig::WrenchCone& cone =
+      task.contacts.contact_wrench_cone_soft_constraint;
   cone.friction_coefficient = 0.5;
   cone.torsional_friction_coefficient = 0.05;
   cone.min_normal_force = 5.0;
@@ -155,47 +184,60 @@ mpc_config::TaskFile variantTaskFile() {
   cone.mu = 0.2;
   cone.delta = 5.0;
 
-  // A weight for every joint of the MPC model, which the model settings read off the URDF.
-  const absl::StatusOr<ModelSettings> modelSettings =
-      ModelSettings::Create(task, g1WholeBodyFiles().urdfFile, "wb_mpc_", /*verbose=*/false);
+  // A weight for every joint of the MPC model, which the model settings read
+  // off the URDF.
+  const absl::StatusOr<ModelSettings> modelSettings = ModelSettings::Create(
+      task, g1WholeBodyFiles().urdfFile, "wb_mpc_", /*verbose=*/false);
   EXPECT_TRUE(modelSettings.ok()) << modelSettings.status();
   if (!modelSettings.ok()) return task;
   task.joint_torque_weights.scaling = 1.0e-3;
   task.joint_torque_weights.joints.clear();
   for (size_t i = 0; i < modelSettings->mpcModelJointNames.size(); ++i) {
-    task.joint_torque_weights.joints.push_back(
-        mpc_config::JointValue{.joint = modelSettings->mpcModelJointNames[i], .value = 1.0 + 0.1 * static_cast<double>(i % 5)});
+    task.joint_torque_weights.joints.push_back(mpc_config::JointValue{
+        .joint = modelSettings->mpcModelJointNames[i],
+        .value = 1.0 + 0.1 * static_cast<double>(i % 5)});
   }
   return task;
 }
 
-std::unique_ptr<WBMpcInterface> createWholeBodyMpc(const mpc_config::TaskFile& task) {
+std::unique_ptr<WBMpcInterface> createWholeBodyMpc(
+    const mpc_config::TaskFile& task) {
   enterFreshWorkingDirectoryOnce();
   const WholeBodyFiles& files = g1WholeBodyFiles();
-  const absl::StatusOr<mpc_config::ReferenceFile> reference = loadReferenceFile(files.referenceFile);
+  const absl::StatusOr<mpc_config::ReferenceFile> reference =
+      loadReferenceFile(files.referenceFile);
   EXPECT_TRUE(reference.ok()) << reference.status();
   if (!reference.ok()) return nullptr;
-  absl::StatusOr<std::unique_ptr<WBMpcInterface>> created = WBMpcInterface::Create(task, files.urdfFile, *reference);
+  absl::StatusOr<std::unique_ptr<WBMpcInterface>> created =
+      WBMpcInterface::Create(task, files.urdfFile, *reference);
   EXPECT_TRUE(created.ok()) << created.status();
   return created.ok() ? *std::move(created) : nullptr;
 }
 
 void expectQuaternionLayout(const WBMpcInterface& interface) {
-  const std::shared_ptr<const StateManifold>& manifold = interface.getStateManifold();
-  ASSERT_NE(manifold, nullptr) << "the whole-body MPC runs on no state manifold";
-  EXPECT_EQ(interface.getOptimalControlProblem().stateManifoldPtr, manifold) << "the problem's state manifold is not the interface's";
-  EXPECT_EQ(manifold->getAmbientDim(), manifold->getTangentDim() + 1) << "the state is not the quaternion layout";
-  EXPECT_EQ(manifold->getAmbientDim(), interface.getMpcRobotModel().getStateDim());
-  EXPECT_EQ(manifold->getTangentDim(), interface.getMpcRobotModel().getStateTangentDim());
+  const std::shared_ptr<const StateManifold>& manifold =
+      interface.getStateManifold();
+  ASSERT_NE(manifold, nullptr)
+      << "the whole-body MPC runs on no state manifold";
+  EXPECT_EQ(interface.getOptimalControlProblem().stateManifoldPtr, manifold)
+      << "the problem's state manifold is not the interface's";
+  EXPECT_EQ(manifold->getAmbientDim(), manifold->getTangentDim() + 1)
+      << "the state is not the quaternion layout";
+  EXPECT_EQ(manifold->getAmbientDim(),
+            interface.getMpcRobotModel().getStateDim());
+  EXPECT_EQ(manifold->getTangentDim(),
+            interface.getMpcRobotModel().getStateTangentDim());
 }
 
 WBMpcInterface* absl_nullable shippedWholeBodyMpc() {
-  static WBMpcInterface* absl_nullable const kInterface = createWholeBodyMpc(shippedTaskFile()).release();
+  static WBMpcInterface* absl_nullable const kInterface =
+      createWholeBodyMpc(shippedTaskFile()).release();
   return kInterface;
 }
 
 WBMpcInterface* absl_nullable variantWholeBodyMpc() {
-  static WBMpcInterface* absl_nullable const kInterface = createWholeBodyMpc(variantTaskFile()).release();
+  static WBMpcInterface* absl_nullable const kInterface =
+      createWholeBodyMpc(variantTaskFile()).release();
   return kInterface;
 }
 
@@ -204,20 +246,28 @@ void scheduleOneSwing(WBMpcInterface& interface, size_t swingFoot) {
   swingFlags[swingFoot] = false;
   const ModeSchedule schedule(
       /*eventTimesInput=*/{-10.0, kSwingStart, kSwingEnd, 10.0},
-      /*modeSequenceInput=*/{ModeNumber::kStance, ModeNumber::kStance, stanceLeg2ModeNumber(swingFlags), ModeNumber::kStance,
-                             ModeNumber::kStance});
-  SwitchedModelReferenceManager& referenceManager = *interface.getSwitchedModelReferenceManagerPtr();
+      /*modeSequenceInput=*/{ModeNumber::kStance, ModeNumber::kStance,
+                             stanceLeg2ModeNumber(swingFlags),
+                             ModeNumber::kStance, ModeNumber::kStance});
+  SwitchedModelReferenceManager& referenceManager =
+      *interface.getSwitchedModelReferenceManagerPtr();
   referenceManager.getGaitSchedule()->updateModeSchedule(schedule);
-  referenceManager.preSolverRun(kSwingStart - 0.2, kSwingEnd + 0.5, interface.getInitialState(), ModeNumber::kStance);
+  referenceManager.preSolverRun(kSwingStart - 0.2, kSwingEnd + 0.5,
+                                interface.getInitialState(),
+                                ModeNumber::kStance);
 }
 
-std::vector<EvaluationPoint> evaluationPoints(const WBMpcInterface& interface, size_t count) {
+std::vector<EvaluationPoint> evaluationPoints(const WBMpcInterface& interface,
+                                              size_t count) {
   std::mt19937 generator(20'261'005);
   std::uniform_real_distribution<scalar_t> unit(-1.0, 1.0);
   const WBAccelMpcRobotModel<scalar_t>& model = interface.getMpcRobotModel();
-  // The state is [q, v]: its first getConfigurationDim() entries are the configuration.
-  const Eigen::Index numCoordinates = static_cast<Eigen::Index>(model.getConfigurationDim());
-  const Eigen::Index numWrenchInputs = static_cast<Eigen::Index>(6 * kNumContacts);
+  // The state is [q, v]: its first getConfigurationDim() entries are the
+  // configuration.
+  const Eigen::Index numCoordinates =
+      static_cast<Eigen::Index>(model.getConfigurationDim());
+  const Eigen::Index numWrenchInputs =
+      static_cast<Eigen::Index>(6 * kNumContacts);
   // Inside the swing, and in stance before and after it.
   const std::vector<scalar_t> times = {0.1, 0.3, 0.45, -0.4, 0.9};
   std::vector<EvaluationPoint> points;
@@ -228,9 +278,11 @@ std::vector<EvaluationPoint> evaluationPoints(const WBMpcInterface& interface, s
     for (Eigen::Index j = 0; j < point.state.size(); ++j) {
       point.state(j) += (j < numCoordinates ? 0.05 : 0.5) * unit(generator);
     }
-    point.input = vector_t::Zero(static_cast<Eigen::Index>(model.getInputDim()));
+    point.input =
+        vector_t::Zero(static_cast<Eigen::Index>(model.getInputDim()));
     for (Eigen::Index j = 0; j < point.input.size(); ++j) {
-      // The contact wrenches first (a few hundred newtons), then the joint accelerations.
+      // The contact wrenches first (a few hundred newtons), then the joint
+      // accelerations.
       point.input(j) = (j < numWrenchInputs ? 200.0 : 2.0) * unit(generator);
     }
     points.push_back(std::move(point));

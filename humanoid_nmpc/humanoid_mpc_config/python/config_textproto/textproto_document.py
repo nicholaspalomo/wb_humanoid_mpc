@@ -119,7 +119,13 @@ _SIMPLE_ESCAPES = {
 _ESCAPE = re.compile(
     r"\\(?:([abfnrtv\\'\"?])|([0-7]{1,3})|[xX]([0-9A-Fa-f]{1,2})|u([0-9A-Fa-f]{4})|U([0-9A-Fa-f]{8})|(.))"
 )
-_QUOTED_ESCAPES = {"\n": "\\n", "\r": "\\r", "\t": "\\t", '"': '\\"', "\\": "\\\\"}
+_QUOTED_ESCAPES = {
+    "\n": "\\n",
+    "\r": "\\r",
+    "\t": "\\t",
+    '"': '\\"',
+    "\\": "\\\\",
+}
 
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _INDEX = re.compile(r"[0-9]+")
@@ -364,7 +370,11 @@ class _Element:
 
     @property
     def start(self) -> int:
-        return self.field.start if self.list_index is None else _value_start(self.node)
+        return (
+            self.field.start
+            if self.list_index is None
+            else _value_start(self.node)
+        )
 
     @property
     def end(self) -> int:
@@ -529,7 +539,9 @@ def _check_literal(text: str) -> None:
         parser.scalar()
         trailing = parser.peek()
     except TextprotoSyntaxError as error:
-        raise DocumentError(f"{text!r} is not a textproto value: {error}") from error
+        raise DocumentError(
+            f"{text!r} is not a textproto value: {error}"
+        ) from error
     if trailing is not None:
         raise DocumentError(f"{text!r} is not one textproto value")
 
@@ -591,7 +603,9 @@ def same_value(node: ScalarNode, value: ScalarValue) -> bool:
         return node.kind == IDENTIFIER and node.text == value.name
     if isinstance(value, bool):
         names = _TRUE if value else _FALSE
-        return node.kind == IDENTIFIER and not node.signed and node.text in names
+        return (
+            node.kind == IDENTIFIER and not node.signed and node.text in names
+        )
     if isinstance(value, (str, bytes)):
         if node.kind != STRING:
             return False
@@ -631,12 +645,16 @@ class _Parser:
         """The next significant token, consumed; at the end, a syntax error saying `expected` is missing."""
         token = self.peek()
         if token is None:
-            raise self._error(None, f"expected {expected} before the end of the text")
+            raise self._error(
+                None, f"expected {expected} before the end of the text"
+            )
         self._index += 1
         return token
 
     def _is_symbol(self, token: Token | None, *symbols: str) -> bool:
-        return token is not None and token.kind == SYMBOL and token.text in symbols
+        return (
+            token is not None and token.kind == SYMBOL and token.text in symbols
+        )
 
     def _take_symbol(self, *symbols: str) -> Token | None:
         """The next significant token, consumed, when it is one of `symbols`; otherwise None, and nothing consumed."""
@@ -685,7 +703,11 @@ class _Parser:
         separator = self._take_symbol(",", ";")
         end = value.end if separator is None else separator.end
         return FieldNode(
-            name, name_token.start, None if colon is None else colon.start, value, end
+            name,
+            name_token.start,
+            None if colon is None else colon.start,
+            value,
+            end,
         )
 
     def _extension_name(self) -> str:
@@ -696,7 +718,9 @@ class _Parser:
             if self._is_symbol(token, "]"):
                 parts.append("]")
                 return "".join(parts)
-            if token.kind != IDENTIFIER and not self._is_symbol(token, ".", "/"):
+            if token.kind != IDENTIFIER and not self._is_symbol(
+                token, ".", "/"
+            ):
                 raise self._error(
                     token, f"expected an extension name, found {token.text!r}"
                 )
@@ -716,7 +740,8 @@ class _Parser:
         if not has_colon:
             raise self._error(
                 token,
-                f'expected ":" between {name} and its value, found {token.text!r}',
+                f'expected ":" between {name} and its value, found'
+                f" {token.text!r}",
             )
         return self.scalar()
 
@@ -737,12 +762,17 @@ class _Parser:
         while True:
             token = self.peek()
             elements.append(
-                self._block() if self._is_symbol(token, "{", "<") else self.scalar()
+                self._block()
+                if self._is_symbol(token, "{", "<")
+                else self.scalar()
             )
             separator = self._next('"," or "]"')
             if self._is_symbol(separator, "]"):
                 return ListNode(
-                    opening.start, separator.start, tuple(elements), tuple(commas)
+                    opening.start,
+                    separator.start,
+                    tuple(elements),
+                    tuple(commas),
                 )
             if not self._is_symbol(separator, ","):
                 raise self._error(
@@ -759,11 +789,14 @@ class _Parser:
             if number.kind not in (NUMBER, IDENTIFIER):
                 raise self._error(
                     number,
-                    f"expected a number after {first.text!r}, found {number.text!r}",
+                    f"expected a number after {first.text!r}, found"
+                    f" {number.text!r}",
                 )
             parts.append(number)
         elif first.kind == STRING:
-            while (following := self.peek()) is not None and following.kind == STRING:
+            while (
+                following := self.peek()
+            ) is not None and following.kind == STRING:
                 parts.append(following)
                 self._index += 1
         elif first.kind not in (NUMBER, IDENTIFIER):
@@ -795,7 +828,9 @@ def parse_path(path: str) -> tuple[PathSegment, ...]:
     while True:
         name = _NAME.match(path, position)
         if name is None:
-            raise PathError(f"{path!r}: expected a field name at column {position + 1}")
+            raise PathError(
+                f"{path!r}: expected a field name at column {position + 1}"
+            )
         position = name.end()
         index: int | None = None
         key: tuple[str, str] | None = None
@@ -805,7 +840,9 @@ def parse_path(path: str) -> tuple[PathSegment, ...]:
         if position == len(path):
             return tuple(segments)
         if path[position] != ".":
-            raise PathError(f"{path!r}: expected '.' or '[' at column {position + 1}")
+            raise PathError(
+                f"{path!r}: expected '.' or '[' at column {position + 1}"
+            )
         position += 1
 
 
@@ -819,7 +856,8 @@ def _parse_selector(
     field = _NAME.match(path, position)
     if field is None or path[field.end() : field.end() + 1] != "=":
         raise PathError(
-            f"{path!r}: expected an index or field=value at column {position + 1}"
+            f"{path!r}: expected an index or field=value at column"
+            f" {position + 1}"
         )
     position = field.end() + 1
     if path[position : position + 1] == '"':
@@ -827,7 +865,9 @@ def _parse_selector(
     else:
         bare = _BARE_KEY_VALUE.match(path, position)
         if bare is None:
-            raise PathError(f"{path!r}: expected a key value at column {position + 1}")
+            raise PathError(
+                f"{path!r}: expected a key value at column {position + 1}"
+            )
         value, position = bare.group(), bare.end()
     if path[position : position + 1] != "]":
         raise PathError(f"{path!r}: expected ']' at column {position + 1}")
@@ -948,7 +988,9 @@ class TextprotoDocument:
         self._tokens = parser.tokens
         self._token_starts = [token.start for token in parser.tokens]
         self.root = root
-        self._line_starts = [0] + [match.end() for match in re.finditer("\n", text)]
+        self._line_starts = [0] + [
+            match.end() for match in re.finditer("\n", text)
+        ]
 
     def copy(self) -> "TextprotoDocument":
         """A document of the same text, to edit apart from this one (cheap: the tree is shared, never changed)."""
@@ -971,24 +1013,31 @@ class TextprotoDocument:
         """The element of `block` that `segment` selects; None when there is none; PathError when there are several."""
         elements = _elements(block, segment.name)
         if segment.index is not None:
-            return elements[segment.index] if segment.index < len(elements) else None
+            return (
+                elements[segment.index]
+                if segment.index < len(elements)
+                else None
+            )
         if segment.key is not None:
             key = segment.key
             matches = [
                 element
                 for element in elements
-                if isinstance(element.node, BlockNode) and _has_key(element.node, key)
+                if isinstance(element.node, BlockNode)
+                and _has_key(element.node, key)
             ]
             if len(matches) > 1:
                 raise self._path_error(
                     path,
-                    f"{len(matches)} elements of {segment.name} have {key[0]} {key[1]}",
+                    f"{len(matches)} elements of {segment.name} have"
+                    f" {key[0]} {key[1]}",
                 )
             return matches[0] if matches else None
         if len(elements) > 1:
             raise self._path_error(
                 path,
-                f"{segment.name} is given {len(elements)} times; select one with [index] or [field=value]",
+                f"{segment.name} is given {len(elements)} times; select one"
+                " with [index] or [field=value]",
             )
         return elements[0] if elements else None
 
@@ -1002,7 +1051,9 @@ class TextprotoDocument:
             if element is not None:
                 if not isinstance(element.node, BlockNode):
                     shown = format_path(segments[:count])
-                    raise self._path_error(path, f"{shown} is a value, not a block")
+                    raise self._path_error(
+                        path, f"{shown} is a value, not a block"
+                    )
                 block = element.node
             found = self._select(block, segment, path)
             if found is None:
@@ -1074,7 +1125,9 @@ class TextprotoDocument:
             or segments[-1].index is not None
             or segments[-1].key is not None
         ):
-            raise self._path_error(path, "count() takes a field without a selector")
+            raise self._path_error(
+                path, "count() takes a field without a selector"
+            )
         parent = self.find(format_path(segments[:-1]))
         if not isinstance(parent, BlockNode):
             return 0
@@ -1116,7 +1169,10 @@ class TextprotoDocument:
                 continue
             if token.kind == COMMENT:
                 return token.text[1:].strip()
-            if token.kind != SYMBOL or token.text not in _CLOSERS_AND_SEPARATORS:
+            if (
+                token.kind != SYMBOL
+                or token.text not in _CLOSERS_AND_SEPARATORS
+            ):
                 return None
         return None
 
@@ -1179,7 +1235,9 @@ class TextprotoDocument:
         return "\r\n" if "\r\n" in self._text else "\n"
 
     def _line_start(self, offset: int) -> int:
-        return self._line_starts[bisect.bisect_right(self._line_starts, offset) - 1]
+        return self._line_starts[
+            bisect.bisect_right(self._line_starts, offset) - 1
+        ]
 
     def _line_indent(self, offset: int) -> str:
         """The leading whitespace of the line of `offset`."""
@@ -1236,14 +1294,16 @@ class TextprotoDocument:
                         continue
                     pending.append(value)
                     child = value.fields[0].start
-                    if not self._is_multiline(value) or not self._starts_line(child):
+                    if not self._is_multiline(value) or not self._starts_line(
+                        child
+                    ):
                         continue
                     indent, child_indent = self._line_indent(
                         field.start
                     ), self._line_indent(child)
-                    if child_indent.startswith(indent) and len(child_indent) > len(
-                        indent
-                    ):
+                    if child_indent.startswith(indent) and len(
+                        child_indent
+                    ) > len(indent):
                         steps.append(child_indent[len(indent) :])
         return min(steps, key=len) if steps else _DEFAULT_INDENT_UNIT
 
@@ -1261,12 +1321,16 @@ class TextprotoDocument:
         lines = ["{"]
         for name, value in block.fields:
             lines.append(
-                indent + unit + self._render(name, value, indent + unit, inline=False)
+                indent
+                + unit
+                + self._render(name, value, indent + unit, inline=False)
             )
         lines.append(f"{indent}}}")
         return self._newline().join(lines)
 
-    def _render(self, name: str, value: Value, indent: str, inline: bool) -> str:
+    def _render(
+        self, name: str, value: Value, indent: str, inline: bool
+    ) -> str:
         """`name: value`, or `name { ... }` (_render_block()); the first line without indentation."""
         if isinstance(value, NewBlock):
             return f"{name} {self._render_block(value, indent, inline)}"
@@ -1374,7 +1438,9 @@ class TextprotoDocument:
             if not isinstance(element.node, BlockNode):
                 raise self._path_error(parent_path, "is a value, not a block")
             block = element.node
-        self._create(block, (*segments[found:], PathSegment(name)), value, parent_path)
+        self._create(
+            block, (*segments[found:], PathSegment(name)), value, parent_path
+        )
 
     def append(self, path: str, value: Value) -> None:
         """Adds `value` after the last value of the repeated field `path` (no selector), creating missing blocks."""
@@ -1384,7 +1450,9 @@ class TextprotoDocument:
             or segments[-1].index is not None
             or segments[-1].key is not None
         ):
-            raise self._path_error(path, "append() takes a field without a selector")
+            raise self._path_error(
+                path, "append() takes a field without a selector"
+            )
         self.insert_field(format_path(segments[:-1]), segments[-1].name, value)
 
     def _create(
@@ -1407,7 +1475,8 @@ class TextprotoDocument:
         if first.index is not None and first.index != existing:
             raise self._path_error(
                 path,
-                f"{first.name} has {existing} values; only [{existing}] can be added",
+                f"{first.name} has {existing} values; only [{existing}] can be"
+                " added",
             )
         nested = value
         for depth in range(len(remaining) - 1, 0, -1):
@@ -1415,7 +1484,8 @@ class TextprotoDocument:
             if segment.index not in (None, 0):
                 raise self._path_error(
                     path,
-                    f"a new block has no element [{segment.index}] of {segment.name}",
+                    f"a new block has no element [{segment.index}] of"
+                    f" {segment.name}",
                 )
             nested = NewBlock(
                 _key_fields(remaining[depth - 1]) + ((segment.name, nested),)
@@ -1451,7 +1521,9 @@ class TextprotoDocument:
         end_of_line = self._end_of_line(field.end)
         if not self._starts_line(field.start) or end_of_line is None:
             self._replace(
-                field.end, field.end, f' {self._render(name, value, "", inline=True)}'
+                field.end,
+                field.end,
+                f' {self._render(name, value, "", inline=True)}',
             )
             return
         indent = self._line_indent(field.start)
@@ -1466,6 +1538,7 @@ class TextprotoDocument:
             self._replace(end_of_line + 1, end_of_line + 1, rendered + newline)
 
     def _insert_at_file_end(self, name: str, value: Value) -> None:
+        """Appends the field `name: value` on a line of its own, at the indentation of the last top-level field."""
         indent = ""
         for field in reversed(self.root.fields):
             if self._starts_line(field.start):
@@ -1474,11 +1547,16 @@ class TextprotoDocument:
         newline = self._newline()
         prefix = "" if not self._text or self._text.endswith("\n") else newline
         rendered = (
-            prefix + indent + self._render(name, value, indent, inline=False) + newline
+            prefix
+            + indent
+            + self._render(name, value, indent, inline=False)
+            + newline
         )
         self._replace(len(self._text), len(self._text), rendered)
 
-    def _insert_at_block_end(self, block: BlockNode, name: str, value: Value) -> None:
+    def _insert_at_block_end(
+        self, block: BlockNode, name: str, value: Value
+    ) -> None:
         """Inserts before the closing delimiter of `block`: on a line of its own, or on the block's one line."""
         if block.open is None or block.close is None:
             self._insert_at_file_end(name, value)
@@ -1536,15 +1614,24 @@ class TextprotoDocument:
         last = segments[-1]
         if last.index is None and last.key is None:
             elements = _elements(parent, last.name)
-            fields = {element.field.start: element.field for element in elements}
-            self._remove_spans([self._removal_span(field) for field in fields.values()])
+            fields = {
+                element.field.start: element.field for element in elements
+            }
+            self._remove_spans(
+                [self._removal_span(field) for field in fields.values()]
+            )
             return len(elements)
         element = self._select(parent, last, path)
         if element is None:
             return 0
-        if isinstance(element.field.value, ListNode) and element.list_index is not None:
+        if (
+            isinstance(element.field.value, ListNode)
+            and element.list_index is not None
+        ):
             self._remove_spans(
-                self._list_removal_spans(element.field.value, element.list_index)
+                self._list_removal_spans(
+                    element.field.value, element.list_index
+                )
             )
         else:
             self._remove_spans([self._removal_span(element.field)])
@@ -1565,7 +1652,9 @@ class TextprotoDocument:
         """The characters that removing `field` deletes (remove())."""
         end_of_line = self._end_of_line(field.end)
         if self._starts_line(field.start) and end_of_line is not None:
-            return self._line_start(field.start), min(end_of_line + 1, len(self._text))
+            return self._line_start(field.start), min(
+                end_of_line + 1, len(self._text)
+            )
         after = field.end
         while after < len(self._text) and self._text[after] in " \t":
             after += 1
@@ -1576,7 +1665,9 @@ class TextprotoDocument:
             before -= 1
         return before, field.end
 
-    def _list_removal_spans(self, node: ListNode, index: int) -> list[tuple[int, int]]:
+    def _list_removal_spans(
+        self, node: ListNode, index: int
+    ) -> list[tuple[int, int]]:
         """The characters that removing element `index` of the list `node` deletes (remove()).
 
         Args:
@@ -1624,7 +1715,9 @@ def _value_start(node: ScalarNode | BlockNode) -> int:
 
 def _key_fields(segment: PathSegment) -> tuple[tuple[str, Value], ...]:
     """The key field a new element selected by `segment` starts with: (field, value as a string), or none."""
-    return ((segment.key[0], segment.key[1]),) if segment.key is not None else ()
+    return (
+        ((segment.key[0], segment.key[1]),) if segment.key is not None else ()
+    )
 
 
 def parse(text: str, source: str = "<text>") -> TextprotoDocument:

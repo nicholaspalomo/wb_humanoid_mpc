@@ -73,23 +73,35 @@ struct BasisSpaceInputCost {
   BasisInputsCostTransformConfig transform;
 };
 
-/** input_weights of `target`'s file in basis space, transformed with `running` and the reloaded regularization. */
-absl::StatusOr<BasisSpaceInputCost> basisSpaceInputCost(const HotUpdateTarget& target, const BasisInputsCostTransformConfig& running) {
-  ASSIGN_OR_RETURN(const matrix_t R, inputWeightsFromConfig(target.task().input_weights, target.layout(), "input_weights"));
+/** input_weights of `target`'s file in basis space, transformed with `running`
+ * and the reloaded regularization. */
+absl::StatusOr<BasisSpaceInputCost> basisSpaceInputCost(
+    const HotUpdateTarget& target,
+    const BasisInputsCostTransformConfig& running) {
+  ASSIGN_OR_RETURN(const matrix_t R,
+                   inputWeightsFromConfig(target.task().input_weights,
+                                          target.layout(), "input_weights"));
   BasisInputsCostTransformConfig candidate = running;
-  ASSIGN_OR_RETURN(const BasisRegularizationSettings regularization, basisRegularizationFromConfig(target.task().contacts));
+  ASSIGN_OR_RETURN(const BasisRegularizationSettings regularization,
+                   basisRegularizationFromConfig(target.task().contacts));
   candidate.lambdaRegularization = regularization.basisScalingRegularization;
   candidate.regularization = regularization.basisRegularization;
   if (static_cast<size_t>(R.rows()) != candidate.wrenchInputDim) {
     return absl::InvalidArgumentError(
-        absl::StrCat("input_weights has ", R.rows(), " rows, but the wrench-space input has ", candidate.wrenchInputDim, "."));
+        absl::StrCat("input_weights has ", R.rows(),
+                     " rows, but the wrench-space input has ",
+                     candidate.wrenchInputDim, "."));
   }
-  // An unknown regularization name, a negative weight, or a lambda block that is not positive definite (a zero weight,
-  // or null_space with a contact wrench direction R does not weigh) would install an R the QP cannot solve with.
+  // An unknown regularization name, a negative weight, or a lambda block that
+  // is not positive definite (a zero weight, or null_space with a contact
+  // wrench direction R does not weigh) would install an R the QP cannot solve
+  // with.
   RETURN_IF_ERROR(validateBasisInputsCostTransformConfig(candidate));
   matrix_t R_basis = transformWrenchInputCostToBasisSpace(R, candidate);
-  RETURN_IF_ERROR(checkLambdaBlockPositiveDefinite(R_basis, candidate.numBasisInputs));
-  return BasisSpaceInputCost{.R = std::move(R_basis), .transform = std::move(candidate)};
+  RETURN_IF_ERROR(
+      checkLambdaBlockPositiveDefinite(R_basis, candidate.numBasisInputs));
+  return BasisSpaceInputCost{.R = std::move(R_basis),
+                             .transform = std::move(candidate)};
 }
 
 }  // namespace
@@ -98,53 +110,74 @@ absl::Span<const absl::string_view> BasisInputsCostApplier::staticFields() {
   return absl::MakeConstSpan(kFields);
 }
 
-absl::StatusOr<std::unique_ptr<BasisInputsCostApplier>> BasisInputsCostApplier::Create(
-    std::optional<BasisInputsCostTransformConfig> basisCostTransform, size_t inputDim) {
+absl::StatusOr<std::unique_ptr<BasisInputsCostApplier>>
+BasisInputsCostApplier::Create(
+    std::optional<BasisInputsCostTransformConfig> basisCostTransform,
+    size_t inputDim) {
   if (basisCostTransform.has_value()) {
     const BasisInputsCostTransformConfig& cfg = *basisCostTransform;
     if (inputDim != cfg.basisInputDim()) {
-      return absl::InvalidArgumentError(absl::StrCat("[BasisInputsCostApplier] inputDim (", inputDim,
-                                                     ") must equal the basis-space input dimension of the cost transform (",
-                                                     cfg.basisInputDim(), ")."));
+      return absl::InvalidArgumentError(
+          absl::StrCat("[BasisInputsCostApplier] inputDim (", inputDim,
+                       ") must equal the basis-space input dimension of the "
+                       "cost transform (",
+                       cfg.basisInputDim(), ")."));
     }
-    if (static_cast<size_t>(cfg.basisToWrenchMap.rows()) != cfg.wrenchInputDim) {
-      return absl::InvalidArgumentError(absl::StrCat("[BasisInputsCostApplier] basisToWrenchMap has ", cfg.basisToWrenchMap.rows(),
-                                                     " rows but wrenchInputDim is ", cfg.wrenchInputDim, "."));
+    if (static_cast<size_t>(cfg.basisToWrenchMap.rows()) !=
+        cfg.wrenchInputDim) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[BasisInputsCostApplier] basisToWrenchMap has ",
+          cfg.basisToWrenchMap.rows(), " rows but wrenchInputDim is ",
+          cfg.wrenchInputDim, "."));
     }
     if (cfg.numBasisInputs > inputDim) {
-      return absl::InvalidArgumentError(
-          absl::StrCat("[BasisInputsCostApplier] numBasisInputs (", cfg.numBasisInputs, ") exceeds inputDim (", inputDim, ")."));
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[BasisInputsCostApplier] numBasisInputs (", cfg.numBasisInputs,
+          ") exceeds inputDim (", inputDim, ")."));
     }
     RETURN_IF_ERROR(validateBasisInputsCostTransformConfig(cfg));
   }
-  return absl::WrapUnique(new BasisInputsCostApplier(std::move(basisCostTransform)));
+  return absl::WrapUnique(
+      new BasisInputsCostApplier(std::move(basisCostTransform)));
 }
 
 void BasisInputsCostApplier::apply(HotUpdateTarget& target) {
   if (!basisCostTransform_.has_value()) return;
   std::optional<BasisSpaceInputCost> inputCost =
-      convertedOrReported(basisSpaceInputCost(target, *basisCostTransform_), target.source(), "input_weights");
-  // The lambda >= 0 barrier of the basis-vector contact inputs, which CentroidalMpcInterface builds for every contact.
-  const std::optional<PieceWisePolynomialBarrierPenalty::Config> barrier = convertedOrReported(
-      basisNonNegativityBarrierFromConfig(target.task().contacts), target.source(), "contacts.basis_non_negativity_barrier");
+      convertedOrReported(basisSpaceInputCost(target, *basisCostTransform_),
+                          target.source(), "input_weights");
+  // The lambda >= 0 barrier of the basis-vector contact inputs, which
+  // CentroidalMpcInterface builds for every contact.
+  const std::optional<PieceWisePolynomialBarrierPenalty::Config> barrier =
+      convertedOrReported(
+          basisNonNegativityBarrierFromConfig(target.task().contacts),
+          target.source(), "contacts.basis_non_negativity_barrier");
 
-  // A refusal of R_basis by a cost's setter (its size against the running term's, symmetry, finiteness): the first one,
-  // reported once, and the running transform kept.
+  // A refusal of R_basis by a cost's setter (its size against the running
+  // term's, symmetry, finiteness): the first one, reported once, and the
+  // running transform kept.
   absl::Status refused = absl::OkStatus();
   for (OptimalControlProblem& ocp : target.problems()) {
     if (inputCost.has_value()) {
-      // Q of stateInputQuadraticCost is QuadraticCostWeightsApplier's; only R is written here.
+      // Q of stateInputQuadraticCost is QuadraticCostWeightsApplier's; only R
+      // is written here.
       updateTermIfPresent<TuningQuadraticStateInputCost>(
           *ocp.costPtr, kStateInputQuadraticCostTerm,
-          [&](TuningQuadraticStateInputCost& cost) { refused.Update(cost.setInputWeights(inputCost->R)); });
-      updateTermIfPresent<InputQuadraticCost>(*ocp.costPtr, kInputQuadraticCostTerm,
-                                              [&](InputQuadraticCost& cost) { refused.Update(cost.setInputWeights(inputCost->R)); });
+          [&](TuningQuadraticStateInputCost& cost) {
+            refused.Update(cost.setInputWeights(inputCost->R));
+          });
+      updateTermIfPresent<InputQuadraticCost>(
+          *ocp.costPtr, kInputQuadraticCostTerm, [&](InputQuadraticCost& cost) {
+            refused.Update(cost.setInputWeights(inputCost->R));
+          });
     }
     if (barrier.has_value()) {
       for (const std::string& footName : target.contactNames()) {
         updateTermIfPresent<BasisScalingNonNegativityConstraint>(
             *ocp.costPtr, basisNonNegativityTermName(footName),
-            [&](BasisScalingNonNegativityConstraint& term) { term.setBarrierPenalty(*barrier); });
+            [&](BasisScalingNonNegativityConstraint& term) {
+              term.setBarrierPenalty(*barrier);
+            });
       }
     }
   }
@@ -152,7 +185,8 @@ void BasisInputsCostApplier::apply(HotUpdateTarget& target) {
     target.reportNotApplied("input_weights", refused);
     return;
   }
-  if (inputCost.has_value()) basisCostTransform_ = std::move(inputCost->transform);
+  if (inputCost.has_value())
+    basisCostTransform_ = std::move(inputCost->transform);
 }
 
 }  // namespace ocs2::humanoid

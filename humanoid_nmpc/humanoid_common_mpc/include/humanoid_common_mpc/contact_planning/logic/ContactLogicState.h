@@ -43,19 +43,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Pre-computation of the contact logic layer, built once per plan from the input and the grid: the node clocks of the
- * phases (with the conservative rounding of a phase that started off-grid), the duration limits in nodes, the committed
- * prefix, and the previous plan for the assignment costs. The rules and the assignment costs read from it; the helpers
- * on a live assignment (stateBefore, contactAge, latestTouchDownNode) read the assignment as it is at the time of the
- * call, which is what the coupling between the rules relies on (an overdue foot yields to what the other rules, and
- * the same rule earlier in the same pass, have already fixed). There is deliberately no per-pass snapshot of the
- * prefix: a snapshot taken before a pass misses what the pass itself fixes, which is exactly how the maximum-contact
- * rule once forced a lift-off inside a double-support hold it could not see.
+ * Pre-computation of the contact logic layer, built once per plan from the
+ * input and the grid: the node clocks of the phases (with the conservative
+ * rounding of a phase that started off-grid), the duration limits in nodes, the
+ * committed prefix, and the previous plan for the assignment costs. The rules
+ * and the assignment costs read from it; the helpers on a live assignment
+ * (stateBefore, contactAge, latestTouchDownNode) read the assignment as it is
+ * at the time of the call, which is what the coupling between the rules relies
+ * on (an overdue foot yields to what the other rules, and the same rule earlier
+ * in the same pass, have already fixed). There is deliberately no per-pass
+ * snapshot of the prefix: a snapshot taken before a pass misses what the pass
+ * itself fixes, which is exactly how the maximum-contact rule once forced a
+ * lift-off inside a double-support hold it could not see.
  *
- * The binaries are laid out node-major: index kNumContacts * node + foot (contactBinaryIndex).
+ * The binaries are laid out node-major: index kNumContacts * node + foot
+ * (contactBinaryIndex).
  *
- * Passive data, read-only once make() has built it, so concurrent calls of its const helpers are safe. `input` and
- * `previousAssignment` must outlive it.
+ * Passive data, read-only once make() has built it, so concurrent calls of its
+ * const helpers are safe. `input` and `previousAssignment` must outlive it.
  */
 struct ContactLogicState {
   /** How a phase duration in fractional nodes is rounded to whole nodes. */
@@ -64,54 +69,72 @@ struct ContactLogicState {
     kUp,    // conservative for a maximum-duration rule
   };
 
-  // [nodes] initialTouchDownNode without a double support in progress: a touch-down too far in the past to hold anything.
+  // [nodes] initialTouchDownNode without a double support in progress: a
+  // touch-down too far in the past to hold anything.
   static constexpr scalar_t kNoTouchDownNode = -1000.0;
 
   const ContactPlannerInput* absl_nullable input = nullptr;
   int numNodes = 0;
   scalar_t dt = PlannerSettings::kDefaultNodeDuration;
-  int nSwingMin = 1, nSwingMax = 1, nContactMin = 1, nContactMax = 0, nDoubleSupportHold = 0;
-  scalar_t minDoubleSupportNodes = 0.0;  // fractional, minDoubleSupportDuration / dt
+  int nSwingMin = 1, nSwingMax = 1, nContactMin = 1, nContactMax = 0,
+      nDoubleSupportHold = 0;
+  scalar_t minDoubleSupportNodes =
+      0.0;  // fractional, minDoubleSupportDuration / dt
   int numCommitted = 0;
-  scalar_t initialTouchDownNode = kNoTouchDownNode;  // touch-down node of a double support already in progress at planning time
-  // Previous plan, for the plan-consistency cost: empty / null when there is no usable one.
+  scalar_t initialTouchDownNode =
+      kNoTouchDownNode;  // touch-down node of a double support already in
+                         // progress at planning time
+  // Previous plan, for the plan-consistency cost: empty / null when there is no
+  // usable one.
   std::optional<int> previousPlanShift;
   const MiqpAssignment* absl_nullable previousAssignment = nullptr;
 
   static constexpr int kBinariesPerNode = static_cast<int>(kNumContacts);
-  static int contactBinaryIndex(int node, size_t foot) { return kBinariesPerNode * node + static_cast<int>(foot); }
+  static int contactBinaryIndex(int node, size_t foot) {
+    return kBinariesPerNode * node + static_cast<int>(foot);
+  }
   int numBinaries() const { return kBinariesPerNode * numNodes; }
 
-  static ContactLogicState make(const ContactPlannerInput& input,
-                                const ContactPlanningConfig& config,
-                                std::optional<int> previousPlanShift,
-                                const MiqpAssignment* absl_nullable previousAssignment);
+  static ContactLogicState make(
+      const ContactPlannerInput& input,
+      const ContactPlanningConfig& config,
+      std::optional<int> previousPlanShift,
+      const MiqpAssignment* absl_nullable previousAssignment);
 
   /**
-   * Nodes already spent in the phase active at planning time, rounded as `rounding` says.
+   * Nodes already spent in the phase active at planning time, rounded as
+   * `rounding` says.
    */
   int initialPhaseNodes(size_t foot, NodeRounding rounding) const;
   /**
-   * Time at which a phase that switches at node k begins: the node start, except along the committed prefix, where the
-   * executed schedule knows the real event time (input.committedPhaseStartTimes).
+   * Time at which a phase that switches at node k begins: the node start,
+   * except along the committed prefix, where the executed schedule knows the
+   * real event time (input.committedPhaseStartTimes).
    */
   scalar_t switchTime(int k, size_t foot) const;
-  /** Switch time of node k in node units from the grid start (k itself for a switch at the node start). */
+  /** Switch time of node k in node units from the grid start (k itself for a
+   * switch at the node start). */
   scalar_t switchNode(int k, size_t foot) const;
-  /** Nodes spent in the phase that switched at node k, at the start of node k + 1 (rounded like initialPhaseNodes). */
+  /** Nodes spent in the phase that switched at node k, at the start of node k +
+   * 1 (rounded like initialPhaseNodes). */
   int switchedPhaseNodes(int k, size_t foot, NodeRounding rounding) const;
-  /** Whether a foot in contact at node k is held down by the minimum double support after a touch-down at `latestTouchDownNode`. */
+  /** Whether a foot in contact at node k is held down by the minimum double
+   * support after a touch-down at `latestTouchDownNode`. */
   bool heldAfterTouchDown(int k, scalar_t latestTouchDownNode) const;
-  /** Contact state of a foot just before `node` along the fixed prefix: 1 in contact, 0 in the air, -1 unknown. */
+  /** Contact state of a foot just before `node` along the fixed prefix: 1 in
+   * contact, 0 in the air, -1 unknown. */
   int stateBefore(const MiqpAssignment& a, size_t foot, int node) const;
-  /** Elapsed contact nodes (rounded up) of a foot along the fixed prefix at `node`; -1 while the prefix is not fixed. */
+  /** Elapsed contact nodes (rounded up) of a foot along the fixed prefix at
+   * `node`; -1 while the prefix is not fixed. */
   int contactAge(const MiqpAssignment& a, size_t foot, int node) const;
   /**
-   * The latest touch-down of either foot at a node <= `node` (switchNode units), read from the live assignment along each
-   * foot's fixed prefix, or initialTouchDownNode when there is none. A foot's walk stops at its first free binary, and a
-   * free binary can only ADD a touch-down, so on a partial assignment this is a lower bound of what every completion
-   * gives. It is exact once both feet are fixed through node - 1 and every foot that is in the air before `node` is
-   * fixed at `node` as well.
+   * The latest touch-down of either foot at a node <= `node` (switchNode
+   * units), read from the live assignment along each foot's fixed prefix, or
+   * initialTouchDownNode when there is none. A foot's walk stops at its first
+   * free binary, and a free binary can only ADD a touch-down, so on a partial
+   * assignment this is a lower bound of what every completion gives. It is
+   * exact once both feet are fixed through node - 1 and every foot that is in
+   * the air before `node` is fixed at `node` as well.
    */
   scalar_t latestTouchDownNode(const MiqpAssignment& a, int node) const;
 };

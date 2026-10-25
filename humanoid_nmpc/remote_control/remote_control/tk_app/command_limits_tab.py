@@ -50,7 +50,10 @@ _PROBLEM_COLOR = "#e74c3c"
 
 def _disabled_banner(reason: str) -> str:
     """The banner of a tab whose online tuning is off, for `reason` (empty: the task file's enable_online_tuning)."""
-    return f"🔒 Online Tuning Disabled ({reason or 'enable_online_tuning: false in the task file'})"
+    return (
+        "🔒 Online Tuning Disabled"
+        f" ({reason or 'enable_online_tuning: false in the task file'})"
+    )
 
 
 class CommandLimitsTab(ttk.Frame):
@@ -111,8 +114,11 @@ class CommandLimitsTab(ttk.Frame):
         ).pack(anchor="w")
         ttk.Label(
             header,
-            text="Not published on the parameter topic: saving writes this file, which the running MPC reloads "
-            "about a second later, and sends it to the robot, which reads it at its next start.",
+            text=(
+                "Not published on the parameter topic: saving writes this file,"
+                " which the running MPC reloads about a second later, and sends"
+                " it to the robot, which reads it at its next start."
+            ),
             wraplength=900,
             justify="left",
         ).pack(anchor="w", pady=(2, 6))
@@ -120,9 +126,9 @@ class CommandLimitsTab(ttk.Frame):
         self.path_var = tk.StringVar(
             value=self.reference_file or "(no reference file found)"
         )
-        ttk.Label(header, textvariable=self.path_var, foreground="#888888").pack(
-            anchor="w"
-        )
+        ttk.Label(
+            header, textvariable=self.path_var, foreground="#888888"
+        ).pack(anchor="w")
 
         self.warning_banner = ttk.Label(
             self,
@@ -161,7 +167,10 @@ class CommandLimitsTab(ttk.Frame):
         if not self.reference_file or not os.path.exists(self.reference_file):
             ttk.Label(
                 self.scroll_container.scrollable_content,
-                text="No reference file was found next to the task file (config/command/reference.textproto).",
+                text=(
+                    "No reference file was found next to the task file"
+                    " (config/command/reference.textproto)."
+                ),
             ).pack(anchor="w", padx=6, pady=6)
             return
         try:
@@ -186,7 +195,9 @@ class CommandLimitsTab(ttk.Frame):
             return
         changed = self.reference.refresh()
         if changed is not None:
-            for child in self.scroll_container.scrollable_content.winfo_children():
+            for (
+                child
+            ) in self.scroll_container.scrollable_content.winfo_children():
                 child.destroy()
             self.slider_rows.clear()
             self._render(self.reference)
@@ -223,7 +234,9 @@ class CommandLimitsTab(ttk.Frame):
             for row in self.slider_rows.values():
                 row.set_state("disabled")
 
-    def set_online_tuning_enabled(self, enabled: bool, reason: str = "") -> None:
+    def set_online_tuning_enabled(
+        self, enabled: bool, reason: str = ""
+    ) -> None:
         """Enables or disables online tuning; `reason` is why it is off, for the banner (empty: the task file says so)."""
         self.enable_online_tuning = bool(enabled)
         state = "normal" if self.enable_online_tuning else "disabled"

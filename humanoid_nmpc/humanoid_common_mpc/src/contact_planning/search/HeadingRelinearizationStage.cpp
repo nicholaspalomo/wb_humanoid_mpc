@@ -40,28 +40,38 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 std::string HeadingRelinearizationStage::describe() const {
-  return absl::StrCat("re-linearize the foothold frame at the incumbent's heading and re-solve with the contacts fixed, ", passes_,
-                      " pass(es)");
+  return absl::StrCat(
+      "re-linearize the foothold frame at the incumbent's heading and re-solve "
+      "with the contacts fixed, ",
+      passes_, " pass(es)");
 }
 
-void HeadingRelinearizationStage::configure(const ContactPlanningConfig& config) {
+void HeadingRelinearizationStage::configure(
+    const ContactPlanningConfig& config) {
   passes_ = config.headingRelinearization.passes;
   // The plan's own time budget: the branch-and-bound's plus the local search's.
-  timeBudget_ = config.planner.maxSolveTime + config.eventShiftLocalSearch.maxTime;
+  timeBudget_ =
+      config.planner.maxSolveTime + config.eventShiftLocalSearch.maxTime;
 }
 
 absl::Status HeadingRelinearizationStage::afterSearch(SearchRun& run) const {
   MiqpResult& result = *run.result;
-  if (!run.layout->hasHeading || !result.hasIncumbent || passes_ <= 0) return absl::OkStatus();
+  if (!run.layout->hasHeading || !result.hasIncumbent || passes_ <= 0)
+    return absl::OkStatus();
   for (int pass = 0; pass < passes_; ++pass) {
     if (run.elapsedSeconds() > timeBudget_) break;
     // A pass that fails ends the stage; the passes before it stay adopted.
-    ASSIGN_OR_RETURN(OcpQpProblem relinearized, run.assembleWithNominal(nominalFromSolution(*run.layout, result.solution.x)));
+    ASSIGN_OR_RETURN(OcpQpProblem relinearized,
+                     run.assembleWithNominal(
+                         nominalFromSolution(*run.layout, result.solution.x)));
     OcpQpSolution solution;
     scalar_t objective = 0.0;
     ++run.statistics->numHeadingRelinearizations;
-    ASSIGN_OR_RETURN(const bool solved, run.miqp->solveFixed(relinearized, *run.binaries, result.assignment, *run.propagate,
-                                                             *run.assignmentCost, solution, objective));
+    ASSIGN_OR_RETURN(
+        const bool solved,
+        run.miqp->solveFixed(relinearized, *run.binaries, result.assignment,
+                             *run.propagate, *run.assignmentCost, solution,
+                             objective));
     if (!solved) break;
     run.statistics->totalQpIterations += solution.iterations;
     *run.problem = std::move(relinearized);

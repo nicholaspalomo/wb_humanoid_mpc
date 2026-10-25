@@ -184,7 +184,9 @@ class NetworkConfig:
     domain_id: int = 0
     domain_tag: str = ""
     topics: tuple[TopicQos, ...] = ()
-    default_qos_profile: qos_profile.QosProfile = qos_profile.QosProfile.RELIABLE_EVENTS
+    default_qos_profile: qos_profile.QosProfile = (
+        qos_profile.QosProfile.RELIABLE_EVENTS
+    )
     transport: TransportOptions = TransportOptions()
 
     def find(self, name: str) -> NodeEndpoint | None:
@@ -212,7 +214,11 @@ class NetworkConfig:
 
     def topics_published_by(self, node_name: str) -> list[str]:
         """The topics that `node_name` publishes, in the order of the file."""
-        return [entry.topic for entry in self.topics if node_name in entry.publishers]
+        return [
+            entry.topic
+            for entry in self.topics
+            if node_name in entry.publishers
+        ]
 
     def peer_hosts(self) -> list[str]:
         """The distinct hosts of the nodes, in order: the unicast discovery peers."""
@@ -244,7 +250,10 @@ class PortRange:
 
 def max_processes_per_host(network: NetworkConfig) -> int:
     """TransportOptions.max_processes_per_host, or its default."""
-    return network.transport.max_processes_per_host or DEFAULT_MAX_PROCESSES_PER_HOST
+    return (
+        network.transport.max_processes_per_host
+        or DEFAULT_MAX_PROCESSES_PER_HOST
+    )
 
 
 def unicast_port_range(network: NetworkConfig) -> PortRange:
@@ -284,7 +293,8 @@ def _validate_host(key: str, host: str) -> None:
         raise NetworkConfigError(f"{key}: is missing")
     if host in _WILDCARD_HOSTS:
         raise NetworkConfigError(
-            f"{key}: '{host}' names every interface, not a machine: write the address of the node's machine"
+            f"{key}: '{host}' names every interface, not a machine: write the"
+            " address of the node's machine"
         )
     if any(
         not _FIRST_HOST_CHARACTER <= character <= _LAST_HOST_CHARACTER
@@ -292,7 +302,8 @@ def _validate_host(key: str, host: str) -> None:
         for character in host
     ):
         raise NetworkConfigError(
-            f"{key}: '{host}' is not a host: write an IPv4 address or a host name, without a scheme or a port"
+            f"{key}: '{host}' is not a host: write an IPv4 address or a host"
+            " name, without a scheme or a port"
         )
 
 
@@ -301,7 +312,10 @@ def topic_name_problem(topic: str) -> str | None:
     if not topic:
         return "the topic is empty"
     if not _TOPIC_NAME.fullmatch(topic):
-        return f"'{topic}' is not a DDS topic name: letters, digits, '_' and '/', not starting with a digit"
+        return (
+            f"'{topic}' is not a DDS topic name: letters, digits, '_' and '/',"
+            " not starting with a digit"
+        )
     return None
 
 
@@ -314,16 +328,22 @@ def _validate_nodes(config: NetworkConfig) -> None:
         name_key = _field_key(NODES_FIELD, index, node.name, "name")
         if not node.name:
             raise NetworkConfigError(f"{name_key}: is missing")
-        if not isinstance(node.name, str) or not _NODE_NAME.fullmatch(node.name):
+        if not isinstance(node.name, str) or not _NODE_NAME.fullmatch(
+            node.name
+        ):
             raise NetworkConfigError(
-                f"{name_key}: a node name is a non-empty run of letters, digits, '_' and '-'"
+                f"{name_key}: a node name is a non-empty run of letters,"
+                " digits, '_' and '-'"
             )
         if node.name in names:
             raise NetworkConfigError(
-                f"{name_key}: is also the name of {_entry_key(NODES_FIELD, names[node.name], node.name)}"
+                f"{name_key}: is also the name of"
+                f" {_entry_key(NODES_FIELD, names[node.name], node.name)}"
             )
         names[node.name] = index
-        _validate_host(_field_key(NODES_FIELD, index, node.name, "host"), node.host)
+        _validate_host(
+            _field_key(NODES_FIELD, index, node.name, "host"), node.host
+        )
 
 
 def _validate_topics(config: NetworkConfig) -> None:
@@ -336,24 +356,30 @@ def _validate_topics(config: NetworkConfig) -> None:
             raise NetworkConfigError(f"{name_key}: {problem}")
         if entry.topic in topics:
             raise NetworkConfigError(
-                f"{name_key}: is also the name of {_entry_key(TOPICS_FIELD, topics[entry.topic], entry.topic)}"
+                f"{name_key}: is also the name of"
+                f" {_entry_key(TOPICS_FIELD, topics[entry.topic], entry.topic)}"
             )
         topics[entry.topic] = index
         for publisher in entry.publishers:
             if config.find(publisher) is None:
                 raise NetworkConfigError(
-                    f"{_field_key(TOPICS_FIELD, index, entry.topic, 'publishers')}: '{publisher}' is not a node of "
-                    f"the network (nodes: {', '.join(config.node_names())})"
+                    f"{_field_key(TOPICS_FIELD, index, entry.topic, 'publishers')}:"
+                    f" '{publisher}' is not a node of the network (nodes:"
+                    f" {', '.join(config.node_names())})"
                 )
 
 
 def _validate_transport(transport: TransportOptions) -> None:
     """Raises NetworkConfigError naming the first transport value out of range."""
     size = transport.max_message_size_bytes
-    if size != 0 and not MIN_MESSAGE_SIZE_BYTES <= size <= MAX_MESSAGE_SIZE_BYTES:
+    if (
+        size != 0
+        and not MIN_MESSAGE_SIZE_BYTES <= size <= MAX_MESSAGE_SIZE_BYTES
+    ):
         raise NetworkConfigError(
-            f"{TRANSPORT_FIELD}.max_message_size_bytes: {size} is not 0 (the default) or in "
-            f"[{MIN_MESSAGE_SIZE_BYTES}, {MAX_MESSAGE_SIZE_BYTES}]"
+            f"{TRANSPORT_FIELD}.max_message_size_bytes: {size} is not 0 (the"
+            f" default) or in [{MIN_MESSAGE_SIZE_BYTES},"
+            f" {MAX_MESSAGE_SIZE_BYTES}]"
         )
     if (
         min(
@@ -368,17 +394,20 @@ def _validate_transport(transport: TransportOptions) -> None:
         )
     if not 0 <= transport.max_processes_per_host <= MAX_PROCESSES_PER_HOST:
         raise NetworkConfigError(
-            f"{TRANSPORT_FIELD}.max_processes_per_host: {transport.max_processes_per_host} is not 0 (the default) "
-            f"or in [1, {MAX_PROCESSES_PER_HOST}]"
+            f"{TRANSPORT_FIELD}.max_processes_per_host:"
+            f" {transport.max_processes_per_host} is not 0 (the default) or in"
+            f" [1, {MAX_PROCESSES_PER_HOST}]"
         )
     if transport.lease_duration_ms < 0:
         raise NetworkConfigError(
-            f"{TRANSPORT_FIELD}.lease_duration_ms: must be >= 0 (0: the default)"
+            f"{TRANSPORT_FIELD}.lease_duration_ms: must be >= 0 (0: the"
+            " default)"
         )
     loss = transport.simulated_send_loss_per_mille
     if not 0 <= loss < _PER_MILLE:
         raise NetworkConfigError(
-            f"{TRANSPORT_FIELD}.simulated_send_loss_per_mille: {loss} is not in [0, {_PER_MILLE})"
+            f"{TRANSPORT_FIELD}.simulated_send_loss_per_mille: {loss} is not in"
+            f" [0, {_PER_MILLE})"
         )
 
 
@@ -397,19 +426,23 @@ def validate_network_config(config: NetworkConfig) -> None:
     _validate_nodes(config)
     if not 0 <= config.domain_id <= MAX_DOMAIN_ID:
         raise NetworkConfigError(
-            f"domain_id: {config.domain_id} is not a domain id in [0, {MAX_DOMAIN_ID}]"
+            f"domain_id: {config.domain_id} is not a domain id in [0,"
+            f" {MAX_DOMAIN_ID}]"
         )
     if not _DOMAIN_TAG.fullmatch(config.domain_tag):
         raise NetworkConfigError(
-            f"domain_tag: '{config.domain_tag}': a domain tag is a run of letters, digits, '_', '-' and '.'"
+            f"domain_tag: '{config.domain_tag}': a domain tag is a run of"
+            " letters, digits, '_', '-' and '.'"
         )
     _validate_topics(config)
     _validate_transport(config.transport)
     ports = unicast_port_range(config)
     if ports.last > _MAX_PORT:
         raise NetworkConfigError(
-            f"domain_id: domain {config.domain_id} with {ports.last - ports.first + 1} ports per host reaches UDP port "
-            f"{ports.last}, beyond {_MAX_PORT}: a smaller domain_id or transport.max_processes_per_host"
+            f"domain_id: domain {config.domain_id} with"
+            f" {ports.last - ports.first + 1} ports per host reaches UDP port"
+            f" {ports.last}, beyond {_MAX_PORT}: a smaller domain_id or"
+            " transport.max_processes_per_host"
         )
 
 
@@ -424,7 +457,8 @@ def _from_proto(message: network_config_pb2.NetworkConfig) -> NetworkConfig:
     """The network of a parsed file, validated."""
     if message.domain_id > MAX_DOMAIN_ID:
         raise NetworkConfigError(
-            f"domain_id: {message.domain_id} is not a domain id in [0, {MAX_DOMAIN_ID}]"
+            f"domain_id: {message.domain_id} is not a domain id in [0,"
+            f" {MAX_DOMAIN_ID}]"
         )
     topics = []
     for index, topic in enumerate(message.topics):
@@ -440,11 +474,14 @@ def _from_proto(message: network_config_pb2.NetworkConfig) -> NetworkConfig:
         )
     default_profile = qos_profile.QosProfile.RELIABLE_EVENTS
     if message.default_qos_profile:
-        default_profile = _profile("default_qos_profile", message.default_qos_profile)
+        default_profile = _profile(
+            "default_qos_profile", message.default_qos_profile
+        )
     transport = message.transport
     config = NetworkConfig(
         nodes=tuple(
-            NodeEndpoint(name=node.name, host=node.host) for node in message.nodes
+            NodeEndpoint(name=node.name, host=node.host)
+            for node in message.nodes
         ),
         domain_id=message.domain_id,
         domain_tag=message.domain_tag,

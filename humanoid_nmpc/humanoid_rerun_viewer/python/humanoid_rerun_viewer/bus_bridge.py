@@ -123,11 +123,13 @@ class BusBridge:
         # The not-form rejects NaN, which `flush_period <= 0.0` would let through.
         if not (flush_period > 0.0 and report_period > 0.0):
             raise ValueError(
-                f"the flush and report periods must be positive, got {flush_period} and {report_period}"
+                "the flush and report periods must be positive, got"
+                f" {flush_period} and {report_period}"
             )
         if max_queued_messages <= 0:
             raise ValueError(
-                f"max_queued_messages must be positive, got {max_queued_messages}"
+                "max_queued_messages must be positive, got"
+                f" {max_queued_messages}"
             )
         self._bridge = bridge
         self._flush_period = flush_period
@@ -203,7 +205,9 @@ class BusBridge:
             for topic, message_class, handler, delivery in subscriptions:
                 if delivery is robot_ipc.Delivery.LATEST:
                     self._latest[topic] = None
-                    callback = functools.partial(self._enqueue_latest, topic, handler)
+                    callback = functools.partial(
+                        self._enqueue_latest, topic, handler
+                    )
                 else:
                     callback = functools.partial(self._enqueue, topic, handler)
                 self.bus.subscribe(topic, message_class, callback, delivery)
@@ -281,7 +285,8 @@ class BusBridge:
         except queue.Full:
             self._count_drop(
                 topic,
-                "the Rerun sink takes no data (a viewer that stopped reading?), so the bridge's queue is full",
+                "the Rerun sink takes no data (a viewer that stopped reading?),"
+                " so the bridge's queue is full",
             )
 
     def _enqueue_latest(
@@ -302,13 +307,16 @@ class BusBridge:
         if waiting:
             return
         try:
-            self._queue.put_nowait((topic, functools.partial(self._take_latest, topic)))
+            self._queue.put_nowait(
+                (topic, functools.partial(self._take_latest, topic))
+            )
         except queue.Full:
             with self._lock:
                 self._latest[topic] = None
             self._count_drop(
                 topic,
-                "the Rerun sink takes no data (a viewer that stopped reading?), so the bridge's queue is full",
+                "the Rerun sink takes no data (a viewer that stopped reading?),"
+                " so the bridge's queue is full",
             )
 
     def _take_latest(self, topic: str) -> None:
@@ -329,7 +337,9 @@ class BusBridge:
                 self._last_drop_log = now
         if log:
             _LOGGER.warning(
-                "dropping the bus's messages: %s (%d dropped so far)", reason, total
+                "dropping the bus's messages: %s (%d dropped so far)",
+                reason,
+                total,
             )
 
     def report(self) -> str | None:
@@ -366,7 +376,9 @@ class BusBridge:
                 next_flush = _next_deadline(next_flush, self._flush_period, now)
             if now >= next_report:
                 self._run_task(self.report)
-                next_report = _next_deadline(next_report, self._report_period, now)
+                next_report = _next_deadline(
+                    next_report, self._report_period, now
+                )
         self._finish()
 
     def _run_resume_task(self) -> None:
@@ -398,7 +410,9 @@ class BusBridge:
             task()
         # pylint: disable-next=broad-exception-caught  # The writer thread's outermost call; the bridge's own raise nothing.
         except Exception:
-            _LOGGER.warning("a task of the bridge's writer raised", exc_info=True)
+            _LOGGER.warning(
+                "a task of the bridge's writer raised", exc_info=True
+            )
         finally:
             with self._lock:
                 self._busy_since = None
@@ -422,11 +436,15 @@ class BusBridge:
         if self.paused:
             delivered = False
         else:
-            delivered = self._bridge.flush_recording(self._recording_flush_timeout)
+            delivered = self._bridge.flush_recording(
+                self._recording_flush_timeout
+            )
         with self._lock:
             self._delivered = delivered
 
-    def stop(self, recording_flush_timeout: float = SHUTDOWN_FLUSH_TIMEOUT_S) -> bool:
+    def stop(
+        self, recording_flush_timeout: float = SHUTDOWN_FLUSH_TIMEOUT_S
+    ) -> bool:
         """Closes the bus, draws what is still queued, sends the buffered plots and flushes the recording. Idempotent.
 
         Args:
@@ -455,7 +473,8 @@ class BusBridge:
             )
             if self._writer.is_alive():
                 _LOGGER.warning(
-                    "the Rerun sink took no data for the last %.1f s; stopping without it",
+                    "the Rerun sink took no data for the last %.1f s; stopping"
+                    " without it",
                     self.writer_stalled_for(),
                 )
                 with self._lock:

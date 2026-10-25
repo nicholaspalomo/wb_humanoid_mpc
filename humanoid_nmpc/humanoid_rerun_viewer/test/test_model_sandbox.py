@@ -139,7 +139,9 @@ class ScenePublisherTest(unittest.TestCase):
         self.sent: list[visualization_scene_pb2.VisualizationScene] = []
         self.accept = True
 
-        def publish(message: visualization_scene_pb2.VisualizationScene) -> bool:
+        def publish(
+            message: visualization_scene_pb2.VisualizationScene,
+        ) -> bool:
             if self.accept:
                 self.sent.append(message)
             return self.accept
@@ -188,7 +190,9 @@ class SliderRangeTest(unittest.TestCase):
         self.assertEqual(model_sandbox.slider_range(spin), (-math.pi, math.pi))
 
     def test_the_joint_sources_are_named(self) -> None:
-        self.assertEqual(set(model_sandbox.JOINT_SOURCES), {"nominal", "sliders"})
+        self.assertEqual(
+            set(model_sandbox.JOINT_SOURCES), {"nominal", "sliders"}
+        )
 
 
 class BinaryTest(unittest.TestCase):
@@ -206,7 +210,9 @@ class BinaryTest(unittest.TestCase):
             received: list[visualization_scene_pb2.VisualizationScene] = []
             arrived = threading.Event()
 
-            def on_scene(message: visualization_scene_pb2.VisualizationScene) -> None:
+            def on_scene(
+                message: visualization_scene_pb2.VisualizationScene,
+            ) -> None:
                 copy = visualization_scene_pb2.VisualizationScene()
                 copy.CopyFrom(message)
                 received.append(copy)
@@ -242,7 +248,9 @@ class BinaryTest(unittest.TestCase):
 
                 runner = threading.Thread(target=run_sandbox)
                 runner.start()
-                self.assertTrue(arrived.wait(timeout=10.0), "no viz/scene arrived")
+                self.assertTrue(
+                    arrived.wait(timeout=10.0), "no viz/scene arrived"
+                )
                 runner.join(timeout=20.0)
             self.assertEqual(status, [model_sandbox.EXIT_OK])
             tree = urdf_kinematics.load_kinematic_tree(G1_URDF)
@@ -262,7 +270,9 @@ class BinaryTest(unittest.TestCase):
             model_sandbox.EXIT_USAGE,
         )
 
-    def test_a_republish_period_that_is_not_positive_is_a_usage_error(self) -> None:
+    def test_a_republish_period_that_is_not_positive_is_a_usage_error(
+        self,
+    ) -> None:
         # NaN too: `not period > 0.0` rejects it, where `period <= 0.0` would let it through. The URDF exists, so
         # the period's check is what fails.
         for period in ("0", "-1", "nan"):
@@ -280,7 +290,8 @@ class BinaryTest(unittest.TestCase):
                     )
                 self.assertEqual(status, model_sandbox.EXIT_USAGE)
                 self.assertIn(
-                    "--republish_period must be positive", "\n".join(logs.output)
+                    "--republish_period must be positive",
+                    "\n".join(logs.output),
                 )
 
 

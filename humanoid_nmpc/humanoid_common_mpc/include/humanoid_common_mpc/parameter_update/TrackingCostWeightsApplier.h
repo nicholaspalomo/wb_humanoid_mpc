@@ -38,23 +38,31 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Applies the weights of the tracking costs on named links and legs: task_space_costs to each listed link's
- * EndEffectorKinematicsQuadraticCost (taskSpaceKinematicsCostName(name)), and left_leg_torque_cost / right_leg_torque_cost
- * to the ExternalTorqueQuadraticCostAD of the first and the second contact (externalTorqueCostName()). The terms the
- * running problem does not carry are skipped. Which links are tracked is structural: a reloaded entry whose link cost the
- * running problem does not carry (added or renamed), and a carried link cost that no entry names any more, are reported
- * by the reload (HotUpdateTarget::reportNotApplied()) as taking effect at the next start, and change no term. Not
- * thread-safe (HotFieldApplier).
+ * Applies the weights of the tracking costs on named links and legs:
+ * task_space_costs to each listed link's EndEffectorKinematicsQuadraticCost
+ * (taskSpaceKinematicsCostName(name)), and left_leg_torque_cost /
+ * right_leg_torque_cost to the ExternalTorqueQuadraticCostAD of the first and
+ * the second contact (externalTorqueCostName()). The terms the running problem
+ * does not carry are skipped. Which links are tracked is structural: a reloaded
+ * entry whose link cost the running problem does not carry (added or renamed),
+ * and a carried link cost that no entry names any more, are reported by the
+ * reload (HotUpdateTarget::reportNotApplied()) as taking effect at the next
+ * start, and change no term. Not thread-safe (HotFieldApplier).
  */
 class TrackingCostWeightsApplier final : public HotFieldApplier {
  public:
-  /** The fields it applies: task_space_costs, left_leg_torque_cost and right_leg_torque_cost. */
+  /** The fields it applies: task_space_costs, left_leg_torque_cost and
+   * right_leg_torque_cost. */
   static absl::Span<const absl::string_view> staticFields();
 
   TrackingCostWeightsApplier() = default;
 
-  absl::string_view name() const override { return "TrackingCostWeightsApplier"; }
-  absl::Span<const absl::string_view> fields() const final { return staticFields(); }
+  absl::string_view name() const override {
+    return "TrackingCostWeightsApplier";
+  }
+  absl::Span<const absl::string_view> fields() const final {
+    return staticFields();
+  }
   void apply(HotUpdateTarget& target) override;
 };
 

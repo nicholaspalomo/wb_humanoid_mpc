@@ -47,13 +47,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::web_viewer {
 namespace {
 
-double psnr(const std::vector<uint8_t>& expected, const std::vector<uint8_t>& actual) {
+double psnr(const std::vector<uint8_t>& expected,
+            const std::vector<uint8_t>& actual) {
   double squaredError = 0.0;
   for (size_t index = 0; index < expected.size(); ++index) {
-    const double difference = static_cast<double>(expected[index]) - static_cast<double>(actual[index]);
+    const double difference = static_cast<double>(expected[index]) -
+                              static_cast<double>(actual[index]);
     squaredError += difference * difference;
   }
-  const double meanSquaredError = squaredError / static_cast<double>(expected.size());
+  const double meanSquaredError =
+      squaredError / static_cast<double>(expected.size());
   return 10.0 * std::log10(255.0 * 255.0 / std::max(meanSquaredError, 1.0e-12));
 }
 
@@ -74,8 +77,10 @@ TEST(JpegCodecTest, RoundTripKeepsTheSizeAndTheImage) {
   std::unique_ptr<JpegDecoder> decoder = makeDecoder();
   ASSERT_NE(encoder, nullptr);
   ASSERT_NE(decoder, nullptr);
-  const std::vector<uint8_t> image = test_support::gradientImage(/*width=*/320, /*height=*/240, /*phase=*/7);
-  absl::StatusOr<std::string> jpeg = encoder->encode(image, /*width=*/320, /*height=*/240, /*quality=*/80, RowOrder::kTopDown);
+  const std::vector<uint8_t> image =
+      test_support::gradientImage(/*width=*/320, /*height=*/240, /*phase=*/7);
+  absl::StatusOr<std::string> jpeg = encoder->encode(
+      image, /*width=*/320, /*height=*/240, /*quality=*/80, RowOrder::kTopDown);
   ASSERT_TRUE(jpeg.ok()) << jpeg.status();
   EXPECT_EQ(jpeg->substr(0, 2), "\xFF\xD8");  // the JPEG start-of-image marker
   absl::StatusOr<JpegDecoder::Image> decoded = decoder->decode(*jpeg);
@@ -91,7 +96,8 @@ TEST(JpegCodecTest, BottomUpRowsAreFlippedWithoutACopy) {
   std::unique_ptr<JpegDecoder> decoder = makeDecoder();
   ASSERT_NE(encoder, nullptr);
   ASSERT_NE(decoder, nullptr);
-  // In memory, the first 16 rows are red and the rest blue: OpenGL's bottom rows.
+  // In memory, the first 16 rows are red and the rest blue: OpenGL's bottom
+  // rows.
   constexpr int kWidth = 64;
   constexpr int kHeight = 64;
   std::vector<uint8_t> image(static_cast<size_t>(kWidth * kHeight * 3), 0);
@@ -102,11 +108,13 @@ TEST(JpegCodecTest, BottomUpRowsAreFlippedWithoutACopy) {
       image[pixel + 2] = row < 16 ? 0 : 255;
     }
   }
-  absl::StatusOr<std::string> jpeg = encoder->encode(image, kWidth, kHeight, /*quality=*/90, RowOrder::kBottomUp);
+  absl::StatusOr<std::string> jpeg = encoder->encode(
+      image, kWidth, kHeight, /*quality=*/90, RowOrder::kBottomUp);
   ASSERT_TRUE(jpeg.ok()) << jpeg.status();
   absl::StatusOr<JpegDecoder::Image> decoded = decoder->decode(*jpeg);
   ASSERT_TRUE(decoded.ok()) << decoded.status();
-  // The decoded image is top-down: its last row is the first row in memory (red), its first row the last (blue).
+  // The decoded image is top-down: its last row is the first row in memory
+  // (red), its first row the last (blue).
   const size_t lastRow = static_cast<size_t>((kHeight - 1) * kWidth * 3);
   EXPECT_GT(decoded->rgb[lastRow], 200);
   EXPECT_LT(decoded->rgb[lastRow + 2], 60);
@@ -121,8 +129,9 @@ TEST(JpegCodecTest, OneEncoderServesSeveralSizes) {
   ASSERT_NE(decoder, nullptr);
   for (const int width : {640, 160, 1280, 320}) {
     const int height = width * 9 / 16;
-    absl::StatusOr<std::string> jpeg =
-        encoder->encode(test_support::gradientImage(width, height, /*phase=*/width), width, height, /*quality=*/70, RowOrder::kTopDown);
+    absl::StatusOr<std::string> jpeg = encoder->encode(
+        test_support::gradientImage(width, height, /*phase=*/width), width,
+        height, /*quality=*/70, RowOrder::kTopDown);
     ASSERT_TRUE(jpeg.ok()) << jpeg.status();
     absl::StatusOr<JpegDecoder::Image> decoded = decoder->decode(*jpeg);
     ASSERT_TRUE(decoded.ok()) << decoded.status();
@@ -134,24 +143,47 @@ TEST(JpegCodecTest, OneEncoderServesSeveralSizes) {
 TEST(JpegCodecTest, RefusesInvalidImages) {
   std::unique_ptr<JpegEncoder> encoder = makeEncoder();
   ASSERT_NE(encoder, nullptr);
-  const std::vector<uint8_t> image = test_support::gradientImage(/*width=*/16, /*height=*/16, /*phase=*/0);
-  EXPECT_EQ(encoder->encode(image, /*width=*/0, /*height=*/16, /*quality=*/80, RowOrder::kTopDown).status().code(),
+  const std::vector<uint8_t> image =
+      test_support::gradientImage(/*width=*/16, /*height=*/16, /*phase=*/0);
+  EXPECT_EQ(encoder
+                ->encode(image, /*width=*/0, /*height=*/16, /*quality=*/80,
+                         RowOrder::kTopDown)
+                .status()
+                .code(),
             absl::StatusCode::kInvalidArgument);
-  EXPECT_EQ(encoder->encode(image, /*width=*/16, /*height=*/-1, /*quality=*/80, RowOrder::kTopDown).status().code(),
+  EXPECT_EQ(encoder
+                ->encode(image, /*width=*/16, /*height=*/-1, /*quality=*/80,
+                         RowOrder::kTopDown)
+                .status()
+                .code(),
             absl::StatusCode::kInvalidArgument);
-  EXPECT_EQ(encoder->encode(image, /*width=*/32, /*height=*/16, /*quality=*/80, RowOrder::kTopDown).status().code(),
+  EXPECT_EQ(encoder
+                ->encode(image, /*width=*/32, /*height=*/16, /*quality=*/80,
+                         RowOrder::kTopDown)
+                .status()
+                .code(),
             absl::StatusCode::kInvalidArgument);
-  EXPECT_EQ(encoder->encode(image, /*width=*/16, /*height=*/16, /*quality=*/0, RowOrder::kTopDown).status().code(),
+  EXPECT_EQ(encoder
+                ->encode(image, /*width=*/16, /*height=*/16, /*quality=*/0,
+                         RowOrder::kTopDown)
+                .status()
+                .code(),
             absl::StatusCode::kInvalidArgument);
-  EXPECT_EQ(encoder->encode(image, /*width=*/16, /*height=*/16, /*quality=*/101, RowOrder::kTopDown).status().code(),
+  EXPECT_EQ(encoder
+                ->encode(image, /*width=*/16, /*height=*/16, /*quality=*/101,
+                         RowOrder::kTopDown)
+                .status()
+                .code(),
             absl::StatusCode::kInvalidArgument);
 }
 
 TEST(JpegCodecTest, DecoderRefusesWhatIsNotAJpeg) {
   std::unique_ptr<JpegDecoder> decoder = makeDecoder();
   ASSERT_NE(decoder, nullptr);
-  EXPECT_EQ(decoder->decode("").status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_EQ(decoder->decode("not a jpeg at all").status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(decoder->decode("").status().code(),
+            absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(decoder->decode("not a jpeg at all").status().code(),
+            absl::StatusCode::kInvalidArgument);
 }
 
 }  // namespace

@@ -27,10 +27,13 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// The network MPC link end to end: a RemoteMpcLink on the robot's bus and an MpcServer around OCS2's ScriptedMpc on the
-// MPC's bus, over loopback TCP. The test thread is the robot's control thread: it writes the observations and calls
-// updatePolicy(), evaluatePolicy() and the predicates, as CentroidalMpcMrtJointController does. A gate in the server's
-// annotations provider holds a solved policy in flight; a relay between the robot and the MPC loses observations.
+// The network MPC link end to end: a RemoteMpcLink on the robot's bus and an
+// MpcServer around OCS2's ScriptedMpc on the MPC's bus, over loopback TCP. The
+// test thread is the robot's control thread: it writes the observations and
+// calls updatePolicy(), evaluatePolicy() and the predicates, as
+// CentroidalMpcMrtJointController does. A gate in the server's annotations
+// provider holds a solved policy in flight; a relay between the robot and the
+// MPC loses observations.
 
 #include <atomic>
 #include <cstddef>
@@ -75,7 +78,8 @@ using test_support::resetTargetsFor;
 using test_support::waitFor;
 using ResetKind = MpcResetSupervisor::ResetKind;
 
-/** Forwards the observations from the robot to the MPC, or loses them in transit. */
+/** Forwards the observations from the robot to the MPC, or loses them in
+ * transit. */
 class ObservationRelay {
  public:
   void setLosing(bool losing) {
@@ -88,7 +92,8 @@ class ObservationRelay {
   }
 
   /** On the relay's IO thread. */
-  void onObservation(const humanoid_mpc_msgs::MpcObservation& message, robot::ipc::Bus& out) {
+  void onObservation(const humanoid_mpc_msgs::MpcObservation& message,
+                     robot::ipc::Bus& out) {
     absl::MutexLock lock(mutex_);
     last_ = message;
     if (losing_) {
@@ -98,7 +103,8 @@ class ObservationRelay {
     CHECK_OK(out.publish(topics::kRobotMpcObservation, message));
   }
 
-  /** Sends the last observation that reached the relay once more, as a network that duplicates a message would. */
+  /** Sends the last observation that reached the relay once more, as a network
+   * that duplicates a message would. */
   void resendLast(robot::ipc::Bus& out) {
     absl::MutexLock lock(mutex_);
     CHECK_OK(out.publish(topics::kRobotMpcObservation, last_));
@@ -113,7 +119,8 @@ class ObservationRelay {
 
 class RemoteMpcLinkTest : public ::testing::Test {
  protected:
-  /** [s] The robot time of the cycle that ends the warm-up, after the warm-up's own. */
+  /** [s] The robot time of the cycle that ends the warm-up, after the warm-up's
+   * own. */
   static constexpr scalar_t kSettleStep = 0.001;
 
   static RemoteMpcLink::Config defaultLinkConfig() {
@@ -132,14 +139,17 @@ class RemoteMpcLinkTest : public ::testing::Test {
     return config;
   }
 
-  /** The robot's bus and the MPC's, connected directly or with the observations through the relay. */
+  /** The robot's bus and the MPC's, connected directly or with the observations
+   * through the relay. */
   void build(RemoteMpcLink::Config linkConfig = defaultLinkConfig(),
              MpcServer::Config serverConfig = defaultServerConfig(),
              bool observationsThroughRelay = false) {
     mpc_ = test_support::makeScriptedMpc();
     mpc_->getSolverPtr()->addSynchronizedModule(module_);
-    // Through the relay, the robot and the MPC are on two DDS domains of their own: the observations reach the MPC only
-    // through the relay, which may lose them, and the MPC's policies and status are forwarded back unchanged.
+    // Through the relay, the robot and the MPC are on two DDS domains of their
+    // own: the observations reach the MPC only through the relay, which may
+    // lose them, and the MPC's policies and status are forwarded back
+    // unchanged.
     constexpr int kRobotDomain = 0;
     const int mpcDomain = observationsThroughRelay ? 1 : kRobotDomain;
     robotBus_ = test_support::createNodeBus("robot", kRobotDomain);
@@ -149,29 +159,38 @@ class RemoteMpcLinkTest : public ::testing::Test {
       relayIn_ = test_support::createSubscriberBus(kRobotDomain);
       CHECK_OK(relayIn_->subscribe<humanoid_mpc_msgs::MpcObservation>(
           topics::kRobotMpcObservation, robot::ipc::Delivery::kAll,
-          [this](const humanoid_mpc_msgs::MpcObservation& message) { relay_.onObservation(message, *relayOut_); }));
+          [this](const humanoid_mpc_msgs::MpcObservation& message) {
+            relay_.onObservation(message, *relayOut_);
+          }));
       backOut_ = test_support::createNodeBus("relay", kRobotDomain);
       backIn_ = test_support::createSubscriberBus(mpcDomain);
-      for (const absl::string_view topic : {topics::kMpcPolicy, topics::kMpcStatus}) {
-        CHECK_OK(
-            backIn_->subscribeRaw(topic, robot::ipc::Delivery::kAll, [this, topic](absl::string_view typeName, absl::string_view payload) {
+      for (const absl::string_view topic :
+           {topics::kMpcPolicy, topics::kMpcStatus}) {
+        CHECK_OK(backIn_->subscribeRaw(
+            topic, robot::ipc::Delivery::kAll,
+            [this, topic](absl::string_view typeName,
+                          absl::string_view payload) {
               CHECK_OK(backOut_->publishRaw(topic, typeName, payload));
             }));
       }
     }
 
-    absl::StatusOr<std::unique_ptr<RemoteMpcLink>> link = RemoteMpcLink::Create(robotBus_.get(), &robotSupervisor_, std::move(linkConfig));
+    absl::StatusOr<std::unique_ptr<RemoteMpcLink>> link = RemoteMpcLink::Create(
+        robotBus_.get(), &robotSupervisor_, std::move(linkConfig));
     CHECK_OK(link.status());
     link_ = std::move(*link);
     MpcServer::Hooks hooks;
-    hooks.annotationsProvider = [this](const CommandData& /*command*/, const PrimalSolution& /*solution*/,
-                                       humanoid_mpc_msgs::ViewerAnnotations* absl_nonnull annotations) {
-      annotations->set_scaled_velocity_x(0.5);
-      gate_.pass();
-      return absl::OkStatus();
-    };
+    hooks.annotationsProvider =
+        [this](const CommandData& /*command*/,
+               const PrimalSolution& /*solution*/,
+               humanoid_mpc_msgs::ViewerAnnotations* absl_nonnull annotations) {
+          annotations->set_scaled_velocity_x(0.5);
+          gate_.pass();
+          return absl::OkStatus();
+        };
     absl::StatusOr<std::unique_ptr<MpcServer>> server =
-        MpcServer::Create(mpcBus_.get(), mpc_.get(), resetTargetsFor, std::move(serverConfig), std::move(hooks));
+        MpcServer::Create(mpcBus_.get(), mpc_.get(), resetTargetsFor,
+                          std::move(serverConfig), std::move(hooks));
     CHECK_OK(server.status());
     server_ = std::move(*server);
 
@@ -192,10 +211,12 @@ class RemoteMpcLinkTest : public ::testing::Test {
   }
 
   /**
-   * Writes the observation at robot time `time` until a policy solved from it is in the link's buffer: several of the
-   * same time and state, because the first ones may go out before the subscriptions of the other side have reached the
-   * publisher (DDS discovery has matched the writers and readers). Then one cycle at time + kSettleStep that waits for its own policy,
-   * after which nothing is in flight any more, and swaps that in.
+   * Writes the observation at robot time `time` until a policy solved from it
+   * is in the link's buffer: several of the same time and state, because the
+   * first ones may go out before the subscriptions of the other side have
+   * reached the publisher (DDS discovery has matched the writers and readers).
+   * Then one cycle at time + kSettleStep that waits for its own policy, after
+   * which nothing is in flight any more, and swaps that in.
    */
   void warmUp(scalar_t time = 1.0, scalar_t value = 1.0) {
     ASSERT_TRUE(waitFor([&]() {
@@ -206,25 +227,29 @@ class RemoteMpcLinkTest : public ::testing::Test {
     stepAndAwaitPolicy(time + kSettleStep, value);
   }
 
-  /** One control cycle that waits for its policy: writes the observation, waits until the policy solved from it is
-   * accepted, and swaps it in. */
+  /** One control cycle that waits for its policy: writes the observation, waits
+   * until the policy solved from it is accepted, and swaps it in. */
   void stepAndAwaitPolicy(scalar_t time, scalar_t value) {
     robotTime_ = time;
     const uint64_t accepted = link_->statistics().policiesAccepted;
     link_->setCurrentObservation(observationAt(time, value));
     ASSERT_TRUE(waitFor([&]() {
       const RemoteMpcLink::Statistics statistics = link_->statistics();
-      return statistics.policiesAccepted > accepted && statistics.newestPolicyInitTime == time;
+      return statistics.policiesAccepted > accepted &&
+             statistics.newestPolicyInitTime == time;
     })) << "no policy solved from the observation at t = "
         << time;
     ASSERT_TRUE(link_->updatePolicy());
   }
 
   /**
-   * The robot's control loop, about one cycle per millisecond: the robot clock advances by `timeStep`, the observation
-   * is written and the policy swapped in. Until `condition`, evaluated after the swap, holds; false after kTimeout.
+   * The robot's control loop, about one cycle per millisecond: the robot clock
+   * advances by `timeStep`, the observation is written and the policy swapped
+   * in. Until `condition`, evaluated after the swap, holds; false after
+   * kTimeout.
    */
-  bool runRobotUntil(const std::function<bool()>& condition, scalar_t timeStep = 0.001) {
+  bool runRobotUntil(const std::function<bool()>& condition,
+                     scalar_t timeStep = 0.001) {
     const absl::Time deadline = absl::Now() + test_support::kTimeout;
     while (absl::Now() < deadline) {
       robotTime_ += timeStep;
@@ -237,7 +262,10 @@ class RemoteMpcLinkTest : public ::testing::Test {
   }
 
   /** What the controller checks before it executes the policy in use. */
-  bool postResetPolicyActive() const { return link_->isActivePolicyCurrent() && !robotSupervisor_.hasOutstandingReset(); }
+  bool postResetPolicyActive() const {
+    return link_->isActivePolicyCurrent() &&
+           !robotSupervisor_.hasOutstandingReset();
+  }
 
   MpcResetSupervisor robotSupervisor_;
   std::shared_ptr<CountingModule> module_ = std::make_shared<CountingModule>();
@@ -260,11 +288,13 @@ class RemoteMpcLinkTest : public ::testing::Test {
 // The first policy
 // ---------------------------------------------------------------------------------------------------------------------
 
-TEST_F(RemoteMpcLinkTest, TheFirstPolicyArrivesAndEvaluatesAsTheSolverPlannedIt) {
+TEST_F(RemoteMpcLinkTest,
+       TheFirstPolicyArrivesAndEvaluatesAsTheSolverPlannedIt) {
   build();
   EXPECT_FALSE(link_->initialPolicyReceived());
   EXPECT_FALSE(link_->updatePolicy());
-  EXPECT_FALSE(link_->isActivePolicyCurrent()) << "no policy is current before the first one";
+  EXPECT_FALSE(link_->isActivePolicyCurrent())
+      << "no policy is current before the first one";
   EXPECT_TRUE(robotSupervisor_.isHealthy());
 
   warmUp(/*time=*/1.0, /*value=*/2.0);
@@ -273,30 +303,39 @@ TEST_F(RemoteMpcLinkTest, TheFirstPolicyArrivesAndEvaluatesAsTheSolverPlannedIt)
   EXPECT_FALSE(robotSupervisor_.hasOutstandingReset());
   EXPECT_TRUE(robotSupervisor_.isHealthy());
 
-  // Solved from the observation sent, after the start-up reset to the targets of the first observation.
+  // Solved from the observation sent, after the start-up reset to the targets
+  // of the first observation.
   const scalar_t initTime = 1.0 + kSettleStep;
   const CommandData& command = link_->getCommand();
   EXPECT_EQ(command.mpcInitObservation_.time, initTime);
-  EXPECT_EQ(command.mpcInitObservation_.state, vector_t::Constant(test_support::kStateDim, 2.0));
-  EXPECT_EQ(command.mpcTargetTrajectories_.timeTrajectory, resetTargetsFor(observationAt(1.0, 2.0)).timeTrajectory);
-  EXPECT_EQ(command.mpcTargetTrajectories_.stateTrajectory, resetTargetsFor(observationAt(1.0, 2.0)).stateTrajectory);
+  EXPECT_EQ(command.mpcInitObservation_.state,
+            vector_t::Constant(test_support::kStateDim, 2.0));
+  EXPECT_EQ(command.mpcTargetTrajectories_.timeTrajectory,
+            resetTargetsFor(observationAt(1.0, 2.0)).timeTrajectory);
+  EXPECT_EQ(command.mpcTargetTrajectories_.stateTrajectory,
+            resetTargetsFor(observationAt(1.0, 2.0)).stateTrajectory);
 
   // The plan x(t) = x0 + (t - t0) over the one-second horizon.
   vector_t state;
   vector_t input;
   size_t mode = 99;
-  link_->evaluatePolicy(initTime + 0.5, vector_t::Constant(test_support::kStateDim, 2.0), state, input, mode);
+  link_->evaluatePolicy(initTime + 0.5,
+                        vector_t::Constant(test_support::kStateDim, 2.0), state,
+                        input, mode);
   ASSERT_EQ(state.size(), static_cast<Eigen::Index>(test_support::kStateDim));
   EXPECT_NEAR(state(0), 2.5, 1.0e-12);
   EXPECT_EQ(input, vector_t::Zero(test_support::kInputDim));
   EXPECT_EQ(mode, 0u);
-  EXPECT_NEAR(link_->getPolicy().timeTrajectory_.back(), initTime + 1.0, 1.0e-12);
+  EXPECT_NEAR(link_->getPolicy().timeTrajectory_.back(), initTime + 1.0,
+              1.0e-12);
 
   const MpcServer::Statistics server = server_->statistics();
-  EXPECT_EQ(server.fullResets, 1u) << "one start-up reset, before the first solve";
+  EXPECT_EQ(server.fullResets, 1u)
+      << "one start-up reset, before the first solve";
   EXPECT_EQ(server.solverResets, 0u);
   EXPECT_EQ(server.robotSessions, 1u);
-  EXPECT_GE(server.statusesPublished, server.policiesPublished) << "a status after every attempt";
+  EXPECT_GE(server.statusesPublished, server.policiesPublished)
+      << "a status after every attempt";
   EXPECT_EQ(module_->resets(), 1u);
 }
 
@@ -304,7 +343,9 @@ TEST_F(RemoteMpcLinkTest, TheFirstPolicyArrivesAndEvaluatesAsTheSolverPlannedIt)
 // Resets across the network
 // ---------------------------------------------------------------------------------------------------------------------
 
-TEST_F(RemoteMpcLinkTest, APolicySolvedBeforeAResetIsDroppedAndOnlyThePolicyAfterItCompletesTheReset) {
+TEST_F(
+    RemoteMpcLinkTest,
+    APolicySolvedBeforeAResetIsDroppedAndOnlyThePolicyAfterItCompletesTheReset) {
   build();
   warmUp();
   const RemoteMpcLink::Statistics start = link_->statistics();
@@ -315,27 +356,39 @@ TEST_F(RemoteMpcLinkTest, APolicySolvedBeforeAResetIsDroppedAndOnlyThePolicyAfte
   link_->setCurrentObservation(observationAt(1.01, 5.0));
   ASSERT_TRUE(waitFor([&]() { return gate_.arrivals() == arrivals + 1; }));
 
-  // The controller asks for a reset while it is in flight; the link drops the buffered policy at its next poll.
+  // The controller asks for a reset while it is in flight; the link drops the
+  // buffered policy at its next poll.
   robotSupervisor_.requestReset(ResetKind::kSolver);
   EXPECT_TRUE(robotSupervisor_.hasOutstandingReset());
-  ASSERT_TRUE(waitFor([&]() { return link_->statistics().resetTicketsTaken == start.resetTicketsTaken + 1; }));
+  ASSERT_TRUE(waitFor([&]() {
+    return link_->statistics().resetTicketsTaken == start.resetTicketsTaken + 1;
+  }));
   EXPECT_FALSE(link_->updatePolicy());
-  EXPECT_FALSE(link_->isActivePolicyCurrent()) << "the policy in use was solved before the reset";
+  EXPECT_FALSE(link_->isActivePolicyCurrent())
+      << "the policy in use was solved before the reset";
 
-  // The next observation carries the request. The policy in flight arrives first and is dropped; the post-reset one is
-  // solved and held.
+  // The next observation carries the request. The policy in flight arrives
+  // first and is dropped; the post-reset one is solved and held.
   link_->setCurrentObservation(observationAt(1.02, 6.0));
   gate_.release(1);
-  ASSERT_TRUE(waitFor([&]() { return link_->statistics().stalePoliciesDropped == start.stalePoliciesDropped + 1; }));
+  ASSERT_TRUE(waitFor([&]() {
+    return link_->statistics().stalePoliciesDropped ==
+           start.stalePoliciesDropped + 1;
+  }));
   ASSERT_TRUE(waitFor([&]() { return gate_.arrivals() == arrivals + 2; }));
-  EXPECT_TRUE(robotSupervisor_.hasOutstandingReset()) << "a policy solved before the reset does not serve it";
-  EXPECT_FALSE(link_->updatePolicy()) << "the policy solved before the reset was swapped in after it";
+  EXPECT_TRUE(robotSupervisor_.hasOutstandingReset())
+      << "a policy solved before the reset does not serve it";
+  EXPECT_FALSE(link_->updatePolicy())
+      << "the policy solved before the reset was swapped in after it";
   EXPECT_FALSE(postResetPolicyActive());
   EXPECT_EQ(link_->statistics().policiesAccepted, start.policiesAccepted);
 
   // The post-reset policy serves it.
   gate_.open();
-  ASSERT_TRUE(waitFor([&]() { return link_->statistics().resetTicketsCompleted == start.resetTicketsCompleted + 1; }));
+  ASSERT_TRUE(waitFor([&]() {
+    return link_->statistics().resetTicketsCompleted ==
+           start.resetTicketsCompleted + 1;
+  }));
   EXPECT_FALSE(robotSupervisor_.hasOutstandingReset());
   EXPECT_TRUE(link_->updatePolicy());
   EXPECT_TRUE(postResetPolicyActive());
@@ -352,7 +405,8 @@ TEST_F(RemoteMpcLinkTest, FullAndSolverResetsAreServedAsTheirKind) {
   ASSERT_EQ(server_->statistics().fullResets, 1u);
   ASSERT_EQ(module_->resets(), 1u);
 
-  // A solver reset keeps the reference manager and the modules (the schedule in execution).
+  // A solver reset keeps the reference manager and the modules (the schedule in
+  // execution).
   robotSupervisor_.requestReset(ResetKind::kSolver);
   stepAndAwaitPolicy(/*time=*/1.01, /*value=*/1.0);
   EXPECT_TRUE(postResetPolicyActive());
@@ -362,14 +416,16 @@ TEST_F(RemoteMpcLinkTest, FullAndSolverResetsAreServedAsTheirKind) {
   EXPECT_EQ(robotSupervisor_.numResetsServed(), 1u);
   EXPECT_EQ(robotSupervisor_.numFullResetsServed(), 0u);
 
-  // A full reset resets them, and starts from the targets of the observation it resets from.
+  // A full reset resets them, and starts from the targets of the observation it
+  // resets from.
   robotSupervisor_.requestReset(ResetKind::kFull);
   stepAndAwaitPolicy(/*time=*/1.02, /*value=*/3.0);
   EXPECT_TRUE(postResetPolicyActive());
   EXPECT_EQ(server_->statistics().fullResets, 2u);
   EXPECT_EQ(module_->resets(), 2u);
   EXPECT_EQ(robotSupervisor_.numFullResetsServed(), 1u);
-  EXPECT_EQ(link_->getCommand().mpcTargetTrajectories_.stateTrajectory, resetTargetsFor(observationAt(1.02, 3.0)).stateTrajectory);
+  EXPECT_EQ(link_->getCommand().mpcTargetTrajectories_.stateTrajectory,
+            resetTargetsFor(observationAt(1.02, 3.0)).stateTrajectory);
 
   // resetMpcNode() of MRT_BASE requests a full reset and returns at once.
   link_->resetMpcNode(TargetTrajectories());
@@ -378,7 +434,8 @@ TEST_F(RemoteMpcLinkTest, FullAndSolverResetsAreServedAsTheirKind) {
   EXPECT_EQ(server_->statistics().fullResets, 3u);
   EXPECT_EQ(robotSupervisor_.numFullResetsServed(), 2u);
 
-  // A solver and a full reset outstanding together are served as one full reset.
+  // A solver and a full reset outstanding together are served as one full
+  // reset.
   robotSupervisor_.requestReset(ResetKind::kSolver);
   robotSupervisor_.requestReset(ResetKind::kFull);
   stepAndAwaitPolicy(/*time=*/1.04, /*value=*/1.0);
@@ -390,11 +447,14 @@ TEST_F(RemoteMpcLinkTest, FullAndSolverResetsAreServedAsTheirKind) {
 
   // Without a request nothing is reset.
   stepAndAwaitPolicy(/*time=*/1.05, /*value=*/1.0);
-  EXPECT_EQ(server_->statistics().fullResets + server_->statistics().solverResets, 5u);
+  EXPECT_EQ(
+      server_->statistics().fullResets + server_->statistics().solverResets,
+      5u);
 }
 
 TEST_F(RemoteMpcLinkTest, ObservationsLostInTransitDoNotLoseAResetRequest) {
-  build(defaultLinkConfig(), defaultServerConfig(), /*observationsThroughRelay=*/true);
+  build(defaultLinkConfig(), defaultServerConfig(),
+        /*observationsThroughRelay=*/true);
   warmUp();
   const MpcServer::Statistics before = server_->statistics();
 
@@ -402,7 +462,8 @@ TEST_F(RemoteMpcLinkTest, ObservationsLostInTransitDoNotLoseAResetRequest) {
   relay_.setLosing(true);
   robotSupervisor_.requestReset(ResetKind::kFull);
   ASSERT_TRUE(runRobotUntil([&]() { return relay_.lost() >= 20; }));
-  EXPECT_EQ(server_->statistics().robotResetsServed, before.robotResetsServed) << "positive control: the MPC heard of no request";
+  EXPECT_EQ(server_->statistics().robotResetsServed, before.robotResetsServed)
+      << "positive control: the MPC heard of no request";
   EXPECT_TRUE(robotSupervisor_.hasOutstandingReset());
   EXPECT_FALSE(postResetPolicyActive());
 
@@ -415,25 +476,37 @@ TEST_F(RemoteMpcLinkTest, ObservationsLostInTransitDoNotLoseAResetRequest) {
 }
 
 TEST_F(RemoteMpcLinkTest, ARepeatedObservationChangesNothing) {
-  build(defaultLinkConfig(), defaultServerConfig(), /*observationsThroughRelay=*/true);
+  build(defaultLinkConfig(), defaultServerConfig(),
+        /*observationsThroughRelay=*/true);
   warmUp();
   stepAndAwaitPolicy(/*time=*/1.01, /*value=*/1.0);
-  ASSERT_TRUE(waitFor([&]() { return server_->statistics().statusesPublished == server_->statistics().solveAttempts; }));
+  ASSERT_TRUE(waitFor([&]() {
+    return server_->statistics().statusesPublished ==
+           server_->statistics().solveAttempts;
+  }));
   const MpcServer::Statistics before = server_->statistics();
 
   relay_.resendLast(*relayOut_);
-  ASSERT_TRUE(waitFor([&]() { return server_->statistics().observationsSkipped == before.observationsSkipped + 1; }));
+  ASSERT_TRUE(waitFor([&]() {
+    return server_->statistics().observationsSkipped ==
+           before.observationsSkipped + 1;
+  }));
   absl::SleepFor(absl::Milliseconds(20));
-  EXPECT_EQ(server_->statistics().solveAttempts, before.solveAttempts) << "an observation solved from already was solved again";
-  EXPECT_EQ(server_->statistics().fullResets + server_->statistics().solverResets, before.fullResets + before.solverResets);
+  EXPECT_EQ(server_->statistics().solveAttempts, before.solveAttempts)
+      << "an observation solved from already was solved again";
+  EXPECT_EQ(
+      server_->statistics().fullResets + server_->statistics().solverResets,
+      before.fullResets + before.solverResets);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Health
 // ---------------------------------------------------------------------------------------------------------------------
 
-TEST_F(RemoteMpcLinkTest, SolverFailuresMakeTheRobotUnhealthyUntilASolveSucceeds) {
-  // A policy timeout far beyond the test, so that only the solver can make the link unhealthy.
+TEST_F(RemoteMpcLinkTest,
+       SolverFailuresMakeTheRobotUnhealthyUntilASolveSucceeds) {
+  // A policy timeout far beyond the test, so that only the solver can make the
+  // link unhealthy.
   RemoteMpcLink::Config linkConfig = defaultLinkConfig();
   linkConfig.policyTimeout = 100.0;
   build(linkConfig);
@@ -444,20 +517,29 @@ TEST_F(RemoteMpcLinkTest, SolverFailuresMakeTheRobotUnhealthyUntilASolveSucceeds
   const RemoteMpcLink::Statistics failing = link_->statistics();
   EXPECT_FALSE(failing.solverHealthy);
   EXPECT_TRUE(failing.linkHealthy);
-  EXPECT_GE(failing.solverConsecutiveFailures, server_->resetSupervisor().getConfig().maxConsecutiveFailures);
-  EXPECT_FALSE(link_->isActivePolicyCurrent()) << "the policy in use stays current through failed solves";
-  EXPECT_FALSE(robotSupervisor_.hasOutstandingReset()) << "the MPC side resets itself; the robot requested nothing";
+  EXPECT_GE(failing.solverConsecutiveFailures,
+            server_->resetSupervisor().getConfig().maxConsecutiveFailures);
+  EXPECT_FALSE(link_->isActivePolicyCurrent())
+      << "the policy in use stays current through failed solves";
+  EXPECT_FALSE(robotSupervisor_.hasOutstandingReset())
+      << "the MPC side resets itself; the robot requested nothing";
   EXPECT_FALSE(server_->statistics().healthy);
 
   mpc_->solver().failEverySolve(/*fail=*/false);
-  ASSERT_TRUE(runRobotUntil([&]() { return robotSupervisor_.isHealthy() && postResetPolicyActive(); }));
+  ASSERT_TRUE(runRobotUntil([&]() {
+    return robotSupervisor_.isHealthy() && postResetPolicyActive();
+  }));
   EXPECT_TRUE(link_->statistics().solverHealthy);
   EXPECT_EQ(robotSupervisor_.numConsecutiveFailures(), 0u);
-  EXPECT_GE(server_->statistics().failedAttempts, server_->resetSupervisor().getConfig().maxConsecutiveFailures);
-  EXPECT_GT(link_->getCommand().mpcInitObservation_.time, failing.newestPolicyInitTime) << "the hold ends on a policy solved after it";
+  EXPECT_GE(server_->statistics().failedAttempts,
+            server_->resetSupervisor().getConfig().maxConsecutiveFailures);
+  EXPECT_GT(link_->getCommand().mpcInitObservation_.time,
+            failing.newestPolicyInitTime)
+      << "the hold ends on a policy solved after it";
 }
 
-TEST_F(RemoteMpcLinkTest, ThePolicyTimeoutTripsAfterItsRobotTimeAndAFreshPolicyClearsIt) {
+TEST_F(RemoteMpcLinkTest,
+       ThePolicyTimeoutTripsAfterItsRobotTimeAndAFreshPolicyClearsIt) {
   RemoteMpcLink::Config linkConfig = defaultLinkConfig();
   linkConfig.policyTimeout = 0.05;
   build(linkConfig);
@@ -465,27 +547,33 @@ TEST_F(RemoteMpcLinkTest, ThePolicyTimeoutTripsAfterItsRobotTimeAndAFreshPolicyC
   const scalar_t newestBefore = link_->statistics().newestPolicyInitTime;
   ASSERT_EQ(newestBefore, robotTime_);
 
-  // The link is lost: every policy from now on is held. The robot clock runs twice as fast as the wall clock.
+  // The link is lost: every policy from now on is held. The robot clock runs
+  // twice as fast as the wall clock.
   gate_.close();
   bool trippedEarly = false;
   ASSERT_TRUE(runRobotUntil(
       [&]() {
         const bool healthy = robotSupervisor_.isHealthy();
-        if (!healthy && robotTime_ <= newestBefore + linkConfig.policyTimeout) trippedEarly = true;
+        if (!healthy && robotTime_ <= newestBefore + linkConfig.policyTimeout)
+          trippedEarly = true;
         return !healthy;
       },
       /*timeStep=*/0.002));
-  EXPECT_FALSE(trippedEarly) << "the link read unhealthy before policyTimeout of robot time had passed";
-  // The realtime thread's own check held the robot; the IO thread finds the loss at its next poll.
+  EXPECT_FALSE(trippedEarly) << "the link read unhealthy before policyTimeout "
+                                "of robot time had passed";
+  // The realtime thread's own check held the robot; the IO thread finds the
+  // loss at its next poll.
   ASSERT_TRUE(waitFor([&]() { return link_->statistics().linkLosses == 1; }));
   const RemoteMpcLink::Statistics lost = link_->statistics();
   EXPECT_FALSE(lost.linkHealthy);
   EXPECT_TRUE(lost.solverHealthy);
   EXPECT_EQ(lost.linkLosses, 1u);
-  EXPECT_FALSE(link_->isActivePolicyCurrent()) << "the hold must end on a policy that arrives after the loss";
+  EXPECT_FALSE(link_->isActivePolicyCurrent())
+      << "the hold must end on a policy that arrives after the loss";
   EXPECT_GT(lost.policyAge, linkConfig.policyTimeout);
 
-  // The link stays lost while the robot runs on, until the policy held in flight is older than the timeout too.
+  // The link stays lost while the robot runs on, until the policy held in
+  // flight is older than the timeout too.
   bool recoveredWhileLost = false;
   ASSERT_TRUE(runRobotUntil(
       [&]() {
@@ -495,25 +583,36 @@ TEST_F(RemoteMpcLinkTest, ThePolicyTimeoutTripsAfterItsRobotTimeAndAFreshPolicyC
       /*timeStep=*/0.002));
   EXPECT_FALSE(recoveredWhileLost);
 
-  // The loss asked the MPC node for a full reset, as a solver declared unhealthy in process does.
+  // The loss asked the MPC node for a full reset, as a solver declared
+  // unhealthy in process does.
   EXPECT_TRUE(robotSupervisor_.hasOutstandingReset());
   const uint64_t fullResetsBefore = server_->statistics().fullResets;
 
-  // The link comes back: the policy that was held was solved before that reset and is too old by now, so it is dropped
-  // (or, if the next one arrives in the same drain of the socket, superseded by it); the first policy solved after the
-  // reset ends the hold.
-  const uint64_t droppedBefore = link_->statistics().latePoliciesDropped + link_->statistics().stalePoliciesDropped +
-                                 robotBus_->topicStatistics(topics::kMpcPolicy).superseded;
+  // The link comes back: the policy that was held was solved before that reset
+  // and is too old by now, so it is dropped (or, if the next one arrives in the
+  // same drain of the socket, superseded by it); the first policy solved after
+  // the reset ends the hold.
+  const uint64_t droppedBefore =
+      link_->statistics().latePoliciesDropped +
+      link_->statistics().stalePoliciesDropped +
+      robotBus_->topicStatistics(topics::kMpcPolicy).superseded;
   gate_.open();
-  ASSERT_TRUE(runRobotUntil([&]() { return robotSupervisor_.isHealthy() && postResetPolicyActive(); }, /*timeStep=*/0.002));
+  ASSERT_TRUE(runRobotUntil(
+      [&]() { return robotSupervisor_.isHealthy() && postResetPolicyActive(); },
+      /*timeStep=*/0.002));
   const RemoteMpcLink::Statistics back = link_->statistics();
   EXPECT_TRUE(back.linkHealthy);
-  EXPECT_GE(back.latePoliciesDropped + back.stalePoliciesDropped + robotBus_->topicStatistics(topics::kMpcPolicy).superseded,
+  EXPECT_GE(back.latePoliciesDropped + back.stalePoliciesDropped +
+                robotBus_->topicStatistics(topics::kMpcPolicy).superseded,
             droppedBefore + 1);
-  EXPECT_GT(server_->statistics().fullResets, fullResetsBefore) << "the hold ended on a policy solved without the full reset";
-  EXPECT_EQ(robotSupervisor_.numFullResetsServed(), robotSupervisor_.resetsRequested().fullRequested);
-  EXPECT_GT(link_->getCommand().mpcInitObservation_.time, newestBefore + linkConfig.policyTimeout)
-      << "the hold ended on a policy solved before the link was lost, the one held in flight";
+  EXPECT_GT(server_->statistics().fullResets, fullResetsBefore)
+      << "the hold ended on a policy solved without the full reset";
+  EXPECT_EQ(robotSupervisor_.numFullResetsServed(),
+            robotSupervisor_.resetsRequested().fullRequested);
+  EXPECT_GT(link_->getCommand().mpcInitObservation_.time,
+            newestBefore + linkConfig.policyTimeout)
+      << "the hold ended on a policy solved before the link was lost, the one "
+         "held in flight";
   EXPECT_LE(back.policyAge, linkConfig.policyTimeout);
   EXPECT_EQ(back.linkLosses, 1u);
 }

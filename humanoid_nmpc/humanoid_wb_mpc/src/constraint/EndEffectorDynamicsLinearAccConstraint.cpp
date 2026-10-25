@@ -44,23 +44,30 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-absl::StatusOr<std::unique_ptr<EndEffectorDynamicsLinearAccConstraint>> EndEffectorDynamicsLinearAccConstraint::Create(
-    const EndEffectorDynamics<scalar_t>& endEffectorDynamics, size_t numConstraints, Config config) {
+absl::StatusOr<std::unique_ptr<EndEffectorDynamicsLinearAccConstraint>>
+EndEffectorDynamicsLinearAccConstraint::Create(
+    const EndEffectorDynamics<scalar_t>& endEffectorDynamics,
+    size_t numConstraints,
+    Config config) {
   if (endEffectorDynamics.getIds().size() != 1) {
     return absl::InvalidArgumentError(
-        absl::StrCat("[EndEffectorDynamicsLinearAccConstraint] this class only accepts a single end-effector; "
+        absl::StrCat("[EndEffectorDynamicsLinearAccConstraint] this class only "
+                     "accepts a single end-effector; "
                      "the end-effector dynamics has ",
-                     endEffectorDynamics.getIds().size(), ": [", absl::StrJoin(endEffectorDynamics.getIds(), ", "), "]"));
+                     endEffectorDynamics.getIds().size(), ": [",
+                     absl::StrJoin(endEffectorDynamics.getIds(), ", "), "]"));
   }
-  return absl::WrapUnique(new EndEffectorDynamicsLinearAccConstraint(endEffectorDynamics, numConstraints, std::move(config)));
+  return absl::WrapUnique(new EndEffectorDynamicsLinearAccConstraint(
+      endEffectorDynamics, numConstraints, std::move(config)));
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-EndEffectorDynamicsLinearAccConstraint::EndEffectorDynamicsLinearAccConstraint(const EndEffectorDynamics<scalar_t>& endEffectorDynamics,
-                                                                               size_t numConstraints,
-                                                                               Config config)
+EndEffectorDynamicsLinearAccConstraint::EndEffectorDynamicsLinearAccConstraint(
+    const EndEffectorDynamics<scalar_t>& endEffectorDynamics,
+    size_t numConstraints,
+    Config config)
     : StateInputConstraint(ConstraintOrder::Linear),
       endEffectorDynamicsPtr_(endEffectorDynamics.clone()),
       numConstraints_(numConstraints),
@@ -69,7 +76,8 @@ EndEffectorDynamicsLinearAccConstraint::EndEffectorDynamicsLinearAccConstraint(c
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-EndEffectorDynamicsLinearAccConstraint::EndEffectorDynamicsLinearAccConstraint(const EndEffectorDynamicsLinearAccConstraint& rhs)
+EndEffectorDynamicsLinearAccConstraint::EndEffectorDynamicsLinearAccConstraint(
+    const EndEffectorDynamicsLinearAccConstraint& rhs)
     : StateInputConstraint(rhs),
       endEffectorDynamicsPtr_(rhs.endEffectorDynamicsPtr_->clone()),
       numConstraints_(rhs.numConstraints_),
@@ -85,19 +93,24 @@ void EndEffectorDynamicsLinearAccConstraint::configure(Config&& config) {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-vector_t EndEffectorDynamicsLinearAccConstraint::getValue(scalar_t /*time*/,
-                                                          const vector_t& state,
-                                                          const vector_t& input,
-                                                          const PreComputation& /*preComp*/) const {
+vector_t EndEffectorDynamicsLinearAccConstraint::getValue(
+    scalar_t /*time*/,
+    const vector_t& state,
+    const vector_t& input,
+    const PreComputation& /*preComp*/) const {
   vector_t f = config_.b;
   if (config_.Ax.size() > 0) {
-    f.noalias() += config_.Ax * endEffectorDynamicsPtr_->getPosition(state).front();
+    f.noalias() +=
+        config_.Ax * endEffectorDynamicsPtr_->getPosition(state).front();
   }
   if (config_.Av.size() > 0) {
-    f.noalias() += config_.Av * endEffectorDynamicsPtr_->getVelocity(state, input).front();
+    f.noalias() +=
+        config_.Av * endEffectorDynamicsPtr_->getVelocity(state, input).front();
   }
   if (config_.Aa.size() > 0) {
-    f.noalias() += config_.Aa * endEffectorDynamicsPtr_->getLinearAcceleration(state, input).front();
+    f.noalias() +=
+        config_.Aa *
+        endEffectorDynamicsPtr_->getLinearAcceleration(state, input).front();
   }
   return f;
 }
@@ -105,23 +118,29 @@ vector_t EndEffectorDynamicsLinearAccConstraint::getValue(scalar_t /*time*/,
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-VectorFunctionLinearApproximation EndEffectorDynamicsLinearAccConstraint::getLinearApproximation(scalar_t time,
-                                                                                                 const vector_t& state,
-                                                                                                 const vector_t& input,
-                                                                                                 const PreComputation& /*preComp*/) const {
+VectorFunctionLinearApproximation
+EndEffectorDynamicsLinearAccConstraint::getLinearApproximation(
+    scalar_t time,
+    const vector_t& state,
+    const vector_t& input,
+    const PreComputation& /*preComp*/) const {
   VectorFunctionLinearApproximation linearApproximation =
-      VectorFunctionLinearApproximation::Zero(getNumConstraints(time), state.size(), input.size());
+      VectorFunctionLinearApproximation::Zero(getNumConstraints(time),
+                                              state.size(), input.size());
 
   linearApproximation.f = config_.b;
 
   if (config_.Ax.size() > 0) {
-    const VectorFunctionLinearApproximation positionApprox = endEffectorDynamicsPtr_->getPositionLinearApproximation(state).front();
+    const VectorFunctionLinearApproximation positionApprox =
+        endEffectorDynamicsPtr_->getPositionLinearApproximation(state).front();
     linearApproximation.f.noalias() += config_.Ax * positionApprox.f;
     linearApproximation.dfdx.noalias() += config_.Ax * positionApprox.dfdx;
   }
 
   if (config_.Av.size() > 0) {
-    const VectorFunctionLinearApproximation velocityApprox = endEffectorDynamicsPtr_->getVelocityLinearApproximation(state, input).front();
+    const VectorFunctionLinearApproximation velocityApprox =
+        endEffectorDynamicsPtr_->getVelocityLinearApproximation(state, input)
+            .front();
     linearApproximation.f.noalias() += config_.Av * velocityApprox.f;
     linearApproximation.dfdx.noalias() += config_.Av * velocityApprox.dfdx;
     linearApproximation.dfdu.noalias() += config_.Av * velocityApprox.dfdu;
@@ -129,7 +148,9 @@ VectorFunctionLinearApproximation EndEffectorDynamicsLinearAccConstraint::getLin
 
   if (config_.Aa.size() > 0) {
     const VectorFunctionLinearApproximation accelApprox =
-        endEffectorDynamicsPtr_->getLinearAccelerationLinearApproximation(state, input).front();
+        endEffectorDynamicsPtr_
+            ->getLinearAccelerationLinearApproximation(state, input)
+            .front();
     linearApproximation.f.noalias() += config_.Aa * accelApprox.f;
     linearApproximation.dfdx.noalias() += config_.Aa * accelApprox.dfdx;
     linearApproximation.dfdu.noalias() += config_.Aa * accelApprox.dfdu;

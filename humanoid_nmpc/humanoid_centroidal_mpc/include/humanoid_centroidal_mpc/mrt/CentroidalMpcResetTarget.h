@@ -40,29 +40,37 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The target trajectories the centroidal MPC restarts from after a reset served at `observation`: the observed
- * configuration held still and upright, with the weight on both feet.
+ * The target trajectories the centroidal MPC restarts from after a reset served
+ * at `observation`: the observed configuration held still and upright, with the
+ * weight on both feet.
  *
- *  - the state is the observation's, with the normalized linear and angular momentum zeroed and the base upright at the
- *    observed heading: the attitude is the heading quaternion of the observed one (its twist about the world z axis,
- *    headingQuaternion()), so the yaw is the observation's getBaseHeading(), wrapped into (-pi, pi], and the pitch and
- *    roll are zero; the joint positions are the observed ones (the nominal ones would make a
- *    kinematically inconsistent target - the current base height with the nominal joint angles - that the MPC tries to
- *    "correct" by shooting the base upward);
- *  - the input carries the robot's weight evenly on both feet in the effective model's input parameterization at that
- *    state (weightCompensatingInput());
- *  - two nodes, at the observation time and 2 s later, so that the target holds over the horizon.
+ *  - the state is the observation's, with the normalized linear and angular
+ * momentum zeroed and the base upright at the observed heading: the attitude is
+ * the heading quaternion of the observed one (its twist about the world z axis,
+ *    headingQuaternion()), so the yaw is the observation's getBaseHeading(),
+ * wrapped into (-pi, pi], and the pitch and roll are zero; the joint positions
+ * are the observed ones (the nominal ones would make a kinematically
+ * inconsistent target - the current base height with the nominal joint angles -
+ * that the MPC tries to "correct" by shooting the base upward);
+ *  - the input carries the robot's weight evenly on both feet in the effective
+ * model's input parameterization at that state (weightCompensatingInput());
+ *  - two nodes, at the observation time and 2 s later, so that the target holds
+ * over the horizon.
  *
- * The one definition of the reset target for every path that serves a reset: CentroidalMpcMrtJointController hands it
- * to its MPC link (InProcessMpcLink serves its resets from it), and the MPC node's MpcServer resets from it. Pure: it
- * reads `pinocchioInterface` (the robot's mass) and the models, and may be called on any thread.
+ * The one definition of the reset target for every path that serves a reset:
+ * CentroidalMpcMrtJointController hands it to its MPC link (InProcessMpcLink
+ * serves its resets from it), and the MPC node's MpcServer resets from it.
+ * Pure: it reads `pinocchioInterface` (the robot's mass) and the models, and
+ * may be called on any thread.
  *
  * @param info            The centroidal model of the MPC.
- * @param effectiveModel  The model the OCP's inputs are laid out in (the basis-vector decorator when it is active).
+ * @param effectiveModel  The model the OCP's inputs are laid out in (the
+ * basis-vector decorator when it is active).
  */
-TargetTrajectories centroidalMpcResetTargetTrajectories(const SystemObservation& observation,
-                                                        const CentroidalModelInfo& info,
-                                                        const MpcRobotModelBase<scalar_t>& effectiveModel,
-                                                        const PinocchioInterface& pinocchioInterface);
+TargetTrajectories centroidalMpcResetTargetTrajectories(
+    const SystemObservation& observation,
+    const CentroidalModelInfo& info,
+    const MpcRobotModelBase<scalar_t>& effectiveModel,
+    const PinocchioInterface& pinocchioInterface);
 
 }  // namespace ocs2::humanoid

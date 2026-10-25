@@ -141,7 +141,9 @@ def targets_without_shared_copts(source: str) -> list[tuple[int, str]]:
         name = arguments.get("name")
         label = name.value if isinstance(name, ast.Constant) else "<unnamed>"
         copts = arguments.get("copts")
-        if copts is None or not _mentions_shared_copts(copts, assignments, frozenset()):
+        if copts is None or not _mentions_shared_copts(
+            copts, assignments, frozenset()
+        ):
             found.append((node.lineno, str(label)))
     return found
 
@@ -191,7 +193,8 @@ def first_party_build_files(root: str) -> list[str]:
     return [
         path
         for path in lint_files.repository_files(root)
-        if os.path.basename(path) in _BUILD_FILES and lint_files.is_first_party(path)
+        if os.path.basename(path) in _BUILD_FILES
+        and lint_files.is_first_party(path)
     ]
 
 
@@ -206,7 +209,10 @@ def first_party_bzl_files(root: str) -> list[str]:
 
 class PrefixAttributesTest(unittest.TestCase):
     def test_both_attributes_are_found_and_comments_are_not(self):
-        source = 'cc_library(\n    strip_include_prefix = "test",\n    include_prefix = "x",\n    # include_prefix = "y",\n)\n'
+        source = (
+            'cc_library(\n    strip_include_prefix = "test",\n   '
+            ' include_prefix = "x",\n    # include_prefix = "y",\n)\n'
+        )
         self.assertEqual(
             prefix_attributes(source),
             [(2, "strip_include_prefix"), (3, "include_prefix")],
@@ -219,16 +225,17 @@ class PrefixAttributesTest(unittest.TestCase):
 class SharedCoptsTest(unittest.TestCase):
     def test_the_shared_list_directly_or_extended(self):
         source = (
-            'cc_library(name = "a", copts = FIRST_PARTY_COPTS)\n'
-            'cc_test(name = "b", copts = FIRST_PARTY_COPTS + ["-Werror"])\n'
-            'cc_binary(name = "c", copts = select({"//x": FIRST_PARTY_COPTS, "//conditions:default": FIRST_PARTY_COPTS}))\n'
+            'cc_library(name = "a", copts = FIRST_PARTY_COPTS)\ncc_test(name ='
+            ' "b", copts = FIRST_PARTY_COPTS + ["-Werror"])\ncc_binary(name ='
+            ' "c", copts = select({"//x": FIRST_PARTY_COPTS,'
+            ' "//conditions:default": FIRST_PARTY_COPTS}))\n'
         )
         self.assertEqual(targets_without_shared_copts(source), [])
 
     def test_through_a_module_level_list(self):
         source = (
-            '_BASE = FIRST_PARTY_COPTS\n_EXTRA = _BASE + ["-Wno-error=foo"]  # third_party/foo.h\n'
-            'cc_library(name = "a", copts = _EXTRA)\n'
+            '_BASE = FIRST_PARTY_COPTS\n_EXTRA = _BASE + ["-Wno-error=foo"]  #'
+            ' third_party/foo.h\ncc_library(name = "a", copts = _EXTRA)\n'
         )
         self.assertEqual(targets_without_shared_copts(source), [])
 
@@ -247,7 +254,10 @@ class SharedCoptsTest(unittest.TestCase):
 
 class WarningFlagsTest(unittest.TestCase):
     def test_a_target_may_not_add_a_warning(self):
-        source = 'X = FIRST_PARTY_COPTS + [\n    "-Wall",\n    "-Werror=shadow",  # stricter\n    "-Wshadow",\n]\n'
+        source = (
+            'X = FIRST_PARTY_COPTS + [\n    "-Wall",\n    "-Werror=shadow",  #'
+            ' stricter\n    "-Wshadow",\n]\n'
+        )
         self.assertEqual(
             warning_flag_problems(source),
             [(2, "-Wall"), (3, "-Werror=shadow"), (4, "-Wshadow")],
@@ -255,19 +265,27 @@ class WarningFlagsTest(unittest.TestCase):
 
     def test_werror_and_a_reasoned_wno_are_allowed(self):
         source = (
-            'X = FIRST_PARTY_COPTS + [\n    "-Werror",\n'
-            '    "-Wno-error=implicit-fallthrough",  # cppad/local/optimize/*.hpp (third-party)\n]\n'
+            'X = FIRST_PARTY_COPTS + [\n    "-Werror",\n   '
+            ' "-Wno-error=implicit-fallthrough",  # cppad/local/optimize/*.hpp'
+            " (third-party)\n]\n"
         )
         self.assertEqual(warning_flag_problems(source), [])
 
     def test_a_wno_needs_its_reason_on_its_line(self):
-        source = 'X = [\n    # third_party/foo.h\n    "-Wno-unused",\n    "-Wno-shadow",  #\n]\n'
+        source = (
+            'X = [\n    # third_party/foo.h\n    "-Wno-unused",\n   '
+            ' "-Wno-shadow",  #\n]\n'
+        )
         self.assertEqual(
-            warning_flag_problems(source), [(3, "-Wno-unused"), (4, "-Wno-shadow")]
+            warning_flag_problems(source),
+            [(3, "-Wno-unused"), (4, "-Wno-shadow")],
         )
 
     def test_pass_through_options_and_comments_are_not_warnings(self):
-        source = '# copts = ["-Wall"]\nX = ["-Wl,-rpath,/opt", "-Wa,--noexecstack", "-Wp,-DX"]\n'
+        source = (
+            '# copts = ["-Wall"]\nX = ["-Wl,-rpath,/opt", "-Wa,--noexecstack",'
+            ' "-Wp,-DX"]\n'
+        )
         self.assertEqual(warning_flag_problems(source), [])
 
     def test_switching_warnings_off_is_refused_even_with_a_reason(self):
@@ -323,7 +341,8 @@ class FirstPartyBuildFilesTest(unittest.TestCase):
                 self.assertEqual(
                     found,
                     [],
-                    f"{path}: use `includes = [...]` (this test's docstring says why)",
+                    f"{path}: use `includes = [...]` (this test's docstring"
+                    " says why)",
                 )
 
     def test_every_first_party_cpp_target_compiles_with_the_shared_copts(self):
@@ -335,7 +354,8 @@ class FirstPartyBuildFilesTest(unittest.TestCase):
                 self.assertEqual(
                     targets_without_shared_copts(source),
                     [],
-                    f"{path}: give each C++ target `copts = {SHARED_COPTS}` (bazel/copts.bzl)",
+                    f"{path}: give each C++ target `copts = {SHARED_COPTS}`"
+                    " (bazel/copts.bzl)",
                 )
         # A parser that silently found no target would make the test pass.
         self.assertGreater(targets, 100)
@@ -343,7 +363,9 @@ class FirstPartyBuildFilesTest(unittest.TestCase):
     def test_no_build_or_bzl_file_adds_a_warning_flag(self):
         files = self.files + first_party_bzl_files(self.root)
         errors = shared_errors(self._read("bazel/copts.bzl"))
-        self.assertGreater(len(errors), 5, "bazel/copts.bzl lists its -Werror= flags")
+        self.assertGreater(
+            len(errors), 5, "bazel/copts.bzl lists its -Werror= flags"
+        )
         for definition in sorted(WARNING_FLAG_DEFINITIONS):
             self.assertIn(definition, files, "a stale exemption")
         for path in files:
@@ -353,8 +375,8 @@ class FirstPartyBuildFilesTest(unittest.TestCase):
                 self.assertEqual(
                     warning_flag_problems(self._read(path), errors),
                     [],
-                    f"{path}: add the flag to bazel/copts.bzl, or give a -Wno-... its reason on its line "
-                    "(this test's docstring)",
+                    f"{path}: add the flag to bazel/copts.bzl, or give a"
+                    " -Wno-... its reason on its line (this test's docstring)",
                 )
 
 

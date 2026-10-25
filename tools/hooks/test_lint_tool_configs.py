@@ -44,7 +44,9 @@ import unittest
 from tools.hooks import check_test_support
 from tools.hooks import lint_code
 
-COLUMN_LIMIT = 140
+COLUMN_LIMIT = 80
+# The limit of Python comments and docstrings, which black does not wrap.
+PYTHON_COMMENT_LIMIT = 140
 
 
 def _run(module: str, *args: str, cwd: str) -> subprocess.CompletedProcess:
@@ -106,8 +108,11 @@ class CpplintTest(FixtureDirectoryTest):
     def test_the_configuration_applies(self):
         name = self.write(
             "a.cpp",
-            "// Copyright (c) 2026, Nicholas Palomo. All rights reserved.\nlong x;\nvoid f() {\n  if (x) {\n  }\n"
-            "  while (y);\n}\n" + "int z = 1;  // " + "x" * 120 + "\n",
+            "// Copyright (c) 2026, Nicholas Palomo. All rights reserved.\nlong"
+            " x;\nvoid f() {\n  if (x) {\n  }\n  while (y);\n}\n"
+            + "int z = 1;  // "
+            + "x" * 120
+            + "\n",
         )
         result = _run("cpplint", "--quiet", name, cwd=self.root)
         output = result.stdout + result.stderr
@@ -127,17 +132,26 @@ class CpplintTest(FixtureDirectoryTest):
         result = _run("cpplint", "--quiet", name, cwd=self.root)
         lines = lint_code.filter_cpplint_output(result.stdout + result.stderr)
         self.assertEqual(
-            len([line for line in lines if "readability/nolint" in line]), 1, lines
+            len([line for line in lines if "readability/nolint" in line]),
+            1,
+            lines,
         )
         self.assertIn("argumnet-comment", "\n".join(lines))
 
 
 class PylintTest(FixtureDirectoryTest):
-    def test_the_line_length_is_the_column_limit(self):
+    def test_black_formats_to_the_column_limit_and_pylint_bounds_the_comments(
+        self,
+    ):
         parser = configparser.ConfigParser()
-        parser.read(check_test_support.repository_file(".pylintrc"), encoding="utf-8")
+        parser.read(
+            check_test_support.repository_file(".pylintrc"), encoding="utf-8"
+        )
         self.assertEqual(
-            parser.getint("FORMAT", "max-line-length"), _clang_format_column_limit()
+            lint_code.BLACK_LINE_LENGTH, _clang_format_column_limit()
+        )
+        self.assertEqual(
+            parser.getint("FORMAT", "max-line-length"), PYTHON_COMMENT_LIMIT
         )
         self.assertEqual(
             parser.get("MAIN", "jobs"),
@@ -148,7 +162,8 @@ class PylintTest(FixtureDirectoryTest):
     def test_the_configuration_loads_and_applies(self):
         name = self.write(
             "module.py",
-            '"""A module."""\n\n\ndef risky() -> None:\n    """Fails."""\n    try:\n        pass\n    except:\n        pass\n',
+            '"""A module."""\n\n\ndef risky() -> None:\n    """Fails."""\n   '
+            " try:\n        pass\n    except:\n        pass\n",
         )
         result = _run("pylint", "--rcfile=.pylintrc", name, cwd=self.root)
         output = result.stdout + result.stderr
@@ -168,7 +183,8 @@ class PylintTest(FixtureDirectoryTest):
         # `not value >= 0.0` rejects NaN; pylint's suggested `value < 0.0` would not.
         name = self.write(
             "nan.py",
-            '"""A module."""\n\n\ndef valid(value: float) -> bool:\n    """Validates."""\n    return not value >= 0.0\n',
+            '"""A module."""\n\n\ndef valid(value: float) -> bool:\n   '
+            ' """Validates."""\n    return not value >= 0.0\n',
         )
         result = _run("pylint", "--rcfile=.pylintrc", name, cwd=self.root)
         self.assertNotIn("unnecessary-negation", result.stdout + result.stderr)
@@ -191,7 +207,9 @@ class MypyTest(FixtureDirectoryTest):
             "source.py",
             cwd=self.root,
         )
-        self.assertIn("[no-untyped-def]", result.stdout, result.stdout + result.stderr)
+        self.assertIn(
+            "[no-untyped-def]", result.stdout, result.stdout + result.stderr
+        )
         self.assertNotIn("error: Unrecognized", result.stdout + result.stderr)
         self.write("typed.py", "def typed(x: int) -> int:\n    return x\n")
         result = _run(
@@ -218,44 +236,58 @@ class MypyTest(FixtureDirectoryTest):
 
     def test_the_global_options_hold_every_module(self):
         parser = configparser.ConfigParser()
-        parser.read(check_test_support.repository_file("mypy.ini"), encoding="utf-8")
+        parser.read(
+            check_test_support.repository_file("mypy.ini"), encoding="utf-8"
+        )
         self.assertEqual(parser.get("mypy", "python_version"), "3.11")
         self.assertTrue(parser.getboolean("mypy", "disallow_untyped_defs"))
         self.assertTrue(parser.getboolean("mypy", "disallow_incomplete_defs"))
         self.assertEqual(
-            [section for section in parser.sections() if section.startswith("mypy-")],
+            [
+                section
+                for section in parser.sections()
+                if section.startswith("mypy-")
+            ],
             [],
-            "a per-module section relaxes mypy for one module (lint_code.mypy_config_problems)",
+            "a per-module section relaxes mypy for one module"
+            " (lint_code.mypy_config_problems)",
         )
 
 
 class IsortAndBlackTest(FixtureDirectoryTest):
     def test_they_reach_a_fixed_point_together(self):
         source = (
-            '"""A module."""\n\nimport sys\nfrom tools.hooks import lint_files\nimport os\n'
-            "from collections.abc import Callable, Iterator, Sequence, Mapping, MutableMapping, Iterable, Generator\n"
-            "import numpy as np\n\n"
-            "print(os, sys, np, lint_files, Callable, Iterator, Sequence, Mapping, MutableMapping, Iterable, Generator)\n"
+            '"""A module."""\n\nimport sys\nfrom tools.hooks import'
+            " lint_files\nimport os\nfrom collections.abc import Callable,"
+            " Iterator, Sequence, Mapping, MutableMapping, Iterable,"
+            " Generator\nimport numpy as np\n\nprint(os, sys, np, lint_files,"
+            " Callable, Iterator, Sequence, Mapping, MutableMapping, Iterable,"
+            " Generator)\n"
         )
         name = self.write("imports.py", source)
         isort = ["isort", "--settings-path", ".isort.cfg", "-p", "tools"]
+        black = ["black", "--line-length", str(lint_code.BLACK_LINE_LENGTH)]
         for _ in range(2):
             self.assertEqual(_run(*isort, name, cwd=self.root).returncode, 0)
             self.assertEqual(
-                _run("black", "--quiet", name, cwd=self.root).returncode, 0
+                _run(*black, "--quiet", name, cwd=self.root).returncode, 0
             )
         with open(os.path.join(self.root, name), encoding="utf-8") as f:
             formatted = f.read()
         self.assertEqual(
-            _run(*isort, "--check-only", name, cwd=self.root).returncode, 0, formatted
+            _run(*isort, "--check-only", name, cwd=self.root).returncode,
+            0,
+            formatted,
         )
         self.assertEqual(
-            _run("black", "--check", "--quiet", name, cwd=self.root).returncode,
+            _run(*black, "--check", "--quiet", name, cwd=self.root).returncode,
             0,
             formatted,
         )
         # Google order: the standard library, then third-party, then first-party, each its own block.
-        self.assertLess(formatted.index("import os"), formatted.index("import numpy"))
+        self.assertLess(
+            formatted.index("import os"), formatted.index("import numpy")
+        )
         self.assertLess(
             formatted.index("import numpy"),
             formatted.index("from tools.hooks import lint_files"),

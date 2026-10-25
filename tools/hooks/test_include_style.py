@@ -44,7 +44,9 @@ def _repository_file(relative_path):
     roots = []
     if "TEST_SRCDIR" in os.environ:
         roots.append(os.path.join(os.environ["TEST_SRCDIR"], "_main"))
-    roots.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+    roots.append(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
+    )
     for root in roots:
         candidate = os.path.join(root, relative_path)
         if os.path.exists(candidate):
@@ -75,7 +77,9 @@ def _installed_packages(relative_path: str) -> list[str]:
     """
     with open(_repository_file(relative_path), encoding="utf-8") as f:
         lines = [
-            line for line in f.read().splitlines() if not line.lstrip().startswith("#")
+            line
+            for line in f.read().splitlines()
+            if not line.lstrip().startswith("#")
         ]
     if relative_path.endswith(".txt"):
         return [line.strip() for line in lines if line.strip()]
@@ -91,15 +95,21 @@ def _installed_packages(relative_path: str) -> list[str]:
 
 def _findings(source: str) -> list[tuple[int, str]]:
     return [
-        (f.line, f.message) for f in include_style._style_findings(source, "src/a.cpp")
+        (f.line, f.message)
+        for f in include_style._style_findings(source, "src/a.cpp")
     ]
 
 
 class AbseilIncludeTest(unittest.TestCase):
     """An angle Abseil include finds a system Abseil or none, so its finding says why, not only what to write."""
 
-    def test_an_angle_absl_include_is_flagged_with_its_line_and_the_reason(self):
-        source = "#include <vector>\n#include <absl/log/log.h>\n  #  include <absl/status/status.h>\n"
+    def test_an_angle_absl_include_is_flagged_with_its_line_and_the_reason(
+        self,
+    ):
+        source = (
+            "#include <vector>\n#include <absl/log/log.h>\n  #  include"
+            " <absl/status/status.h>\n"
+        )
         found = _findings(source)
         self.assertEqual([line for line, _ in found], [2, 3])
         self.assertIn('write `#include "absl/log/log.h"`', found[0][1])
@@ -149,7 +159,9 @@ class InstalledLibrariesTest(unittest.TestCase):
         installed = _installed_packages("dependencies.txt")
         for path in ("docker/Dockerfile", "docker/install_robotpkg.sh"):
             installed += _installed_packages(path)
-        self.assertIn("libeigen3-dev", installed, "the package lists were not read")
+        self.assertIn(
+            "libeigen3-dev", installed, "the package lists were not read"
+        )
         self.assertIn(
             "xvfb", installed, "the Dockerfile's apt-get installs were not read"
         )
@@ -180,25 +192,39 @@ class GeneralIncludeStyleTest(unittest.TestCase):
     """The include-style check: angle brackets only for system headers, and full paths."""
 
     def findings(self, source):
-        return [f.message for f in include_style._style_findings(source, "src/a.cpp")]
+        return [
+            f.message
+            for f in include_style._style_findings(source, "src/a.cpp")
+        ]
 
     def test_system_headers_keep_their_brackets(self):
-        source = "#include <vector>\n#include <cmath>\n#include <unistd.h>\n#include <sys/mman.h>\n#include <cxxabi.h>\n"
+        source = (
+            "#include <vector>\n#include <cmath>\n#include <unistd.h>\n#include"
+            " <sys/mman.h>\n#include <cxxabi.h>\n"
+        )
         self.assertEqual(self.findings(source), [])
 
     def test_every_other_angle_include_is_quoted(self):
-        source = "#include <Eigen/Dense>\n#include <pinocchio/fwd.hpp>\n#include <dds/dds.h>\n#include <absl/log/log.h>\n"
+        source = (
+            "#include <Eigen/Dense>\n#include <pinocchio/fwd.hpp>\n#include"
+            " <dds/dds.h>\n#include <absl/log/log.h>\n"
+        )
         self.assertEqual(len(self.findings(source)), 4)
         fixed = include_style.fix_include_style(source, "src/a.cpp")
         self.assertEqual(
             fixed,
-            '#include "Eigen/Dense"\n#include "pinocchio/fwd.hpp"\n#include "dds/dds.h"\n#include "absl/log/log.h"\n',
+            '#include "Eigen/Dense"\n#include "pinocchio/fwd.hpp"\n#include'
+            ' "dds/dds.h"\n#include "absl/log/log.h"\n',
         )
         self.assertEqual(self.findings(fixed), [])
-        self.assertEqual(include_style.fix_include_style(fixed, "src/a.cpp"), fixed)
+        self.assertEqual(
+            include_style.fix_include_style(fixed, "src/a.cpp"), fixed
+        )
 
     def test_a_project_header_needs_its_directory(self):
-        self.assertEqual(len(self.findings('#include "VisualizationTestRobot.h"\n')), 1)
+        self.assertEqual(
+            len(self.findings('#include "VisualizationTestRobot.h"\n')), 1
+        )
         self.assertEqual(
             self.findings('#include "humanoid_common_mpc/common/Types.h"\n'), []
         )
@@ -214,7 +240,10 @@ class GeneralIncludeStyleTest(unittest.TestCase):
 
     def test_comments_are_not_includes(self):
         self.assertEqual(
-            self.findings("// #include <Eigen/Dense>\n/* #include <x/y.h> */\n"), []
+            self.findings(
+                "// #include <Eigen/Dense>\n/* #include <x/y.h> */\n"
+            ),
+            [],
         )
 
     def test_the_registry_runs_it(self):

@@ -1,11 +1,17 @@
   BasedOnStyle: Google
-  ColumnLimit: 140
+  # LINT.IfChange(column_limit)
+  # The Google C++ Style Guide's 80 columns.
+  ColumnLimit: 80
+  # LINT.ThenChange(//CPPLINT.cfg:column_limit, //tools/hooks/lint_code.py:black_line_length, //AGENTS.md:cpp_style, //tools/nproto/nproto_layout.py:column_limit)
+  # Comments clang-format never breaks, beside Google's IWYU pragmas: a NOLINT marker applies to its own line (or to the
+  # next, NOLINTNEXTLINE), and an IFTTT directive is read from one line, so either broken would stop working.
+  CommentPragmas: '^ (IWYU pragma:|NOLINT|LINT\.)'
   IndentWidth: 2
   BreakBeforeBraces: Attach
   DerivePointerAlignment: false
   # LINT.IfChange(attribute_macros)
   AttributeMacros: [__capability, absl_nonnull, absl_nullable, absl_nullability_unknown]
-  # LINT.ThenChange(//tools/hooks/pointer_nullability.py:rules, //AGENTS.md:nullability)
+  # LINT.ThenChange(//tools/hooks/pointer_nullability.py:rules, //AGENTS.md:nullability, //tools/nproto/nproto_layout.py:attribute_macros)
   PointerAlignment: Left
   AllowShortFunctionsOnASingleLine: Inline
   BinPackParameters: false

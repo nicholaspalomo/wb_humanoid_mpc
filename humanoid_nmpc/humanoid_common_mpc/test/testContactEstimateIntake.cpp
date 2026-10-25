@@ -46,8 +46,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_runtime/robot_realtime/test/AllocationCounter.h"
 
 /*
- * The measured contact state of the MRT joint controllers: an estimate with one flag per contact point is taken, any
- * other is refused and reported once per run of refusals, and a wrong estimator is refused before it is installed.
+ * The measured contact state of the MRT joint controllers: an estimate with one
+ * flag per contact point is taken, any other is refused and reported once per
+ * run of refusals, and a wrong estimator is refused before it is installed.
  */
 
 namespace ocs2::humanoid {
@@ -67,8 +68,12 @@ class RecordingSink final : public ControllerEventSink {
 /** An estimator that reports the same flags every cycle. */
 class FixedContactEstimator final : public robot::model::ContactEstimator {
  public:
-  explicit FixedContactEstimator(std::vector<bool> flags) : flags_(std::move(flags)) {}
-  void estimateContactFlags(const robot::model::RobotState& /*robotState*/, std::vector<bool>& flags) override { flags = flags_; }
+  explicit FixedContactEstimator(std::vector<bool> flags)
+      : flags_(std::move(flags)) {}
+  void estimateContactFlags(const robot::model::RobotState& /*robotState*/,
+                            std::vector<bool>& flags) override {
+    flags = flags_;
+  }
   absl::string_view getName() const override { return "fixed"; }
 
  private:
@@ -85,7 +90,8 @@ TEST(ContactEstimateIntake, TakesAnEstimateWithOneFlagPerContactPoint) {
   EXPECT_TRUE(sink.events.empty());
 }
 
-TEST(ContactEstimateIntake, RefusesAnyOtherEstimateKeepsTheLastFlagsAndReportsOncePerRun) {
+TEST(ContactEstimateIntake,
+     RefusesAnyOtherEstimateKeepsTheLastFlagsAndReportsOncePerRun) {
   ContactEstimateIntake intake("Controller");
   intake.resetEstimator("per_corner");
   RecordingSink sink;
@@ -94,9 +100,11 @@ TEST(ContactEstimateIntake, RefusesAnyOtherEstimateKeepsTheLastFlagsAndReportsOn
   for (int cycle = 0; cycle < 5; ++cycle) {
     EXPECT_FALSE(intake.take({true, true, false, false}, measured, sink));
   }
-  EXPECT_EQ(measured, (contact_flag_t{true, true})) << "a refused estimate keeps the flags of the cycle before";
+  EXPECT_EQ(measured, (contact_flag_t{true, true}))
+      << "a refused estimate keeps the flags of the cycle before";
   EXPECT_EQ(intake.numRefused(), 5U);
-  ASSERT_EQ(sink.events.size(), 1U) << "one report per run of refusals, not one per cycle";
+  ASSERT_EQ(sink.events.size(), 1U)
+      << "one report per run of refusals, not one per cycle";
   const ControllerEvent& report = sink.events[0];
   EXPECT_EQ(report.code, ControllerEventCode::kContactEstimateRefused);
   EXPECT_EQ(report.values[0], 4.0);
@@ -104,7 +112,8 @@ TEST(ContactEstimateIntake, RefusesAnyOtherEstimateKeepsTheLastFlagsAndReportsOn
   EXPECT_EQ(controllerEventText(report), "per_corner");
   EXPECT_TRUE(isWarningControllerEvent(report));
 
-  // A taken estimate ends the run: the next refusal is reported again, and so is the first one of a new estimator.
+  // A taken estimate ends the run: the next refusal is reported again, and so
+  // is the first one of a new estimator.
   ASSERT_TRUE(intake.take({false, true}, measured, sink));
   EXPECT_FALSE(intake.take({false}, measured, sink));
   EXPECT_EQ(sink.events.size(), 2U);
@@ -121,7 +130,8 @@ TEST(ContactEstimateIntake, AllocatesNothing) {
   const std::vector<bool> good = {true, false};
   const std::vector<bool> bad = {true};
   const size_t before = robot::realtime::heapAllocationCountOnThisThread();
-  intake.resetEstimator("a name that is longer than the text of an event can hold");
+  intake.resetEstimator(
+      "a name that is longer than the text of an event can hold");
   intake.take(good, measured, sink);
   intake.take(bad, measured, sink);
   EXPECT_EQ(robot::realtime::heapAllocationCountOnThisThread() - before, 0U);
@@ -130,7 +140,8 @@ TEST(ContactEstimateIntake, AllocatesNothing) {
 class CheckContactEstimatorTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    directory_ = std::filesystem::path(::testing::TempDir()) / "contact_estimate_intake_test";
+    directory_ = std::filesystem::path(::testing::TempDir()) /
+                 "contact_estimate_intake_test";
     std::filesystem::create_directories(directory_);
     const std::filesystem::path urdf = directory_ / "biped.urdf";
     std::ofstream(urdf) << R"(<?xml version="1.0"?>
@@ -151,9 +162,11 @@ class CheckContactEstimatorTest : public ::testing::Test {
                 <limit lower="-1.57" upper="1.57" effort="100" velocity="2.0"/>
             </joint>
         </robot>)";
-    absl::StatusOr<robot::model::RobotDescription> description = robot::model::RobotDescription::Create(urdf.string());
+    absl::StatusOr<robot::model::RobotDescription> description =
+        robot::model::RobotDescription::Create(urdf.string());
     ASSERT_TRUE(description.ok()) << description.status();
-    description_ = std::make_unique<robot::model::RobotDescription>(*std::move(description));
+    description_ = std::make_unique<robot::model::RobotDescription>(
+        *std::move(description));
   }
 
   void TearDown() override {
@@ -165,14 +178,17 @@ class CheckContactEstimatorTest : public ::testing::Test {
   std::unique_ptr<robot::model::RobotDescription> description_;
 };
 
-TEST_F(CheckContactEstimatorTest, AcceptsOneFlagPerContactPointAndRefusesAnyOtherCount) {
+TEST_F(CheckContactEstimatorTest,
+       AcceptsOneFlagPerContactPointAndRefusesAnyOtherCount) {
   const robot::model::RobotState state(*description_);
   FixedContactEstimator good({true, true});
   EXPECT_TRUE(checkContactEstimator(good, state, "fixed").ok());
   FixedContactEstimator one({true});
   const absl::Status refused = checkContactEstimator(one, state, "fixed");
   EXPECT_EQ(refused.code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_NE(refused.message().find("'fixed' reports 1 contact flags"), std::string::npos) << refused;
+  EXPECT_NE(refused.message().find("'fixed' reports 1 contact flags"),
+            std::string::npos)
+      << refused;
 }
 
 }  // namespace

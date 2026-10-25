@@ -52,20 +52,25 @@ namespace ocs2::humanoid {
 
 namespace {
 
-/** [1/m], [1/rad]: the geometry is fingerprinted to a nanometer and a nanoradian, far below any edit that matters. */
+/** [1/m], [1/rad]: the geometry is fingerprinted to a nanometer and a
+ * nanoradian, far below any edit that matters. */
 constexpr double kFingerprintResolution = 1.0e9;
 
-/** FNV-1a, 64 bit. Deterministic across processes and builds, which absl::Hash deliberately is not. */
+/** FNV-1a, 64 bit. Deterministic across processes and builds, which absl::Hash
+ * deliberately is not. */
 class Fnv1a64 {
  public:
   void add(int64_t value) {
     // An int64_t is hashed one byte at a time, the least significant first.
     for (int byte = 0; byte < nproto::kFnvWordOctets; ++byte) {
-      hash_ ^= static_cast<uint64_t>(value >> (CHAR_BIT * byte)) & nproto::kFnvOctetMask;
+      hash_ ^= static_cast<uint64_t>(value >> (CHAR_BIT * byte)) &
+               nproto::kFnvOctetMask;
       hash_ *= nproto::kFnvPrime;
     }
   }
-  void add(double value) { add(static_cast<int64_t>(std::llround(value * kFingerprintResolution))); }
+  void add(double value) {
+    add(static_cast<int64_t>(std::llround(value * kFingerprintResolution)));
+  }
   void add(const std::string& text) {
     for (const char character : text) {
       hash_ ^= static_cast<uint64_t>(static_cast<unsigned char>(character));
@@ -88,12 +93,17 @@ class Fnv1a64 {
 };
 
 /**
- * A fingerprint of everything the taped heights depend on: each frame's placement on its parent joint - which is where
- * `contact_rectangle` and `contact_frame_translation` end up - and every joint placement and joint type on the chain
- * from that joint to the root, plus the state and configuration dimensions the tape is laid out in (the heights are a
- * function of the configuration q only, so its velocity dimension does not enter).
+ * A fingerprint of everything the taped heights depend on: each frame's
+ * placement on its parent joint - which is where `contact_rectangle` and
+ * `contact_frame_translation` end up - and every joint placement and joint type
+ * on the chain from that joint to the root, plus the state and configuration
+ * dimensions the tape is laid out in (the heights are a function of the
+ * configuration q only, so its velocity dimension does not enter).
  */
-uint64_t geometryFingerprint(const pinocchio::Model& model, const std::vector<size_t>& frameIds, size_t stateDim, size_t configurationDim) {
+uint64_t geometryFingerprint(const pinocchio::Model& model,
+                             const std::vector<size_t>& frameIds,
+                             size_t stateDim,
+                             size_t configurationDim) {
   Fnv1a64 hash;
   hash.add(static_cast<int64_t>(stateDim));
   hash.add(static_cast<int64_t>(configurationDim));
@@ -101,7 +111,8 @@ uint64_t geometryFingerprint(const pinocchio::Model& model, const std::vector<si
     const pinocchio::Frame& frame = model.frames[frameId];
     hash.add(frame.name);
     hash.add(frame.placement);
-    for (pinocchio::JointIndex joint = frame.parentJoint; joint > 0; joint = model.parents[joint]) {
+    for (pinocchio::JointIndex joint = frame.parentJoint; joint > 0;
+         joint = model.parents[joint]) {
       hash.add(model.names[joint]);
       hash.add(model.joints[joint].shortname());
       hash.add(model.jointPlacements[joint]);
@@ -112,37 +123,50 @@ uint64_t geometryFingerprint(const pinocchio::Model& model, const std::vector<si
 
 }  // namespace
 
-FootprintCornerHeights::FootprintCornerHeights(const PinocchioInterface& pinocchioInterface,
-                                               const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
-                                               std::vector<std::string> frameNames,
-                                               const std::string& modelName,
-                                               const ModelSettings& modelSettings)
+FootprintCornerHeights::FootprintCornerHeights(
+    const PinocchioInterface& pinocchioInterface,
+    const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
+    std::vector<std::string> frameNames,
+    const std::string& modelName,
+    const ModelSettings& modelSettings)
     : frameNames_(std::move(frameNames)),
       mpcRobotModelAdPtr_(mpcRobotModelAD.clone()),
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
       modelName_(modelName),
       modelFolder_(modelSettings.modelFolderCppAd),
       verbose_(modelSettings.verboseCppAd) {
-  CHECK(!frameNames_.empty()) << "[FootprintCornerHeights] " << modelName_ << " needs at least one frame";
+  CHECK(!frameNames_.empty()) << "[FootprintCornerHeights] " << modelName_
+                              << " needs at least one frame";
   frameIds_.reserve(frameNames_.size());
   for (const std::string& frameName : frameNames_) {
     CHECK(pinocchioInterfaceCppAd_.getModel().existFrame(frameName))
-        << "[FootprintCornerHeights] " << modelName_ << ": the robot model has no frame '" << frameName
-        << "'. The footprint corner frames are added by createPinocchioModel(); check that the contact polygon of this foot is "
+        << "[FootprintCornerHeights] " << modelName_
+        << ": the robot model has no frame '" << frameName
+        << "'. The footprint corner frames are added by "
+           "createPinocchioModel(); check that the contact polygon of this "
+           "foot is "
            "configured.";
-    frameIds_.push_back(pinocchioInterfaceCppAd_.getModel().getFrameId(frameName));
+    frameIds_.push_back(
+        pinocchioInterfaceCppAd_.getModel().getFrameId(frameName));
   }
-  // The library name is the cache key, and the corner placements are baked into the tape as constants: with
-  // recompileLibrariesCppAd: false - how every robot ships - a library of the old geometry would otherwise be loaded
-  // after an edit to the footprint, and both contact-implicit terms would keep evaluating the old corners.
-  modelName_ = absl::StrCat(modelName_, "_",
-                            absl::Hex(geometryFingerprint(pinocchioInterface.getModel(), frameIds_, mpcRobotModelAdPtr_->getStateDim(),
-                                                          mpcRobotModelAdPtr_->getConfigurationDim()),
-                                      absl::kZeroPad16));
-  createAdInterface(modelSettings.recompileLibrariesCppAd ? LibraryCreation::kRegenerate : LibraryCreation::kLoadIfAvailable);
+  // The library name is the cache key, and the corner placements are baked into
+  // the tape as constants: with recompileLibrariesCppAd: false - how every
+  // robot ships - a library of the old geometry would otherwise be loaded after
+  // an edit to the footprint, and both contact-implicit terms would keep
+  // evaluating the old corners.
+  modelName_ = absl::StrCat(
+      modelName_, "_",
+      absl::Hex(geometryFingerprint(pinocchioInterface.getModel(), frameIds_,
+                                    mpcRobotModelAdPtr_->getStateDim(),
+                                    mpcRobotModelAdPtr_->getConfigurationDim()),
+                absl::kZeroPad16));
+  createAdInterface(modelSettings.recompileLibrariesCppAd
+                        ? LibraryCreation::kRegenerate
+                        : LibraryCreation::kLoadIfAvailable);
 }
 
-FootprintCornerHeights::FootprintCornerHeights(const FootprintCornerHeights& rhs)
+FootprintCornerHeights::FootprintCornerHeights(
+    const FootprintCornerHeights& rhs)
     : frameNames_(rhs.frameNames_),
       frameIds_(rhs.frameIds_),
       mpcRobotModelAdPtr_(rhs.mpcRobotModelAdPtr_->clone()),
@@ -155,29 +179,39 @@ FootprintCornerHeights::FootprintCornerHeights(const FootprintCornerHeights& rhs
 
 void FootprintCornerHeights::createAdInterface(LibraryCreation creation) {
   const size_t stateDim = mpcRobotModelAdPtr_->getStateDim();
-  CppAdInterface::ad_function_t heightsAd = [this, stateDim](const ad_vector_t& x, ad_vector_t& y) {
-    CHECK_EQ(static_cast<size_t>(x.rows()), stateDim);
-    y = this->heightsFunction(x);
-  };
-  adInterfacePtr_ = std::make_unique<CppAdInterface>(std::move(heightsAd), stateDim, modelName_, modelFolder_);
+  CppAdInterface::ad_function_t heightsAd =
+      [this, stateDim](const ad_vector_t& x, ad_vector_t& y) {
+        CHECK_EQ(static_cast<size_t>(x.rows()), stateDim);
+        y = this->heightsFunction(x);
+      };
+  adInterfacePtr_ = std::make_unique<CppAdInterface>(
+      std::move(heightsAd), stateDim, modelName_, modelFolder_);
 
-  // First order only. Both callers are ConstraintOrder::Linear, so the second-order tape would be generated, compiled
-  // and then never evaluated - which is precisely the waste this class exists to avoid.
+  // First order only. Both callers are ConstraintOrder::Linear, so the
+  // second-order tape would be generated, compiled and then never evaluated -
+  // which is precisely the waste this class exists to avoid.
   if (creation == LibraryCreation::kRegenerate) {
-    adInterfacePtr_->createModels(CppAdInterface::ApproximationOrder::First, verbose_);
+    adInterfacePtr_->createModels(CppAdInterface::ApproximationOrder::First,
+                                  verbose_);
   } else {
-    adInterfacePtr_->loadModelsIfAvailable(CppAdInterface::ApproximationOrder::First, verbose_);
+    adInterfacePtr_->loadModelsIfAvailable(
+        CppAdInterface::ApproximationOrder::First, verbose_);
   }
 }
 
-ad_vector_t FootprintCornerHeights::heightsFunction(const ad_vector_t& state) const {
-  const pinocchio::ModelTpl<ad_scalar_t>& model = pinocchioInterfaceCppAd_.getModel();
-  pinocchio::DataTpl<ad_scalar_t> data = pinocchioInterfaceCppAd_.getData();  // a copy, since this method is const
-  updateFramePlacements(mpcRobotModelAdPtr_->getGeneralizedCoordinates(state), model, data);
+ad_vector_t FootprintCornerHeights::heightsFunction(
+    const ad_vector_t& state) const {
+  const pinocchio::ModelTpl<ad_scalar_t>& model =
+      pinocchioInterfaceCppAd_.getModel();
+  pinocchio::DataTpl<ad_scalar_t> data =
+      pinocchioInterfaceCppAd_.getData();  // a copy, since this method is const
+  updateFramePlacements(mpcRobotModelAdPtr_->getGeneralizedCoordinates(state),
+                        model, data);
 
   ad_vector_t heights(frameIds_.size());
   for (size_t corner = 0; corner < frameIds_.size(); ++corner) {
-    heights(static_cast<Eigen::Index>(corner)) = data.oMf[frameIds_[corner]].translation()(kZAxisIndex);
+    heights(static_cast<Eigen::Index>(corner)) =
+        data.oMf[frameIds_[corner]].translation()(kZAxisIndex);
   }
   return heights;
 }
@@ -186,22 +220,30 @@ vector_t FootprintCornerHeights::getHeights(const vector_t& state) const {
   return adInterfacePtr_->getFunctionValue(state);
 }
 
-matrix_t FootprintCornerHeights::getHeightsJacobian(const vector_t& state) const {
+matrix_t FootprintCornerHeights::getHeightsJacobian(
+    const vector_t& state) const {
   return adInterfacePtr_->getJacobian(state);
 }
 
-SmoothMinimumHeight smoothMinimumHeight(const vector_t& heights, scalar_t smoothing) {
-  CHECK_GT(heights.size(), 0) << "[smoothMinimumHeight] needs at least one height";
-  CHECK_GT(smoothing, 0.0) << "[smoothMinimumHeight] contact_implicit.gap_smoothing must be positive";
+SmoothMinimumHeight smoothMinimumHeight(const vector_t& heights,
+                                        scalar_t smoothing) {
+  CHECK_GT(heights.size(), 0)
+      << "[smoothMinimumHeight] needs at least one height";
+  CHECK_GT(smoothing, 0.0) << "[smoothMinimumHeight] "
+                              "contact_implicit.gap_smoothing must be positive";
 
-  // Shifting by the true minimum before exponentiating is what keeps this finite: every exponent is then non-positive,
-  // so the terms lie in (0, 1] and the sum is at least one - no overflow, and no underflow that could empty the sum.
+  // Shifting by the true minimum before exponentiating is what keeps this
+  // finite: every exponent is then non-positive, so the terms lie in (0, 1] and
+  // the sum is at least one - no overflow, and no underflow that could empty
+  // the sum.
   const scalar_t minimum = heights.minCoeff();
   const vector_t exponentials = ((minimum - heights.array()) / smoothing).exp();
   const scalar_t sum = exponentials.sum();
 
   SmoothMinimumHeight result;
-  result.value = minimum - smoothing * std::log(sum / static_cast<scalar_t>(heights.size()));
+  result.value =
+      minimum -
+      smoothing * std::log(sum / static_cast<scalar_t>(heights.size()));
   result.weights = exponentials / sum;
   return result;
 }

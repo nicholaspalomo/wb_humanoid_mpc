@@ -41,52 +41,72 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_validation/closed_loop/MetricBands.h"
 
 /*
- * compare_closed_loop: two recorded labels of data/closed_loop/ compared offline (compareArchivedClosedLoopRuns()):
- * every archived run of --candidate held to the same run of --baseline under the rules the run itself applies
- * (compareClosedLoopMetrics()), from the archived documents, without a simulation. Prints each run's violations and
- * improvements and a summary; exits 1 when a run is outside the rules and 2 when the comparison cannot be made.
- * `make compare-closed-loop CANDIDATE=<label> BASELINE=<label> [ROBOT=<robot>]` runs it under `bazel test`.
+ * compare_closed_loop: two recorded labels of data/closed_loop/ compared
+ * offline (compareArchivedClosedLoopRuns()): every archived run of --candidate
+ * held to the same run of --baseline under the rules the run itself applies
+ * (compareClosedLoopMetrics()), from the archived documents, without a
+ * simulation. Prints each run's violations and improvements and a summary;
+ * exits 1 when a run is outside the rules and 2 when the comparison cannot be
+ * made. `make compare-closed-loop CANDIDATE=<label> BASELINE=<label>
+ * [ROBOT=<robot>]` runs it under `bazel test`.
  */
 
-// The default of the flag that is not a string: as the run's (closedLoopScenarios.cpp), and `make closed-loop-metrics`
-// passes neither.
+// The default of the flag that is not a string: as the run's
+// (closedLoopScenarios.cpp), and `make closed-loop-metrics` passes neither.
 namespace {
 constexpr bool kDefaultCompareSolveTime = false;
 }  // namespace
 
 // NOLINTNEXTLINE(misc-use-internal-linkage): ABSL_FLAG must be at global scope.
-ABSL_FLAG(std::string, candidate, "", "The label under data/closed_loop/ whose runs are compared.");
+ABSL_FLAG(std::string,
+          candidate,
+          "",
+          "The label under data/closed_loop/ whose runs are compared.");
 // NOLINTNEXTLINE(misc-use-internal-linkage): ABSL_FLAG must be at global scope.
-ABSL_FLAG(std::string, baseline, "", "The label under data/closed_loop/ they are compared with.");
+ABSL_FLAG(std::string,
+          baseline,
+          "",
+          "The label under data/closed_loop/ they are compared with.");
 // NOLINTNEXTLINE(misc-use-internal-linkage): ABSL_FLAG must be at global scope.
-ABSL_FLAG(std::string, robot, "", "The configuration to compare alone (RobotConfiguration::name); empty: every one.");
+ABSL_FLAG(std::string,
+          robot,
+          "",
+          "The configuration to compare alone (RobotConfiguration::name); "
+          "empty: every one.");
 // NOLINTNEXTLINE(misc-use-internal-linkage): ABSL_FLAG must be at global scope.
 ABSL_FLAG(bool,
           compare_solve_time,
           kDefaultCompareSolveTime,
-          "Also compare the p99 solve time (only between labels recorded on one machine), as the run's flag of that name.");
+          "Also compare the p99 solve time (only between labels recorded on "
+          "one machine), as the run's flag of that name.");
 
 namespace ocs2::humanoid::validation {
 namespace {
 
 // LINT.IfChange(comparison_paths)
-constexpr char kClosedLoopDirectory[] = "humanoid_nmpc/humanoid_mpc_validation/data/closed_loop";
+constexpr char kClosedLoopDirectory[] =
+    "humanoid_nmpc/humanoid_mpc_validation/data/closed_loop";
 // LINT.ThenChange(//Makefile:closed_loop_targets)
 
 int compareLabels() {
   const std::string candidate = absl::GetFlag(FLAGS_candidate);
   const std::string baseline = absl::GetFlag(FLAGS_baseline);
   if (candidate.empty() || baseline.empty()) {
-    absl::FPrintF(stderr, "Usage: compare_closed_loop --candidate=<label> --baseline=<label> [--robot=<robot>]\n");
+    absl::FPrintF(stderr,
+                  "Usage: compare_closed_loop --candidate=<label> "
+                  "--baseline=<label> [--robot=<robot>]\n");
     return node::kUsageErrorExitCode;
   }
   const ArchivedComparisonOptions options{
-      .candidateDirectory = (std::filesystem::path(kClosedLoopDirectory) / candidate).string(),
-      .baselineDirectory = (std::filesystem::path(kClosedLoopDirectory) / baseline).string(),
+      .candidateDirectory =
+          (std::filesystem::path(kClosedLoopDirectory) / candidate).string(),
+      .baselineDirectory =
+          (std::filesystem::path(kClosedLoopDirectory) / baseline).string(),
       .robot = absl::GetFlag(FLAGS_robot),
       .compareSolveTime = absl::GetFlag(FLAGS_compare_solve_time),
   };
-  const absl::StatusOr<ArchivedComparison> comparison = compareArchivedClosedLoopRuns(options);
+  const absl::StatusOr<ArchivedComparison> comparison =
+      compareArchivedClosedLoopRuns(options);
   if (!comparison.ok()) {
     absl::FPrintF(stderr, "%s\n", comparison.status().ToString());
     return node::kUsageErrorExitCode;
@@ -94,17 +114,23 @@ int compareLabels() {
   size_t outside = 0;
   size_t improved = 0;
   for (const ArchivedRunComparison& run : comparison->runs) {
-    absl::PrintF("%s %s against %s:\n%s\n", run.robot, run.scenario, baseline, describeClosedLoopComparison(run.comparison));
+    absl::PrintF("%s %s against %s:\n%s\n", run.robot, run.scenario, baseline,
+                 describeClosedLoopComparison(run.comparison));
     if (!run.comparison.violations.empty()) ++outside;
     if (!run.comparison.improvements.empty()) ++improved;
   }
   for (const std::string& run : comparison->withoutBaseline) {
-    absl::PrintF("No baseline of %s in %s: nothing to compare with.\n", run, baseline);
+    absl::PrintF("No baseline of %s in %s: nothing to compare with.\n", run,
+                 baseline);
   }
-  absl::PrintF("%s against %s: %d runs compared, %d outside the rules, %d with improvements, %d without a baseline.\n", candidate, baseline,
-               comparison->runs.size(), outside, improved, comparison->withoutBaseline.size());
+  absl::PrintF(
+      "%s against %s: %d runs compared, %d outside the rules, %d with "
+      "improvements, %d without a baseline.\n",
+      candidate, baseline, comparison->runs.size(), outside, improved,
+      comparison->withoutBaseline.size());
   if (comparison->runs.empty()) {
-    absl::FPrintF(stderr, "No run of %s has a baseline in %s.\n", candidate, baseline);
+    absl::FPrintF(stderr, "No run of %s has a baseline in %s.\n", candidate,
+                  baseline);
     return node::kUsageErrorExitCode;
   }
   return outside == 0 ? 0 : 1;

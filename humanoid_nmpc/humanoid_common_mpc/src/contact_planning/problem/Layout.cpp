@@ -75,9 +75,13 @@ std::string footYawDelta(size_t foot) {
 }  // namespace var
 
 namespace {
-int indexOf(const std::vector<std::string>& names, absl::string_view name, const char* absl_nonnull what) {
-  const std::vector<std::string>::const_iterator it = std::find(names.begin(), names.end(), name);
-  CHECK(it != names.end()) << "[Layout] no " << what << " named '" << name << "'";
+int indexOf(const std::vector<std::string>& names,
+            absl::string_view name,
+            const char* absl_nonnull what) {
+  const std::vector<std::string>::const_iterator it =
+      std::find(names.begin(), names.end(), name);
+  CHECK(it != names.end()) << "[Layout] no " << what << " named '" << name
+                           << "'";
   return static_cast<int>(it - names.begin());
 }
 }  // namespace
@@ -91,15 +95,19 @@ int Layout::input(absl::string_view name) const {
 }
 
 bool Layout::hasState(absl::string_view name) const {
-  return std::find(stateNames.begin(), stateNames.end(), name) != stateNames.end();
+  return std::find(stateNames.begin(), stateNames.end(), name) !=
+         stateNames.end();
 }
 
 bool Layout::hasInput(absl::string_view name) const {
-  return std::find(inputNames.begin(), inputNames.end(), name) != inputNames.end();
+  return std::find(inputNames.begin(), inputNames.end(), name) !=
+         inputNames.end();
 }
 
 std::string Layout::describe() const {
-  return absl::StrCat("x = [", absl::StrJoin(stateNames, " "), "] (", nx, "), u = [", absl::StrJoin(inputNames, " "), "] (", nu, ")");
+  return absl::StrCat("x = [", absl::StrJoin(stateNames, " "), "] (", nx,
+                      "), u = [", absl::StrJoin(inputNames, " "), "] (", nu,
+                      ")");
 }
 
 }  // namespace ocs2::humanoid

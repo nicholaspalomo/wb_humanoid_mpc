@@ -36,21 +36,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::model {
 
 /**
- * Contact estimator that reports the contact flags carried by the RobotState, i.e. whatever the hardware or simulator
- * interface wrote there (see RobotState::setContactFlag). It is the default estimator of the MRT joint controllers, and
- * reproduces their historical behavior: a simulator that does not report ground-truth contacts fills every flag with
- * true, so every planned contact wrench reaches the inverse dynamics.
+ * Contact estimator that reports the contact flags carried by the RobotState,
+ * i.e. whatever the hardware or simulator interface wrote there (see
+ * RobotState::setContactFlag). It is the default estimator of the MRT joint
+ * controllers, and reproduces their historical behavior: a simulator that does
+ * not report ground-truth contacts fills every flag with true, so every planned
+ * contact wrench reaches the inverse dynamics.
  *
  * Not thread-safe: the control thread calls it.
  */
 class RobotStateContactEstimator final : public ContactEstimator {
  public:
-  void estimateContactFlags(const RobotState& robotState, std::vector<bool>& flags) override {
+  void estimateContactFlags(const RobotState& robotState,
+                            std::vector<bool>& flags) override {
     const std::vector<bool>& stateFlags = robotState.getContactFlags();
     flags.assign(stateFlags.begin(), stateFlags.end());
   }
 
-  absl::string_view getName() const override { return "RobotStateContactEstimator"; }
+  absl::string_view getName() const override {
+    return "RobotStateContactEstimator";
+  }
 };
 
 }  // namespace robot::model

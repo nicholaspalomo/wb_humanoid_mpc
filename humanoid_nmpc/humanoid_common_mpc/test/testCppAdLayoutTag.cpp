@@ -43,19 +43,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_core/ResourcePaths.h"
 
 /*
- * The CppAD library folder of the MPCs carries the state layout's tag (common/StateLayout.h, design decision D14 of
- * humanoid_nmpc/docs/quaternion_base_orientation/README.md). Every shipped task file sets
- * model_settings.recompile_libraries_cpp_ad: false, and a library is reused whenever its .so file exists, so a library
- * taped for another state layout - a stale one of an untagged layout sits one folder up, in the folder without the tag -
- * must never be loaded for the quaternion layout: the folder of every MPC is cppad_code_gen/cppad_<mpc><robot>/<tag>, the tag its last path
- * component, and the tag is pinned here with its spelling, so that changing it (and so regenerating every library) is a
- * deliberate edit of this test too. The pattern of humanoid_wb_mpc's testJointTorqueCostLibraryName.
+ * The CppAD library folder of the MPCs carries the state layout's tag
+ * (common/StateLayout.h, design decision D14 of
+ * humanoid_nmpc/docs/quaternion_base_orientation/README.md). Every shipped task
+ * file sets model_settings.recompile_libraries_cpp_ad: false, and a library is
+ * reused whenever its .so file exists, so a library taped for another state
+ * layout - a stale one of an untagged layout sits one folder up, in the folder
+ * without the tag - must never be loaded for the quaternion layout: the folder
+ * of every MPC is cppad_code_gen/cppad_<mpc><robot>/<tag>, the tag its last
+ * path component, and the tag is pinned here with its spelling, so that
+ * changing it (and so regenerating every library) is a deliberate edit of this
+ * test too. The pattern of humanoid_wb_mpc's testJointTorqueCostLibraryName.
  */
 
 namespace ocs2::humanoid {
 namespace {
 
-/** A shipped MPC's task file and URDF, from the repository root, and the name prefix its interface creates it with. */
+/** A shipped MPC's task file and URDF, from the repository root, and the name
+ * prefix its interface creates it with. */
 struct ShippedMpc {
   const char* absl_nonnull taskFile;
   const char* absl_nonnull urdfFile;
@@ -63,7 +68,8 @@ struct ShippedMpc {
 };
 
 constexpr std::array<ShippedMpc, 2> kMpcs = {{
-    {.taskFile = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto",
+    {.taskFile = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/"
+                 "task.textproto",
      .urdfFile = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf",
      .mpcName = "centroidal_mpc_"},
     {.taskFile = "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto",
@@ -78,17 +84,25 @@ TEST(CppAdLayoutTag, TheTagKeepsItsSpelling) {
 TEST(CppAdLayoutTag, EveryMpcsLibraryFolderEndsInTheTag) {
   for (const ShippedMpc& mpc : kMpcs) {
     SCOPED_TRACE(mpc.taskFile);
-    const absl::StatusOr<std::string> taskFile = robot::resolveResourcePath(mpc.taskFile);
-    const absl::StatusOr<std::string> urdfFile = robot::resolveResourcePath(mpc.urdfFile);
-    ASSERT_TRUE(taskFile.ok() && urdfFile.ok()) << "the shipped files are not in the runfiles";
-    const absl::StatusOr<ModelSettings> settings = ModelSettings::Create(*taskFile, *urdfFile, mpc.mpcName, /*verbose=*/false);
+    const absl::StatusOr<std::string> taskFile =
+        robot::resolveResourcePath(mpc.taskFile);
+    const absl::StatusOr<std::string> urdfFile =
+        robot::resolveResourcePath(mpc.urdfFile);
+    ASSERT_TRUE(taskFile.ok() && urdfFile.ok())
+        << "the shipped files are not in the runfiles";
+    const absl::StatusOr<ModelSettings> settings = ModelSettings::Create(
+        *taskFile, *urdfFile, mpc.mpcName, /*verbose=*/false);
     ASSERT_TRUE(settings.ok()) << settings.status();
-    const std::string folderWithoutTag = absl::StrCat("cppad_code_gen/cppad_", mpc.mpcName, settings->robotName);
-    EXPECT_EQ(settings->modelFolderCppAd, absl::StrCat(folderWithoutTag, "/", kStateLayoutTag));
+    const std::string folderWithoutTag =
+        absl::StrCat("cppad_code_gen/cppad_", mpc.mpcName, settings->robotName);
+    EXPECT_EQ(settings->modelFolderCppAd,
+              absl::StrCat(folderWithoutTag, "/", kStateLayoutTag));
     const std::filesystem::path folder(settings->modelFolderCppAd);
-    EXPECT_EQ(folder.filename().string(), std::string(kStateLayoutTag)) << "the tag is the folder's last component";
+    EXPECT_EQ(folder.filename().string(), std::string(kStateLayoutTag))
+        << "the tag is the folder's last component";
     EXPECT_EQ(folder.parent_path().string(), folderWithoutTag)
-        << "the libraries of an untagged layout, one folder up, are never read for the quaternion layout";
+        << "the libraries of an untagged layout, one folder up, are never read "
+           "for the quaternion layout";
     EXPECT_TRUE(absl::StrContains(settings->modelFolderCppAd, kStateLayoutTag));
   }
 }

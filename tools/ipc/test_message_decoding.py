@@ -56,7 +56,9 @@ def make_policy() -> mpc_policy_pb2.MpcPolicy:
     policy.solver_status.solve_time_ms = 4.5
     for node in range(3):
         policy.time_trajectory.append(0.01 * node)
-        policy.state_trajectory.add().data.extend([float(node), float(node) + 0.5])
+        policy.state_trajectory.add().data.extend(
+            [float(node), float(node) + 0.5]
+        )
     policy.controller_type = controller_type_pb2.CONTROLLER_TYPE_LINEAR
     return policy
 
@@ -107,7 +109,9 @@ def parse_text(text: str, cls: type[message.Message]) -> message.Message:
 
 class ImportMessageModulesTest(unittest.TestCase):
 
-    def test_every_message_of_every_module_resolves_by_its_full_name(self) -> None:
+    def test_every_message_of_every_module_resolves_by_its_full_name(
+        self,
+    ) -> None:
         modules = message_decoding.import_message_modules()
         self.assertIn("humanoid_mpc_msgs.mpc_policy_pb2", modules)
         # The tuning GUI's payloads are configuration files (operator/mpc_parameters, operator/pd_gains).
@@ -119,7 +123,9 @@ class ImportMessageModulesTest(unittest.TestCase):
             for descriptor in module.DESCRIPTOR.message_types_by_name.values():
                 with self.subTest(message=descriptor.full_name):
                     cls = message_decoding.message_class(descriptor.full_name)
-                    self.assertEqual(cls.DESCRIPTOR.full_name, descriptor.full_name)
+                    self.assertEqual(
+                        cls.DESCRIPTOR.full_name, descriptor.full_name
+                    )
 
 
 class DecodeTest(unittest.TestCase):
@@ -138,9 +144,7 @@ class DecodeTest(unittest.TestCase):
         update = mpc_parameter_update_pb2.MpcParameterUpdate()
         update.task.contact_estimator = "robot_state"
         update.task.contact_wrench_gate.ramp_time = 0.04
-        update.config_path = (
-            "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto"
-        )
+        update.config_path = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto"
         decoded = message_decoding.decode(
             "humanoid_mpc_config.MpcParameterUpdate", update.SerializeToString()
         )
@@ -150,7 +154,9 @@ class DecodeTest(unittest.TestCase):
             message_decoding.message_to_text(decoded),
         )
         self.assertEqual(
-            message_decoding.message_to_python(decoded)["task"]["contact_estimator"],
+            message_decoding.message_to_python(decoded)["task"][
+                "contact_estimator"
+            ],
             "robot_state",
         )
 
@@ -184,7 +190,8 @@ class MessageToPythonTest(unittest.TestCase):
         self.assertEqual(value["observation_time"], 0.0)
         self.assertEqual(value["solver_status"]["healthy"], False)
         self.assertEqual(
-            list(value), [f.name for f in mpc_status_pb2.MpcStatus.DESCRIPTOR.fields]
+            list(value),
+            [f.name for f in mpc_status_pb2.MpcStatus.DESCRIPTOR.fields],
         )
 
     def test_enums_print_by_name_and_repeated_fields_as_lists(self) -> None:
@@ -207,7 +214,9 @@ class MessageToPythonTest(unittest.TestCase):
                     "humanoid_mpc_msgs.MpcPolicy", policy.SerializeToString()
                 )
                 self.assertEqual(
-                    message_decoding.message_to_python(decoded)["controller_type"],
+                    message_decoding.message_to_python(decoded)[
+                        "controller_type"
+                    ],
                     name,
                 )
                 self.assertIn(
@@ -260,7 +269,9 @@ class SelectFieldTest(unittest.TestCase):
         }
         for path, expected in cases.items():
             with self.subTest(path=path):
-                with self.assertRaises(message_decoding.FieldPathError) as raised:
+                with self.assertRaises(
+                    message_decoding.FieldPathError
+                ) as raised:
                     message_decoding.select_field(self.policy, path)
                 self.assertIn(expected, str(raised.exception))
 
@@ -294,12 +305,16 @@ class TextFormatTest(unittest.TestCase):
         self.assertIn("solver_status {", lines)
         self.assertIn("  healthy: false", lines)
         self.assertIn('  last_error: ""', lines)
-        empty_policy = message_decoding.message_to_text(mpc_policy_pb2.MpcPolicy())
+        empty_policy = message_decoding.message_to_text(
+            mpc_policy_pb2.MpcPolicy()
+        )
         self.assertIn("time_trajectory: []", empty_policy.splitlines())
         self.assertIn("state_trajectory: []", empty_policy.splitlines())
         parse_text(empty_policy, mpc_policy_pb2.MpcPolicy)
 
-    def test_repeated_scalars_are_one_list_and_enums_print_by_name(self) -> None:
+    def test_repeated_scalars_are_one_list_and_enums_print_by_name(
+        self,
+    ) -> None:
         lines = message_decoding.message_to_text(make_policy()).splitlines()
         self.assertIn("time_trajectory: [0.0, 0.01, 0.02]", lines)
         self.assertIn("controller_type: CONTROLLER_TYPE_LINEAR", lines)
@@ -321,9 +336,13 @@ class TextFormatTest(unittest.TestCase):
             positions={"right_knee": -0.5, "left_knee": 0.25}
         )
         text = message_decoding.message_to_text(targets)
-        self.assertEqual(parse_text(text, joint_targets_pb2.JointTargets), targets)
+        self.assertEqual(
+            parse_text(text, joint_targets_pb2.JointTargets), targets
+        )
         self.assertLess(text.index('"left_knee"'), text.index('"right_knee"'))
-        empty = message_decoding.message_to_text(joint_targets_pb2.JointTargets())
+        empty = message_decoding.message_to_text(
+            joint_targets_pb2.JointTargets()
+        )
         self.assertEqual(empty, "positions: []")
         self.assertEqual(
             parse_text(empty, joint_targets_pb2.JointTargets),
@@ -335,7 +354,8 @@ class TextFormatTest(unittest.TestCase):
         choice = choice_class(value=0.0)
         text = message_decoding.message_to_text(choice)
         self.assertEqual(
-            text.splitlines(), ["# label: not set", "value: 0.0", "# count: not set"]
+            text.splitlines(),
+            ["# label: not set", "value: 0.0", "# count: not set"],
         )
         parsed = parse_text(text, choice_class)
         self.assertEqual(parsed, choice)
@@ -365,8 +385,12 @@ class TextFormatTest(unittest.TestCase):
             ),
             gains,
         )
-        self.assertIsNone(message_decoding.select_field(gains, "joint_gains.0.kp"))
-        self.assertEqual(message_decoding.select_field(gains, "joint_gains.0.kd"), 2.0)
+        self.assertIsNone(
+            message_decoding.select_field(gains, "joint_gains.0.kp")
+        )
+        self.assertEqual(
+            message_decoding.select_field(gains, "joint_gains.0.kd"), 2.0
+        )
 
     def test_unset_proto3_optional_fields_round_trip_through_json(self) -> None:
         throw = dodgeball_throw_pb2.DodgeballThrow(azimuth_deg=10.0)
@@ -390,7 +414,11 @@ class TextFormatTest(unittest.TestCase):
     def test_selected_elements_carry_their_indices(self) -> None:
         text = message_decoding.format_fields(
             make_policy(),
-            ["state_trajectory.-1.data.1", "time_trajectory.0", "time_trajectory.2"],
+            [
+                "state_trajectory.-1.data.1",
+                "time_trajectory.0",
+                "time_trajectory.2",
+            ],
             "text",
         )
         lines = text.splitlines()
@@ -403,7 +431,9 @@ class TextFormatTest(unittest.TestCase):
 
     def test_a_field_selected_whole_wins_over_paths_into_it(self) -> None:
         policy = make_policy()
-        whole = message_decoding.format_fields(policy, ["solver_status"], "text")
+        whole = message_decoding.format_fields(
+            policy, ["solver_status"], "text"
+        )
         for paths in (
             ["solver_status.healthy", "solver_status"],
             ["solver_status", "solver_status.healthy"],
@@ -427,7 +457,9 @@ class JsonFormatTest(unittest.TestCase):
     def test_json_parses_back_into_a_message_with_the_same_values(self) -> None:
         policy = make_policy()
         text = message_decoding.format_fields(policy, [], "json")
-        parsed = json_format.ParseDict(json.loads(text), mpc_policy_pb2.MpcPolicy())
+        parsed = json_format.ParseDict(
+            json.loads(text), mpc_policy_pb2.MpcPolicy()
+        )
         # Every field is printed, so unset submessages come back set to their defaults: the values are equal, the
         # presence bits are not.
         self.assertEqual(

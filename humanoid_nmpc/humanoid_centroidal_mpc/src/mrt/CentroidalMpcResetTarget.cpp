@@ -39,26 +39,35 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-TargetTrajectories centroidalMpcResetTargetTrajectories(const SystemObservation& observation,
-                                                        const CentroidalModelInfo& info,
-                                                        const MpcRobotModelBase<scalar_t>& effectiveModel,
-                                                        const PinocchioInterface& pinocchioInterface) {
+TargetTrajectories centroidalMpcResetTargetTrajectories(
+    const SystemObservation& observation,
+    const CentroidalModelInfo& info,
+    const MpcRobotModelBase<scalar_t>& effectiveModel,
+    const PinocchioInterface& pinocchioInterface) {
   vector_t targetState = observation.state;
 
-  // Zero out the normalized momentum (linear and angular momentum: the first 6 entries).
+  // Zero out the normalized momentum (linear and angular momentum: the first 6
+  // entries).
   centroidal_model::getNormalizedMomentum(targetState, info).setZero();
 
-  // The base upright at the observed heading: the heading quaternion of the observed attitude, its twist about the world
-  // z axis with the tilt dropped (design decision D9). A measured attitude, so it is written as one (setBaseOrientation).
-  effectiveModel.setBaseOrientation(targetState, headingQuaternion(effectiveModel.getBaseOrientation(targetState)));
+  // The base upright at the observed heading: the heading quaternion of the
+  // observed attitude, its twist about the world z axis with the tilt dropped
+  // (design decision D9). A measured attitude, so it is written as one
+  // (setBaseOrientation).
+  effectiveModel.setBaseOrientation(
+      targetState,
+      headingQuaternion(effectiveModel.getBaseOrientation(targetState)));
 
-  // Weight-compensating vertical contact forces (mg/2 per foot in stance). The state-aware overload expresses the
-  // world-frame force in the effective model's input parameterization at the target configuration.
-  const vector_t targetInput = weightCompensatingInput(pinocchioInterface, {true, true}, effectiveModel, targetState);
+  // Weight-compensating vertical contact forces (mg/2 per foot in stance). The
+  // state-aware overload expresses the world-frame force in the effective
+  // model's input parameterization at the target configuration.
+  const vector_t targetInput = weightCompensatingInput(
+      pinocchioInterface, {true, true}, effectiveModel, targetState);
 
   const scalar_t startTime = observation.time;
   const scalar_t endTime = startTime + kResetTargetDuration;
-  return TargetTrajectories({startTime, endTime}, {targetState, targetState}, {targetInput, targetInput});
+  return TargetTrajectories({startTime, endTime}, {targetState, targetState},
+                            {targetInput, targetInput});
 }
 
 }  // namespace ocs2::humanoid

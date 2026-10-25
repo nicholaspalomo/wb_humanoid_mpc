@@ -89,7 +89,6 @@ a reason to restyle unrelated code in the same change.
 #### C++: where this repository departs from the Google C++ Style Guide
 
 <!-- LINT.IfChange(cpp_style) -->
-- **Line length** is 140 columns (`.clang-format`), not 80.
 - **`auto` is not written**, except as `auto x = std::make_unique<T>(...)` or `auto x = std::make_shared<T>(...)`, where
   the type is already on the line. This is stricter than the guide's "Type deduction" and also rules out range-for
   `auto`, structured bindings, generic lambdas, lambdas stored in an `auto` variable, deduced return types and trailing
@@ -396,8 +395,8 @@ Not applied:
 #### Python: where this repository departs from the Google Python Style Guide
 
 <!-- LINT.IfChange(python_style) -->
-- **Line length.** black formats code at its default 88 columns. Comments, docstrings and strings may run to 140
-  (pylint). The guide's 80 is not used. Indentation is 4 spaces, as in Google's published pylintrc.
+- **Line length.** black formats code at the guide's 80 columns, as clang-format does C++. Comments and docstrings may
+  run to 140 (pylint, `py-docstring-summary`). Indentation is 4 spaces, as in Google's published pylintrc.
 - **Type checking** uses mypy (`mypy.ini`), since pytype has reached end of life. Every non-test function is fully
   annotated. Code must run on Python 3.11, Bazel's hermetic interpreter, so:
   - no `type X = ...` statements or `class C[T]` generics;
@@ -475,14 +474,21 @@ Agent rules:
 - `make format` applies clang-format, black, isort and the rewrites that cannot change behavior: floating-point radix
   points, `=` initialization, prefix `++`, unqualified integer types and quoted include spelling (the `fix_source` of
   each enforced check that has one).
+- `make fix` applies every automatic fix - the registry's `fix_source` rewrites, `make format`'s, and with
+  `TIDY_CHECKS=<glob>` clang-tidy's fix-its (`make lint-tidy-fix`) - and then runs `make lint`, whose findings are the
+  ones left to fix by hand. Some of its rewrites can change behavior (`american-spelling` renames identifiers), so build
+  and test afterwards.
 - `make lint` (`python3 -m tools.hooks.lint_code`) runs every check that needs no compiler: IFTTT, whitespace,
   clang-format, black, isort, the token checks of `tools/hooks/checks.py`, cpplint, pylint and mypy. It runs them all
   and then fails, so one run shows every finding. `--only <check>` and `--paths <dir>` narrow a run.
   - cpplint, pylint and mypy take turns through a lint lock (`.lint_machine.lock` in the checkout), because together
     they need hundreds of MB next to a build that is already sized to the machine. A second run waits and says why. Do
     not bypass it. The token checks need no lock; narrow a run with `--only` and `--paths` while you work.
-- The pre-commit hook runs `make format` and then `python3 -m tools.hooks.lint_code --git-staged` on the files the
-  commit touches.
+- The pre-commit hook fixes, formats and lints the files the commit touches: it applies every automatic fix
+  (`python3 -m tools.hooks.lint_code --fix-only --git-staged`, the behavior-changing ones included), runs `make format`,
+  stages the changes of the staged files and then runs `python3 -m tools.hooks.lint_code --git-staged`. A finding left
+  after that has no automatic fix and blocks the commit until it is fixed by hand. A partially staged file is never
+  re-staged; when a fix or the formatter changes it, the commit stops for the user to stage the changes.
 - `make lint-tidy [PKG=//humanoid_nmpc/...]` runs clang-tidy. CI runs it after the tests.
   - clang-tidy is a compiler front end. It runs only through `make lint-tidy`, a Bazel aspect inside the machine lock
     and the RAM-bounded `--jobs`.

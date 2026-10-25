@@ -49,10 +49,14 @@ NAME = "todo-format"
 
 _TODO = re.compile(r"\bTODO\b")
 _WITH_OWNER = re.compile(r"^TODO\([^)\s][^)]*\):\s*\S")
-_WITH_REFERENCE = re.compile(r"^TODO:\s*(bug \d+|#\d+|b/\d+|https?://\S+)\s+-\s+\S")
+_WITH_REFERENCE = re.compile(
+    r"^TODO:\s*(bug \d+|#\d+|b/\d+|https?://\S+)\s+-\s+\S"
+)
 
 
-def check_source(source: str, path: str = "<source>") -> list[check_types.Finding]:
+def check_source(
+    source: str, path: str = "<source>"
+) -> list[check_types.Finding]:
     """The TODO comments of `source` in neither accepted form."""
     style = nolint.comment_style(path)
     if style == nolint.WHOLE_LINE:
@@ -71,8 +75,9 @@ def check_source(source: str, path: str = "<source>") -> list[check_types.Findin
                     number,
                     match.start() + 1,
                     NAME,
-                    "TODO without a reference: write `TODO: bug 123 - <text>` (or #123, b/123, a URL) or "
-                    "`TODO(<owner>): <text>` (Google C++ style, TODO comments; Python style 3.12).",
+                    "TODO without a reference: write `TODO: bug 123 - <text>`"
+                    " (or #123, b/123, a URL) or `TODO(<owner>): <text>`"
+                    " (Google C++ style, TODO comments; Python style 3.12).",
                 )
             )
     return findings
@@ -91,6 +96,9 @@ CHECKS = [
         ),
         scope=lint_files.Scope.FIRST_PARTY,
         check_source=check_source,
-        description="a TODO names a bug, a link or an owner (G: TODO comments; Python style 3.12).",
+        description=(
+            "a TODO names a bug, a link or an owner (G: TODO comments; Python"
+            " style 3.12)."
+        ),
     )
 ]

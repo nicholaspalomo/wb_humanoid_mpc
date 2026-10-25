@@ -42,33 +42,46 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Applies the COEFFICIENTS of the locomotion heuristics (humanoid_nmpc/docs/locomotion_heuristics/README.md) to the
- * LocomotionHeuristicLayer, exactly as the cost weights beside them - all of them or, if any is rejected, none. Which
- * heuristics are listed is structural and is not reloaded; the layer says so once per distinct edit to a list. The layer
- * lives on the reference manager, which is shared rather than cloned per worker, so one reconfigure() reaches every
- * thread's view of it; it is safe from the solver thread because the reload runs before any worker of the next solve.
+ * Applies the COEFFICIENTS of the locomotion heuristics
+ * (humanoid_nmpc/docs/locomotion_heuristics/README.md) to the
+ * LocomotionHeuristicLayer, exactly as the cost weights beside them - all of
+ * them or, if any is rejected, none. Which heuristics are listed is structural
+ * and is not reloaded; the layer says so once per distinct edit to a list. The
+ * layer lives on the reference manager, which is shared rather than cloned per
+ * worker, so one reconfigure() reaches every thread's view of it; it is safe
+ * from the solver thread because the reload runs before any worker of the next
+ * solve.
  *
  * Not thread-safe (HotFieldApplier).
  */
 class LocomotionHeuristicsApplier final : public HotFieldApplier {
  public:
-  /** The fields it applies: the ten coefficient blocks of locomotion_heuristics (not its three lists). */
+  /** The fields it applies: the ten coefficient blocks of locomotion_heuristics
+   * (not its three lists). */
   static absl::Span<const absl::string_view> staticFields();
 
   /**
-   * The applier of `layer`, the MPC interface's (shared with its reference manager, which holds it as a shared_ptr); null:
-   * the block is launch-time only and nothing is applied.
+   * The applier of `layer`, the MPC interface's (shared with its reference
+   * manager, which holds it as a shared_ptr); null: the block is launch-time
+   * only and nothing is applied.
    */
-  explicit LocomotionHeuristicsApplier(std::shared_ptr<LocomotionHeuristicLayer> layer) : layer_(std::move(layer)) {}
+  explicit LocomotionHeuristicsApplier(
+      std::shared_ptr<LocomotionHeuristicLayer> layer)
+      : layer_(std::move(layer)) {}
 
-  absl::string_view name() const override { return "LocomotionHeuristicsApplier"; }
-  absl::Span<const absl::string_view> fields() const final { return staticFields(); }
+  absl::string_view name() const override {
+    return "LocomotionHeuristicsApplier";
+  }
+  absl::Span<const absl::string_view> fields() const final {
+    return staticFields();
+  }
   void apply(HotUpdateTarget& target) override;
 
  private:
-  // Shared, not observed: the applier lives in MpcParameterUpdaterModule and the layer in the reference manager, and OCS2
-  // holds both of them (a SolverSynchronizedModule, a ReferenceManagerInterface) by std::shared_ptr, so neither one's
-  // lifetime bounds the other's.
+  // Shared, not observed: the applier lives in MpcParameterUpdaterModule and
+  // the layer in the reference manager, and OCS2 holds both of them (a
+  // SolverSynchronizedModule, a ReferenceManagerInterface) by std::shared_ptr,
+  // so neither one's lifetime bounds the other's.
   std::shared_ptr<LocomotionHeuristicLayer> layer_;
 };
 

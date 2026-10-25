@@ -36,36 +36,44 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 
 /**
- * Crash-safe writes of the robot's persistent configuration files (RobotConfigDirectory, ConfigFileStore): a reader of
- * a file - the task file's watcher, the PD gains file's poll, the next start - sees its old or its new contents, never
- * a part of either, also after a power loss. POSIX; an error is the errno's absl::Status (absl::ErrnoToStatus) naming the
- * path. They block on the disk: for the main thread and the store's writer thread, never the realtime thread and not
- * the bus's IO thread.
+ * Crash-safe writes of the robot's persistent configuration files
+ * (RobotConfigDirectory, ConfigFileStore): a reader of a file - the task file's
+ * watcher, the PD gains file's poll, the next start - sees its old or its new
+ * contents, never a part of either, also after a power loss. POSIX; an error is
+ * the errno's absl::Status (absl::ErrnoToStatus) naming the path. They block on
+ * the disk: for the main thread and the store's writer thread, never the
+ * realtime thread and not the bus's IO thread.
  */
 namespace ocs2::humanoid {
 
 /**
- * Replaces the file at `path` with `contents`: writes them to `<path>.tmp.<pid>` (created exclusively, mode 0644),
- * fsyncs it, renames it over `path` and fsyncs the directory. A temporary of the same name left by a process of the
- * same pid that died while writing (a container's processes reuse their low pids) is removed first. DataLoss when the
- * file was replaced but its directory could not be synced afterwards (EIO, or a file system without directory fsync):
- * readers see the new contents, which a power loss may undo. On any other error the file at `path` is untouched and the
+ * Replaces the file at `path` with `contents`: writes them to
+ * `<path>.tmp.<pid>` (created exclusively, mode 0644), fsyncs it, renames it
+ * over `path` and fsyncs the directory. A temporary of the same name left by a
+ * process of the same pid that died while writing (a container's processes
+ * reuse their low pids) is removed first. DataLoss when the file was replaced
+ * but its directory could not be synced afterwards (EIO, or a file system
+ * without directory fsync): readers see the new contents, which a power loss
+ * may undo. On any other error the file at `path` is untouched and the
  * temporary is removed.
  */
-absl::Status writeFileAtomically(absl::string_view path, absl::string_view contents);
+absl::Status writeFileAtomically(absl::string_view path,
+                                 absl::string_view contents);
 
-/** The bytes of the file at `path`: NotFound when there is none, the errno's status otherwise, naming the path. */
+/** The bytes of the file at `path`: NotFound when there is none, the errno's
+ * status otherwise, naming the path. */
 absl::StatusOr<std::string> readFileBytes(absl::string_view path);
 
 /**
- * Renames the file `from` over `to`, which it replaces atomically, and fsyncs the directory of `to`; DataLoss, as
- * writeFileAtomically(), when the rename was done but the directory could not be synced.
+ * Renames the file `from` over `to`, which it replaces atomically, and fsyncs
+ * the directory of `to`; DataLoss, as writeFileAtomically(), when the rename
+ * was done but the directory could not be synced.
  */
 absl::Status renameFile(absl::string_view from, absl::string_view to);
 
 /**
- * Removes the file at `path` and fsyncs its directory; OK when there is no file there, DataLoss when it was removed but
- * the directory could not be synced.
+ * Removes the file at `path` and fsyncs its directory; OK when there is no file
+ * there, DataLoss when it was removed but the directory could not be synced.
  */
 absl::Status removeFile(absl::string_view path);
 

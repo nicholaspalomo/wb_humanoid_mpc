@@ -43,38 +43,55 @@ namespace {
 
 constexpr scalar_t kTol = 1.0e-9;
 
-/** The cadence and height of the paper's experiments (arXiv:2502.15630, Table I). */
+/** The cadence and height of the paper's experiments (arXiv:2502.15630, Table
+ * I). */
 HlipModel makePaperModel() {
   absl::StatusOr<HlipModel> model = HlipModel::Create(0.35, 0.0, 0.62, 9.81);
   ABSL_CHECK_OK(model.status());
   return *std::move(model);
 }
 
-/** A cadence with a non-zero double support, which changes every matrix in the step-to-step map. */
+/** A cadence with a non-zero double support, which changes every matrix in the
+ * step-to-step map. */
 HlipModel makeDoubleSupportModel() {
   absl::StatusOr<HlipModel> model = HlipModel::Create(0.3, 0.1, 0.85, 9.81);
   ABSL_CHECK_OK(model.status());
   return *std::move(model);
 }
 
-// Every bound of the model is refused, NaN included, instead of ending the process.
+// Every bound of the model is refused, NaN included, instead of ending the
+// process.
 TEST(HlipModel, createRefusesAnOutOfBoundsCadenceOrPendulum) {
   const scalar_t nan = std::numeric_limits<scalar_t>::quiet_NaN();
-  EXPECT_TRUE(HlipModel::Create(/*sspDuration=*/0.3, /*dspDuration=*/0.0, /*comHeight=*/0.85, /*gravity=*/9.81).ok());
+  EXPECT_TRUE(HlipModel::Create(/*sspDuration=*/0.3, /*dspDuration=*/0.0,
+                                /*comHeight=*/0.85, /*gravity=*/9.81)
+                  .ok());
   for (const scalar_t ssp : {0.0, -0.1, nan}) {
-    EXPECT_EQ(HlipModel::Create(ssp, /*dspDuration=*/0.0, /*comHeight=*/0.85, /*gravity=*/9.81).status().code(),
+    EXPECT_EQ(HlipModel::Create(ssp, /*dspDuration=*/0.0, /*comHeight=*/0.85,
+                                /*gravity=*/9.81)
+                  .status()
+                  .code(),
               absl::StatusCode::kInvalidArgument);
   }
   for (const scalar_t dsp : {-0.01, nan}) {
-    EXPECT_EQ(HlipModel::Create(/*sspDuration=*/0.3, dsp, /*comHeight=*/0.85, /*gravity=*/9.81).status().code(),
+    EXPECT_EQ(HlipModel::Create(/*sspDuration=*/0.3, dsp, /*comHeight=*/0.85,
+                                /*gravity=*/9.81)
+                  .status()
+                  .code(),
               absl::StatusCode::kInvalidArgument);
   }
   for (const scalar_t height : {0.0, -0.85, nan}) {
-    EXPECT_EQ(HlipModel::Create(/*sspDuration=*/0.3, /*dspDuration=*/0.0, height, /*gravity=*/9.81).status().code(),
+    EXPECT_EQ(HlipModel::Create(/*sspDuration=*/0.3, /*dspDuration=*/0.0,
+                                height, /*gravity=*/9.81)
+                  .status()
+                  .code(),
               absl::StatusCode::kInvalidArgument);
   }
   for (const scalar_t gravity : {0.0, -9.81, nan}) {
-    EXPECT_EQ(HlipModel::Create(/*sspDuration=*/0.3, /*dspDuration=*/0.0, /*comHeight=*/0.85, gravity).status().code(),
+    EXPECT_EQ(HlipModel::Create(/*sspDuration=*/0.3, /*dspDuration=*/0.0,
+                                /*comHeight=*/0.85, gravity)
+                  .status()
+                  .code(),
               absl::StatusCode::kInvalidArgument);
   }
 }
@@ -90,10 +107,14 @@ TEST(HlipModel, stepToStepMapComposesTheFlows) {
   const HlipModel::State state(0.05, 0.3);
   const scalar_t stepLength = 0.2;
 
-  // The map is the impact, then the double support drift, then the single support flow.
-  const HlipModel::State afterImpact = HlipModel::applyStepTransition(state, stepLength);
-  const HlipModel::State afterDrift = HlipModel::flowDoubleSupport(afterImpact, model.dspDuration());
-  const HlipModel::State expected = model.flowSingleSupport(afterDrift, model.sspDuration());
+  // The map is the impact, then the double support drift, then the single
+  // support flow.
+  const HlipModel::State afterImpact =
+      HlipModel::applyStepTransition(state, stepLength);
+  const HlipModel::State afterDrift =
+      HlipModel::flowDoubleSupport(afterImpact, model.dspDuration());
+  const HlipModel::State expected =
+      model.flowSingleSupport(afterDrift, model.sspDuration());
 
   const HlipModel::State actual = model.applyStepToStep(state, stepLength);
   EXPECT_NEAR(actual(0), expected(0), kTol);
@@ -101,10 +122,12 @@ TEST(HlipModel, stepToStepMapComposesTheFlows) {
 }
 
 TEST(HlipModel, deadbeatGainIsNilpotent) {
-  // The whole point of the H-LIP step controller: A + B K has both eigenvalues at zero, so the error is gone after two
-  // steps without a single tuned gain.
+  // The whole point of the H-LIP step controller: A + B K has both eigenvalues
+  // at zero, so the error is gone after two steps without a single tuned gain.
   for (const HlipModel& model : {makePaperModel(), makeDoubleSupportModel()}) {
-    const HlipModel::Matrix2 closedLoop = model.stepToStepA() + model.stepToStepB() * model.deadbeatGain().transpose();
+    const HlipModel::Matrix2 closedLoop =
+        model.stepToStepA() +
+        model.stepToStepB() * model.deadbeatGain().transpose();
     EXPECT_NEAR(closedLoop.trace(), 0.0, 1.0e-9);
     EXPECT_NEAR(closedLoop.determinant(), 0.0, 1.0e-9);
     EXPECT_NEAR((closedLoop * closedLoop).norm(), 0.0, 1.0e-9);
@@ -122,22 +145,28 @@ TEST(HlipModel, periodOneOrbitIsAFixedPoint) {
 }
 
 TEST(HlipModel, periodOneOrbitAdvancesByTheStepEveryStep) {
-  // The orbit of a commanded velocity covers exactly one step length per step: integrating the velocity the continuous
-  // flow produces over one whole step must give back the step length the orbit was built for.
+  // The orbit of a commanded velocity covers exactly one step length per step:
+  // integrating the velocity the continuous flow produces over one whole step
+  // must give back the step length the orbit was built for.
   const HlipModel model = makePaperModel();
   const scalar_t velocity = 0.4;
   const scalar_t stepLength = velocity * model.stepDuration();
   const HlipModel::State orbit = model.periodOneOrbit(stepLength);
-  const HlipModel::State postImpact = HlipModel::applyStepTransition(orbit, stepLength);
+  const HlipModel::State postImpact =
+      HlipModel::applyStepTransition(orbit, stepLength);
 
   constexpr int kSamples = 20000;
-  const scalar_t sampleTime = model.sspDuration() / static_cast<scalar_t>(kSamples);
+  const scalar_t sampleTime =
+      model.sspDuration() / static_cast<scalar_t>(kSamples);
   scalar_t displacement = model.dspDuration() * postImpact(1);
-  const HlipModel::State afterDrift = HlipModel::flowDoubleSupport(postImpact, model.dspDuration());
+  const HlipModel::State afterDrift =
+      HlipModel::flowDoubleSupport(postImpact, model.dspDuration());
   for (int sample = 0; sample < kSamples; ++sample) {
     const scalar_t start = sampleTime * static_cast<scalar_t>(sample);
     const scalar_t end = start + sampleTime;
-    displacement += 0.5 * sampleTime * (model.flowSingleSupport(afterDrift, start)(1) + model.flowSingleSupport(afterDrift, end)(1));
+    displacement += 0.5 * sampleTime *
+                    (model.flowSingleSupport(afterDrift, start)(1) +
+                     model.flowSingleSupport(afterDrift, end)(1));
   }
   EXPECT_NEAR(displacement, stepLength, 1.0e-6);
   EXPECT_NEAR(displacement / model.stepDuration(), velocity, 1.0e-6);
@@ -147,16 +176,20 @@ TEST(HlipModel, periodTwoOrbitAlternates) {
   const HlipModel model = makePaperModel();
   const scalar_t leftStep = 0.25;
   const scalar_t rightStep = -0.25;
-  const HlipModel::PeriodTwoOrbit orbit = model.periodTwoOrbit(leftStep, rightStep);
+  const HlipModel::PeriodTwoOrbit orbit =
+      model.periodTwoOrbit(leftStep, rightStep);
 
-  const HlipModel::State afterLeft = model.applyStepToStep(orbit.beforeFirstStep, leftStep);
+  const HlipModel::State afterLeft =
+      model.applyStepToStep(orbit.beforeFirstStep, leftStep);
   EXPECT_NEAR(afterLeft(0), orbit.beforeSecondStep(0), 1.0e-9);
   EXPECT_NEAR(afterLeft(1), orbit.beforeSecondStep(1), 1.0e-9);
-  const HlipModel::State afterRight = model.applyStepToStep(orbit.beforeSecondStep, rightStep);
+  const HlipModel::State afterRight =
+      model.applyStepToStep(orbit.beforeSecondStep, rightStep);
   EXPECT_NEAR(afterRight(0), orbit.beforeFirstStep(0), 1.0e-9);
   EXPECT_NEAR(afterRight(1), orbit.beforeFirstStep(1), 1.0e-9);
 
-  // A symmetric lateral orbit stands still on average: the pre-impact positions mirror each other.
+  // A symmetric lateral orbit stands still on average: the pre-impact positions
+  // mirror each other.
   EXPECT_NEAR(orbit.beforeFirstStep(0), -orbit.beforeSecondStep(0), 1.0e-9);
 }
 
@@ -165,7 +198,8 @@ TEST(HlipModel, deadbeatControllerRecoversInTwoSteps) {
   const scalar_t stepLength = 0.3 * model.stepDuration();
   const HlipModel::State orbit = model.periodOneOrbit(stepLength);
 
-  HlipModel::State state(orbit(0) + 0.08, orbit(1) - 0.25);  // a shove, well away from the orbit
+  HlipModel::State state(orbit(0) + 0.08,
+                         orbit(1) - 0.25);  // a shove, well away from the orbit
   for (int step = 0; step < 2; ++step) {
     const scalar_t command = model.deadbeatStepLength(state, orbit, stepLength);
     state = model.applyStepToStep(state, command);
@@ -178,7 +212,8 @@ TEST(HlipModel, deadbeatControllerLeavesTheOrbitAlone) {
   const HlipModel model = makePaperModel();
   const scalar_t stepLength = 0.18;
   const HlipModel::State orbit = model.periodOneOrbit(stepLength);
-  EXPECT_NEAR(model.deadbeatStepLength(orbit, orbit, stepLength), stepLength, kTol);
+  EXPECT_NEAR(model.deadbeatStepLength(orbit, orbit, stepLength), stepLength,
+              kTol);
 }
 
 }  // namespace

@@ -43,9 +43,14 @@ void HeadingTrackingCost::configure(const ContactPlanningConfig& config) {
   weight_ = config.headingTracking.weight;
 }
 
-void HeadingTrackingCost::addToStage(const ContactPlanningContext& ctx, int node, StageAccumulator& stage) const {
-  const scalar_t commandedHeading = ctx.input->heading + ctx.input->headingRateCommand * static_cast<scalar_t>(node) * ctx.dt;
-  stage.addQuadraticResidual({{idx_.heading, 1.0}}, /*uCoefficients=*/{}, -commandedHeading, weight_);
+void HeadingTrackingCost::addToStage(const ContactPlanningContext& ctx,
+                                     int node,
+                                     StageAccumulator& stage) const {
+  const scalar_t commandedHeading =
+      ctx.input->heading +
+      ctx.input->headingRateCommand * static_cast<scalar_t>(node) * ctx.dt;
+  stage.addQuadraticResidual({{idx_.heading, 1.0}}, /*uCoefficients=*/{},
+                             -commandedHeading, weight_);
 }
 
 }  // namespace ocs2::humanoid

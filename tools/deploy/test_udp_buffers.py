@@ -87,8 +87,13 @@ class UdpBuffersTest(unittest.TestCase):
         return path
 
     def set_limits(self, rmem: int, wmem: int) -> None:
-        for key, value in (("net.core.rmem_max", rmem), ("net.core.wmem_max", wmem)):
-            with open(os.path.join(self.state, key), "w", encoding="utf-8") as stream:
+        for key, value in (
+            ("net.core.rmem_max", rmem),
+            ("net.core.wmem_max", wmem),
+        ):
+            with open(
+                os.path.join(self.state, key), "w", encoding="utf-8"
+            ) as stream:
                 stream.write(f"{value}\n")
 
     def limit(self, key: str) -> int:
@@ -103,7 +108,10 @@ class UdpBuffersTest(unittest.TestCase):
             return stream.read().splitlines()
 
     def run_script(
-        self, network: str, in_container: bool = False, sudo_refuses: bool = False
+        self,
+        network: str,
+        in_container: bool = False,
+        sudo_refuses: bool = False,
     ) -> subprocess.CompletedProcess[str]:
         """Runs the script on `network`, here or as if in a container, with a sudo that runs or refuses."""
         dockerenv = os.path.join(self.directory, "dockerenv")
@@ -128,11 +136,14 @@ class UdpBuffersTest(unittest.TestCase):
             check=False,
         )
 
-    def test_a_limit_below_the_request_is_raised_and_kept_across_reboots(self) -> None:
+    def test_a_limit_below_the_request_is_raised_and_kept_across_reboots(
+        self,
+    ) -> None:
         self.set_limits(rmem=212992, wmem=212992)
         result = self.run_script(
             self.network(
-                "transport { socket_receive_buffer_bytes: 8388608 socket_send_buffer_bytes: 4194304 }\n"
+                "transport { socket_receive_buffer_bytes: 8388608"
+                " socket_send_buffer_bytes: 4194304 }\n"
             )
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -146,11 +157,14 @@ class UdpBuffersTest(unittest.TestCase):
             with open(path, encoding="utf-8") as stream:
                 self.assertIn(f"{key} = {value}", stream.read().splitlines())
 
-    def test_a_limit_at_or_above_the_request_is_never_written_or_lowered(self) -> None:
+    def test_a_limit_at_or_above_the_request_is_never_written_or_lowered(
+        self,
+    ) -> None:
         self.set_limits(rmem=8388608, wmem=33554432)
         result = self.run_script(
             self.network(
-                "transport { socket_receive_buffer_bytes: 8388608 socket_send_buffer_bytes: 4194304 }\n"
+                "transport { socket_receive_buffer_bytes: 8388608"
+                " socket_send_buffer_bytes: 4194304 }\n"
             )
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -158,12 +172,17 @@ class UdpBuffersTest(unittest.TestCase):
         self.assertEqual(self.limit("net.core.wmem_max"), 33554432)
         self.assertEqual(os.listdir(self.sysctl_dir), [])
 
-    def test_an_absent_or_zero_request_or_a_commented_one_changes_nothing(self) -> None:
+    def test_an_absent_or_zero_request_or_a_commented_one_changes_nothing(
+        self,
+    ) -> None:
         self.set_limits(rmem=1, wmem=1)
         for text in (
             "domain_id: 0\n",
             "transport { socket_receive_buffer_bytes: 0 }\n",
-            "# transport { socket_receive_buffer_bytes: 8388608 }\ndomain_id: 0\n",
+            (
+                "# transport { socket_receive_buffer_bytes: 8388608"
+                " }\ndomain_id: 0\n"
+            ),
         ):
             with self.subTest(text=text):
                 result = self.run_script(self.network(text))
@@ -175,17 +194,23 @@ class UdpBuffersTest(unittest.TestCase):
     ) -> None:
         self.set_limits(rmem=212992, wmem=212992)
         result = self.run_script(
-            self.network("transport { socket_receive_buffer_bytes: 8388608 }\n"),
+            self.network(
+                "transport { socket_receive_buffer_bytes: 8388608 }\n"
+            ),
             in_container=True,
         )
         self.assertEqual(result.returncode, 0)
         self.assertEqual(self.writes(), [])
         self.assertIn("sudo sysctl -w net.core.rmem_max=8388608", result.stderr)
 
-    def test_a_refused_sudo_leaves_the_limit_and_does_not_fail_the_launch(self) -> None:
+    def test_a_refused_sudo_leaves_the_limit_and_does_not_fail_the_launch(
+        self,
+    ) -> None:
         self.set_limits(rmem=212992, wmem=212992)
         result = self.run_script(
-            self.network("transport { socket_receive_buffer_bytes: 8388608 }\n"),
+            self.network(
+                "transport { socket_receive_buffer_bytes: 8388608 }\n"
+            ),
             sudo_refuses=True,
         )
         self.assertEqual(result.returncode, 0)
@@ -193,16 +218,22 @@ class UdpBuffersTest(unittest.TestCase):
         self.assertIn("could not raise net.core.rmem_max", result.stderr)
 
     def test_a_missing_network_file_is_a_usage_error(self) -> None:
-        result = self.run_script(os.path.join(self.directory, "missing.textproto"))
+        result = self.run_script(
+            os.path.join(self.directory, "missing.textproto")
+        )
         self.assertEqual(result.returncode, 2)
 
-    def test_the_shipped_network_files_ask_for_what_the_script_raises(self) -> None:
+    def test_the_shipped_network_files_ask_for_what_the_script_raises(
+        self,
+    ) -> None:
         for network in SHIPPED_NETWORKS:
             with self.subTest(network=network):
                 self.set_limits(rmem=212992, wmem=212992)
                 result = self.run_script(os.path.join(RUNFILES, network))
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertGreaterEqual(self.limit("net.core.rmem_max"), 8388608)
+                self.assertGreaterEqual(
+                    self.limit("net.core.rmem_max"), 8388608
+                )
 
 
 if __name__ == "__main__":

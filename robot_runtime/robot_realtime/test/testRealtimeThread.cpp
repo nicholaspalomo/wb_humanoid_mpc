@@ -92,7 +92,8 @@ int64_t minorPageFaultsOfThisThread() {
 
 constexpr size_t kTestChunkBytes = 16 * 1024;
 
-// Uses `chunks` frames of kTestChunkBytes of stack, as a deep call chain of the realtime loop would.
+// Uses `chunks` frames of kTestChunkBytes of stack, as a deep call chain of the
+// realtime loop would.
 [[gnu::noinline]] void useStack(size_t chunks) {
   volatile unsigned char chunk[kTestChunkBytes];
   for (size_t offset = 0; offset < kTestChunkBytes; offset += 1024) {
@@ -127,9 +128,12 @@ TEST(RealtimeThreadTest, namesTheThread) {
 }
 
 TEST(RealtimeThreadTest, rejectsNamesLinuxCannotKeep) {
-  EXPECT_EQ(setCurrentThreadName("sixteen_chars___").code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_EQ(setCurrentThreadName("").code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_EQ(setCurrentThreadName(std::string("rt\0loop", 7)).code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(setCurrentThreadName("sixteen_chars___").code(),
+            absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(setCurrentThreadName("").code(),
+            absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(setCurrentThreadName(std::string("rt\0loop", 7)).code(),
+            absl::StatusCode::kInvalidArgument);
 }
 
 TEST(RealtimeThreadTest, pinsTheThreadToAnAllowedCore) {
@@ -159,14 +163,16 @@ TEST(RealtimeThreadTest, rejectsCoresThatDoNotExist) {
     statuses.push_back(setCurrentThreadAffinity(std::vector<int>{}));
     statuses.push_back(setCurrentThreadAffinity(std::vector<int>{-1}));
     statuses.push_back(setCurrentThreadAffinity(std::vector<int>{CPU_SETSIZE}));
-    statuses.push_back(setCurrentThreadAffinity(std::vector<int>{0, static_cast<int>(sysconf(_SC_NPROCESSORS_CONF))}));
+    statuses.push_back(setCurrentThreadAffinity(
+        std::vector<int>{0, static_cast<int>(sysconf(_SC_NPROCESSORS_CONF))}));
     unchanged = allowedCores();
   });
   thread.join();
   for (const absl::Status& status : statuses) {
     EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument) << status;
   }
-  EXPECT_EQ(unchanged, original) << "a rejected request leaves the affinity alone";
+  EXPECT_EQ(unchanged, original)
+      << "a rejected request leaves the affinity alone";
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -181,9 +187,11 @@ TEST(RealtimeThreadTest, rejectsPrioritiesOutsideTheSchedFifoRange) {
   EXPECT_EQ(currentPolicy(), SCHED_OTHER);
 }
 
-// Holds on any machine: with the privilege the thread runs SCHED_FIFO (and is put back), without it the call reports
-// the missing permission and the thread keeps its scheduling.
-TEST(RealtimeThreadTest, schedFifoEitherTakesEffectOrReportsTheMissingPermission) {
+// Holds on any machine: with the privilege the thread runs SCHED_FIFO (and is
+// put back), without it the call reports the missing permission and the thread
+// keeps its scheduling.
+TEST(RealtimeThreadTest,
+     schedFifoEitherTakesEffectOrReportsTheMissingPermission) {
   absl::Status status;
   int policyAfterwards = -1;
   int priorityAfterwards = -1;
@@ -209,8 +217,9 @@ TEST(RealtimeThreadTest, schedFifoEitherTakesEffectOrReportsTheMissingPermission
   EXPECT_EQ(policyRestored, SCHED_OTHER);
 }
 
-// Removes the capabilities that let a process ignore RLIMIT_RTPRIO and RLIMIT_MEMLOCK from the calling thread, so
-// that the unprivileged path runs even where the tests themselves run with privileges (as root in CI, say).
+// Removes the capabilities that let a process ignore RLIMIT_RTPRIO and
+// RLIMIT_MEMLOCK from the calling thread, so that the unprivileged path runs
+// even where the tests themselves run with privileges (as root in CI, say).
 bool dropRealtimeCapabilities() {
   __user_cap_header_struct header{};
   header.version = _LINUX_CAPABILITY_VERSION_3;
@@ -227,17 +236,23 @@ bool dropRealtimeCapabilities() {
   return syscall(SYS_capset, &header, data) == 0;
 }
 
-// Reports `status` and counts it as a failure unless it has `code` and mentions `hint`.
-int expectFailure(const char* absl_nonnull call, const absl::Status& status, absl::StatusCode code, const char* absl_nonnull hint) {
+// Reports `status` and counts it as a failure unless it has `code` and mentions
+// `hint`.
+int expectFailure(const char* absl_nonnull call,
+                  const absl::Status& status,
+                  absl::StatusCode code,
+                  const char* absl_nonnull hint) {
   if (status.code() == code && absl::StrContains(status.message(), hint)) {
     return 0;
   }
-  absl::FPrintF(stderr, "%s returned %s; expected %s mentioning \"%s\"\n", call, status.ToString(), absl::StatusCodeToString(code), hint);
+  absl::FPrintF(stderr, "%s returned %s; expected %s mentioning \"%s\"\n", call,
+                status.ToString(), absl::StatusCodeToString(code), hint);
   return 1;
 }
 
-// Runs in a child process (the death-test machinery forks or re-executes the test binary), because it lowers the
-// process's resource limits for good. Exits 0 when every call failed cleanly with the expected error.
+// Runs in a child process (the death-test machinery forks or re-executes the
+// test binary), because it lowers the process's resource limits for good. Exits
+// 0 when every call failed cleanly with the expected error.
 [[noreturn]] void runSetupWithoutPrivileges(rlim_t memlockLimit) {
   if (!dropRealtimeCapabilities()) {
     absl::FPrintF(stderr, "capset failed: %s\n", std::strerror(errno));
@@ -245,62 +260,82 @@ int expectFailure(const char* absl_nonnull call, const absl::Status& status, abs
   }
   const rlimit noRealtimePriority{.rlim_cur = 0, .rlim_max = 0};
   const rlimit memlock{.rlim_cur = memlockLimit, .rlim_max = memlockLimit};
-  if (setrlimit(RLIMIT_RTPRIO, &noRealtimePriority) != 0 || setrlimit(RLIMIT_MEMLOCK, &memlock) != 0) {
+  if (setrlimit(RLIMIT_RTPRIO, &noRealtimePriority) != 0 ||
+      setrlimit(RLIMIT_MEMLOCK, &memlock) != 0) {
     absl::FPrintF(stderr, "setrlimit failed: %s\n", std::strerror(errno));
     _exit(3);
   }
 
   int failures = 0;
-  failures += expectFailure("setCurrentThreadRealtime", setCurrentThreadRealtime(/*priority=*/10), absl::StatusCode::kPermissionDenied,
-                            "CAP_SYS_NICE");
+  failures += expectFailure(
+      "setCurrentThreadRealtime", setCurrentThreadRealtime(/*priority=*/10),
+      absl::StatusCode::kPermissionDenied, "CAP_SYS_NICE");
   if (currentPolicy() != SCHED_OTHER) {
-    absl::FPrintF(stderr, "the thread's policy changed although the call failed\n");
+    absl::FPrintF(stderr,
+                  "the thread's policy changed although the call failed\n");
     ++failures;
   }
   if (memlockLimit == 0) {
-    failures += expectFailure("lockProcessMemory", lockProcessMemory(), absl::StatusCode::kPermissionDenied, "CAP_IPC_LOCK");
+    failures +=
+        expectFailure("lockProcessMemory", lockProcessMemory(),
+                      absl::StatusCode::kPermissionDenied, "CAP_IPC_LOCK");
     RealtimeThreadConfig config;
     config.name = "rt_test";
     config.priority = 10;
     const absl::Status locked = configureCurrentThread(config);
-    failures += expectFailure("configureCurrentThread", locked, absl::StatusCode::kPermissionDenied, "locking memory");
-    // The memory lock failing does not keep the thread from being made realtime: that step is tried and reported too.
-    failures += expectFailure("configureCurrentThread", locked, absl::StatusCode::kPermissionDenied, "setting the realtime priority");
+    failures +=
+        expectFailure("configureCurrentThread", locked,
+                      absl::StatusCode::kPermissionDenied, "locking memory");
+    // The memory lock failing does not keep the thread from being made
+    // realtime: that step is tried and reported too.
+    failures += expectFailure("configureCurrentThread", locked,
+                              absl::StatusCode::kPermissionDenied,
+                              "setting the realtime priority");
     if (currentThreadName() != "rt_test") {
       absl::FPrintF(stderr, "configureCurrentThread did not name the thread\n");
       ++failures;
     }
 
-    // Without the memory lock only the scheduling is tried, so only the scheduling can fail.
+    // Without the memory lock only the scheduling is tried, so only the
+    // scheduling can fail.
     config.memoryLock = MemoryLock::kNone;
     const absl::Status unlocked = configureCurrentThread(config);
-    failures +=
-        expectFailure("configureCurrentThread(kNone)", unlocked, absl::StatusCode::kPermissionDenied, "setting the realtime priority");
-    if (absl::StrContains(unlocked.message(), "locking memory") || absl::StrContains(unlocked.message(), "prefaulting")) {
-      absl::FPrintF(stderr, "configureCurrentThread(kNone) touched the memory: %s\n", unlocked.ToString());
+    failures += expectFailure("configureCurrentThread(kNone)", unlocked,
+                              absl::StatusCode::kPermissionDenied,
+                              "setting the realtime priority");
+    if (absl::StrContains(unlocked.message(), "locking memory") ||
+        absl::StrContains(unlocked.message(), "prefaulting")) {
+      absl::FPrintF(stderr,
+                    "configureCurrentThread(kNone) touched the memory: %s\n",
+                    unlocked.ToString());
       ++failures;
     }
   } else {
-    failures += expectFailure("lockProcessMemory", lockProcessMemory(), absl::StatusCode::kResourceExhausted, "RLIMIT_MEMLOCK");
+    failures +=
+        expectFailure("lockProcessMemory", lockProcessMemory(),
+                      absl::StatusCode::kResourceExhausted, "RLIMIT_MEMLOCK");
   }
   _exit(failures == 0 ? 0 : 1);
 }
 
 TEST(RealtimeThreadDeathTest, withoutPrivilegesTheSetupReportsWhatIsMissing) {
   GTEST_FLAG_SET(death_test_style, "threadsafe");
-  EXPECT_EXIT(runSetupWithoutPrivileges(/*memlockLimit=*/0), ::testing::ExitedWithCode(0), "");
+  EXPECT_EXIT(runSetupWithoutPrivileges(/*memlockLimit=*/0),
+              ::testing::ExitedWithCode(0), "");
 }
 
 TEST(RealtimeThreadDeathTest, aMemoryLockLimitTooSmallForTheProcessIsReported) {
   GTEST_FLAG_SET(death_test_style, "threadsafe");
-  EXPECT_EXIT(runSetupWithoutPrivileges(/*memlockLimit=*/4096), ::testing::ExitedWithCode(0), "");
+  EXPECT_EXIT(runSetupWithoutPrivileges(/*memlockLimit=*/4096),
+              ::testing::ExitedWithCode(0), "");
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Stack
 // ---------------------------------------------------------------------------------------------------------------------
 
-TEST(RealtimeThreadTest, aPrefaultedStackTakesNoPageFaultsWhenTheLoopReachesIt) {
+TEST(RealtimeThreadTest,
+     aPrefaultedStackTakesNoPageFaultsWhenTheLoopReachesIt) {
   absl::Status status;
   int64_t faults = -1;
   std::thread thread([&]() {
@@ -312,7 +347,8 @@ TEST(RealtimeThreadTest, aPrefaultedStackTakesNoPageFaultsWhenTheLoopReachesIt) 
   });
   thread.join();
   EXPECT_TRUE(status.ok()) << status;
-  EXPECT_LE(faults, 4) << "touching half a megabyte of fresh stack would take over a hundred faults";
+  EXPECT_LE(faults, 4) << "touching half a megabyte of fresh stack would take "
+                          "over a hundred faults";
 }
 
 TEST(RealtimeThreadTest, prefaultingMoreStackThanTheThreadHasIsRefused) {
@@ -331,7 +367,8 @@ TEST(RealtimeThreadTest, prefaultingMoreStackThanTheThreadHasIsRefused) {
 // configureCurrentThread
 // ---------------------------------------------------------------------------------------------------------------------
 
-TEST(RealtimeThreadTest, aNonRealtimeConfigurationNamesAndPinsWithoutTouchingTheScheduler) {
+TEST(RealtimeThreadTest,
+     aNonRealtimeConfigurationNamesAndPinsWithoutTouchingTheScheduler) {
   absl::Status status;
   std::string name;
   std::vector<int> original;
@@ -342,7 +379,8 @@ TEST(RealtimeThreadTest, aNonRealtimeConfigurationNamesAndPinsWithoutTouchingThe
     if (original.empty()) {
       return;
     }
-    status = configureCurrentThread({.name = "rt_comm", .priority = 0, .cores = {original.front()}});
+    status = configureCurrentThread(
+        {.name = "rt_comm", .priority = 0, .cores = {original.front()}});
     name = currentThreadName();
     pinned = allowedCores();
     policy = currentPolicy();
@@ -379,7 +417,8 @@ TEST(RealtimeThreadTest, configurationErrorsNameTheStepThatFailed) {
   tooLong.name = "a_name_that_is_far_too_long";
   const absl::Status longName = configureCurrentThread(tooLong);
   EXPECT_EQ(longName.code(), absl::StatusCode::kInvalidArgument) << longName;
-  EXPECT_TRUE(absl::StartsWith(longName.message(), "naming the thread")) << longName;
+  EXPECT_TRUE(absl::StartsWith(longName.message(), "naming the thread"))
+      << longName;
 }
 
 TEST(RealtimeThreadTest, aStepThatFailsDoesNotStopTheStepsAfterIt) {
@@ -391,24 +430,34 @@ TEST(RealtimeThreadTest, aStepThatFailsDoesNotStopTheStepsAfterIt) {
     if (original.empty()) {
       return;
     }
-    status = configureCurrentThread({.name = "a_name_that_is_far_too_long", .priority = 0, .cores = {original.back()}});
+    status = configureCurrentThread({.name = "a_name_that_is_far_too_long",
+                                     .priority = 0,
+                                     .cores = {original.back()}});
     pinned = allowedCores();
   });
   thread.join();
   ASSERT_FALSE(original.empty());
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument) << status;
-  EXPECT_TRUE(absl::StartsWith(status.message(), "naming the thread")) << status;
+  EXPECT_TRUE(absl::StartsWith(status.message(), "naming the thread"))
+      << status;
   EXPECT_FALSE(absl::StrContains(status.message(), "pinning")) << status;
-  EXPECT_EQ(pinned, std::vector<int>{original.back()}) << "the refused name kept the thread from being pinned";
+  EXPECT_EQ(pinned, std::vector<int>{original.back()})
+      << "the refused name kept the thread from being pinned";
 }
 
 TEST(RealtimeThreadTest, everyStepThatFailsIsNamedAndTheFirstGivesTheCode) {
   absl::Status status;
-  std::thread thread([&]() { status = configureCurrentThread({.name = "a_name_that_is_far_too_long", .priority = 0, .cores = {-1}}); });
+  std::thread thread([&]() {
+    status = configureCurrentThread(
+        {.name = "a_name_that_is_far_too_long", .priority = 0, .cores = {-1}});
+  });
   thread.join();
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument) << status;
-  EXPECT_TRUE(absl::StartsWith(status.message(), "naming the thread")) << status;
-  EXPECT_TRUE(absl::StrContains(status.message(), "; pinning the thread: CPU core -1 does not exist")) << status;
+  EXPECT_TRUE(absl::StartsWith(status.message(), "naming the thread"))
+      << status;
+  EXPECT_TRUE(absl::StrContains(
+      status.message(), "; pinning the thread: CPU core -1 does not exist"))
+      << status;
 }
 
 }  // namespace

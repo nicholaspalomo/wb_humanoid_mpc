@@ -34,7 +34,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace robot::model {
 
-/** A joint controller: turns the robot state into a joint action once per control cycle. Implementations say whether they are thread-safe.
+/** A joint controller: turns the robot state into a joint action once per
+ * control cycle. Implementations say whether they are thread-safe.
  */
 class ControlBase {
  public:
@@ -43,9 +44,10 @@ class ControlBase {
   virtual bool ready() const = 0;
 
   // Computes [commands] given [joints] states and configs.
-  virtual void computeJointControlAction(scalar_t time,
-                                         const ::robot::model::RobotState& robotState,
-                                         ::robot::model::RobotJointAction& robotJointAction) = 0;
+  virtual void computeJointControlAction(
+      scalar_t time,
+      const ::robot::model::RobotState& robotState,
+      ::robot::model::RobotJointAction& robotJointAction) = 0;
 };
 
 }  // namespace robot::model

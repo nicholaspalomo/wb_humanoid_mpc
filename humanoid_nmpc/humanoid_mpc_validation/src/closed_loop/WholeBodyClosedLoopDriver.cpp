@@ -48,76 +48,110 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::validation {
 
-absl::StatusOr<std::unique_ptr<WholeBodyClosedLoopDriver>> WholeBodyClosedLoopDriver::create(const RobotConfiguration& configuration,
-                                                                                             const ClosedLoopDriverOptions& options) {
+absl::StatusOr<std::unique_ptr<WholeBodyClosedLoopDriver>>
+WholeBodyClosedLoopDriver::create(const RobotConfiguration& configuration,
+                                  const ClosedLoopDriverOptions& options) {
   if (configuration.formulation != MpcFormulation::kWholeBody) {
     return absl::InvalidArgumentError(
-        absl::StrCat("[WholeBodyClosedLoopDriver] ", configuration.name, " is not a whole-body configuration"));
+        absl::StrCat("[WholeBodyClosedLoopDriver] ", configuration.name,
+                     " is not a whole-body configuration"));
   }
   // The constructor is private.
-  std::unique_ptr<WholeBodyClosedLoopDriver> driver = absl::WrapUnique(new WholeBodyClosedLoopDriver());
+  std::unique_ptr<WholeBodyClosedLoopDriver> driver =
+      absl::WrapUnique(new WholeBodyClosedLoopDriver());
   RETURN_IF_ERROR(driver->initialize(configuration, options));
   return driver;
 }
 
 WholeBodyClosedLoopDriver::~WholeBodyClosedLoopDriver() {
-  // The controller and the MPC first: they hold references into the command path and the interface.
+  // The controller and the MPC first: they hold references into the command
+  // path and the interface.
   releaseControllerAndMpc();
 }
 
-absl::Status WholeBodyClosedLoopDriver::initialize(const RobotConfiguration& configuration, const ClosedLoopDriverOptions& options) {
-  const std::optional<std::filesystem::file_time_type> taskFileReadAt = lastWriteTime(configuration.taskFile);
-  const std::optional<std::filesystem::file_time_type> referenceFileReadAt = lastWriteTime(configuration.referenceFile);
+absl::Status WholeBodyClosedLoopDriver::initialize(
+    const RobotConfiguration& configuration,
+    const ClosedLoopDriverOptions& options) {
+  const std::optional<std::filesystem::file_time_type> taskFileReadAt =
+      lastWriteTime(configuration.taskFile);
+  const std::optional<std::filesystem::file_time_type> referenceFileReadAt =
+      lastWriteTime(configuration.referenceFile);
 
-  ASSIGN_OR_RETURN(interface_, WBMpcInterface::Create(configuration.taskFile, configuration.urdfFile, configuration.referenceFile));
+  ASSIGN_OR_RETURN(
+      interface_,
+      WBMpcInterface::Create(configuration.taskFile, configuration.urdfFile,
+                             configuration.referenceFile));
   WBMpcInterface& interface = *interface_;
-  RETURN_IF_ERROR(initializeShared(configuration, options, interface.modelSettings(), interface.mpcSettings(), interface.sqpSettings(),
-                                   interface.getOptimalControlProblem(), interface.getInitializer(), interface.getReferenceManagerPtr(),
-                                   interface.getMpcRobotModel(), interface.getPinocchioInterface(), interface.getInitialState()));
+  RETURN_IF_ERROR(initializeShared(
+      configuration, options, interface.modelSettings(),
+      interface.mpcSettings(), interface.sqpSettings(),
+      interface.getOptimalControlProblem(), interface.getInitializer(),
+      interface.getReferenceManagerPtr(), interface.getMpcRobotModel(),
+      interface.getPinocchioInterface(), interface.getInitialState()));
   if (settings_.wbMpcFeedforward != WbMpcFeedforward::kInverseDynamics) {
-    return absl::InvalidArgumentError(absl::StrCat(configuration.taskFile,
-                                                   ": wb_mpc_feedforward: ", wbMpcFeedforwardName(settings_.wbMpcFeedforward),
-                                                   "; the whole-body controller computes its feedforward with the inverse dynamics only."));
+    return absl::InvalidArgumentError(
+        absl::StrCat(configuration.taskFile, ": wb_mpc_feedforward: ",
+                     wbMpcFeedforwardName(settings_.wbMpcFeedforward),
+                     "; the whole-body controller computes its feedforward "
+                     "with the inverse dynamics only."));
   }
 
   // The MPC node's side (WBMpcNode::Create()).
   // LINT.IfChange(whole_body_mpc_node_wiring)
-  ASSIGN_OR_RETURN(std::unique_ptr<WBMpcTargetTrajectoriesCalculator> calculator,
-                   WBMpcTargetTrajectoriesCalculator::Create(configuration.referenceFile, interface.getMpcRobotModel(),
-                                                             interface.mpcSettings().timeHorizon_));
+  ASSIGN_OR_RETURN(
+      std::unique_ptr<WBMpcTargetTrajectoriesCalculator> calculator,
+      WBMpcTargetTrajectoriesCalculator::Create(
+          configuration.referenceFile, interface.getMpcRobotModel(),
+          interface.mpcSettings().timeHorizon_));
   calculator->setTerrainHeightSource(
-      [referenceManager = interface.getSwitchedModelReferenceManagerPtr()]() { return referenceManager->getAppliedTerrainHeight(); });
-  RETURN_IF_ERROR(
-      initializeCommandPath(std::move(calculator), interface.getSwitchedModelReferenceManagerPtr(), interface.getMpcRobotModel()));
+      [referenceManager = interface.getSwitchedModelReferenceManagerPtr()]() {
+        return referenceManager->getAppliedTerrainHeight();
+      });
+  RETURN_IF_ERROR(initializeCommandPath(
+      std::move(calculator), interface.getSwitchedModelReferenceManagerPtr(),
+      interface.getMpcRobotModel()));
   ASSIGN_OR_RETURN(
       parameterUpdater_,
-      makeWholeBodyMpcParameterUpdater(mpc_.get(), interface, configuration.taskFile, configuration.referenceFile,
-                                       makeCommandLimitsReloaders(calculator_.get(), motionManager_), taskFileReadAt, referenceFileReadAt));
+      makeWholeBodyMpcParameterUpdater(
+          mpc_.get(), interface, configuration.taskFile,
+          configuration.referenceFile,
+          makeCommandLimitsReloaders(calculator_.get(), motionManager_),
+          taskFileReadAt, referenceFileReadAt));
   mpc_->getSolverPtr()->addSynchronizedModule(parameterUpdater_);
   // LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc_app/src/WBMpcNode.cpp:mpc_wiring)
 
-  // The robot binary's side (WBMpcRobotMain.cpp), with the lockstep link in place of the remote one.
+  // The robot binary's side (WBMpcRobotMain.cpp), with the lockstep link in
+  // place of the remote one.
   // LINT.IfChange(whole_body_robot_controller)
-  absl::StatusOr<std::unique_ptr<WBMpcMrtJointController>> createdController = WBMpcMrtJointController::Create(
-      *robotDescription_, interface.modelSettings(), lockstepMpcLinkFactory(/*solverName=*/"WB MPC Solver Thread"),
-      interface.getPinocchioInterface(), configuration.pdGainsFile);
+  absl::StatusOr<std::unique_ptr<WBMpcMrtJointController>> createdController =
+      WBMpcMrtJointController::Create(
+          *robotDescription_, interface.modelSettings(),
+          lockstepMpcLinkFactory(/*solverName=*/"WB MPC Solver Thread"),
+          interface.getPinocchioInterface(), configuration.pdGainsFile);
   if (!createdController.ok()) {
     return absl::InvalidArgumentError(
-        absl::StrCat("the whole-body MRT joint controller did not start: ", createdController.status().message()));
+        absl::StrCat("the whole-body MRT joint controller did not start: ",
+                     createdController.status().message()));
   }
-  std::unique_ptr<WBMpcMrtJointController> jointController = *std::move(createdController);
-  if (settings_.contactWrenchGate.has_value()) jointController->setContactWrenchGateConfig(*settings_.contactWrenchGate);
-  if (settings_.safetyDecayTimeConstant.has_value()) jointController->setSafetyDecayTimeConstant(*settings_.safetyDecayTimeConstant);
+  std::unique_ptr<WBMpcMrtJointController> jointController =
+      *std::move(createdController);
+  if (settings_.contactWrenchGate.has_value())
+    jointController->setContactWrenchGateConfig(*settings_.contactWrenchGate);
+  if (settings_.safetyDecayTimeConstant.has_value())
+    jointController->setSafetyDecayTimeConstant(
+        *settings_.safetyDecayTimeConstant);
   // The whole-body sim handed the controller its posture before its mode.
   std::unique_ptr<MrtRobotController<WBMpcMrtJointController>> controller =
-      std::make_unique<MrtRobotController<WBMpcMrtJointController>>(std::move(jointController), CycleInputOrder::kPostureThenMode);
+      std::make_unique<MrtRobotController<WBMpcMrtJointController>>(
+          std::move(jointController), CycleInputOrder::kPostureThenMode);
   // clang-format off
   // LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc_app/src/WBMpcRobotMain.cpp:whole_body_robot_controller)
   // clang-format on
   controller_ = controller.get();
   robotController_ = std::move(controller);
   if (mpcLink_ == nullptr) {
-    return absl::InternalError("[WholeBodyClosedLoopDriver] the controller did not make its MPC link");
+    return absl::InternalError(
+        "[WholeBodyClosedLoopDriver] the controller did not make its MPC link");
   }
   return absl::OkStatus();
 }

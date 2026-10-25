@@ -37,18 +37,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The settings of the swing trajectory planner from the task file's swing_trajectory_config block.
+ * The settings of the swing trajectory planner from the task file's
+ * swing_trajectory_config block.
  *
- * Each field becomes the planner setting of the same name (swing_time_scale is swingTimeScale), and the schema's
- * defaults are the planner's own, so an absent field, or an absent block, gives SwingTrajectoryPlanner::Config{}. Nothing is logged: a
- * verbose start-up prints the file.
+ * Each field becomes the planner setting of the same name (swing_time_scale is
+ * swingTimeScale), and the schema's defaults are the planner's own, so an
+ * absent field, or an absent block, gives SwingTrajectoryPlanner::Config{}.
+ * Nothing is logged: a verbose start-up prints the file.
  *
  * @param config The swing_trajectory_config block.
- * @return The settings; InvalidArgument naming the field when a value is not finite (inf or nan) or out of the range its
- *         schema comment states: swing_time_scale > 0, swing_height >= 0, impact_proximity_factor_lift_off_velocity
- *         <= 0, impact_proximity_factor_touch_down_velocity >= 0, impact_proximity_factor_mid_point_value,
- *         swing_pitch_rise_fraction and swing_pitch_fall_fraction in [0, 1].
+ * @return The settings; InvalidArgument naming the field when a value is not
+ * finite (inf or nan) or out of the range its schema comment states:
+ * swing_time_scale > 0, swing_height >= 0,
+ * impact_proximity_factor_lift_off_velocity
+ *         <= 0, impact_proximity_factor_touch_down_velocity >= 0,
+ * impact_proximity_factor_mid_point_value, swing_pitch_rise_fraction and
+ * swing_pitch_fall_fraction in [0, 1].
  */
-absl::StatusOr<SwingTrajectoryPlanner::Config> swingTrajectorySettingsFromConfig(const mpc_config::SwingTrajectoryConfig& config);
+absl::StatusOr<SwingTrajectoryPlanner::Config>
+swingTrajectorySettingsFromConfig(
+    const mpc_config::SwingTrajectoryConfig& config);
 
 }  // namespace ocs2::humanoid

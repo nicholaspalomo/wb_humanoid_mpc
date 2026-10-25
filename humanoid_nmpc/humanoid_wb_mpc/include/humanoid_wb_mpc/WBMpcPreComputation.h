@@ -42,17 +42,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The pre-computation of the whole-body MPC: on a constraint request it updates the Pinocchio kinematics at the node and
- * derives, per foot, the coefficients of the swing foot's normal-motion constraint (SwingLegVerticalConstraintCppAd)
- * from the swing trajectory planner and its own gains. The gains start as the model settings' and are retuned per copy
- * (setSwingFootGains(), setNormalVelocityPositionErrorGain()), because the model settings are shared by every worker
- * thread's copy. Not thread-safe; the solver clones one per worker thread.
+ * The pre-computation of the whole-body MPC: on a constraint request it updates
+ * the Pinocchio kinematics at the node and derives, per foot, the coefficients
+ * of the swing foot's normal-motion constraint
+ * (SwingLegVerticalConstraintCppAd) from the swing trajectory planner and its
+ * own gains. The gains start as the model settings' and are retuned per copy
+ * (setSwingFootGains(), setNormalVelocityPositionErrorGain()), because the
+ * model settings are shared by every worker thread's copy. Not thread-safe; the
+ * solver clones one per worker thread.
  */
 class WBMpcPreComputation : public HumanoidPreComputation {
  public:
   /**
-   * The gains of the swing foot's normal-motion constraint besides the position gain (the base's
-   * getNormalVelocityPositionErrorGain()): model_settings.foot_constraint.linear_velocity_error_gain_z and
+   * The gains of the swing foot's normal-motion constraint besides the position
+   * gain (the base's getNormalVelocityPositionErrorGain()):
+   * model_settings.foot_constraint.linear_velocity_error_gain_z and
    * linear_acceleration_error_gain_z.
    */
   struct SwingFootGains {
@@ -70,25 +74,36 @@ class WBMpcPreComputation : public HumanoidPreComputation {
 
   WBMpcPreComputation* absl_nonnull clone() const override;
 
-  void request(RequestSet request, scalar_t t, const vector_t& x, const vector_t& u) override;
+  void request(RequestSet request,
+               scalar_t t,
+               const vector_t& x,
+               const vector_t& u) override;
 
-  const std::vector<EndEffectorDynamicsLinearAccConstraint::Config>& getEeNormalAccelerationConstraintConfigs() const {
+  const std::vector<EndEffectorDynamicsLinearAccConstraint::Config>&
+  getEeNormalAccelerationConstraintConfigs() const {
     return eeNormalAccConConfigs_;
   }
 
-  /** Retunes the swing foot's velocity and acceleration gains from the next request on; for the parameter updater. */
-  void setSwingFootGains(const SwingFootGains& gains) { swingFootGains_ = gains; }
+  /** Retunes the swing foot's velocity and acceleration gains from the next
+   * request on; for the parameter updater. */
+  void setSwingFootGains(const SwingFootGains& gains) {
+    swingFootGains_ = gains;
+  }
   /** Returns the swing foot's velocity and acceleration gains in use. */
   const SwingFootGains& getSwingFootGains() const { return swingFootGains_; }
 
  private:
   WBMpcPreComputation(const WBMpcPreComputation& rhs);
 
-  /** Returns the coefficients of the normal-motion constraint of the swing foot `footIndex` at time `t`. */
-  EndEffectorDynamicsLinearAccConstraint::Config normalAccelerationConstraintConfig(size_t footIndex, scalar_t t) const;
+  /** Returns the coefficients of the normal-motion constraint of the swing foot
+   * `footIndex` at time `t`. */
+  EndEffectorDynamicsLinearAccConstraint::Config
+  normalAccelerationConstraintConfig(size_t footIndex, scalar_t t) const;
 
-  std::vector<EndEffectorDynamicsLinearAccConstraint::Config> eeNormalAccConConfigs_;
-  // Seeded from the model settings at construction and carried by every copy; see setSwingFootGains().
+  std::vector<EndEffectorDynamicsLinearAccConstraint::Config>
+      eeNormalAccConConfigs_;
+  // Seeded from the model settings at construction and carried by every copy;
+  // see setSwingFootGains().
   SwingFootGains swingFootGains_;
 };
 

@@ -38,17 +38,23 @@ namespace ocs2::humanoid {
 enum class Softness { kHard, kSoft };
 
 /**
- * General constraint rows lower <= C x + D u <= upper on the stage variables, hard or soft (slacks with a penalty).
+ * General constraint rows lower <= C x + D u <= upper on the stage variables,
+ * hard or soft (slacks with a penalty).
  *
- * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
  */
 class LipConstraint : public ContactPlanningTerm {
  public:
   virtual NodeSet nodeSet() const = 0;
   virtual Softness softness() const = 0;
-  /** Adds the term's rows of node `node`; soft terms add them with their penalty (RowBuilder::addSoft). */
-  virtual void addRows(const ContactPlanningContext& ctx, int node, RowBuilder& rows) const = 0;
-  /** The slack penalty of a soft term (its own, or the formulation-wide default). */
+  /** Adds the term's rows of node `node`; soft terms add them with their
+   * penalty (RowBuilder::addSoft). */
+  virtual void addRows(const ContactPlanningContext& ctx,
+                       int node,
+                       RowBuilder& rows) const = 0;
+  /** The slack penalty of a soft term (its own, or the formulation-wide
+   * default). */
   virtual SlackPenalty slackPenalty() const { return SlackPenalty{}; }
 };
 

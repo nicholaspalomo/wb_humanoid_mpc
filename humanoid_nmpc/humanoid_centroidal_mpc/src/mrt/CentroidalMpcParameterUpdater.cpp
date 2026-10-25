@@ -67,67 +67,95 @@ namespace ocs2::humanoid {
 
 namespace {
 
-absl::StatusOr<std::unique_ptr<HotFieldApplier>> makeQuadraticCostWeightsApplier(const CentroidalMpcInterface& interface) {
-  // With basis-vector contact inputs R is BasisInputsCostApplier's, transformed exactly as the OCP factory did.
-  return std::make_unique<QuadraticCostWeightsApplier>(interface.getBasisInputsCostTransformConfig().has_value()
-                                                           ? QuadraticCostWeightsApplier::InputCost::kBasisVectorInputs
-                                                           : QuadraticCostWeightsApplier::InputCost::kInputWeights);
+absl::StatusOr<std::unique_ptr<HotFieldApplier>>
+makeQuadraticCostWeightsApplier(const CentroidalMpcInterface& interface) {
+  // With basis-vector contact inputs R is BasisInputsCostApplier's, transformed
+  // exactly as the OCP factory did.
+  return std::make_unique<QuadraticCostWeightsApplier>(
+      interface.getBasisInputsCostTransformConfig().has_value()
+          ? QuadraticCostWeightsApplier::InputCost::kBasisVectorInputs
+          : QuadraticCostWeightsApplier::InputCost::kInputWeights);
 }
 
-absl::StatusOr<std::unique_ptr<HotFieldApplier>> makeBasisInputsCostApplier(const CentroidalMpcInterface& interface) {
-  // The input layout the solver optimizes over is the effective model's: in basis-vector mode [lambda, joint velocities].
-  ASSIGN_OR_RETURN(
-      std::unique_ptr<BasisInputsCostApplier> applier,
-      BasisInputsCostApplier::Create(interface.getBasisInputsCostTransformConfig(), interface.getEffectiveMpcRobotModel().getInputDim()));
+absl::StatusOr<std::unique_ptr<HotFieldApplier>> makeBasisInputsCostApplier(
+    const CentroidalMpcInterface& interface) {
+  // The input layout the solver optimizes over is the effective model's: in
+  // basis-vector mode [lambda, joint velocities].
+  ASSIGN_OR_RETURN(std::unique_ptr<BasisInputsCostApplier> applier,
+                   BasisInputsCostApplier::Create(
+                       interface.getBasisInputsCostTransformConfig(),
+                       interface.getEffectiveMpcRobotModel().getInputDim()));
   return std::unique_ptr<HotFieldApplier>(std::move(applier));
 }
 
-absl::StatusOr<std::unique_ptr<HotFieldApplier>> makeContactImplicitApplier(const CentroidalMpcInterface& interface) {
-  return std::make_unique<ContactImplicitApplier>(interface.modelSettings().contactNames);
+absl::StatusOr<std::unique_ptr<HotFieldApplier>> makeContactImplicitApplier(
+    const CentroidalMpcInterface& interface) {
+  return std::make_unique<ContactImplicitApplier>(
+      interface.modelSettings().contactNames);
 }
 
-absl::StatusOr<std::unique_ptr<HotFieldApplier>> makeLocomotionHeuristicsApplier(const CentroidalMpcInterface& interface) {
-  // Without it the locomotion_heuristics coefficients are launch-time only and the tuning GUI's sliders for them write
-  // the file without reaching the running controller.
-  return std::make_unique<LocomotionHeuristicsApplier>(interface.getLocomotionHeuristicLayerPtr());
+absl::StatusOr<std::unique_ptr<HotFieldApplier>>
+makeLocomotionHeuristicsApplier(const CentroidalMpcInterface& interface) {
+  // Without it the locomotion_heuristics coefficients are launch-time only and
+  // the tuning GUI's sliders for them write the file without reaching the
+  // running controller.
+  return std::make_unique<LocomotionHeuristicsApplier>(
+      interface.getLocomotionHeuristicLayerPtr());
 }
 
 using Entry = HotFieldApplierEntry<CentroidalMpcInterface>;
 
-// The one list of the centroidal MPC's appliers: centroidalHotFieldAppliers() makes them from it, in this order, and
-// centroidalHotFieldNames() reads their fields off it.
+// The one list of the centroidal MPC's appliers: centroidalHotFieldAppliers()
+// makes them from it, in this order, and centroidalHotFieldNames() reads their
+// fields off it.
 constexpr std::array<Entry, 12> kCentroidalAppliers = {{
-    {.staticFields = &QuadraticCostWeightsApplier::staticFields, .make = &makeQuadraticCostWeightsApplier},
-    {.staticFields = &BasisInputsCostApplier::staticFields, .make = &makeBasisInputsCostApplier},
+    {.staticFields = &QuadraticCostWeightsApplier::staticFields,
+     .make = &makeQuadraticCostWeightsApplier},
+    {.staticFields = &BasisInputsCostApplier::staticFields,
+     .make = &makeBasisInputsCostApplier},
     {.staticFields = &ComAndAcomWeightsApplier::staticFields,
-     .make = &makeHotFieldApplier<ComAndAcomWeightsApplier, CentroidalMpcInterface>},
+     .make = &makeHotFieldApplier<ComAndAcomWeightsApplier,
+                                  CentroidalMpcInterface>},
     {.staticFields = &TrackingCostWeightsApplier::staticFields,
-     .make = &makeHotFieldApplier<TrackingCostWeightsApplier, CentroidalMpcInterface>},
+     .make = &makeHotFieldApplier<TrackingCostWeightsApplier,
+                                  CentroidalMpcInterface>},
     {.staticFields = &ConstraintPenaltiesApplier::staticFields,
-     .make = &makeHotFieldApplier<ConstraintPenaltiesApplier, CentroidalMpcInterface>},
+     .make = &makeHotFieldApplier<ConstraintPenaltiesApplier,
+                                  CentroidalMpcInterface>},
     {.staticFields = &FootConstraintSoftWeightsApplier::staticFields,
-     .make = &makeHotFieldApplier<FootConstraintSoftWeightsApplier, CentroidalMpcInterface>},
-    {.staticFields = &ContactImplicitApplier::staticFields, .make = &makeContactImplicitApplier},
-    {.staticFields = &ReferenceManagerApplier::staticFields, .make = &makeHotFieldApplier<ReferenceManagerApplier, CentroidalMpcInterface>},
-    {.staticFields = &SqpSettingsApplier::staticFields, .make = &makeHotFieldApplier<SqpSettingsApplier, CentroidalMpcInterface>},
-    {.staticFields = &LocomotionHeuristicsApplier::staticFields, .make = &makeLocomotionHeuristicsApplier},
+     .make = &makeHotFieldApplier<FootConstraintSoftWeightsApplier,
+                                  CentroidalMpcInterface>},
+    {.staticFields = &ContactImplicitApplier::staticFields,
+     .make = &makeContactImplicitApplier},
+    {.staticFields = &ReferenceManagerApplier::staticFields,
+     .make =
+         &makeHotFieldApplier<ReferenceManagerApplier, CentroidalMpcInterface>},
+    {.staticFields = &SqpSettingsApplier::staticFields,
+     .make = &makeHotFieldApplier<SqpSettingsApplier, CentroidalMpcInterface>},
+    {.staticFields = &LocomotionHeuristicsApplier::staticFields,
+     .make = &makeLocomotionHeuristicsApplier},
     {.staticFields = &CentroidalCostWeightsApplier::staticFields,
-     .make = &makeHotFieldApplier<CentroidalCostWeightsApplier, CentroidalMpcInterface>},
+     .make = &makeHotFieldApplier<CentroidalCostWeightsApplier,
+                                  CentroidalMpcInterface>},
     {.staticFields = &ZeroVelocityGainsApplier::staticFields,
-     .make = &makeHotFieldApplier<ZeroVelocityGainsApplier, CentroidalMpcInterface>},
+     .make = &makeHotFieldApplier<ZeroVelocityGainsApplier,
+                                  CentroidalMpcInterface>},
 }};
 
 }  // namespace
 
-absl::StatusOr<std::vector<std::unique_ptr<HotFieldApplier>>> centroidalHotFieldAppliers(const CentroidalMpcInterface& interface) {
-  return makeHotFieldAppliers(absl::MakeConstSpan(kCentroidalAppliers), interface);
+absl::StatusOr<std::vector<std::unique_ptr<HotFieldApplier>>>
+centroidalHotFieldAppliers(const CentroidalMpcInterface& interface) {
+  return makeHotFieldAppliers(absl::MakeConstSpan(kCentroidalAppliers),
+                              interface);
 }
 
 std::vector<std::string> centroidalHotFieldNames() {
   return hotFieldNames(absl::MakeConstSpan(kCentroidalAppliers));
 }
 
-absl::StatusOr<std::shared_ptr<MpcParameterUpdaterModule>> makeCentroidalMpcParameterUpdater(
+absl::StatusOr<std::shared_ptr<MpcParameterUpdaterModule>>
+makeCentroidalMpcParameterUpdater(
     MPC_BASE* absl_nullable mpc,
     const CentroidalMpcInterface& interface,
     const std::string& taskFile,
@@ -149,16 +177,21 @@ absl::StatusOr<std::shared_ptr<MpcParameterUpdaterModule>> makeCentroidalMpcPara
   options.fileCheckPeriod = fileCheckPeriod;
   options.clock = std::move(clock);
   options.runningTask = interface.config().task;
-  options.layout = stateInputLayout(interface.modelSettings(), StateInputLayout::Mpc::kCentroidal);
+  options.layout = stateInputLayout(interface.modelSettings(),
+                                    StateInputLayout::Mpc::kCentroidal);
   options.inputDim = interface.getEffectiveMpcRobotModel().getInputDim();
-  options.referenceManager = interface.getSwitchedModelReferenceManagerPtr().get();
+  options.referenceManager =
+      interface.getSwitchedModelReferenceManagerPtr().get();
   ASSIGN_OR_RETURN(options.appliers, centroidalHotFieldAppliers(interface));
-  ASSIGN_OR_RETURN(std::unique_ptr<MpcParameterUpdaterModule> created, MpcParameterUpdaterModule::Create(mpc, std::move(options)));
+  ASSIGN_OR_RETURN(std::unique_ptr<MpcParameterUpdaterModule> created,
+                   MpcParameterUpdaterModule::Create(mpc, std::move(options)));
   std::shared_ptr<MpcParameterUpdaterModule> updater = std::move(created);
-  // Null when contact planning is off, which the updater takes as "no contact planner to reload".
+  // Null when contact planning is off, which the updater takes as "no contact
+  // planner to reload".
   updater->setContactPlannerModule(interface.getContactPlannerModulePtr());
-  // The command limits and ramps come from the reference file, which its consumers read once at construction. Each
-  // consumer must outlive the updater, and is responsible for the thread safety of what it writes.
+  // The command limits and ramps come from the reference file, which its
+  // consumers read once at construction. Each consumer must outlive the
+  // updater, and is responsible for the thread safety of what it writes.
   for (ReferenceFileReloader& reloader : referenceFileReloaders) {
     updater->addReferenceFileReloader(std::move(reloader));
   }

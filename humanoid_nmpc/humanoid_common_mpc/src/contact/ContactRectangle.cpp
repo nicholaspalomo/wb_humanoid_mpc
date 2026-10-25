@@ -34,12 +34,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-ContactRectangle::ContactRectangle(const PolygonBounds& polygonBounds, const ContactCenterPoint& contactCenterPoint, scalar_t scaleFactor)
-    : ContactPolygon({vector3_t(polygonBounds.x_min * scaleFactor, polygonBounds.y_min * scaleFactor, 0.0),
-                      vector3_t(polygonBounds.x_max * scaleFactor, polygonBounds.y_min * scaleFactor, 0.0),
-                      vector3_t(polygonBounds.x_max * scaleFactor, polygonBounds.y_max * scaleFactor, 0.0),
-                      vector3_t(polygonBounds.x_min * scaleFactor, polygonBounds.y_max * scaleFactor, 0.0)},
-                     PolygonBounds(polygonBounds.x_min, polygonBounds.x_max, polygonBounds.y_min, polygonBounds.y_max, scaleFactor),
+ContactRectangle::ContactRectangle(const PolygonBounds& polygonBounds,
+                                   const ContactCenterPoint& contactCenterPoint,
+                                   scalar_t scaleFactor)
+    : ContactPolygon({vector3_t(polygonBounds.x_min * scaleFactor,
+                                polygonBounds.y_min * scaleFactor,
+                                0.0),
+                      vector3_t(polygonBounds.x_max * scaleFactor,
+                                polygonBounds.y_min * scaleFactor,
+                                0.0),
+                      vector3_t(polygonBounds.x_max * scaleFactor,
+                                polygonBounds.y_max * scaleFactor,
+                                0.0),
+                      vector3_t(polygonBounds.x_min * scaleFactor,
+                                polygonBounds.y_max * scaleFactor,
+                                0.0)},
+                     PolygonBounds(polygonBounds.x_min,
+                                   polygonBounds.x_max,
+                                   polygonBounds.y_min,
+                                   polygonBounds.y_max,
+                                   scaleFactor),
                      contactCenterPoint) {}
 
 }  // namespace ocs2::humanoid

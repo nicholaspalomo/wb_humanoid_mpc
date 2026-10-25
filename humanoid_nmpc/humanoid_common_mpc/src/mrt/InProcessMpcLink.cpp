@@ -50,27 +50,39 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-/** [microseconds] A solver loop iteration that ends later than its period by more than this is slow. */
+/** [microseconds] A solver loop iteration that ends later than its period by
+ * more than this is slow. */
 constexpr int kSlowIterationThreshold = 1000;
 /** Every this many slow iterations, one is logged. */
 constexpr int kSlowIterationsPerWarning = 20;
 
 }  // namespace
 
-InProcessMpcLink::InProcessMpcLink(MPC_BASE& mpc, ResetTargetFunction resetTarget, Config config)
+InProcessMpcLink::InProcessMpcLink(MPC_BASE& mpc,
+                                   ResetTargetFunction resetTarget,
+                                   Config config)
     : mpcMrtInterface_(mpc),
       resetTarget_(std::move(resetTarget)),
-      // Unused when realtime_; the frequency is not divided by then, so that no negative or infinite period is converted.
-      mpcDeltaTMicroSeconds_(config.mpcDesiredFrequency > 0 ? static_cast<size_t>(kMicrosecondsPerSecond / config.mpcDesiredFrequency) : 0),
+      // Unused when realtime_; the frequency is not divided by then, so that no
+      // negative or infinite period is converted.
+      mpcDeltaTMicroSeconds_(
+          config.mpcDesiredFrequency > 0
+              ? static_cast<size_t>(kMicrosecondsPerSecond /
+                                    config.mpcDesiredFrequency)
+              : 0),
       realtime_(config.mpcDesiredFrequency <= 0),
       solverThreadName_(std::move(config.solverThreadName)),
       solveObserver_(std::move(config.solveObserver)),
       execution_(config.execution) {
-  ABSL_CHECK(resetTarget_ != nullptr) << "[InProcessMpcLink] a reset target function is required.";
-  mpcMrtInterface_.setSolverObservationObserver(std::move(config.solverObservationObserver));
-  // The MRT interpolates the planned state on the manifold the MPC solves on (null for a flat state), as the policy's
-  // ManifoldLinearController evaluates its law on it.
-  mpcMrtInterface_.setStateManifold(mpc.getSolverPtr()->getOptimalControlProblem().stateManifoldPtr);
+  ABSL_CHECK(resetTarget_ != nullptr)
+      << "[InProcessMpcLink] a reset target function is required.";
+  mpcMrtInterface_.setSolverObservationObserver(
+      std::move(config.solverObservationObserver));
+  // The MRT interpolates the planned state on the manifold the MPC solves on
+  // (null for a flat state), as the policy's ManifoldLinearController evaluates
+  // its law on it.
+  mpcMrtInterface_.setStateManifold(
+      mpc.getSolverPtr()->getOptimalControlProblem().stateManifoldPtr);
 }
 
 InProcessMpcLink::~InProcessMpcLink() {
@@ -78,15 +90,23 @@ InProcessMpcLink::~InProcessMpcLink() {
 }
 
 MpcLinkFactory InProcessMpcLink::factory(MPC_BASE& mpc, Config config) {
-  return [&mpc, config = std::move(config)](ResetTargetFunction resetTarget) -> std::unique_ptr<MpcLink> {
-    return std::make_unique<InProcessMpcLink>(mpc, std::move(resetTarget), config);
+  return [&mpc, config = std::move(config)](
+             ResetTargetFunction resetTarget) -> std::unique_ptr<MpcLink> {
+    return std::make_unique<InProcessMpcLink>(mpc, std::move(resetTarget),
+                                              config);
   };
 }
 
-MpcLinkFactory InProcessMpcLink::factory(MPC_BASE& mpc, Config config, InProcessMpcLink* absl_nullable* absl_nullable created) {
-  ABSL_CHECK(created != nullptr) << "[InProcessMpcLink] factory() needs a place to report the link it makes.";
-  return [&mpc, config = std::move(config), created](ResetTargetFunction resetTarget) -> std::unique_ptr<MpcLink> {
-    auto link = std::make_unique<InProcessMpcLink>(mpc, std::move(resetTarget), config);
+MpcLinkFactory InProcessMpcLink::factory(
+    MPC_BASE& mpc,
+    Config config,
+    InProcessMpcLink* absl_nullable* absl_nullable created) {
+  ABSL_CHECK(created != nullptr) << "[InProcessMpcLink] factory() needs a "
+                                    "place to report the link it makes.";
+  return [&mpc, config = std::move(config), created](
+             ResetTargetFunction resetTarget) -> std::unique_ptr<MpcLink> {
+    auto link =
+        std::make_unique<InProcessMpcLink>(mpc, std::move(resetTarget), config);
     *created = link.get();
     return link;
   };
@@ -98,15 +118,19 @@ MpcLinkFactory InProcessMpcLink::factory(MPC_BASE& mpc, Config config, InProcess
 
 void InProcessMpcLink::start(const SystemObservation& initialObservation) {
   if (started_.exchange(true)) {
-    LOG(ERROR) << "[InProcessMpcLink] start() called on a link that was started before; ignored: a link starts once.";
+    LOG(ERROR) << "[InProcessMpcLink] start() called on a link that was "
+                  "started before; ignored: a link starts once.";
     return;
   }
   // Set observation to MPC
   mpcMrtInterface_.setCurrentObservation(initialObservation);
   if (execution_ == Execution::kCaller) {
-    // The start of the solver thread, on this thread; the caller runs the iterations (runSolverIteration()).
-    resetMpcToCurrentObservation(MpcResetSupervisor::ResetKind::kFull, "start-up");
-    LOG(INFO) << "MPC is reset. NMPC solver started; the caller runs its iterations.";
+    // The start of the solver thread, on this thread; the caller runs the
+    // iterations (runSolverIteration()).
+    resetMpcToCurrentObservation(MpcResetSupervisor::ResetKind::kFull,
+                                 "start-up");
+    LOG(INFO)
+        << "MPC is reset. NMPC solver started; the caller runs its iterations.";
     return;
   }
   solverWorker_ = std::jthread(&InProcessMpcLink::solverWorker, this);
@@ -130,27 +154,37 @@ void InProcessMpcLink::solverWorker() {
   const SystemCoreAllocation coreAlloc = getDefaultCoreAllocation();
   setThreadCpuAffinity(coreAlloc.mpcCores, pthread_self(), solverThreadName_);
 
-  resetMpcToCurrentObservation(MpcResetSupervisor::ResetKind::kFull, "start-up");
+  resetMpcToCurrentObservation(MpcResetSupervisor::ResetKind::kFull,
+                               "start-up");
   LOG(INFO) << "MPC is reset. NMPC solver started!";
 
   size_t slowWarningCount = 0;
   while (!terminateThread_.load()) {
     const std::chrono::steady_clock::time_point targetTimeForNextIteration =
-        std::chrono::steady_clock::now() + std::chrono::microseconds(mpcDeltaTMicroSeconds_);
+        std::chrono::steady_clock::now() +
+        std::chrono::microseconds(mpcDeltaTMicroSeconds_);
 
-    // A requested reset, then one solve; a failed solve may ask for a pause before the next.
+    // A requested reset, then one solve; a failed solve may ask for a pause
+    // before the next.
     const SolverIterationResult iteration = solveOnce();
     if (iteration.retryDelay.count() > 0.0) {
-      resetSupervisor().waitBeforeRetry(iteration.retryDelay, [this]() { return terminateThread_.load(); });
+      resetSupervisor().waitBeforeRetry(
+          iteration.retryDelay, [this]() { return terminateThread_.load(); });
       continue;
     }
 
     if (!realtime_) {
-      const std::chrono::steady_clock::time_point currentTime = std::chrono::steady_clock::now();
+      const std::chrono::steady_clock::time_point currentTime =
+          std::chrono::steady_clock::now();
       if (currentTime > targetTimeForNextIteration) {
-        const int64_t delay = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - targetTimeForNextIteration).count();
-        if (delay > kSlowIterationThreshold && (++slowWarningCount % kSlowIterationsPerWarning == 0)) {
-          LOG(WARNING) << "MPC loop running slow by " << delay << " microseconds.";
+        const int64_t delay =
+            std::chrono::duration_cast<std::chrono::microseconds>(
+                currentTime - targetTimeForNextIteration)
+                .count();
+        if (delay > kSlowIterationThreshold &&
+            (++slowWarningCount % kSlowIterationsPerWarning == 0)) {
+          LOG(WARNING) << "MPC loop running slow by " << delay
+                       << " microseconds.";
         }
       } else {
         // Sleep in case sim loop is faster than specified
@@ -165,25 +199,33 @@ InProcessMpcLink::SolverIterationResult InProcessMpcLink::runSolverIteration() {
   SolverIterationResult refused;
   if (execution_ != Execution::kCaller) {
     refused.status = absl::FailedPreconditionError(
-        "[InProcessMpcLink] runSolverIteration() on a link that runs its own solver thread (Execution::kSolverThread).");
+        "[InProcessMpcLink] runSolverIteration() on a link that runs its own "
+        "solver thread (Execution::kSolverThread).");
     return refused;
   }
   if (!started_.load() || terminateThread_.load()) {
-    refused.status = absl::FailedPreconditionError("[InProcessMpcLink] runSolverIteration() before start() or after stop().");
+    refused.status = absl::FailedPreconditionError(
+        "[InProcessMpcLink] runSolverIteration() before start() or after "
+        "stop().");
     return refused;
   }
   return solveOnce();
 }
 
 InProcessMpcLink::SolverIterationResult InProcessMpcLink::solveOnce() {
-  // Serve a requested reset (a mode change, a discontinuity of the plant, a failed solve) before solving again.
-  if (const std::optional<MpcResetSupervisor::ResetTicket> ticket = resetSupervisor().takeResetRequest()) {
-    resetMpcToCurrentObservation(ticket->full ? MpcResetSupervisor::ResetKind::kFull : MpcResetSupervisor::ResetKind::kSolver, "requested");
+  // Serve a requested reset (a mode change, a discontinuity of the plant, a
+  // failed solve) before solving again.
+  if (const std::optional<MpcResetSupervisor::ResetTicket> ticket =
+          resetSupervisor().takeResetRequest()) {
+    resetMpcToCurrentObservation(ticket->full
+                                     ? MpcResetSupervisor::ResetKind::kFull
+                                     : MpcResetSupervisor::ResetKind::kSolver,
+                                 "requested");
     resetSupervisor().completeReset(*ticket);
   }
 
-  // A failed solve requests a reset and, once the failures persist, a pause before the next attempt; the supervisor
-  // logs what happened, once.
+  // A failed solve requests a reset and, once the failures persist, a pause
+  // before the next attempt; the supervisor logs what happened, once.
   SolverIterationResult result;
   result.status = mpcMrtInterface_.advanceMpc();
   result.retryDelay = resetSupervisor().onSolveResult(result.status);
@@ -193,17 +235,22 @@ InProcessMpcLink::SolverIterationResult InProcessMpcLink::solveOnce() {
   return result;
 }
 
-void InProcessMpcLink::resetMpcToCurrentObservation(MpcResetSupervisor::ResetKind kind, absl::string_view reason) {
-  const SystemObservation observation = mpcMrtInterface_.getCurrentObservation();
+void InProcessMpcLink::resetMpcToCurrentObservation(
+    MpcResetSupervisor::ResetKind kind, absl::string_view reason) {
+  const SystemObservation observation =
+      mpcMrtInterface_.getCurrentObservation();
   const bool full = kind == MpcResetSupervisor::ResetKind::kFull;
   if (full) {
     mpcMrtInterface_.resetMpcNode(resetTarget_(observation));
   } else {
     mpcMrtInterface_.resetMpcSolver(resetTarget_(observation));
   }
-  // While the solver keeps failing it is reset before every attempt; the supervisor has said so once already.
+  // While the solver keeps failing it is reset before every attempt; the
+  // supervisor has said so once already.
   if (resetSupervisor().isHealthy()) {
-    LOG(INFO) << (full ? "MPC reset" : "MPC solver reset") << " to the observation at t = " << observation.time << " s (" << reason << ").";
+    LOG(INFO) << (full ? "MPC reset" : "MPC solver reset")
+              << " to the observation at t = " << observation.time << " s ("
+              << reason << ").";
   }
 }
 

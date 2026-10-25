@@ -122,7 +122,9 @@ _UNLISTED_RADIUS = {
     MarkerKind.SPHERES: scene_contract.POINT_MARKER_RADIUS,
     MarkerKind.LINE_STRIPS: scene_contract.TRAJECTORY_RADIUS,
 }
-_UNLISTED_COLORS: tuple[palette.Rgba, ...] = (palette.with_alpha(palette.BLACK, 1.0),)
+_UNLISTED_COLORS: tuple[palette.Rgba, ...] = (
+    palette.with_alpha(palette.BLACK, 1.0),
+)
 
 
 def new_recording(
@@ -145,7 +147,9 @@ class BridgeStatistics:
     # Messages each handler took, by topic.
     handled: dict[str, int] = dataclasses.field(default_factory=dict)
     # Messages or parts of them that did not fit the contract and were skipped, by (topic, reason).
-    malformed: dict[tuple[str, str], int] = dataclasses.field(default_factory=dict)
+    malformed: dict[tuple[str, str], int] = dataclasses.field(
+        default_factory=dict
+    )
     # Unexpected exceptions in a handler, by topic.
     handler_errors: dict[str, int] = dataclasses.field(default_factory=dict)
     # Link poses logged, and skipped because they had not changed.
@@ -219,7 +223,8 @@ class _LoopTotals:
         """The counts since `previous`, or the totals themselves after a restarted robot process (or before any)."""
         values = dataclasses.astuple(self)
         if previous is None or any(
-            now < before for now, before in zip(values, dataclasses.astuple(previous))
+            now < before
+            for now, before in zip(values, dataclasses.astuple(previous))
         ):
             return self
         return _LoopTotals(
@@ -287,7 +292,8 @@ def _vector3_array(vectors: Sequence[Any]) -> np.ndarray:
 def _colors_rgba8(colors: Sequence[Any]) -> np.ndarray:
     """An (N, 4) uint8 array of humanoid_mpc_msgs.Color (RGBA in [0, 1])."""
     rgba = np.array(
-        [(color.r, color.g, color.b, color.a) for color in colors], dtype=np.float64
+        [(color.r, color.g, color.b, color.a) for color in colors],
+        dtype=np.float64,
     ).reshape(-1, 4)
     return np.rint(np.clip(rgba, 0.0, 1.0) * 255.0).astype(np.uint8)
 
@@ -343,11 +349,16 @@ class RerunBridge:
         telemetry_rate: float = 0.0,
         telemetry_selection: Callable[[str], bool] | None = None,
     ) -> None:
-        if not (max_scene_frequency >= 0.0 and math.isfinite(max_scene_frequency)):
-            raise ValueError("max_scene_frequency must be non-negative and finite")
+        if not (
+            max_scene_frequency >= 0.0 and math.isfinite(max_scene_frequency)
+        ):
+            raise ValueError(
+                "max_scene_frequency must be non-negative and finite"
+            )
         if not (telemetry_rate >= 0.0 and math.isfinite(telemetry_rate)):
             raise ValueError(
-                f"telemetry_rate must be non-negative and finite, got {telemetry_rate}"
+                "telemetry_rate must be non-negative and finite, got"
+                f" {telemetry_rate}"
             )
         self._telemetry_rate = telemetry_rate
         self._telemetry_selection = telemetry_selection
@@ -359,13 +370,17 @@ class RerunBridge:
         self._new_run = new_run
         self._max_pending_rows = max_pending_rows
         self.model = model
-        self._meshes = robot_meshes.RobotMeshes(model) if model is not None else None
+        self._meshes = (
+            robot_meshes.RobotMeshes(model) if model is not None else None
+        )
         if allowed_instances is not None:
             self._allowed_instances: frozenset[str] | None = frozenset(
                 allowed_instances
             )
             self._instances = tuple(
-                style for style in instances if style.name in self._allowed_instances
+                style
+                for style in instances
+                if style.name in self._allowed_instances
             )
         else:
             self._allowed_instances = None
@@ -387,14 +402,18 @@ class RerunBridge:
         self._links_with_visuals = (
             model.links_with_visuals() if model is not None else frozenset()
         )
-        self._urdf_links = frozenset(model.links) if model is not None else frozenset()
+        self._urdf_links = (
+            frozenset(model.links) if model is not None else frozenset()
+        )
         # The robot instances whose link names were checked against the URDF's.
         self._link_names_checked: set[str] = set()
         self._logged_instances: set[str] = set()
         self._last_link_poses: dict[str, tuple[float, ...]] = {}
         self._last_scene_time = -math.inf
         # The latest scene the throttle held back, drawn by flush() once the interval passed; None: there is none.
-        self._pending_scene: visualization_scene_pb2.VisualizationScene | None = None
+        self._pending_scene: (
+            visualization_scene_pb2.VisualizationScene | None
+        ) = None
         # The marker entities the last scene drew, with their kind.
         self._drawn_markers: dict[str, MarkerKind] = {}
         # Per telemetry entity: the series names its SeriesLines carry.
@@ -428,7 +447,9 @@ class RerunBridge:
     def log_static(self) -> None:
         """Logs the world's axes (right-handed, z up) and the robot meshes of every instance of `instances`."""
         self.recording.log(
-            scene_contract.WORLD_ROOT, rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True
+            scene_contract.WORLD_ROOT,
+            rr.ViewCoordinates.RIGHT_HAND_Z_UP,
+            static=True,
         )
         for style in self._instances:
             self._log_instance_meshes(style)
@@ -455,7 +476,9 @@ class RerunBridge:
         self._last_fsm_state = None
         self._last_mpc_health = None
 
-    def _log_instance_meshes(self, style: scene_contract.RobotInstanceStyle) -> None:
+    def _log_instance_meshes(
+        self, style: scene_contract.RobotInstanceStyle
+    ) -> None:
         if self._meshes is None or style.name in self._logged_instances:
             return
         self._logged_instances.add(style.name)
@@ -474,7 +497,9 @@ class RerunBridge:
 
     def _count_malformed(self, topic: str, reason: str) -> None:
         key = (topic, reason)
-        self.statistics.malformed[key] = self.statistics.malformed.get(key, 0) + 1
+        self.statistics.malformed[key] = (
+            self.statistics.malformed.get(key, 0) + 1
+        )
         self._log.warning(
             ("malformed", topic, reason),
             f"skipped part of a '{topic}' message: {reason}",
@@ -510,7 +535,8 @@ class RerunBridge:
             return True
         return (
             topic == topics.VIZ_SCENE
-            and self._clock() - self._last_telemetry_wall_time >= CLOCK_TIMEOUT_S
+            and self._clock() - self._last_telemetry_wall_time
+            >= CLOCK_TIMEOUT_S
         )
 
     def _place_in_run(
@@ -545,7 +571,8 @@ class RerunBridge:
             self.statistics.previous_run_dropped += 1
             self._log.warning(
                 ("previous_run", topic),
-                f"dropped a '{topic}' message of the previous run of the robot, which arrived after the new run began",
+                f"dropped a '{topic}' message of the previous run of the robot,"
+                " which arrived after the new run began",
             )
             return False
         if is_clock and not self._replaying:
@@ -553,7 +580,9 @@ class RerunBridge:
             self._release_held()
         if is_clock:
             clock = self._run_time
-            self._run_time = robot_time if clock is None else max(clock, robot_time)
+            self._run_time = (
+                robot_time if clock is None else max(clock, robot_time)
+            )
         return True
 
     def _is_of_previous_run(self, robot_time: float, latest: float) -> bool:
@@ -607,21 +636,27 @@ class RerunBridge:
             self.statistics.late_messages += len(held)
             self._log.warning(
                 "late",
-                f"{len(held)} message(s) came more than {NEW_RUN_REWIND_S} s behind the robot's clock, which did not go "
-                "back: recorded at their own times in the current run",
+                f"{len(held)} message(s) came more than {NEW_RUN_REWIND_S} s"
+                " behind the robot's clock, which did not go back: recorded at"
+                " their own times in the current run",
             )
             self._handle_again(held)
 
     def _release_stale_held(self) -> None:
         """Releases the messages that waited CLOCK_TIMEOUT_S or more: the clock topic went quiet."""
-        if self._held and self._clock() - self._held[0].held_at >= CLOCK_TIMEOUT_S:
+        if (
+            self._held
+            and self._clock() - self._held[0].held_at >= CLOCK_TIMEOUT_S
+        ):
             self._release_held()
 
     def _confirm_new_run(self) -> None:
         """The clock topic went back: starts the new run at its first message that waited, and records them into it."""
         held = self._take_held()
         previous_time = self._run_time
-        robot_time = next(message.robot_time for message in held if message.is_clock)
+        robot_time = next(
+            message.robot_time for message in held if message.is_clock
+        )
         if previous_time is not None:
             self._start_new_run(previous_time, robot_time)
         self._run_time = robot_time
@@ -638,14 +673,16 @@ class RerunBridge:
         # pylint: disable-next=broad-exception-caught  # A recording that cannot be made keeps the previous one.
         except Exception:
             _LOGGER.warning(
-                "the robot's clock went back, but a recording of the new run could not be made; "
-                "recording every run into one from now on",
+                "the robot's clock went back, but a recording of the new run"
+                " could not be made; recording every run into one from now on",
                 exc_info=True,
             )
             self._new_run = None
             return
         self.recording = recording
-        self.batcher = scalar_batcher.ScalarBatcher(recording, self._max_pending_rows)
+        self.batcher = scalar_batcher.ScalarBatcher(
+            recording, self._max_pending_rows
+        )
         self.telemetry_batcher = scalar_batcher.FrameBatcher(
             recording, self._max_pending_rows
         )
@@ -657,25 +694,34 @@ class RerunBridge:
         self.statistics.new_runs += 1
         self.log_static()
         text = (
-            f"the robot's clock went back from {previous_time:.3f} s to {robot_time:.3f} s: a new run of the robot, "
-            "recorded as a recording of its own"
+            f"the robot's clock went back from {previous_time:.3f} s to"
+            f" {robot_time:.3f} s: a new run of the robot, recorded as a"
+            " recording of its own"
         )
         _LOGGER.warning("%s", text)
-        self._text(status_contract.BRIDGE_LOG, robot_time, text, rr.TextLogLevel.WARN)
+        self._text(
+            status_contract.BRIDGE_LOG, robot_time, text, rr.TextLogLevel.WARN
+        )
 
     def _set_time(self, robot_time: float | None, wall_time: float) -> None:
         """Sets the timelines of the following log() calls of this thread."""
         self.recording.reset_time()
         if robot_time is not None:
-            self.recording.set_time(scene_contract.ROBOT_TIMELINE, duration=robot_time)
-        self.recording.set_time(scene_contract.WALL_TIMELINE, timestamp=wall_time)
+            self.recording.set_time(
+                scene_contract.ROBOT_TIMELINE, duration=robot_time
+            )
+        self.recording.set_time(
+            scene_contract.WALL_TIMELINE, timestamp=wall_time
+        )
 
     # ------------------------------------------------------------------------------------------------------------------
     # viz/scene
     # ------------------------------------------------------------------------------------------------------------------
 
     @_guarded(topics.VIZ_SCENE)
-    def handle_scene(self, scene: visualization_scene_pb2.VisualizationScene) -> None:
+    def handle_scene(
+        self, scene: visualization_scene_pb2.VisualizationScene
+    ) -> None:
         """Moves the robots to the scene's link poses, draws its markers and clears the markers it no longer names.
 
         A scene the throttle (max_scene_frequency) holds back is kept, and flush() draws the latest such once the
@@ -687,7 +733,9 @@ class RerunBridge:
         if not _finite(scene.time):
             raise MalformedMessageError("the scene's time is not finite")
         if not self._place_in_run(
-            topics.VIZ_SCENE, scene.time, functools.partial(self.handle_scene, scene)
+            topics.VIZ_SCENE,
+            scene.time,
+            functools.partial(self.handle_scene, scene),
         ):
             return
         if scene.time < self._last_scene_time:
@@ -702,7 +750,8 @@ class RerunBridge:
         if (
             self._min_scene_interval > 0.0
             and self._last_scene_wall_time is not None
-            and (wall_now - self._last_scene_wall_time) < self._min_scene_interval
+            and (wall_now - self._last_scene_wall_time)
+            < self._min_scene_interval
         ):
             self.statistics.scenes_throttled += 1
             self._pending_scene = scene
@@ -729,7 +778,8 @@ class RerunBridge:
             for marker in markers:
                 if not scene_contract.is_valid_relative_path(marker.path):
                     self._count_malformed(
-                        topics.VIZ_SCENE, f"invalid {kind.value} path '{marker.path}'"
+                        topics.VIZ_SCENE,
+                        f"invalid {kind.value} path '{marker.path}'",
                     )
                     continue
                 if marker.path in drawn:
@@ -746,7 +796,9 @@ class RerunBridge:
                 self._clear_marker(path, kind)
         self._drawn_markers = drawn
 
-    def _guarded_part(self, topic: str, log: Callable[[Any], None], part: Any) -> bool:
+    def _guarded_part(
+        self, topic: str, log: Callable[[Any], None], part: Any
+    ) -> bool:
         """Logs one part of a message; a malformed part is counted and skipped, the rest of the message is drawn."""
         try:
             log(part)
@@ -755,21 +807,28 @@ class RerunBridge:
             self._count_malformed(topic, str(error))
             return False
 
-    def _log_robot(self, robot: robot_model_instance_pb2.RobotModelInstance) -> None:
+    def _log_robot(
+        self, robot: robot_model_instance_pb2.RobotModelInstance
+    ) -> None:
         """Logs the changed link poses of one robot instance, first logging its meshes if it is new."""
         name = robot.name
         if not scene_contract.is_valid_relative_path(name) or "/" in name:
             raise MalformedMessageError(f"invalid robot instance name '{name}'")
-        if self._allowed_instances is not None and name not in self._allowed_instances:
+        if (
+            self._allowed_instances is not None
+            and name not in self._allowed_instances
+        ):
             return
         if len(robot.link_names) != len(robot.link_poses):
             raise MalformedMessageError(
-                f"robot '{name}' has {len(robot.link_names)} link names but {len(robot.link_poses)} poses"
+                f"robot '{name}' has {len(robot.link_names)} link names but"
+                f" {len(robot.link_poses)} poses"
             )
         if self._meshes is None:
             self._warn_once(
                 "no_model",
-                "no URDF was given (--urdf), so the robot instances of viz/scene are not drawn",
+                "no URDF was given (--urdf), so the robot instances of"
+                " viz/scene are not drawn",
             )
             return
         if name not in self._logged_instances:
@@ -777,7 +836,8 @@ class RerunBridge:
             if style not in scene_contract.ROBOT_INSTANCES:
                 self._warn_once(
                     ("instance", name),
-                    f"robot instance '{name}' is not one of the contract's; drawing it with the default style",
+                    f"robot instance '{name}' is not one of the contract's;"
+                    " drawing it with the default style",
                 )
             self._log_instance_meshes(style)
         self._check_link_names(robot)
@@ -798,7 +858,8 @@ class RerunBridge:
             )
             if not all(math.isfinite(value) for value in values):
                 raise MalformedMessageError(
-                    f"robot '{name}' link '{link}' has a pose that is not finite"
+                    f"robot '{name}' link '{link}' has a pose that is not"
+                    " finite"
                 )
             norm = math.sqrt(sum(value * value for value in values[3:]))
             if norm < _MIN_QUATERNION_NORM:
@@ -846,12 +907,13 @@ class RerunBridge:
         if unknown:
             self._warn_once(
                 ("unknown_links", name),
-                f"robot '{name}' names links the URDF '{model.name}' does not have "
-                f"({_listed(unknown)}); is --urdf the robot's?",
+                f"robot '{name}' names links the URDF '{model.name}' does not"
+                f" have ({_listed(unknown)}); is --urdf the robot's?",
             )
             self._count_malformed(
                 topics.VIZ_SCENE,
-                f"robot '{name}' names links the URDF '{model.name}' does not have; is --urdf the robot's?",
+                f"robot '{name}' names links the URDF '{model.name}' does not"
+                " have; is --urdf the robot's?",
             )
         if name in self._link_names_checked:
             return
@@ -860,8 +922,9 @@ class RerunBridge:
         if unposed:
             self._warn_once(
                 ("unposed_links", name),
-                f"robot '{name}' gives no pose for the URDF links {_listed(unposed)}, which are drawn at the world "
-                "origin; is --urdf the robot's?",
+                f"robot '{name}' gives no pose for the URDF links"
+                f" {_listed(unposed)}, which are drawn at the world origin; is"
+                " --urdf the robot's?",
             )
 
     def _marker_style(
@@ -872,7 +935,8 @@ class RerunBridge:
             return spec.default_radius, spec.default_colors
         self._warn_once(
             ("unlisted_marker", path, kind),
-            f"'{path}' ({kind.value}) is not a marker of the scene contract; drawing it with default style",
+            f"'{path}' ({kind.value}) is not a marker of the scene contract;"
+            " drawing it with default style",
         )
         return _UNLISTED_RADIUS[kind], _UNLISTED_COLORS
 
@@ -888,13 +952,15 @@ class RerunBridge:
             return _defaults_rgba8(defaults, count)
         if len(colors) not in (1, count):
             raise MalformedMessageError(
-                f"'{path}' has {len(colors)} colors for {count} elements (give one, or one each)"
+                f"'{path}' has {len(colors)} colors for {count} elements (give"
+                " one, or one each)"
             )
         rgba = _colors_rgba8(colors)
         if not rgba[:, 3].any():
             self._warn_once(
                 ("transparent", path),
-                f"every color of '{path}' has alpha 0, so it is invisible; set Color.a",
+                f"every color of '{path}' has alpha 0, so it is invisible; set"
+                " Color.a",
             )
         return rgba
 
@@ -907,7 +973,8 @@ class RerunBridge:
         vectors = _vector3_array(arrows.vectors)
         if len(origins) != len(vectors):
             raise MalformedMessageError(
-                f"'{arrows.path}' has {len(origins)} origins but {len(vectors)} vectors"
+                f"'{arrows.path}' has {len(origins)} origins but"
+                f" {len(vectors)} vectors"
             )
         if not (np.isfinite(origins).all() and np.isfinite(vectors).all()):
             raise MalformedMessageError(
@@ -943,7 +1010,8 @@ class RerunBridge:
             radii = np.asarray(spheres.radii, dtype=np.float32)
         else:
             raise MalformedMessageError(
-                f"'{spheres.path}' has {len(spheres.radii)} radii for {count} spheres (give one, or one each)"
+                f"'{spheres.path}' has {len(spheres.radii)} radii for"
+                f" {count} spheres (give one, or one each)"
             )
         self.recording.log(
             scene_contract.entity_path(scene_contract.WORLD_ROOT, spheres.path),
@@ -968,16 +1036,21 @@ class RerunBridge:
             points = _vector3_array(strip.points)
             if not np.isfinite(points).all():
                 raise MalformedMessageError(
-                    f"'{line_strips.path}' strip {index} has points that are not finite"
+                    f"'{line_strips.path}' strip {index} has points that are"
+                    " not finite"
                 )
             strips.append(points)
             if strip.HasField("color"):
                 colors[index] = _colors_rgba8([strip.color])[0]
             else:
                 colors[index] = defaults[index % len(defaults)]
-        radius = line_strips.radius if line_strips.radius > 0.0 else radius_default
+        radius = (
+            line_strips.radius if line_strips.radius > 0.0 else radius_default
+        )
         self.recording.log(
-            scene_contract.entity_path(scene_contract.WORLD_ROOT, line_strips.path),
+            scene_contract.entity_path(
+                scene_contract.WORLD_ROOT, line_strips.path
+            ),
             rr.LineStrips3D(strips, radii=[radius], colors=colors),
         )
 
@@ -986,7 +1059,9 @@ class RerunBridge:
         entity = scene_contract.entity_path(scene_contract.WORLD_ROOT, path)
         empty = np.zeros((0, 3), dtype=np.float64)
         if kind is MarkerKind.ARROWS:
-            self.recording.log(entity, rr.Arrows3D(origins=empty, vectors=empty))
+            self.recording.log(
+                entity, rr.Arrows3D(origins=empty, vectors=empty)
+            )
         elif kind is MarkerKind.SPHERES:
             self.recording.log(entity, rr.Points3D(positions=empty))
         else:
@@ -997,7 +1072,9 @@ class RerunBridge:
     # ------------------------------------------------------------------------------------------------------------------
 
     @_guarded(topics.VIZ_TELEMETRY)
-    def handle_telemetry(self, series: telemetry_series_pb2.TelemetrySeries) -> None:
+    def handle_telemetry(
+        self, series: telemetry_series_pb2.TelemetrySeries
+    ) -> None:
         """Buffers the selected ScalarGroups at telemetry/<path>, at most at telemetry_rate; flush() sends them."""
         if not _finite(series.time):
             raise MalformedMessageError("the telemetry's time is not finite")
@@ -1021,7 +1098,8 @@ class RerunBridge:
                 continue
             if path in paths:
                 self._count_malformed(
-                    topics.VIZ_TELEMETRY, f"group '{path}' appears twice in one message"
+                    topics.VIZ_TELEMETRY,
+                    f"group '{path}' appears twice in one message",
                 )
                 continue
             paths.add(path)
@@ -1031,14 +1109,17 @@ class RerunBridge:
                 # its values would be plotted under the names it was declared with.
                 self._count_malformed(
                     topics.VIZ_TELEMETRY,
-                    f"group '{path}' has {len(group.names)} names but {count} values",
+                    f"group '{path}' has {len(group.names)} names but"
+                    f" {count} values",
                 )
                 continue
             names = self._series_names.get(path)
             if names is None or len(names) != count:
                 if not self._declare_series(group):
                     continue
-            rows.append((f"{scene_contract.TELEMETRY_ROOT}/{path}", group.values))
+            rows.append(
+                (f"{scene_contract.TELEMETRY_ROOT}/{path}", group.values)
+            )
         self.telemetry_batcher.append(robot_time, wall_time, rows)
         self.statistics.telemetry_groups += len(rows)
 
@@ -1079,7 +1160,9 @@ class RerunBridge:
         """
         path = group.path
         if not scene_contract.is_valid_relative_path(path):
-            self._count_malformed(topics.VIZ_TELEMETRY, f"invalid group path '{path}'")
+            self._count_malformed(
+                topics.VIZ_TELEMETRY, f"invalid group path '{path}'"
+            )
             return False
         names = tuple(group.names)
         if not names:
@@ -1089,15 +1172,21 @@ class RerunBridge:
         if contract_group is None:
             self._warn_once(
                 ("unlisted_group", path),
-                f"telemetry group '{path}' is not in the telemetry contract; plotting it anyway",
+                f"telemetry group '{path}' is not in the telemetry contract;"
+                " plotting it anyway",
             )
-        elif not contract_group.robot_dependent and contract_group.names != names:
+        elif (
+            not contract_group.robot_dependent and contract_group.names != names
+        ):
             self._warn_once(
                 ("group_names", path),
-                f"telemetry group '{path}' names {list(names)}, the contract {list(contract_group.names)}",
+                f"telemetry group '{path}' names {list(names)}, the contract"
+                f" {list(contract_group.names)}",
             )
         elif contract_group.colors:
-            colors = [palette.hex_to_rgba8(color) for color in contract_group.colors]
+            colors = [
+                palette.hex_to_rgba8(color) for color in contract_group.colors
+            ]
         self.recording.log(
             f"{scene_contract.TELEMETRY_ROOT}/{path}",
             rr.SeriesLines(names=list(names), colors=colors),
@@ -1115,9 +1204,15 @@ class RerunBridge:
             How many scalar rows were sent.
         """
         self._release_stale_held()
-        if self._pending_scene is not None and self._last_scene_wall_time is not None:
+        if (
+            self._pending_scene is not None
+            and self._last_scene_wall_time is not None
+        ):
             wall_now = self._clock()
-            if wall_now - self._last_scene_wall_time >= self._min_scene_interval:
+            if (
+                wall_now - self._last_scene_wall_time
+                >= self._min_scene_interval
+            ):
                 self._run_guarded(
                     topics.VIZ_SCENE,
                     functools.partial(self._draw_scene, wall_now=wall_now),
@@ -1147,7 +1242,9 @@ class RerunBridge:
             self.statistics.handler_errors["flush"] = (
                 self.statistics.handler_errors.get("flush", 0) + 1
             )
-            self._log.warning("flush", "sending the plots failed", exc_info=True)
+            self._log.warning(
+                "flush", "sending the plots failed", exc_info=True
+            )
             return 0
 
     def flush_recording(self, timeout: float) -> bool:
@@ -1177,11 +1274,15 @@ class RerunBridge:
         if series.path not in self._status_series_logged:
             self._status_series_logged.add(series.path)
             self.recording.log(
-                series.path, rr.SeriesLines(names=list(series.names)), static=True
+                series.path,
+                rr.SeriesLines(names=list(series.names)),
+                static=True,
             )
         self.batcher.append(series.path, robot_time, wall_time, values)
 
-    def _text(self, path: str, robot_time: float | None, text: str, level: str) -> None:
+    def _text(
+        self, path: str, robot_time: float | None, text: str, level: str
+    ) -> None:
         self._set_time(robot_time, self._clock())
         self.recording.log(path, rr.TextLog(text, level=level))
 
@@ -1198,11 +1299,17 @@ class RerunBridge:
             return
         self._last_fsm_state = key
         text = (
-            f"FSM {state.mode or '(none)'}; gantry {'locked' if state.gantry_locked else 'free'}; "
-            f"MPC {'healthy' if state.mpc_healthy else 'UNHEALTHY'}; controller resets {state.controller_resets}"
+            f"FSM {state.mode or '(none)'}; gantry"
+            f" {'locked' if state.gantry_locked else 'free'}; MPC"
+            f" {'healthy' if state.mpc_healthy else 'UNHEALTHY'}; controller"
+            f" resets {state.controller_resets}"
         )
-        level = rr.TextLogLevel.INFO if state.mpc_healthy else rr.TextLogLevel.WARN
-        self._text(status_contract.FSM_STATE_LOG, self._latest_robot_time, text, level)
+        level = (
+            rr.TextLogLevel.INFO if state.mpc_healthy else rr.TextLogLevel.WARN
+        )
+        self._text(
+            status_contract.FSM_STATE_LOG, self._latest_robot_time, text, level
+        )
 
     @_guarded(topics.MPC_STATUS)
     def handle_mpc_status(self, status: mpc_status_pb2.MpcStatus) -> None:
@@ -1215,7 +1322,9 @@ class RerunBridge:
             status: The MPC status message containing solve statistics and health flags.
         """
         robot_time = (
-            status.observation_time if _finite(status.observation_time) else None
+            status.observation_time
+            if _finite(status.observation_time)
+            else None
         )
         if robot_time is not None:
             if not self._place_in_run(
@@ -1249,22 +1358,26 @@ class RerunBridge:
             status_contract.MPC_OBSERVATIONS,
             robot_time,
             wall_time,
-            (float(status.observations_received), float(status.observations_skipped)),
+            (
+                float(status.observations_received),
+                float(status.observations_skipped),
+            ),
         )
         health = (solver.healthy, solver.last_error)
         if health != self._last_mpc_health:
             self._last_mpc_health = health
             if not solver.healthy:
                 text = (
-                    f"MPC solver UNHEALTHY after {solver.consecutive_failures} consecutive failures: "
-                    f"{solver.last_error or '(no error text)'}"
+                    "MPC solver UNHEALTHY after"
+                    f" {solver.consecutive_failures} consecutive failures:"
+                    f" {solver.last_error or '(no error text)'}"
                 )
                 level = rr.TextLogLevel.ERROR
             elif solver.last_error:
                 # A solve failed, below the supervisor's limit of consecutive failures: still healthy.
                 text = (
-                    f"MPC solve failed ({solver.consecutive_failures} in a row; the solver is still healthy): "
-                    f"{solver.last_error}"
+                    f"MPC solve failed ({solver.consecutive_failures} in a row;"
+                    f" the solver is still healthy): {solver.last_error}"
                 )
                 level = rr.TextLogLevel.WARN
             else:
@@ -1276,7 +1389,8 @@ class RerunBridge:
                 self._text(
                     status_contract.MPC_STATUS_LOG,
                     robot_time,
-                    f"MPC served reset {status.resets_served} (full resets {status.full_resets_served})",
+                    f"MPC served reset {status.resets_served} (full resets"
+                    f" {status.full_resets_served})",
                     rr.TextLogLevel.INFO,
                 )
             self._last_mpc_resets = resets
@@ -1328,7 +1442,9 @@ class RerunBridge:
             ),
         )
         # A negative age means no policy is in use; a gap in the plot says that better than a negative number.
-        policy_age = timing.policy_age_s if timing.policy_age_s >= 0.0 else math.nan
+        policy_age = (
+            timing.policy_age_s if timing.policy_age_s >= 0.0 else math.nan
+        )
         self._status_scalars(
             status_contract.POLICY_AGE, robot_time, wall_time, (policy_age,)
         )
@@ -1347,15 +1463,19 @@ class RerunBridge:
             else "no policy"
         )
         text = (
-            f"loop {timing.cycles} cycles: period target {timing.target_period_s * milliseconds:.3f} ms, "
-            f"mean {timing.mean_period_s * milliseconds:.3f} ms, max {timing.max_period_s * milliseconds:.3f} ms; "
-            f"compute max {timing.max_compute_time_s * milliseconds:.3f} ms; "
-            f"wake-up up to {timing.max_lateness_s * milliseconds:.3f} ms late; "
-            f"+{new.overruns} overruns, +{new.missed_periods} missed periods, "
-            f"+{new.telemetry_samples_dropped} telemetry samples dropped, "
-            f"+{new.stale_policies_dropped} stale policies dropped since the last report "
-            f"({timing.overruns}, {timing.missed_periods}, {timing.telemetry_samples_dropped} and "
-            f"{timing.stale_policies_dropped} since the robot started); {policy}"
+            f"loop {timing.cycles} cycles: period target"
+            f" {timing.target_period_s * milliseconds:.3f} ms, mean"
+            f" {timing.mean_period_s * milliseconds:.3f} ms, max"
+            f" {timing.max_period_s * milliseconds:.3f} ms; compute max"
+            f" {timing.max_compute_time_s * milliseconds:.3f} ms; wake-up up to"
+            f" {timing.max_lateness_s * milliseconds:.3f} ms late;"
+            f" +{new.overruns} overruns, +{new.missed_periods} missed periods,"
+            f" +{new.telemetry_samples_dropped} telemetry samples dropped,"
+            f" +{new.stale_policies_dropped} stale policies dropped since the"
+            f" last report ({timing.overruns}, {timing.missed_periods},"
+            f" {timing.telemetry_samples_dropped} and"
+            f" {timing.stale_policies_dropped} since the robot started);"
+            f" {policy}"
         )
         level = rr.TextLogLevel.WARN if trouble else rr.TextLogLevel.DEBUG
         self._text(status_contract.LOOP_TIMING_LOG, robot_time, text, level)
@@ -1364,7 +1484,9 @@ class RerunBridge:
     # Reports
     # ------------------------------------------------------------------------------------------------------------------
 
-    def report(self, bus_rejected: int = 0, sink_dropped: int = 0) -> str | None:
+    def report(
+        self, bus_rejected: int = 0, sink_dropped: int = 0
+    ) -> str | None:
         """Describes the problems since the last report in one line, which it also writes to the bridge's text log.
 
         Args:
@@ -1389,7 +1511,9 @@ class RerunBridge:
             for name, total in totals.items()
         }
         self._last_report = totals
-        problems = [f"{count} {name}" for name, count in new.items() if count > 0]
+        problems = [
+            f"{count} {name}" for name, count in new.items() if count > 0
+        ]
         if not problems:
             return None
         text = f'since the last report: {", ".join(problems)}'

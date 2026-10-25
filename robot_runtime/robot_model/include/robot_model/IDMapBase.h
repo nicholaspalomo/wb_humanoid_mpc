@@ -47,53 +47,75 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace robot::model {
 
-// The extractor of IDMapBase::toEigenVector(): a callable that reads one ScalarType out of an element.
+// The extractor of IDMapBase::toEigenVector(): a callable that reads one
+// ScalarType out of an element.
 template <typename E, typename T, typename ScalarType>
 concept IDMapExtractor = requires(E e, const T& val) {
   { e(val) } -> std::same_as<ScalarType>;
 };
 
 /**
- * A map from ids to elements over the contiguous range 0 to capacity() - 1: one std::optional<T> slot per id, so that a
- * map whose ids have gaps costs one empty slot per gap, and a lookup is an index. Iteration visits the engaged slots in
- * id order. The capacity is fixed at construction and copying keeps it, so that copying one map into another of the same
- * capacity allocates nothing (the realtime loop copies RobotState and RobotJointAction every cycle). Not thread-safe to
- * write; its const methods may be called concurrently.
+ * A map from ids to elements over the contiguous range 0 to capacity() - 1: one
+ * std::optional<T> slot per id, so that a map whose ids have gaps costs one
+ * empty slot per gap, and a lookup is an index. Iteration visits the engaged
+ * slots in id order. The capacity is fixed at construction and copying keeps
+ * it, so that copying one map into another of the same capacity allocates
+ * nothing (the realtime loop copies RobotState and RobotJointAction every
+ * cycle). Not thread-safe to write; its const methods may be called
+ * concurrently.
  */
 template <typename T>
 class IDMapBase {
  public:
   /**
-   * The slot of `element_id`. Unchecked, as std::vector's operator[]: `element_id` must be below capacity(), an id of the
-   * robot description; code on the realtime path validates its ids once, when it is built.
+   * The slot of `element_id`. Unchecked, as std::vector's operator[]:
+   * `element_id` must be below capacity(), an id of the robot description; code
+   * on the realtime path validates its ids once, when it is built.
    */
-  std::optional<T>& operator[](size_t element_id) { return map_elements_[element_id]; }
-  const std::optional<T>& operator[](size_t element_id) const { return map_elements_[element_id]; }
+  std::optional<T>& operator[](size_t element_id) {
+    return map_elements_[element_id];
+  }
+  const std::optional<T>& operator[](size_t element_id) const {
+    return map_elements_[element_id];
+  }
 
-  /** operator[], checked: an id out of range ends the process. For tests and setup code, not for every cycle. */
+  /** operator[], checked: an id out of range ends the process. For tests and
+   * setup code, not for every cycle. */
   std::optional<T>& at(size_t element_id) {
-    ABSL_CHECK_LT(element_id, map_elements_.size()) << "IDMapBase: no id " << element_id;
+    ABSL_CHECK_LT(element_id, map_elements_.size())
+        << "IDMapBase: no id " << element_id;
     return map_elements_[element_id];
   }
   const std::optional<T>& at(size_t element_id) const {
-    ABSL_CHECK_LT(element_id, map_elements_.size()) << "IDMapBase: no id " << element_id;
+    ABSL_CHECK_LT(element_id, map_elements_.size())
+        << "IDMapBase: no id " << element_id;
     return map_elements_[element_id];
   }
 
-  template <typename It, typename ScalarType, IDMapExtractor<T, ScalarType> Extractor>
-  Eigen::Matrix<ScalarType, Eigen::Dynamic, 1> toEigenVector(It begin, It end, Extractor extractor, ScalarType defaultValue) const {
+  template <typename It,
+            typename ScalarType,
+            IDMapExtractor<T, ScalarType> Extractor>
+  Eigen::Matrix<ScalarType, Eigen::Dynamic, 1> toEigenVector(
+      It begin, It end, Extractor extractor, ScalarType defaultValue) const {
     Eigen::Matrix<ScalarType, Eigen::Dynamic, 1> vector;
     writeEigenVector(begin, end, extractor, defaultValue, vector);
     return vector;
   }
 
   /**
-   * toEigenVector() into `vector`, resized to the number of ids: no allocation once it has that size. Every id in
-   * [begin, end) must be below capacity() (operator[]); an empty slot reads as `defaultValue`.
+   * toEigenVector() into `vector`, resized to the number of ids: no allocation
+   * once it has that size. Every id in [begin, end) must be below capacity()
+   * (operator[]); an empty slot reads as `defaultValue`.
    */
-  template <typename It, typename ScalarType, IDMapExtractor<T, ScalarType> Extractor>
+  template <typename It,
+            typename ScalarType,
+            IDMapExtractor<T, ScalarType> Extractor>
   void writeEigenVector(
-      It begin, It end, Extractor extractor, ScalarType defaultValue, Eigen::Matrix<ScalarType, Eigen::Dynamic, 1>& vector) const {
+      It begin,
+      It end,
+      Extractor extractor,
+      ScalarType defaultValue,
+      Eigen::Matrix<ScalarType, Eigen::Dynamic, 1>& vector) const {
     vector.resize(std::distance(begin, end));
     int index = 0;
     for (const std::iter_value_t<It>& id : std::ranges::subrange(begin, end)) {
@@ -126,10 +148,13 @@ class IDMapBase {
 
   // iterator class to skip uninitialized elements
 
-  class const_iterator;  // NOLINT(readability-identifier-naming): the STL container interface (G: Exceptions to Naming Rules)
-  class iterator;        // NOLINT(readability-identifier-naming): the STL container interface (G: Exceptions to Naming Rules)
+  class
+      const_iterator;  // NOLINT(readability-identifier-naming): the STL container interface (G: Exceptions to Naming Rules)
+  class
+      iterator;  // NOLINT(readability-identifier-naming): the STL container interface (G: Exceptions to Naming Rules)
 
-  /** What iterator and const_iterator share: the position, which skips the empty slots. */
+  /** What iterator and const_iterator share: the position, which skips the
+   * empty slots. */
   template <typename MapType, typename RefType>
   class IteratorBase {
    public:
@@ -145,9 +170,13 @@ class IDMapBase {
       return *this;
     }
 
-    bool operator==(const IteratorBase& other) const { return it_ == other.it_; }
+    bool operator==(const IteratorBase& other) const {
+      return it_ == other.it_;
+    }
 
-    bool operator!=(const IteratorBase& other) const { return it_ != other.it_; }
+    bool operator!=(const IteratorBase& other) const {
+      return it_ != other.it_;
+    }
 
    protected:
     MapType map_;
@@ -155,7 +184,8 @@ class IDMapBase {
 
     // Helper function to skip over elements that are not null optionals
     void skipNullopt() {
-      while (it_ != map_->map_elements_.size() && !map_->map_elements_[it_].has_value()) {
+      while (it_ != map_->map_elements_.size() &&
+             !map_->map_elements_[it_].has_value()) {
         ++it_;  // skip while current element is std::nullopt
       }
     }
@@ -168,57 +198,80 @@ class IDMapBase {
   // NOLINTNEXTLINE(readability-identifier-naming): the STL container interface (G: Exceptions to Naming Rules)
   class iterator : public IteratorBase<IDMapBase<T>* absl_nonnull, T&> {
    public:
-    iterator(IDMapBase<T>* absl_nonnull map, size_t it) : IteratorBase<IDMapBase<T>* absl_nonnull, T&>(map, it) {}
+    iterator(IDMapBase<T>* absl_nonnull map, size_t it)
+        : IteratorBase<IDMapBase<T>* absl_nonnull, T&>(map, it) {}
 
-    // Dereference to get underlying data. The iterator stops at engaged slots only (skipNullopt()).
-    T& operator*() { return *this->map_->map_elements_[this->it_]; }  // NOLINT(bugprone-unchecked-optional-access): see above
+    // Dereference to get underlying data. The iterator stops at engaged slots
+    // only (skipNullopt()).
+    T& operator*() {
+      return *this->map_->map_elements_[this->it_];
+    }  // NOLINT(bugprone-unchecked-optional-access): see above
   };
 
   // NOLINTNEXTLINE(readability-identifier-naming): the STL container interface (G: Exceptions to Naming Rules)
-  class const_iterator : public IteratorBase<const IDMapBase<T>* absl_nonnull, const T&> {
+  class const_iterator
+      : public IteratorBase<const IDMapBase<T>* absl_nonnull, const T&> {
    public:
-    const_iterator(const IDMapBase<T>* absl_nonnull map, size_t it) : IteratorBase<const IDMapBase<T>* absl_nonnull, const T&>(map, it) {}
+    const_iterator(const IDMapBase<T>* absl_nonnull map, size_t it)
+        : IteratorBase<const IDMapBase<T>* absl_nonnull, const T&>(map, it) {}
 
     // NOLINTNEXTLINE(google-explicit-constructor, runtime/explicit): an iterator converts to a const_iterator, as in std
-    const_iterator(const iterator& other) : IteratorBase<const IDMapBase<T>* absl_nonnull, const T&>(other.map_, other.it_) {}
+    const_iterator(const iterator& other)
+        : IteratorBase<const IDMapBase<T>* absl_nonnull, const T&>(other.map_,
+                                                                   other.it_) {}
 
-    // Dereference to get underlying data. The iterator stops at engaged slots only (skipNullopt()).
+    // Dereference to get underlying data. The iterator stops at engaged slots
+    // only (skipNullopt()).
     const T& operator*() const {
-      return *this->map_->map_elements_[this->it_];  // NOLINT(bugprone-unchecked-optional-access): see above
+      return *this->map_->map_elements_
+                  [this->it_];  // NOLINT(bugprone-unchecked-optional-access): see above
     }
   };
 
   iterator begin() { return iterator(this, /*it=*/0); }
   iterator end() { return iterator(this, map_elements_.size()); }
   const_iterator begin() const { return const_iterator(this, /*it=*/0); }
-  const_iterator end() const { return const_iterator(this, map_elements_.size()); }
+  const_iterator end() const {
+    return const_iterator(this, map_elements_.size());
+  }
   const_iterator cbegin() const { return const_iterator(this, /*it=*/0); }
-  const_iterator cend() const { return const_iterator(this, map_elements_.size()); }
+  const_iterator cend() const {
+    return const_iterator(this, map_elements_.size());
+  }
 
  protected:
-  /** The fewest and the most ids a map may have (RobotDescription::kMinJoints and kMaxJoints check them for a robot). */
+  /** The fewest and the most ids a map may have (RobotDescription::kMinJoints
+   * and kMaxJoints check them for a robot). */
   static constexpr size_t kMinSize = 2;
   static constexpr size_t kMaxSize = 255;
 
-  /** A map of `size` empty slots; `size` is kMinSize to kMaxSize, or the process ends. */
+  /** A map of `size` empty slots; `size` is kMinSize to kMaxSize, or the
+   * process ends. */
   explicit IDMapBase(size_t size) : map_elements_(size) {
-    ABSL_CHECK(size >= kMinSize && size <= kMaxSize) << "IDMapBase: " << size << " ids; a map has " << kMinSize << " to " << kMaxSize;
+    ABSL_CHECK(size >= kMinSize && size <= kMaxSize)
+        << "IDMapBase: " << size << " ids; a map has " << kMinSize << " to "
+        << kMaxSize;
   }
 
   IDMapBase(const IDMapBase<T>& other) = default;
   IDMapBase(IDMapBase<T>&& other) noexcept = default;
 
   /**
-   * Copies the slots of `other` into this map's, keeping its capacity: nothing is allocated. Unchecked, as operator[]:
-   * `other` must have at least capacity() slots, which two maps of one robot description have (the realtime loop copies
-   * RobotState and RobotJointAction every cycle; RobotHWInterfaceBase builds every copy of them from one description).
+   * Copies the slots of `other` into this map's, keeping its capacity: nothing
+   * is allocated. Unchecked, as operator[]: `other` must have at least
+   * capacity() slots, which two maps of one robot description have (the
+   * realtime loop copies RobotState and RobotJointAction every cycle;
+   * RobotHWInterfaceBase builds every copy of them from one description).
    */
   IDMapBase& operator=(const IDMapBase<T>& other) {
-    std::copy_n(other.map_elements_.begin(), map_elements_.size(), map_elements_.begin());
+    std::copy_n(other.map_elements_.begin(), map_elements_.size(),
+                map_elements_.begin());
     return *this;
   }
   /** As the copy: the capacity is kept. */
-  IDMapBase& operator=(IDMapBase<T>&& other) noexcept { return *this = static_cast<const IDMapBase<T>&>(other); }
+  IDMapBase& operator=(IDMapBase<T>&& other) noexcept {
+    return *this = static_cast<const IDMapBase<T>&>(other);
+  }
 
   ~IDMapBase() = default;
 

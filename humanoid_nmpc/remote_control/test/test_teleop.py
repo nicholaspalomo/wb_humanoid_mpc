@@ -67,7 +67,12 @@ class TestRunPeriodically(unittest.TestCase):
             clock.now += 0.01  # Each tick takes 10 ms of the 40 ms period.
 
         count = teleop.run_periodically(
-            25.0, tick, threading.Event(), clock=clock, sleep=clock.sleep, max_ticks=5
+            25.0,
+            tick,
+            threading.Event(),
+            clock=clock,
+            sleep=clock.sleep,
+            max_ticks=5,
         )
         self.assertEqual(count, 5)
         for earlier, later in zip(ticks, ticks[1:]):
@@ -83,7 +88,12 @@ class TestRunPeriodically(unittest.TestCase):
             clock.now += 0.1 if len(ticks) == 2 else 0.0
 
         teleop.run_periodically(
-            25.0, tick, threading.Event(), clock=clock, sleep=clock.sleep, max_ticks=4
+            25.0,
+            tick,
+            threading.Event(),
+            clock=clock,
+            sleep=clock.sleep,
+            max_ticks=4,
         )
         gaps = [later - earlier for earlier, later in zip(ticks, ticks[1:])]
         # No gap shorter than a period: the loop never fires twice to catch up.
@@ -108,8 +118,12 @@ class TestRunPeriodically(unittest.TestCase):
     def test_the_rate_must_be_positive(self):
         for rate_hz in (0.0, -1.0, math.nan):
             with self.subTest(rate_hz=rate_hz):
-                with self.assertRaisesRegex(ValueError, "the rate must be positive"):
-                    teleop.run_periodically(rate_hz, lambda: None, threading.Event())
+                with self.assertRaisesRegex(
+                    ValueError, "the rate must be positive"
+                ):
+                    teleop.run_periodically(
+                        rate_hz, lambda: None, threading.Event()
+                    )
 
 
 class TestBusFlags(unittest.TestCase):
@@ -117,13 +131,16 @@ class TestBusFlags(unittest.TestCase):
         parser = argparse.ArgumentParser()
         teleop.add_bus_flags(parser, default_node=operator_bus.TELEOP_NODE)
         args = parser.parse_args([])
-        self.assertEqual(args.network_config, operator_bus.DEFAULT_NETWORK_CONFIG)
+        self.assertEqual(
+            args.network_config, operator_bus.DEFAULT_NETWORK_CONFIG
+        )
         self.assertEqual(args.ipc_node, operator_bus.TELEOP_NODE)
         args = parser.parse_args(
             ["--network_config=/tmp/n.textproto", "--ipc_node=teleop2"]
         )
         self.assertEqual(
-            (args.network_config, args.ipc_node), ("/tmp/n.textproto", "teleop2")
+            (args.network_config, args.ipc_node),
+            ("/tmp/n.textproto", "teleop2"),
         )
 
 
@@ -137,7 +154,9 @@ class TestStopCommand(unittest.TestCase):
     def test_close_after_stop_sends_the_stop_command_before_it_closes(self):
         publisher = _walking_publisher()
         self.assertTrue(
-            teleop.close_after_stop(publisher, pelvis_height=0.74, grace_period=0.0)
+            teleop.close_after_stop(
+                publisher, pelvis_height=0.74, grace_period=0.0
+            )
         )
         self.assertEqual(publisher.publish_count, 1)
         stop = publisher.last_message
@@ -199,7 +218,9 @@ class TestInitialPelvisHeight(unittest.TestCase):
             with open(path, "w", encoding="utf-8") as handle:
                 handle.write(
                     nproto_textproto.file_text(
-                        reference_file_pb2.ReferenceFile(default_base_height=0.7405)
+                        reference_file_pb2.ReferenceFile(
+                            default_base_height=0.7405
+                        )
                     )
                 )
             self.assertAlmostEqual(teleop.initial_pelvis_height(path), 0.7405)

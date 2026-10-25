@@ -41,7 +41,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** The contact planner implementations, selected by `planner.type` in `contact_planning.textproto`. */
+/** The contact planner implementations, selected by `planner.type` in
+ * `contact_planning.textproto`. */
 namespace planner {
 // The names planner.type takes, as a file spells them.
 // LINT.IfChange(planner_names)
@@ -57,17 +58,23 @@ inline constexpr char kLipMiqp[] = "lip_miqp";
 /** The planner names that can be selected, in the order they are offered. */
 const std::vector<std::string>& knownPlannerNames();
 
-/** The stored spelling of a planner name, or an empty string when it is not a known planner (case insensitive). */
+/** The stored spelling of a planner name, or an empty string when it is not a
+ * known planner (case insensitive). */
 std::string canonicalPlannerName(absl::string_view name);
 
 /**
- * Builds the planner `config.planner.type` names. An unknown name is rejected with a message that lists the names
- * that exist, so a typo in the task file names the fix, and an invalid configuration with the message of
- * ContactPlanningConfig::validateStatus(), which names the key to change. Neither throws.
+ * Builds the planner `config.planner.type` names. An unknown name is rejected
+ * with a message that lists the names that exist, so a typo in the task file
+ * names the fix, and an invalid configuration with the message of
+ * ContactPlanningConfig::validateStatus(), which names the key to change.
+ * Neither throws.
  */
-absl::StatusOr<std::unique_ptr<ContactPlannerInterface>> makeContactPlanner(const ContactPlanningConfig& config);
+absl::StatusOr<std::unique_ptr<ContactPlannerInterface>> makeContactPlanner(
+    const ContactPlanningConfig& config);
 
-/** The formulation summary of the planner a configuration selects, rejecting what makeContactPlanner rejects. */
-absl::StatusOr<std::string> contactPlannerSummary(const ContactPlanningConfig& config);
+/** The formulation summary of the planner a configuration selects, rejecting
+ * what makeContactPlanner rejects. */
+absl::StatusOr<std::string> contactPlannerSummary(
+    const ContactPlanningConfig& config);
 
 }  // namespace ocs2::humanoid

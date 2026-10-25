@@ -55,7 +55,9 @@ class TestBaseControllerContactEstimatorDropDown(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        config = operator_test_support.copy_config(self.atlas_config, self.tmpdir)
+        config = operator_test_support.copy_config(
+            self.atlas_config, self.tmpdir
+        )
         self.task_file = os.path.join(config, "mpc", "task.textproto")
         self.publisher = operator_test_support.RecordingPublisher(
             topics.OPERATOR_MPC_PARAMETERS
@@ -84,7 +86,9 @@ class TestBaseControllerContactEstimatorDropDown(unittest.TestCase):
         self.assertIn("contact_estimator", app.schema_choices)
         return app.schema_choices["contact_estimator"]
 
-    def test_the_drop_down_offers_the_registry_and_selects_the_contact_estimator(self):
+    def test_the_drop_down_offers_the_registry_and_selects_the_contact_estimator(
+        self,
+    ):
         app = self._create_app()
         try:
             app.withdraw()
@@ -104,20 +108,27 @@ class TestBaseControllerContactEstimatorDropDown(unittest.TestCase):
             app._on_schema_choice_selected("contact_estimator")
             tab = app.mpc_params_tab
             self.assertEqual(
-                tab.base_controller_value("contact_estimator"), "always_in_contact"
+                tab.base_controller_value("contact_estimator"),
+                "always_in_contact",
             )
             tab.after_cancel(tab._debounce_publish_id)
             tab._debounce_publish_id = None
             tab._publish_to_topic()
             published = self.publisher.last_message
-            assert isinstance(published, mpc_parameter_update_pb2.MpcParameterUpdate)
-            self.assertEqual(published.task.contact_estimator, "always_in_contact")
+            assert isinstance(
+                published, mpc_parameter_update_pb2.MpcParameterUpdate
+            )
+            self.assertEqual(
+                published.task.contact_estimator, "always_in_contact"
+            )
 
             # The tab's Reset All restores the file's selection and the drop-down follows.
             tab.reset_all_defaults()
             self.assertEqual(choice.var.get(), "cheater_sim")
             reset = self.publisher.last_message
-            assert isinstance(reset, mpc_parameter_update_pb2.MpcParameterUpdate)
+            assert isinstance(
+                reset, mpc_parameter_update_pb2.MpcParameterUpdate
+            )
             self.assertEqual(reset.task.contact_estimator, "cheater_sim")
         finally:
             app.destroy()
@@ -139,11 +150,17 @@ class TestBaseControllerContactEstimatorDropDown(unittest.TestCase):
         finally:
             app.destroy()
 
-    def test_a_file_that_leaves_the_estimator_at_its_default_shows_the_default(self):
+    def test_a_file_that_leaves_the_estimator_at_its_default_shows_the_default(
+        self,
+    ):
         with open(self.task_file, encoding="utf-8") as handle:
             lines = handle.read().split("\n")
-        kept = [line for line in lines if not line.startswith("contact_estimator:")]
-        self.assertNotEqual(kept, lines, "the Atlas task file sets contact_estimator")
+        kept = [
+            line for line in lines if not line.startswith("contact_estimator:")
+        ]
+        self.assertNotEqual(
+            kept, lines, "the Atlas task file sets contact_estimator"
+        )
         with open(self.task_file, "w", encoding="utf-8") as handle:
             handle.write("\n".join(kept))
         app = self._create_app()

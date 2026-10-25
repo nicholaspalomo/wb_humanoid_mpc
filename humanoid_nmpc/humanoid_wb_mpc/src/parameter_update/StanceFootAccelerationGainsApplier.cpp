@@ -68,33 +68,46 @@ constexpr std::array<absl::string_view, 8> kFields = {
 
 }  // namespace
 
-absl::Span<const absl::string_view> StanceFootAccelerationGainsApplier::staticFields() {
+absl::Span<const absl::string_view>
+StanceFootAccelerationGainsApplier::staticFields() {
   return absl::MakeConstSpan(kFields);
 }
 
 void StanceFootAccelerationGainsApplier::apply(HotUpdateTarget& target) {
-  const std::optional<ModelSettings::FootConstraintConfig>& gains = target.footConstraint();
+  const std::optional<ModelSettings::FootConstraintConfig>& gains =
+      target.footConstraint();
   if (!gains.has_value()) return;
-  const EndEffectorDynamicsAccelerationsConstraint::Config stanceConfig = stanceFootAccelerationConstraintConfig(*gains);
-  const WBMpcPreComputation::SwingFootGains swingGains{.linearVelocityErrorGainZ = gains->linearVelocityErrorGain_z,
-                                                       .linearAccelerationErrorGainZ = gains->linearAccelerationErrorGain_z};
+  const EndEffectorDynamicsAccelerationsConstraint::Config stanceConfig =
+      stanceFootAccelerationConstraintConfig(*gains);
+  const WBMpcPreComputation::SwingFootGains swingGains{
+      .linearVelocityErrorGainZ = gains->linearVelocityErrorGain_z,
+      .linearAccelerationErrorGainZ = gains->linearAccelerationErrorGain_z};
   for (OptimalControlProblem& problem : target.problems()) {
-    // The stance foot's zero_velocity term, hard or soft: the interface builds one of the two per foot, or neither.
+    // The stance foot's zero_velocity term, hard or soft: the interface builds
+    // one of the two per foot, or neither.
     for (const std::string& footName : target.contactNames()) {
       const std::string term = zeroVelocityTermName(footName);
       updateTermIfPresent<ZeroAccelerationConstraintCppAd>(
           *problem.equalityConstraintPtr, term,
-          [&stanceConfig](ZeroAccelerationConstraintCppAd& constraint) { constraint.configure(stanceConfig); });
-      updateTermIfPresent<StateInputSoftConstraint>(*problem.softConstraintPtr, term, [&stanceConfig](StateInputSoftConstraint& soft) {
-        soft.get<ZeroAccelerationConstraintCppAd>().configure(stanceConfig);
-      });
+          [&stanceConfig](ZeroAccelerationConstraintCppAd& constraint) {
+            constraint.configure(stanceConfig);
+          });
+      updateTermIfPresent<StateInputSoftConstraint>(
+          *problem.softConstraintPtr, term,
+          [&stanceConfig](StateInputSoftConstraint& soft) {
+            soft.get<ZeroAccelerationConstraintCppAd>().configure(stanceConfig);
+          });
     }
-    // The swing foot's normal-motion coefficients, which every worker's pre-computation derives itself.
-    // NOLINTNEXTLINE(rtti): OCS2 holds the pre-computation as a PreComputation; the whole-body problem's is a WBMpcPreComputation.
-    WBMpcPreComputation* absl_nullable preComputationPtr = dynamic_cast<WBMpcPreComputation*>(problem.preComputationPtr.get());
+    // The swing foot's normal-motion coefficients, which every worker's
+    // pre-computation derives itself.
+    WBMpcPreComputation* absl_nullable preComputationPtr =
+        // NOLINTNEXTLINE(rtti): OCS2 holds the pre-computation as a PreComputation; the whole-body problem's is a WBMpcPreComputation.
+        dynamic_cast<WBMpcPreComputation*>(problem.preComputationPtr.get());
     if (preComputationPtr == nullptr) {
-      target.reportNotApplied("model_settings.foot_constraint (the swing foot's gains)",
-                              absl::FailedPreconditionError("the problem's pre-computation is not the whole-body MPC's"));
+      target.reportNotApplied(
+          "model_settings.foot_constraint (the swing foot's gains)",
+          absl::FailedPreconditionError(
+              "the problem's pre-computation is not the whole-body MPC's"));
       return;
     }
     preComputationPtr->setSwingFootGains(swingGains);

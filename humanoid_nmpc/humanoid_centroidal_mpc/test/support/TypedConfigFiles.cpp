@@ -62,7 +62,8 @@ namespace ocs2::humanoid {
 
 namespace {
 
-/** The runfiles path of `relativePath`; a missing file fails the calling test and is empty. */
+/** The runfiles path of `relativePath`; a missing file fails the calling test
+ * and is empty. */
 std::string runfile(absl::string_view relativePath) {
   absl::StatusOr<std::string> path = robot::resolveResourcePath(relativePath);
   EXPECT_TRUE(path.ok()) << path.status();
@@ -73,60 +74,92 @@ std::string runfile(absl::string_view relativePath) {
 
 CentroidalRobotFiles atlasFiles() {
   return CentroidalRobotFiles{
-      .taskFile = runfile("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto"),
-      .referenceFile = runfile("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.textproto"),
-      .urdfFile = runfile("robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf"),
+      .taskFile = runfile("robot_models/drc_atlas/drc_atlas_centroidal_mpc/"
+                          "config/mpc/task.textproto"),
+      .referenceFile =
+          runfile("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/"
+                  "command/reference.textproto"),
+      .urdfFile = runfile(
+          "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf"),
   };
 }
 
 CentroidalRobotFiles sa01Files() {
   return CentroidalRobotFiles{
-      .taskFile = runfile("robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto"),
-      .referenceFile = runfile("robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/command/reference.textproto"),
-      .urdfFile = runfile("robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.urdf"),
+      .taskFile =
+          runfile("robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/"
+                  "config/mpc/task.textproto"),
+      .referenceFile =
+          runfile("robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/"
+                  "config/command/reference.textproto"),
+      .urdfFile = runfile("robot_models/engineai_sa01/"
+                          "engineai_sa01_description/urdf/zq_sa01.urdf"),
   };
 }
 
 CentroidalRobotFiles g1Files() {
   return CentroidalRobotFiles{
-      .taskFile = runfile("robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto"),
-      .referenceFile = runfile("robot_models/unitree_g1/g1_centroidal_mpc/config/command/reference.textproto"),
-      .urdfFile = runfile("robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf"),
+      .taskFile = runfile("robot_models/unitree_g1/g1_centroidal_mpc/config/"
+                          "mpc/task.textproto"),
+      .referenceFile = runfile("robot_models/unitree_g1/g1_centroidal_mpc/"
+                               "config/command/reference.textproto"),
+      .urdfFile =
+          runfile("robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf"),
   };
 }
 
 CentroidalRobotFiles r1Files() {
   return CentroidalRobotFiles{
-      .taskFile = runfile("robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.textproto"),
-      .referenceFile = runfile("robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/command/reference.textproto"),
-      .urdfFile = runfile("robot_models/unitree_r1/unitree_r1_description/urdf/R1.urdf"),
+      .taskFile = runfile("robot_models/unitree_r1/unitree_r1_centroidal_mpc/"
+                          "config/mpc/task.textproto"),
+      .referenceFile =
+          runfile("robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/"
+                  "command/reference.textproto"),
+      .urdfFile = runfile(
+          "robot_models/unitree_r1/unitree_r1_description/urdf/R1.urdf"),
   };
 }
 
-absl::StatusOr<CentroidalMpcConfig> loadConfigOf(const CentroidalRobotFiles& files) {
+absl::StatusOr<CentroidalMpcConfig> loadConfigOf(
+    const CentroidalRobotFiles& files) {
   return loadCentroidalMpcConfig(files.taskFile, files.referenceFile);
 }
 
-absl::StatusOr<vector_t> defaultJointStateOf(const mpc_config::ReferenceFile& reference, const ModelSettings& modelSettings) {
-  return defaultJointStateFromConfig(reference, modelSettings.mpcModelJointNames, modelSettings.fixedJointNames);
+absl::StatusOr<vector_t> defaultJointStateOf(
+    const mpc_config::ReferenceFile& reference,
+    const ModelSettings& modelSettings) {
+  return defaultJointStateFromConfig(reference,
+                                     modelSettings.mpcModelJointNames,
+                                     modelSettings.fixedJointNames);
 }
 
-absl::StatusOr<vector_t> initialTuningVectorOf(const mpc_config::TaskFile& task, const ModelSettings& modelSettings) {
-  return stateValuesFromConfig(task.initial_state, stateInputLayout(modelSettings, StateInputLayout::Mpc::kCentroidal), "initial_state");
+absl::StatusOr<vector_t> initialTuningVectorOf(
+    const mpc_config::TaskFile& task, const ModelSettings& modelSettings) {
+  return stateValuesFromConfig(
+      task.initial_state,
+      stateInputLayout(modelSettings, StateInputLayout::Mpc::kCentroidal),
+      "initial_state");
 }
 
-absl::StatusOr<vector_t> initialStateOnModel(const mpc_config::TaskFile& task, const MpcRobotModelBase<scalar_t>& model) {
-  ASSIGN_OR_RETURN(const vector_t tuningVector, initialTuningVectorOf(task, model.modelSettings));
+absl::StatusOr<vector_t> initialStateOnModel(
+    const mpc_config::TaskFile& task,
+    const MpcRobotModelBase<scalar_t>& model) {
+  ASSIGN_OR_RETURN(const vector_t tuningVector,
+                   initialTuningVectorOf(task, model.modelSettings));
   return model.stateFromTuning(tuningVector);
 }
 
-absl::StatusOr<CentroidalModelInfo> centroidalModelInfoOf(const CentroidalMpcConfig& config,
-                                                          const PinocchioInterface& pinocchioInterface,
-                                                          const ModelSettings& modelSettings) {
-  ASSIGN_OR_RETURN(const CentroidalModelType type, centroidalModelTypeFromConfig(config.task));
-  ASSIGN_OR_RETURN(const vector_t defaultJointState, defaultJointStateOf(config.reference, modelSettings));
-  return centroidal_model::createCentroidalModelInfo(pinocchioInterface, type, defaultJointState, modelSettings.contactNames3DoF,
-                                                     modelSettings.contactNames6DoF);
+absl::StatusOr<CentroidalModelInfo> centroidalModelInfoOf(
+    const CentroidalMpcConfig& config,
+    const PinocchioInterface& pinocchioInterface,
+    const ModelSettings& modelSettings) {
+  ASSIGN_OR_RETURN(const CentroidalModelType type,
+                   centroidalModelTypeFromConfig(config.task));
+  ASSIGN_OR_RETURN(const vector_t defaultJointState,
+                   defaultJointStateOf(config.reference, modelSettings));
+  return centroidal_model::createCentroidalModelInfo(
+      pinocchioInterface, type, defaultJointState,
+      modelSettings.contactNames3DoF, modelSettings.contactNames6DoF);
 }
 
 std::string taskFileText(const mpc_config::TaskFile& task) {
@@ -141,7 +174,8 @@ std::string referenceFileText(const mpc_config::ReferenceFile& reference) {
   return nproto::WriteTextprotoFile(message);
 }
 
-std::string contactPlanningFileText(const mpc_config::ContactPlanningFile& contactPlanning) {
+std::string contactPlanningFileText(
+    const mpc_config::ContactPlanningFile& contactPlanning) {
   humanoid_mpc_config::ContactPlanningFile message;
   mpc_config::ToProto(contactPlanning, &message);
   return nproto::WriteTextprotoFile(message);
@@ -157,13 +191,15 @@ absl::Status writeTextFile(const std::string& path, absl::string_view text) {
   return absl::OkStatus();
 }
 
-absl::StatusOr<CentroidalRobotFiles> writeConfig(const std::string& directory,
-                                                 const CentroidalMpcConfig& config,
-                                                 const std::string& urdfFile) {
+absl::StatusOr<CentroidalRobotFiles> writeConfig(
+    const std::string& directory,
+    const CentroidalMpcConfig& config,
+    const std::string& urdfFile) {
   std::error_code error;
   std::filesystem::create_directories(directory, error);
   if (error) {
-    return absl::InternalError(absl::StrCat("could not create ", directory, ": ", error.message()));
+    return absl::InternalError(
+        absl::StrCat("could not create ", directory, ": ", error.message()));
   }
   const std::filesystem::path root(directory);
   CentroidalRobotFiles files{
@@ -172,10 +208,13 @@ absl::StatusOr<CentroidalRobotFiles> writeConfig(const std::string& directory,
       .urdfFile = urdfFile,
   };
   RETURN_IF_ERROR(writeTextFile(files.taskFile, taskFileText(config.task)));
-  RETURN_IF_ERROR(writeTextFile(files.referenceFile, referenceFileText(config.reference)));
-  const std::string contactPlanningFile = (root / std::string(kContactPlanningFileName)).string();
+  RETURN_IF_ERROR(
+      writeTextFile(files.referenceFile, referenceFileText(config.reference)));
+  const std::string contactPlanningFile =
+      (root / std::string(kContactPlanningFileName)).string();
   if (config.contactPlanning.has_value()) {
-    RETURN_IF_ERROR(writeTextFile(contactPlanningFile, contactPlanningFileText(*config.contactPlanning)));
+    RETURN_IF_ERROR(writeTextFile(
+        contactPlanningFile, contactPlanningFileText(*config.contactPlanning)));
   } else {
     std::filesystem::remove(contactPlanningFile, error);
   }

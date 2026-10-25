@@ -36,7 +36,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::visualization {
 
-void PolicySnapshot::assign(const CommandData& command, const PrimalSolution& solution) {
+void PolicySnapshot::assign(const CommandData& command,
+                            const PrimalSolution& solution) {
   time = solution.timeTrajectory_;
   state = solution.stateTrajectory_;
   input = solution.inputTrajectory_;
@@ -45,12 +46,16 @@ void PolicySnapshot::assign(const CommandData& command, const PrimalSolution& so
   initObservation = command.mpcInitObservation_;
 }
 
-bool isConsistentPlan(const PolicySnapshot& plan, size_t stateDim, size_t inputDim) {
-  if (plan.time.empty() || plan.state.size() != plan.time.size() || plan.input.size() != plan.time.size()) {
+bool isConsistentPlan(const PolicySnapshot& plan,
+                      size_t stateDim,
+                      size_t inputDim) {
+  if (plan.time.empty() || plan.state.size() != plan.time.size() ||
+      plan.input.size() != plan.time.size()) {
     return false;
   }
   for (size_t node = 0; node < plan.time.size(); ++node) {
-    if (static_cast<size_t>(plan.state[node].size()) != stateDim || static_cast<size_t>(plan.input[node].size()) != inputDim) {
+    if (static_cast<size_t>(plan.state[node].size()) != stateDim ||
+        static_cast<size_t>(plan.input[node].size()) != inputDim) {
       return false;
     }
   }
@@ -63,7 +68,8 @@ void samplePlan(const PolicySnapshot& plan,
                 vector_t* absl_nonnull state,
                 vector_t* absl_nonnull input) {
   // Both through LinearInterpolation's time lookup.
-  *state = interpolateStateTrajectory(stateManifold, time, plan.time, plan.state);
+  *state =
+      interpolateStateTrajectory(stateManifold, time, plan.time, plan.state);
   *input = LinearInterpolation::interpolate(time, plan.time, plan.input);
 }
 
@@ -74,7 +80,8 @@ TargetSample sampleTarget(const TargetTrajectories& target,
                           size_t inputDim,
                           vector_t* absl_nonnull state,
                           vector_t* absl_nonnull input) {
-  if (target.timeTrajectory.empty() || target.stateTrajectory.size() != target.timeTrajectory.size()) {
+  if (target.timeTrajectory.empty() ||
+      target.stateTrajectory.size() != target.timeTrajectory.size()) {
     return TargetSample::kNone;
   }
   for (const vector_t& node : target.stateTrajectory) {
@@ -82,7 +89,8 @@ TargetSample sampleTarget(const TargetTrajectories& target,
       return TargetSample::kNone;
     }
   }
-  *state = interpolateStateTrajectory(stateManifold, time, target.timeTrajectory, target.stateTrajectory);
+  *state = interpolateStateTrajectory(
+      stateManifold, time, target.timeTrajectory, target.stateTrajectory);
   if (target.inputTrajectory.size() != target.timeTrajectory.size()) {
     return TargetSample::kState;
   }
@@ -91,7 +99,8 @@ TargetSample sampleTarget(const TargetTrajectories& target,
       return TargetSample::kState;
     }
   }
-  *input = LinearInterpolation::interpolate(time, target.timeTrajectory, target.inputTrajectory);
+  *input = LinearInterpolation::interpolate(time, target.timeTrajectory,
+                                            target.inputTrajectory);
   return TargetSample::kStateAndInput;
 }
 

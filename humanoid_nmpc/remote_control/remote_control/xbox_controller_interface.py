@@ -76,7 +76,9 @@ class AxisLayout:
 
 
 USB_LAYOUT = AxisLayout(x_left=1, y_left=0, x_right=4, y_right=3, lt=2, rt=5)
-BLUETOOTH_LAYOUT = AxisLayout(x_left=1, y_left=0, x_right=3, y_right=2, lt=6, rt=5)
+BLUETOOTH_LAYOUT = AxisLayout(
+    x_left=1, y_left=0, x_right=3, y_right=2, lt=6, rt=5
+)
 
 
 class Joystick(Protocol):
@@ -98,7 +100,9 @@ def _trigger(raw: float) -> float:
     return (raw + 1.0) / 2.0
 
 
-def read_controller_input(joystick: Joystick, layout: AxisLayout) -> ControllerInput:
+def read_controller_input(
+    joystick: Joystick, layout: AxisLayout
+) -> ControllerInput:
     """The inputs of `joystick` read in `layout`."""
     return ControllerInput(
         x_left=shape_stick(-joystick.get_axis(layout.x_left)),
@@ -172,13 +176,17 @@ class XBoxControllerInterface:
         backend: JoystickBackend | None = None,
         initial_pelvis_height: float = config_files.DEFAULT_PELVIS_HEIGHT,
     ) -> None:
-        self._backend = backend if backend is not None else PygameJoystickBackend()
+        self._backend = (
+            backend if backend is not None else PygameJoystickBackend()
+        )
         self._backend.init()
         self.publisher_rate = publisher_rate
         self.min_pelvis_height = 0.2
         self.max_pelvis_height = 1.0
         self.current_pelvis_height_target = clamp(
-            initial_pelvis_height, self.min_pelvis_height, self.max_pelvis_height
+            initial_pelvis_height,
+            self.min_pelvis_height,
+            self.max_pelvis_height,
         )
         self.joystick: Joystick | None = None
         self.joystick_connected = False
@@ -217,7 +225,9 @@ class XBoxControllerInterface:
 
     def get_walking_command_msg(
         self,
-    ) -> tuple[bool, walking_velocity_command_pb2.WalkingVelocityCommand | None]:
+    ) -> tuple[
+        bool, walking_velocity_command_pb2.WalkingVelocityCommand | None
+    ]:
         """(True, the command of the controller's inputs), or (False, None) when no controller can be read.
 
         A controller that cannot be read is marked disconnected; GamepadPoller then scans for it again.
@@ -232,7 +242,8 @@ class XBoxControllerInterface:
         # pylint: disable-next=broad-exception-caught  # Pygame raises its own error types.
         except Exception as error:
             _LOGGER.warning(
-                "Lost the controller (%s); scanning for it in the background.", error
+                "Lost the controller (%s); scanning for it in the background.",
+                error,
             )
             self.joystick_connected = False
             return False, None
@@ -269,7 +280,8 @@ class GamepadPoller:
         # The not-form rejects NaN, which `rate_hz <= 0.0` would let through.
         if not (rate_hz > 0.0 and scan_period > 0.0):
             raise ValueError(
-                f"the rate and the scan period must be positive, got {rate_hz} and {scan_period}"
+                "the rate and the scan period must be positive, got"
+                f" {rate_hz} and {scan_period}"
             )
         self._controller = controller
         self._scan_ticks = max(1, int(round(scan_period * rate_hz)))
@@ -299,7 +311,9 @@ class GamepadPoller:
             self._controller.max_pelvis_height,
         )
 
-    def tick(self) -> walking_velocity_command_pb2.WalkingVelocityCommand | None:
+    def tick(
+        self,
+    ) -> walking_velocity_command_pb2.WalkingVelocityCommand | None:
         """The controller's command, or None when there is no controller (or it was just lost)."""
         if self._controller.joystick_connected:
             self._ticks_since_scan = 0

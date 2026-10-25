@@ -31,7 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::estimation::test_support {
 
-void writeMeasuredState(const WalkingSample& sample, robot::model::RobotState& state) {
+void writeMeasuredState(const WalkingSample& sample,
+                        robot::model::RobotState& state) {
   state.setTime(sample.time);
   state.setRootPositionInWorldFrame(vector3_t::Zero());
   state.setRootLinearVelocityInLocalFrame(vector3_t::Zero());
@@ -39,10 +40,13 @@ void writeMeasuredState(const WalkingSample& sample, robot::model::RobotState& s
   state.setRootAngularVelocityInLocalFrame(sample.angularVelocity);
   state.setImuLinearAccelerationInLocalFrame(sample.imuLinearAcceleration);
   for (size_t joint = 0; joint < kNumJoints; ++joint) {
-    state.setJointPosition(joint, sample.jointPositions[static_cast<Eigen::Index>(joint)]);
-    state.setJointVelocity(joint, sample.jointVelocities[static_cast<Eigen::Index>(joint)]);
+    state.setJointPosition(
+        joint, sample.jointPositions[static_cast<Eigen::Index>(joint)]);
+    state.setJointVelocity(
+        joint, sample.jointVelocities[static_cast<Eigen::Index>(joint)]);
   }
-  for (size_t foot = 0; foot < kNumFeet; ++foot) state.setContactFlag(foot, sample.contactFlags[foot]);
+  for (size_t foot = 0; foot < kNumFeet; ++foot)
+    state.setContactFlag(foot, sample.contactFlags[foot]);
 }
 
 }  // namespace ocs2::humanoid::estimation::test_support

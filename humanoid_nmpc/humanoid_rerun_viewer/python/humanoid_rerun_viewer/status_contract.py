@@ -57,7 +57,10 @@ class StatusSeries:
 
 # LINT.IfChange(status_series)
 MPC_SOLVE_TIME = StatusSeries(
-    f"{STATUS_ROOT}/mpc/solve_time", ("solve_time",), "ms", "MPC Solve Time [ms]"
+    f"{STATUS_ROOT}/mpc/solve_time",
+    ("solve_time",),
+    "ms",
+    "MPC Solve Time [ms]",
 )
 MPC_FAILURES = StatusSeries(
     f"{STATUS_ROOT}/mpc/consecutive_failures",

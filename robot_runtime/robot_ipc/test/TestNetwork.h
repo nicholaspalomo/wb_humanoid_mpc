@@ -37,11 +37,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::ipc {
 
 /**
- * A network of `nodeNames` on 127.0.0.1 that no other process joins: its domain id and domain tag are drawn once per
- * process, so the tests that Bazel runs at once never discover each other, while every bus of this process (any call
- * with the same `domainIndex`) shares the domain. A test that needs two networks apart (the two ends of a relay) uses
- * two indices. Hand it to a child process with formatNetworkConfig() to share it across processes.
+ * A network of `nodeNames` on 127.0.0.1 that no other process joins: its domain
+ * id and domain tag are drawn once per process, so the tests that Bazel runs at
+ * once never discover each other, while every bus of this process (any call
+ * with the same `domainIndex`) shares the domain. A test that needs two
+ * networks apart (the two ends of a relay) uses two indices. Hand it to a child
+ * process with formatNetworkConfig() to share it across processes.
  */
-NetworkConfig isolatedTestNetwork(const std::vector<std::string>& nodeNames, int domainIndex = 0);
+NetworkConfig isolatedTestNetwork(const std::vector<std::string>& nodeNames,
+                                  int domainIndex = 0);
 
 }  // namespace robot::ipc

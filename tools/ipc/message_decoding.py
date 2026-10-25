@@ -92,10 +92,13 @@ def import_message_modules(
 def message_class(type_name: str) -> type[message.Message]:
     """The generated class of a full type name, from the default descriptor pool."""
     try:
-        message_descriptor = descriptor_pool.Default().FindMessageTypeByName(type_name)
+        message_descriptor = descriptor_pool.Default().FindMessageTypeByName(
+            type_name
+        )
     except KeyError as error:
         raise UnknownMessageTypeError(
-            f"unknown message type '{type_name}' (not in the default descriptor pool; is its module imported?)"
+            f"unknown message type '{type_name}' (not in the default descriptor"
+            " pool; is its module imported?)"
         ) from error
     return message_factory.GetMessageClass(message_descriptor)
 
@@ -173,7 +176,9 @@ def field_to_python(value: Any, field: descriptor.FieldDescriptor) -> Any:
     """A field's value as plain Python: messages as dicts, repeated fields as lists, enums by name."""
     if _is_map(field):
         value_field = field.message_type.fields_by_name["value"]
-        return {key: _scalar_to_python(value[key], value_field) for key in value}
+        return {
+            key: _scalar_to_python(value[key], value_field) for key in value
+        }
     if _is_repeated(field):
         return [_scalar_to_python(element, field) for element in value]
     return _scalar_to_python(value, field)
@@ -234,11 +239,13 @@ def _resolve_path(msg: message.Message, path: str) -> _ResolvedPath:
                 index = int(component)
             except ValueError as error:
                 raise FieldPathError(
-                    f"{path}: {prefix} is a repeated field; expected an index, got '{component}'"
+                    f"{path}: {prefix} is a repeated field; expected an index,"
+                    f" got '{component}'"
                 ) from error
             if not -len(current) <= index < len(current):
                 raise FieldPathError(
-                    f"{path}: index {index} is out of range for {prefix}, which has {len(current)} element(s)"
+                    f"{path}: index {index} is out of range for {prefix}, which"
+                    f" has {len(current)} element(s)"
                 )
             steps.append(index % len(current))
             current = current[index]
@@ -251,8 +258,9 @@ def _resolve_path(msg: message.Message, path: str) -> _ResolvedPath:
         fields = current.DESCRIPTOR.fields_by_name
         if component not in fields:
             raise FieldPathError(
-                f"{path}: {current.DESCRIPTOR.full_name} has no field '{component}'; its fields are: "
-                f"{', '.join(f.name for f in current.DESCRIPTOR.fields)}"
+                f"{path}: {current.DESCRIPTOR.full_name} has no field"
+                f" '{component}'; its fields are:"
+                f" {', '.join(f.name for f in current.DESCRIPTOR.fields)}"
             )
         field = fields[component]
         steps.append(component)
@@ -264,7 +272,9 @@ def _resolve_path(msg: message.Message, path: str) -> _ResolvedPath:
         field is None
     ):  # Unreachable: the checks above make the first component name a field.
         raise FieldPathError(f"'{path}' names no field")
-    return _ResolvedPath(steps, current, field, indexable or _is_map(field), parent)
+    return _ResolvedPath(
+        steps, current, field, indexable or _is_map(field), parent
+    )
 
 
 def select_field(msg: message.Message, path: str) -> Any:
@@ -347,7 +357,10 @@ def _text_scalar(field: descriptor.FieldDescriptor, value: Any) -> str:
 def _indices_comment(selection: Selection, size: int) -> str:
     if selection is None:
         return ""
-    return f"  # [{', '.join(str(index) for index in sorted(selection))}] of {size}"
+    return (
+        f"  # [{', '.join(str(index) for index in sorted(selection))}] of"
+        f" {size}"
+    )
 
 
 def _write_field_text(
@@ -374,17 +387,22 @@ def _write_field_text(
             )
             out.write(f"{pad}}}\n")
     elif _is_repeated(field):
-        indices = list(range(len(value))) if selection is None else sorted(selection)
+        indices = (
+            list(range(len(value))) if selection is None else sorted(selection)
+        )
         if field.message_type is None:
             elements = ", ".join(_text_scalar(field, value[i]) for i in indices)
             out.write(
-                f"{pad}{field.name}: [{elements}]{_indices_comment(selection, len(value))}\n"
+                f"{pad}{field.name}:"
+                f" [{elements}]{_indices_comment(selection, len(value))}\n"
             )
             return
         if not indices:
             out.write(f"{pad}{field.name}: []\n")
         for index in indices:
-            comment = "" if selection is None else f"  # [{index}] of {len(value)}"
+            comment = (
+                "" if selection is None else f"  # [{index}] of {len(value)}"
+            )
             out.write(f"{pad}{field.name} {{{comment}\n")
             _write_message_text(
                 value[index],
@@ -454,7 +472,9 @@ def _format_text(msg: message.Message, paths: Sequence[str]) -> str:
 def _format_json(msg: message.Message, paths: Sequence[str]) -> str:
     if not paths:
         return json.dumps(message_to_python(msg), indent=2)
-    return json.dumps({path: select_field(msg, path) for path in paths}, indent=2)
+    return json.dumps(
+        {path: select_field(msg, path) for path in paths}, indent=2
+    )
 
 
 # LINT.IfChange(output_formats)
@@ -484,6 +504,7 @@ def format_fields(
     """
     if output_format not in OUTPUT_FORMATS:
         raise ValueError(
-            f"unknown output format '{output_format}'; the formats are: {', '.join(OUTPUT_FORMATS)}"
+            f"unknown output format '{output_format}'; the formats are:"
+            f" {', '.join(OUTPUT_FORMATS)}"
         )
     return OUTPUT_FORMATS[output_format](msg, paths)

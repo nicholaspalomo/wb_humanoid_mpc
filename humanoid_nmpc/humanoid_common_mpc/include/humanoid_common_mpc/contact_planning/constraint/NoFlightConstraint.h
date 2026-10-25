@@ -37,9 +37,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `no_flight` (hard, running nodes): 1 <= c_L + c_R <= 2, no flight phase (also a logic rule under the same name).
+ * `no_flight` (hard, running nodes): 1 <= c_L + c_R <= 2, no flight phase (also
+ * a logic rule under the same name).
  *
- * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
  */
 class NoFlightConstraint final : public LipConstraintBase {
  public:
@@ -47,7 +49,9 @@ class NoFlightConstraint final : public LipConstraintBase {
   void configure(const ContactPlanningConfig& /*config*/) override {}
   NodeSet nodeSet() const override { return NodeSet::kRunning; }
   Softness softness() const override { return Softness::kHard; }
-  void addRows(const ContactPlanningContext& ctx, int node, RowBuilder& rows) const override;
+  void addRows(const ContactPlanningContext& ctx,
+               int node,
+               RowBuilder& rows) const override;
 };
 
 }  // namespace ocs2::humanoid

@@ -100,10 +100,13 @@ class SmallTreeTest(unittest.TestCase):
     def test_the_tree_and_its_settable_joints(self) -> None:
         self.assertEqual(self.tree.root_link, "base")
         self.assertEqual(
-            [joint.name for joint in self.tree.movable_joints()], ["shoulder", "slide"]
+            [joint.name for joint in self.tree.movable_joints()],
+            ["shoulder", "slide"],
         )
         # 0 is outside the slide's limits: the nominal position is the nearest limit.
-        self.assertEqual(self.tree.nominal_positions(), {"shoulder": 0.0, "slide": 0.5})
+        self.assertEqual(
+            self.tree.nominal_positions(), {"shoulder": 0.0, "slide": 0.5}
+        )
 
     def test_the_poses_at_the_nominal_positions(self) -> None:
         poses = self.tree.link_poses(self.tree.nominal_positions())
@@ -133,7 +136,11 @@ class SmallTreeTest(unittest.TestCase):
 
     def test_the_rotation_convention_is_the_bridges(self) -> None:
         # urdf_model.quaternion_from_rpy draws the visuals; the link poses must use the same convention.
-        for rpy in ((0.3, -0.2, 1.1), (math.pi / 2, 0.0, 0.0), (0.0, 1.4, -2.9)):
+        for rpy in (
+            (0.3, -0.2, 1.1),
+            (math.pi / 2, 0.0, 0.0),
+            (0.0, 1.4, -2.9),
+        ):
             with self.subTest(rpy=rpy):
                 ours = urdf_kinematics.quaternion_from_rotation(
                     urdf_kinematics.rotation_from_rpy(*rpy)
@@ -149,7 +156,8 @@ class ShippedRobotTest(unittest.TestCase):
             with self.subTest(urdf=path):
                 tree = urdf_kinematics.load_kinematic_tree(runfile(path))
                 self.assertEqual(
-                    tree.root_link, urdf_model.load_urdf(runfile(path)).root_link
+                    tree.root_link,
+                    urdf_model.load_urdf(runfile(path)).root_link,
                 )
                 self.assertGreater(len(tree.movable_joints()), 10)
                 for joint in tree.movable_joints():
@@ -165,14 +173,18 @@ class ShippedRobotTest(unittest.TestCase):
                 self.assertEqual(set(poses), set(tree.links))
                 for link, (translation, quaternion) in poses.items():
                     self.assertTrue(np.all(np.isfinite(translation)), link)
-                    self.assertAlmostEqual(float(np.linalg.norm(quaternion)), 1.0)
+                    self.assertAlmostEqual(
+                        float(np.linalg.norm(quaternion)), 1.0
+                    )
                 # A joint moves its child about the joint's own origin: the distance from the parent's origin to
                 # the child's is that of the joint origin, whatever the positions.
                 for joint in tree.joints:
                     if joint.type in urdf_kinematics.PRISMATIC_TYPES:
                         continue
                     distance = np.linalg.norm(
-                        np.subtract(poses[joint.child][0], poses[joint.parent][0])
+                        np.subtract(
+                            poses[joint.child][0], poses[joint.parent][0]
+                        )
                     )
                     self.assertAlmostEqual(
                         float(distance),
@@ -192,14 +204,15 @@ class RefusedTest(unittest.TestCase):
             r"one tree.*\['a', 'b'\]",
         )
         self.refuse(
-            '<robot name="r"><link name="a"/><link name="b"/><link name="c"/>'
-            '<joint name="j" type="fixed"><parent link="a"/><child link="c"/></joint>'
-            '<joint name="k" type="fixed"><parent link="b"/><child link="c"/></joint></robot>',
+            '<robot name="r"><link name="a"/><link name="b"/><link'
+            ' name="c"/><joint name="j" type="fixed"><parent link="a"/><child'
+            ' link="c"/></joint><joint name="k" type="fixed"><parent'
+            ' link="b"/><child link="c"/></joint></robot>',
             "child of joints 'j' and 'k'",
         )
         self.refuse(
-            '<robot name="r"><link name="a"/>'
-            '<joint name="j" type="fixed"><parent link="a"/><child link="z"/></joint></robot>',
+            '<robot name="r"><link name="a"/><joint name="j"'
+            ' type="fixed"><parent link="a"/><child link="z"/></joint></robot>',
             "unknown link 'z'",
         )
 
@@ -207,19 +220,23 @@ class RefusedTest(unittest.TestCase):
         link = '<link name="a"/><link name="b"/>'
         ends = '<parent link="a"/><child link="b"/>'
         self.refuse(
-            f'<robot name="r">{link}<joint name="j" type="hinge">{ends}</joint></robot>',
+            f'<robot name="r">{link}<joint name="j"'
+            f' type="hinge">{ends}</joint></robot>',
             "unknown type 'hinge'",
         )
         self.refuse(
-            f'<robot name="r">{link}<joint name="j" type="revolute">{ends}<axis xyz="0 0 0"/></joint></robot>',
+            f'<robot name="r">{link}<joint name="j" type="revolute">{ends}<axis'
+            ' xyz="0 0 0"/></joint></robot>',
             "axis is zero",
         )
         self.refuse(
-            f'<robot name="r">{link}<joint name="j" type="fixed">{ends}<origin xyz="1 x 0"/></joint></robot>',
+            f'<robot name="r">{link}<joint name="j" type="fixed">{ends}<origin'
+            ' xyz="1 x 0"/></joint></robot>',
             r'xyz="1 x 0" is not 3 numbers',
         )
         self.refuse(
-            f'<robot name="r">{link}<joint name="j" type="revolute">{ends}<mimic joint="none"/></joint></robot>',
+            f'<robot name="r">{link}<joint name="j"'
+            f' type="revolute">{ends}<mimic joint="none"/></joint></robot>',
             "mimics 'none'",
         )
         self.refuse("<robot", "bad.urdf")

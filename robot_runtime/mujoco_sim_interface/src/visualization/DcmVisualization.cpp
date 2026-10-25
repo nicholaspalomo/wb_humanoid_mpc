@@ -55,19 +55,26 @@ constexpr float kDcmLineEmission = 0.6f;
 }  // namespace
 
 void DcmVisualization::addSceneGeoms(const VisualizationFrame& frame) {
-  if (frame.model == nullptr || frame.state == nullptr || frame.scene == nullptr) return;
+  if (frame.model == nullptr || frame.state == nullptr ||
+      frame.scene == nullptr)
+    return;
   const mjModel* absl_nonnull model = frame.model;
-  const RobotCentroidalState state = robotCentroidalState(model, frame.state->data);
+  const RobotCentroidalState state =
+      robotCentroidalState(model, frame.state->data);
   if (!state.valid) return;
   const double gravity = std::fabs(model->opt.gravity[kZAxisIndex]);
   double dcm[kHorizontalPositionDim];
-  divergentComponentOfMotion(state.com, state.comVelocity, state.com[kZAxisIndex], gravity, dcm);
-  constexpr MarkerColor kDcmColor{.r = 0.1f, .g = 0.9f, .b = 0.3f, .a = 0.9f};  // green
-  // The offset from the CoM's shadow to the DCM is the velocity term v / omega: a line on the ground makes it readable.
+  divergentComponentOfMotion(state.com, state.comVelocity,
+                             state.com[kZAxisIndex], gravity, dcm);
+  constexpr MarkerColor kDcmColor{
+      .r = 0.1f, .g = 0.9f, .b = 0.3f, .a = 0.9f};  // green
+  // The offset from the CoM's shadow to the DCM is the velocity term v / omega:
+  // a line on the ground makes it readable.
   if (frame.scene->ngeom < frame.scene->maxgeom) {
     mjvGeom* absl_nonnull line = &frame.scene->geoms[frame.scene->ngeom++];
     std::memset(line, 0, sizeof(mjvGeom));
-    const mjtNum from[kPositionDim] = {state.com[0], state.com[1], kDcmLineHeight};
+    const mjtNum from[kPositionDim] = {state.com[0], state.com[1],
+                                       kDcmLineHeight};
     const mjtNum to[kPositionDim] = {dcm[0], dcm[1], kDcmLineHeight};
     mjv_connector(line, mjGEOM_CAPSULE, kDcmLineWidth, from, to);
     line->rgba[kRedChannel] = kDcmColor.r;

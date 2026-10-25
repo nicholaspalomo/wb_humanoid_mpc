@@ -38,17 +38,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `heading_tracking`: w (theta_k - theta_0 - omega_cmd k dt)^2 at every node, the commanded heading integrated from the current one.
+ * `heading_tracking`: w (theta_k - theta_0 - omega_cmd k dt)^2 at every node,
+ * the commanded heading integrated from the current one.
  *
- * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
  */
 class HeadingTrackingCost final : public LipWeightedCost {
  public:
   std::string describe() const override;
-  std::vector<std::string> requiredBlocks() const override { return {term::kHeadingDoubleIntegrator}; }
+  std::vector<std::string> requiredBlocks() const override {
+    return {term::kHeadingDoubleIntegrator};
+  }
   void configure(const ContactPlanningConfig& config) override;
   NodeSet nodeSet() const override { return NodeSet::kAll; }
-  void addToStage(const ContactPlanningContext& ctx, int node, StageAccumulator& stage) const override;
+  void addToStage(const ContactPlanningContext& ctx,
+                  int node,
+                  StageAccumulator& stage) const override;
 };
 
 }  // namespace ocs2::humanoid

@@ -49,14 +49,16 @@ std::vector<int> allowedCores() {
   cpu_set_t set;
   CPU_ZERO(&set);
   std::vector<int> cores;
-  if (pthread_getaffinity_np(pthread_self(), sizeof(set), &set) != 0) return cores;
+  if (pthread_getaffinity_np(pthread_self(), sizeof(set), &set) != 0)
+    return cores;
   for (int core = 0; core < CPU_SETSIZE; ++core) {
     if (CPU_ISSET(core, &set)) cores.push_back(core);
   }
   return cores;
 }
 
-// What a thread reports about itself after placing itself: its scheduling policies are sched_getscheduler()'s.
+// What a thread reports about itself after placing itself: its scheduling
+// policies are sched_getscheduler()'s.
 struct Placement {
   absl::Status status;
   std::vector<int> cores;
@@ -67,7 +69,8 @@ struct Placement {
   int childPolicy = -1;
 };
 
-Placement placeNewThread(const std::vector<int>& cores, ViewerThreadPriority priority) {
+Placement placeNewThread(const std::vector<int>& cores,
+                         ViewerThreadPriority priority) {
   Placement placement;
   std::thread worker([&placement, &cores, priority] {
     placement.policyBefore = sched_getscheduler(/*pid=*/0);
@@ -88,7 +91,8 @@ TEST(ThreadPlacementTest, PinsAndIdlesTheThreadAndItsChildren) {
   const std::vector<int> allowed = allowedCores();
   ASSERT_FALSE(allowed.empty());
   const std::vector<int> oneCore = {allowed.back()};
-  const Placement placement = placeNewThread(oneCore, ViewerThreadPriority::kIdle);
+  const Placement placement =
+      placeNewThread(oneCore, ViewerThreadPriority::kIdle);
   ASSERT_TRUE(placement.status.ok()) << placement.status;
   EXPECT_EQ(placement.policyBefore, SCHED_OTHER);
   EXPECT_EQ(placement.cores, oneCore);
@@ -100,9 +104,11 @@ TEST(ThreadPlacementTest, PinsAndIdlesTheThreadAndItsChildren) {
   EXPECT_EQ(sched_getscheduler(/*pid=*/0), SCHED_OTHER);
 }
 
-TEST(ThreadPlacementTest, AnEmptyCoreListKeepsTheAffinityAndInheritedKeepsTheScheduling) {
+TEST(ThreadPlacementTest,
+     AnEmptyCoreListKeepsTheAffinityAndInheritedKeepsTheScheduling) {
   const std::vector<int> allowed = allowedCores();
-  const Placement placement = placeNewThread(/*cores=*/{}, ViewerThreadPriority::kInherited);
+  const Placement placement =
+      placeNewThread(/*cores=*/{}, ViewerThreadPriority::kInherited);
   ASSERT_TRUE(placement.status.ok()) << placement.status;
   EXPECT_EQ(placement.cores, allowed);
   EXPECT_EQ(placement.policyAfter, placement.policyBefore);
@@ -113,16 +119,20 @@ TEST(ThreadPlacementTest, RefusesBadArgumentsAndAppliesNothing) {
   const Placement badCore = placeNewThread({-1}, ViewerThreadPriority::kIdle);
   EXPECT_EQ(badCore.status.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_EQ(badCore.policyAfter, badCore.policyBefore);
-  const Placement tooLarge = placeNewThread({CPU_SETSIZE}, ViewerThreadPriority::kInherited);
+  const Placement tooLarge =
+      placeNewThread({CPU_SETSIZE}, ViewerThreadPriority::kInherited);
   EXPECT_EQ(tooLarge.status.code(), absl::StatusCode::kInvalidArgument);
   const std::vector<int> oneCore = {allowedCores().back()};
-  const Placement badPriority = placeNewThread(oneCore, static_cast<ViewerThreadPriority>(7));
+  const Placement badPriority =
+      placeNewThread(oneCore, static_cast<ViewerThreadPriority>(7));
   EXPECT_EQ(badPriority.status.code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_EQ(badPriority.cores, allowedCores()) << "a refused placement pins nothing";
+  EXPECT_EQ(badPriority.cores, allowedCores())
+      << "a refused placement pins nothing";
   EXPECT_EQ(badPriority.policyAfter, badPriority.policyBefore);
 }
 
-TEST(ThreadPlacementTest, ACoreOutsideTheAllowedSetFailsButTheSchedulingApplies) {
+TEST(ThreadPlacementTest,
+     ACoreOutsideTheAllowedSetFailsButTheSchedulingApplies) {
   const std::vector<int> allowed = allowedCores();
   int outside = -1;
   for (int core = 0; core < CPU_SETSIZE; ++core) {
@@ -132,9 +142,12 @@ TEST(ThreadPlacementTest, ACoreOutsideTheAllowedSetFailsButTheSchedulingApplies)
     }
   }
   ASSERT_GE(outside, 0);
-  const Placement placement = placeNewThread({outside}, ViewerThreadPriority::kIdle);
+  const Placement placement =
+      placeNewThread({outside}, ViewerThreadPriority::kIdle);
   EXPECT_FALSE(placement.status.ok());
-  EXPECT_NE(placement.status.message().find("pthread_setaffinity_np"), std::string::npos) << placement.status;
+  EXPECT_NE(placement.status.message().find("pthread_setaffinity_np"),
+            std::string::npos)
+      << placement.status;
   EXPECT_EQ(placement.cores, allowed);
   EXPECT_EQ(placement.policyAfter, SCHED_IDLE);
 }

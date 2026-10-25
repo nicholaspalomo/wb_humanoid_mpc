@@ -61,23 +61,30 @@ namespace ocs2::humanoid::ipc {
 namespace {
 
 constexpr double kLogPeriodSeconds = 5.0;
-/** The bits of one draw of std::random_device, an unsigned int: the high word of a server instance. */
+/** The bits of one draw of std::random_device, an unsigned int: the high word
+ * of a server instance. */
 constexpr int kRandomDrawBits = 32;
 
-/** A random nonzero number: the MpcSolverStatus.server_instance of one server. */
+/** A random nonzero number: the MpcSolverStatus.server_instance of one server.
+ */
 uint64_t drawServerInstance() {
   std::random_device device;
-  const uint64_t instance = (static_cast<uint64_t>(device()) << kRandomDrawBits) ^ static_cast<uint64_t>(device()) ^
-                            static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
+  const uint64_t instance =
+      (static_cast<uint64_t>(device()) << kRandomDrawBits) ^
+      static_cast<uint64_t>(device()) ^
+      static_cast<uint64_t>(
+          std::chrono::steady_clock::now().time_since_epoch().count());
   return instance != 0 ? instance : 1;
 }
 
-// Runs `call`, which reaches code that reports a failure by throwing: OCS2's MPC and solver. Returns what it threw as an
-// absl::Status, so that this is the one place the server handles an exception.
+// Runs `call`, which reaches code that reports a failure by throwing: OCS2's
+// MPC and solver. Returns what it threw as an absl::Status, so that this is the
+// one place the server handles an exception.
 absl::Status runCatchingExceptions(absl::FunctionRef<void()> call) {
   try {  // NOLINT(exceptions): OCS2's MPC_BASE::run(), reset() and resetSolver() report failures by throwing.
     call();
-  } catch (const std::exception& error) {  // NOLINT(exceptions): converts what the calls above throw, once.
+    // NOLINTNEXTLINE(exceptions): converts what the calls above throw, once.
+  } catch (const std::exception& error) {
     return absl::InternalError(error.what());
   }
   return absl::OkStatus();
@@ -85,31 +92,43 @@ absl::Status runCatchingExceptions(absl::FunctionRef<void()> call) {
 
 }  // namespace
 
-absl::StatusOr<std::unique_ptr<MpcServer>> MpcServer::Create(robot::ipc::Bus* absl_nonnull bus,
-                                                             MPC_BASE* absl_nonnull mpc,
-                                                             ResetTargetTrajectoriesFunction resetTargetTrajectories,
-                                                             Config config,
-                                                             Hooks hooks) {
+absl::StatusOr<std::unique_ptr<MpcServer>> MpcServer::Create(
+    robot::ipc::Bus* absl_nonnull bus,
+    MPC_BASE* absl_nonnull mpc,
+    ResetTargetTrajectoriesFunction resetTargetTrajectories,
+    Config config,
+    Hooks hooks) {
   if (resetTargetTrajectories == nullptr) {
-    return absl::InvalidArgumentError("MpcServer: the reset target trajectories function is empty");
+    return absl::InvalidArgumentError(
+        "MpcServer: the reset target trajectories function is empty");
   }
   if (config.dimensions.stateDim == 0) {
-    return absl::InvalidArgumentError("MpcServer: Config::dimensions.stateDim is 0; give the dimensions of the MPC's model");
+    return absl::InvalidArgumentError(
+        "MpcServer: Config::dimensions.stateDim is 0; give the dimensions of "
+        "the MPC's model");
   }
   if (config.dimensions.numModes == 0) {
-    return absl::InvalidArgumentError("MpcServer: Config::dimensions.numModes is 0; give the number of modes of the MPC's model");
+    return absl::InvalidArgumentError(
+        "MpcServer: Config::dimensions.numModes is 0; give the number of modes "
+        "of the MPC's model");
   }
   if (!std::isfinite(config.mpcDesiredFrequency)) {
-    return absl::InvalidArgumentError(absl::StrCat("MpcServer: Config::mpcDesiredFrequency is ", config.mpcDesiredFrequency));
+    return absl::InvalidArgumentError(
+        absl::StrCat("MpcServer: Config::mpcDesiredFrequency is ",
+                     config.mpcDesiredFrequency));
   }
   if (bus->nodeName().empty()) {
-    return absl::InvalidArgumentError("MpcServer: the bus has no node name, so it cannot publish the policies");
+    return absl::InvalidArgumentError(
+        "MpcServer: the bus has no node name, so it cannot publish the "
+        "policies");
   }
   if (bus->isRunning()) {
-    return absl::FailedPreconditionError("MpcServer: the bus is running; create the server before Bus::start()");
+    return absl::FailedPreconditionError(
+        "MpcServer: the bus is running; create the server before Bus::start()");
   }
-  std::unique_ptr<MpcServer> server =
-      absl::WrapUnique(new MpcServer(bus, mpc, std::move(resetTargetTrajectories), std::move(config), std::move(hooks)));
+  std::unique_ptr<MpcServer> server = absl::WrapUnique(
+      new MpcServer(bus, mpc, std::move(resetTargetTrajectories),
+                    std::move(config), std::move(hooks)));
   RETURN_IF_ERROR(server->registerOnBus());
   return server;
 }
@@ -139,19 +158,23 @@ MpcServer::~MpcServer() {
 
 absl::Status MpcServer::registerOnBus() {
   const std::shared_ptr<CallbackGuard> guard = guard_;
-  const std::function<void(const humanoid_mpc_msgs::MpcObservation&)> onObservationMessage =
-      [guard](const humanoid_mpc_msgs::MpcObservation& message) {
-        absl::MutexLock lock(guard->mutex);
-        if (guard->server != nullptr) guard->server->onObservation(message);
-      };
-  return bus_->subscribe<humanoid_mpc_msgs::MpcObservation>(topics::kRobotMpcObservation, robot::ipc::Delivery::kLatest,
-                                                            onObservationMessage);
+  const std::function<void(const humanoid_mpc_msgs::MpcObservation&)>
+      onObservationMessage =
+          [guard](const humanoid_mpc_msgs::MpcObservation& message) {
+            absl::MutexLock lock(guard->mutex);
+            if (guard->server != nullptr) guard->server->onObservation(message);
+          };
+  return bus_->subscribe<humanoid_mpc_msgs::MpcObservation>(
+      topics::kRobotMpcObservation, robot::ipc::Delivery::kLatest,
+      onObservationMessage);
 }
 
 absl::Status MpcServer::start() {
   absl::MutexLock lock(lifecycleMutex_);
   if (started_) {
-    return absl::FailedPreconditionError("MpcServer::start(): the server was started (or stopped) before; it starts once");
+    return absl::FailedPreconditionError(
+        "MpcServer::start(): the server was started (or stopped) before; it "
+        "starts once");
   }
   started_ = true;
   solverThread_ = std::thread(&MpcServer::runSolverLoop, this);
@@ -192,13 +215,18 @@ MpcServer::Statistics MpcServer::statistics() const {
 // The IO thread
 // ---------------------------------------------------------------------------------------------------------------------
 
-void MpcServer::onObservation(const humanoid_mpc_msgs::MpcObservation& message) {
+void MpcServer::onObservation(
+    const humanoid_mpc_msgs::MpcObservation& message) {
   observationsReceived_.fetch_add(1);
-  absl::Status valid = checkDimensions(message.observation(), config_.dimensions);
-  if (valid.ok() && config_.modelFingerprint != 0 && message.model_fingerprint() != config_.modelFingerprint) {
-    valid = absl::InvalidArgumentError(absl::StrCat("MpcObservation.model_fingerprint is ", message.model_fingerprint(),
-                                                    ", the MPC's model layout is ", config_.modelFingerprint,
-                                                    ": the robot runs another robot model, joint order or set of fixed joints"));
+  absl::Status valid =
+      checkDimensions(message.observation(), config_.dimensions);
+  if (valid.ok() && config_.modelFingerprint != 0 &&
+      message.model_fingerprint() != config_.modelFingerprint) {
+    valid = absl::InvalidArgumentError(absl::StrCat(
+        "MpcObservation.model_fingerprint is ", message.model_fingerprint(),
+        ", the MPC's model layout is ", config_.modelFingerprint,
+        ": the robot runs another robot model, joint order or set of fixed "
+        "joints"));
   }
   absl::MutexLock lock(mutex_);
   ++receivedSinceStatus_;
@@ -208,16 +236,20 @@ void MpcServer::onObservation(const humanoid_mpc_msgs::MpcObservation& message) 
     return;
   }
   if (valid.ok()) {
-    // Checks the whole message before it writes anything: a rejected observation leaves the mailbox as it was.
+    // Checks the whole message before it writes anything: a rejected
+    // observation leaves the mailbox as it was.
     valid = fromProto(message.observation(), &mailboxObservation_);
   }
   if (!valid.ok()) {
     observationsRejected_.fetch_add(1);
-    LOG_EVERY_N_SEC(ERROR, kLogPeriodSeconds) << "[MpcServer] Rejecting an observation from the robot: " << valid.message();
+    LOG_EVERY_N_SEC(ERROR, kLogPeriodSeconds)
+        << "[MpcServer] Rejecting an observation from the robot: "
+        << valid.message();
     return;
   }
   if (hasObservation_ && message.sequence() < mailboxSequence_) {
-    // The robot process counts its control cycles from its start: it has restarted.
+    // The robot process counts its control cycles from its start: it has
+    // restarted.
     newSession_ = true;
     ++mailboxSessions_;
   }
@@ -233,32 +265,41 @@ void MpcServer::onObservation(const humanoid_mpc_msgs::MpcObservation& message) 
 // ---------------------------------------------------------------------------------------------------------------------
 
 void MpcServer::runSolverLoop() {
-  const absl::Status configured = robot::realtime::configureCurrentThread(config_.solverThread);
+  const absl::Status configured =
+      robot::realtime::configureCurrentThread(config_.solverThread);
   if (!configured.ok()) {
-    LOG(WARNING) << "[MpcServer] The solver thread runs without part of its configuration: " << configured.message();
+    LOG(WARNING) << "[MpcServer] The solver thread runs without part of its "
+                    "configuration: "
+                 << configured.message();
   }
 
-  // After a success the next solve waits for a newer observation; a failed attempt is retried on the newest one at once.
+  // After a success the next solve waits for a newer observation; a failed
+  // attempt is retried on the newest one at once.
   bool lastAttemptSucceeded = true;
-  while (awaitObservation(lastAttemptSucceeded ? ObservationWait::kNew : ObservationWait::kAny)) {
+  while (awaitObservation(lastAttemptSucceeded ? ObservationWait::kNew
+                                               : ObservationWait::kAny)) {
     const absl::Time iterationStart = absl::Now();
     ++solveCount_;
     solveAttempts_.fetch_add(1);
 
     absl::Status attempt = serveResets();
     if (!attempt.ok() && snapshot_.newSession) {
-      // Not served: the next attempt resets for the restarted robot process again.
+      // Not served: the next attempt resets for the restarted robot process
+      // again.
       absl::MutexLock lock(mutex_);
       newSession_ = true;
     }
     const absl::Time solveStart = absl::Now();
     if (attempt.ok()) attempt = solve();
     if (attempt.ok()) attempt = buildPolicy();
-    const double solveTimeMs = absl::ToDoubleMilliseconds(absl::Now() - solveStart);
+    const double solveTimeMs =
+        absl::ToDoubleMilliseconds(absl::Now() - solveStart);
 
-    // A failed attempt requests a reset and, once the failures persist, a pause before the next one; the supervisor
-    // logs what happened, once. Its health goes out with the policy and the status.
-    const std::chrono::duration<scalar_t> retryDelay = supervisor_.onSolveResult(attempt);
+    // A failed attempt requests a reset and, once the failures persist, a pause
+    // before the next one; the supervisor logs what happened, once. Its health
+    // goes out with the policy and the status.
+    const std::chrono::duration<scalar_t> retryDelay =
+        supervisor_.onSolveResult(attempt);
     if (attempt.ok()) {
       publishPolicy(attempt, solveTimeMs);
     } else {
@@ -268,16 +309,20 @@ void MpcServer::runSolverLoop() {
     lastAttemptSucceeded = attempt.ok();
 
     if (retryDelay.count() > 0.0) {
-      supervisor_.waitBeforeRetry(retryDelay, [this]() { return robotRequestedResetSinceSnapshot(); });
+      supervisor_.waitBeforeRetry(
+          retryDelay, [this]() { return robotRequestedResetSinceSnapshot(); });
       continue;
     }
     if (config_.mpcDesiredFrequency > 0.0) {
-      const absl::Time deadline = iterationStart + absl::Seconds(1.0 / config_.mpcDesiredFrequency);
+      const absl::Time deadline =
+          iterationStart + absl::Seconds(1.0 / config_.mpcDesiredFrequency);
       const absl::Duration overrun = absl::Now() - deadline;
       if (overrun > absl::Milliseconds(1)) {
         LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds)
-            << "[MpcServer] The MPC loop runs slow by " << absl::ToDoubleMilliseconds(overrun) << " ms of its "
-            << kMillisecondsPerSecond / config_.mpcDesiredFrequency << " ms period.";
+            << "[MpcServer] The MPC loop runs slow by "
+            << absl::ToDoubleMilliseconds(overrun) << " ms of its "
+            << kMillisecondsPerSecond / config_.mpcDesiredFrequency
+            << " ms period.";
       } else {
         sleepUntil(deadline);
       }
@@ -287,7 +332,9 @@ void MpcServer::runSolverLoop() {
 }
 
 bool MpcServer::hasWork() const {
-  return stopRequested_ || (hasObservation_ && (!requireNewObservation_ || mailboxVersion_ != takenVersion_));
+  return stopRequested_ ||
+         (hasObservation_ &&
+          (!requireNewObservation_ || mailboxVersion_ != takenVersion_));
 }
 
 bool MpcServer::awaitObservation(ObservationWait wait) {
@@ -309,9 +356,11 @@ bool MpcServer::awaitObservation(ObservationWait wait) {
 bool MpcServer::robotRequestedResetSinceSnapshot() const {
   absl::MutexLock lock(mutex_);
   if (stopRequested_) return true;
-  // Against the snapshot, not against what was served: a reset that failed left the robot's request unserved, and the
-  // back-off of that failure must not end because of it, or the solver thread would retry it as fast as it can.
-  return mailboxSessions_ != snapshot_.sessions || mailboxRequests_.requested != snapshot_.requests.requested ||
+  // Against the snapshot, not against what was served: a reset that failed left
+  // the robot's request unserved, and the back-off of that failure must not end
+  // because of it, or the solver thread would retry it as fast as it can.
+  return mailboxSessions_ != snapshot_.sessions ||
+         mailboxRequests_.requested != snapshot_.requests.requested ||
          mailboxRequests_.fullRequested != snapshot_.requests.fullRequested;
 }
 
@@ -329,9 +378,11 @@ absl::Status MpcServer::serveResets() {
     reset = full = true;
     reason = "start-up";
     robotSessions_.store(1);
-  } else if (snapshot.newSession || snapshot.requests.requested < robotServed_.requested ||
+  } else if (snapshot.newSession ||
+             snapshot.requests.requested < robotServed_.requested ||
              snapshot.requests.fullRequested < robotServed_.fullRequested) {
-    // A restarted robot process counts its control cycles and its requests from zero again.
+    // A restarted robot process counts its control cycles and its requests from
+    // zero again.
     reset = full = true;
     reason = "the robot process restarted";
     robotSessions_.fetch_add(1);
@@ -342,7 +393,8 @@ absl::Status MpcServer::serveResets() {
     reset = true;
     reason = "requested by the robot";
   }
-  const std::optional<MpcResetSupervisor::ResetTicket> ticket = supervisor_.takeResetRequest();
+  const std::optional<MpcResetSupervisor::ResetTicket> ticket =
+      supervisor_.takeResetRequest();
   if (ticket.has_value()) {
     if (!reset) reason = "after a failed solve";
     reset = true;
@@ -352,8 +404,10 @@ absl::Status MpcServer::serveResets() {
     return absl::OkStatus();
   }
 
-  // As MPC_MRT_Interface::resetMpcNode() and resetMpcSolver(), but the robot drops the buffered policy, on its side.
-  const absl::StatusOr<TargetTrajectories> targetTrajectories = resetTargetTrajectories_(snapshot.observation);
+  // As MPC_MRT_Interface::resetMpcNode() and resetMpcSolver(), but the robot
+  // drops the buffered policy, on its side.
+  const absl::StatusOr<TargetTrajectories> targetTrajectories =
+      resetTargetTrajectories_(snapshot.observation);
   absl::Status made = targetTrajectories.status();
   if (made.ok()) {
     made = runCatchingExceptions([&]() {
@@ -362,12 +416,15 @@ absl::Status MpcServer::serveResets() {
       } else {
         mpc_->resetSolver();
       }
-      mpc_->getSolverPtr()->getReferenceManager().setTargetTrajectories(*targetTrajectories);
+      mpc_->getSolverPtr()->getReferenceManager().setTargetTrajectories(
+          *targetTrajectories);
     });
   }
   if (!made.ok()) {
-    // Nothing below has happened: the robot's requests and the supervisor's ticket stay unserved.
-    return absl::InternalError(absl::StrCat("Resetting the MPC failed: ", made.message()));
+    // Nothing below has happened: the robot's requests and the supervisor's
+    // ticket stay unserved.
+    return absl::InternalError(
+        absl::StrCat("Resetting the MPC failed: ", made.message()));
   }
   if (ticket.has_value()) {
     supervisor_.completeReset(*ticket);
@@ -381,9 +438,11 @@ absl::Status MpcServer::serveResets() {
   (full ? fullResets_ : solverResets_).fetch_add(1);
   robotResetsServed_.store(robotServed_.requested);
   robotFullResetsServed_.store(robotServed_.fullRequested);
-  // While the solver keeps failing it is reset before every attempt; the supervisor has said so once already.
+  // While the solver keeps failing it is reset before every attempt; the
+  // supervisor has said so once already.
   if (supervisor_.isHealthy()) {
-    LOG(INFO) << "[MpcServer] " << (full ? "MPC reset" : "MPC solver reset") << " to the observation at t = " << snapshot.observation.time
+    LOG(INFO) << "[MpcServer] " << (full ? "MPC reset" : "MPC solver reset")
+              << " to the observation at t = " << snapshot.observation.time
               << " s (" << reason << ").";
   }
   return absl::OkStatus();
@@ -393,52 +452,68 @@ absl::Status MpcServer::solve() {
   const SystemObservation& observation = snapshot_.observation;
   if (hooks_.preSolveObserver) hooks_.preSolveObserver(observation);
   bool controllerIsUpdated = false;
-  const absl::Status ran =
-      runCatchingExceptions([&]() { controllerIsUpdated = mpc_->run(observation.time, observation.state, observation.mode); });
+  const absl::Status ran = runCatchingExceptions([&]() {
+    controllerIsUpdated =
+        mpc_->run(observation.time, observation.state, observation.mode);
+  });
   if (!ran.ok()) {
     // Dumped once per run of failures, as MPC_MRT_Interface::advanceMpc() does.
     if (consecutiveCrashes_++ == 0) {
       const vector_t& state = observation.state;
-      LOG(WARNING) << "[MpcServer] MPC solver crashed at t = " << observation.time << ": " << ran.message()
-                   << "\nState: " << absl::StrJoin(state.data(), state.data() + state.size(), " ")
-                   << "\nDesired trajectories: " << mpc_->getSolverPtr()->getReferenceManager().getTargetTrajectories();
+      LOG(WARNING) << "[MpcServer] MPC solver crashed at t = "
+                   << observation.time << ": " << ran.message() << "\nState: "
+                   << absl::StrJoin(state.data(), state.data() + state.size(),
+                                    " ")
+                   << "\nDesired trajectories: "
+                   << mpc_->getSolverPtr()
+                          ->getReferenceManager()
+                          .getTargetTrajectories();
     }
-    return absl::InternalError(absl::StrCat("MPC solver crashed at t = ", observation.time, ": ", ran.message()));
+    return absl::InternalError(absl::StrCat(
+        "MPC solver crashed at t = ", observation.time, ": ", ran.message()));
   }
   consecutiveCrashes_ = 0;
   if (!controllerIsUpdated) {
-    return absl::FailedPreconditionError(absl::StrCat("MPC not run: the observation time ", observation.time, " is past the final time ",
-                                                      mpc_->getSolverPtr()->getFinalTime(),
-                                                      " of the previous solution; the MPC has to be reset."));
+    return absl::FailedPreconditionError(absl::StrCat(
+        "MPC not run: the observation time ", observation.time,
+        " is past the final time ", mpc_->getSolverPtr()->getFinalTime(),
+        " of the previous solution; the MPC has to be reset."));
   }
   return absl::OkStatus();
 }
 
 absl::Status MpcServer::buildPolicy() {
-  // As MPC_MRT_Interface::copyToBuffer(), cut to the solution time window whatever the solver does with it.
+  // As MPC_MRT_Interface::copyToBuffer(), cut to the solution time window
+  // whatever the solver does with it.
   const SystemObservation& observation = snapshot_.observation;
   SolverBase* absl_nonnull solver = mpc_->getSolverPtr();
   const scalar_t window = mpc_->settings().solutionTimeWindow_;
-  const scalar_t finalTime = window < 0.0 ? solver->getFinalTime() : observation.time + window;
+  const scalar_t finalTime =
+      window < 0.0 ? solver->getFinalTime() : observation.time + window;
   solution_.clear();
   solver->getPrimalSolution(finalTime, &solution_);
   trimToSolutionWindow(finalTime, &solution_);
   command_.mpcInitObservation_ = observation;
-  command_.mpcTargetTrajectories_ = solver->getReferenceManager().getTargetTrajectories();
+  command_.mpcTargetTrajectories_ =
+      solver->getReferenceManager().getTargetTrajectories();
   performance_ = solver->getPerformanceIndeces();
-  const absl::Status encoded = policyToProto(command_, solution_, performance_, &policyMessage_);
+  const absl::Status encoded =
+      policyToProto(command_, solution_, performance_, &policyMessage_);
   if (!encoded.ok()) {
-    return absl::InternalError(absl::StrCat("The MPC solution cannot be sent to the robot: ", encoded.message()));
+    return absl::InternalError(absl::StrCat(
+        "The MPC solution cannot be sent to the robot: ", encoded.message()));
   }
   return absl::OkStatus();
 }
 
-void MpcServer::fillSolverStatus(const absl::Status& attempt,
-                                 double solveTimeMs,
-                                 humanoid_mpc_msgs::MpcSolverStatus* absl_nonnull status) const {
+void MpcServer::fillSolverStatus(
+    const absl::Status& attempt,
+    double solveTimeMs,
+    humanoid_mpc_msgs::MpcSolverStatus* absl_nonnull status) const {
   status->set_healthy(supervisor_.isHealthy());
   status->set_consecutive_failures(supervisor_.numConsecutiveFailures());
-  status->set_last_error(attempt.ok() ? std::string() : std::string(attempt.message()));
+  status->set_last_error(attempt.ok() ? std::string()
+                                      : std::string(attempt.message()));
   status->set_solve_time_ms(solveTimeMs);
   status->set_solve_count(solveCount_);
   status->set_server_instance(serverInstance_);
@@ -448,33 +523,44 @@ void MpcServer::publishPolicy(const absl::Status& attempt, double solveTimeMs) {
   policyMessage_.set_resets_served(robotServed_.requested);
   policyMessage_.set_model_fingerprint(config_.modelFingerprint);
   policyMessage_.set_full_resets_served(robotServed_.fullRequested);
-  fillSolverStatus(attempt, solveTimeMs, policyMessage_.mutable_solver_status());
+  fillSolverStatus(attempt, solveTimeMs,
+                   policyMessage_.mutable_solver_status());
   if (hooks_.annotationsProvider) {
-    humanoid_mpc_msgs::ViewerAnnotations* absl_nonnull annotations = policyMessage_.mutable_annotations();
+    humanoid_mpc_msgs::ViewerAnnotations* absl_nonnull annotations =
+        policyMessage_.mutable_annotations();
     annotations->Clear();
-    const absl::Status annotated = hooks_.annotationsProvider(command_, solution_, annotations);
+    const absl::Status annotated =
+        hooks_.annotationsProvider(command_, solution_, annotations);
     if (!annotated.ok()) {
       // Display only: the policy goes out without annotations.
       annotations->Clear();
-      LOG_EVERY_N_SEC(ERROR, kLogPeriodSeconds) << "[MpcServer] The annotations provider failed: " << annotated.message();
+      LOG_EVERY_N_SEC(ERROR, kLogPeriodSeconds)
+          << "[MpcServer] The annotations provider failed: "
+          << annotated.message();
     }
   }
-  const absl::Status published = bus_->publish(topics::kMpcPolicy, policyMessage_);
+  const absl::Status published =
+      bus_->publish(topics::kMpcPolicy, policyMessage_);
   if (published.ok()) {
     policiesPublished_.fetch_add(1);
   } else {
-    LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds) << "[MpcServer] Publishing the policy failed: " << published.message();
+    LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds)
+        << "[MpcServer] Publishing the policy failed: " << published.message();
   }
   if (hooks_.postSolveObserver) {
-    const absl::Status observed = hooks_.postSolveObserver(command_, solution_, performance_);
+    const absl::Status observed =
+        hooks_.postSolveObserver(command_, solution_, performance_);
     if (!observed.ok()) {
-      LOG_EVERY_N_SEC(ERROR, kLogPeriodSeconds) << "[MpcServer] The post-solve observer failed: " << observed.message();
+      LOG_EVERY_N_SEC(ERROR, kLogPeriodSeconds)
+          << "[MpcServer] The post-solve observer failed: "
+          << observed.message();
     }
   }
 }
 
 void MpcServer::publishStatus(const absl::Status& attempt, double solveTimeMs) {
-  fillSolverStatus(attempt, solveTimeMs, statusMessage_.mutable_solver_status());
+  fillSolverStatus(attempt, solveTimeMs,
+                   statusMessage_.mutable_solver_status());
   statusMessage_.set_observation_time(snapshot_.observation.time);
   statusMessage_.set_resets_served(robotServed_.requested);
   statusMessage_.set_full_resets_served(robotServed_.fullRequested);
@@ -485,11 +571,13 @@ void MpcServer::publishStatus(const absl::Status& attempt, double solveTimeMs) {
     receivedSinceStatus_ = 0;
     skippedSinceStatus_ = 0;
   }
-  const absl::Status published = bus_->publish(topics::kMpcStatus, statusMessage_);
+  const absl::Status published =
+      bus_->publish(topics::kMpcStatus, statusMessage_);
   if (published.ok()) {
     statusesPublished_.fetch_add(1);
   } else {
-    LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds) << "[MpcServer] Publishing the status failed: " << published.message();
+    LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds)
+        << "[MpcServer] Publishing the status failed: " << published.message();
   }
 }
 

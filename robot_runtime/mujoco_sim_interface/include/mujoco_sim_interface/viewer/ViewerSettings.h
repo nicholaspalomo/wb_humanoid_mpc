@@ -43,12 +43,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::mujoco_sim_interface {
 
 /**
- * Which viewer the simulator starts, as MujocoSimConfig::viewer and the robot app's options carry it. Passive data;
- * validateViewerSettings() says whether it is usable.
+ * Which viewer the simulator starts, as MujocoSimConfig::viewer and the robot
+ * app's options carry it. Passive data; validateViewerSettings() says whether
+ * it is usable.
  *
- * `names` is a preference order of registry names (ViewerNames.h): initSim() starts the first one that starts, and
- * fails (MujocoSimInterface::viewerStatus()) when none does. `web,none` therefore falls back to no viewer when the web
- * viewer cannot start, and `web` alone refuses to run without it.
+ * `names` is a preference order of registry names (ViewerNames.h): initSim()
+ * starts the first one that starts, and fails
+ * (MujocoSimInterface::viewerStatus()) when none does. `web,none` therefore
+ * falls back to no viewer when the web viewer cannot start, and `web` alone
+ * refuses to run without it.
  */
 struct ViewerSettings {
   std::vector<std::string> names = {std::string(kGlfwViewerName)};
@@ -56,24 +59,31 @@ struct ViewerSettings {
 };
 
 /**
- * Splits a comma-separated viewer list, such as `web,none`, and checks it with checkViewerNames(). Spaces around a
- * name are ignored. InvalidArgument says what is wrong and lists the valid names.
+ * Splits a comma-separated viewer list, such as `web,none`, and checks it with
+ * checkViewerNames(). Spaces around a name are ignored. InvalidArgument says
+ * what is wrong and lists the valid names.
  */
-absl::StatusOr<std::vector<std::string>> parseViewerNames(absl::string_view list);
+absl::StatusOr<std::vector<std::string>> parseViewerNames(
+    absl::string_view list);
 
 /**
- * Checks a viewer preference list: it is not empty, every name is a known viewer (InvalidArgument lists them), none
- * repeats, and nothing follows `none` (which always starts) or `glfw` (which cannot fail at start-up: a window it cannot
- * open is logged and the simulation runs on), since a later entry could never be used.
+ * Checks a viewer preference list: it is not empty, every name is a known
+ * viewer (InvalidArgument lists them), none repeats, and nothing follows `none`
+ * (which always starts) or `glfw` (which cannot fail at start-up: a window it
+ * cannot open is logged and the simulation runs on), since a later entry could
+ * never be used.
  */
 absl::Status checkViewerNames(absl::Span<const std::string> names);
 
-/** Checks `settings.names` with checkViewerNames() and every WebViewerOptions field against its range. */
+/** Checks `settings.names` with checkViewerNames() and every WebViewerOptions
+ * field against its range. */
 absl::Status validateViewerSettings(const ViewerSettings& settings);
 
 /**
- * Returns the number of llvmpipe rasterizer threads (Mesa's LP_NUM_THREADS) that fits the web viewer's cores: one per
- * core, and at least 2. Without LP_NUM_THREADS, llvmpipe starts one per CPU of the machine, all of them on those cores.
+ * Returns the number of llvmpipe rasterizer threads (Mesa's LP_NUM_THREADS)
+ * that fits the web viewer's cores: one per core, and at least 2. Without
+ * LP_NUM_THREADS, llvmpipe starts one per CPU of the machine, all of them on
+ * those cores.
  */
 int softwareRasterizerThreads(const WebViewerOptions& web);
 

@@ -86,7 +86,11 @@ def _urdf_joint_limits(urdf_path: str) -> dict:
     limits = {}
     for joint in ElementTree.parse(urdf_path).getroot().findall("joint"):
         limit = joint.find("limit")
-        if limit is not None and "lower" in limit.attrib and "upper" in limit.attrib:
+        if (
+            limit is not None
+            and "lower" in limit.attrib
+            and "upper" in limit.attrib
+        ):
             limits[joint.attrib["name"]] = (
                 float(limit.attrib["lower"]),
                 float(limit.attrib["upper"]),
@@ -117,7 +121,9 @@ def _quaternion_conjugate(xi: jnp.ndarray) -> jnp.ndarray:
     return jnp.concatenate([-xi[:3], xi[3:]])
 
 
-def _world_rate_map(attitude_derivative: jnp.ndarray, xi: jnp.ndarray) -> jnp.ndarray:
+def _world_rate_map(
+    attitude_derivative: jnp.ndarray, xi: jnp.ndarray
+) -> jnp.ndarray:
     """The world angular velocity per unit rate of each column of d(xi)/dq, from omega_W = 2 vec(xi_dot (x) xi^-1).
 
     Args:
@@ -148,9 +154,9 @@ def _relative_rate_error(
     targets: np.ndarray,
 ) -> float:
     """Mean ||J_l(Delta_theta) J_Delta_theta - Abar||_F / ||Abar||_F over the samples, as the C++ acceptance test grades."""
-    rate_jacobians = jax.vmap(model.acom_joint_rate_jacobian, in_axes=(None, 0))(
-        params, jnp.asarray(q_samples)
-    )
+    rate_jacobians = jax.vmap(
+        model.acom_joint_rate_jacobian, in_axes=(None, 0)
+    )(params, jnp.asarray(q_samples))
     errors = np.linalg.norm(np.asarray(rate_jacobians) - targets, axis=(1, 2))
     return float(np.mean(errors / np.linalg.norm(targets, axis=(1, 2))))
 
@@ -206,7 +212,11 @@ class TestAcomPipeline(unittest.TestCase):
     def setUp(self):
         self.in_dim = 6
         self.model = models.SirenACOM(
-            in_dim=self.in_dim, hidden_dim=32, num_layers=2, out_dim=3, omega_0=30.0
+            in_dim=self.in_dim,
+            hidden_dim=32,
+            num_layers=2,
+            out_dim=3,
+            omega_0=30.0,
         )
         self.key = jax.random.PRNGKey(123)
         self.params = self.model.init_params(self.key)
@@ -258,7 +268,9 @@ class TestAcomPipeline(unittest.TestCase):
             atol=1e-6,
         )
 
-    def test_acom_attitude_tangent_jacobian_is_the_derivative_of_the_attitude(self):
+    def test_acom_attitude_tangent_jacobian_is_the_derivative_of_the_attitude(
+        self,
+    ):
         """The two blocks are R(Delta_theta)^T and J_r(Delta_theta) J_Delta_theta, the derivative of the attitude.
 
         A body perturbation dphi_a of the attitude moves its coefficients by
@@ -277,7 +289,9 @@ class TestAcomPipeline(unittest.TestCase):
             rotated = models.quaternion_product(xi, models.quaternion_exp(dphi))
             return self.model.acom_attitude(self.params, rotated, q_j)
 
-        base_derivative = jax.jacobian(attitude_of_rotated_base)(jnp.zeros((3,)))
+        base_derivative = jax.jacobian(attitude_of_rotated_base)(
+            jnp.zeros((3,))
+        )
         np.testing.assert_allclose(
             base_derivative, jnp.dot(rate_matrix, tangent[:, :3]), atol=1e-5
         )
@@ -291,18 +305,27 @@ class TestAcomPipeline(unittest.TestCase):
         delta_theta = self.model.forward(self.params, q_j)
         np.testing.assert_allclose(
             tangent[:, :3],
-            models.quaternion_rotation_matrix(models.quaternion_exp(delta_theta)).T,
+            models.quaternion_rotation_matrix(
+                models.quaternion_exp(delta_theta)
+            ).T,
             atol=1e-6,
         )
         np.testing.assert_allclose(
             jnp.dot(tangent[:, :3].T, tangent[:, :3]), np.eye(3), atol=1e-5
         )
-        self.assertGreater(float(jnp.max(jnp.abs(tangent[:, :3] - jnp.eye(3)))), 1e-4)
+        self.assertGreater(
+            float(jnp.max(jnp.abs(tangent[:, :3] - jnp.eye(3)))), 1e-4
+        )
 
     def test_so3_right_jacobian_matches_the_exponential(self):
         """Exp(phi + d) = Exp(phi) (x) Exp(J_r(phi) d) to first order, on both sides of the series threshold."""
-        for phi in (jnp.array([0.02, -0.03, 0.01]), jnp.array([0.4, -1.1, 0.7])):
-            rate_matrix = 0.5 * _quaternion_rate_matrix(models.quaternion_exp(phi))
+        for phi in (
+            jnp.array([0.02, -0.03, 0.01]),
+            jnp.array([0.4, -1.1, 0.7]),
+        ):
+            rate_matrix = 0.5 * _quaternion_rate_matrix(
+                models.quaternion_exp(phi)
+            )
             derivative = jax.jacobian(models.quaternion_exp)(phi)
             np.testing.assert_allclose(
                 derivative,
@@ -312,7 +335,10 @@ class TestAcomPipeline(unittest.TestCase):
 
     def test_so3_left_jacobian_matches_the_exponential(self):
         """Exp(phi + d) = Exp(J_l(phi) d) (x) Exp(phi) to first order, and J_l(phi) = R(Exp(phi)) J_r(phi)."""
-        for phi in (jnp.array([0.02, -0.03, 0.01]), jnp.array([0.4, -1.1, 0.7])):
+        for phi in (
+            jnp.array([0.02, -0.03, 0.01]),
+            jnp.array([0.4, -1.1, 0.7]),
+        ):
             exp_phi = models.quaternion_exp(phi)
 
             def left_increment(d, phi=phi, exp_phi=exp_phi):
@@ -320,7 +346,8 @@ class TestAcomPipeline(unittest.TestCase):
                 return (
                     2.0
                     * models.quaternion_product(
-                        models.quaternion_exp(phi + d), _quaternion_conjugate(exp_phi)
+                        models.quaternion_exp(phi + d),
+                        _quaternion_conjugate(exp_phi),
                     )[:3]
                 )
 
@@ -362,7 +389,9 @@ class TestAcomPipeline(unittest.TestCase):
         # The tangent Jacobian's joint block, carried from the attitude's axes into the world's, is the same map.
         tangent = self.model.acom_attitude_tangent_jacobian(params, q_j)
         np.testing.assert_allclose(
-            jnp.dot(models.quaternion_rotation_matrix(attitude), tangent[:, 3:]),
+            jnp.dot(
+                models.quaternion_rotation_matrix(attitude), tangent[:, 3:]
+            ),
             jnp.dot(base_rotation, rate_jacobian),
             atol=1e-4,
         )
@@ -372,7 +401,8 @@ class TestAcomPipeline(unittest.TestCase):
         jacobian = self.model.jacobian_qj(params, q_j)
         self.assertGreater(
             float(
-                jnp.linalg.norm(rate_jacobian - jacobian) / jnp.linalg.norm(jacobian)
+                jnp.linalg.norm(rate_jacobian - jacobian)
+                / jnp.linalg.norm(jacobian)
             ),
             0.1,
         )
@@ -391,10 +421,14 @@ class TestAcomPipeline(unittest.TestCase):
         rate_jacobians = jax.vmap(
             self.model.acom_joint_rate_jacobian, in_axes=(None, 0)
         )(params, q_batch)
-        jacobians = jax.vmap(self.model.jacobian_qj, in_axes=(None, 0))(params, q_batch)
+        jacobians = jax.vmap(self.model.jacobian_qj, in_axes=(None, 0))(
+            params, q_batch
+        )
         np.testing.assert_allclose(
             aux["frob_loss"],
-            jnp.mean(jnp.sum(jnp.square(rate_jacobians - targets), axis=(1, 2))),
+            jnp.mean(
+                jnp.sum(jnp.square(rate_jacobians - targets), axis=(1, 2))
+            ),
             rtol=1e-5,
         )
         np.testing.assert_allclose(
@@ -413,13 +447,15 @@ class TestAcomPipeline(unittest.TestCase):
         """Verifies that JAX training converges on a synthetic linear/sinusoidal CMM."""
         num_samples = 200
         rng = np.random.default_rng(42)
-        q_samples = rng.uniform(-1.0, 1.0, size=(num_samples, self.in_dim)).astype(
-            np.float32
-        )
+        q_samples = rng.uniform(
+            -1.0, 1.0, size=(num_samples, self.in_dim)
+        ).astype(np.float32)
 
         # Synthetic target Jacobian: J(q) = W_true + 0.1 * sin(q)
         w_true = rng.standard_normal((3, self.in_dim)).astype(np.float32)
-        A_bar_samples = np.stack([w_true + 0.1 * np.sin(q) for q in q_samples], axis=0)
+        A_bar_samples = np.stack(
+            [w_true + 0.1 * np.sin(q) for q in q_samples], axis=0
+        )
 
         dataset = {
             "q_joints": q_samples,
@@ -444,11 +480,13 @@ class TestAcomPipeline(unittest.TestCase):
         """Verifies that TensorBoard SummaryWriter logs scalars, histograms, and figures."""
         num_samples = 100
         rng = np.random.default_rng(42)
-        q_samples = rng.uniform(-1.0, 1.0, size=(num_samples, self.in_dim)).astype(
-            np.float32
-        )
+        q_samples = rng.uniform(
+            -1.0, 1.0, size=(num_samples, self.in_dim)
+        ).astype(np.float32)
         w_true = rng.standard_normal((3, self.in_dim)).astype(np.float32)
-        A_bar_samples = np.stack([w_true + 0.1 * np.sin(q) for q in q_samples], axis=0)
+        A_bar_samples = np.stack(
+            [w_true + 0.1 * np.sin(q) for q in q_samples], axis=0
+        )
         dataset = {
             "q_joints": q_samples,
             "A_bar_omega": A_bar_samples,
@@ -473,7 +511,9 @@ class TestAcomPipeline(unittest.TestCase):
 
             self.assertTrue(os.path.exists(log_dir))
             # Verify event file was generated
-            event_files = [f for f in os.listdir(log_dir) if "events.out.tfevents" in f]
+            event_files = [
+                f for f in os.listdir(log_dir) if "events.out.tfevents" in f
+            ]
             self.assertGreater(len(event_files), 0)
             self.assertIn("val_rmse", history)
             self.assertIn("train_frob", history)
@@ -499,7 +539,9 @@ class TestAcomPipeline(unittest.TestCase):
                 self.assertIn("struct TestWeights", content)
                 self.assertIn("static constexpr size_t input_dim = 6;", content)
             # A header without joint names has no pointer, and so needs no nullability include either.
-            self.assertEqual(pointer_nullability.check_source(content, cpp_path), [])
+            self.assertEqual(
+                pointer_nullability.check_source(content, cpp_path), []
+            )
             self.assertNotIn("absl/base/nullability.h", content)
 
     def test_export_round_trip_parity(self):
@@ -549,7 +591,9 @@ class TestAcomPipeline(unittest.TestCase):
                 w_match = re.search(w_pattern, content)
                 if w_match is None:
                     self.fail(f"Could not find W{idx} array in header")
-                w_values = [float(v.strip()) for v in w_match.group(1).split(",")]
+                w_values = [
+                    float(v.strip()) for v in w_match.group(1).split(",")
+                ]
                 self.assertEqual(len(w_values), out_dim * in_dim)
 
                 # Verify numerical parity of weights (10 decimal places in header)
@@ -565,7 +609,9 @@ class TestAcomPipeline(unittest.TestCase):
                 b_match = re.search(b_pattern, content)
                 if b_match is None:
                     self.fail(f"Could not find b{idx} array in header")
-                b_values = [float(v.strip()) for v in b_match.group(1).split(",")]
+                b_values = [
+                    float(v.strip()) for v in b_match.group(1).split(",")
+                ]
                 np.testing.assert_allclose(
                     b_values,
                     b_np.flatten(),
@@ -592,7 +638,9 @@ class TestAcomPipeline(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             cpp_path = os.path.join(tmpdir, "TestLayers.h")
-            export_acom.export_to_cpp_header(params, cpp_path, class_name="TestLayers")
+            export_acom.export_to_cpp_header(
+                params, cpp_path, class_name="TestLayers"
+            )
             with open(cpp_path, "r", encoding="utf-8") as f:
                 content = f.read()
         self.assertIn("static constexpr size_t num_layers = 3;", content)
@@ -604,10 +652,13 @@ class TestAcomPipeline(unittest.TestCase):
         4-layer header that the C++ static_assert rejects.
         """
         self.assertEqual(
-            models.SirenACOM(in_dim=3).num_layers, train_main._CPP_SUPPORTED_NUM_LAYERS
+            models.SirenACOM(in_dim=3).num_layers,
+            train_main._CPP_SUPPORTED_NUM_LAYERS,
         )
         self.assertEqual(
-            inspect.signature(train_acom.train_acom).parameters["num_layers"].default,
+            inspect.signature(train_acom.train_acom)
+            .parameters["num_layers"]
+            .default,
             train_main._CPP_SUPPORTED_NUM_LAYERS,
         )
 
@@ -617,7 +668,10 @@ class TestAcomPipeline(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             cpp_path = os.path.join(tmpdir, "TestNames.h")
             export_acom.export_to_cpp_header(
-                self.params, cpp_path, class_name="TestNames", joint_names=joint_names
+                self.params,
+                cpp_path,
+                class_name="TestNames",
+                joint_names=joint_names,
             )
             with open(cpp_path, "r", encoding="utf-8") as f:
                 content = f.read()
@@ -627,7 +681,9 @@ class TestAcomPipeline(unittest.TestCase):
             self.assertIn(f'"{name}"', content)
         # The generated header is held to the repository's pointer rules through its generator (AGENTS.md): the
         # lint does not read generated files.
-        self.assertEqual(pointer_nullability.check_source(content, cpp_path), [])
+        self.assertEqual(
+            pointer_nullability.check_source(content, cpp_path), []
+        )
 
         # A joint list that does not describe the network must be rejected.
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -647,7 +703,9 @@ class TestComposedObjective(unittest.TestCase):
     # An exactly integrable target: the connection of the attitude Exp(M q), whose rate map is J_l(M q) M. Over the
     # unit box its offsets average about 50 degrees, which is the regime of the shipped networks (20 to 35 degrees on
     # average, up to 80) and more.
-    _OFFSET_MAP = np.array([[0.9, -0.3, 0.4], [0.2, 0.8, -0.5], [-0.4, 0.3, 0.7]])
+    _OFFSET_MAP = np.array(
+        [[0.9, -0.3, 0.4], [0.2, 0.8, -0.5], [-0.4, 0.3, 0.7]]
+    )
     # The mean relative rate error a network that fits the composition reaches here (about 0.01 in practice).
     _RATE_TOLERANCE = 0.05
     _NUM_SAMPLES = 2000
@@ -662,7 +720,9 @@ class TestComposedObjective(unittest.TestCase):
         q_samples = rng.uniform(-1.0, 1.0, size=(num_samples, 3))
         targets = np.stack(
             [
-                np.asarray(models.so3_left_jacobian(jnp.asarray(self._OFFSET_MAP @ q)))
+                np.asarray(
+                    models.so3_left_jacobian(jnp.asarray(self._OFFSET_MAP @ q))
+                )
                 @ self._OFFSET_MAP
                 for q in q_samples
             ]
@@ -686,8 +746,12 @@ class TestComposedObjective(unittest.TestCase):
         opt_state = optimizer.init(params)
 
         def loss(params, q_batch, A_batch):
-            jacobians = jax.vmap(model.jacobian_qj, in_axes=(None, 0))(params, q_batch)
-            offsets = jax.vmap(model.forward, in_axes=(None, 0))(params, q_batch)
+            jacobians = jax.vmap(model.jacobian_qj, in_axes=(None, 0))(
+                params, q_batch
+            )
+            offsets = jax.vmap(model.forward, in_axes=(None, 0))(
+                params, q_batch
+            )
             return jnp.mean(
                 jnp.sum(jnp.square(jacobians - A_batch), axis=(1, 2))
             ) + 1e-4 * jnp.mean(jnp.sum(jnp.square(offsets), axis=1))
@@ -744,7 +808,10 @@ class TestComposedObjective(unittest.TestCase):
 
         plain_params = self._train_on_the_jacobian_alone(model, dataset)
         plain_error = _relative_rate_error(
-            model, plain_params, validation["q_joints"], validation["A_bar_omega"]
+            model,
+            plain_params,
+            validation["q_joints"],
+            validation["A_bar_omega"],
         )
         self.assertGreater(plain_error, 2.0 * self._RATE_TOLERANCE)
 
@@ -813,7 +880,9 @@ class TestDatasetGenerator(unittest.TestCase):
         # I_G should be a positive-definite 3x3 matrix
         self.assertEqual(I_G.shape, (3, 3))
         eigvals = np.linalg.eigvalsh(I_G)
-        self.assertTrue(np.all(eigvals > 0), f"I_G not positive definite: {eigvals}")
+        self.assertTrue(
+            np.all(eigvals > 0), f"I_G not positive definite: {eigvals}"
+        )
 
         # A_omega_j and A_bar should NOT be all zeros
         self.assertEqual(A_omega_j.shape, (3, gen.num_mj_joints))
@@ -857,7 +926,9 @@ class TestDatasetGenerator(unittest.TestCase):
             gen.data.qvel[col] = 1.0
             mujoco.mj_comVel(gen.model, gen.data)
             mujoco.mj_subtreeVel(gen.model, gen.data)
-            np.testing.assert_allclose(gen.data.subtree_angmom[1], 0.0, atol=1e-9)
+            np.testing.assert_allclose(
+                gen.data.subtree_angmom[1], 0.0, atol=1e-9
+            )
 
     def test_centroidal_matrices_configuration_dependent(self):
         """Verifies that A_bar_omega changes with joint configuration."""
@@ -886,7 +957,9 @@ class TestDatasetGenerator(unittest.TestCase):
         self.assertIn("A_bar_omega", dataset)
         self.assertIn("I_G", dataset)
 
-        self.assertEqual(dataset["q_joints"].shape, (num_samples, gen.num_mj_joints))
+        self.assertEqual(
+            dataset["q_joints"].shape, (num_samples, gen.num_mj_joints)
+        )
         self.assertEqual(
             dataset["A_bar_omega"].shape, (num_samples, 3, gen.num_mj_joints)
         )
@@ -931,16 +1004,24 @@ class TestDatasetGenerator(unittest.TestCase):
         self.assertNotEqual(
             tree_order,
             document_order,
-            "Atlas is the regression fixture precisely because its URDF document "
-            "order differs from its kinematic tree order.",
+            "Atlas is the regression fixture precisely because its URDF"
+            " document order differs from its kinematic tree order.",
         )
 
         # A parent joint must always precede its children in a tree walk.
-        self.assertLess(tree_order.index("back_bkz"), tree_order.index("back_bkx"))
-        self.assertLess(tree_order.index("l_arm_shz"), tree_order.index("l_arm_elx"))
-        self.assertLess(tree_order.index("l_leg_hpz"), tree_order.index("l_leg_akx"))
+        self.assertLess(
+            tree_order.index("back_bkz"), tree_order.index("back_bkx")
+        )
+        self.assertLess(
+            tree_order.index("l_arm_shz"), tree_order.index("l_arm_elx")
+        )
+        self.assertLess(
+            tree_order.index("l_leg_hpz"), tree_order.index("l_leg_akx")
+        )
 
-        gen = dataset_generator.AcomDatasetGenerator(atlas_xml, urdf_path=atlas_urdf)
+        gen = dataset_generator.AcomDatasetGenerator(
+            atlas_xml, urdf_path=atlas_urdf
+        )
         self.assertEqual(gen.pinocchio_joint_names, tree_order)
 
     def test_joint_permutation_atlas(self):
@@ -1003,7 +1084,12 @@ class TestDatasetGenerator(unittest.TestCase):
   <joint name="mid_joint" type="revolute"><parent link="base"/><child link="m_link"/><axis xyz="0 0 1"/><limit lower="-1" upper="1" effort="1" velocity="1"/></joint>
   <joint name="zeta_child_joint" type="revolute"><parent link="z_link"/><child link="z_child_link"/><axis xyz="0 0 1"/><limit lower="-1" upper="1" effort="1" velocity="1"/></joint>
 </robot>"""
-        expected_order = ["alpha_joint", "mid_joint", "zeta_joint", "zeta_child_joint"]
+        expected_order = [
+            "alpha_joint",
+            "mid_joint",
+            "zeta_joint",
+            "zeta_child_joint",
+        ]
         # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/testAcomAngularVelocityConsistency.cpp:sibling_order_fixture)
         with tempfile.TemporaryDirectory() as tmpdir:
             urdf_path = os.path.join(tmpdir, "sibling_order.urdf")
@@ -1013,7 +1099,8 @@ class TestDatasetGenerator(unittest.TestCase):
         self.assertEqual(order, expected_order)
         # The fixture only proves anything because its document order is NOT the answer.
         self.assertNotEqual(
-            order, ["zeta_joint", "zeta_child_joint", "alpha_joint", "mid_joint"]
+            order,
+            ["zeta_joint", "zeta_child_joint", "alpha_joint", "mid_joint"],
         )
 
     def test_joint_without_a_parent_or_child_link_is_rejected(self):
@@ -1027,7 +1114,8 @@ class TestDatasetGenerator(unittest.TestCase):
                 del elements[missing]
                 urdf = (
                     '<robot name="broken"><link name="base"/><link name="leg"/>'
-                    f'<joint name="hip" type="revolute">{"".join(elements.values())}</joint>'
+                    '<joint name="hip"'
+                    f' type="revolute">{"".join(elements.values())}</joint>'
                     "</robot>"
                 )
                 with tempfile.TemporaryDirectory() as tmpdir:
@@ -1037,7 +1125,9 @@ class TestDatasetGenerator(unittest.TestCase):
                     with self.assertRaisesRegex(
                         ValueError, f"joint 'hip' has no <{missing}> element"
                     ):
-                        dataset_generator._parse_pinocchio_joint_order(urdf_path)
+                        dataset_generator._parse_pinocchio_joint_order(
+                            urdf_path
+                        )
 
     def test_joint_permutation_none_without_urdf(self):
         """Without URDF, joint_perm should be None."""
@@ -1074,7 +1164,9 @@ class TestShippedRobots(unittest.TestCase):
         for robot in train_main.robot_names():
             for key in ("xml", "urdf", "task"):
                 path = train_main._ROBOT_CONFIGS[robot][key]
-                self.assertIsNotNone(_find_robot_model(path), f"{robot}: {path}")
+                self.assertIsNotNone(
+                    _find_robot_model(path), f"{robot}: {path}"
+                )
 
     def test_the_network_sees_the_joints_the_task_file_leaves_active(self):
         """The fixed joints and the robot name come from the MPC's own task file.
@@ -1097,15 +1189,23 @@ class TestShippedRobots(unittest.TestCase):
                 self.assertEqual(gen.fixed_joints, set(fixed_joints))
                 self.assertEqual(
                     gen.active_joint_names,
-                    [n for n in gen.pinocchio_joint_names if n not in fixed_joints],
+                    [
+                        n
+                        for n in gen.pinocchio_joint_names
+                        if n not in fixed_joints
+                    ],
                 )
                 # The initial state names every joint of the network's input, and only those.
                 self.assertEqual(
-                    sorted(entry.joint for entry in task.initial_state.joint_positions),
+                    sorted(
+                        entry.joint
+                        for entry in task.initial_state.joint_positions
+                    ),
                     sorted(gen.active_joint_names),
                 )
                 self.assertEqual(
-                    len(task.initial_state.joint_positions), gen.num_active_joints
+                    len(task.initial_state.joint_positions),
+                    gen.num_active_joints,
                 )
 
     def test_joint_permutation_is_the_identity(self):
@@ -1142,8 +1242,12 @@ class TestShippedRobots(unittest.TestCase):
                 self.assertEqual(len(low), gen.num_active_joints)
                 for joint, name in enumerate(gen.active_joint_names):
                     self.assertIn(name, limits)
-                    self.assertAlmostEqual(low[joint], limits[name][0], places=5)
-                    self.assertAlmostEqual(high[joint], limits[name][1], places=5)
+                    self.assertAlmostEqual(
+                        low[joint], limits[name][0], places=5
+                    )
+                    self.assertAlmostEqual(
+                        high[joint], limits[name][1], places=5
+                    )
 
     def test_nominal_pose_is_inside_the_sampling_box(self):
         """The posture the MPC stands in is one the network was trained on.
@@ -1167,7 +1271,9 @@ class TestShippedRobots(unittest.TestCase):
                     if not lo <= value <= hi
                 ]
                 self.assertEqual(
-                    outside, [], f"{robot}'s initial_state is outside the sampling box"
+                    outside,
+                    [],
+                    f"{robot}'s initial_state is outside the sampling box",
                 )
 
     def test_generated_samples_fill_the_sampling_box(self):
@@ -1182,7 +1288,9 @@ class TestShippedRobots(unittest.TestCase):
         for robot in train_main.robot_names():
             with self.subTest(robot=robot):
                 gen = train_main.make_generator(robot)
-                q_joints = gen.generate_dataset(num_samples=200, seed=5)["q_joints"]
+                q_joints = gen.generate_dataset(num_samples=200, seed=5)[
+                    "q_joints"
+                ]
                 low, high = gen.sampling_bounds()
                 self.assertTrue(np.all(q_joints >= low.astype(np.float32)))
                 self.assertTrue(np.all(q_joints <= high.astype(np.float32)))
@@ -1200,10 +1308,14 @@ class TestFixedJoints(unittest.TestCase):
         self.gen = train_main.make_generator("atlas")
         self.fixed = sorted(self.gen.fixed_joints)
         self.assertGreater(
-            len(self.fixed), 0, "these tests need a robot whose task file fixes joints"
+            len(self.fixed),
+            0,
+            "these tests need a robot whose task file fixes joints",
         )
 
-    def _full_configuration(self, q_active: np.ndarray, fixed_value: float = 0.0):
+    def _full_configuration(
+        self, q_active: np.ndarray, fixed_value: float = 0.0
+    ):
         """Scatters a dataset row back into a full MuJoCo-order configuration."""
         q_full = np.full(self.gen.num_mj_joints, fixed_value)
         for value, name in zip(q_active, self.gen.active_joint_names):
@@ -1220,7 +1332,8 @@ class TestFixedJoints(unittest.TestCase):
             self.assertNotIn(name, self.gen.active_joint_names)
 
         active_mj = [
-            self.gen.mj_joint_names.index(n) for n in self.gen.active_joint_names
+            self.gen.mj_joint_names.index(n)
+            for n in self.gen.active_joint_names
         ]
         for sample in range(6):
             q_full = self._full_configuration(
@@ -1253,7 +1366,9 @@ class TestFixedJoints(unittest.TestCase):
         config = train_main._ROBOT_CONFIGS["atlas"]
         with self.assertRaisesRegex(ValueError, "l_arm_wyr"):
             dataset_generator.AcomDatasetGenerator(
-                config["xml"], urdf_path=config["urdf"], fixed_joints=["l_arm_wyr"]
+                config["xml"],
+                urdf_path=config["urdf"],
+                fixed_joints=["l_arm_wyr"],
             )
 
     def test_sa01_generator_fixes_nothing(self):
@@ -1261,7 +1376,9 @@ class TestFixedJoints(unittest.TestCase):
         gen = train_main.make_generator("sa01")
         self.assertEqual(gen.fixed_joints, set())
         self.assertEqual(gen.num_active_joints, 12)
-        _, _, A_bar = gen.compute_centroidal_matrices(np.zeros(gen.num_mj_joints))
+        _, _, A_bar = gen.compute_centroidal_matrices(
+            np.zeros(gen.num_mj_joints)
+        )
         self.assertGreater(np.linalg.norm(A_bar), 1e-10)
 
 
@@ -1286,13 +1403,16 @@ class TestTrainMainExport(unittest.TestCase):
                 tmpdir,
                 recipe={"num_samples": 123, "epochs": 4},
             )
-            self.assertEqual(os.path.basename(cpp_path), "AcomSirenWeightsAtlas.h")
+            self.assertEqual(
+                os.path.basename(cpp_path), "AcomSirenWeightsAtlas.h"
+            )
             with open(cpp_path, "r", encoding="utf-8") as header:
                 content = header.read()
         # The static_asserts of createFromStaticWeights, and the joint list AngularCenterOfMass::Create checks.
         self.assertIn("struct AcomSirenWeightsAtlas {", content)
         self.assertIn(
-            f"static constexpr size_t num_layers = {train_main._CPP_SUPPORTED_NUM_LAYERS + 1};",
+            "static constexpr size_t num_layers ="
+            f" {train_main._CPP_SUPPORTED_NUM_LAYERS + 1};",
             content,
         )
         self.assertIn("static constexpr size_t output_dim = 3;", content)
@@ -1305,7 +1425,9 @@ class TestTrainMainExport(unittest.TestCase):
         self.assertIn(" *   model_settings.robot_name: atlas", content)
         self.assertIn(" *   num_samples: 123", content)
         self.assertIn(" *   epochs: 4", content)
-        self.assertIn(" *   sampling: uniform over the full joint-limit box", content)
+        self.assertIn(
+            " *   sampling: uniform over the full joint-limit box", content
+        )
 
     def test_provenance_stays_inside_the_banner_comment(self):
         """A recorded value cannot close the banner comment and leak into the code."""
@@ -1343,7 +1465,9 @@ class TestTrainMainExport(unittest.TestCase):
                 train_main.install_header(cpp_path, "sa01", 8, workspace)
             with open(installed, "r", encoding="utf-8") as header:
                 self.assertIn(
-                    "W0_rows = 64;", header.read(), "a refused install must not write"
+                    "W0_rows = 64;",
+                    header.read(),
+                    "a refused install must not write",
                 )
 
             # Same width, or an explicit override, installs.
@@ -1383,9 +1507,12 @@ class TestTrainingNotebook(unittest.TestCase):
             parameters[0], namespace
         )
         self.assertIn(namespace["ROBOT"], train_main.robot_names())
-        self.assertEqual(namespace["HIDDEN_DIM"], train_main._SHIPPED_HIDDEN_DIM)
+        self.assertEqual(
+            namespace["HIDDEN_DIM"], train_main._SHIPPED_HIDDEN_DIM
+        )
         self.assertFalse(
-            namespace["INSTALL_HEADER"], "Run All must not overwrite a shipped header"
+            namespace["INSTALL_HEADER"],
+            "Run All must not overwrite a shipped header",
         )
 
     def test_notebook_runs_and_exports_a_loadable_header(self):
@@ -1407,9 +1534,12 @@ class TestTrainingNotebook(unittest.TestCase):
             with open(cpp_path, "r", encoding="utf-8") as header:
                 content = header.read()
         gen = namespace["generator"]
-        self.assertIn(f"struct {train_main.header_class_name('atlas')} {{", content)
         self.assertIn(
-            f"static constexpr size_t num_layers = {train_main._CPP_SUPPORTED_NUM_LAYERS + 1};",
+            f"struct {train_main.header_class_name('atlas')} {{", content
+        )
+        self.assertIn(
+            "static constexpr size_t num_layers ="
+            f" {train_main._CPP_SUPPORTED_NUM_LAYERS + 1};",
             content,
         )
         self.assertIn("static constexpr size_t output_dim = 3;", content)

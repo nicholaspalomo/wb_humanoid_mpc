@@ -40,42 +40,56 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `planned_com_override`: the reduced model's center-of-mass trajectory replaces the horizontal center-of-mass
- * reference of the MPC's target trajectory.
+ * `planned_com_override`: the reduced model's center-of-mass trajectory
+ * replaces the horizontal center-of-mass reference of the MPC's target
+ * trajectory.
  *
- * This is the reference plumbing of arXiv:2502.15630, not a correction heuristic: in the paper the reduced-order
- * solution is embedded into the whole-body reference the controller tracks (its equations 11-14), and the contact
- * sequence is only ever a reference. Without it the two layers optimize for contradictory motion, and the lateral
- * direction is where that shows first. The H-LIP's period-two orbit requires the center of mass to be *falling
- * towards the swing foot* at the pre-impact instant - on the Atlas's 1.0805 m pendulum (its model's center of mass
- * above its soles) and a 0.25 m step width, 0.132 m/s for the Atlas cadence (0.25 s single support, 0.05 s double
- * support), 0.18 m/s for a 0.35 s instantaneous exchange.
- * The target trajectory built from the operator's command asks for the opposite: a straight line with zero lateral
- * velocity. The whole-body MPC then holds the center of mass laterally still, the planner reads that state back at the
- * next cycle, concludes that no lateral step is needed and narrows the step towards `minStepWidth`; the support
- * narrows, the next cycle starts further from the orbit still, and the robot sidesteps and falls.
+ * This is the reference plumbing of arXiv:2502.15630, not a correction
+ * heuristic: in the paper the reduced-order solution is embedded into the
+ * whole-body reference the controller tracks (its equations 11-14), and the
+ * contact sequence is only ever a reference. Without it the two layers optimize
+ * for contradictory motion, and the lateral direction is where that shows
+ * first. The H-LIP's period-two orbit requires the center of mass to be
+ * *falling towards the swing foot* at the pre-impact instant - on the
+ * Atlas's 1.0805 m pendulum (its model's center of mass above its soles) and a
+ * 0.25 m step width, 0.132 m/s for the Atlas cadence (0.25 s single support,
+ * 0.05 s double support), 0.18 m/s for a 0.35 s instantaneous exchange. The
+ * target trajectory built from the operator's command asks for the opposite: a
+ * straight line with zero lateral velocity. The whole-body MPC then holds the
+ * center of mass laterally still, the planner reads that state back at the next
+ * cycle, concludes that no lateral step is needed and narrows the step towards
+ * `minStepWidth`; the support narrows, the next cycle starts further from the
+ * orbit still, and the robot sidesteps and falls.
  *
- * The rule writes the plan into the reference the same way the planner produced it: the reference horizontal center of
- * mass becomes the planned one, and the reference linear momentum - which in the centroidal state *is* the center of
- * mass velocity - becomes the planned center of mass velocity. The reference is expressed through the base pose, so
- * the planned position is written as the base position that puts the reference center of mass where the plan wants it,
- * using the measured offset between the two at this cycle. Heights, orientations and joints are left alone.
+ * The rule writes the plan into the reference the same way the planner produced
+ * it: the reference horizontal center of mass becomes the planned one, and the
+ * reference linear momentum - which in the centroidal state *is* the center of
+ * mass velocity - becomes the planned center of mass velocity. The reference is
+ * expressed through the base pose, so the planned position is written as the
+ * base position that puts the reference center of mass where the plan wants it,
+ * using the measured offset between the two at this cycle. Heights,
+ * orientations and joints are left alone.
  *
- * Only the knots inside the plan's horizon are rewritten (planCoversTime). Past the plan's end the target keeps the
- * operator's own knots, which the reference manager appends for exactly that stretch: the plan's lookups clamp to its
- * last node, so rewriting them froze the tail at the last planned position while asking for the last planned velocity.
+ * Only the knots inside the plan's horizon are rewritten (planCoversTime). Past
+ * the plan's end the target keeps the operator's own knots, which the reference
+ * manager appends for exactly that stretch: the plan's lookups clamp to its
+ * last node, so rewriting them froze the tail at the last planned position
+ * while asking for the last planned velocity.
  *
- * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
  */
 class PlannedComOverride final : public ExecutionRule {
  public:
-  explicit PlannedComOverride(const MpcRobotModelBase<scalar_t>& mpcRobotModel) : mpcRobotModel_(&mpcRobotModel) {}
+  explicit PlannedComOverride(const MpcRobotModelBase<scalar_t>& mpcRobotModel)
+      : mpcRobotModel_(&mpcRobotModel) {}
 
   std::string describe() const override;
   std::vector<std::string> requiredBlocks() const override { return {}; }
   void configure(const ContactPlanningConfig& /*config*/) override {}
   bool needsComState() const override { return true; }
-  void overrideTarget(const ExecutionContext& ctx, TargetTrajectories& targetTrajectories) const override;
+  void overrideTarget(const ExecutionContext& ctx,
+                      TargetTrajectories& targetTrajectories) const override;
   bool rewritesTarget() const override { return true; }
 
  private:

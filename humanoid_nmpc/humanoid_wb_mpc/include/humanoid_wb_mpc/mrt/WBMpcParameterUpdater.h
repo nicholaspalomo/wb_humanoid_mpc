@@ -47,27 +47,37 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Returns the parameter updater of a node that runs the whole-body MPC `mpc` (may be nullptr: nothing is then applied),
- * wired to what `interface` built that a hot reload has to reach: the task file the problem was built from
- * (WBMpcInterface::taskFile()), which a reload's start-up fields are compared with; the whole-body coordinates and OCP
- * input; the reference manager (the ground, the swing trajectories); the whole-body appliers
- * (wholeBodyHotFieldAppliers()); and `referenceFileReloaders`, the consumers of the reference file the node built
- * (makeCommandLimitsReloaders()), each handed the command limits of a reloaded file. It watches `taskFile` and
- * `referenceFile`; the whole-body MPC has no contact planner's file. `interface` must outlive the updater.
+ * Returns the parameter updater of a node that runs the whole-body MPC `mpc`
+ * (may be nullptr: nothing is then applied), wired to what `interface` built
+ * that a hot reload has to reach: the task file the problem was built from
+ * (WBMpcInterface::taskFile()), which a reload's start-up fields are compared
+ * with; the whole-body coordinates and OCP input; the reference manager (the
+ * ground, the swing trajectories); the whole-body appliers
+ * (wholeBodyHotFieldAppliers()); and `referenceFileReloaders`, the consumers of
+ * the reference file the node built (makeCommandLimitsReloaders()), each handed
+ * the command limits of a reloaded file. It watches `taskFile` and
+ * `referenceFile`; the whole-body MPC has no contact planner's file.
+ * `interface` must outlive the updater.
  *
- * Every node and driver that runs the whole-body MPC builds its updater with this one function, as the centroidal ones
- * use makeCentroidalMpcParameterUpdater(). The caller hands it the updates of operator/mpc_parameters
- * (enqueueParameterUpdate()) and registers it with the solver after the motion manager; OCS2's addSynchronizedModule()
- * takes the shared_ptr. Returns the errors of MpcParameterUpdaterModule::Create().
+ * Every node and driver that runs the whole-body MPC builds its updater with
+ * this one function, as the centroidal ones use
+ * makeCentroidalMpcParameterUpdater(). The caller hands it the updates of
+ * operator/mpc_parameters (enqueueParameterUpdate()) and registers it with the
+ * solver after the motion manager; OCS2's addSynchronizedModule() takes the
+ * shared_ptr. Returns the errors of MpcParameterUpdaterModule::Create().
  */
-absl::StatusOr<std::shared_ptr<MpcParameterUpdaterModule>> makeWholeBodyMpcParameterUpdater(
+absl::StatusOr<std::shared_ptr<MpcParameterUpdaterModule>>
+makeWholeBodyMpcParameterUpdater(
     MPC_BASE* absl_nullable mpc,
     const WBMpcInterface& interface,
     const std::string& taskFile,
     const std::string& referenceFile,
-    std::vector<MpcParameterUpdaterModule::ReferenceFileReloader> referenceFileReloaders,
-    std::optional<std::filesystem::file_time_type> taskFileReadAt = std::nullopt,
-    std::optional<std::filesystem::file_time_type> referenceFileReadAt = std::nullopt,
+    std::vector<MpcParameterUpdaterModule::ReferenceFileReloader>
+        referenceFileReloaders,
+    std::optional<std::filesystem::file_time_type> taskFileReadAt =
+        std::nullopt,
+    std::optional<std::filesystem::file_time_type> referenceFileReadAt =
+        std::nullopt,
     absl::Duration fileCheckPeriod = absl::Seconds(1),
     std::function<absl::Time()> clock = nullptr);
 

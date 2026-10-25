@@ -37,15 +37,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::mujoco_sim_interface {
 
 /**
- * A visualization MuJoCo draws itself, switched by a flag of mjvOption (contact points, its contact force arrows, the
- * centers of mass, the inertia ellipsoids, the convex hulls, the x-ray view). The flag follows the enabled state every
- * frame, so disabling the visualization clears it again; the model is never written. Not thread-safe; the renderer
- * calls it on its own thread.
+ * A visualization MuJoCo draws itself, switched by a flag of mjvOption (contact
+ * points, its contact force arrows, the centers of mass, the inertia
+ * ellipsoids, the convex hulls, the x-ray view). The flag follows the enabled
+ * state every frame, so disabling the visualization clears it again; the model
+ * is never written. Not thread-safe; the renderer calls it on its own thread.
  */
 class MujocoOptionFlagVisualization final : public MujocoVisualization {
  public:
-  /** `flag` is an mjtVisFlag index. Starts disabled, like the MuJoCo defaults. */
-  MujocoOptionFlagVisualization(std::string name, std::string description, char hotkey, int flag);
+  /** `flag` is an mjtVisFlag index. Starts disabled, like the MuJoCo defaults.
+   */
+  MujocoOptionFlagVisualization(std::string name,
+                                std::string description,
+                                char hotkey,
+                                int flag);
 
   static std::unique_ptr<MujocoOptionFlagVisualization> contactPoints();
   static std::unique_ptr<MujocoOptionFlagVisualization> contactForces();

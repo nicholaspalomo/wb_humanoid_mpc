@@ -32,21 +32,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 
 /*
- * The contacts of the humanoid MPCs, its feet, without the rest of humanoid_common_mpc/common/Types.h (which includes
- * it): code that only counts the feet, such as the validation's metrics, includes this header and none of the Eigen,
- * OCS2 and CppAD headers Types.h brings with it.
+ * The contacts of the humanoid MPCs, its feet, without the rest of
+ * humanoid_common_mpc/common/Types.h (which includes it): code that only counts
+ * the feet, such as the validation's metrics, includes this header and none of
+ * the Eigen, OCS2 and CppAD headers Types.h brings with it.
  */
 
 namespace ocs2 {
 
-/** The contacts of the MPC, one per foot, and the index of each in a per-foot array (feet_array_t). */
+/** The contacts of the MPC, one per foot, and the index of each in a per-foot
+ * array (feet_array_t). */
 inline constexpr size_t kNumContacts = 2;
 inline constexpr size_t kContactLeftIndex = 0;
 inline constexpr size_t kContactRightIndex = 1;
 
 /**
- * The feet of a biped, one per leg: what the code written for a left and a right foot (the contact planner's rows, rules
- * and variable layout, one wrench cone basis or knee mimic block per foot) static_asserts that kNumContacts is.
+ * The feet of a biped, one per leg: what the code written for a left and a
+ * right foot (the contact planner's rows, rules and variable layout, one wrench
+ * cone basis or knee mimic block per foot) static_asserts that kNumContacts is.
  */
 inline constexpr int kBipedFootCount = 2;
 

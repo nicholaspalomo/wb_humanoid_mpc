@@ -55,17 +55,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_model/RobotJointAction.h"
 #include "robot_model/RobotState.h"
 
-/** What the tests of the robot process share: the Atlas files, headless simulators, loopback buses and a controller. */
+/** What the tests of the robot process share: the Atlas files, headless
+ * simulators, loopback buses and a controller. */
 namespace ocs2::humanoid::robot_test {
 
-inline constexpr char kAtlasScene[] = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml";
-inline constexpr char kAtlasUrdf[] = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
-inline constexpr char kAtlasTask[] = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto";
-inline constexpr char kAtlasGains[] = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/controller/joint_pd_gains.textproto";
+inline constexpr char kAtlasScene[] =
+    "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml";
+inline constexpr char kAtlasUrdf[] =
+    "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
+inline constexpr char kAtlasTask[] =
+    "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto";
+inline constexpr char kAtlasGains[] =
+    "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/controller/"
+    "joint_pd_gains.textproto";
 
 /**
- * The value of `optional`, or a T() and a test failure when it is empty: for a test that reads a value it expects, so
- * that no access is unchecked.
+ * The value of `optional`, or a T() and a test failure when it is empty: for a
+ * test that reads a value it expects, so that no access is unchecked.
  */
 template <typename T>
 T valueOrFail(std::optional<T> optional) {
@@ -76,55 +82,87 @@ T valueOrFail(std::optional<T> optional) {
   return *std::move(optional);
 }
 
-/** The robot description of the Atlas URDF (RobotDescription::Create()); the test ends when it cannot be read. */
+/** The robot description of the Atlas URDF (RobotDescription::Create()); the
+ * test ends when it cannot be read. */
 robot::model::RobotDescription atlasDescription();
 
-/** A headless simulator on the Atlas scene, held by the gantry (weld) or not. */
-std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface> makeHeadlessAtlas(bool gantryLocked);
+/** A headless simulator on the Atlas scene, held by the gantry (weld) or not.
+ */
+std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface>
+makeHeadlessAtlas(bool gantryLocked);
 
-/** A bus publishing as `nodeName` on this test process's DDS domain (robot::ipc::isolatedTestNetwork()). */
+/** A bus publishing as `nodeName` on this test process's DDS domain
+ * (robot::ipc::isolatedTestNetwork()). */
 std::unique_ptr<robot::ipc::Bus> createLoopbackBus(const std::string& nodeName);
 
-/** Polls `condition` every millisecond until it holds or `timeout` passes; whether it held. */
-bool waitFor(const std::function<bool()>& condition, absl::Duration timeout = absl::Seconds(10));
+/** Polls `condition` every millisecond until it holds or `timeout` passes;
+ * whether it held. */
+bool waitFor(const std::function<bool()>& condition,
+             absl::Duration timeout = absl::Seconds(10));
 
 /**
- * A RobotController that plans nothing: every active mode commands a joint PD to the posture it is handed (gravity is
- * carried by the gantry in the tests), ZERO_TORQUE no gain and no torque as the MRT controllers do, and it records what
- * the robot process hands it. The realtime-thread methods are called by the loop only; the getters below are for the
- * test thread.
+ * A RobotController that plans nothing: every active mode commands a joint PD
+ * to the posture it is handed (gravity is carried by the gantry in the tests),
+ * ZERO_TORQUE no gain and no torque as the MRT controllers do, and it records
+ * what the robot process hands it. The realtime-thread methods are called by
+ * the loop only; the getters below are for the test thread.
  */
 class ScriptedRobotController final : public RobotController {
  public:
-  void prepareCycle(absl::string_view controlMode, const std::vector<scalar_t>& nominalJointPositions) override;
-  void computeJointControlAction(const robot::model::RobotState& robotState, robot::model::RobotJointAction& jointAction) override;
+  void prepareCycle(
+      absl::string_view controlMode,
+      const std::vector<scalar_t>& nominalJointPositions) override;
+  void computeJointControlAction(
+      const robot::model::RobotState& robotState,
+      robot::model::RobotJointAction& jointAction) override;
   std::optional<contact_flag_t> plannedContactFlags() const override;
-  const contact_flag_t& measuredContactFlags() const override { return measuredContactFlags_; }
+  const contact_flag_t& measuredContactFlags() const override {
+    return measuredContactFlags_;
+  }
   void requestMpcReset() override { resets_.fetch_add(1); }
   void requestMpcResetAndHold() override { resetsAndHolds_.fetch_add(1); }
   bool isMpcHealthy() const override { return healthy_.load(); }
-  void setContactEstimator(std::shared_ptr<robot::model::ContactEstimator> contactEstimator) override;
-  const ContactWrenchGate::Config& contactWrenchGateConfig() const override { return gate_; }
-  void setContactWrenchGateConfig(const ContactWrenchGate::Config& config) override;
+  void setContactEstimator(std::shared_ptr<robot::model::ContactEstimator>
+                               contactEstimator) override;
+  const ContactWrenchGate::Config& contactWrenchGateConfig() const override {
+    return gate_;
+  }
+  void setContactWrenchGateConfig(
+      const ContactWrenchGate::Config& config) override;
   absl::Status setPdGains(const mpc_config::JointPdGainsFile& gains) override;
   void pollPdGainsFile() override { pdGainsPolls_.fetch_add(1); }
-  void setEventSink(ControllerEventSink* absl_nullable eventSink) override { eventSink_.store(eventSink); }
-  void startMpc(const robot::model::RobotState& /*initialState*/) override { started_.store(true); }
+  void setEventSink(ControllerEventSink* absl_nullable eventSink) override {
+    eventSink_.store(eventSink);
+  }
+  void startMpc(const robot::model::RobotState& /*initialState*/) override {
+    started_.store(true);
+  }
   bool policyReady() override { return true; }
-  const std::vector<std::string>& robotJointNames() const override { return robotJointNames_; }
+  const std::vector<std::string>& robotJointNames() const override {
+    return robotJointNames_;
+  }
 
   // ---- The test thread.
-  /** The joints the controller claims to be built for (robotJointNames()); none until set. Before the loop runs. */
-  void setRobotJointNames(std::vector<std::string> names) { robotJointNames_ = std::move(names); }
+  /** The joints the controller claims to be built for (robotJointNames()); none
+   * until set. Before the loop runs. */
+  void setRobotJointNames(std::vector<std::string> names) {
+    robotJointNames_ = std::move(names);
+  }
   void setHealthy(bool healthy) { healthy_.store(healthy); }
   /**
-   * Called at the end of every computeJointControlAction(), on the realtime thread, with the number of the cycle (from
-   * 0): for a test that measures that thread. Before the loop runs.
+   * Called at the end of every computeJointControlAction(), on the realtime
+   * thread, with the number of the cycle (from 0): for a test that measures
+   * that thread. Before the loop runs.
    */
-  void setCycleHook(std::function<void(uint64_t cycle)> hook) { cycleHook_ = std::move(hook); }
-  /** The next computeJointControlAction() throws std::runtime_error(`message`). */
+  void setCycleHook(std::function<void(uint64_t cycle)> hook) {
+    cycleHook_ = std::move(hook);
+  }
+  /** The next computeJointControlAction() throws std::runtime_error(`message`).
+   */
   void throwInNextCycle(const std::string& message);
-  ControllerEventSink* absl_nullable eventSink() const { return eventSink_.load(); }
+  ControllerEventSink* absl_nullable eventSink() const {
+    return eventSink_.load();
+  }
   std::string mode() const;
   std::string contactEstimatorName() const;
   ContactWrenchGate::Config gate() const;
@@ -136,7 +174,8 @@ class ScriptedRobotController final : public RobotController {
   bool started() const { return started_.load(); }
   /** The posture handed over with the newest cycle. */
   std::vector<scalar_t> nominal() const;
-  /** The base position [m, world] and linear velocity [m/s, base frame] of the state of the newest cycle. */
+  /** The base position [m, world] and linear velocity [m/s, base frame] of the
+   * state of the newest cycle. */
   vector3_t rootPosition() const;
   vector3_t rootLinearVelocity() const;
 

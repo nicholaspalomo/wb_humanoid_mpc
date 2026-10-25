@@ -41,8 +41,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::ipc::topics {
 namespace {
 
-// The prefixes of the four kinds of publisher (humanoid_nmpc/docs/distributed_runtime/README.md, "Topics").
-constexpr std::array<absl::string_view, 4> kPublisherPrefixes = {"robot/", "mpc/", "viz/", "operator/"};
+// The prefixes of the four kinds of publisher
+// (humanoid_nmpc/docs/distributed_runtime/README.md, "Topics").
+constexpr std::array<absl::string_view, 4> kPublisherPrefixes = {
+    "robot/", "mpc/", "viz/", "operator/"};
 
 bool isLowerSnakeCase(absl::string_view name) {
   if (name.empty()) {
@@ -68,15 +70,20 @@ TEST(TopicsTest, EveryTopicIsAPublisherPrefixFollowedByASnakeCaseName) {
   }
 }
 
-TEST(TopicsTest, EveryTopicIsADdsTopicNameListedOnceWithItsQosInTheShippedNetwork) {
-  // Every topic is a DDS topic of the same name, whose QoS profile and publishers the network file names: a topic it
-  // did not list would fall back to reliable_events and have no writer before its first sample.
-  const robot::ipc::NetworkConfig network = robot::ipc::localhostNetworkConfig();
-  EXPECT_EQ(network.topics.size(), kAllTopics.size()) << "config/ipc/network.textproto lists exactly the topics of Topics.h";
+TEST(TopicsTest,
+     EveryTopicIsADdsTopicNameListedOnceWithItsQosInTheShippedNetwork) {
+  // Every topic is a DDS topic of the same name, whose QoS profile and
+  // publishers the network file names: a topic it did not list would fall back
+  // to reliable_events and have no writer before its first sample.
+  const robot::ipc::NetworkConfig network =
+      robot::ipc::localhostNetworkConfig();
+  EXPECT_EQ(network.topics.size(), kAllTopics.size())
+      << "config/ipc/network.textproto lists exactly the topics of Topics.h";
   for (const absl::string_view topic : kAllTopics) {
     EXPECT_TRUE(robot::ipc::validateTopicName(topic).ok()) << topic;
     const robot::ipc::TopicQos* absl_nullable entry = network.findTopic(topic);
-    ASSERT_NE(entry, nullptr) << topic << " is not in config/ipc/network.textproto";
+    ASSERT_NE(entry, nullptr)
+        << topic << " is not in config/ipc/network.textproto";
     EXPECT_FALSE(entry->publishers.empty()) << topic;
   }
 }
@@ -93,12 +100,15 @@ TEST(TopicsTest, TheMpcLinkTopicsAreListed) {
 }
 
 TEST(TopicsTest, TheSaveAndItsStatusAreListedOnceEach) {
-  // The two-copy Save: the GUI's file on the operator's topic, the robot's answer on its own.
+  // The two-copy Save: the GUI's file on the operator's topic, the robot's
+  // answer on its own.
   EXPECT_EQ(kOperatorConfigSave, "operator/config_save");
   EXPECT_EQ(kRobotConfigSaveStatus, "robot/config_save_status");
   int listed = 0;
   for (const absl::string_view topic : kAllTopics) {
-    listed += (topic == kOperatorConfigSave || topic == kRobotConfigSaveStatus) ? 1 : 0;
+    listed += (topic == kOperatorConfigSave || topic == kRobotConfigSaveStatus)
+                  ? 1
+                  : 0;
   }
   EXPECT_EQ(listed, 2);
 }

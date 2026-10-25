@@ -67,17 +67,22 @@ absl::StatusOr<QosProfile> parseQosProfile(absl::string_view name) {
     }
     names.push_back(qosProfileName(profile));
   }
-  return absl::InvalidArgumentError(absl::StrCat("unknown QoS profile '", name, "' (valid: ", absl::StrJoin(names, ", "), ")"));
+  return absl::InvalidArgumentError(
+      absl::StrCat("unknown QoS profile '", name,
+                   "' (valid: ", absl::StrJoin(names, ", "), ")"));
 }
 
 QosPolicy qosPolicy(QosProfile profile) {
   switch (profile) {
     case QosProfile::kLatest:
-      return QosPolicy{.reliability = Reliability::kBestEffort, .writerHistoryDepth = 1};
+      return QosPolicy{.reliability = Reliability::kBestEffort,
+                       .writerHistoryDepth = 1};
     case QosProfile::kReliableLatest:
-      return QosPolicy{.reliability = Reliability::kReliable, .writerHistoryDepth = 1};
+      return QosPolicy{.reliability = Reliability::kReliable,
+                       .writerHistoryDepth = 1};
     case QosProfile::kReliableEvents:
-      return QosPolicy{.reliability = Reliability::kReliable, .writerHistoryDepth = kReliableEventsHistoryDepth};
+      return QosPolicy{.reliability = Reliability::kReliable,
+                       .writerHistoryDepth = kReliableEventsHistoryDepth};
   }
   return QosPolicy{};
 }

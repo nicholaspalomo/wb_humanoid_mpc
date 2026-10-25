@@ -27,9 +27,10 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// The conversion of the centroidal MPC's own cost block (DcmTerminalCostFromConfig.h): the
-// schema's defaults are DcmTerminalCost::Config's, every field lands in its member, and what the cost refuses or cannot
-// read is refused by its key.
+// The conversion of the centroidal MPC's own cost block
+// (DcmTerminalCostFromConfig.h): the schema's defaults are
+// DcmTerminalCost::Config's, every field lands in its member, and what the cost
+// refuses or cannot read is refused by its key.
 
 #include "pinocchio/fwd.hpp"
 
@@ -49,7 +50,8 @@ namespace ocs2::humanoid {
 namespace {
 
 TEST(DcmTerminalCostFromConfigTest, AnEmptyBlockIsTheCostsDefaultConfig) {
-  const absl::StatusOr<DcmTerminalCost::Config> config = dcmTerminalCostConfigFromConfig(mpc_config::DcmTerminalCostConfig{});
+  const absl::StatusOr<DcmTerminalCost::Config> config =
+      dcmTerminalCostConfigFromConfig(mpc_config::DcmTerminalCostConfig{});
   ASSERT_TRUE(config.ok()) << config.status();
   const DcmTerminalCost::Config defaults;
   EXPECT_EQ(config->comHeight, defaults.comHeight);
@@ -60,18 +62,29 @@ TEST(DcmTerminalCostFromConfigTest, AnEmptyBlockIsTheCostsDefaultConfig) {
 }
 
 TEST(DcmTerminalCostFromConfigTest, AComHeightIsPositiveOrLeftOutForTheModels) {
-  // Left out, it is the model's pendulum: the unset comHeight that DcmTerminalCost::resolveConfig() resolves.
-  const absl::StatusOr<DcmTerminalCost::Config> absent = dcmTerminalCostConfigFromConfig(mpc_config::DcmTerminalCostConfig{});
+  // Left out, it is the model's pendulum: the unset comHeight that
+  // DcmTerminalCost::resolveConfig() resolves.
+  const absl::StatusOr<DcmTerminalCost::Config> absent =
+      dcmTerminalCostConfigFromConfig(mpc_config::DcmTerminalCostConfig{});
   ASSERT_TRUE(absent.ok()) << absent.status();
   EXPECT_FALSE(absent->comHeight.has_value());
-  // 0, which stood for the model's before the field was optional, is refused like any other height that is no height.
-  for (const double height : {0.0, -0.9, std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity()}) {
+  // 0, which stood for the model's before the field was optional, is refused
+  // like any other height that is no height.
+  for (const double height :
+       {0.0, -0.9, std::numeric_limits<double>::quiet_NaN(),
+        std::numeric_limits<double>::infinity()}) {
     mpc_config::DcmTerminalCostConfig block;
     block.com_height = height;
-    const absl::StatusOr<DcmTerminalCost::Config> refused = dcmTerminalCostConfigFromConfig(block);
-    EXPECT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument) << height;
-    EXPECT_TRUE(absl::StrContains(refused.status().message(), "dcm_terminal_cost.com_height is")) << refused.status();
-    EXPECT_TRUE(absl::StrContains(refused.status().message(), "leave dcm_terminal_cost.com_height out for the model's"))
+    const absl::StatusOr<DcmTerminalCost::Config> refused =
+        dcmTerminalCostConfigFromConfig(block);
+    EXPECT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument)
+        << height;
+    EXPECT_TRUE(absl::StrContains(refused.status().message(),
+                                  "dcm_terminal_cost.com_height is"))
+        << refused.status();
+    EXPECT_TRUE(absl::StrContains(
+        refused.status().message(),
+        "leave dcm_terminal_cost.com_height out for the model's"))
         << refused.status();
   }
 }
@@ -83,7 +96,8 @@ TEST(DcmTerminalCostFromConfigTest, EachFieldLandsInItsMember) {
   block.weight_y = 250.0;
   block.velocity_offset_factor = 0.5;
   block.support_blend_time = 0.2;
-  const absl::StatusOr<DcmTerminalCost::Config> config = dcmTerminalCostConfigFromConfig(block);
+  const absl::StatusOr<DcmTerminalCost::Config> config =
+      dcmTerminalCostConfigFromConfig(block);
   ASSERT_TRUE(config.ok()) << config.status();
   EXPECT_EQ(config->comHeight, 0.9);
   EXPECT_EQ(config->weights, vector2_t(400.0, 250.0));
@@ -94,10 +108,13 @@ TEST(DcmTerminalCostFromConfigTest, EachFieldLandsInItsMember) {
 TEST(DcmTerminalCostFromConfigTest, RefusesWhatTheCostRefuses) {
   mpc_config::DcmTerminalCostConfig block;
   block.weight_y = -1.0;
-  EXPECT_TRUE(absl::StrContains(dcmTerminalCostConfigFromConfig(block).status().message(), "weight_y"));
+  EXPECT_TRUE(absl::StrContains(
+      dcmTerminalCostConfigFromConfig(block).status().message(), "weight_y"));
   block = mpc_config::DcmTerminalCostConfig{};
   block.velocity_offset_factor = std::numeric_limits<double>::quiet_NaN();
-  EXPECT_TRUE(absl::StrContains(dcmTerminalCostConfigFromConfig(block).status().message(), "dcm_terminal_cost.velocity_offset_factor"));
+  EXPECT_TRUE(absl::StrContains(
+      dcmTerminalCostConfigFromConfig(block).status().message(),
+      "dcm_terminal_cost.velocity_offset_factor"));
 }
 
 }  // namespace

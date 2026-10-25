@@ -61,10 +61,7 @@ class ScrollableFrame(ttk.Frame):
         )
         self.scrollable_content = ttk.Frame(self.canvas)
 
-        self.scrollable_content.bind(
-            "<Configure>",
-            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")),
-        )
+        self.scrollable_content.bind("<Configure>", self._update_scroll_region)
 
         self.canvas_window = self.canvas.create_window(
             (0, 0), window=self.scrollable_content, anchor="nw"
@@ -80,6 +77,10 @@ class ScrollableFrame(ttk.Frame):
         # Bind mouse wheel for scrolling (Linux, macOS, Windows)
         self._bind_mousewheel(self.canvas)
         self._bind_mousewheel(self.scrollable_content)
+
+    def _update_scroll_region(self, event: tk.Event) -> None:
+        del event  # Unused.
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
     def _on_canvas_configure(self, event: tk.Event) -> None:
         self.canvas.itemconfig(self.canvas_window, width=event.width)

@@ -59,13 +59,18 @@ WORDS = {
 }
 # The checker and its tests name the words on purpose.
 _OWN_FILES = frozenset(
-    {"tools/hooks/inclusive_language.py", "tools/hooks/test_inclusive_language.py"}
+    {
+        "tools/hooks/inclusive_language.py",
+        "tools/hooks/test_inclusive_language.py",
+    }
 )
 _PART = re.compile(r"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+")
 _URL = re.compile(r"[a-z][a-z0-9+.-]*://\S+")
 
 
-def check_source(source: str, path: str = "<source>") -> list[check_types.Finding]:
+def check_source(
+    source: str, path: str = "<source>"
+) -> list[check_types.Finding]:
     """The non-inclusive words of `source`, outside URLs."""
     if (
         path in _OWN_FILES
@@ -87,7 +92,8 @@ def check_source(source: str, path: str = "<source>") -> list[check_types.Findin
                     number,
                     part.start() + 1,
                     NAME,
-                    f"`{part.group(0)}`: write {WORDS[word]} (Google C++ style, Inclusive language).",
+                    f"`{part.group(0)}`: write {WORDS[word]} (Google C++ style,"
+                    " Inclusive language).",
                 )
             )
     return findings
@@ -99,6 +105,9 @@ CHECKS = [
         languages=frozenset({check_types.Language.TEXT}),
         scope=lint_files.Scope.TEXT,
         check_source=check_source,
-        description="no master/slave, blacklist/whitelist or redline (G: Inclusive language).",
+        description=(
+            "no master/slave, blacklist/whitelist or redline (G: Inclusive"
+            " language)."
+        ),
     )
 ]

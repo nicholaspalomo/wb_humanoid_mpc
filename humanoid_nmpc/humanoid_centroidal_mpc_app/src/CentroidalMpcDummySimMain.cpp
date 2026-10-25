@@ -57,7 +57,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_ipc/Bus.h"
 
 // LINT.IfChange(dummy_sim_flags)
-ABSL_FLAG(std::string, ipc_node, "robot", "The bus node this process publishes as: it plays the robot.");
+ABSL_FLAG(std::string,
+          ipc_node,
+          "robot",
+          "The bus node this process publishes as: it plays the robot.");
 // clang-format off
 // LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc_app/README.md:dummy_sim_flags, //humanoid_nmpc/humanoid_wb_mpc_app/src/WBMpcDummySimMain.cpp:dummy_sim_flags, //humanoid_nmpc/docs/distributed_runtime/README.md:command_line_flags)
 // clang-format on
@@ -70,14 +73,17 @@ constexpr ocs2::scalar_t kSimulationFrequency = 100.0;
 }  // namespace
 
 /*
- * humanoid_centroidal_mpc_dummy_sim: the robot played by the centroidal MPC's own model, rolled out under the policies
- * of the MPC node (humanoid_centroidal_mpc_node) over the bus, until SIGINT or SIGTERM. See
+ * humanoid_centroidal_mpc_dummy_sim: the robot played by the centroidal MPC's
+ * own model, rolled out under the policies of the MPC node
+ * (humanoid_centroidal_mpc_node) over the bus, until SIGINT or SIGTERM. See
  * humanoid_nmpc/humanoid_centroidal_mpc_app/README.md.
  */
 int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   absl::SetProgramUsageMessage(
-      "The centroidal MPC's dummy simulator: plays the robot on the bus (robot/mpc_observation) with the MPC model as the "
-      "plant.\n  humanoid_centroidal_mpc_dummy_sim --robot_name=drc_atlas --task_file=... --reference_file=... --urdf_file=... "
+      "The centroidal MPC's dummy simulator: plays the robot on the bus "
+      "(robot/mpc_observation) with the MPC model as the "
+      "plant.\n  humanoid_centroidal_mpc_dummy_sim --robot_name=drc_atlas "
+      "--task_file=... --reference_file=... --urdf_file=... "
       "[--network_config=...] [--ipc_node=robot]");
   absl::ParseCommandLine(argc, argv);
   absl::InitializeLog();
@@ -85,10 +91,14 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   ocs2::humanoid::node::installShutdownSignalHandlers();
 
   // The gait file is the MPC node's; the plant does not need it.
-  const ocs2::humanoid::node::MpcFiles files = ocs2::humanoid::node::mpcFilesFromFlags();
-  for (const absl::Status& valid : {ocs2::humanoid::node::validateFileFlag("--task_file", files.taskFile),
-                                    ocs2::humanoid::node::validateFileFlag("--reference_file", files.referenceFile),
-                                    ocs2::humanoid::node::validateFileFlag("--urdf_file", files.urdfFile)}) {
+  const ocs2::humanoid::node::MpcFiles files =
+      ocs2::humanoid::node::mpcFilesFromFlags();
+  for (const absl::Status& valid :
+       {ocs2::humanoid::node::validateFileFlag("--task_file", files.taskFile),
+        ocs2::humanoid::node::validateFileFlag("--reference_file",
+                                               files.referenceFile),
+        ocs2::humanoid::node::validateFileFlag("--urdf_file",
+                                               files.urdfFile)}) {
     if (!valid.ok()) {
       LOG(ERROR) << valid.message();
       return ocs2::humanoid::node::kUsageErrorExitCode;
@@ -96,17 +106,21 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   }
 
   // The plant: the rollout of the MPC's model.
-  absl::StatusOr<std::unique_ptr<ocs2::humanoid::CentroidalMpcInterface>> interface =
-      ocs2::humanoid::CentroidalMpcInterface::Create(files.taskFile, files.urdfFile, files.referenceFile);
+  absl::StatusOr<std::unique_ptr<ocs2::humanoid::CentroidalMpcInterface>>
+      interface = ocs2::humanoid::CentroidalMpcInterface::Create(
+          files.taskFile, files.urdfFile, files.referenceFile);
   if (!interface.ok()) {
     LOG(ERROR) << "The centroidal MPC model: " << interface.status();
     return 1;
   }
-  // Observations are laid out like the OCP: in basis-vector mode the input is [lambda, joint velocities].
-  const ocs2::humanoid::MpcRobotModelBase<ocs2::scalar_t>& effectiveModel = (*interface)->getEffectiveMpcRobotModel();
+  // Observations are laid out like the OCP: in basis-vector mode the input is
+  // [lambda, joint velocities].
+  const ocs2::humanoid::MpcRobotModelBase<ocs2::scalar_t>& effectiveModel =
+      (*interface)->getEffectiveMpcRobotModel();
 
   absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus =
-      ocs2::humanoid::node::createNodeBus(absl::GetFlag(FLAGS_network_config), absl::GetFlag(FLAGS_ipc_node));
+      ocs2::humanoid::node::createNodeBus(absl::GetFlag(FLAGS_network_config),
+                                          absl::GetFlag(FLAGS_ipc_node));
   if (!bus.ok()) {
     LOG(ERROR) << "The bus: " << bus.status();
     return ocs2::humanoid::node::kUsageErrorExitCode;
@@ -114,13 +128,17 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   ocs2::humanoid::node::DummySimLoop::Config config;
   config.simulationFrequency = kSimulationFrequency;
   config.mpcDesiredFrequency = (*interface)->mpcSettings().mpcDesiredFrequency_;
-  config.link.dimensions = {
-      .stateDim = effectiveModel.getStateDim(), .inputDim = effectiveModel.getInputDim(), .numModes = ocs2::humanoid::kNumModeNumbers};
-  // The MPC's state manifold, on which the link decodes the node's manifold-linear policies and interpolates their states.
+  config.link.dimensions = {.stateDim = effectiveModel.getStateDim(),
+                            .inputDim = effectiveModel.getInputDim(),
+                            .numModes = ocs2::humanoid::kNumModeNumbers};
+  // The MPC's state manifold, on which the link decodes the node's
+  // manifold-linear policies and interpolates their states.
   config.link.stateManifold = (*interface)->getStateManifold();
-  config.link.modelFingerprint = ocs2::humanoid::modelLayoutFingerprint((*interface)->modelSettings());
+  config.link.modelFingerprint =
+      ocs2::humanoid::modelLayoutFingerprint((*interface)->modelSettings());
   absl::StatusOr<std::unique_ptr<ocs2::humanoid::node::DummySimLoop>> loop =
-      ocs2::humanoid::node::DummySimLoop::Create(*std::move(bus), (*interface)->getRollout(), config);
+      ocs2::humanoid::node::DummySimLoop::Create(
+          *std::move(bus), (*interface)->getRollout(), config);
   if (!loop.ok()) {
     LOG(ERROR) << "The dummy simulator: " << loop.status();
     return 1;
@@ -131,7 +149,9 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   initialObservation.state = (*interface)->getInitialState();
   initialObservation.input = ocs2::vector_t::Zero(effectiveModel.getInputDim());
   initialObservation.mode = ocs2::humanoid::ModeNumber::kStance;
-  const absl::Status ran = (*loop)->run(initialObservation, []() { return ocs2::humanoid::node::shutdownRequested(); });
+  const absl::Status ran = (*loop)->run(initialObservation, []() {
+    return ocs2::humanoid::node::shutdownRequested();
+  });
   if (!ran.ok()) {
     LOG(ERROR) << ran;
     return 1;

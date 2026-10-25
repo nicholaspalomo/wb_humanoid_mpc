@@ -53,10 +53,13 @@ namespace ocs2::humanoid {
 namespace {
 
 /**
- * A target knot of the whole-body state of `model`: the base at the pose `basePoseEulerZyx` ([x, y, z, yaw, pitch,
- * roll]) and the joints at `jointAngles` (one per joint of the model), every velocity zero.
+ * A target knot of the whole-body state of `model`: the base at the pose
+ * `basePoseEulerZyx` ([x, y, z, yaw, pitch, roll]) and the joints at
+ * `jointAngles` (one per joint of the model), every velocity zero.
  */
-vector_t restingTargetKnot(const MpcRobotModelBase<scalar_t>& model, const vector6_t& basePoseEulerZyx, const vector_t& jointAngles) {
+vector_t restingTargetKnot(const MpcRobotModelBase<scalar_t>& model,
+                           const vector6_t& basePoseEulerZyx,
+                           const vector_t& jointAngles) {
   vector_t knot = vector_t::Zero(model.getStateDim());
   model.setBasePoseEulerZyx(knot, basePoseEulerZyx);
   model.setJointAngles(knot, jointAngles);
@@ -64,8 +67,9 @@ vector_t restingTargetKnot(const MpcRobotModelBase<scalar_t>& model, const vecto
 }
 
 /**
- * restingTargetKnot() with the base moving at the world-frame planar velocity (`planarVelocityWorld`) and turning at
- * `yawRate` [rad/s] about the world z axis, the joints still.
+ * restingTargetKnot() with the base moving at the world-frame planar velocity
+ * (`planarVelocityWorld`) and turning at `yawRate` [rad/s] about the world z
+ * axis, the joints still.
  */
 vector_t movingTargetKnot(const MpcRobotModelBase<scalar_t>& model,
                           const vector6_t& basePoseEulerZyx,
@@ -73,69 +77,94 @@ vector_t movingTargetKnot(const MpcRobotModelBase<scalar_t>& model,
                           const vector2_t& planarVelocityWorld,
                           scalar_t yawRate) {
   vector_t knot = restingTargetKnot(model, basePoseEulerZyx, jointAngles);
-  model.setBaseComLinearVelocity(knot, vector3_t(planarVelocityWorld(0), planarVelocityWorld(1), 0.0));
+  model.setBaseComLinearVelocity(
+      knot, vector3_t(planarVelocityWorld(0), planarVelocityWorld(1), 0.0));
   model.setBaseAngularVelocityFromWorldYawRate(knot, yawRate);
   return knot;
 }
 
 }  // namespace
 
-absl::StatusOr<std::unique_ptr<WBMpcTargetTrajectoriesCalculator>> WBMpcTargetTrajectoriesCalculator::Create(
-    const mpc_config::ReferenceFile& referenceFile, const MpcRobotModelBase<scalar_t>& mpcRobotModel, scalar_t mpcHorizon) {
-  ASSIGN_OR_RETURN(const ReferenceSettings referenceSettings, referenceSettingsFromConfig(referenceFile));
-  ASSIGN_OR_RETURN(const vector_t defaultJointState,
-                   defaultJointStateFromConfig(referenceFile, mpcRobotModel.modelSettings.mpcModelJointNames,
-                                               mpcRobotModel.modelSettings.fixedJointNames));
+absl::StatusOr<std::unique_ptr<WBMpcTargetTrajectoriesCalculator>>
+WBMpcTargetTrajectoriesCalculator::Create(
+    const mpc_config::ReferenceFile& referenceFile,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    scalar_t mpcHorizon) {
+  ASSIGN_OR_RETURN(const ReferenceSettings referenceSettings,
+                   referenceSettingsFromConfig(referenceFile));
+  ASSIGN_OR_RETURN(
+      const vector_t defaultJointState,
+      defaultJointStateFromConfig(
+          referenceFile, mpcRobotModel.modelSettings.mpcModelJointNames,
+          mpcRobotModel.modelSettings.fixedJointNames));
   // The constructor is private, so std::make_unique cannot reach it.
-  return absl::WrapUnique(new WBMpcTargetTrajectoriesCalculator(referenceSettings, defaultJointState, mpcRobotModel, mpcHorizon));
+  return absl::WrapUnique(new WBMpcTargetTrajectoriesCalculator(
+      referenceSettings, defaultJointState, mpcRobotModel, mpcHorizon));
 }
 
-absl::StatusOr<std::unique_ptr<WBMpcTargetTrajectoriesCalculator>> WBMpcTargetTrajectoriesCalculator::Create(
-    const std::string& referenceFile, const MpcRobotModelBase<scalar_t>& mpcRobotModel, scalar_t mpcHorizon) {
-  LOG(INFO) << "[WBMpcTargetTrajectoriesCalculator] reference file: " << referenceFile;
-  ASSIGN_OR_RETURN(const mpc_config::ReferenceFile reference, loadReferenceFile(referenceFile));
-  absl::StatusOr<std::unique_ptr<WBMpcTargetTrajectoriesCalculator>> calculator = Create(reference, mpcRobotModel, mpcHorizon);
+absl::StatusOr<std::unique_ptr<WBMpcTargetTrajectoriesCalculator>>
+WBMpcTargetTrajectoriesCalculator::Create(
+    const std::string& referenceFile,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    scalar_t mpcHorizon) {
+  LOG(INFO) << "[WBMpcTargetTrajectoriesCalculator] reference file: "
+            << referenceFile;
+  ASSIGN_OR_RETURN(const mpc_config::ReferenceFile reference,
+                   loadReferenceFile(referenceFile));
+  absl::StatusOr<std::unique_ptr<WBMpcTargetTrajectoriesCalculator>>
+      calculator = Create(reference, mpcRobotModel, mpcHorizon);
   if (!calculator.ok()) {
     return withConfigFile(calculator.status(), referenceFile);
   }
   return calculator;
 }
 
-WBMpcTargetTrajectoriesCalculator::WBMpcTargetTrajectoriesCalculator(const ReferenceSettings& referenceSettings,
-                                                                     const vector_t& defaultJointState,
-                                                                     const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                                                     scalar_t mpcHorizon)
-    : TargetTrajectoriesCalculatorBase(referenceSettings, defaultJointState, mpcRobotModel, mpcHorizon) {}
+WBMpcTargetTrajectoriesCalculator::WBMpcTargetTrajectoriesCalculator(
+    const ReferenceSettings& referenceSettings,
+    const vector_t& defaultJointState,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    scalar_t mpcHorizon)
+    : TargetTrajectoriesCalculatorBase(
+          referenceSettings, defaultJointState, mpcRobotModel, mpcHorizon) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-TargetTrajectories WBMpcTargetTrajectoriesCalculator::commandedPositionToTargetTrajectories(const vector4_t& commadLinePoseTarget,
-                                                                                            scalar_t initTime,
-                                                                                            const vector_t& initState) {
+TargetTrajectories
+WBMpcTargetTrajectoriesCalculator::commandedPositionToTargetTrajectories(
+    const vector4_t& commadLinePoseTarget,
+    scalar_t initTime,
+    const vector_t& initState) {
   vector_t currentPose = getCurrentBasePoseTarget(initState);
 
-  const vector_t targetPose = getDeltaBaseTarget(commadLinePoseTarget, currentPose);
+  const vector_t targetPose =
+      getDeltaBaseTarget(commadLinePoseTarget, currentPose);
 
-  scalar_t targetReachingTime = initTime + estimateTimeToTarget(targetPose - currentPose);
+  scalar_t targetReachingTime =
+      initTime + estimateTimeToTarget(targetPose - currentPose);
 
-  // desired time and state trajectories: resting knots at most a quarter turn apart in yaw, so that the slerp of the
-  // orientation between them turns the commanded way (subdivideYawKnots())
-  const std::vector<PoseCommandKnot> knots = subdivideYawKnots(initTime, currentPose, targetReachingTime, targetPose);
+  // desired time and state trajectories: resting knots at most a quarter turn
+  // apart in yaw, so that the slerp of the orientation between them turns the
+  // commanded way (subdivideYawKnots())
+  const std::vector<PoseCommandKnot> knots =
+      subdivideYawKnots(initTime, currentPose, targetReachingTime, targetPose);
   scalar_array_t timeTrajectory;
   timeTrajectory.reserve(knots.size());
   vector_array_t stateTrajectory;
   stateTrajectory.reserve(knots.size());
   for (const PoseCommandKnot& knot : knots) {
     timeTrajectory.push_back(knot.time);
-    stateTrajectory.push_back(restingTargetKnot(*mpcRobotModelPtr_, knot.basePose, targetJointState_));
+    stateTrajectory.push_back(restingTargetKnot(
+        *mpcRobotModelPtr_, knot.basePose, targetJointState_));
   }
 
   // desired input trajectory (just right dimensions, they are not used)
-  const vector_array_t inputTrajectory(knots.size(), vector_t::Zero(mpcRobotModelPtr_->getInputDim()));
+  const vector_array_t inputTrajectory(
+      knots.size(), vector_t::Zero(mpcRobotModelPtr_->getInputDim()));
 
-  TargetTrajectories targetTrajectories{timeTrajectory, stateTrajectory, inputTrajectory};
+  TargetTrajectories targetTrajectories{timeTrajectory, stateTrajectory,
+                                        inputTrajectory};
 
   return targetTrajectories;
 }
@@ -144,27 +173,35 @@ TargetTrajectories WBMpcTargetTrajectoriesCalculator::commandedPositionToTargetT
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-TargetTrajectories WBMpcTargetTrajectoriesCalculator::commandedVelocityToTargetTrajectories(const vector4_t& commandedVelocities,
-                                                                                            scalar_t initTime,
-                                                                                            const vector_t& initState,
-                                                                                            const BasePlanarMotion& measuredMotion) {
-  // The base knots of the command on the arc of its twist, the first segment starting from the measured motion
-  // (TargetTrajectoriesCalculatorBase's class comment; design defect D1). Every knot's base
-  // moves at the command in its own heading frame and turns at the commanded yaw rate about the world z axis.
-  const std::vector<VelocityCommandKnot> knots = velocityCommandKnots(commandedVelocities, initTime, initState, measuredMotion);
+TargetTrajectories
+WBMpcTargetTrajectoriesCalculator::commandedVelocityToTargetTrajectories(
+    const vector4_t& commandedVelocities,
+    scalar_t initTime,
+    const vector_t& initState,
+    const BasePlanarMotion& measuredMotion) {
+  // The base knots of the command on the arc of its twist, the first segment
+  // starting from the measured motion (TargetTrajectoriesCalculatorBase's class
+  // comment; design defect D1). Every knot's base moves at the command in its
+  // own heading frame and turns at the commanded yaw rate about the world z
+  // axis.
+  const std::vector<VelocityCommandKnot> knots = velocityCommandKnots(
+      commandedVelocities, initTime, initState, measuredMotion);
 
   scalar_array_t timeTrajectory;
   vector_array_t stateTrajectory;
   for (const VelocityCommandKnot& knot : knots) {
     timeTrajectory.push_back(knot.time);
     stateTrajectory.push_back(
-        movingTargetKnot(*mpcRobotModelPtr_, knot.basePose, targetJointState_, knot.commandedVelocityWorld, knot.commandedYawRate));
+        movingTargetKnot(*mpcRobotModelPtr_, knot.basePose, targetJointState_,
+                         knot.commandedVelocityWorld, knot.commandedYawRate));
   }
 
   // desired input trajectory (just right dimensions, they are not used)
-  const vector_array_t inputTrajectory(stateTrajectory.size(), vector_t::Zero(mpcRobotModelPtr_->getInputDim()));
+  const vector_array_t inputTrajectory(
+      stateTrajectory.size(), vector_t::Zero(mpcRobotModelPtr_->getInputDim()));
 
-  TargetTrajectories targetTrajectories{timeTrajectory, stateTrajectory, inputTrajectory};
+  TargetTrajectories targetTrajectories{timeTrajectory, stateTrajectory,
+                                        inputTrajectory};
 
   return targetTrajectories;
 }

@@ -37,15 +37,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Accumulates the quadratic cost of one stage: every term adds w (l_x' x + l_u' u + c)^2 to 0.5 x'Qx + 0.5 u'Ru + u'Sx +
- * q'x + r'u + constant (the OcpQpStage convention), in the order the terms are applied. The order is the accumulation
- * order of the floating point sums, so the same term list gives bit-identical matrices on every assembly.
+ * Accumulates the quadratic cost of one stage: every term adds w (l_x' x + l_u'
+ * u + c)^2 to 0.5 x'Qx + 0.5 u'Ru + u'Sx + q'x + r'u + constant (the OcpQpStage
+ * convention), in the order the terms are applied. The order is the
+ * accumulation order of the floating point sums, so the same term list gives
+ * bit-identical matrices on every assembly.
  *
- * The constant part of the expansion, w c^2, is accumulated into OcpQpStage::constant rather than discarded. It is
- * irrelevant to the solver, but it is what makes the assembled objective the functional the terms document, and
- * therefore what makes the objectives of two problems assembled on different node grids comparable.
+ * The constant part of the expansion, w c^2, is accumulated into
+ * OcpQpStage::constant rather than discarded. It is irrelevant to the solver,
+ * but it is what makes the assembled objective the functional the terms
+ * document, and therefore what makes the objectives of two problems assembled
+ * on different node grids comparable.
  *
- * Not thread-safe: it writes the stage it accumulates into. A copy accumulates into the same stage.
+ * Not thread-safe: it writes the stage it accumulates into. A copy accumulates
+ * into the same stage.
  */
 class StageAccumulator {
  public:
@@ -58,13 +63,19 @@ class StageAccumulator {
   ~StageAccumulator() = default;
 
   /**
-   * Adds weight * (sum_i xc_i x_i + sum_j uc_j u_j + offset)^2; nothing for weight <= 0. The quadratic and linear parts
-   * go into Q, q, R, S, r and the constant weight * offset^2 into OcpQpStage::constant, so that the stage evaluates to
-   * the full residual and not only to its solution-relevant part.
+   * Adds weight * (sum_i xc_i x_i + sum_j uc_j u_j + offset)^2; nothing for
+   * weight <= 0. The quadratic and linear parts go into Q, q, R, S, r and the
+   * constant weight * offset^2 into OcpQpStage::constant, so that the stage
+   * evaluates to the full residual and not only to its solution-relevant part.
    */
-  void addQuadraticResidual(const Coefficients& xCoefficients, const Coefficients& uCoefficients, scalar_t offset, scalar_t weight);
+  void addQuadraticResidual(const Coefficients& xCoefficients,
+                            const Coefficients& uCoefficients,
+                            scalar_t offset,
+                            scalar_t weight);
   /** Adds weight to the diagonal of Q. */
-  void addStateRegularization(scalar_t weight) { stage_->Q.diagonal().array() += weight; }
+  void addStateRegularization(scalar_t weight) {
+    stage_->Q.diagonal().array() += weight;
+  }
   /** Adds weight to the diagonal of R (no-op on a node without inputs). */
   void addInputRegularization(scalar_t weight) {
     if (stage_->numInputs() > 0) stage_->R.diagonal().array() += weight;

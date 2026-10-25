@@ -37,29 +37,37 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::contact_term {
 
 /**
- * The names the per-foot contact terms are registered under in the optimal control problem's collections: the foot's
- * contact name followed by one of these suffixes.
+ * The names the per-foot contact terms are registered under in the optimal
+ * control problem's collections: the foot's contact name followed by one of
+ * these suffixes.
  *
- * The MPC interfaces register the terms under these names, MpcParameterUpdaterModule finds them again by the same
- * names to hot-reload their weights, and the validation's SQP diagnostics find the hard normal-velocity rows by theirs. The updater has to
- * treat an absent term as the normal case - most of them are only built for some task lists - so it could never tell a term that is not
- * listed from a term whose name had drifted, and a rename on one side used to turn every hot reload of that term into a silent no-op. With
- * one definition, a rename is a rename on both sides.
+ * The MPC interfaces register the terms under these names,
+ * MpcParameterUpdaterModule finds them again by the same names to hot-reload
+ * their weights, and the validation's SQP diagnostics find the hard
+ * normal-velocity rows by theirs. The updater has to treat an absent term as
+ * the normal case - most of them are only built for some task lists - so it
+ * could never tell a term that is not listed from a term whose name had
+ * drifted, and a rename on one side used to turn every hot reload of that term
+ * into a silent no-op. With one definition, a rename is a rename on both sides.
  */
-// The contact cones, schedule-gated or not (contactConstraintsAreScheduleGated()).
+// The contact cones, schedule-gated or not
+// (contactConstraintsAreScheduleGated()).
 inline constexpr absl::string_view kContactWrenchCone = "_contactWrenchCone";
 inline constexpr absl::string_view kFrictionForceCone = "_frictionForceCone";
 inline constexpr absl::string_view kContactMomentXY = "_contactMomentXY";
-// The contact-implicit formulation (humanoid_nmpc/docs/contact_implicit_mpc/README.md).
-inline constexpr absl::string_view kContactComplementarity = "_contactComplementarity";
+// The contact-implicit formulation
+// (humanoid_nmpc/docs/contact_implicit_mpc/README.md).
+inline constexpr absl::string_view kContactComplementarity =
+    "_contactComplementarity";
 inline constexpr absl::string_view kForceWeightedSlip = "_forceWeightedSlip";
 inline constexpr absl::string_view kGroundPenetration = "_groundPenetration";
-// The swing-foot vertical servo listed as a hard constraint, and as a soft one, which the contact-implicit formulation
-// requires.
+// The swing-foot vertical servo listed as a hard constraint, and as a soft one,
+// which the contact-implicit formulation requires.
 inline constexpr absl::string_view kNormalVelocity = "_normalVelocity";
 inline constexpr absl::string_view kNormalVelocitySoft = "_normalVelocitySoft";
 
-/** The name the term with `suffix` of the foot `footName` is registered under. */
+/** The name the term with `suffix` of the foot `footName` is registered under.
+ */
 inline std::string name(absl::string_view footName, absl::string_view suffix) {
   return absl::StrCat(footName, suffix);
 }

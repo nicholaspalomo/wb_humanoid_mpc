@@ -37,8 +37,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact/ContactPolygon.h"
 
 /*
- * The bounds of a ContactPolygon built from its corner points: the extent of the scaled points, at every scale factor
- * (1 included, where they used to stay zero) and for a polygon that does not contain the frame's origin.
+ * The bounds of a ContactPolygon built from its corner points: the extent of
+ * the scaled points, at every scale factor (1 included, where they used to stay
+ * zero) and for a polygon that does not contain the frame's origin.
  */
 namespace ocs2::humanoid {
 
@@ -51,7 +52,9 @@ TEST(ContactPolygon, BoundsAreTheExtentOfTheScaledPoints) {
     // An offset polygon, often entirely on one side of the origin.
     const vector3_t shift(offset(generator), offset(generator), 0.0);
     std::vector<vector3_t> points;
-    for (int i = 0; i < 3 + trial % 4; ++i) points.push_back(shift + vector3_t(coordinate(generator), coordinate(generator), 0.0));
+    for (int i = 0; i < 3 + trial % 4; ++i)
+      points.push_back(
+          shift + vector3_t(coordinate(generator), coordinate(generator), 0.0));
     for (const scalar_t scale : {1.0, 0.8, 1.3}) {
       const ContactPolygon polygon(points, center, scale);
       scalar_t xMin = scale * points.front()(0);
@@ -64,14 +67,19 @@ TEST(ContactPolygon, BoundsAreTheExtentOfTheScaledPoints) {
         yMin = std::min(yMin, scale * point(1));
         yMax = std::max(yMax, scale * point(1));
       }
-      EXPECT_DOUBLE_EQ(polygon.getBounds().x_min, xMin) << "trial " << trial << " scale " << scale;
+      EXPECT_DOUBLE_EQ(polygon.getBounds().x_min, xMin)
+          << "trial " << trial << " scale " << scale;
       EXPECT_DOUBLE_EQ(polygon.getBounds().x_max, xMax);
       EXPECT_DOUBLE_EQ(polygon.getBounds().y_min, yMin);
       EXPECT_DOUBLE_EQ(polygon.getBounds().y_max, yMax);
       ASSERT_EQ(polygon.getNumberOfContactPoints(), points.size());
       for (size_t i = 0; i < points.size(); ++i) {
-        EXPECT_DOUBLE_EQ(polygon.getContactPointTranslation(static_cast<int>(i))(0), scale * points[i](0));
-        EXPECT_DOUBLE_EQ(polygon.getContactPointTranslation(static_cast<int>(i))(1), scale * points[i](1));
+        EXPECT_DOUBLE_EQ(
+            polygon.getContactPointTranslation(static_cast<int>(i))(0),
+            scale * points[i](0));
+        EXPECT_DOUBLE_EQ(
+            polygon.getContactPointTranslation(static_cast<int>(i))(1),
+            scale * points[i](1));
       }
     }
   }

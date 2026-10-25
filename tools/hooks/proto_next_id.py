@@ -89,7 +89,9 @@ class Violation(NamedTuple):
     text: str
 
     def __str__(self) -> str:
-        return f"{self.path}:{self.line}: message {self.message_name}: {self.text}"
+        return (
+            f"{self.path}:{self.line}: message {self.message_name}: {self.text}"
+        )
 
 
 class Token(NamedTuple):
@@ -271,7 +273,9 @@ def parse_messages(source: str) -> list[MessageInfo]:
                         if head.index("group") + 1 < len(head)
                         else "group"
                     )
-                    i = parse_block(i + 1, "message", group_name, statement[0].line)
+                    i = parse_block(
+                        i + 1, "message", group_name, statement[0].line
+                    )
                 else:
                     i = skip_block(i + 1)
                 statement = []
@@ -320,7 +324,9 @@ def parse_messages(source: str) -> list[MessageInfo]:
             )
         return i + 1
 
-    def collect(statement: list[Token], numbers: list[int], labels: list[str]) -> None:
+    def collect(
+        statement: list[Token], numbers: list[int], labels: list[str]
+    ) -> None:
         if not statement:
             return
         head = statement[0].text
@@ -382,9 +388,15 @@ def check_source(source: str, path: str = "<string>") -> list[Violation]:
         match = NEXT_ID_COMMENT.match(above)
         if not match:
             if NEXT_ID_ATTEMPT.match(above):
-                text = f"malformed comment '{above.strip()}'; write exactly '// Next ID: {next_free}'"
+                text = (
+                    f"malformed comment '{above.strip()}'; write exactly '//"
+                    f" Next ID: {next_free}'"
+                )
             else:
-                text = f"no '// Next ID: N' comment on the line directly above it; write '// Next ID: {next_free}'"
+                text = (
+                    "no '// Next ID: N' comment on the line directly above it;"
+                    f" write '// Next ID: {next_free}'"
+                )
             violations.append(Violation(path, message.line, message.name, text))
             continue
         declared = _parse_number(match.group(1))
@@ -394,7 +406,8 @@ def check_source(source: str, path: str = "<string>") -> list[Violation]:
                     path,
                     message.line,
                     message.name,
-                    f"'{above.strip()}' is not a positive number; write '// Next ID: {next_free}'",
+                    f"'{above.strip()}' is not a positive number; write '//"
+                    f" Next ID: {next_free}'",
                 )
             )
         elif declared < next_free:
@@ -403,8 +416,8 @@ def check_source(source: str, path: str = "<string>") -> list[Violation]:
                     path,
                     message.line,
                     message.name,
-                    f"says 'Next ID: {declared}' but {message.largest_label} is already taken; "
-                    f"the next free number is {next_free}",
+                    f"says 'Next ID: {declared}' but {message.largest_label} is"
+                    f" already taken; the next free number is {next_free}",
                 )
             )
         else:
@@ -422,8 +435,9 @@ def _check_top_reservation(
                 path,
                 message.line,
                 message.name,
-                f"does not open with 'reserved {next_id} to max;' (the first statement of the message after its "
-                "options reserves every number from its Next ID on)",
+                f"does not open with 'reserved {next_id} to max;' (the first"
+                " statement of the message after its options reserves every"
+                " number from its Next ID on)",
             )
         ]
     if message.top_reservation != next_id:
@@ -432,8 +446,9 @@ def _check_top_reservation(
                 path,
                 message.top_reservation_line or message.line,
                 message.name,
-                f"opens with 'reserved {message.top_reservation} to max;' but its Next ID is {next_id}; write "
-                f"'reserved {next_id} to max;'",
+                f"opens with 'reserved {message.top_reservation} to max;' but"
+                f" its Next ID is {next_id}; write 'reserved {next_id} to"
+                " max;'",
             )
         ]
     return []
@@ -491,7 +506,9 @@ def fix_source(source: str) -> str:
                 body_follows = after_brace.strip() != ""
                 if body_follows:
                     lines[brace_index] = f"{brace_text[: brace_column + 1]}\n"
-                    lines.insert(brace_index + 1, f"{indent}  {after_brace.lstrip()}")
+                    lines.insert(
+                        brace_index + 1, f"{indent}  {after_brace.lstrip()}"
+                    )
                 lines.insert(brace_index + 1, f"{reservation}\n")
 
         comment = f"{indent}// Next ID: {next_id}\n"
@@ -548,9 +565,14 @@ CHECKS = [
         scope=lint_files.Scope.FIRST_PARTY,
         check_source=_findings,
         fix_source=_fix,
-        description="every protobuf message names its next free field number (`// Next ID: N`) and opens with "
-        "`reserved N to max;`.",
-        hint="Add or raise them with: python3 -m tools.hooks.proto_next_id --fix <files>.",
+        description=(
+            "every protobuf message names its next free field number (`// Next"
+            " ID: N`) and opens with `reserved N to max;`."
+        ),
+        hint=(
+            "Add or raise them with: python3 -m tools.hooks.proto_next_id --fix"
+            " <files>."
+        ),
     )
 ]
 

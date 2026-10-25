@@ -49,25 +49,34 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** The simulator fields of the task file (RobotProcessSettings), for a simulated backend. */
+/** The simulator fields of the task file (RobotProcessSettings), for a
+ * simulated backend. */
 struct SimulatorSettings {
   /**
-   * [N] Normal force above which a contact point counts as touching (`sim_contact_force_threshold`); by default the
-   * simulator's.
+   * [N] Normal force above which a contact point counts as touching
+   * (`sim_contact_force_threshold`); by default the simulator's.
    */
-  double contactForceThreshold = ::robot::mujoco_sim_interface::MujocoSimConfig::kDefaultContactForceThreshold;
-  /** [s] Window of the viewer's contact timeline (`sim_contact_timeline_window`); by default the simulator's. */
-  double contactTimelineWindow = ::robot::mujoco_sim_interface::ContactTimeline::kDefaultWindowSeconds;
-  /** Viewer visualizations by name (`sim_visualizations`); nullopt: the viewer's default set. */
+  double contactForceThreshold = ::robot::mujoco_sim_interface::
+      MujocoSimConfig::kDefaultContactForceThreshold;
+  /** [s] Window of the viewer's contact timeline
+   * (`sim_contact_timeline_window`); by default the simulator's. */
+  double contactTimelineWindow =
+      ::robot::mujoco_sim_interface::ContactTimeline::kDefaultWindowSeconds;
+  /** Viewer visualizations by name (`sim_visualizations`); nullopt: the
+   * viewer's default set. */
   std::optional<std::vector<std::string>> visualizations;
   /** How the gantry holds the base (`gantry_hold`). */
   std::string gantryHold = "weld_constraint";
   /** The ball the Dodgeball tab throws (`sim_projectile`); empty: none. */
   std::string projectile;
-  /** [N m s/rad] The joint damping while the torques are off (`sim_ragdoll_joint_damping`); by default the simulator's. */
-  double ragdollJointDamping = ::robot::mujoco_sim_interface::MujocoSimConfig::kDefaultRagdollJointDamping;
-  /** [m] The base height below which the robot is reset (`sim_auto_reset_base_height`); by default the simulator's. */
-  double autoResetBaseHeight = ::robot::mujoco_sim_interface::MujocoSimConfig::kDefaultAutoResetBaseHeight;
+  /** [N m s/rad] The joint damping while the torques are off
+   * (`sim_ragdoll_joint_damping`); by default the simulator's. */
+  double ragdollJointDamping = ::robot::mujoco_sim_interface::MujocoSimConfig::
+      kDefaultRagdollJointDamping;
+  /** [m] The base height below which the robot is reset
+   * (`sim_auto_reset_base_height`); by default the simulator's. */
+  double autoResetBaseHeight = ::robot::mujoco_sim_interface::MujocoSimConfig::
+      kDefaultAutoResetBaseHeight;
 };
 
 /** What every backend is built from. */
@@ -76,59 +85,76 @@ struct RobotBackendOptions {
   std::string urdfFile;
   /** The MuJoCo scene (--mjcf_file); a hardware backend ignores it. */
   std::string mjcfFile;
-  /** The state the robot starts in: in simulation, where it is put (createInitialSimState()). */
+  /** The state the robot starts in: in simulation, where it is put
+   * (createInitialSimState()). */
   std::optional<robot::model::RobotState> initialState;
-  /** The MPC's contact frames and their parent joints (model_settings), in contact order. */
+  /** The MPC's contact frames and their parent joints (model_settings), in
+   * contact order. */
   std::vector<std::string> contactFrameNames;
   std::vector<std::string> contactParentJointNames;
-  /** The target contact patches the viewer draws, per contact; empty: none (no contact planner). */
-  std::vector<robot::mujoco_sim_interface::ContactPatchCorners> contactPatchCorners;
+  /** The target contact patches the viewer draws, per contact; empty: none (no
+   * contact planner). */
+  std::vector<robot::mujoco_sim_interface::ContactPatchCorners>
+      contactPatchCorners;
   SimulatorSettings simulator;
   /**
-   * The simulator's viewer by name, in order of preference, and the web viewer's options (--viewer, --web_viewer_*,
-   * --viewer_cores); a hardware backend ignores it. `none` for the robot-runtime image, which has no GL, and the tests.
+   * The simulator's viewer by name, in order of preference, and the web
+   * viewer's options (--viewer, --web_viewer_*,
+   * --viewer_cores); a hardware backend ignores it. `none` for the
+   * robot-runtime image, which has no GL, and the tests.
    */
   robot::mujoco_sim_interface::ViewerSettings viewer;
 };
 
 // LINT.IfChange(backend_names)
-/** The MuJoCo simulator, robot_runtime/mujoco_sim_interface (MujocoRobotBackend). */
+/** The MuJoCo simulator, robot_runtime/mujoco_sim_interface
+ * (MujocoRobotBackend). */
 inline constexpr absl::string_view kMujocoBackendName = "mujoco";
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/README.md:backend_names)
 
 /**
- * The robot backends by name (--backend): the only place a backend is added. An unknown name is refused with the list
- * of the available ones.
+ * The robot backends by name (--backend): the only place a backend is added. An
+ * unknown name is refused with the list of the available ones.
  *
  * Not thread-safe: built and used on one thread during set-up.
  */
 class RobotBackendRegistry {
  public:
-  using Factory = std::function<absl::StatusOr<std::unique_ptr<RobotBackend>>(const RobotBackendOptions& options)>;
+  using Factory = std::function<absl::StatusOr<std::unique_ptr<RobotBackend>>(
+      const RobotBackendOptions& options)>;
   /**
-   * What the backend would refuse in `options` without building it (the task file's simulator settings, the files it
-   * needs): OK or the refusal create() would give. For a save the robot checks before it stores the file.
+   * What the backend would refuse in `options` without building it (the task
+   * file's simulator settings, the files it needs): OK or the refusal create()
+   * would give. For a save the robot checks before it stores the file.
    */
-  using OptionsCheck = std::function<absl::Status(const RobotBackendOptions& options)>;
+  using OptionsCheck =
+      std::function<absl::Status(const RobotBackendOptions& options)>;
 
   /** A registry with the built-in backends (`mujoco`). */
   RobotBackendRegistry();
 
-  /** Adds the backend `name`; an empty `checkOptions` accepts any options (checkOptions()). */
-  void add(std::string name, std::string description, Factory factory, OptionsCheck checkOptions = nullptr);
+  /** Adds the backend `name`; an empty `checkOptions` accepts any options
+   * (checkOptions()). */
+  void add(std::string name,
+           std::string description,
+           Factory factory,
+           OptionsCheck checkOptions = nullptr);
   bool has(absl::string_view name) const;
   std::vector<std::string> names() const;
   /** "mujoco (the MuJoCo simulator), ...". */
   std::string availableNames() const;
 
-  /** The backend `name` names, built from `options`; InvalidArgument listing the available names for an unknown one. */
-  absl::StatusOr<std::unique_ptr<RobotBackend>> create(absl::string_view name, const RobotBackendOptions& options) const;
+  /** The backend `name` names, built from `options`; InvalidArgument listing
+   * the available names for an unknown one. */
+  absl::StatusOr<std::unique_ptr<RobotBackend>> create(
+      absl::string_view name, const RobotBackendOptions& options) const;
 
   /**
-   * The backend `name`'s check of `options` (OptionsCheck), which builds nothing; InvalidArgument listing the available
-   * names for an unknown one.
+   * The backend `name`'s check of `options` (OptionsCheck), which builds
+   * nothing; InvalidArgument listing the available names for an unknown one.
    */
-  absl::Status checkOptions(absl::string_view name, const RobotBackendOptions& options) const;
+  absl::Status checkOptions(absl::string_view name,
+                            const RobotBackendOptions& options) const;
 
  private:
   struct Entry {

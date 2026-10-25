@@ -133,7 +133,9 @@ def load_mpc_model_settings(robot: str) -> tuple[str, list[str]]:
         nproto_textproto.TextprotoError: If it does not parse strictly into its schema
             (humanoid_mpc_config.TaskFile); the message names the line and column.
     """
-    task_path = dataset_generator.resolve_xml_path(_ROBOT_CONFIGS[robot]["task"])
+    task_path = dataset_generator.resolve_xml_path(
+        _ROBOT_CONFIGS[robot]["task"]
+    )
     model_settings = nproto_textproto.load_textproto(
         task_path, task_file_pb2.TaskFile
     ).model_settings
@@ -177,10 +179,14 @@ def header_class_name(robot: str) -> str:
 
 def _header_path(robot: str) -> str:
     """Workspace-relative path of the installed weight header for `robot`."""
-    return os.path.join(_CPP_HEADER_INSTALL_DIR, f"{header_class_name(robot)}.h")
+    return os.path.join(
+        _CPP_HEADER_INSTALL_DIR, f"{header_class_name(robot)}.h"
+    )
 
 
-def _installed_hidden_dim(robot: str, workspace_dir: str | None = None) -> int | None:
+def _installed_hidden_dim(
+    robot: str, workspace_dir: str | None = None
+) -> int | None:
     """The hidden width of the weight header currently installed, or None if it cannot be determined.
 
     Read out of the generated `W0_rows` constant rather than tracked separately, so the guard compares against what is
@@ -212,7 +218,9 @@ def generate_dataset(
     generator: dataset_generator.AcomDatasetGenerator, num_samples: int
 ) -> dict[str, np.ndarray]:
     """Samples `num_samples` configurations with the pipeline's fixed sampler seed."""
-    return generator.generate_dataset(num_samples=num_samples, seed=_DATASET_SEED)
+    return generator.generate_dataset(
+        num_samples=num_samples, seed=_DATASET_SEED
+    )
 
 
 def train_network(
@@ -283,7 +291,9 @@ def export_network(
         "model_settings.fixed_joint_names": fixed_joints,
         "sampling": "uniform over the full joint-limit box",
         # The fitted quantity: the composed rate map, not J_Delta_theta alone (train_acom.create_train_step).
-        "objective": "J_l(Delta_theta) J_Delta_theta ~ I_G^-1 A_omega,j in base axes",
+        "objective": (
+            "J_l(Delta_theta) J_Delta_theta ~ I_G^-1 A_omega,j in base axes"
+        ),
         "sine_layers": len(params) - 1,
         "omega_0": _OMEGA_0,
         "dataset_seed": _DATASET_SEED,
@@ -335,10 +345,12 @@ def install_header(
         installed_width = _installed_hidden_dim(robot, workspace_dir)
         if installed_width is not None and installed_width != hidden_dim:
             raise ValueError(
-                f"Installing would replace the {installed_width}-wide "
-                f"{_header_path(robot)} with a {hidden_dim}-wide network. The C++ loader is "
-                "width-agnostic, so this would build and run while approximating the centroidal connection worse. "
-                f"Pass --hidden_dim {installed_width} to match, or --force_architecture if the change is intended."
+                f"Installing would replace the {installed_width}-wide"
+                f" {_header_path(robot)} with a {hidden_dim}-wide network. The"
+                " C++ loader is width-agnostic, so this would build and run"
+                " while approximating the centroidal connection worse. Pass"
+                f" --hidden_dim {installed_width} to match, or"
+                " --force_architecture if the change is intended."
             )
     install_path = os.path.join(workspace_dir, _header_path(robot))
     os.makedirs(os.path.dirname(install_path), exist_ok=True)
@@ -357,13 +369,17 @@ def main() -> None:
         choices=robot_names(),
         help="Robot model",
     )
-    parser.add_argument("--xml", type=str, default=None, help="Path to MuJoCo XML file")
+    parser.add_argument(
+        "--xml", type=str, default=None, help="Path to MuJoCo XML file"
+    )
     parser.add_argument(
         "--urdf",
         type=str,
         default=None,
-        help="Path to URDF file for joint order alignment with Pinocchio. "
-        "If not given, inferred from --robot.",
+        help=(
+            "Path to URDF file for joint order alignment with Pinocchio. "
+            "If not given, inferred from --robot."
+        ),
     )
     # A standard run, not a record of every shipped header: see _DEFAULT_NUM_SAMPLES. The architecture defaults below
     # ARE what every shipped header uses, and they are defaults rather than values the README asks you to type because
@@ -380,27 +396,37 @@ def main() -> None:
         "--hidden_dim",
         type=int,
         default=_SHIPPED_HIDDEN_DIM,
-        help="SIREN hidden dimension. The shipped headers are "
-        f"{_SHIPPED_HIDDEN_DIM}-wide; --install_header refuses anything else unless --force_architecture is given.",
+        help=(
+            "SIREN hidden dimension. The shipped headers are"
+            f" {_SHIPPED_HIDDEN_DIM}-wide; --install_header refuses anything"
+            " else unless --force_architecture is given."
+        ),
     )
     parser.add_argument(
         "--num_layers",
         type=int,
         default=_CPP_SUPPORTED_NUM_LAYERS,
-        help="Number of SIREN sinusoidal layers, excluding the linear readout. "
-        f"The C++ evaluator only loads {_CPP_SUPPORTED_NUM_LAYERS}.",
+        help=(
+            "Number of SIREN sinusoidal layers, excluding the linear readout. "
+            f"The C++ evaluator only loads {_CPP_SUPPORTED_NUM_LAYERS}."
+        ),
     )
     parser.add_argument(
         "--epochs", type=int, default=_DEFAULT_EPOCHS, help="Training epochs"
     )
     parser.add_argument(
-        "--output_dir", type=str, default="/tmp/acom_export", help="Output directory"
+        "--output_dir",
+        type=str,
+        default="/tmp/acom_export",
+        help="Output directory",
     )
     parser.add_argument(
         "--install_header",
         action="store_true",
-        help="Install the exported C++ header directly into the workspace at "
-        f"{_CPP_HEADER_INSTALL_DIR}/AcomSirenWeights<Robot>.h",
+        help=(
+            "Install the exported C++ header directly into the workspace at "
+            f"{_CPP_HEADER_INSTALL_DIR}/AcomSirenWeights<Robot>.h"
+        ),
     )
     parser.add_argument(
         "--log_dir",
@@ -416,17 +442,22 @@ def main() -> None:
     parser.add_argument(
         "--force_architecture",
         action="store_true",
-        help="Allow --install_header to overwrite a header whose architecture differs from the one being trained. "
-        "Only pass this when the architecture change is the point.",
+        help=(
+            "Allow --install_header to overwrite a header whose architecture"
+            " differs from the one being trained. Only pass this when the"
+            " architecture change is the point."
+        ),
     )
     args = parser.parse_args()
 
     if args.install_header and args.num_layers != _CPP_SUPPORTED_NUM_LAYERS:
         parser.error(
-            f"--install_header requires --num_layers {_CPP_SUPPORTED_NUM_LAYERS}: "
-            "AngularCenterOfMass.cpp's createFromStaticWeights loads exactly "
-            f"{_CPP_SUPPORTED_NUM_LAYERS} sinusoidal layers plus one linear "
-            f"readout, so a header with {args.num_layers} would fail to compile."
+            "--install_header requires --num_layers"
+            f" {_CPP_SUPPORTED_NUM_LAYERS}: AngularCenterOfMass.cpp's"
+            " createFromStaticWeights loads exactly"
+            f" {_CPP_SUPPORTED_NUM_LAYERS} sinusoidal layers plus one linear"
+            f" readout, so a header with {args.num_layers} would fail to"
+            " compile."
         )
 
     # The layer count is caught above because a wrong one fails to COMPILE. The hidden width is not: every layer is
@@ -437,10 +468,12 @@ def main() -> None:
         installed_width = _installed_hidden_dim(args.robot)
         if installed_width is not None and installed_width != args.hidden_dim:
             parser.error(
-                f"--install_header would replace the {installed_width}-wide "
-                f"{_header_path(args.robot)} with a {args.hidden_dim}-wide network. The C++ loader is "
-                "width-agnostic, so this would build and run while approximating the centroidal connection worse. "
-                f"Pass --hidden_dim {installed_width} to match, or --force_architecture if the change is intended."
+                f"--install_header would replace the {installed_width}-wide"
+                f" {_header_path(args.robot)} with a {args.hidden_dim}-wide"
+                " network. The C++ loader is width-agnostic, so this would"
+                " build and run while approximating the centroidal connection"
+                f" worse. Pass --hidden_dim {installed_width} to match, or"
+                " --force_architecture if the change is intended."
             )
 
     log_dir = None
@@ -453,13 +486,17 @@ def main() -> None:
 
     robot_name, fixed_joints = load_mpc_model_settings(args.robot)
     print(
-        f"Generating aCOM dataset for {args.robot} (model_settings.robot_name: {robot_name})"
+        f"Generating aCOM dataset for {args.robot} (model_settings.robot_name:"
+        f" {robot_name})"
     )
     if fixed_joints:
         print(
-            f"  Holding {len(fixed_joints)} joints fixed, as the task file does: {fixed_joints}"
+            f"  Holding {len(fixed_joints)} joints fixed, as the task file"
+            f" does: {fixed_joints}"
         )
-    generator = make_generator(args.robot, xml_path=args.xml, urdf_path=args.urdf)
+    generator = make_generator(
+        args.robot, xml_path=args.xml, urdf_path=args.urdf
+    )
     dataset = generate_dataset(generator, args.num_samples)
     print(
         f"  Generated {args.num_samples} configurations over "
@@ -467,7 +504,7 @@ def main() -> None:
     )
 
     print(
-        f"Training SIREN aCOM network "
+        "Training SIREN aCOM network "
         f"({args.num_layers} sinusoidal layers x {args.hidden_dim} neurons)"
     )
     _, params, history = train_network(
@@ -484,8 +521,12 @@ def main() -> None:
     # artifact by exactly the gap the training loop just printed.
     best_epoch = int(history["best_epoch"][0])
     exported_rmse = history["val_rmse"][best_epoch]
-    exported_mean_relative_error = history["val_mean_relative_error"][best_epoch]
-    exported_worst_relative_error = history["val_worst_relative_error"][best_epoch]
+    exported_mean_relative_error = history["val_mean_relative_error"][
+        best_epoch
+    ]
+    exported_worst_relative_error = history["val_worst_relative_error"][
+        best_epoch
+    ]
     json_path, cpp_path = export_network(
         params,
         generator,
@@ -497,12 +538,17 @@ def main() -> None:
             "hidden_dim": args.hidden_dim,
             "exported_epoch": best_epoch,
             "exported_val_rmse": f"{exported_rmse:.5f}",
-            "exported_val_relative_error_mean": f"{exported_mean_relative_error:.4f}",
-            "exported_val_relative_error_worst": f"{exported_worst_relative_error:.4f}",
+            "exported_val_relative_error_mean": (
+                f"{exported_mean_relative_error:.4f}"
+            ),
+            "exported_val_relative_error_worst": (
+                f"{exported_worst_relative_error:.4f}"
+            ),
         },
     )
     print(
-        f"Training complete. Exported validation RMSE: {exported_rmse:.5f} (epoch {best_epoch})"
+        "Training complete. Exported validation RMSE:"
+        f" {exported_rmse:.5f} (epoch {best_epoch})"
     )
     print(f"  Exported JSON to: {json_path}")
     print(f"  Exported C++ header to: {cpp_path}")
@@ -511,9 +557,10 @@ def main() -> None:
         ws_dir = os.environ.get("BUILD_WORKSPACE_DIRECTORY", "")
         if not ws_dir:
             raise RuntimeError(
-                "--install_header requires BUILD_WORKSPACE_DIRECTORY to be set, "
-                "which 'bazel run' does. Run this target with 'bazel run', or copy "
-                f"{cpp_path} into {_CPP_HEADER_INSTALL_DIR} by hand."
+                "--install_header requires BUILD_WORKSPACE_DIRECTORY to be"
+                " set, which 'bazel run' does. Run this target with 'bazel"
+                f" run', or copy {cpp_path} into {_CPP_HEADER_INSTALL_DIR} by"
+                " hand."
             )
         install_path = install_header(
             cpp_path,

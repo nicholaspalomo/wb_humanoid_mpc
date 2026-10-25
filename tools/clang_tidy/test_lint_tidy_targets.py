@@ -87,7 +87,9 @@ def _runfile(relative_path: str) -> str:
             os.path.join(os.environ["TEST_SRCDIR"], "_main"),
             os.environ["TEST_SRCDIR"],
         ]
-    roots.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+    roots.append(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
+    )
     for root in roots:
         candidate = os.path.join(root, relative_path)
         if os.path.exists(candidate):
@@ -116,7 +118,9 @@ class LintTidyTargetsTest(unittest.TestCase):
         # pylint: disable-next=consider-using-with  # tearDown() deletes it.
         self._directory = tempfile.TemporaryDirectory()
         self.checkout = self._directory.name
-        shutil.copy(_runfile("Makefile"), os.path.join(self.checkout, "Makefile"))
+        shutil.copy(
+            _runfile("Makefile"), os.path.join(self.checkout, "Makefile")
+        )
         _write_executable(os.path.join(self.checkout, "setup_env.sh"), "true\n")
         stand_ins = os.path.join(self.checkout, "bin")
         os.mkdir(stand_ins)
@@ -125,7 +129,9 @@ class LintTidyTargetsTest(unittest.TestCase):
         self.log = os.path.join(self.checkout, "log")
         os.mkdir(self.log)
         self.environment = {
-            "PATH": stand_ins + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin"),
+            "PATH": stand_ins
+            + os.pathsep
+            + os.environ.get("PATH", "/usr/bin:/bin"),
             "FAKE_LOG": self.log,
             "HOME": self.checkout,
         }
@@ -137,7 +143,9 @@ class LintTidyTargetsTest(unittest.TestCase):
         shutil.rmtree(self.log)
         os.mkdir(self.log)
 
-    def _make(self, target: str, variables: tuple[str, ...], **environment: str) -> int:
+    def _make(
+        self, target: str, variables: tuple[str, ...], **environment: str
+    ) -> int:
         """Runs `make <target>` in the scratch checkout and returns its exit status."""
         completed = subprocess.run(
             ["make", "--no-print-directory", target, "PKG=//humanoid_nmpc/..."]
@@ -168,9 +176,13 @@ class LintTidyTargetsTest(unittest.TestCase):
                     self.assertEqual(content, token)
                     self.assertTrue(read.startswith(".bazel/"), read)
                     # The file of a run is deleted afterwards, so that runs leave nothing behind.
-                    self.assertFalse(os.path.exists(os.path.join(self.checkout, read)))
+                    self.assertFalse(
+                        os.path.exists(os.path.join(self.checkout, read))
+                    )
                 self.assertNotEqual(
-                    builds[0][0], builds[1][0], "two runs shared a build event file"
+                    builds[0][0],
+                    builds[1][0],
+                    "two runs shared a build event file",
                 )
 
     def test_a_named_file_is_used_and_kept(self) -> None:
@@ -178,18 +190,23 @@ class LintTidyTargetsTest(unittest.TestCase):
             with self.subTest(target=target):
                 kept = f".bazel/kept_{target}.json"
                 self.assertEqual(
-                    self._make(target, variables + (f"CLANG_TIDY_BEP={kept}",)), 0
+                    self._make(target, variables + (f"CLANG_TIDY_BEP={kept}",)),
+                    0,
                 )
                 builds = _read_lines(os.path.join(self.log, "bazel"))
                 reports = _read_lines(os.path.join(self.log, "python3"))
                 self.assertEqual(builds[-1][0], kept)
                 self.assertEqual(reports[-1][1], kept)
-                self.assertTrue(os.path.exists(os.path.join(self.checkout, kept)))
+                self.assertTrue(
+                    os.path.exists(os.path.join(self.checkout, kept))
+                )
 
     def test_a_failure_of_either_step_fails_the_target(self) -> None:
         for target, variables, _ in _TARGETS:
             with self.subTest(target=target, failing="bazel"):
-                reports_before = len(_read_lines(os.path.join(self.log, "python3")))
+                reports_before = len(
+                    _read_lines(os.path.join(self.log, "python3"))
+                )
                 self.assertNotEqual(
                     self._make(target, variables, FAKE_BAZEL_STATUS="1"), 0
                 )

@@ -46,17 +46,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_model/RobotState.h"
 
 /*
- * The robot backends by name: `mujoco` builds the simulator from the options the robot process gathers (without a
- * viewer here, on the Atlas scene), an unknown name is refused with the available ones, and a new backend is one add().
+ * The robot backends by name: `mujoco` builds the simulator from the options
+ * the robot process gathers (without a viewer here, on the Atlas scene), an
+ * unknown name is refused with the available ones, and a new backend is one
+ * add().
  */
 
 namespace ocs2::humanoid {
 namespace {
 
 RobotBackendOptions atlasOptions() {
-  const robot::model::RobotDescription description = robot_test::atlasDescription();
+  const robot::model::RobotDescription description =
+      robot_test::atlasDescription();
   const ModelSettings modelSettings =
-      ModelSettings::Create(robot_test::kAtlasTask, robot_test::kAtlasUrdf, "centroidal_mpc_", /*verbose=*/false).value();
+      ModelSettings::Create(robot_test::kAtlasTask, robot_test::kAtlasUrdf,
+                            "centroidal_mpc_", /*verbose=*/false)
+          .value();
   RobotBackendOptions options;
   options.robotName = "drc_atlas";
   options.urdfFile = robot_test::kAtlasUrdf;
@@ -75,17 +80,22 @@ TEST(RobotBackendRegistry, TheMujocoBackendIsBuiltByName) {
   const RobotBackendRegistry registry;
   EXPECT_TRUE(registry.has("mujoco"));
   EXPECT_EQ(registry.names(), std::vector<std::string>{"mujoco"});
-  absl::StatusOr<std::unique_ptr<RobotBackend>> backend = registry.create("mujoco", atlasOptions());
+  absl::StatusOr<std::unique_ptr<RobotBackend>> backend =
+      registry.create("mujoco", atlasOptions());
   ASSERT_TRUE(backend.ok()) << backend.status();
   EXPECT_EQ((*backend)->name(), "mujoco");
   ASSERT_NE((*backend)->simulator(), nullptr);
-  EXPECT_TRUE((*backend)->simulator()->isGantryLocked()) << "the robot starts on the gantry";
+  EXPECT_TRUE((*backend)->simulator()->isGantryLocked())
+      << "the robot starts on the gantry";
   EXPECT_FALSE((*backend)->acceptsJointAction()) << "and with its torques off";
   const absl::Status initialized = (*backend)->initialize();
   ASSERT_TRUE(initialized.ok()) << initialized;
-  EXPECT_EQ((*backend)->simulator()->activeViewerName(), robot::mujoco_sim_interface::kNoViewerName);
+  EXPECT_EQ((*backend)->simulator()->activeViewerName(),
+            robot::mujoco_sim_interface::kNoViewerName);
   (*backend)->hardware().updateInterfaceStateFromRobot();
-  EXPECT_GT((*backend)->hardware().getRobotState().getRootPositionInWorldFrame().z(), 0.5);
+  EXPECT_GT(
+      (*backend)->hardware().getRobotState().getRootPositionInWorldFrame().z(),
+      0.5);
 
   // The contact estimator only a simulator has.
   robot::model::ContactEstimatorRegistry estimators;
@@ -99,37 +109,50 @@ TEST(RobotBackendRegistry, TheMujocoBackendIsBuiltByName) {
 
 TEST(RobotBackendRegistry, AnUnknownNameListsTheAvailableOnes) {
   const RobotBackendRegistry registry;
-  const absl::StatusOr<std::unique_ptr<RobotBackend>> backend = registry.create("hardware_v2", atlasOptions());
+  const absl::StatusOr<std::unique_ptr<RobotBackend>> backend =
+      registry.create("hardware_v2", atlasOptions());
   EXPECT_EQ(backend.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_NE(backend.status().message().find("hardware_v2"), std::string::npos);
-  EXPECT_NE(backend.status().message().find("mujoco"), std::string::npos) << backend.status().message();
+  EXPECT_NE(backend.status().message().find("mujoco"), std::string::npos)
+      << backend.status().message();
 }
 
 TEST(RobotBackendRegistry, ANewBackendIsOneAdd) {
   RobotBackendRegistry registry;
   bool built = false;
-  registry.add("replay", "a recorded robot", [&](const RobotBackendOptions&) -> absl::StatusOr<std::unique_ptr<RobotBackend>> {
-    built = true;
-    return absl::UnimplementedError("a test backend");
-  });
+  registry.add("replay", "a recorded robot",
+               [&](const RobotBackendOptions&)
+                   -> absl::StatusOr<std::unique_ptr<RobotBackend>> {
+                 built = true;
+                 return absl::UnimplementedError("a test backend");
+               });
   EXPECT_TRUE(registry.has("replay"));
-  EXPECT_NE(registry.availableNames().find("replay (a recorded robot)"), std::string::npos);
-  EXPECT_EQ(registry.create("replay", atlasOptions()).status().code(), absl::StatusCode::kUnimplemented);
+  EXPECT_NE(registry.availableNames().find("replay (a recorded robot)"),
+            std::string::npos);
+  EXPECT_EQ(registry.create("replay", atlasOptions()).status().code(),
+            absl::StatusCode::kUnimplemented);
   EXPECT_TRUE(built);
 }
 
 TEST(MujocoRobotBackend, ASimulatorThatDoesNotStartIsRefusedWithItsScene) {
   RobotBackendOptions options = atlasOptions();
-  options.mjcfFile = "robot_models/drc_atlas/drc_atlas_description/urdf/no_such_scene.xml";
-  const absl::StatusOr<std::unique_ptr<MujocoRobotBackend>> backend = MujocoRobotBackend::Create(options);
+  options.mjcfFile =
+      "robot_models/drc_atlas/drc_atlas_description/urdf/no_such_scene.xml";
+  const absl::StatusOr<std::unique_ptr<MujocoRobotBackend>> backend =
+      MujocoRobotBackend::Create(options);
   EXPECT_EQ(backend.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_NE(backend.status().message().find("the MuJoCo simulator did not start on " + options.mjcfFile), std::string::npos)
+  EXPECT_NE(backend.status().message().find(
+                "the MuJoCo simulator did not start on " + options.mjcfFile),
+            std::string::npos)
       << backend.status().message();
 
-  // A URDF the robot description refuses keeps the code RobotDescription::Create() gave it.
+  // A URDF the robot description refuses keeps the code
+  // RobotDescription::Create() gave it.
   options = atlasOptions();
-  options.urdfFile = "robot_models/drc_atlas/drc_atlas_description/urdf/no_such_robot.urdf";
-  EXPECT_EQ(MujocoRobotBackend::Create(options).status().code(), absl::StatusCode::kNotFound);
+  options.urdfFile =
+      "robot_models/drc_atlas/drc_atlas_description/urdf/no_such_robot.urdf";
+  EXPECT_EQ(MujocoRobotBackend::Create(options).status().code(),
+            absl::StatusCode::kNotFound);
 }
 
 TEST(MujocoRobotBackend, TheSimulatorConfigurationComesFromTheOptions) {
@@ -138,10 +161,13 @@ TEST(MujocoRobotBackend, TheSimulatorConfigurationComesFromTheOptions) {
   options.simulator.projectile = "dodgeball";
   options.simulator.ragdollJointDamping = 12.5;
   options.simulator.autoResetBaseHeight = 0.3;
-  absl::StatusOr<robot::mujoco_sim_interface::MujocoSimConfig> config = MujocoRobotBackend::makeConfig(options);
+  absl::StatusOr<robot::mujoco_sim_interface::MujocoSimConfig> config =
+      MujocoRobotBackend::makeConfig(options);
   ASSERT_TRUE(config.ok()) << config.status();
   EXPECT_EQ(config->scenePath, robot_test::kAtlasScene);
-  EXPECT_EQ(config->viewer.names, std::vector<std::string>{robot::mujoco_sim_interface::kNoViewerName});
+  EXPECT_EQ(
+      config->viewer.names,
+      std::vector<std::string>{robot::mujoco_sim_interface::kNoViewerName});
   EXPECT_DOUBLE_EQ(config->contactForceThreshold, 7.0);
   EXPECT_EQ(config->gantryHold, "kinematic_teleport");
   EXPECT_EQ(config->projectile, "dodgeball");
@@ -151,48 +177,61 @@ TEST(MujocoRobotBackend, TheSimulatorConfigurationComesFromTheOptions) {
   if (!config->initialState.has_value()) {
     FAIL() << "the task file sets an initial state";
   }
-  EXPECT_DOUBLE_EQ(config->initialState->getRootPositionInWorldFrame().z(), 0.95);
+  EXPECT_DOUBLE_EQ(config->initialState->getRootPositionInWorldFrame().z(),
+                   0.95);
 
   // Without visualizations named, the viewer's default set.
   options.simulator.visualizations.reset();
-  EXPECT_EQ(MujocoRobotBackend::makeConfig(options)->visualizations, robot::mujoco_sim_interface::defaultVisualizationNames());
+  EXPECT_EQ(MujocoRobotBackend::makeConfig(options)->visualizations,
+            robot::mujoco_sim_interface::defaultVisualizationNames());
 
   options.simulator.gantryHold = "rope";
-  EXPECT_FALSE(MujocoRobotBackend::makeConfig(options).ok()) << "an unknown gantry hold";
+  EXPECT_FALSE(MujocoRobotBackend::makeConfig(options).ok())
+      << "an unknown gantry hold";
   options = atlasOptions();
   options.mjcfFile.clear();
-  EXPECT_EQ(MujocoRobotBackend::makeConfig(options).status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(MujocoRobotBackend::makeConfig(options).status().code(),
+            absl::StatusCode::kInvalidArgument);
   options = atlasOptions();
   options.initialState.reset();
-  EXPECT_EQ(MujocoRobotBackend::makeConfig(options).status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(MujocoRobotBackend::makeConfig(options).status().code(),
+            absl::StatusCode::kInvalidArgument);
 }
 
 TEST(MujocoRobotBackend, TheViewerSettingsAreCopiedAndChecked) {
   RobotBackendOptions options = atlasOptions();
-  options.viewer.names = {robot::mujoco_sim_interface::kWebViewerName, robot::mujoco_sim_interface::kNoViewerName};
+  options.viewer.names = {robot::mujoco_sim_interface::kWebViewerName,
+                          robot::mujoco_sim_interface::kNoViewerName};
   options.viewer.web.port = 0;
   options.viewer.web.allowedHosts = {"robot.lan"};
   options.viewer.web.cores = {2, 3};
   options.viewer.web.eglDeviceId = 1;
-  absl::StatusOr<robot::mujoco_sim_interface::MujocoSimConfig> config = MujocoRobotBackend::makeConfig(options);
+  absl::StatusOr<robot::mujoco_sim_interface::MujocoSimConfig> config =
+      MujocoRobotBackend::makeConfig(options);
   ASSERT_TRUE(config.ok()) << config.status();
   EXPECT_EQ(config->viewer.names, (std::vector<std::string>{"web", "none"}));
   EXPECT_EQ(config->viewer.web.port, 0);
-  EXPECT_EQ(config->viewer.web.allowedHosts, std::vector<std::string>{"robot.lan"});
+  EXPECT_EQ(config->viewer.web.allowedHosts,
+            std::vector<std::string>{"robot.lan"});
   EXPECT_EQ(config->viewer.web.cores, (std::vector<int>{2, 3}));
   EXPECT_EQ(config->viewer.web.eglDeviceId, 1);
 
-  // A list the registry refuses is refused before anything is built, and so is a web option out of its range.
+  // A list the registry refuses is refused before anything is built, and so is
+  // a web option out of its range.
   options = atlasOptions();
   options.viewer.names = {"vnc"};
   const absl::Status unknown = MujocoRobotBackend::checkOptions(options);
   EXPECT_EQ(unknown.code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_NE(unknown.message().find("glfw, web, none"), std::string::npos) << unknown;
+  EXPECT_NE(unknown.message().find("glfw, web, none"), std::string::npos)
+      << unknown;
   options.viewer.names = {"glfw", "none"};
-  EXPECT_EQ(MujocoRobotBackend::checkOptions(options).code(), absl::StatusCode::kInvalidArgument) << "nothing after glfw";
+  EXPECT_EQ(MujocoRobotBackend::checkOptions(options).code(),
+            absl::StatusCode::kInvalidArgument)
+      << "nothing after glfw";
   options = atlasOptions();
   options.viewer.web.fps = 0;
-  EXPECT_EQ(MujocoRobotBackend::checkOptions(options).code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(MujocoRobotBackend::checkOptions(options).code(),
+            absl::StatusCode::kInvalidArgument);
 }
 
 }  // namespace

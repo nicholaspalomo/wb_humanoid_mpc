@@ -45,14 +45,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * [Hz] The control frequency of the realtime loop of a robot process over an MrtRobotController when the task file sets
- * no positive mrt_desired_frequency.
+ * [Hz] The control frequency of the realtime loop of a robot process over an
+ * MrtRobotController when the task file sets no positive mrt_desired_frequency.
  */
 inline constexpr scalar_t kMrtFallbackControlFrequency = 100.0;
 
 /**
- * The order in which a cycle hands its mode and posture to the controller, per formulation: the centroidal robot process
- * sets the mode first, the whole-body robot process the posture first.
+ * The order in which a cycle hands its mode and posture to the controller, per
+ * formulation: the centroidal robot process sets the mode first, the whole-body
+ * robot process the posture first.
  */
 enum class CycleInputOrder {
   kModeThenPosture,
@@ -60,21 +61,24 @@ enum class CycleInputOrder {
 };
 
 /**
- * RobotController over an MRT joint controller of either formulation; both have the same interface. Owns the
- * controller.
+ * RobotController over an MRT joint controller of either formulation; both have
+ * the same interface. Owns the controller.
  *
  * Not thread-safe: the realtime thread drives it, as RobotController says.
  */
 template <typename Controller>
 class MrtRobotController final : public RobotController {
  public:
-  MrtRobotController(std::unique_ptr<Controller> controller, CycleInputOrder inputOrder)
+  MrtRobotController(std::unique_ptr<Controller> controller,
+                     CycleInputOrder inputOrder)
       : controller_(std::move(controller)), inputOrder_(inputOrder) {}
 
   Controller& controller() { return *controller_; }
   const Controller& controller() const { return *controller_; }
 
-  void prepareCycle(absl::string_view controlMode, const std::vector<scalar_t>& nominalJointPositions) override {
+  void prepareCycle(
+      absl::string_view controlMode,
+      const std::vector<scalar_t>& nominalJointPositions) override {
     if (inputOrder_ == CycleInputOrder::kModeThenPosture) {
       controller_->setControlMode(controlMode);
       controller_->setNominalJointPositions(nominalJointPositions);
@@ -84,32 +88,54 @@ class MrtRobotController final : public RobotController {
     }
   }
 
-  void computeJointControlAction(const robot::model::RobotState& robotState, robot::model::RobotJointAction& jointAction) override {
-    controller_->computeJointControlAction(/*time=*/0.0, robotState, jointAction);
+  void computeJointControlAction(
+      const robot::model::RobotState& robotState,
+      robot::model::RobotJointAction& jointAction) override {
+    controller_->computeJointControlAction(/*time=*/0.0, robotState,
+                                           jointAction);
   }
 
   std::optional<contact_flag_t> plannedContactFlags() const override {
-    return controller_->getPlannedContactFlags(controller_->getCurrentObservation().time);
+    return controller_->getPlannedContactFlags(
+        controller_->getCurrentObservation().time);
   }
 
-  const contact_flag_t& measuredContactFlags() const override { return controller_->getMeasuredContactFlags(); }
+  const contact_flag_t& measuredContactFlags() const override {
+    return controller_->getMeasuredContactFlags();
+  }
   void requestMpcReset() override { controller_->requestMpcReset(); }
-  void requestMpcResetAndHold() override { controller_->requestMpcResetAndHold(); }
+  void requestMpcResetAndHold() override {
+    controller_->requestMpcResetAndHold();
+  }
   bool isMpcHealthy() const override { return controller_->isMpcHealthy(); }
 
-  void setContactEstimator(std::shared_ptr<robot::model::ContactEstimator> contactEstimator) override {
+  void setContactEstimator(std::shared_ptr<robot::model::ContactEstimator>
+                               contactEstimator) override {
     controller_->setContactEstimator(std::move(contactEstimator));
   }
-  const ContactWrenchGate::Config& contactWrenchGateConfig() const override { return controller_->getContactWrenchGate().getConfig(); }
-  void setContactWrenchGateConfig(const ContactWrenchGate::Config& config) override { controller_->setContactWrenchGateConfig(config); }
+  const ContactWrenchGate::Config& contactWrenchGateConfig() const override {
+    return controller_->getContactWrenchGate().getConfig();
+  }
+  void setContactWrenchGateConfig(
+      const ContactWrenchGate::Config& config) override {
+    controller_->setContactWrenchGateConfig(config);
+  }
 
-  absl::Status setPdGains(const mpc_config::JointPdGainsFile& gains) override { return controller_->setPdGains(gains); }
+  absl::Status setPdGains(const mpc_config::JointPdGainsFile& gains) override {
+    return controller_->setPdGains(gains);
+  }
   void pollPdGainsFile() override { controller_->pollPdGainsFile(); }
 
-  void setEventSink(ControllerEventSink* absl_nullable eventSink) override { controller_->setEventSink(eventSink); }
-  void startMpc(const robot::model::RobotState& initialState) override { controller_->startMpcThread(initialState); }
+  void setEventSink(ControllerEventSink* absl_nullable eventSink) override {
+    controller_->setEventSink(eventSink);
+  }
+  void startMpc(const robot::model::RobotState& initialState) override {
+    controller_->startMpcThread(initialState);
+  }
   bool policyReady() override { return controller_->ready(); }
-  const std::vector<std::string>& robotJointNames() const override { return controller_->getRobotJointNames(); }
+  const std::vector<std::string>& robotJointNames() const override {
+    return controller_->getRobotJointNames();
+  }
 
  private:
   std::unique_ptr<Controller> controller_;

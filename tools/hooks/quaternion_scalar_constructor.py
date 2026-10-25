@@ -66,7 +66,8 @@ def in_scope(path: str) -> bool:
     """True for a file under humanoid_nmpc/ outside an orientation/ directory (`path` relative to the root)."""
     path = lint_files.normalize(path)
     return (
-        path.startswith("humanoid_nmpc/") and "orientation" not in path.split("/")[:-1]
+        path.startswith("humanoid_nmpc/")
+        and "orientation" not in path.split("/")[:-1]
     )
 
 
@@ -75,13 +76,18 @@ def _declares_parameters(argument: tuple[cpp_source.Token, ...]) -> bool:
     if argument and argument[0].text in _KEYWORDS_OF_A_DECLARATION:
         return True
     for first, second in zip(argument, argument[1:]):
-        if first.kind == cpp_source.IDENTIFIER and second.kind == cpp_source.IDENTIFIER:
+        if (
+            first.kind == cpp_source.IDENTIFIER
+            and second.kind == cpp_source.IDENTIFIER
+        ):
             return True
     return False
 
 
 def _type_end(
-    tokens: tuple[cpp_source.Token, ...], k: int, aliases: frozenset[str] = frozenset()
+    tokens: tuple[cpp_source.Token, ...],
+    k: int,
+    aliases: frozenset[str] = frozenset(),
 ) -> int | None:
     """The index of the last token of the quaternion type that starts at tokens[k], or None when none starts there.
 
@@ -136,7 +142,8 @@ def _quaternion_aliases(tokens: tuple[cpp_source.Token, ...]) -> frozenset[str]:
         if token.text not in ("using", "typedef"):
             continue
         end = next(
-            (j for j in range(k, len(tokens)) if tokens[j].text == ";"), len(tokens)
+            (j for j in range(k, len(tokens)) if tokens[j].text == ";"),
+            len(tokens),
         )
         if (
             token.text == "using"
@@ -174,7 +181,9 @@ def _findings(source: str, path: str) -> list[check_types.Finding]:
         arguments = cpp_source.call_arguments(tokens, opening)
         if arguments is None or len(arguments) != 4:
             continue
-        if declarator and any(_declares_parameters(argument) for argument in arguments):
+        if declarator and any(
+            _declares_parameters(argument) for argument in arguments
+        ):
             continue  # A function of four parameters that returns a quaternion.
         findings.append(
             check_types.Finding(
@@ -182,8 +191,10 @@ def _findings(source: str, path: str) -> list[check_types.Finding]:
                 tokens[k].line,
                 tokens[k].col,
                 NAME,
-                f"`{tokens[k].text}` from four scalars takes (w, x, y, z), the scalar part first, while the state stores "
-                "(x, y, z, w); build it from the coefficients, quaternion_t(vector4_t(x, y, z, w)).",
+                f"`{tokens[k].text}` from four scalars takes (w, x, y, z), the"
+                " scalar part first, while the state stores (x, y, z, w);"
+                " build it from the coefficients, quaternion_t(vector4_t(x, y,"
+                " z, w)).",
             )
         )
     return findings
@@ -195,9 +206,16 @@ CHECKS = [
         languages=frozenset({check_types.Language.CPP}),
         scope=lint_files.Scope.FIRST_PARTY,
         check_source=_findings,
-        description="no quaternion built from four scalars under humanoid_nmpc/ outside orientation/: Eigen's "
-        "(w, x, y, z) order is not the state's (x, y, z, w) (humanoid_nmpc/docs/quaternion_base_orientation/README.md).",
-        hint="Build the quaternion from its coefficient vector in the storage order, quaternion_t(vector4_t(x, y, z, w)), "
-        "or use a helper of humanoid_common_mpc/orientation/.",
+        description=(
+            "no quaternion built from four scalars under humanoid_nmpc/ outside"
+            " orientation/: Eigen's (w, x, y, z) order is not the state's (x,"
+            " y, z, w)"
+            " (humanoid_nmpc/docs/quaternion_base_orientation/README.md)."
+        ),
+        hint=(
+            "Build the quaternion from its coefficient vector in the storage"
+            " order, quaternion_t(vector4_t(x, y, z, w)), or use a helper of"
+            " humanoid_common_mpc/orientation/."
+        ),
     ),
 ]

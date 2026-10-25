@@ -61,7 +61,11 @@ FILE_MESSAGES = (
 )
 REGISTRIES = {
     "contact_estimator": ("cheater_sim", "always_in_contact"),
-    "mpc_costs": ("terminal_cost", "dcm_terminal_cost", "com_and_acom_tracking_cost"),
+    "mpc_costs": (
+        "terminal_cost",
+        "dcm_terminal_cost",
+        "com_and_acom_tracking_cost",
+    ),
 }
 
 TEXT = """# proto-file: humanoid_nmpc/remote_control/test/tuning_test_file.proto
@@ -89,7 +93,9 @@ conditional_block { weight: 4 }
 """
 
 
-def _parse(text: str = TEXT) -> tuple[Any, textproto_document.TextprotoDocument]:
+def _parse(
+    text: str = TEXT,
+) -> tuple[Any, textproto_document.TextprotoDocument]:
     message = tuning_test_file_pb2.TuningTestFile()
     nproto_textproto.parse_textproto(text, message, "tuning.textproto")
     return message, textproto_document.parse(text, "tuning.textproto")
@@ -179,17 +185,22 @@ class WalkTest(unittest.TestCase):
         )
         self.assertEqual(self.specs["ratio"].value, 0.5)
         self.assertIsNone(self.specs["offset"].value)
-        self.assertEqual(self.specs["offset"].source, config_schema.ValueSource.UNSET)
+        self.assertEqual(
+            self.specs["offset"].source, config_schema.ValueSource.UNSET
+        )
         # The fields of a block the file leaves out, with their defaults.
         self.assertEqual(self.specs["conditional.rate"].value, 2.0)
         self.assertEqual(
-            self.specs["conditional.rate"].source, config_schema.ValueSource.DEFAULT
+            self.specs["conditional.rate"].source,
+            config_schema.ValueSource.DEFAULT,
         )
         self.assertEqual(
-            self.specs["weights.position.y"].source, config_schema.ValueSource.DEFAULT
+            self.specs["weights.position.y"].source,
+            config_schema.ValueSource.DEFAULT,
         )
         self.assertEqual(
-            self.specs["points[1].height"].source, config_schema.ValueSource.DEFAULT
+            self.specs["points[1].height"].source,
+            config_schema.ValueSource.DEFAULT,
         )
 
     def test_an_absent_optional_block_and_a_deprecated_field_are_left_out(self):
@@ -231,7 +242,8 @@ class WalkTest(unittest.TestCase):
         )
         position = self.specs["weights.position.z"].tuning
         self.assertEqual(
-            (position.unit, position.slider_min, position.slider_max), ("m", 0.0, 10.0)
+            (position.unit, position.slider_min, position.slider_max),
+            ("m", 0.0, 10.0),
         )
         orientation = self.specs["weights.orientation.roll"].tuning
         self.assertEqual(
@@ -239,7 +251,9 @@ class WalkTest(unittest.TestCase):
             ("rad", config_schema.RELOAD_START_UP),
         )
         self.assertTrue(self.specs["weights.scaling"].tuning.log_scale)
-        self.assertEqual(self.specs["estimator"].tuning.registry, "contact_estimator")
+        self.assertEqual(
+            self.specs["estimator"].tuning.registry, "contact_estimator"
+        )
         self.assertEqual(
             self.specs["weights.joints[joint=back_bkz].value"].tuning,
             config_schema.Tuning(),
@@ -255,7 +269,9 @@ class WalkTest(unittest.TestCase):
                 )
                 self.assertFalse(self.specs[path].renders)
         weight = self.specs["conditional_block.weight"].tuning
-        self.assertEqual((weight.unit, weight.reload), ("kg", config_schema.RELOAD_HOT))
+        self.assertEqual(
+            (weight.unit, weight.reload), ("kg", config_schema.RELOAD_HOT)
+        )
         # The formulations are inherited like the reload class, and a field that names its own replaces the block's.
         inherited = self.specs["formulation_block.weight"].tuning
         self.assertEqual(
@@ -263,7 +279,9 @@ class WalkTest(unittest.TestCase):
             ((config_schema.WHOLE_BODY,), config_schema.RELOAD_HOT),
         )
         self.assertEqual(
-            self.specs["formulation_block.centroidal_weight"].tuning.formulations,
+            self.specs[
+                "formulation_block.centroidal_weight"
+            ].tuning.formulations,
             (config_schema.CENTROIDAL,),
         )
         self.assertEqual(self.specs["gain"].tuning.formulations, ())
@@ -287,11 +305,9 @@ class WalkTest(unittest.TestCase):
         self.assertEqual(inherited.minimum, 10.0)
 
         # kp sets minimum = 0, so it overrides parent.minimum.
-        leaf_field = (
-            joint_pd_gains_file_pb2.JointPdGainsFile.Gains.DESCRIPTOR.fields_by_name[
-                "kp"
-            ]
-        )
+        leaf_field = joint_pd_gains_file_pb2.JointPdGainsFile.Gains.DESCRIPTOR.fields_by_name[
+            "kp"
+        ]
         overridden = config_schema.inherit(parent, leaf_field)
         self.assertEqual(overridden.minimum, 0.0)
 
@@ -304,7 +320,9 @@ class WalkTest(unittest.TestCase):
         parent = config_schema.Tuning(base_controller_label="Block")
         for name in ("terrain_height", "multiple_shooting"):
             with self.subTest(field=name):
-                inherited = config_schema.inherit(parent, task.fields_by_name[name])
+                inherited = config_schema.inherit(
+                    parent, task.fields_by_name[name]
+                )
                 self.assertEqual(inherited.base_controller_label, "")
         # Only choices carry one in the shipped task schema, so that the Base Controller tab can offer each as a
         # drop-down.
@@ -315,11 +333,16 @@ class WalkTest(unittest.TestCase):
 
     def test_tabs_of_top_level_blocks(self):
         self.assertEqual(
-            (self.specs["weights.scaling"].tab, self.specs["weights.scaling"].order),
+            (
+                self.specs["weights.scaling"].tab,
+                self.specs["weights.scaling"].order,
+            ),
             ("Weights", 2),
         )
         self.assertEqual(self.specs["weights.scaling"].block, "weights")
-        self.assertEqual((self.specs["gain"].tab, self.specs["gain"].block), ("", ""))
+        self.assertEqual(
+            (self.specs["gain"].tab, self.specs["gain"].block), ("", "")
+        )
         self.assertEqual(self.specs["initial.scaling"].tab, "Weights")
         self.assertEqual(self.specs["points[0].time"].tab, "")
 
@@ -337,7 +360,8 @@ class WalkTest(unittest.TestCase):
 
     def test_choices(self):
         self.assertEqual(
-            self.specs["mode"].choices, ("MODE_UNSPECIFIED", "MODE_WALK", "MODE_STAND")
+            self.specs["mode"].choices,
+            ("MODE_UNSPECIFIED", "MODE_WALK", "MODE_STAND"),
         )
         self.assertEqual(
             self.specs["estimator"].choices, REGISTRIES["contact_estimator"]
@@ -345,7 +369,8 @@ class WalkTest(unittest.TestCase):
         self.assertEqual(self.specs["costs"].choices, REGISTRIES["mpc_costs"])
         message, document = _parse()
         unknown = {
-            spec.path: spec for spec in config_schema.parameters(message, document)
+            spec.path: spec
+            for spec in config_schema.parameters(message, document)
         }
         self.assertIsNone(unknown["estimator"].choices)
         self.assertIsNone(self.specs["gain"].choices)
@@ -357,14 +382,22 @@ class RangeAndLabelTest(unittest.TestCase):
         self.assertEqual(config_schema.slider_range(2.0, plain), (0.0, 8.0))
         self.assertEqual(config_schema.slider_range(0.1, plain), (0.0, 1.0))
         self.assertEqual(config_schema.slider_range(-3.0, plain), (-12.0, 12.0))
-        self.assertEqual(config_schema.slider_range(math.nan, plain), (0.0, 1.0))
+        self.assertEqual(
+            config_schema.slider_range(math.nan, plain), (0.0, 1.0)
+        )
         logarithmic = config_schema.Tuning(log_scale=True)
-        self.assertEqual(config_schema.slider_range(10.0, logarithmic), (0.1, 1000.0))
-        self.assertEqual(config_schema.slider_range(0.0, logarithmic), (0.01, 100.0))
+        self.assertEqual(
+            config_schema.slider_range(10.0, logarithmic), (0.1, 1000.0)
+        )
+        self.assertEqual(
+            config_schema.slider_range(0.0, logarithmic), (0.01, 100.0)
+        )
         bounded = config_schema.Tuning(slider_min=-1.0)
         self.assertEqual(config_schema.slider_range(2.0, bounded), (-1.0, 8.0))
         specs = _specs()
-        self.assertEqual(specs["weights.position.x"].slider_range(), (0.0, 10.0))
+        self.assertEqual(
+            specs["weights.position.x"].slider_range(), (0.0, 10.0)
+        )
         self.assertEqual(specs["count"].slider_range(), (0.0, 8.0))
         self.assertIsNone(specs["mode"].slider_range())
         self.assertEqual(specs["offset"].slider_range(), (0.0, 1.0))
@@ -372,7 +405,9 @@ class RangeAndLabelTest(unittest.TestCase):
     def test_conditions(self):
         message, _ = _parse()
         specs = _specs()
-        self.assertTrue(config_schema.is_active(specs["stand_height"].tuning, message))
+        self.assertTrue(
+            config_schema.is_active(specs["stand_height"].tuning, message)
+        )
         self.assertFalse(
             config_schema.is_active(specs["conditional.rate"].tuning, message)
         )
@@ -385,13 +420,19 @@ class RangeAndLabelTest(unittest.TestCase):
         walking, _ = _parse(
             TEXT.replace("mode: MODE_STAND", "mode: MODE_WALK\nenabled: true")
         )
-        self.assertFalse(config_schema.is_active(specs["stand_height"].tuning, walking))
+        self.assertFalse(
+            config_schema.is_active(specs["stand_height"].tuning, walking)
+        )
         self.assertTrue(
-            config_schema.is_active(specs["conditional_block.weight"].tuning, walking)
+            config_schema.is_active(
+                specs["conditional_block.weight"].tuning, walking
+            )
         )
         self.assertEqual(config_schema.condition_value(message, "count"), "2")
         self.assertEqual(config_schema.condition_value(message, "gain"), "3.5")
-        self.assertEqual(config_schema.condition_value(message, "enabled"), "false")
+        self.assertEqual(
+            config_schema.condition_value(message, "enabled"), "false"
+        )
         self.assertEqual(
             config_schema.condition_value(message, "weights.position.x"), "1.0"
         )
@@ -400,7 +441,9 @@ class RangeAndLabelTest(unittest.TestCase):
         )
         self.assertTrue(config_schema.is_active(numeric, message))
         for path in ("nope", "weights", "costs", "weights.joints"):
-            with self.subTest(path=path), self.assertRaises(config_schema.SchemaError):
+            with self.subTest(path=path), self.assertRaises(
+                config_schema.SchemaError
+            ):
                 config_schema.condition_value(message, path)
 
     def test_annotations_and_display_labels(self):
@@ -421,20 +464,27 @@ class RangeAndLabelTest(unittest.TestCase):
             "joints[back_bkz]",
         )
         self.assertEqual(
-            config_schema.display_label(specs["costs"], message), "costs (restart)"
+            config_schema.display_label(specs["costs"], message),
+            "costs (restart)",
         )
         self.assertEqual(
-            config_schema.display_label(specs["enabled"], message), "enabled (default)"
+            config_schema.display_label(specs["enabled"], message),
+            "enabled (default)",
         )
         self.assertEqual(
-            config_schema.display_label(specs["offset"], message), "offset (unset)"
+            config_schema.display_label(specs["offset"], message),
+            "offset (unset)",
         )
         self.assertEqual(
-            config_schema.display_label(specs["weights.orientation.yaw"], message),
+            config_schema.display_label(
+                specs["weights.orientation.yaw"], message
+            ),
             "orientation.yaw (rad) (restart; default)",
         )
         self.assertEqual(
-            config_schema.annotations(specs["conditional_block.weight"], message),
+            config_schema.annotations(
+                specs["conditional_block.weight"], message
+            ),
             ["not applicable: enabled is false"],
         )
         self.assertEqual(config_schema.annotations(specs["count"], message), [])
@@ -448,18 +498,26 @@ class RangeAndLabelTest(unittest.TestCase):
 
     def test_a_hot_field_is_live_on_every_formulation(self):
         # There is no "restart" for want of a parameter updater: every formulation's MPC applies its hot fields.
-        hot = config_schema.Tuning(reload=config_schema.RELOAD_HOT, consumer="mpc")
+        hot = config_schema.Tuning(
+            reload=config_schema.RELOAD_HOT, consumer="mpc"
+        )
         start_up = config_schema.Tuning(reload=config_schema.RELOAD_START_UP)
-        for formulation_file in (_task(centroidal=True), _task(centroidal=False)):
+        for formulation_file in (
+            _task(centroidal=True),
+            _task(centroidal=False),
+        ):
             with self.subTest(
                 formulation=config_schema.formulation_of(formulation_file)
             ):
                 self.assertNotIn(
-                    "restart", config_schema.annotations(_spec(hot), formulation_file)
+                    "restart",
+                    config_schema.annotations(_spec(hot), formulation_file),
                 )
                 self.assertIn(
                     "restart",
-                    config_schema.annotations(_spec(start_up), formulation_file),
+                    config_schema.annotations(
+                        _spec(start_up), formulation_file
+                    ),
                 )
 
     def test_a_task_file_field_of_another_formulation_is_not_applicable(self):
@@ -477,7 +535,8 @@ class RangeAndLabelTest(unittest.TestCase):
         )
         both = _spec(
             config_schema.Tuning(
-                reload=config_schema.RELOAD_HOT, formulations=config_schema.FORMULATIONS
+                reload=config_schema.RELOAD_HOT,
+                formulations=config_schema.FORMULATIONS,
             )
         )
         centroidal, whole_body = _task(centroidal=True), _task(centroidal=False)
@@ -546,7 +605,9 @@ class SchemaFieldsTest(unittest.TestCase):
                     self.assertNotIn("[*][*]", field.path)
         top_level = {
             field.path
-            for field in config_schema.schema_fields(task_file_pb2.TaskFile.DESCRIPTOR)
+            for field in config_schema.schema_fields(
+                task_file_pb2.TaskFile.DESCRIPTOR
+            )
         }
         self.assertIn("terrain_height", top_level)
         self.assertIn("contact_estimator", top_level)
@@ -586,7 +647,9 @@ class EditTest(unittest.TestCase):
             value = _edited_value(spec)
             with self.subTest(source=source, path=spec.path):
                 result = textproto_save.edit(
-                    document, message, [textproto_save.SetValue(spec.path, value)]
+                    document,
+                    message,
+                    [textproto_save.SetValue(spec.path, value)],
                 )
                 after = {
                     other.path: other
@@ -603,7 +666,9 @@ class EditTest(unittest.TestCase):
                         self.assertEqual(after[path].value, other.value, path)
 
     def test_the_test_schema(self):
-        self.check(tuning_test_file_pb2.TuningTestFile, TEXT, "tuning.textproto")
+        self.check(
+            tuning_test_file_pb2.TuningTestFile, TEXT, "tuning.textproto"
+        )
 
     def test_the_shipped_files(self):
         found = []
@@ -623,7 +688,9 @@ def _sample(items: list) -> list:
     """At most SAMPLE_SIZE of `items`, evenly spread, in order."""
     if len(items) <= SAMPLE_SIZE:
         return items
-    return [items[index * len(items) // SAMPLE_SIZE] for index in range(SAMPLE_SIZE)]
+    return [
+        items[index * len(items) // SAMPLE_SIZE] for index in range(SAMPLE_SIZE)
+    ]
 
 
 def _edited_value(spec: config_schema.ParameterSpec) -> Any:
@@ -650,7 +717,9 @@ def _shipped_files() -> list[tuple[str, Any]]:
             path = os.path.join(directory, name)
             with open(path, encoding="utf-8") as file:
                 header = nproto_textproto.header_message(file.read())
-            if header is None or not header[1].startswith("humanoid_mpc_config."):
+            if header is None or not header[1].startswith(
+                "humanoid_mpc_config."
+            ):
                 continue
             message_name = header[1].split(".", 1)[1]
             for message_class in FILE_MESSAGES:

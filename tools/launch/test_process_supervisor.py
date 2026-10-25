@@ -82,7 +82,10 @@ def sh(name: str, script: str, **settings: Any) -> launch_file.ProcessSpec:
 def python(name: str, script: str, **settings: Any) -> launch_file.ProcessSpec:
     """A process that runs the Python `script` with this interpreter; `settings` are further fields of ProcessSpec."""
     return launch_file.ProcessSpec(
-        name=name, machine="robot", command=(sys.executable, "-c", script), **settings
+        name=name,
+        machine="robot",
+        command=(sys.executable, "-c", script),
+        **settings,
     )
 
 
@@ -145,7 +148,10 @@ class SupervisorTestCase(unittest.TestCase):
 
         def watch() -> None:
             deadline = time.monotonic() + TIMEOUT_S
-            while text not in self.output.getvalue() and time.monotonic() < deadline:
+            while (
+                text not in self.output.getvalue()
+                and time.monotonic() < deadline
+            ):
                 time.sleep(0.01)
             for signum in signals:
                 supervisor.request_shutdown(signum)
@@ -193,27 +199,38 @@ class OutputTest(SupervisorTestCase):
                 self.assertIn(expected, lines)
         self.assertIn("[launch] every process has exited", lines)
 
-    def test_colors_are_ansi_codes_around_the_prefix_only_when_asked(self) -> None:
+    def test_colors_are_ansi_codes_around_the_prefix_only_when_asked(
+        self,
+    ) -> None:
         colored = process_supervisor.OutputSink(io.StringIO(), "always", {})
-        self.assertRegex(colored.prefix("mpc", 0), r"^\x1b\[\d+m\[mpc\]\x1b\[0m$")
-        self.assertNotEqual(colored.prefix("mpc", 0), colored.prefix("robot", 1))
+        self.assertRegex(
+            colored.prefix("mpc", 0), r"^\x1b\[\d+m\[mpc\]\x1b\[0m$"
+        )
+        self.assertNotEqual(
+            colored.prefix("mpc", 0), colored.prefix("robot", 1)
+        )
         plain = process_supervisor.OutputSink(io.StringIO(), "never", {})
         self.assertEqual(plain.prefix("mpc", 0), "[mpc]")
         # auto: a StringIO is not a terminal.
         self.assertEqual(
-            process_supervisor.OutputSink(io.StringIO(), "auto", {}).prefix("mpc", 0),
+            process_supervisor.OutputSink(io.StringIO(), "auto", {}).prefix(
+                "mpc", 0
+            ),
             "[mpc]",
         )
         with self.assertRaises(ValueError):
             process_supervisor.OutputSink(io.StringIO(), "sometimes", {})
 
-    def test_processes_run_in_the_repository_root_with_their_environment(self) -> None:
+    def test_processes_run_in_the_repository_root_with_their_environment(
+        self,
+    ) -> None:
         status = self.run_supervisor(
             self.supervisor(
                 [
                     sh(
                         "env",
-                        'echo "cwd=$(pwd -P)"; echo "greeting=$GREETING"; echo "runfiles=${RUNFILES_DIR:-unset}"',
+                        'echo "cwd=$(pwd -P)"; echo "greeting=$GREETING"; echo'
+                        ' "runfiles=${RUNFILES_DIR:-unset}"',
                         env=(("GREETING", "hello"),),
                     )
                 ],
@@ -225,7 +242,9 @@ class OutputTest(SupervisorTestCase):
         )
         self.assertEqual(status, 0)
         output = self.output.getvalue()
-        self.assertIn(f"[env] cwd={os.path.realpath(self._directory.name)}", output)
+        self.assertIn(
+            f"[env] cwd={os.path.realpath(self._directory.name)}", output
+        )
         self.assertIn("[env] greeting=hello", output)
         self.assertIn("[env] runfiles=unset", output)
 
@@ -254,20 +273,30 @@ class ExitTest(SupervisorTestCase):
     ) -> None:
         status = self.run_supervisor(
             self.supervisor(
-                [sh("sleeper", "exec sleep 60"), sh("job", "exit 0", required=True)]
+                [
+                    sh("sleeper", "exec sleep 60"),
+                    sh("job", "exit 0", required=True),
+                ]
             )
         )
         self.assertEqual(status, 0)
-        self.assertIn("[launch] sleeper was killed by SIGINT", self.output.getvalue())
+        self.assertIn(
+            "[launch] sleeper was killed by SIGINT", self.output.getvalue()
+        )
 
     def test_a_process_that_is_not_required_may_fail(self) -> None:
         status = self.run_supervisor(
             self.supervisor(
-                [sh("flaky", "exit 4"), sh("job", "sleep 0.3; exit 0", required=True)]
+                [
+                    sh("flaky", "exit 4"),
+                    sh("job", "sleep 0.3; exit 0", required=True),
+                ]
             )
         )
         self.assertEqual(status, 0)
-        self.assertIn("[launch] flaky exited with code 4", self.output.getvalue())
+        self.assertIn(
+            "[launch] flaky exited with code 4", self.output.getvalue()
+        )
 
     def test_a_required_process_killed_by_a_signal_reports_128_plus_the_signal(
         self,
@@ -277,9 +306,13 @@ class ExitTest(SupervisorTestCase):
             self.supervisor([sh("crasher", "kill -USR1 $$", required=True)])
         )
         self.assertEqual(status, 128 + signal.SIGUSR1)
-        self.assertIn("[launch] crasher was killed by SIGUSR1", self.output.getvalue())
+        self.assertIn(
+            "[launch] crasher was killed by SIGUSR1", self.output.getvalue()
+        )
 
-    def test_a_required_program_that_does_not_exist_fails_with_127(self) -> None:
+    def test_a_required_program_that_does_not_exist_fails_with_127(
+        self,
+    ) -> None:
         missing = launch_file.ProcessSpec(
             name="ghost",
             machine="robot",
@@ -291,7 +324,8 @@ class ExitTest(SupervisorTestCase):
         )
         self.assertEqual(status, process_supervisor.EXIT_NOT_FOUND)
         self.assertIn(
-            "[launch] cannot start ghost: /nonexistent/program", self.output.getvalue()
+            "[launch] cannot start ghost: /nonexistent/program",
+            self.output.getvalue(),
         )
 
 
@@ -319,7 +353,9 @@ class TeardownTest(SupervisorTestCase):
 
     def test_a_child_that_ignores_sigint_gets_sigterm(self) -> None:
         supervisor = self.supervisor([python("stubborn", IGNORE_SIGINT)])
-        self.request_shutdown_after(supervisor, "[stubborn] ready", [signal.SIGINT])
+        self.request_shutdown_after(
+            supervisor, "[stubborn] ready", [signal.SIGINT]
+        )
         status = self.run_supervisor(supervisor)
         self.assertEqual(status, 0)
         output = self.output.getvalue()
@@ -329,8 +365,12 @@ class TeardownTest(SupervisorTestCase):
         self.assertGreaterEqual(self.elapsed, FAST_SHUTDOWN.sigint_grace_period)
 
     def test_a_child_that_ignores_sigint_and_sigterm_gets_sigkill(self) -> None:
-        supervisor = self.supervisor([python("immovable", IGNORE_SIGINT_AND_SIGTERM)])
-        self.request_shutdown_after(supervisor, "[immovable] ready", [signal.SIGINT])
+        supervisor = self.supervisor(
+            [python("immovable", IGNORE_SIGINT_AND_SIGTERM)]
+        )
+        self.request_shutdown_after(
+            supervisor, "[immovable] ready", [signal.SIGINT]
+        )
         status = self.run_supervisor(supervisor)
         self.assertEqual(status, 0)
         output = self.output.getvalue()
@@ -339,8 +379,12 @@ class TeardownTest(SupervisorTestCase):
         self.assertTrue(process_is_gone(self.pid_of("immovable")))
 
     def test_sigterm_skips_the_sigint_stage(self) -> None:
-        supervisor = self.supervisor([sh("sleeper", "echo ready; exec sleep 60")])
-        self.request_shutdown_after(supervisor, "[sleeper] ready", [signal.SIGTERM])
+        supervisor = self.supervisor(
+            [sh("sleeper", "echo ready; exec sleep 60")]
+        )
+        self.request_shutdown_after(
+            supervisor, "[sleeper] ready", [signal.SIGTERM]
+        )
         self.run_supervisor(supervisor)
         output = self.output.getvalue()
         self.assertIn("[launch] received SIGTERM; stopping", output)
@@ -368,14 +412,23 @@ class TeardownTest(SupervisorTestCase):
         self.assertIn("[stubborn] got SIGTERM", output)
         self.assertLess(self.elapsed, 10.0)
 
-    def test_grandchildren_die_with_their_group_after_the_leader_is_gone(self) -> None:
+    def test_grandchildren_die_with_their_group_after_the_leader_is_gone(
+        self,
+    ) -> None:
         # A non-interactive shell starts background jobs with SIGINT ignored, so the grandchild survives the SIGINT
         # that ends its parent: the teardown has to see the group is not empty and go on to SIGTERM.
         pid_file = os.path.join(self._directory.name, "grandchild.pid")
         supervisor = self.supervisor(
-            [sh("parent", f'sleep 60 & echo $! > "{pid_file}"; echo ready; wait')]
+            [
+                sh(
+                    "parent",
+                    f'sleep 60 & echo $! > "{pid_file}"; echo ready; wait',
+                )
+            ]
         )
-        self.request_shutdown_after(supervisor, "[parent] ready", [signal.SIGINT])
+        self.request_shutdown_after(
+            supervisor, "[parent] ready", [signal.SIGINT]
+        )
         self.run_supervisor(supervisor)
         with open(pid_file, "r", encoding="utf-8") as stream:
             grandchild = int(stream.read())
@@ -396,7 +449,9 @@ class LeftoverTest(SupervisorTestCase):
     ) -> None:
         pid_file = os.path.join(self._directory.name, "leftover.pid")
         status = self.run_supervisor(
-            self.supervisor([sh("daemonizer", f'sleep 60 & echo $! > "{pid_file}"')])
+            self.supervisor(
+                [sh("daemonizer", f'sleep 60 & echo $! > "{pid_file}"')]
+            )
         )
         self.assertEqual(status, 0)
         with open(pid_file, "r", encoding="utf-8") as stream:
@@ -412,9 +467,15 @@ class HelpersTest(unittest.TestCase):
     def test_shell_exit_codes(self) -> None:
         self.assertEqual(process_supervisor.shell_exit_code(0), 0)
         self.assertEqual(process_supervisor.shell_exit_code(3), 3)
-        self.assertEqual(process_supervisor.shell_exit_code(-signal.SIGKILL), 137)
-        self.assertEqual(process_supervisor.describe_exit(137), "was killed by SIGKILL")
-        self.assertEqual(process_supervisor.describe_exit(2), "exited with code 2")
+        self.assertEqual(
+            process_supervisor.shell_exit_code(-signal.SIGKILL), 137
+        )
+        self.assertEqual(
+            process_supervisor.describe_exit(137), "was killed by SIGKILL"
+        )
+        self.assertEqual(
+            process_supervisor.describe_exit(2), "exited with code 2"
+        )
 
     def test_the_child_environment_drops_the_launchers_runfiles(self) -> None:
         base = {
@@ -422,10 +483,15 @@ class HelpersTest(unittest.TestCase):
             "RUNFILES_DIR": "/x/launch.runfiles",
             "RUNFILES_MANIFEST_FILE": "/x/launch.runfiles/MANIFEST",
             "PYTHONPATH": os.pathsep.join(
-                ["/x/launch.runfiles/_main", "/usr/local/lib/python3/site-packages"]
+                [
+                    "/x/launch.runfiles/_main",
+                    "/usr/local/lib/python3/site-packages",
+                ]
             ),
         }
-        environment = process_supervisor.child_environment(base, [("DISPLAY", ":99")])
+        environment = process_supervisor.child_environment(
+            base, [("DISPLAY", ":99")]
+        )
         self.assertNotIn("RUNFILES_DIR", environment)
         self.assertNotIn("RUNFILES_MANIFEST_FILE", environment)
         self.assertEqual(
@@ -441,9 +507,9 @@ class HelpersTest(unittest.TestCase):
         self.assertNotIn("PYTHONPATH", only_runfiles)
         # A process's env wins.
         self.assertEqual(
-            process_supervisor.child_environment({}, [("PYTHONUNBUFFERED", "0")])[
-                "PYTHONUNBUFFERED"
-            ],
+            process_supervisor.child_environment(
+                {}, [("PYTHONUNBUFFERED", "0")]
+            )["PYTHONUNBUFFERED"],
             "0",
         )
 
@@ -458,7 +524,9 @@ class HelpersTest(unittest.TestCase):
             process_supervisor.process_argv(spec, ["xterm", "-e"]),
             ["xterm", "-e", "teleop", "--rate=25"],
         )
-        plain = launch_file.ProcessSpec(name="mpc", machine="laptop", command=("mpc",))
+        plain = launch_file.ProcessSpec(
+            name="mpc", machine="laptop", command=("mpc",)
+        )
         self.assertEqual(
             process_supervisor.process_argv(plain, ["xterm", "-e"]), ["mpc"]
         )

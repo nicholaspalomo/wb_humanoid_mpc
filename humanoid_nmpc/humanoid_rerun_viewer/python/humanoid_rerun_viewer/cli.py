@@ -118,7 +118,9 @@ def resolve_input_path(path: str) -> str:
     if os.path.isabs(path):
         return path
     candidates = [
-        os.path.join(os.environ.get("BUILD_WORKING_DIRECTORY", os.getcwd()), path)
+        os.path.join(
+            os.environ.get("BUILD_WORKING_DIRECTORY", os.getcwd()), path
+        )
     ]
     workspace = os.environ.get("BUILD_WORKSPACE_DIRECTORY")
     if workspace:
@@ -133,27 +135,37 @@ def resolve_output_path(path: str) -> str:
     """A file to write: relative to the start directory (BUILD_WORKING_DIRECTORY under `bazel run`)."""
     if os.path.isabs(path):
         return path
-    return os.path.join(os.environ.get("BUILD_WORKING_DIRECTORY", os.getcwd()), path)
+    return os.path.join(
+        os.environ.get("BUILD_WORKING_DIRECTORY", os.getcwd()), path
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
     """The parser of the bridge's command line."""
     parser = argparse.ArgumentParser(
         prog="humanoid_rerun_viewer",
-        description="Draws the bus's viz/scene, viz/telemetry and status messages in Rerun.",
+        description=(
+            "Draws the bus's viz/scene, viz/telemetry and status messages in"
+            " Rerun."
+        ),
     )
     parser.add_argument(
         "--urdf",
         default="",
-        help="the robot's URDF, whose meshes are drawn for every robot instance; without it no robot is drawn",
+        help=(
+            "the robot's URDF, whose meshes are drawn for every robot instance;"
+            " without it no robot is drawn"
+        ),
     )
     parser.add_argument(
         "--package_path",
         action="append",
         default=[],
         metavar="DIR",
-        help="a directory to search for the packages of package:// URIs, besides the URDF's ancestors and "
-        "robot_models/ (repeatable)",
+        help=(
+            "a directory to search for the packages of package:// URIs, besides"
+            " the URDF's ancestors and robot_models/ (repeatable)"
+        ),
     )
     parser.add_argument(
         "--network_config",
@@ -172,7 +184,9 @@ def build_parser() -> argparse.ArgumentParser:
         default=rerun_sinks.DEFAULT_CONNECT_URL,
         help="connect: the viewer's gRPC URL (default: %(default)s)",
     )
-    parser.add_argument("--rrd_path", default="", help="save: the .rrd file to write")
+    parser.add_argument(
+        "--rrd_path", default="", help="save: the .rrd file to write"
+    )
     parser.add_argument(
         "--web_port",
         type=int,
@@ -183,7 +197,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--grpc_port",
         type=int,
         default=rerun_sinks.DEFAULT_GRPC_PORT,
-        help="spawn: the viewer's port; serve_web: the recording's gRPC port (default: %(default)s)",
+        help=(
+            "spawn: the viewer's port; serve_web: the recording's gRPC port"
+            " (default: %(default)s)"
+        ),
     )
     parser.add_argument(
         "--open_browser",
@@ -193,65 +210,95 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--viewer_executable",
         default="",
-        help="spawn: the viewer to start (default: the native viewer of the rerun-sdk wheel)",
+        help=(
+            "spawn: the viewer to start (default: the native viewer of the"
+            " rerun-sdk wheel)"
+        ),
     )
     parser.add_argument(
         "--max_scene_frequency",
         type=float,
         default=None,
-        help="maximum scene messages to log per wall second (default: "
-        f"{DEFAULT_WEB_MAX_SCENE_FREQUENCY} for serve_web, unlimited otherwise)",
+        help=(
+            "maximum scene messages to log per wall second (default:"
+            f" {DEFAULT_WEB_MAX_SCENE_FREQUENCY} for serve_web, unlimited"
+            " otherwise)"
+        ),
     )
     parser.add_argument(
         "--plots",
         action=argparse.BooleanOptionalAction,
         default=None,
-        help="subscribe to viz/telemetry and show plot tabs in blueprint (default: on when a plot configuration is "
-        "loaded, as the shipped default is; without one, off for serve_web and on otherwise)",
+        help=(
+            "subscribe to viz/telemetry and show plot tabs in blueprint"
+            " (default: on when a plot configuration is loaded, as the shipped"
+            " default is; without one, off for serve_web and on otherwise)"
+        ),
     )
     parser.add_argument(
         "--plot_config",
         default=DEFAULT_PLOT_CONFIG,
-        help="a plot configuration file (.textproto or text file) specifying topics/signals to plot "
-        "('none' to disable; default: %(default)s)",
+        help=(
+            "a plot configuration file (.textproto or text file) specifying"
+            " topics/signals to plot ('none' to disable; default: %(default)s)"
+        ),
     )
     parser.add_argument(
         "--terminal_state",
         action=argparse.BooleanOptionalAction,
         default=None,
-        help="draw the end-of-trajectory robots (terminal_state, terminal_target) of viz/scene (default: the plot "
-        "configuration's draw_terminal_state, which the shipped one sets false; on without a configuration)",
+        help=(
+            "draw the end-of-trajectory robots (terminal_state,"
+            " terminal_target) of viz/scene (default: the plot configuration's"
+            " draw_terminal_state, which the shipped one sets false; on without"
+            " a configuration)"
+        ),
     )
     parser.add_argument(
         "--robot_instances",
         default="",
-        help="comma-separated list of robot instances to draw (e.g. 'measured', 'measured,terminal_state'; default: "
-        "the plot configuration's robot_instances, every instance when it names none)",
+        help=(
+            "comma-separated list of robot instances to draw (e.g. 'measured',"
+            " 'measured,terminal_state'; default: the plot configuration's"
+            " robot_instances, every instance when it names none)"
+        ),
     )
     # LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/README.md:sink_flags)
     parser.add_argument(
         "--app_id",
         default=DEFAULT_APP_ID,
-        help="the Rerun application id; recordings of one id share the viewer's layout (default: %(default)s)",
+        help=(
+            "the Rerun application id; recordings of one id share the viewer's"
+            " layout (default: %(default)s)"
+        ),
     )
     parser.add_argument(
         "--follow_robot",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="the 3D view's eye follows the measured robot's root link (default: on)",
+        help=(
+            "the 3D view's eye follows the measured robot's root link"
+            " (default: on)"
+        ),
     )
     parser.add_argument(
         "--flush_period",
         type=float,
         default=None,
-        help="how often the buffered plots are sent [s] (default: "
-        f"{DEFAULT_WEB_FLUSH_PERIOD_S} for serve_web, {bus_bridge.DEFAULT_FLUSH_PERIOD_S} otherwise)",
+        help=(
+            "how often the buffered plots are sent [s] (default:"
+            f" {DEFAULT_WEB_FLUSH_PERIOD_S} for serve_web,"
+            f" {bus_bridge.DEFAULT_FLUSH_PERIOD_S} otherwise)"
+        ),
     )
     parser.add_argument(
         "--duration",
         type=float,
         default=0.0,
-        help="stop after this many seconds; 0: run until Ctrl-C (default: %(default)s)",
+        help=(
+            "stop after this many seconds; 0: run until Ctrl-C (default:"
+            " %(default)s)"
+        ),
     )
     parser.add_argument(
         "--log_level",
@@ -282,13 +329,15 @@ def load_model(urdf: str, package_path: Sequence[str]) -> urdf_model.RobotModel:
     model = urdf_model.load_urdf(path, search_roots)
     for uri in model.missing_meshes:
         _LOGGER.warning(
-            "%s: mesh '%s' not found (add its package's parent with --package_path); not drawn",
+            "%s: mesh '%s' not found (add its package's parent with"
+            " --package_path); not drawn",
             path,
             uri,
         )
     for uri in model.unsupported_meshes:
         _LOGGER.warning(
-            "%s: mesh '%s' is in a format Rerun does not draw (%s) and has no twin in one; not drawn",
+            "%s: mesh '%s' is in a format Rerun does not draw (%s) and has no"
+            " twin in one; not drawn",
             path,
             uri,
             ", ".join(urdf_model.MESH_MEDIA_TYPES),
@@ -392,14 +441,18 @@ class ViewerWatch:
         return None
 
 
-def _attach_new_run(sink: rerun_sinks.Sink, application_id: str) -> rr.RecordingStream:
+def _attach_new_run(
+    sink: rerun_sinks.Sink, application_id: str
+) -> rr.RecordingStream:
     """A recording for a new run of the robot, attached to `sink` (the bridge's new_run)."""
     recording = bridge_module.new_recording(application_id)
     _LOGGER.info("%s", sink.attach(recording))
     return recording
 
 
-def _reconnect(sink: rerun_sinks.Sink, the_bridge: bridge_module.RerunBridge) -> None:
+def _reconnect(
+    sink: rerun_sinks.Sink, the_bridge: bridge_module.RerunBridge
+) -> None:
     """Attaches the bridge's recording to its viewer again and sends the static data: the writer's resume task."""
     _LOGGER.info("%s", sink.reattach(the_bridge.recording))
     the_bridge.resend_static()
@@ -427,19 +480,22 @@ def _follow_viewer(
     if change is ViewerChange.GONE:
         if sink.owns_viewer:
             _LOGGER.warning(
-                "the spawned Rerun viewer on port %d is gone (closed, or it never started); stopping",
+                "the spawned Rerun viewer on port %d is gone (closed, or it"
+                " never started); stopping",
                 port,
             )
             return False
         feed.pause(f"the Rerun viewer at {host}:{port} is unreachable")
         _LOGGER.warning(
-            "the Rerun viewer at %s:%d is unreachable; dropping the messages until it is back",
+            "the Rerun viewer at %s:%d is unreachable; dropping the messages"
+            " until it is back",
             host,
             port,
         )
     elif change is ViewerChange.BACK:
         _LOGGER.info(
-            "the Rerun viewer at %s:%d is back; sending it the robot and the layout again",
+            "the Rerun viewer at %s:%d is back; sending it the robot and the"
+            " layout again",
             host,
             port,
         )
@@ -460,8 +516,9 @@ class _StallWarning:
         elif not self._warned:
             self._warned = True
             _LOGGER.warning(
-                "the Rerun sink has taken no data for %.1f s (a viewer that stopped reading?); the bus's messages are "
-                "dropped once the bridge's queue is full",
+                "the Rerun sink has taken no data for %.1f s (a viewer that"
+                " stopped reading?); the bus's messages are dropped once the"
+                " bridge's queue is full",
                 stalled_for,
             )
 
@@ -524,7 +581,9 @@ def _start_watch(
     return ViewerWatch(endpoint, up=False)
 
 
-def run(args: argparse.Namespace, stop: threading.Event | None = None) -> RunResult:
+def run(
+    args: argparse.Namespace, stop: threading.Event | None = None
+) -> RunResult:
     """Runs the bridge until `stop` is set or the duration passes.
 
     Args:
@@ -537,12 +596,20 @@ def run(args: argparse.Namespace, stop: threading.Event | None = None) -> RunRes
     stop = stop if stop is not None else threading.Event()
     try:
         model = load_model(args.urdf, args.package_path) if args.urdf else None
-        network = robot_ipc.load_network_config(resolve_input_path(args.network_config))
-    except (urdf_model.UrdfError, robot_ipc.NetworkConfigError, OSError) as error:
+        network = robot_ipc.load_network_config(
+            resolve_input_path(args.network_config)
+        )
+    except (
+        urdf_model.UrdfError,
+        robot_ipc.NetworkConfigError,
+        OSError,
+    ) as error:
         _LOGGER.error("%s", error)
         return RunResult(EXIT_USAGE)
     if model is None:
-        _LOGGER.warning("no --urdf given: the robot instances will not be drawn")
+        _LOGGER.warning(
+            "no --urdf given: the robot instances will not be drawn"
+        )
 
     recording = bridge_module.new_recording(args.app_id)
     plot_config: plot_config_module.PlotConfig | None = None
@@ -557,7 +624,9 @@ def run(args: argparse.Namespace, stop: threading.Event | None = None) -> RunRes
         try:
             plot_config = plot_config_module.load_plot_config(config_path)
         except (plot_config_module.PlotConfigError, OSError) as error:
-            if plot_config_arg == DEFAULT_PLOT_CONFIG and isinstance(error, OSError):
+            if plot_config_arg == DEFAULT_PLOT_CONFIG and isinstance(
+                error, OSError
+            ):
                 _LOGGER.warning(
                     "default plot config '%s' not found: %s",
                     plot_config_arg,
@@ -569,11 +638,10 @@ def run(args: argparse.Namespace, stop: threading.Event | None = None) -> RunRes
 
     plots = plots_enabled(args.plots, args.rerun_sink, plot_config)
 
-    cli_robot_instances = (
-        tuple(name.strip() for name in args.robot_instances.split(",") if name.strip())
-        if args.robot_instances
-        else None
-    )
+    cli_robot_instances: tuple[str, ...] | None = None
+    if args.robot_instances:
+        names = (name.strip() for name in args.robot_instances.split(","))
+        cli_robot_instances = tuple(name for name in names if name)
     allowed_instances = plot_config_module.resolve_allowed_instances(
         config=plot_config,
         cli_robot_instances=cli_robot_instances,
@@ -595,7 +663,9 @@ def run(args: argparse.Namespace, stop: threading.Event | None = None) -> RunRes
         web_port=args.web_port,
         open_browser=args.open_browser,
         viewer_executable=(
-            resolve_input_path(args.viewer_executable) if args.viewer_executable else ""
+            resolve_input_path(args.viewer_executable)
+            if args.viewer_executable
+            else ""
         ),
     )
     sink = rerun_sinks.make_sink(args.rerun_sink, layout, options)
@@ -629,19 +699,29 @@ def run(args: argparse.Namespace, stop: threading.Event | None = None) -> RunRes
         telemetry_selection=telemetry_selection,
     )
     telemetry_enabled = plots and (
-        plot_config is None or plot_config_module.has_telemetry_signals(plot_config)
+        plot_config is None
+        or plot_config_module.has_telemetry_signals(plot_config)
     )
     try:
         feed = bus_bridge.BusBridge(
-            the_bridge, network, flush_period=flush_period, telemetry=telemetry_enabled
+            the_bridge,
+            network,
+            flush_period=flush_period,
+            telemetry=telemetry_enabled,
         )
-    except (ValueError, robot_ipc.BusError, robot_ipc.NetworkConfigError) as error:
+    except (
+        ValueError,
+        robot_ipc.BusError,
+        robot_ipc.NetworkConfigError,
+    ) as error:
         _LOGGER.error("cannot subscribe to the bus: %s", error)
         return RunResult(EXIT_USAGE)
     try:
         _LOGGER.info("%s", sink.attach(recording))
     except (ValueError, RuntimeError, OSError) as error:
-        _LOGGER.error("cannot start the Rerun sink '%s': %s", args.rerun_sink, error)
+        _LOGGER.error(
+            "cannot start the Rerun sink '%s': %s", args.rerun_sink, error
+        )
         feed.bus.close()
         return RunResult(EXIT_USAGE)
     watch = _start_watch(sink, feed, the_bridge)
@@ -659,7 +739,11 @@ def run(args: argparse.Namespace, stop: threading.Event | None = None) -> RunRes
                 if telemetry_rate > 0.0
                 else "at every sample"
             ),
-            "every group" if telemetry_selection is None else "the plotted groups",
+            (
+                "every group"
+                if telemetry_selection is None
+                else "the plotted groups"
+            ),
         )
     deadline = time.monotonic() + args.duration if args.duration > 0.0 else None
     stall_warning = _StallWarning()
@@ -668,7 +752,9 @@ def run(args: argparse.Namespace, stop: threading.Event | None = None) -> RunRes
         while not stop.wait(_POLL_PERIOD_S):
             if deadline is not None and time.monotonic() >= deadline:
                 break
-            if watch is not None and not _follow_viewer(watch, sink, feed, the_bridge):
+            if watch is not None and not _follow_viewer(
+                watch, sink, feed, the_bridge
+            ):
                 break
             stall_warning.check(feed)
     finally:
@@ -682,7 +768,8 @@ def run(args: argparse.Namespace, stop: threading.Event | None = None) -> RunRes
     _LOGGER.info(
         "stopped: %s",
         ", ".join(
-            f"{count} {topic}" for topic, count in the_bridge.statistics.handled.items()
+            f"{count} {topic}"
+            for topic, count in the_bridge.statistics.handled.items()
         )
         or "no messages",
     )
@@ -699,7 +786,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.rerun_sink == "save" and not args.rrd_path:
         parser.error("--rerun_sink save needs --rrd_path")
     if args.max_scene_frequency is not None and not (
-        args.max_scene_frequency >= 0.0 and math.isfinite(args.max_scene_frequency)
+        args.max_scene_frequency >= 0.0
+        and math.isfinite(args.max_scene_frequency)
     ):
         parser.error("--max_scene_frequency must be non-negative")
     # The not-form rejects NaN, which `args.flush_period <= 0.0` would let through.

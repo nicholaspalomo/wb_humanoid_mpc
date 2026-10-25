@@ -180,7 +180,11 @@ class EchoTest(IpcToolTestCase):
         topic = bus_test_publisher.unique_topic("unknown")
         with bus_test_publisher.MessagePublisher() as publisher:
             publisher.start(
-                [bus_test_publisher.message(topic, "test.NotAMessage", b"\x01\x02\x03")]
+                [
+                    bus_test_publisher.message(
+                        topic, "test.NotAMessage", b"\x01\x02\x03"
+                    )
+                ]
             )
             network = self.network_file()
             code, out, err = self.run_tool(
@@ -225,7 +229,10 @@ class _BacklogListener:
             status.observation_time = float(sequence)
             self._messages.append(
                 bus_listener.BusMessage(
-                    topic, STATUS_TYPE, status.SerializeToString(), float(sequence)
+                    topic,
+                    STATUS_TYPE,
+                    status.SerializeToString(),
+                    float(sequence),
                 )
             )
 
@@ -255,7 +262,9 @@ class EchoBacklogTest(unittest.TestCase):
         self.assertEqual(code, ipc_tool.EXIT_OK, err.getvalue())
         (printed,) = documents(out.getvalue())
         self.assertEqual(
-            text_format.Parse(printed, mpc_status_pb2.MpcStatus()).observation_time,
+            text_format.Parse(
+                printed, mpc_status_pb2.MpcStatus()
+            ).observation_time,
             4.0,
         )
         self.assertIn("skipped 4 message(s)", err.getvalue())
@@ -277,7 +286,9 @@ class ListTest(IpcToolTestCase):
                     )
                 ]
             )
-            mpc.start([bus_test_publisher.message(mpc_topic, STATUS_TYPE, payload)])
+            mpc.start(
+                [bus_test_publisher.message(mpc_topic, STATUS_TYPE, payload)]
+            )
             network = self.network_file()
             code, out, err = self.run_tool(
                 "list", "--duration", "1.0", "--network_config", network
@@ -319,7 +330,10 @@ class HzTest(IpcToolTestCase):
                 network,
             )
         self.assertEqual(code, ipc_tool.EXIT_OK, err)
-        rates = [float(rate) for rate in re.findall(r"average rate ([0-9.]+) Hz", out)]
+        rates = [
+            float(rate)
+            for rate in re.findall(r"average rate ([0-9.]+) Hz", out)
+        ]
         self.assertTrue(rates, out)
         self.assertTrue(all(rate > 0.0 for rate in rates), out)
         # Every message has the same payload, so the statistics of its size are exact.
@@ -350,7 +364,8 @@ class NextReportTimeTest(unittest.TestCase):
             scheduled = 100.0 * rng.random()
             period = 1e-3 + rng.random()
             now = (
-                scheduled + (-1.0 if trial % 4 == 0 else 300.0) * period * rng.random()
+                scheduled
+                + (-1.0 if trial % 4 == 0 else 300.0) * period * rng.random()
             )
             following = ipc_tool.next_report_time(scheduled, period, now)
             self.assertGreater(following, now, msg=trial)
@@ -360,7 +375,9 @@ class NextReportTimeTest(unittest.TestCase):
                 self.assertLessEqual(following - period, now + 1e-12, msg=trial)
                 # On the grid: a whole number of periods from `scheduled`.
                 periods = (following - scheduled) / period
-                self.assertAlmostEqual(periods, round(periods), delta=1e-9, msg=trial)
+                self.assertAlmostEqual(
+                    periods, round(periods), delta=1e-9, msg=trial
+                )
 
     def test_one_period_ahead_is_the_sum(self) -> None:
         rng = random.Random(4)
@@ -369,7 +386,8 @@ class NextReportTimeTest(unittest.TestCase):
             period = 1e-3 + rng.random()
             now = scheduled + 0.999 * period * rng.random()
             self.assertEqual(
-                ipc_tool.next_report_time(scheduled, period, now), scheduled + period
+                ipc_tool.next_report_time(scheduled, period, now),
+                scheduled + period,
             )
 
     def test_skips_any_number_of_periods_at_once(self) -> None:
@@ -395,10 +413,13 @@ class ConfigurationTest(IpcToolTestCase):
     def test_the_default_network_file_is_the_one_of_the_bus(self) -> None:
         args = ipc_tool.build_parser().parse_args(["list"])
         self.assertEqual(
-            args.network_config, os.path.join("config", "ipc", "network.textproto")
+            args.network_config,
+            os.path.join("config", "ipc", "network.textproto"),
         )
 
-    def test_durations_and_periods_reject_nan_and_out_of_range_values(self) -> None:
+    def test_durations_and_periods_reject_nan_and_out_of_range_values(
+        self,
+    ) -> None:
         # The validators are written `not value >= 0.0`, which rejects NaN, where `value < 0.0` would let it through.
         for argv in (
             ["echo", "a", "--timeout", "nan"],
@@ -419,7 +440,9 @@ class ConfigurationTest(IpcToolTestCase):
                 self.assertIn(f"got {argv[-1]}", err.getvalue())
 
     def test_durations_and_periods_accept_their_boundaries(self) -> None:
-        args = ipc_tool.build_parser().parse_args(["echo", "a", "--timeout", "0"])
+        args = ipc_tool.build_parser().parse_args(
+            ["echo", "a", "--timeout", "0"]
+        )
         self.assertEqual(args.timeout, 0.0)
         args = ipc_tool.build_parser().parse_args(
             ["hz", "a", "--duration", "0", "--report_period", "0.25"]

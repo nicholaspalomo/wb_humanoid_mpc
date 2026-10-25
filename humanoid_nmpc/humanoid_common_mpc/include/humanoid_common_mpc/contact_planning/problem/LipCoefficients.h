@@ -38,10 +38,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** Sparse linear form on a stage's states or inputs: pairs (index, coefficient), summed per index. */
+/** Sparse linear form on a stage's states or inputs: pairs (index,
+ * coefficient), summed per index. */
 using Coefficients = std::vector<std::pair<int, scalar_t>>;
 
-/** Bound magnitude from which a general constraint bound is one-sided (masked out in HPIPM). */
+/** Bound magnitude from which a general constraint bound is one-sided (masked
+ * out in HPIPM). */
 inline constexpr scalar_t kLipLooseBound = kOcpQpInfiniteBound;
 
 }  // namespace ocs2::humanoid

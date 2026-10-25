@@ -40,19 +40,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Initializes the input policy of the MPC with the contact wrenches that carry the robot's weight on the feet that are
- * in contact at each time, and holds the state.
+ * Initializes the input policy of the MPC with the contact wrenches that carry
+ * the robot's weight on the feet that are in contact at each time, and holds
+ * the state.
  *
- * The Pinocchio interface, the reference manager and the robot model must outlive it (and every clone). Cloned for each solver thread; a
- * single instance is not thread-safe.
+ * The Pinocchio interface, the reference manager and the robot model must
+ * outlive it (and every clone). Cloned for each solver thread; a single
+ * instance is not thread-safe.
  */
 class WeightCompInitializer final : public Initializer {
  public:
   /**
-   * Keeps pointers to all three arguments, which must outlive the initializer and every clone of it.
+   * Keeps pointers to all three arguments, which must outlive the initializer
+   * and every clone of it.
    * @param [in] pinocchioInterface : the Pinocchio model, for the robot's mass.
-   * @param [in] referenceManager : the switched-system reference manager, for the contact flags at each time.
-   * @param [in] mpcRobotModel : the robot model, for the input layout the wrenches are written into.
+   * @param [in] referenceManager : the switched-system reference manager, for
+   * the contact flags at each time.
+   * @param [in] mpcRobotModel : the robot model, for the input layout the
+   * wrenches are written into.
    */
   WeightCompInitializer(const PinocchioInterface& pinocchioInterface,
                         const SwitchedModelReferenceManager& referenceManager,
@@ -64,7 +69,11 @@ class WeightCompInitializer final : public Initializer {
   WeightCompInitializer& operator=(WeightCompInitializer&&) = delete;
   WeightCompInitializer* absl_nonnull clone() const override;
 
-  void compute(scalar_t time, const vector_t& state, scalar_t nextTime, vector_t& input, vector_t& nextState) override;
+  void compute(scalar_t time,
+               const vector_t& state,
+               scalar_t nextTime,
+               vector_t& input,
+               vector_t& nextState) override;
 
  private:
   WeightCompInitializer(const WeightCompInitializer& rhs);

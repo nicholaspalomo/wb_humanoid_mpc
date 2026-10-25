@@ -41,16 +41,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Draws the viewer annotations in the MuJoCo viewer: the target contact patches ('g' toggles them) and the scaled
- * velocity arrow. On the communication thread of the robot process, from the annotations of the newest policy
- * (RemoteMpcLink::takeAnnotations(); the MPC node fills MpcPolicy.annotations with node::fillViewerAnnotations()); the
- * simulator takes both under its own short locks. An annotation without patches (no contact planner) leaves the
+ * Draws the viewer annotations in the MuJoCo viewer: the target contact patches
+ * ('g' toggles them) and the scaled velocity arrow. On the communication thread
+ * of the robot process, from the annotations of the newest policy
+ * (RemoteMpcLink::takeAnnotations(); the MPC node fills MpcPolicy.annotations
+ * with node::fillViewerAnnotations()); the simulator takes both under its own
+ * short locks. An annotation without patches (no contact planner) leaves the
  * viewer's patches as they are.
  */
 class MujocoViewerAnnotator {
  public:
   /** Draws in the viewer of `simulator`, which must outlive the annotator. */
-  explicit MujocoViewerAnnotator(robot::mujoco_sim_interface::MujocoSimInterface* absl_nonnull simulator);
+  explicit MujocoViewerAnnotator(
+      robot::mujoco_sim_interface::MujocoSimInterface* absl_nonnull simulator);
 
   void apply(const msgs::ViewerAnnotations& annotations);
 

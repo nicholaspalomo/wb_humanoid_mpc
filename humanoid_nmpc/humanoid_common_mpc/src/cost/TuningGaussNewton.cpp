@@ -41,16 +41,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-bool isIdentityTuningJacobian(const TuningDeviationApproximation& approximation, size_t stateDim) {
-  if (!approximation.denseBlocks.empty() || approximation.identityRuns.size() != 1) return false;
+bool isIdentityTuningJacobian(const TuningDeviationApproximation& approximation,
+                              size_t stateDim) {
+  if (!approximation.denseBlocks.empty() ||
+      approximation.identityRuns.size() != 1)
+    return false;
   const TuningJacobianIdentityRun& run = approximation.identityRuns.front();
   return run.tuningRow == 0 && run.stateColumn == 0 && run.size == stateDim &&
          static_cast<size_t>(approximation.residual.size()) == stateDim;
 }
 
-vector_t tuningGradient(const TuningDeviationApproximation& approximation, const matrix_t& stateWeights, size_t stateDim) {
+vector_t tuningGradient(const TuningDeviationApproximation& approximation,
+                        const matrix_t& stateWeights,
+                        size_t stateDim) {
   if (isIdentityTuningJacobian(approximation, stateDim)) {
-    // The expression of OCS2's QuadraticStateInputCost, L.dfdx.noalias() = Q_ * stateDeviation.
+    // The expression of OCS2's QuadraticStateInputCost, L.dfdx.noalias() = Q_ *
+    // stateDeviation.
     vector_t gradient;
     gradient.noalias() = stateWeights * approximation.residual;
     return gradient;
@@ -60,68 +66,101 @@ vector_t tuningGradient(const TuningDeviationApproximation& approximation, const
   for (const TuningJacobianIdentityRun& run : approximation.identityRuns) {
     const Eigen::Index size = static_cast<Eigen::Index>(run.size);
     gradient.segment(static_cast<Eigen::Index>(run.stateColumn), size) +=
-        weightedResidual.segment(static_cast<Eigen::Index>(run.tuningRow), size);
+        weightedResidual.segment(static_cast<Eigen::Index>(run.tuningRow),
+                                 size);
   }
   for (const TuningJacobianDenseBlock& block : approximation.denseBlocks) {
-    gradient.segment(static_cast<Eigen::Index>(block.stateColumn), block.value.cols()).noalias() +=
-        block.value.transpose() * weightedResidual.segment(static_cast<Eigen::Index>(block.tuningRow), block.value.rows());
+    gradient
+        .segment(static_cast<Eigen::Index>(block.stateColumn),
+                 block.value.cols())
+        .noalias() +=
+        block.value.transpose() *
+        weightedResidual.segment(static_cast<Eigen::Index>(block.tuningRow),
+                                 block.value.rows());
   }
   return gradient;
 }
 
-matrix_t tuningHessian(const TuningDeviationApproximation& approximation, const matrix_t& stateWeights, size_t stateDim) {
+matrix_t tuningHessian(const TuningDeviationApproximation& approximation,
+                       const matrix_t& stateWeights,
+                       size_t stateDim) {
   if (isIdentityTuningJacobian(approximation, stateDim)) {
     // OCS2's QuadraticStateInputCost: L.dfdxx = Q_.
     return stateWeights;
   }
   const Eigen::Index columns = static_cast<Eigen::Index>(stateDim);
-  // Q J, column block by column block: Q's columns copied for an identity run, Q(:, rows) times the block for a dense one.
+  // Q J, column block by column block: Q's columns copied for an identity run,
+  // Q(:, rows) times the block for a dense one.
   matrix_t weightedJacobian = matrix_t::Zero(stateWeights.rows(), columns);
   for (const TuningJacobianIdentityRun& run : approximation.identityRuns) {
     const Eigen::Index size = static_cast<Eigen::Index>(run.size);
-    weightedJacobian.middleCols(static_cast<Eigen::Index>(run.stateColumn), size) +=
+    weightedJacobian.middleCols(static_cast<Eigen::Index>(run.stateColumn),
+                                size) +=
         stateWeights.middleCols(static_cast<Eigen::Index>(run.tuningRow), size);
   }
   for (const TuningJacobianDenseBlock& block : approximation.denseBlocks) {
-    weightedJacobian.middleCols(static_cast<Eigen::Index>(block.stateColumn), block.value.cols()).noalias() +=
-        stateWeights.middleCols(static_cast<Eigen::Index>(block.tuningRow), block.value.rows()) * block.value;
+    weightedJacobian
+        .middleCols(static_cast<Eigen::Index>(block.stateColumn),
+                    block.value.cols())
+        .noalias() +=
+        stateWeights.middleCols(static_cast<Eigen::Index>(block.tuningRow),
+                                block.value.rows()) *
+        block.value;
   }
   // J' (Q J), row block by row block likewise.
   matrix_t hessian = matrix_t::Zero(columns, columns);
   for (const TuningJacobianIdentityRun& run : approximation.identityRuns) {
     const Eigen::Index size = static_cast<Eigen::Index>(run.size);
     hessian.middleRows(static_cast<Eigen::Index>(run.stateColumn), size) +=
-        weightedJacobian.middleRows(static_cast<Eigen::Index>(run.tuningRow), size);
+        weightedJacobian.middleRows(static_cast<Eigen::Index>(run.tuningRow),
+                                    size);
   }
   for (const TuningJacobianDenseBlock& block : approximation.denseBlocks) {
-    hessian.middleRows(static_cast<Eigen::Index>(block.stateColumn), block.value.cols()).noalias() +=
-        block.value.transpose() * weightedJacobian.middleRows(static_cast<Eigen::Index>(block.tuningRow), block.value.rows());
+    hessian
+        .middleRows(static_cast<Eigen::Index>(block.stateColumn),
+                    block.value.cols())
+        .noalias() +=
+        block.value.transpose() *
+        weightedJacobian.middleRows(static_cast<Eigen::Index>(block.tuningRow),
+                                    block.value.rows());
   }
   return hessian;
 }
 
-absl::Status validateQuadraticWeights(const matrix_t& weights, size_t dimension, absl::string_view name) {
-  if (static_cast<size_t>(weights.rows()) != dimension || static_cast<size_t>(weights.cols()) != dimension) {
+absl::Status validateQuadraticWeights(const matrix_t& weights,
+                                      size_t dimension,
+                                      absl::string_view name) {
+  if (static_cast<size_t>(weights.rows()) != dimension ||
+      static_cast<size_t>(weights.cols()) != dimension) {
     return absl::InvalidArgumentError(
-        absl::StrCat(name, " is ", weights.rows(), " x ", weights.cols(), ", but the cost weighs ", dimension, " rows."));
+        absl::StrCat(name, " is ", weights.rows(), " x ", weights.cols(),
+                     ", but the cost weighs ", dimension, " rows."));
   }
   if (dimension == 0) return absl::OkStatus();
   if (!weights.allFinite()) {
-    return absl::InvalidArgumentError(absl::StrCat(name, " has an entry that is not a finite number."));
+    return absl::InvalidArgumentError(
+        absl::StrCat(name, " has an entry that is not a finite number."));
   }
-  const scalar_t asymmetry = (weights - weights.transpose()).cwiseAbs().maxCoeff();
+  const scalar_t asymmetry =
+      (weights - weights.transpose()).cwiseAbs().maxCoeff();
   const scalar_t scale = std::max(1.0, weights.cwiseAbs().maxCoeff());
   if (asymmetry > kQuadraticWeightsSymmetryTolerance * scale) {
-    return absl::InvalidArgumentError(absl::StrCat(name, " is not symmetric: max |W - W'| is ", asymmetry, ", more than ",
-                                                   kQuadraticWeightsSymmetryTolerance, " times max(1, max |W|) = ", scale, "."));
+    return absl::InvalidArgumentError(
+        absl::StrCat(name, " is not symmetric: max |W - W'| is ", asymmetry,
+                     ", more than ", kQuadraticWeightsSymmetryTolerance,
+                     " times max(1, max |W|) = ", scale, "."));
   }
-  // A weight below 0 makes the cost, and the Gauss-Newton Hessian J' W J the solver builds from it, indefinite. The
-  // eigenvalues of the symmetric part, to the round-off a basis-space R carries.
-  const Eigen::SelfAdjointEigenSolver<matrix_t> eigen(0.5 * (weights + weights.transpose()), Eigen::EigenvaluesOnly);
+  // A weight below 0 makes the cost, and the Gauss-Newton Hessian J' W J the
+  // solver builds from it, indefinite. The eigenvalues of the symmetric part,
+  // to the round-off a basis-space R carries.
+  const Eigen::SelfAdjointEigenSolver<matrix_t> eigen(
+      0.5 * (weights + weights.transpose()), Eigen::EigenvaluesOnly);
   const scalar_t smallest = eigen.eigenvalues().minCoeff();
-  if (eigen.info() != Eigen::Success || !(smallest >= -kQuadraticWeightsSymmetryTolerance * scale)) {
-    return absl::InvalidArgumentError(absl::StrCat(name, " is not positive semidefinite: its smallest eigenvalue is ", smallest,
-                                                   " (a weight below 0 makes the cost indefinite)."));
+  if (eigen.info() != Eigen::Success ||
+      !(smallest >= -kQuadraticWeightsSymmetryTolerance * scale)) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        name, " is not positive semidefinite: its smallest eigenvalue is ",
+        smallest, " (a weight below 0 makes the cost indefinite)."));
   }
   return absl::OkStatus();
 }

@@ -47,7 +47,8 @@ TEST(FPSTracker, TheRateIsOneOverThePeriodFromTheSecondTickOn) {
   tracker.tickAt(start + milliseconds(10));
   EXPECT_NEAR(tracker.fps(), 100.0, 1.0e-9);
   tracker.tickAt(start + milliseconds(30));
-  EXPECT_NEAR(tracker.fps(), 50.0, 1.0e-9) << "alpha 1 keeps only the newest period";
+  EXPECT_NEAR(tracker.fps(), 50.0, 1.0e-9)
+      << "alpha 1 keeps only the newest period";
 }
 
 TEST(FPSTracker, TheRateIsSmoothedExponentially) {
@@ -61,7 +62,8 @@ TEST(FPSTracker, TheRateIsSmoothedExponentially) {
 }
 
 TEST(FPSTracker, AResetForgetsThePeriodAcrossIt) {
-  // The simulator resets the tracker after a one-second pause; the pause must not become a 1 Hz sample.
+  // The simulator resets the tracker after a one-second pause; the pause must
+  // not become a 1 Hz sample.
   FPSTracker tracker(/*alpha=*/0.5);
   const steady_clock::time_point start = steady_clock::now();
   tracker.tickAt(start);
@@ -70,9 +72,11 @@ TEST(FPSTracker, AResetForgetsThePeriodAcrossIt) {
   EXPECT_EQ(tracker.fps(), 0.0);
   const steady_clock::time_point resumed = start + milliseconds(1001);
   tracker.tickAt(resumed);
-  EXPECT_EQ(tracker.fps(), 0.0) << "the first tick after a reset starts the clock";
+  EXPECT_EQ(tracker.fps(), 0.0)
+      << "the first tick after a reset starts the clock";
   tracker.tickAt(resumed + milliseconds(2));
-  EXPECT_NEAR(tracker.fps(), 500.0, 1.0e-9) << "the rate after the reset, not smoothed against the one before it";
+  EXPECT_NEAR(tracker.fps(), 500.0, 1.0e-9)
+      << "the rate after the reset, not smoothed against the one before it";
 }
 
 TEST(FPSTracker, ATickWithinOneClockTickIsSkippedRatherThanAnInfiniteRate) {
@@ -83,7 +87,8 @@ TEST(FPSTracker, ATickWithinOneClockTickIsSkippedRatherThanAnInfiniteRate) {
   tracker.tickAt(start + milliseconds(4));
   EXPECT_NEAR(tracker.fps(), 250.0, 1.0e-9);
   tracker.tickAt(start + milliseconds(8));
-  EXPECT_NEAR(tracker.fps(), 250.0, 1.0e-9) << "the period is measured from the last tick that counted";
+  EXPECT_NEAR(tracker.fps(), 250.0, 1.0e-9)
+      << "the period is measured from the last tick that counted";
 }
 
 }  // namespace

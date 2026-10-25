@@ -40,14 +40,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::validation {
 
-absl::StatusOr<std::unique_ptr<ClosedLoopDriver>> createClosedLoopDriver(const RobotConfiguration& configuration,
-                                                                         const ClosedLoopDriverOptions& options) {
+absl::StatusOr<std::unique_ptr<ClosedLoopDriver>> createClosedLoopDriver(
+    const RobotConfiguration& configuration,
+    const ClosedLoopDriverOptions& options) {
   if (configuration.formulation == MpcFormulation::kWholeBody) {
-    absl::StatusOr<std::unique_ptr<WholeBodyClosedLoopDriver>> driver = WholeBodyClosedLoopDriver::create(configuration, options);
+    absl::StatusOr<std::unique_ptr<WholeBodyClosedLoopDriver>> driver =
+        WholeBodyClosedLoopDriver::create(configuration, options);
     if (!driver.ok()) return driver.status();
     return std::unique_ptr<ClosedLoopDriver>(*std::move(driver));
   }
-  absl::StatusOr<std::unique_ptr<CentroidalClosedLoopDriver>> driver = CentroidalClosedLoopDriver::create(configuration, options);
+  absl::StatusOr<std::unique_ptr<CentroidalClosedLoopDriver>> driver =
+      CentroidalClosedLoopDriver::create(configuration, options);
   if (!driver.ok()) return driver.status();
   return std::unique_ptr<ClosedLoopDriver>(*std::move(driver));
 }

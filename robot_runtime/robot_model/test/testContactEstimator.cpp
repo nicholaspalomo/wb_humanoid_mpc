@@ -46,7 +46,8 @@ namespace {
 class RobotStateContactEstimatorTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    tempDir_ = std::filesystem::temp_directory_path() / "robot_model_contact_estimator_test";
+    tempDir_ = std::filesystem::temp_directory_path() /
+               "robot_model_contact_estimator_test";
     std::filesystem::create_directories(tempDir_);
     urdfPath_ = tempDir_ / "robot.urdf";
     std::ofstream urdfFile(urdfPath_);
@@ -80,25 +81,31 @@ class RobotStateContactEstimatorTest : public ::testing::Test {
 };
 
 TEST_F(RobotStateContactEstimatorTest, reportsTheFlagsOfTheRobotState) {
-  const absl::StatusOr<RobotDescription> description = RobotDescription::Create(urdfPath_.string());
+  const absl::StatusOr<RobotDescription> description =
+      RobotDescription::Create(urdfPath_.string());
   ASSERT_TRUE(description.ok()) << description.status();
   RobotState state(*description, /*contactSize=*/2);
   RobotStateContactEstimator estimator;
   EXPECT_EQ(estimator.getName(), "RobotStateContactEstimator");
 
   // A fresh state assumes every contact point is touching.
-  EXPECT_EQ(estimateContactFlags(estimator, state), (std::vector<bool>{true, true}));
+  EXPECT_EQ(estimateContactFlags(estimator, state),
+            (std::vector<bool>{true, true}));
 
   state.setContactFlag(/*index=*/0, /*contactFlag=*/false);
-  EXPECT_EQ(estimateContactFlags(estimator, state), (std::vector<bool>{false, true}));
+  EXPECT_EQ(estimateContactFlags(estimator, state),
+            (std::vector<bool>{false, true}));
   state.setContactFlag(/*index=*/1, /*contactFlag=*/false);
-  EXPECT_EQ(estimateContactFlags(estimator, state), (std::vector<bool>{false, false}));
+  EXPECT_EQ(estimateContactFlags(estimator, state),
+            (std::vector<bool>{false, false}));
 
   // The base-class interface is what controllers hold.
-  std::unique_ptr<ContactEstimator> base = std::make_unique<RobotStateContactEstimator>();
+  std::unique_ptr<ContactEstimator> base =
+      std::make_unique<RobotStateContactEstimator>();
   EXPECT_EQ(estimateContactFlags(*base, state), state.getContactFlags());
 
-  // Into a vector that holds the flags already: resized, not grown, and rewritten in place.
+  // Into a vector that holds the flags already: resized, not grown, and
+  // rewritten in place.
   std::vector<bool> flags = {true, true, true, true, true};
   base->estimateContactFlags(state, flags);
   EXPECT_EQ(flags, state.getContactFlags());

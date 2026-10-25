@@ -85,28 +85,41 @@ VENDORED_CPP_DIRS = ("lib/ocs2/thirdparty/",)
 
 # What each kind of finding says, and what to do about it: C++ code has a replacement, a Bazel file has none.
 _CPP_ADVICE = (
-    " The project does not use Boost: use the standard library or Abseil. A justified exception "
-    "says why, with `// NOLINT(boost): <reason>` on the line (tools/hooks/boost_usage.py)."
+    " The project does not use Boost: use the standard library or Abseil. A"
+    " justified exception says why, with `// NOLINT(boost): <reason>` on the"
+    " line (tools/hooks/boost_usage.py)."
 )
-_BAZEL_ADVICE = " A justified exception says why, with `# NOLINT(boost): <reason>` on the line (tools/hooks/boost_usage.py)."
+_BAZEL_ADVICE = (
+    " A justified exception says why, with `# NOLINT(boost): <reason>` on the"
+    " line (tools/hooks/boost_usage.py)."
+)
 _MESSAGES = {
     "include": ("`{text}` includes a Boost header.", _CPP_ADVICE),
     "header": ("`{text}` names a Boost header in a directive.", _CPP_ADVICE),
     "namespace": ("`{text}` uses the boost namespace.", _CPP_ADVICE),
     "macro": ("`{text}` is a Boost macro.", _CPP_ADVICE),
     "label": (
-        "`{text}` names a Boost repository. Only @pinocchio depends on Boost, because Pinocchio's headers include it "
-        "(bazel/system_libs.bzl).",
+        (
+            "`{text}` names a Boost repository. Only @pinocchio depends on"
+            " Boost, because Pinocchio's headers include it"
+            " (bazel/system_libs.bzl)."
+        ),
         _BAZEL_ADVICE,
     ),
     "define": (
-        "`{text}` is a Boost define. Boost's configuration is on the @pinocchio target's `defines` "
-        "(bazel/system_libs.bzl) and on no other target.",
+        (
+            "`{text}` is a Boost define. Boost's configuration is on the"
+            " @pinocchio target's `defines` (bazel/system_libs.bzl) and on no"
+            " other target."
+        ),
         _BAZEL_ADVICE,
     ),
     "link": (
-        "`{text}` links a Boost library. The project links none: Pinocchio's headers need only Boost's headers, which "
-        "@pinocchio carries (bazel/system_libs.bzl).",
+        (
+            "`{text}` links a Boost library. The project links none:"
+            " Pinocchio's headers need only Boost's headers, which @pinocchio"
+            " carries (bazel/system_libs.bzl)."
+        ),
         _BAZEL_ADVICE,
     ),
 }
@@ -118,7 +131,9 @@ def kind_of(path: str) -> str | None:
     name = path.rsplit("/", 1)[-1]
     if name.endswith(CPP_EXTENSIONS):
         return None if path.startswith(VENDORED_CPP_DIRS) else CPP
-    if name in ("BUILD", "WORKSPACE") or name.endswith((".bazel", ".bzl", ".BUILD")):
+    if name in ("BUILD", "WORKSPACE") or name.endswith(
+        (".bazel", ".bzl", ".BUILD")
+    ):
         return STARLARK
     if name.endswith(".bazelrc"):
         return BAZELRC
@@ -128,7 +143,9 @@ def kind_of(path: str) -> str | None:
 # ----------------------------------------------------------------------------------------------------------------------
 # C++
 # ----------------------------------------------------------------------------------------------------------------------
-_INCLUDE_DIRECTIVE = re.compile(r"[ \t]*#[ \t]*(?:include_next|include|import)\b")
+_INCLUDE_DIRECTIVE = re.compile(
+    r"[ \t]*#[ \t]*(?:include_next|include|import)\b"
+)
 _BOOST_HEADER = re.compile(r'[ \t]*([<"]boost/[^>"\n]*[>"]?)')
 # The directives other than #include that can name a header: a macro an #include expands, and __has_include.
 _HEADER_NAMING_DIRECTIVE = re.compile(r"[ \t]*#[ \t]*(?:define|if|elif)\b")
@@ -156,7 +173,9 @@ def _continues(code_line: str) -> bool:
     return code_line.rstrip(" \t\r").endswith("\\")
 
 
-def _check_cpp(without_comments: str, code: str) -> list[tuple[int, int, str, str]]:
+def _check_cpp(
+    without_comments: str, code: str
+) -> list[tuple[int, int, str, str]]:
     """The (line, column, kind, text) of every Boost token of a C++ file, given its masks (mask_cpp())."""
     findings = []
     code_lines = code.split("\n")
@@ -176,7 +195,9 @@ def _check_cpp(without_comments: str, code: str) -> list[tuple[int, int, str, st
                         number,
                         header.start(1) + 1,
                         "include",
-                        f"{_WHITESPACE.sub('', directive.group(0))} {header.group(1)}",
+                        (
+                            f"{_WHITESPACE.sub('', directive.group(0))} {header.group(1)}"
+                        ),
                     )
                 )
         naming = _HEADER_NAMING_DIRECTIVE.match(code_line)
@@ -184,7 +205,9 @@ def _check_cpp(without_comments: str, code: str) -> list[tuple[int, int, str, st
             for header in _BOOST_HEADER_ANYWHERE.finditer(
                 text_line, naming.end() if naming else 0
             ):
-                findings.append((number, header.start() + 1, "header", header.group(0)))
+                findings.append(
+                    (number, header.start() + 1, "header", header.group(0))
+                )
             in_header_naming_directive = _continues(code_line)
     line_starts = [0]
     for line in code_lines[:-1]:
@@ -210,7 +233,9 @@ _LABEL = re.compile(r"(?<![\w@])@@?boost(?![\w-])[\w./:+\-]*")
 _DEFINE_FLAG = re.compile(r"(?<![\w-])-D[ \t]*BOOST_\w*(?:=[^\s\"']*)?")
 _DEFINE_STRING = re.compile(r"(?<=[\"'])BOOST_\w*(?:=[^\s\"']*)?")
 # A Boost library linked: -lboost_system, -l:libboost_system.so.1.83.0, or the file itself in a path.
-_LINK_FLAG = re.compile(r"(?<![\w-])-l[ \t]*(?::[ \t]*)?(?:lib)?boost_\w+[\w.]*")
+_LINK_FLAG = re.compile(
+    r"(?<![\w-])-l[ \t]*(?::[ \t]*)?(?:lib)?boost_\w+[\w.]*"
+)
 _LIBRARY_FILE = re.compile(r"(?<![\w:])libboost_\w+[\w.]*")
 
 
@@ -271,7 +296,9 @@ def _findings(source: str, path: str) -> list[check_types.Finding]:
             _MESSAGES[finding_kind][0].replace("{text}", text)
             + _MESSAGES[finding_kind][1],
         )
-        for line, column, finding_kind, text in sorted(_raw_findings(source, kind))
+        for line, column, finding_kind, text in sorted(
+            _raw_findings(source, kind)
+        )
     ]
 
 
@@ -281,8 +308,13 @@ CHECKS = [
         languages=frozenset(_LANGUAGE_KINDS),
         scope=lint_files.Scope.NOT_THIRDPARTY,
         check_source=_findings,
-        description="the project is Boost-free: only the @pinocchio target depends on Boost (AGENTS.md).",
-        hint="Use the standard library or Abseil; a justified exception says why, with "
-        "NOLINT(boost): <reason> on its line.",
+        description=(
+            "the project is Boost-free: only the @pinocchio target depends on"
+            " Boost (AGENTS.md)."
+        ),
+        hint=(
+            "Use the standard library or Abseil; a justified exception says"
+            " why, with NOLINT(boost): <reason> on its line."
+        ),
     )
 ]

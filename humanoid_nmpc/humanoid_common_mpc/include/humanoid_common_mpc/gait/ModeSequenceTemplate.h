@@ -45,22 +45,26 @@ namespace ocs2::humanoid {
 
 /**
  * ModeSequenceTemplate describes a periodic sequence of modes. It is defined by
- * - switching times (size N+1), where the first time is 0, and the last time denotes the period of the cycle
+ * - switching times (size N+1), where the first time is 0, and the last time
+ * denotes the period of the cycle
  * - modeSequence (size N), indicating the mode between the switching times.
  */
 struct ModeSequenceTemplate {
   /**
-   * Constructor for a ModeSequenceTemplate. A valid template has N > 0 modes and N + 1 strictly increasing switching
-   * times; the constructor takes any, and modeSequenceTemplateFromConfig() refuses an invalid one.
+   * Constructor for a ModeSequenceTemplate. A valid template has N > 0 modes
+   * and N + 1 strictly increasing switching times; the constructor takes any,
+   * and modeSequenceTemplateFromConfig() refuses an invalid one.
    * @param [in] switchingTimesInput : switching times of size N + 1
    * @param [in] modeSequenceInput : mode sequence of size N
    */
-  ModeSequenceTemplate(std::vector<scalar_t> switchingTimesInput, std::vector<size_t> modeSequenceInput)
-      : switchingTimes(std::move(switchingTimesInput)), modeSequence(std::move(modeSequenceInput)) {}
+  ModeSequenceTemplate(std::vector<scalar_t> switchingTimesInput,
+                       std::vector<size_t> modeSequenceInput)
+      : switchingTimes(std::move(switchingTimesInput)),
+        modeSequence(std::move(modeSequenceInput)) {}
 
   /**
-   * Defined as [t_0=0, t_1, .., t_n, t_(n+1)=T], where T is the overall duration
-   * of the template logic. t_1 to t_n are the event moments.
+   * Defined as [t_0=0, t_1, .., t_n, t_(n+1)=T], where T is the overall
+   * duration of the template logic. t_1 to t_n are the event moments.
    */
   std::vector<scalar_t> switchingTimes;
 
@@ -77,11 +81,15 @@ inline void swap(ModeSequenceTemplate& lh, ModeSequenceTemplate& rh) noexcept {
   lh.modeSequence.swap(rh.modeSequence);
 }
 
-/** Formats the mode sequence template for absl::StrCat, absl::StrFormat("%v") and Abseil logging: two lines. */
+/** Formats the mode sequence template for absl::StrCat, absl::StrFormat("%v")
+ * and Abseil logging: two lines. */
 template <typename Sink>
-void AbslStringify(Sink& sink, const ModeSequenceTemplate& modeSequenceTemplate) {
-  absl::Format(&sink, "Template switching times: {%s}\nTemplate mode sequence:   {%s}\n",
-               absl::StrJoin(modeSequenceTemplate.switchingTimes, ", "), absl::StrJoin(modeSequenceTemplate.modeSequence, ", "));
+void AbslStringify(Sink& sink,
+                   const ModeSequenceTemplate& modeSequenceTemplate) {
+  absl::Format(
+      &sink, "Template switching times: {%s}\nTemplate mode sequence:   {%s}\n",
+      absl::StrJoin(modeSequenceTemplate.switchingTimes, ", "),
+      absl::StrJoin(modeSequenceTemplate.modeSequence, ", "));
 }
 
 }  // namespace ocs2::humanoid

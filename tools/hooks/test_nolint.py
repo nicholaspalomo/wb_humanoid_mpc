@@ -31,7 +31,10 @@ import unittest
 
 from tools.hooks import nolint
 
-_MARKED = "Title: Colour  NOLINT(american-spelling): a title\n"  # NOLINT(american-spelling): the test's input
+_MARKED = (
+    # NOLINTNEXTLINE(american-spelling): the test's input
+    "Title: Colour  NOLINT(american-spelling): a title\n"
+)
 
 
 def _parse(source: str, style: str = nolint.CPP_COMMENTS) -> list[tuple]:
@@ -62,15 +65,23 @@ class ParseTest(unittest.TestCase):
         )
 
     def test_markers_in_string_literals_are_text(self):
-        source = 'const char* s = "NOLINT(boost): no";\nauto r = R"(// NOLINT(boost): no)";\n'
+        source = (
+            'const char* s = "NOLINT(boost): no";\nauto r = R"(//'
+            ' NOLINT(boost): no)";\n'
+        )
         self.assertEqual(_parse(source), [])
         python = 'x = "# NOLINT(boost): no"\ny = 1  # NOLINT(boost): yes\n'
-        self.assertEqual([m[0] for m in _parse(python, nolint.PYTHON_COMMENTS)], [2])
+        self.assertEqual(
+            [m[0] for m in _parse(python, nolint.PYTHON_COMMENTS)], [2]
+        )
         starlark = 'deps = ["# NOLINT(boost): no"],  # NOLINT(boost): yes\n'
         self.assertEqual(len(_parse(starlark, nolint.HASH_COMMENTS)), 1)
 
     def test_a_python_docstring_is_not_a_comment(self):
-        source = '"""Write `# NOLINT(boost): reason` on the line.\n\nNOLINT(boost): also prose\n"""\n'
+        source = (
+            '"""Write `# NOLINT(boost): reason` on the line.\n\nNOLINT(boost):'
+            ' also prose\n"""\n'
+        )
         self.assertEqual(_parse(source, nolint.PYTHON_COMMENTS), [])
 
     def test_a_bare_word_is_a_marker_in_cpp_only(self):
@@ -78,10 +89,14 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(
             _parse("x = 1  # the NOLINT markers\n", nolint.PYTHON_COMMENTS), []
         )
-        self.assertEqual(_parse("# NOLINTNEXTLINE markers\n", nolint.HASH_COMMENTS), [])
+        self.assertEqual(
+            _parse("# NOLINTNEXTLINE markers\n", nolint.HASH_COMMENTS), []
+        )
 
     def test_a_quoted_marker_is_prose(self):
-        self.assertEqual(_parse("// write `NOLINT(boost): <reason>` on the line\n"), [])
+        self.assertEqual(
+            _parse("// write `NOLINT(boost): <reason>` on the line\n"), []
+        )
         self.assertEqual(_parse("// write 'NOLINT(boost)' on the line\n"), [])
 
     def test_whole_line_markers(self):
@@ -93,13 +108,16 @@ class ParseTest(unittest.TestCase):
     def test_a_reason_needs_a_colon_and_text(self):
         self.assertEqual(_parse("x;  // NOLINT(boost) because\n")[0][3], "")
         self.assertEqual(_parse("x;  // NOLINT(boost):\n")[0][3], "")
-        self.assertEqual(_parse("x;  /* NOLINT(boost): why */ y;\n")[0][3], "why")
+        self.assertEqual(
+            _parse("x;  /* NOLINT(boost): why */ y;\n")[0][3], "why"
+        )
 
     def test_unparseable_python_falls_back_to_hash_comments(self):
         self.assertEqual(
             len(
                 _parse(
-                    "def f(:\n  x = 1  # NOLINT(boost): why\n", nolint.PYTHON_COMMENTS
+                    "def f(:\n  x = 1  # NOLINT(boost): why\n",
+                    nolint.PYTHON_COMMENTS,
                 )
             ),
             1,
@@ -118,31 +136,39 @@ class SuppressionsTest(unittest.TestCase):
         self.assertFalse(s.suppresses("boost", 2))
         self.assertTrue(s.suppresses("no-auto", 3))
         self.assertFalse(s.suppresses("no-auto", 2))
-        self.assertFalse(s.suppresses("other", 1), "only the named check is suppressed")
+        self.assertFalse(
+            s.suppresses("other", 1), "only the named check is suppressed"
+        )
 
     def test_a_block(self):
         s = self.suppressions(
             "// NOLINTBEGIN(boost): why\na;\nb;\n// NOLINTEND(boost)\nc;\n"
         )
         self.assertEqual(
-            [line for line in range(1, 6) if s.suppresses("boost", line)], [1, 2, 3, 4]
+            [line for line in range(1, 6) if s.suppresses("boost", line)],
+            [1, 2, 3, 4],
         )
         self.assertEqual(s.unbalanced, [])
 
     def test_a_marker_without_a_reason_suppresses_nothing(self):
         s = self.suppressions(
-            "a;  // NOLINT(boost)\n// NOLINTBEGIN(no-auto)\nb;\n// NOLINTEND(no-auto)\n"
+            "a;  // NOLINT(boost)\n// NOLINTBEGIN(no-auto)\nb;\n//"
+            " NOLINTEND(no-auto)\n"
         )
         self.assertFalse(s.suppresses("boost", 1))
         self.assertFalse(s.suppresses("no-auto", 3))
 
     def test_unbalanced_blocks(self):
-        s = self.suppressions("// NOLINTBEGIN(boost): why\na;\n// NOLINTEND(no-auto)\n")
+        s = self.suppressions(
+            "// NOLINTBEGIN(boost): why\na;\n// NOLINTEND(no-auto)\n"
+        )
         self.assertEqual(
             sorted((p.check, p.line) for p in s.unbalanced),
             [("nolint-unbalanced", 1), ("nolint-unbalanced", 3)],
         )
-        self.assertFalse(s.suppresses("boost", 2), "an unclosed block exempts nothing")
+        self.assertFalse(
+            s.suppresses("boost", 2), "an unclosed block exempts nothing"
+        )
 
     def test_unused_markers(self):
         s = self.suppressions(
@@ -180,7 +206,8 @@ class MarkerProblemsTest(unittest.TestCase):
         )
         # A NOLINTEND carries no reason of its own: its NOLINTBEGIN does.
         self.assertEqual(
-            self.problems("// NOLINTBEGIN(boost): why\n// NOLINTEND(boost)\n"), []
+            self.problems("// NOLINTBEGIN(boost): why\n// NOLINTEND(boost)\n"),
+            [],
         )
 
     def test_an_unknown_category(self):

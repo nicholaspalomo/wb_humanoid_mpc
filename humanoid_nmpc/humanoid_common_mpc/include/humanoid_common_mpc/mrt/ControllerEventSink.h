@@ -34,16 +34,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Where an MRT joint controller's reports go (ControllerEvent.h). post() is called on the controller's control thread,
- * the robot process's realtime thread, so an implementation must be realtime-safe there: copy the event into a
- * preallocated slot and return, never format, log, lock or allocate. The robot process's RealtimeEventLog is one: the
- * communication thread drains and logs it. A controller without a sink of its own uses LoggingControllerEventSink,
- * which is not realtime-safe and is meant for tests and tools.
+ * Where an MRT joint controller's reports go (ControllerEvent.h). post() is
+ * called on the controller's control thread, the robot process's realtime
+ * thread, so an implementation must be realtime-safe there: copy the event into
+ * a preallocated slot and return, never format, log, lock or allocate. The
+ * robot process's RealtimeEventLog is one: the communication thread drains and
+ * logs it. A controller without a sink of its own uses
+ * LoggingControllerEventSink, which is not realtime-safe and is meant for tests
+ * and tools.
  */
 class ControllerEventSink {
  public:
   ControllerEventSink() = default;
-  /** An interface: implementations are used through a pointer or reference, never copied or moved. */
+  /** An interface: implementations are used through a pointer or reference,
+   * never copied or moved. */
   ControllerEventSink(const ControllerEventSink&) = delete;
   ControllerEventSink& operator=(const ControllerEventSink&) = delete;
   virtual ~ControllerEventSink() = default;

@@ -31,8 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace robot::web_viewer {
 
-// Says whether the pthread_create call being made is to fail with EAGAIN. Defined by the test binary that links
-// PthreadCreateInterposer.cpp, which calls it once per pthread_create of the process, from any thread.
+// Says whether the pthread_create call being made is to fail with EAGAIN.
+// Defined by the test binary that links PthreadCreateInterposer.cpp, which
+// calls it once per pthread_create of the process, from any thread.
 bool takePthreadCreateFailure();
 
 }  // namespace robot::web_viewer

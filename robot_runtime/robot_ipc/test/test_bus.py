@@ -80,9 +80,14 @@ def isolated_network(
     )
 
 
-def make_sample(sequence: int, publisher: int = 0) -> test_sample_pb2.TestSample:
+def make_sample(
+    sequence: int, publisher: int = 0
+) -> test_sample_pb2.TestSample:
     return test_sample_pb2.TestSample(
-        sequence=sequence, publisher=publisher, text="sample", values=[float(sequence)]
+        sequence=sequence,
+        publisher=publisher,
+        text="sample",
+        values=[float(sequence)],
     )
 
 
@@ -147,7 +152,9 @@ class OrderLog:
         self._lock = threading.Lock()
         self._entries: list[str] = []
 
-    def callback(self, topic: str) -> Callable[[test_sample_pb2.TestSample], None]:
+    def callback(
+        self, topic: str
+    ) -> Callable[[test_sample_pb2.TestSample], None]:
         def record(sample: test_sample_pb2.TestSample) -> None:
             with self._lock:
                 self._entries.append(f"{topic}:{sample.sequence}")
@@ -206,7 +213,9 @@ class BusTestCase(unittest.TestCase):
 
 class CreateTest(BusTestCase):
 
-    def test_rejects_a_node_outside_the_network_and_lists_the_nodes(self) -> None:
+    def test_rejects_a_node_outside_the_network_and_lists_the_nodes(
+        self,
+    ) -> None:
         with self.assertRaises(ValueError) as raised:
             robot_ipc.Bus("ghost", isolated_network())
         self.assertIn("ghost", str(raised.exception))
@@ -242,7 +251,9 @@ class CreateTest(BusTestCase):
         first = robot_ipc.Bus(PUBLISHER, isolated_network())
         network = isolated_network()
         other_tag = robot_ipc.NetworkConfig(
-            nodes=network.nodes, domain_id=network.domain_id, domain_tag="another_tag"
+            nodes=network.nodes,
+            domain_id=network.domain_id,
+            domain_tag="another_tag",
         )
         with self.assertRaises(robot_ipc.BusError):
             robot_ipc.Bus("", other_tag)
@@ -250,12 +261,16 @@ class CreateTest(BusTestCase):
         # Once its last bus is gone, the domain may be configured anew.
         robot_ipc.Bus("", other_tag).close()
 
-    def test_a_subscribe_only_bus_reports_its_domain_and_cannot_publish(self) -> None:
+    def test_a_subscribe_only_bus_reports_its_domain_and_cannot_publish(
+        self,
+    ) -> None:
         bus = self.subscriber()
         self.assertEqual(bus.node_name, "")
         self.assertEqual(bus.domain_id, isolated_network().domain_id)
         self.assertEqual(bus.discovery_peers, ["127.0.0.1"])
-        self.assertIn(f"<Tag>{isolated_network().domain_tag}</Tag>", bus.domain_config)
+        self.assertIn(
+            f"<Tag>{isolated_network().domain_tag}</Tag>", bus.domain_config
+        )
         with self.assertRaises(robot_ipc.BusError):
             bus.publish("test/topic", make_sample(0))
 
@@ -271,7 +286,9 @@ class CreateTest(BusTestCase):
         network = isolated_network(
             (
                 robot_ipc.TopicQos(
-                    "test/declared", robot_ipc.QosProfile.RELIABLE_EVENTS, (PUBLISHER,)
+                    "test/declared",
+                    robot_ipc.QosProfile.RELIABLE_EVENTS,
+                    (PUBLISHER,),
                 ),
             )
         )
@@ -283,8 +300,12 @@ class CreateTest(BusTestCase):
         subscriber.start()
         publisher = self.publisher(network)
         publisher.start()
-        self.assertTrue(wait_for(matched_writers(subscriber, "test/declared", 1)))
-        self.assertTrue(wait_for(matched_readers(publisher, "test/declared", 1)))
+        self.assertTrue(
+            wait_for(matched_writers(subscriber, "test/declared", 1))
+        )
+        self.assertTrue(
+            wait_for(matched_readers(publisher, "test/declared", 1))
+        )
         self.assertEqual(publisher.topic_statistics("test/declared").written, 0)
         publisher.publish("test/declared", make_sample(1))
         self.assertTrue(wait_for(lambda: collector.contains(1)))
@@ -327,7 +348,9 @@ class CreateTest(BusTestCase):
             self.assertFalse(streamer.is_alive())
             self.assertEqual(outcomes, ["refused"])
 
-    def test_close_counts_what_a_bus_that_is_not_running_never_sent(self) -> None:
+    def test_close_counts_what_a_bus_that_is_not_running_never_sent(
+        self,
+    ) -> None:
         never_started = self.publisher()
         self.assertTrue(never_started.publish("test/close", make_sample(1)))
         never_started.close()
@@ -397,7 +420,9 @@ class LifecycleTest(BusTestCase):
         bus.close()
         self.assertLess(time.monotonic() - start, 2.0)
 
-    def test_stop_from_a_callback_ends_the_loop_and_a_later_stop_joins(self) -> None:
+    def test_stop_from_a_callback_ends_the_loop_and_a_later_stop_joins(
+        self,
+    ) -> None:
         bus = self.publisher()
         subscribe_probe(bus)
         calls = []
@@ -416,7 +441,9 @@ class LifecycleTest(BusTestCase):
         bus.start()
         self.assertTrue(bus.is_running())
 
-    def test_close_from_a_callback_is_refused_and_the_bus_carries_on(self) -> None:
+    def test_close_from_a_callback_is_refused_and_the_bus_carries_on(
+        self,
+    ) -> None:
         bus = self.publisher()
         outcomes: list[str] = []
 
@@ -435,7 +462,9 @@ class LifecycleTest(BusTestCase):
         self.assertEqual(outcomes, ["refused"])
         self.assertTrue(bus.is_running())
 
-    def test_a_callback_configuring_during_a_stop_does_not_deadlock_it(self) -> None:
+    def test_a_callback_configuring_during_a_stop_does_not_deadlock_it(
+        self,
+    ) -> None:
         bus = self.publisher()
         entered = threading.Event()
         go = threading.Event()
@@ -462,7 +491,9 @@ class LifecycleTest(BusTestCase):
         self.assertTrue(wait_for(lambda: not bus.is_running()))
         go.set()
         stopper.join(timeout=2.0)
-        self.assertFalse(stopper.is_alive(), "stop() deadlocked with a callback")
+        self.assertFalse(
+            stopper.is_alive(), "stop() deadlocked with a callback"
+        )
         self.assertEqual(outcome, ["refused"])
 
     def test_a_periodic_callback_that_overran_its_period_is_not_called_again_at_once(
@@ -520,14 +551,18 @@ class DeliveryTest(BusTestCase):
     def test_every_topic_is_a_dds_topic_of_its_own(self) -> None:
         publisher, subscriber = self.connected_pair()
         collector = Collector()
-        subscriber.subscribe("test/a", test_sample_pb2.TestSample, collector, "all")
+        subscriber.subscribe(
+            "test/a", test_sample_pb2.TestSample, collector, "all"
+        )
         self.start_and_connect(publisher, subscriber)
         publisher.publish("test/ab", make_sample(100))
         publisher.publish("test/a", make_sample(1))
         publisher.publish("test/a/b", make_sample(101))
         publisher.publish("test/a", make_sample(2))
         self.assertTrue(wait_for(lambda: collector.contains(2)))
-        self.assertEqual([sample.sequence for sample in collector.samples()], [1, 2])
+        self.assertEqual(
+            [sample.sequence for sample in collector.samples()], [1, 2]
+        )
         self.assertEqual(subscriber.topic_statistics("test/ab").received, 0)
         self.assertEqual(publisher.topic_statistics("test/ab").written, 1)
 
@@ -536,14 +571,17 @@ class DeliveryTest(BusTestCase):
     ) -> None:
         burst = 300
         publisher, subscriber = self.connected_pair(
-            publish_queue_capacity=4 * burst, all_delivery_history_depth=2 * burst
+            publish_queue_capacity=4 * burst,
+            all_delivery_history_depth=2 * burst,
         )
         latest = Collector()
         everything = Collector()
         subscriber.subscribe(
             "test/latest", test_sample_pb2.TestSample, latest, "latest"
         )
-        subscriber.subscribe("test/all", test_sample_pb2.TestSample, everything, "all")
+        subscriber.subscribe(
+            "test/all", test_sample_pb2.TestSample, everything, "all"
+        )
         self.start_and_connect(publisher, subscriber)
         publisher.publish("test/latest", make_sample(0))
         self.assertTrue(wait_for(lambda: latest.contains(0)))
@@ -629,7 +667,9 @@ class DeliveryTest(BusTestCase):
             worker.start()
         for worker in workers:
             worker.join()
-        self.assertTrue(wait_for(lambda: collector.size() == threads * per_thread))
+        self.assertTrue(
+            wait_for(lambda: collector.size() == threads * per_thread)
+        )
         next_sequence = [0] * threads
         for sample in collector.samples():
             self.assertEqual(sample.sequence, next_sequence[sample.publisher])
@@ -643,15 +683,23 @@ class DeliveryTest(BusTestCase):
     ) -> None:
         subscriber = self.subscriber()
         collector = Collector()
-        subscriber.subscribe("test/typed", test_sample_pb2.TestSample, collector, "all")
+        subscriber.subscribe(
+            "test/typed", test_sample_pb2.TestSample, collector, "all"
+        )
         subscriber.start()
         # A raw DDS writer in the bus's domain, to write what a Bus never would.
-        participant = cyclonedds.domain.DomainParticipant(isolated_network().domain_id)
+        participant = cyclonedds.domain.DomainParticipant(
+            isolated_network().domain_id
+        )
         writer = cyclonedds.pub.DataWriter(
             participant,
-            cyclonedds.topic.Topic(participant, "test/typed", robot_ipc.Envelope),
+            cyclonedds.topic.Topic(
+                participant, "test/typed", robot_ipc.Envelope
+            ),
             qos=cyclonedds.qos.Qos(
-                cyclonedds.qos.Policy.Reliability.Reliable(max_blocking_time=10**9),
+                cyclonedds.qos.Policy.Reliability.Reliable(
+                    max_blocking_time=10**9
+                ),
                 cyclonedds.qos.Policy.History.KeepLast(64),
             ),
         )
@@ -673,7 +721,9 @@ class DeliveryTest(BusTestCase):
             ),
             start=1,
         ):
-            writer.write(robot_ipc.Envelope(protocol, sequence, type_name, payload))
+            writer.write(
+                robot_ipc.Envelope(protocol, sequence, type_name, payload)
+            )
         self.assertTrue(wait_for(lambda: collector.size() == 1))
         self.assertEqual(collector.samples()[0].sequence, 5)
         statistics = subscriber.topic_statistics("test/typed")
@@ -691,12 +741,18 @@ class DeliveryTest(BusTestCase):
 
     def test_the_bus_writes_the_envelope_of_its_wire_protocol(self) -> None:
         publisher = self.publisher()
-        participant = cyclonedds.domain.DomainParticipant(isolated_network().domain_id)
+        participant = cyclonedds.domain.DomainParticipant(
+            isolated_network().domain_id
+        )
         reader = cyclonedds.sub.DataReader(
             participant,
-            cyclonedds.topic.Topic(participant, "test/version", robot_ipc.Envelope),
+            cyclonedds.topic.Topic(
+                participant, "test/version", robot_ipc.Envelope
+            ),
             qos=cyclonedds.qos.Qos(
-                cyclonedds.qos.Policy.Reliability.Reliable(max_blocking_time=10**9)
+                cyclonedds.qos.Policy.Reliability.Reliable(
+                    max_blocking_time=10**9
+                )
             ),
         )
         publisher.start()
@@ -714,10 +770,14 @@ class DeliveryTest(BusTestCase):
 
         self.assertTrue(wait_for(two_received))
         for envelope in received:
-            self.assertEqual(envelope.protocol_version, robot_ipc.WIRE_PROTOCOL_VERSION)
+            self.assertEqual(
+                envelope.protocol_version, robot_ipc.WIRE_PROTOCOL_VERSION
+            )
             self.assertEqual(envelope.type_name, "robot_ipc_test.TestSample")
             self.assertEqual(
-                test_sample_pb2.TestSample.FromString(bytes(envelope.payload)).sequence,
+                test_sample_pb2.TestSample.FromString(
+                    bytes(envelope.payload)
+                ).sequence,
                 3,
             )
         sequences = [envelope.sequence_number for envelope in received]
@@ -761,18 +821,24 @@ class DeliveryTest(BusTestCase):
         network = isolated_network(
             (
                 robot_ipc.TopicQos(
-                    "test/policy", robot_ipc.QosProfile.RELIABLE_LATEST, (PUBLISHER,)
+                    "test/policy",
+                    robot_ipc.QosProfile.RELIABLE_LATEST,
+                    (PUBLISHER,),
                 ),
             )
         )
         publisher = self.publisher(network)
         subscriber = self.subscriber(network)
         collector = Collector()
-        subscriber.subscribe("test/policy", test_sample_pb2.TestSample, collector)
+        subscriber.subscribe(
+            "test/policy", test_sample_pb2.TestSample, collector
+        )
         publisher.start()
         subscriber.start()
         self.assertTrue(wait_for(matched_writers(subscriber, "test/policy", 1)))
-        text = "".join(chr(ord("a") + index % 26) for index in range(POLICY_BYTES))
+        text = "".join(
+            chr(ord("a") + index % 26) for index in range(POLICY_BYTES)
+        )
         publisher.publish(
             "test/policy", test_sample_pb2.TestSample(sequence=9, text=text)
         )
@@ -788,7 +854,9 @@ class DeliveryTest(BusTestCase):
                 raise RuntimeError("the first sample is unwelcome")
             collector(sample)
 
-        subscriber.subscribe("test/raises", test_sample_pb2.TestSample, callback, "all")
+        subscriber.subscribe(
+            "test/raises", test_sample_pb2.TestSample, callback, "all"
+        )
         self.start_and_connect(publisher, subscriber)
         publisher.publish("test/raises", make_sample(0))
         publisher.publish("test/raises", make_sample(1))
@@ -798,7 +866,9 @@ class DeliveryTest(BusTestCase):
         self.assertEqual(statistics.delivered, 2)
         self.assertTrue(subscriber.is_running())
 
-    def test_periodic_callbacks_run_on_the_io_thread_and_may_publish(self) -> None:
+    def test_periodic_callbacks_run_on_the_io_thread_and_may_publish(
+        self,
+    ) -> None:
         publisher, subscriber = self.connected_pair()
         collector = Collector()
         subscriber.subscribe(
@@ -808,7 +878,9 @@ class DeliveryTest(BusTestCase):
 
         def tick() -> None:
             calls.append(publisher.is_io_thread())
-            publisher.publish_from_io_thread("test/periodic", make_sample(len(calls)))
+            publisher.publish_from_io_thread(
+                "test/periodic", make_sample(len(calls))
+            )
 
         def fail() -> None:
             raise RuntimeError("a failing callback")
@@ -820,7 +892,9 @@ class DeliveryTest(BusTestCase):
         self.assertTrue(all(calls))
         self.assertGreater(publisher.periodic_callback_errors, 0)
 
-    def test_subscribe_all_topics_sees_every_message_with_its_type_name(self) -> None:
+    def test_subscribe_all_topics_sees_every_message_with_its_type_name(
+        self,
+    ) -> None:
         publisher, subscriber = self.connected_pair()
         seen: list[tuple[str, str, bytes]] = []
         lock = threading.Lock()
@@ -843,12 +917,14 @@ class DeliveryTest(BusTestCase):
         self.assertTrue(wait_for(both_seen))
         with lock:
             by_topic = {
-                topic: (type_name, payload) for topic, type_name, payload in seen
+                topic: (type_name, payload)
+                for topic, type_name, payload in seen
             }
         type_name, payload = by_topic["test/two"]
         self.assertEqual(type_name, "robot_ipc_test.TestEvent")
         self.assertEqual(
-            robot_ipc.decode(type_name, payload), test_event_pb2.TestEvent(name="two")
+            robot_ipc.decode(type_name, payload),
+            test_event_pb2.TestEvent(name="two"),
         )
 
 
@@ -863,7 +939,9 @@ class ConnectionTest(BusTestCase):
         subscriber.subscribe("test/late", test_sample_pb2.TestSample, collector)
         subscriber.start()
         time.sleep(0.05)
-        self.assertEqual(subscriber.topic_statistics("test/late").matched_writers, 0)
+        self.assertEqual(
+            subscriber.topic_statistics("test/late").matched_writers, 0
+        )
         publisher = self.publisher()
         publisher.start()
         self.wait_until_connected(publisher, subscriber)
@@ -881,9 +959,13 @@ class ConnectionTest(BusTestCase):
         self.start_and_connect(publisher, subscriber)
         publisher.publish("test/restart", make_sample(1))
         self.assertTrue(wait_for(lambda: collector.contains(1)))
-        self.assertTrue(wait_for(matched_writers(subscriber, "test/restart", 1)))
+        self.assertTrue(
+            wait_for(matched_writers(subscriber, "test/restart", 1))
+        )
         publisher.close()
-        self.assertTrue(wait_for(matched_writers(subscriber, "test/restart", 0)))
+        self.assertTrue(
+            wait_for(matched_writers(subscriber, "test/restart", 0))
+        )
         restarted = self.publisher()
         restarted.start()
         self.wait_until_connected(restarted, subscriber)
@@ -897,11 +979,13 @@ class ConnectionTest(BusTestCase):
         capacity, published = 8, 20
         publisher = self.publisher(publish_queue_capacity=capacity)
         accepted = [
-            publisher.publish("test/queue", make_sample(n)) for n in range(published)
+            publisher.publish("test/queue", make_sample(n))
+            for n in range(published)
         ]
         self.assertEqual(accepted.count(False), published - capacity)
         self.assertEqual(
-            publisher.topic_statistics("test/queue").send_dropped, published - capacity
+            publisher.topic_statistics("test/queue").send_dropped,
+            published - capacity,
         )
         publisher.start()
         self.assertTrue(wait_for(written(publisher, "test/queue", capacity)))
@@ -930,10 +1014,14 @@ class DecodeTest(unittest.TestCase):
 
     def test_decodes_by_type_name(self) -> None:
         sample = make_sample(42)
-        for type_name in ("robot_ipc_test.TestSample", b"robot_ipc_test.TestSample"):
+        for type_name in (
+            "robot_ipc_test.TestSample",
+            b"robot_ipc_test.TestSample",
+        ):
             with self.subTest(type_name=type_name):
                 self.assertEqual(
-                    robot_ipc.decode(type_name, sample.SerializeToString()), sample
+                    robot_ipc.decode(type_name, sample.SerializeToString()),
+                    sample,
                 )
         self.assertIs(
             robot_ipc.message_class("robot_ipc_test.TestSample"),

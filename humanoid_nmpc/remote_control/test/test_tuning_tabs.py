@@ -110,13 +110,19 @@ class TestTunedFile(TempFileTestCase):
 
     def test_the_parameters_are_the_schemas(self):
         paths = {spec.path for spec in self.task.parameters()}
-        self.assertIn("state_weights.joint_positions[joint=back_bkz].value", paths)
+        self.assertIn(
+            "state_weights.joint_positions[joint=back_bkz].value", paths
+        )
         self.assertIn("terrain_height", paths)
         # A block the file leaves out is there with its defaults, so that a slider can insert it.
         self.assertIn("swing_trajectory_config.swing_height", paths)
         rendered = {spec.path for spec in self.task.rendered()}
-        self.assertNotIn("enable_online_tuning", rendered)  # excluded, with a reason
-        self.assertTrue(self.task.spec("enable_online_tuning").tuning.exclude_reason)
+        self.assertNotIn(
+            "enable_online_tuning", rendered
+        )  # excluded, with a reason
+        self.assertTrue(
+            self.task.spec("enable_online_tuning").tuning.exclude_reason
+        )
 
     def test_a_change_is_held_and_not_written(self):
         self.task.set("state_weights.scaling", 90.0)
@@ -151,7 +157,9 @@ class TestTunedFile(TempFileTestCase):
             self.task.set("costs", "terminal_cost")  # a name list
 
     def test_save_writes_the_changes_and_keeps_every_other_byte(self):
-        self.task.set("state_weights.joint_positions[joint=l_leg_kny].value", 2.5)
+        self.task.set(
+            "state_weights.joint_positions[joint=l_leg_kny].value", 2.5
+        )
         self.task.set("terrain_height", 0.02)
         self.task.set(
             "swing_trajectory_config.swing_height", 0.12
@@ -191,9 +199,11 @@ class TestTunedFile(TempFileTestCase):
     def test_set_refuses_a_value_below_the_minimum(self):
         gains_path = self.write(
             "pd.textproto",
-            "# proto-file: humanoid_nmpc/humanoid_mpc_config/joint_pd_gains_file.proto\n"
-            "# proto-message: humanoid_mpc_config.JointPdGainsFile\n"
-            "default_gains { kp: 10.0 kd: 1.0 }\n",
+            "# proto-file:"
+            " humanoid_nmpc/humanoid_mpc_config/joint_pd_gains_file.proto\n#"
+            " proto-message:"
+            " humanoid_mpc_config.JointPdGainsFile\ndefault_gains { kp: 10.0"
+            " kd: 1.0 }\n",
         )
         gains = tuned_file.TunedFile(
             gains_path, joint_pd_gains_file_pb2.JointPdGainsFile
@@ -212,29 +222,43 @@ class TestTunedFile(TempFileTestCase):
         ):
             for value in (-1.0, float("nan")):
                 with self.subTest(path=path, value=value):
-                    with self.assertRaisesRegex(ValueError, r"below its minimum"):
+                    with self.assertRaisesRegex(
+                        ValueError, r"below its minimum"
+                    ):
                         self.task.set(path, value)
             self.task.set(path, 0.0)
             self.assertEqual(self.task.value(path), 0.0)
 
     def test_a_file_that_does_not_parse_is_refused_with_its_position(self):
-        path = self.write("bad.textproto", f"{_TASK_HEADER}terrainHeight: 0.1\n")
-        with self.assertRaisesRegex(tuned_file.TunedFileError, r"bad.textproto:3:"):
+        path = self.write(
+            "bad.textproto", f"{_TASK_HEADER}terrainHeight: 0.1\n"
+        )
+        with self.assertRaisesRegex(
+            tuned_file.TunedFileError, r"bad.textproto:3:"
+        ):
             tuned_file.TunedFile(path, task_file_pb2.TaskFile)
 
     def test_the_groups_of_rows(self):
-        joint = self.task.spec("state_weights.joint_positions[joint=back_bkz].value")
-        self.assertEqual(tuned_file.group_of(joint), "state_weights.joint_positions")
+        joint = self.task.spec(
+            "state_weights.joint_positions[joint=back_bkz].value"
+        )
+        self.assertEqual(
+            tuned_file.group_of(joint), "state_weights.joint_positions"
+        )
         self.assertEqual(
             tuned_file.group_of(self.task.spec("state_weights.scaling")),
             "state_weights",
         )
-        self.assertEqual(tuned_file.group_of(self.task.spec("terrain_height")), "")
+        self.assertEqual(
+            tuned_file.group_of(self.task.spec("terrain_height")), ""
+        )
 
     def test_refresh_unchanged_file_returns_none(self):
         self.assertIsNone(self.task.refresh())
 
-    def test_refresh_picks_up_editors_change_and_preserves_operator_change(self):
+    def test_refresh_picks_up_editors_change_and_preserves_operator_change(
+        self,
+    ):
         self.task.set("terrain_height", 0.05)
         edited_text = TASK.replace("scaling: 85", "scaling: 95.0")
         self.write(self.path, edited_text)
@@ -246,7 +270,9 @@ class TestTunedFile(TempFileTestCase):
         self.assertEqual(self.task.value("terrain_height"), 0.05)
         self.assertEqual(self.task.saved_value("terrain_height"), 0.0)
 
-    def test_refresh_operator_change_wins_on_conflict_unless_editor_matched_it(self):
+    def test_refresh_operator_change_wins_on_conflict_unless_editor_matched_it(
+        self,
+    ):
         self.task.set("state_weights.scaling", 100.0)
 
         self.write(self.path, TASK.replace("scaling: 85", "scaling: 90.0"))
@@ -282,7 +308,8 @@ def _shipped_task_files() -> list[tuned_file.TunedFile]:
     """Every robot's task file, of both formulations."""
     return [
         tuned_file.TunedFile(
-            os.path.join(config, "mpc", "task.textproto"), task_file_pb2.TaskFile
+            os.path.join(config, "mpc", "task.textproto"),
+            task_file_pb2.TaskFile,
         )
         for config in operator_test_support.ROBOT_CONFIGS.values()
     ]
@@ -293,7 +320,8 @@ class TestEveryFormulationAppliesItsHotFieldsLive(unittest.TestCase):
 
     def test_both_formulations_are_shipped(self):
         formulations = {
-            config_schema.formulation_of(file.message) for file in _shipped_task_files()
+            config_schema.formulation_of(file.message)
+            for file in _shipped_task_files()
         }
         self.assertEqual(formulations, set(config_schema.FORMULATIONS))
 
@@ -344,9 +372,12 @@ class TestEveryFormulationAppliesItsHotFieldsLive(unittest.TestCase):
         for file in _shipped_task_files():
             for spec in file.rendered():
                 with self.subTest(file=file.path, path=spec.path):
-                    restart = "restart" in config_schema.annotations(spec, file.message)
+                    restart = "restart" in config_schema.annotations(
+                        spec, file.message
+                    )
                     self.assertEqual(
-                        restart, spec.tuning.reload == config_schema.RELOAD_START_UP
+                        restart,
+                        spec.tuning.reload == config_schema.RELOAD_START_UP,
                     )
 
     def test_the_whole_body_g1s_weights_and_torque_weights_are_live(self):
@@ -359,7 +390,8 @@ class TestEveryFormulationAppliesItsHotFieldsLive(unittest.TestCase):
             task_file_pb2.TaskFile,
         )
         self.assertEqual(
-            config_schema.formulation_of(whole_body.message), config_schema.WHOLE_BODY
+            config_schema.formulation_of(whole_body.message),
+            config_schema.WHOLE_BODY,
         )
         for path in ("state_weights.scaling", "contact_estimator"):
             with self.subTest(path=path):
@@ -388,7 +420,10 @@ class TestTheShippedFilesLoad(unittest.TestCase):
         for package, config in operator_test_support.ROBOT_CONFIGS.items():
             for relative, message_class in (
                 ("mpc/task.textproto", task_file_pb2.TaskFile),
-                ("command/reference.textproto", reference_file_pb2.ReferenceFile),
+                (
+                    "command/reference.textproto",
+                    reference_file_pb2.ReferenceFile,
+                ),
                 (
                     "controller/joint_pd_gains.textproto",
                     joint_pd_gains_file_pb2.JointPdGainsFile,
@@ -428,8 +463,12 @@ class TestParameterRows(TempFileTestCase):
 
     def test_each_kind_gets_its_widget(self):
         self.assertIsInstance(self._row("terrain_height"), slider_row.SliderRow)
-        self.assertIsInstance(self._row("mpc.cold_start"), parameter_rows.CheckRow)
-        self.assertIsInstance(self._row("contact_estimator"), parameter_rows.ChoiceRow)
+        self.assertIsInstance(
+            self._row("mpc.cold_start"), parameter_rows.CheckRow
+        )
+        self.assertIsInstance(
+            self._row("contact_estimator"), parameter_rows.ChoiceRow
+        )
         # A selection by name, here one the file leaves at its default, is a choice too.
         self.assertIsInstance(
             self._row("model_settings.foot_constraint.stance_constraint"),
@@ -437,7 +476,9 @@ class TestParameterRows(TempFileTestCase):
         )
         self.assertIsInstance(self._row("costs"), parameter_rows.NameListRow)
         excluded = self.task.spec("enable_online_tuning")
-        self.assertIsNone(parameter_rows.make_row(self.root, excluded, "x", True))
+        self.assertIsNone(
+            parameter_rows.make_row(self.root, excluded, "x", True)
+        )
 
     def test_a_row_reports_its_changes_and_resets_to_the_files_value(self):
         row = self._row("mpc.cold_start")
@@ -488,13 +529,18 @@ class TestSliderRowEntry(unittest.TestCase):
         self.addCleanup(self.root.destroy)
         self.changes: list[tuple[str, float | None]] = []
 
-    def _slider(self, value: float, unset: bool = False) -> slider_row.SliderRow:
+    def _record_change(self, name: str, changed: float | None) -> None:
+        self.changes.append((name, changed))
+
+    def _slider(
+        self, value: float, unset: bool = False
+    ) -> slider_row.SliderRow:
         return slider_row.SliderRow(
             self.root,
             name="gain",
             initial_value=value,
             max_val=4000.0,
-            on_change=lambda name, changed: self.changes.append((name, changed)),
+            on_change=self._record_change,
             unset=unset,
         )
 
@@ -544,7 +590,9 @@ class TestSliderRowEntry(unittest.TestCase):
         row._on_scale_change("3.0")
         self.assertEqual(row.get_value(), 3.0)
 
-    def test_an_unset_row_shows_no_value_until_one_is_given_and_resets_to_none(self):
+    def test_an_unset_row_shows_no_value_until_one_is_given_and_resets_to_none(
+        self,
+    ):
         row = self._slider(0.1, unset=True)
         self.assertFalse(row.has_value())
         self.assertEqual(row.entry_var.get(), "")
@@ -660,7 +708,9 @@ class TestUnsetParameters(TempFileTestCase):
         row = self._row(self.UNSET)
         row.set_value(0.9)
         self.assertEqual(self.task.changes(), {self.UNSET: 0.9})
-        self.assertEqual(self.task.edited().message.dcm_terminal_cost.com_height, 0.9)
+        self.assertEqual(
+            self.task.edited().message.dcm_terminal_cost.com_height, 0.9
+        )
         row.reset_to_default()
         self.assertEqual(self.task.changes(), {})
         self.assertFalse(
@@ -798,7 +848,9 @@ class TestTabsOnlineTuning(unittest.TestCase):
     def test_a_given_file_that_does_not_exist_is_reported_not_replaced_by_a_preset(
         self,
     ):
-        missing = os.path.join(tempfile.gettempdir(), "no_such_robot", "task.textproto")
+        missing = os.path.join(
+            tempfile.gettempdir(), "no_such_robot", "task.textproto"
+        )
         mpc = mpc_params_tab.MpcParamsTab(self.root, task_file=missing)
         self.assertIsNone(mpc.task)
         self.assertIn("Cannot load", str(mpc.status_label.cget("text")))
@@ -810,10 +862,14 @@ class TestTabsOnlineTuning(unittest.TestCase):
         tab = joint_pd_tab.JointPdGainsTab(
             self.root, pd_gains_file=operator_test_support.ATLAS_PD_GAINS_FILE
         )
-        tab.set_online_tuning_enabled(False, "the task file does not parse: x:3:1")
+        tab.set_online_tuning_enabled(
+            False, "the task file does not parse: x:3:1"
+        )
         self.assertIn("does not parse", str(tab.warning_banner.cget("text")))
         tab.set_online_tuning_enabled(False)
-        self.assertIn("enable_online_tuning", str(tab.warning_banner.cget("text")))
+        self.assertIn(
+            "enable_online_tuning", str(tab.warning_banner.cget("text"))
+        )
 
     def test_every_category_renders_and_is_reachable(self):
         tab = mpc_params_tab.MpcParamsTab(
@@ -854,7 +910,9 @@ class TestCommandLimitsTab(TempFileTestCase):
         self.assertEqual(tab.status_var.get(), "unsaved changes")
         self.assertTrue(tab.save())
         reloaded = tuned_file.TunedFile(path, reference_file_pb2.ReferenceFile)
-        self.assertEqual(reloaded.saved_value("max_rotation_velocity"), row.get_value())
+        self.assertEqual(
+            reloaded.saved_value("max_rotation_velocity"), row.get_value()
+        )
         changed = [
             (before, after)
             for before, after in zip(
@@ -865,7 +923,9 @@ class TestCommandLimitsTab(TempFileTestCase):
         self.assertEqual(len(changed), 1, changed)
         self.assertIn("max_rotation_velocity", changed[0][1])
 
-    def test_the_command_limits_tab_saves_nothing_while_online_tuning_is_off(self):
+    def test_the_command_limits_tab_saves_nothing_while_online_tuning_is_off(
+        self,
+    ):
         root = tk.Tk()
         root.withdraw()
         self.addCleanup(root.destroy)
@@ -935,7 +995,9 @@ class TestTwoCopySave(TempFileTestCase):
         self, bus: operator_test_support.RecordingBus
     ) -> robot_config_save.RobotConfigSaver:
         return robot_config_save.RobotConfigSaver(
-            operator_bus.TopicPublisher.for_topic(bus, topics.OPERATOR_CONFIG_SAVE),
+            operator_bus.TopicPublisher.for_topic(
+                bus, topics.OPERATOR_CONFIG_SAVE
+            ),
             self.statuses,
             clock=self.clock,
         )
@@ -991,7 +1053,9 @@ class TestTwoCopySave(TempFileTestCase):
         """The save is the laptop's file: its kind, robot, identity, schema and exactly its bytes."""
         self.assertEqual(save.kind, kind)
         self.assertEqual(save.robot_name, "atlas")
-        self.assertEqual(save.config_path, robot_config_save.config_path_of(path))
+        self.assertEqual(
+            save.config_path, robot_config_save.config_path_of(path)
+        )
         self.assertEqual(
             save.schema_fingerprint,
             nproto_schema.schema_fingerprint(message_class.DESCRIPTOR),
@@ -1032,7 +1096,9 @@ class TestTwoCopySave(TempFileTestCase):
         ):
             self.assertFalse(tab.save())
         with open(task_path, "rb") as handle:
-            self.assertEqual(handle.read(), before, "the laptop's task file changed")
+            self.assertEqual(
+                handle.read(), before, "the laptop's task file changed"
+            )
         self.assertEqual(self._saves(), [], "the robot's task file was sent")
         self.assertIn("contact planner's file: disk full", self._status(tab))
         # Once the planner saves again, both copies follow.
@@ -1052,7 +1118,9 @@ class TestTwoCopySave(TempFileTestCase):
         tab.render_category_containing(
             f"{mpc_params_tab.CONTACT_PLANNING_BLOCK}.planner.commit_time"
         )
-        planner_key = f"{mpc_params_tab.CONTACT_PLANNING_BLOCK}.planner.commit_time"
+        planner_key = (
+            f"{mpc_params_tab.CONTACT_PLANNING_BLOCK}.planner.commit_time"
+        )
         self.assertIn(planner_key, tab.slider_rows)
         row = tab.slider_rows[planner_key]
         initial_val = row.get_value()
@@ -1076,15 +1144,26 @@ class TestTwoCopySave(TempFileTestCase):
 
     def test_every_answer_of_the_robot_is_shown(self):
         tab = self._mpc_tab()
-        stored = "/var/lib/wb-humanoid-robot/config/drc_atlas/mpc/task.textproto"
+        stored = (
+            "/var/lib/wb-humanoid-robot/config/drc_atlas/mpc/task.textproto"
+        )
         for result, expected in (
-            (_Status.RESULT_SAVED, f"Saved on the laptop and on the robot ({stored})"),
+            (
+                _Status.RESULT_SAVED,
+                f"Saved on the laptop and on the robot ({stored})",
+            ),
             (_Status.RESULT_UNCHANGED, "robot unchanged"),
             (_Status.RESULT_REFUSED, "the robot refused it: another robot"),
-            (_Status.RESULT_FAILED, "the robot could not store it: another robot"),
+            (
+                _Status.RESULT_FAILED,
+                "the robot could not store it: another robot",
+            ),
             (
                 _Status.RESULT_NOT_STORED,
-                f"the robot has no store: it reads {stored} in place; this Save did not change it",
+                (
+                    f"the robot has no store: it reads {stored} in place; this"
+                    " Save did not change it"
+                ),
             ),
         ):
             with self.subTest(result=result):
@@ -1092,7 +1171,9 @@ class TestTwoCopySave(TempFileTestCase):
                 self._answer(result, "another robot", stored)
                 tab.robot_save.poll()
                 self.assertIn(expected, self._status(tab))
-                self.assertTrue(self._status(tab).startswith("Saved on the laptop"))
+                self.assertTrue(
+                    self._status(tab).startswith("Saved on the laptop")
+                )
 
     def test_an_unanswered_save_is_unknown_and_a_late_answer_replaces_it(self):
         tab = self._mpc_tab()
@@ -1114,7 +1195,9 @@ class TestTwoCopySave(TempFileTestCase):
     def test_a_save_the_bus_drops_says_not_sent(self):
         tab = self._mpc_tab(saver=self._saver(_QueueFullBus()))
         self.assertTrue(tab.save())
-        self.assertIn("not sent to the robot: the bus dropped it", self._status(tab))
+        self.assertIn(
+            "not sent to the robot: the bus dropped it", self._status(tab)
+        )
 
     def test_without_a_bus_the_save_says_it_was_not_sent(self):
         tab = mpc_params_tab.MpcParamsTab(
@@ -1151,7 +1234,9 @@ class TestTwoCopySave(TempFileTestCase):
         gains = joint_pd_gains_tab_for(self.root, gains_path, self.saver)
         assert gains.gains is not None
         spec = gains.gains.rendered()[0]
-        gains._on_row_change(spec.path, spec.label, float(spec.value or 0.0) + 1.0)
+        gains._on_row_change(
+            spec.path, spec.label, float(spec.value or 0.0) + 1.0
+        )
         self.assertTrue(gains.save())
         reference_path = self._path("command", "reference.textproto")
         limits = command_limits_tab.CommandLimitsTab(
@@ -1181,7 +1266,9 @@ class TestTwoCopySave(TempFileTestCase):
         )
         # Each tab follows its own save: the PD gains tab still waits for its answer.
         gains.robot_save.poll()
-        self.assertIn("saving on the robot", str(gains.status_label.cget("text")))
+        self.assertIn(
+            "saving on the robot", str(gains.status_label.cget("text"))
+        )
 
 
 def joint_pd_gains_tab_for(

@@ -45,46 +45,59 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The gait pattern `config` as a ModeSequenceTemplate. It has at least one mode, each a name of modeNumber2String()
- * (FLY, RF, LF, STANCE), and one more switching time than modes, finite and strictly increasing: the templates that
+ * The gait pattern `config` as a ModeSequenceTemplate. It has at least one
+ * mode, each a name of modeNumber2String() (FLY, RF, LF, STANCE), and one more
+ * switching time than modes, finite and strictly increasing: the templates that
  * describe a gait. The name is not read.
  *
  * @param config The pattern.
- * @param path Where it is in its file, for the errors: "gaits[walk]", "default_mode_sequence_template".
+ * @param path Where it is in its file, for the errors: "gaits[walk]",
+ * "default_mode_sequence_template".
  * @return The template; InvalidArgument naming `path` and what is wrong.
  */
-absl::StatusOr<ModeSequenceTemplate> modeSequenceTemplateFromConfig(const mpc_config::ModeSequenceTemplateConfig& config,
-                                                                    absl::string_view path);
+absl::StatusOr<ModeSequenceTemplate> modeSequenceTemplateFromConfig(
+    const mpc_config::ModeSequenceTemplateConfig& config,
+    absl::string_view path);
 
 /**
- * The mode schedule `config` as a ModeSchedule: at least one mode, each a name of modeNumber2String(), and one event time
- * fewer than modes, each finite (the sizes ModeSchedule's constructor asserts).
+ * The mode schedule `config` as a ModeSchedule: at least one mode, each a name
+ * of modeNumber2String(), and one event time fewer than modes, each finite (the
+ * sizes ModeSchedule's constructor asserts).
  *
  * @param config The schedule.
  * @param path Where it is in its file, for the errors: "initial_mode_schedule".
  * @return The schedule; InvalidArgument naming `path` and what is wrong.
  */
-absl::StatusOr<ModeSchedule> modeScheduleFromConfig(const mpc_config::ModeScheduleConfig& config, absl::string_view path);
+absl::StatusOr<ModeSchedule> modeScheduleFromConfig(
+    const mpc_config::ModeScheduleConfig& config, absl::string_view path);
 
 /**
- * Every gait of the gait file by name, as the procedural motion manager selects them. gait_list names each gait of
- * gaits exactly once: a name it lists twice, a name no gait has, a gait it does not list, a gait without a name and two
- * gaits of one name are refused, as is a gait that modeSequenceTemplateFromConfig() refuses.
+ * Every gait of the gait file by name, as the procedural motion manager selects
+ * them. gait_list names each gait of gaits exactly once: a name it lists twice,
+ * a name no gait has, a gait it does not list, a gait without a name and two
+ * gaits of one name are refused, as is a gait that
+ * modeSequenceTemplateFromConfig() refuses.
  *
  * @return The gaits; InvalidArgument naming the gait and what is wrong.
  */
-absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaitMapFromConfig(const mpc_config::GaitFile& file);
+absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaitMapFromConfig(
+    const mpc_config::GaitFile& file);
 
 /**
- * The mode schedule the gait schedule starts from: the reference file's initial_mode_schedule (modeScheduleFromConfig()),
- * with at least one event time, which GaitSchedule::getModeSchedule() needs; InvalidArgument otherwise.
+ * The mode schedule the gait schedule starts from: the reference file's
+ * initial_mode_schedule (modeScheduleFromConfig()), with at least one event
+ * time, which GaitSchedule::getModeSchedule() needs; InvalidArgument otherwise.
  */
-absl::StatusOr<ModeSchedule> initialModeScheduleFromConfig(const mpc_config::ReferenceFile& file);
+absl::StatusOr<ModeSchedule> initialModeScheduleFromConfig(
+    const mpc_config::ReferenceFile& file);
 
 /**
- * The gait the gait schedule repeats until the motion manager inserts another: the reference file's
- * default_mode_sequence_template (modeSequenceTemplateFromConfig()), which has no name; InvalidArgument when it has one.
+ * The gait the gait schedule repeats until the motion manager inserts another:
+ * the reference file's default_mode_sequence_template
+ * (modeSequenceTemplateFromConfig()), which has no name; InvalidArgument when
+ * it has one.
  */
-absl::StatusOr<ModeSequenceTemplate> defaultModeSequenceTemplateFromConfig(const mpc_config::ReferenceFile& file);
+absl::StatusOr<ModeSequenceTemplate> defaultModeSequenceTemplateFromConfig(
+    const mpc_config::ReferenceFile& file);
 
 }  // namespace ocs2::humanoid

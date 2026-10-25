@@ -225,7 +225,9 @@ class TopicPublisher:
         if not topic:
             raise ValueError("the topic is empty")
         if getattr(message_class, "DESCRIPTOR", None) is None:
-            raise ValueError(f"{message_class!r} is not a generated protobuf message")
+            raise ValueError(
+                f"{message_class!r} is not a generated protobuf message"
+            )
         self.bus = bus
         self.topic = topic
         self.message_class = message_class
@@ -247,7 +249,8 @@ class TopicPublisher:
         row = operator_topic(topic)
         if row.direction is not Direction.PUBLISH:
             raise ValueError(
-                f"the remote control subscribes to '{topic}'; it does not publish it"
+                f"the remote control subscribes to '{topic}'; it does not"
+                " publish it"
             )
         return cls(bus, row.topic, row.message_class)
 
@@ -265,8 +268,9 @@ class TopicPublisher:
         """
         if not isinstance(message, self.message_class):
             raise TypeError(
-                f"topic '{self.topic}' carries {self.message_class.DESCRIPTOR.full_name}, "
-                f"not {type(message).__name__}"
+                f"topic '{self.topic}' carries"
+                f" {self.message_class.DESCRIPTOR.full_name}, not"
+                f" {type(message).__name__}"
             )
         return self.bus.publish(self.topic, message)
 
@@ -290,7 +294,8 @@ class FsmCommandSender:
     ) -> None:
         if publisher.message_class is not fsm_command_pb2.FsmCommand:
             raise ValueError(
-                f"the publisher of '{publisher.topic}' does not carry FsmCommand"
+                f"the publisher of '{publisher.topic}' does not carry"
+                " FsmCommand"
             )
         self._publisher = publisher
         self._lock = threading.Lock()
@@ -408,7 +413,9 @@ class OperatorBus:
             (topics.ROBOT_CONFIG_SAVE_STATUS, self.config_save_statuses.put),
         ):
             row = operator_topic(topic)
-            bus.subscribe(row.topic, row.message_class, put, delivery=row.delivery)
+            bus.subscribe(
+                row.topic, row.message_class, put, delivery=row.delivery
+            )
 
         self.walking_velocity_command = TopicPublisher.for_topic(
             bus, topics.OPERATOR_WALKING_VELOCITY_COMMAND
@@ -426,7 +433,9 @@ class OperatorBus:
         self.dodgeball_throw = TopicPublisher.for_topic(
             bus, topics.OPERATOR_DODGEBALL_THROW
         )
-        self.config_save = TopicPublisher.for_topic(bus, topics.OPERATOR_CONFIG_SAVE)
+        self.config_save = TopicPublisher.for_topic(
+            bus, topics.OPERATOR_CONFIG_SAVE
+        )
 
     @classmethod
     def connect(
@@ -486,7 +495,9 @@ def walking_velocity_command(
 
 def mpc_parameter_update(
     task: task_file_pb2.TaskFile,
-    contact_planning: contact_planning_file_pb2.ContactPlanningFile | None = None,
+    contact_planning: (
+        contact_planning_file_pb2.ContactPlanningFile | None
+    ) = None,
     *,
     config_path: str,
 ) -> mpc_parameter_update_pb2.MpcParameterUpdate:
@@ -512,7 +523,9 @@ def mpc_parameter_update(
     if contact_planning is not None:
         update.contact_planning.CopyFrom(contact_planning)
     update.config_path = config_path
-    update.schema_fingerprint = nproto_schema.schema_fingerprint(update.DESCRIPTOR)
+    update.schema_fingerprint = nproto_schema.schema_fingerprint(
+        update.DESCRIPTOR
+    )
     return update
 
 

@@ -41,7 +41,9 @@ _PAGE = "robot_runtime/web_viewer/page/index.html"
 def _embedded_page(source: str) -> str:
     """The text of the raw string literal of a generated source."""
     match = re.search(
-        r'R"(?P<delimiter>[^(]*)\((?P<page>.*)\)(?P=delimiter)";', source, re.DOTALL
+        r'R"(?P<delimiter>[^(]*)\((?P<page>.*)\)(?P=delimiter)";',
+        source,
+        re.DOTALL,
     )
     assert match is not None, "the source has no raw string literal"
     return match.group("page")
@@ -51,7 +53,8 @@ class EmbedPageTest(unittest.TestCase):
 
     def test_round_trips_a_page(self) -> None:
         page = (
-            '<html><body><script>const s = "a\\\\b"; // )html"</script></body></html>\n'
+            '<html><body><script>const s = "a\\\\b"; //'
+            ' )html"</script></body></html>\n'
         )
         source = embed_page.render_source(page, "page.html")
         self.assertEqual(_embedded_page(source), page)
@@ -60,8 +63,12 @@ class EmbedPageTest(unittest.TestCase):
 
     def test_skips_a_delimiter_whose_terminator_the_page_contains(self) -> None:
         page = 'x )page" y'
-        self.assertEqual(embed_page.choose_delimiter(page), embed_page.DELIMITERS[1])
-        self.assertEqual(_embedded_page(embed_page.render_source(page, "p.html")), page)
+        self.assertEqual(
+            embed_page.choose_delimiter(page), embed_page.DELIMITERS[1]
+        )
+        self.assertEqual(
+            _embedded_page(embed_page.render_source(page, "p.html")), page
+        )
 
     def test_refuses_a_page_containing_every_terminator(self) -> None:
         page = " ".join(f'){delimiter}"' for delimiter in embed_page.DELIMITERS)
@@ -75,7 +82,9 @@ class EmbedPageTest(unittest.TestCase):
 
     def test_refuses_a_page_too_long_for_a_literal(self) -> None:
         with self.assertRaisesRegex(embed_page.EmbedError, "bytes"):
-            embed_page.render_source("x" * (embed_page.MAX_PAGE_BYTES + 1), "p.html")
+            embed_page.render_source(
+                "x" * (embed_page.MAX_PAGE_BYTES + 1), "p.html"
+            )
 
     def test_refuses_a_nul(self) -> None:
         with self.assertRaisesRegex(embed_page.EmbedError, "NUL"):
@@ -86,7 +95,9 @@ class EmbedPageTest(unittest.TestCase):
             page = page_file.read()
         with tempfile.TemporaryDirectory() as directory:
             output = os.path.join(directory, "WebViewerPage.cpp")
-            self.assertEqual(embed_page.main(["--input", _PAGE, "--output", output]), 0)
+            self.assertEqual(
+                embed_page.main(["--input", _PAGE, "--output", output]), 0
+            )
             with open(output, encoding="utf-8") as source_file:
                 self.assertEqual(_embedded_page(source_file.read()), page)
         # The routes the server answers (WebViewerServer.cpp:web_viewer_routes) are the ones the page uses.
@@ -105,7 +116,9 @@ class EmbedPageTest(unittest.TestCase):
             with open(page, "w", encoding="utf-8") as page_file:
                 page_file.write("\0")
             output = os.path.join(directory, "out.cpp")
-            self.assertEqual(embed_page.main(["--input", page, "--output", output]), 1)
+            self.assertEqual(
+                embed_page.main(["--input", page, "--output", output]), 1
+            )
             self.assertFalse(os.path.exists(output))
 
 

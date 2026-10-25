@@ -147,7 +147,10 @@ class TestCartpoleBraxTrainingPipeline(unittest.TestCase):
                 float(state.done) > 0.5, msg=f"push {push}: the episode ends"
             )
             self.assertAlmostEqual(
-                score, expected, delta=1e-3 * abs(expected) + 1e-3, msg=f"push {push}"
+                score,
+                expected,
+                delta=1e-3 * abs(expected) + 1e-3,
+                msg=f"push {push}",
             )
 
     def test_the_pole_swings_freely_and_the_cart_slides_on_its_rail(self):
@@ -157,7 +160,9 @@ class TestCartpoleBraxTrainingPipeline(unittest.TestCase):
         )
         state = self.env.reset(self.rng)
         state = state.replace(
-            pipeline_state=self.env.pipeline_init(jnp.array([0.0, 0.35]), jnp.zeros(2))
+            pipeline_state=self.env.pipeline_init(
+                jnp.array([0.0, 0.35]), jnp.zeros(2)
+            )
         )
         step = jax.jit(self.env.step)
         for _ in range(20):

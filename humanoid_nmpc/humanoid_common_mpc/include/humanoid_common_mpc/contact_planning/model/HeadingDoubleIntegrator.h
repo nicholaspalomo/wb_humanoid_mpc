@@ -38,16 +38,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `heading_double_integrator`: the whole-body heading theta, its rate omega (angular momentum about the vertical over
- * the yaw inertia, taken from the input at every plan), and one yaw psi_i per foot; inputs are the yaw torque tau_i
- * each foot carries and the foot yaw displacements dpsi_i:
- *   omega_{k+1} = omega_k + dt (tau_L + tau_R) / I_zz,
- *   theta_{k+1} = theta_k + dt omega_k + dt^2 (tau_L + tau_R) / (2 I_zz)   (exact zero-order hold of the double integrator),
- *   psi_{i,k+1} = psi_{i,k} + dpsi_{i,k}.
- * The torque bound is the ground's: no foot ever carries more than the whole weight's torsion alone or half of the
- * double-support budget (the yaw_torque_budget rows do the rest).
+ * `heading_double_integrator`: the whole-body heading theta, its rate omega
+ * (angular momentum about the vertical over the yaw inertia, taken from the
+ * input at every plan), and one yaw psi_i per foot; inputs are the yaw torque
+ * tau_i each foot carries and the foot yaw displacements dpsi_i: omega_{k+1} =
+ * omega_k + dt (tau_L + tau_R) / I_zz, theta_{k+1} = theta_k + dt omega_k +
+ * dt^2 (tau_L + tau_R) / (2 I_zz)   (exact zero-order hold of the double
+ * integrator), psi_{i,k+1} = psi_{i,k} + dpsi_{i,k}. The torque bound is the
+ * ground's: no foot ever carries more than the whole weight's torsion alone or
+ * half of the double-support budget (the yaw_torque_budget rows do the rest).
  *
- * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
  */
 class HeadingDoubleIntegrator final : public LipModelBlock {
  public:
@@ -55,12 +57,21 @@ class HeadingDoubleIntegrator final : public LipModelBlock {
   void configure(const ContactPlanningConfig& config) override;
   void bind(const Layout& layout) override;
   void declareVariables(LayoutBuilder& layout) const override;
-  void addDynamics(const ContactPlanningContext& ctx, int node, OcpQpStage& stage) const override;
-  void addInputBounds(const ContactPlanningContext& ctx, int node, InputBoundsBuilder& bounds) const override;
-  void setInitialState(const ContactPlanningContext& ctx, vector_t& x0) const override;
-  void decode(const ContactPlanningContext& ctx, const MiqpResult& result, ContactPlan& plan) const override;
+  void addDynamics(const ContactPlanningContext& ctx,
+                   int node,
+                   OcpQpStage& stage) const override;
+  void addInputBounds(const ContactPlanningContext& ctx,
+                      int node,
+                      InputBoundsBuilder& bounds) const override;
+  void setInitialState(const ContactPlanningContext& ctx,
+                       vector_t& x0) const override;
+  void decode(const ContactPlanningContext& ctx,
+              const MiqpResult& result,
+              ContactPlan& plan) const override;
 
-  static constexpr scalar_t kYawBigM = 2.0 * M_PI;  // [rad] bound on a foot yaw displacement while the foot is in the air
+  static constexpr scalar_t kYawBigM =
+      2.0 * M_PI;  // [rad] bound on a foot yaw displacement while the foot is
+                   // in the air
 
  private:
   scalar_t torqueBound_ = 0.0;

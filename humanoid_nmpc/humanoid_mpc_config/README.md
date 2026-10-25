@@ -42,7 +42,7 @@ Every `.proto` file holds one message, named after the file. The task file's blo
 | `left_leg_torque_cost`, `right_leg_torque_cost`, `joint_torque_weights` | `JointWeights` | joint torque costs: the legs' (centroidal), every joint's (whole body) |
 | `task_space_foot_cost`, `task_space_costs` | `TaskSpaceCostConfig` with `TaskSpaceWeights` | the swing-foot cost and the named link costs; the whole-body foot cost refuses a non-zero `pos_x`, `pos_y` or `pos_z`, weights of a position error it does not have. The `orientation_*` weights are per rad² in both: the link costs' rotation vector and the foot costs' tilt angle (and planned yaw error) |
 | `contacts` | `ContactsConfig` | the contact geometry, the wrench cone, the basis-vector inputs, the friction cone |
-| `joint_limits`, `collision_constraint`, `mimic_joints` | `JointLimitsConfig`, `CollisionConstraintConfig`, `MimicJointsConfig` | soft and hard constraints |
+| `joint_limits`, `collision_constraint`, `collision_cbf_constraint`, `mimic_joints` | `JointLimitsConfig`, `CollisionConstraintConfig`, `CollisionCbfConstraintConfig`, `MimicJointsConfig` | soft and hard constraints |
 | `dcm_terminal_cost` | `DcmTerminalCostConfig` | the centroidal MPC's capture-point cost |
 | `swing_trajectory_config` | `SwingTrajectoryConfig` | the swing-foot trajectories |
 | `locomotion_heuristics` | `LocomotionHeuristicsConfig` | the reference-shaping heuristics (humanoid_nmpc/docs/locomotion_heuristics/README.md) |

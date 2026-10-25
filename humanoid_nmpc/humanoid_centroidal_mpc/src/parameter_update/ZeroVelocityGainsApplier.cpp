@@ -50,9 +50,12 @@ namespace {
 
 // LINT.IfChange(zero_velocity_gains_fields)
 constexpr std::array<absl::string_view, 6> kFields = {
-    "model_settings.foot_constraint.position_error_gain_z",        "model_settings.foot_constraint.orientation_error_gain",
-    "model_settings.foot_constraint.linear_velocity_error_gain_z", "model_settings.foot_constraint.linear_velocity_error_gain_xy",
-    "model_settings.foot_constraint.angular_velocity_error_gain",  "model_settings.foot_constraint.stance_constraint",
+    "model_settings.foot_constraint.position_error_gain_z",
+    "model_settings.foot_constraint.orientation_error_gain",
+    "model_settings.foot_constraint.linear_velocity_error_gain_z",
+    "model_settings.foot_constraint.linear_velocity_error_gain_xy",
+    "model_settings.foot_constraint.angular_velocity_error_gain",
+    "model_settings.foot_constraint.stance_constraint",
 };
 // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/model_settings_config.proto)
 
@@ -62,7 +65,8 @@ absl::Span<const absl::string_view> ZeroVelocityGainsApplier::staticFields() {
   return absl::MakeConstSpan(kFields);
 }
 
-EndEffectorKinematicsTwistConstraint::Config footTwistConfig(const ModelSettings::FootConstraintConfig& gains) {
+EndEffectorKinematicsTwistConstraint::Config footTwistConfig(
+    const ModelSettings::FootConstraintConfig& gains) {
   EndEffectorKinematicsTwistConstraint::Config config;
   config.b.setZero(kPoseTangentDim);
   config.Ax.setZero(kPoseTangentDim, kPoseTangentDim);
@@ -71,45 +75,63 @@ EndEffectorKinematicsTwistConstraint::Config footTwistConfig(const ModelSettings
     config.Ax(kZAxisIndex, kZAxisIndex) = gains.positionErrorGain_z;
   }
   if (!numerics::almost_eq(gains.orientationErrorGain, /*y=*/0.0)) {
-    config.Ax.block(kTwistConstraintOrientationRowsStartIndex, kTwistConstraintOrientationRowsStartIndex, kRotationTangentDim,
-                    kRotationTangentDim) = Eigen::MatrixXd::Identity(kRotationTangentDim, kRotationTangentDim) * gains.orientationErrorGain;
+    config.Ax.block(kTwistConstraintOrientationRowsStartIndex,
+                    kTwistConstraintOrientationRowsStartIndex,
+                    kRotationTangentDim, kRotationTangentDim) =
+        Eigen::MatrixXd::Identity(kRotationTangentDim, kRotationTangentDim) *
+        gains.orientationErrorGain;
   }
   config.Av(kXAxisIndex, kXAxisIndex) = gains.linearVelocityErrorGain_xy;
   config.Av(kYAxisIndex, kYAxisIndex) = gains.linearVelocityErrorGain_xy;
   config.Av(kZAxisIndex, kZAxisIndex) = gains.linearVelocityErrorGain_z;
-  config.Av(kTwistConstraintOrientationRowsStartIndex + kXAxisIndex, kTwistConstraintOrientationRowsStartIndex + kXAxisIndex) =
+  config.Av(kTwistConstraintOrientationRowsStartIndex + kXAxisIndex,
+            kTwistConstraintOrientationRowsStartIndex + kXAxisIndex) =
       gains.angularVelocityErrorGain;
-  config.Av(kTwistConstraintOrientationRowsStartIndex + kYAxisIndex, kTwistConstraintOrientationRowsStartIndex + kYAxisIndex) =
+  config.Av(kTwistConstraintOrientationRowsStartIndex + kYAxisIndex,
+            kTwistConstraintOrientationRowsStartIndex + kYAxisIndex) =
       gains.angularVelocityErrorGain;
-  config.Av(kTwistConstraintOrientationRowsStartIndex + kZAxisIndex, kTwistConstraintOrientationRowsStartIndex + kZAxisIndex) =
+  config.Av(kTwistConstraintOrientationRowsStartIndex + kZAxisIndex,
+            kTwistConstraintOrientationRowsStartIndex + kZAxisIndex) =
       gains.angularVelocityErrorGain;
   return config;
 }
 
-void configureZeroVelocityConstraint(ZeroVelocityConstraintCppAd& constraint,
-                                     const ModelSettings::FootConstraintConfig& gains,
-                                     const EndEffectorKinematicsTwistConstraint::Config& twistConfig) {
+void configureZeroVelocityConstraint(
+    ZeroVelocityConstraintCppAd& constraint,
+    const ModelSettings::FootConstraintConfig& gains,
+    const EndEffectorKinematicsTwistConstraint::Config& twistConfig) {
   EndEffectorKinematicsTwistConstraint& twist = constraint.getTwistConstraint();
-  twist.setNumConstraints(gains.constrainOrientation ? kPoseTangentDim : kPositionDim);
-  twist.setConstrainYawRateAboutNormal(gains.constrainYawRateAboutContactNormal);
+  twist.setNumConstraints(gains.constrainOrientation ? kPoseTangentDim
+                                                     : kPositionDim);
+  twist.setConstrainYawRateAboutNormal(
+      gains.constrainYawRateAboutContactNormal);
   twist.configure(EndEffectorKinematicsTwistConstraint::Config(twistConfig));
 }
 
 void ZeroVelocityGainsApplier::apply(HotUpdateTarget& target) {
-  const std::optional<ModelSettings::FootConstraintConfig>& gains = target.footConstraint();
+  const std::optional<ModelSettings::FootConstraintConfig>& gains =
+      target.footConstraint();
   if (!gains.has_value()) return;
-  // A zero_velocity term is hard (the equality constraints), soft (wrapped in a StateInputSoftConstraint) or not listed;
-  // whichever of the two the problem does not carry is skipped.
-  const EndEffectorKinematicsTwistConstraint::Config twistConfig = footTwistConfig(*gains);
+  // A zero_velocity term is hard (the equality constraints), soft (wrapped in a
+  // StateInputSoftConstraint) or not listed; whichever of the two the problem
+  // does not carry is skipped.
+  const EndEffectorKinematicsTwistConstraint::Config twistConfig =
+      footTwistConfig(*gains);
   for (OptimalControlProblem& ocp : target.problems()) {
     for (const std::string& footName : target.contactNames()) {
       const std::string termName = zeroVelocityTermName(footName);
-      updateTermIfPresent<ZeroVelocityConstraintCppAd>(*ocp.equalityConstraintPtr, termName, [&](ZeroVelocityConstraintCppAd& constraint) {
-        configureZeroVelocityConstraint(constraint, *gains, twistConfig);
-      });
-      updateTermIfPresent<StateInputSoftConstraint>(*ocp.softConstraintPtr, termName, [&](StateInputSoftConstraint& softCon) {
-        configureZeroVelocityConstraint(softCon.get<ZeroVelocityConstraintCppAd>(), *gains, twistConfig);
-      });
+      updateTermIfPresent<ZeroVelocityConstraintCppAd>(
+          *ocp.equalityConstraintPtr, termName,
+          [&](ZeroVelocityConstraintCppAd& constraint) {
+            configureZeroVelocityConstraint(constraint, *gains, twistConfig);
+          });
+      updateTermIfPresent<StateInputSoftConstraint>(
+          *ocp.softConstraintPtr, termName,
+          [&](StateInputSoftConstraint& softCon) {
+            configureZeroVelocityConstraint(
+                softCon.get<ZeroVelocityConstraintCppAd>(), *gains,
+                twistConfig);
+          });
     }
   }
 }

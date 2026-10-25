@@ -35,25 +35,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::realtime {
 
 /**
- * How well the realtime loop held its period: what LoopTimingStats reports at the end of each reporting window.
+ * How well the realtime loop held its period: what LoopTimingStats reports at
+ * the end of each reporting window.
  *
- * Plain data and trivially copyable, so that the realtime thread can hand it to the communication thread through a
- * robot::TripleBuffer<LoopTimingSnapshot> without allocating. Times are in seconds, as in the message.
+ * Plain data and trivially copyable, so that the realtime thread can hand it to
+ * the communication thread through a robot::TripleBuffer<LoopTimingSnapshot>
+ * without allocating. Times are in seconds, as in the message.
  *
- * Onto humanoid_mpc_msgs.LoopTiming (loop_timing.proto), which the communication thread fills:
- *   target_period_s    <- targetPeriodS
- *   cycles             <- totalCycles
- *   mean_period_s      <- meanPeriodS
- *   max_period_s       <- maxPeriodS
- *   max_compute_time_s <- maxComputeTimeS
- *   overruns           <- totalOverruns
- *   missed_periods     <- totalMissedPeriods
- *   max_lateness_s     <- maxLatenessS
- * The remaining LoopTiming fields (telemetry_samples_dropped, stale_policies_dropped, policy_age_s) come from the
- * telemetry ring (SpscQueue::droppedCount()) and the MPC link, not from the loop's timing.
+ * Onto humanoid_mpc_msgs.LoopTiming (loop_timing.proto), which the
+ * communication thread fills: target_period_s    <- targetPeriodS cycles <-
+ * totalCycles mean_period_s      <- meanPeriodS max_period_s       <-
+ * maxPeriodS max_compute_time_s <- maxComputeTimeS overruns           <-
+ * totalOverruns missed_periods     <- totalMissedPeriods max_lateness_s     <-
+ * maxLatenessS The remaining LoopTiming fields (telemetry_samples_dropped,
+ * stale_policies_dropped, policy_age_s) come from the telemetry ring
+ * (SpscQueue::droppedCount()) and the MPC link, not from the loop's timing.
  */
 struct LoopTimingSnapshot {
-  /// The number of the reporting window this snapshot closes, from 1; 0 until the first window has closed.
+  /// The number of the reporting window this snapshot closes, from 1; 0 until
+  /// the first window has closed.
   uint64_t window = 0;
   double targetPeriodS = 0.0;
 
@@ -61,16 +61,19 @@ struct LoopTimingSnapshot {
   uint64_t totalCycles = 0;
   /// Cycles whose compute time exceeded the target period.
   uint64_t totalOverruns = 0;
-  /// Deadlines the timer dropped (TimerWakeup::missedPeriods), i.e. cycles that never ran.
+  /// Deadlines the timer dropped (TimerWakeup::missedPeriods), i.e. cycles that
+  /// never ran.
   uint64_t totalMissedPeriods = 0;
 
   // Over the reporting window.
-  /// From the start of the window's first period to the start of its last cycle.
+  /// From the start of the window's first period to the start of its last
+  /// cycle.
   double windowDurationS = 0.0;
   uint64_t windowCycles = 0;
   uint64_t windowOverruns = 0;
   uint64_t windowMissedPeriods = 0;
-  /// The time between the starts of consecutive cycles. All zero when the window measured no period.
+  /// The time between the starts of consecutive cycles. All zero when the
+  /// window measured no period.
   double meanPeriodS = 0.0;
   double minPeriodS = 0.0;
   double maxPeriodS = 0.0;
@@ -81,6 +84,8 @@ struct LoopTimingSnapshot {
   double maxLatenessS = 0.0;
 };
 
-static_assert(std::is_trivially_copyable_v<LoopTimingSnapshot>, "the snapshot must be copyable through a TripleBuffer without allocating");
+static_assert(
+    std::is_trivially_copyable_v<LoopTimingSnapshot>,
+    "the snapshot must be copyable through a TripleBuffer without allocating");
 
 }  // namespace robot::realtime

@@ -58,10 +58,13 @@ namespace ocs2::humanoid {
 
 namespace {
 
-/** The foot cost's settings of the task file `text` (the textproto parser, then taskSpaceFootCostFromConfig()). */
-absl::StatusOr<TaskSpaceFootCostSettings> footCostOfText(absl::string_view text) {
+/** The foot cost's settings of the task file `text` (the textproto parser, then
+ * taskSpaceFootCostFromConfig()). */
+absl::StatusOr<TaskSpaceFootCostSettings> footCostOfText(
+    absl::string_view text) {
   ASSIGN_OR_RETURN(const humanoid_mpc_config::TaskFile message,
-                   nproto::ParseTextproto<humanoid_mpc_config::TaskFile>(text, /*sourceName=*/"task file"));
+                   nproto::ParseTextproto<humanoid_mpc_config::TaskFile>(
+                       text, /*sourceName=*/"task file"));
   mpc_config::TaskFile task;
   RETURN_IF_ERROR(mpc_config::FromProto(message, &task));
   return taskSpaceFootCostFromConfig(task.task_space_foot_cost);
@@ -70,28 +73,39 @@ absl::StatusOr<TaskSpaceFootCostSettings> footCostOfText(absl::string_view text)
 }  // namespace
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 1: task_space_foot_cost.active_phases reaches the foot cost's settings, a swing foot only where a file leaves it
-// out; the boolean it replaced is refused naming it
+// Test 1: task_space_foot_cost.active_phases reaches the foot cost's settings,
+// a swing foot only where a file leaves it out; the boolean it replaced is
+// refused naming it
 // ─────────────────────────────────────────────────────────────────────────────
 TEST(ActiveInStanceTest, TaskFileActivePhasesReachTheFootCostSettings) {
   const absl::StatusOr<CentroidalMpcConfig> atlas = loadConfigOf(atlasFiles());
   ASSERT_TRUE(atlas.ok()) << atlas.status();
-  const absl::StatusOr<TaskSpaceFootCostSettings> shipped = taskSpaceFootCostFromConfig(atlas->task.task_space_foot_cost);
+  const absl::StatusOr<TaskSpaceFootCostSettings> shipped =
+      taskSpaceFootCostFromConfig(atlas->task.task_space_foot_cost);
   ASSERT_TRUE(shipped.ok()) << shipped.status();
-  EXPECT_FALSE(shipped->activeInStance) << "the DRC Atlas task file must ship task_space_foot_cost.active_phases \"swing\"";
+  EXPECT_FALSE(shipped->activeInStance)
+      << "the DRC Atlas task file must ship task_space_foot_cost.active_phases "
+         "\"swing\"";
 
-  const absl::StatusOr<TaskSpaceFootCostSettings> on = footCostOfText("task_space_foot_cost { active_phases: \"swing_and_stance\" }\n");
+  const absl::StatusOr<TaskSpaceFootCostSettings> on = footCostOfText(
+      "task_space_foot_cost { active_phases: \"swing_and_stance\" }\n");
   ASSERT_TRUE(on.ok()) << on.status();
   EXPECT_TRUE(on->activeInStance);
-  const absl::StatusOr<TaskSpaceFootCostSettings> off = footCostOfText("task_space_foot_cost { active_phases: \"swing\" }\n");
+  const absl::StatusOr<TaskSpaceFootCostSettings> off =
+      footCostOfText("task_space_foot_cost { active_phases: \"swing\" }\n");
   ASSERT_TRUE(off.ok()) << off.status();
   EXPECT_FALSE(off->activeInStance);
-  const absl::StatusOr<TaskSpaceFootCostSettings> absent = footCostOfText("task_space_foot_cost { }\n");
+  const absl::StatusOr<TaskSpaceFootCostSettings> absent =
+      footCostOfText("task_space_foot_cost { }\n");
   ASSERT_TRUE(absent.ok()) << absent.status();
-  EXPECT_FALSE(absent->activeInStance) << "a file without active_phases must leave the foot cost off in stance";
-  const absl::StatusOr<TaskSpaceFootCostSettings> retired = footCostOfText("task_space_foot_cost { active_in_stance: true }\n");
+  EXPECT_FALSE(absent->activeInStance)
+      << "a file without active_phases must leave the foot cost off in stance";
+  const absl::StatusOr<TaskSpaceFootCostSettings> retired =
+      footCostOfText("task_space_foot_cost { active_in_stance: true }\n");
   EXPECT_EQ(retired.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_NE(retired.status().message().find("'active_in_stance' is retired"), absl::string_view::npos) << retired.status();
+  EXPECT_NE(retired.status().message().find("'active_in_stance' is retired"),
+            absl::string_view::npos)
+      << retired.status();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -102,50 +116,76 @@ TEST(ActiveInStanceTest, VerifyFootCostIsActiveBehaviorWithAtlasModel) {
   const absl::StatusOr<CentroidalMpcConfig> config = loadConfigOf(files);
   ASSERT_TRUE(config.ok()) << config.status();
 
-  HUMANOID_ASSERT_OK_AND_ASSIGN(ModelSettings modelSettings,
-                                ModelSettings::Create(config->task, files.urdfFile, "drc_atlas", /*verbose=*/false));
-  PinocchioInterface pinocchioInterface(
-      checkedValue(loadCustomPinocchioInterface(config->task, files.urdfFile, modelSettings, /*scaleTotalMass=*/false)));
+  HUMANOID_ASSERT_OK_AND_ASSIGN(
+      ModelSettings modelSettings,
+      ModelSettings::Create(config->task, files.urdfFile, "drc_atlas",
+                            /*verbose=*/false));
+  PinocchioInterface pinocchioInterface(checkedValue(
+      loadCustomPinocchioInterface(config->task, files.urdfFile, modelSettings,
+                                   /*scaleTotalMass=*/false)));
 
-  HUMANOID_ASSERT_OK_AND_ASSIGN(CentroidalModelInfo centroidalModelInfo, centroidalModelInfoOf(*config, pinocchioInterface, modelSettings));
+  HUMANOID_ASSERT_OK_AND_ASSIGN(
+      CentroidalModelInfo centroidalModelInfo,
+      centroidalModelInfoOf(*config, pinocchioInterface, modelSettings));
 
-  CentroidalMpcRobotModel<scalar_t> mpcRobotModel(modelSettings, pinocchioInterface, centroidalModelInfo);
-  CentroidalMpcRobotModel<ad_scalar_t> mpcRobotModelAD(modelSettings, pinocchioInterface.toCppAd(), centroidalModelInfo.toCppAd());
+  CentroidalMpcRobotModel<scalar_t> mpcRobotModel(
+      modelSettings, pinocchioInterface, centroidalModelInfo);
+  CentroidalMpcRobotModel<ad_scalar_t> mpcRobotModelAD(
+      modelSettings, pinocchioInterface.toCppAd(),
+      centroidalModelInfo.toCppAd());
 
   std::unique_ptr<SwingTrajectoryPlanner> swingTrajectoryPlanner(
-      new SwingTrajectoryPlanner(checkedValue(swingTrajectorySettingsFromConfig(config->task.swing_trajectory_config)), /*numFeet=*/2));
+      new SwingTrajectoryPlanner(checkedValue(swingTrajectorySettingsFromConfig(
+                                     config->task.swing_trajectory_config)),
+                                 /*numFeet=*/2));
 
-  HUMANOID_ASSERT_OK_AND_ASSIGN(std::shared_ptr<GaitSchedule> gaitSchedule,
-                                GaitSchedule::Create(config->reference, modelSettings, /*verbose=*/false));
+  HUMANOID_ASSERT_OK_AND_ASSIGN(
+      std::shared_ptr<GaitSchedule> gaitSchedule,
+      GaitSchedule::Create(config->reference, modelSettings,
+                           /*verbose=*/false));
   ModeSchedule initialModeSchedule = gaitSchedule->getModeSchedule(0.0, 1.0);
 
-  auto referenceManager = std::make_shared<SwitchedModelReferenceManager>(std::move(gaitSchedule), std::move(swingTrajectoryPlanner),
-                                                                          pinocchioInterface, mpcRobotModel);
+  auto referenceManager = std::make_shared<SwitchedModelReferenceManager>(
+      std::move(gaitSchedule), std::move(swingTrajectoryPlanner),
+      pinocchioInterface, mpcRobotModel);
   referenceManager->setModeSchedule(initialModeSchedule);
-  referenceManager->preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0, vector_t::Zero(centroidalModelInfo.stateDim), /*initMode=*/3);
+  referenceManager->preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0,
+                                 vector_t::Zero(centroidalModelInfo.stateDim),
+                                 /*initMode=*/3);
 
   // Time t=0.0 is double stance for DRC Atlas
   const scalar_t stanceTime = 0.0;
-  ASSERT_TRUE(referenceManager->isInContact(stanceTime, /*contactIndex=*/0)) << "Atlas left foot should be in contact at t=0";
-  ASSERT_TRUE(referenceManager->isInContact(stanceTime, /*contactIndex=*/1)) << "Atlas right foot should be in contact at t=0";
+  ASSERT_TRUE(referenceManager->isInContact(stanceTime, /*contactIndex=*/0))
+      << "Atlas left foot should be in contact at t=0";
+  ASSERT_TRUE(referenceManager->isInContact(stanceTime, /*contactIndex=*/1))
+      << "Atlas right foot should be in contact at t=0";
 
-  HUMANOID_ASSERT_OK_AND_ASSIGN(TaskSpaceFootCostSettings settings, taskSpaceFootCostFromConfig(config->task.task_space_foot_cost));
+  HUMANOID_ASSERT_OK_AND_ASSIGN(
+      TaskSpaceFootCostSettings settings,
+      taskSpaceFootCostFromConfig(config->task.task_space_foot_cost));
 
   // 1. Check with activeInStance = false:
   settings.activeInStance = false;
-  CentroidalMpcEndEffectorFootCost footCostInactive(*referenceManager, settings, pinocchioInterface, mpcRobotModelAD, /*contactIndex=*/0,
-                                                    "foot_l_contact_TaskSpaceKinematicsCost", modelSettings);
+  CentroidalMpcEndEffectorFootCost footCostInactive(
+      *referenceManager, settings, pinocchioInterface, mpcRobotModelAD,
+      /*contactIndex=*/0, "foot_l_contact_TaskSpaceKinematicsCost",
+      modelSettings);
 
   EXPECT_FALSE(footCostInactive.getActiveInStance());
-  EXPECT_FALSE(footCostInactive.isActive(stanceTime)) << "When activeInStance is false, foot cost MUST be inactive during stance";
+  EXPECT_FALSE(footCostInactive.isActive(stanceTime))
+      << "When activeInStance is false, foot cost MUST be inactive during "
+         "stance";
 
   // 2. Check with activeInStance = true:
   settings.activeInStance = true;
-  CentroidalMpcEndEffectorFootCost footCostActive(*referenceManager, settings, pinocchioInterface, mpcRobotModelAD, /*contactIndex=*/0,
-                                                  "foot_l_contact_TaskSpaceKinematicsCost", modelSettings);
+  CentroidalMpcEndEffectorFootCost footCostActive(
+      *referenceManager, settings, pinocchioInterface, mpcRobotModelAD,
+      /*contactIndex=*/0, "foot_l_contact_TaskSpaceKinematicsCost",
+      modelSettings);
 
   EXPECT_TRUE(footCostActive.getActiveInStance());
-  EXPECT_TRUE(footCostActive.isActive(stanceTime)) << "When activeInStance is true, foot cost MUST BE ACTIVE during stance!";
+  EXPECT_TRUE(footCostActive.isActive(stanceTime))
+      << "When activeInStance is true, foot cost MUST BE ACTIVE during stance!";
 
   // 3. Test runtime dynamic toggling via setActiveInStance:
   footCostActive.setActiveInStance(false);
@@ -162,7 +202,8 @@ TEST(ActiveInStanceTest, VerifyFootCostIsActiveBehaviorWithAtlasModel) {
   EXPECT_TRUE(footCostActive.isActive(stanceTime));
 
   // 5. Test clone preserves activeInStance:
-  std::unique_ptr<CentroidalMpcEndEffectorFootCost> clonedCost(footCostActive.clone());
+  std::unique_ptr<CentroidalMpcEndEffectorFootCost> clonedCost(
+      footCostActive.clone());
   EXPECT_TRUE(clonedCost->getActiveInStance());
   EXPECT_TRUE(clonedCost->isActive(stanceTime));
 }

@@ -36,14 +36,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Where the robot process's telemetry goes: one implementation per destination, selected by name in the task file's
- * `telemetry_sinks` list (TelemetrySinkRegistry). The communication thread hands every sample the TelemetrySampler took
- * to every sink, already converted to its message.
+ * Where the robot process's telemetry goes: one implementation per destination,
+ * selected by name in the task file's `telemetry_sinks` list
+ * (TelemetrySinkRegistry). The communication thread hands every sample the
+ * TelemetrySampler took to every sink, already converted to its message.
  */
 class TelemetrySink {
  public:
   TelemetrySink() = default;
-  /** An interface: implementations are used through a pointer or reference, never copied or moved. */
+  /** An interface: implementations are used through a pointer or reference,
+   * never copied or moved. */
   TelemetrySink(const TelemetrySink&) = delete;
   TelemetrySink& operator=(const TelemetrySink&) = delete;
   virtual ~TelemetrySink() = default;
@@ -51,7 +53,8 @@ class TelemetrySink {
   /** The registry name of this sink. */
   virtual absl::string_view name() const = 0;
 
-  /** Communication thread (a periodic callback of the bus): takes one sample. Must not block for long. */
+  /** Communication thread (a periodic callback of the bus): takes one sample.
+   * Must not block for long. */
   virtual void write(const humanoid_mpc_msgs::RobotStateSample& sample) = 0;
 };
 

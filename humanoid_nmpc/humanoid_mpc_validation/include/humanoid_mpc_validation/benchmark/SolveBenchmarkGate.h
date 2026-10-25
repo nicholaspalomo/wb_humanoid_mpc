@@ -38,14 +38,16 @@ namespace ocs2::humanoid::validation {
 
 // LINT.IfChange(real_time_gate)
 /**
- * The real-time gate of the quaternion design's section 4.6, a candidate solve benchmark against its baseline label,
- * both documents of runSolveBenchmark() for the same robot on the same recorded states:
+ * The real-time gate of the quaternion design's section 4.6, a candidate solve
+ * benchmark against its baseline label, both documents of runSolveBenchmark()
+ * for the same robot on the same recorded states:
  *  - the solver iteration's mean at most +5 % and its p99 at most +10 %;
  *  - the LQ-approximation phase's mean at most +8 %;
  *  - the candidate's p99 below 80 % of the robot's MPC period;
- *  - every CppAD library's tape operation count at most +5 %, and their total too.
- * The three timing comparisons hold only between documents of one machine and toolchain (provenance.machine and
- * provenance.toolchain, RunProvenance.h): compareSolveBenchmarks() refuses them otherwise.
+ *  - every CppAD library's tape operation count at most +5 %, and their total
+ * too. The three timing comparisons hold only between documents of one machine
+ * and toolchain (provenance.machine and provenance.toolchain, RunProvenance.h):
+ * compareSolveBenchmarks() refuses them otherwise.
  */
 struct SolveBenchmarkGate {
   double meanIncrease = 0.05;
@@ -59,12 +61,17 @@ struct SolveBenchmarkGate {
 // clang-format on
 
 /**
- * The candidate against the baseline, one sentence per breach of `gate`; empty when it passes. Where the two documents'
- * provenance names another machine or toolchain, or lacks one, the timing comparisons are refused with one sentence
- * saying what differs, since such solve times say nothing about the formulation; the candidate's own real-time budget
- * and the tape operation counts of the libraries both documents count (tape_operation_counts, keyed by
- * libraryNameOfFolder()), which do not depend on the machine, are checked either way.
+ * The candidate against the baseline, one sentence per breach of `gate`; empty
+ * when it passes. Where the two documents' provenance names another machine or
+ * toolchain, or lacks one, the timing comparisons are refused with one sentence
+ * saying what differs, since such solve times say nothing about the
+ * formulation; the candidate's own real-time budget and the tape operation
+ * counts of the libraries both documents count (tape_operation_counts, keyed by
+ * libraryNameOfFolder()), which do not depend on the machine, are checked
+ * either way.
  */
-std::vector<std::string> compareSolveBenchmarks(const JsonValue& candidate, const JsonValue& baseline, const SolveBenchmarkGate& gate);
+std::vector<std::string> compareSolveBenchmarks(const JsonValue& candidate,
+                                                const JsonValue& baseline,
+                                                const SolveBenchmarkGate& gate);
 
 }  // namespace ocs2::humanoid::validation

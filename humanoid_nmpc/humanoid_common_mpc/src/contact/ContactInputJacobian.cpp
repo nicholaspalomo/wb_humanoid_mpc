@@ -36,34 +36,48 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-matrix_t contactForceInputJacobian(const MpcRobotModelBase<scalar_t>& mpcRobotModel, size_t contactPointIndex) {
+matrix_t contactForceInputJacobian(
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    size_t contactPointIndex) {
   constexpr scalar_t kLinearityTolerance = 1.0e-12;
 
   const size_t inputDim = mpcRobotModel.getInputDim();
   const vector_t zeroInput = vector_t::Zero(inputDim);
-  const vector3_t offset = mpcRobotModel.getContactForce(zeroInput, contactPointIndex);
+  const vector3_t offset =
+      mpcRobotModel.getContactForce(zeroInput, contactPointIndex);
   CHECK_LE(offset.cwiseAbs().maxCoeff(), kLinearityTolerance)
-      << "[contactForceInputJacobian] the contact force of contact " << contactPointIndex
-      << " must be linear in the input for it to be probed by unit inputs; the zero input produced " << offset.transpose();
+      << "[contactForceInputJacobian] the contact force of contact "
+      << contactPointIndex
+      << " must be linear in the input for it to be probed by unit inputs; the "
+         "zero input produced "
+      << offset.transpose();
 
   matrix_t jacobian = matrix_t::Zero(kForceDim, inputDim);
   for (size_t index = 0; index < inputDim; ++index) {
     vector_t probe = vector_t::Zero(inputDim);
     probe(static_cast<Eigen::Index>(index)) = 1.0;
-    jacobian.col(static_cast<Eigen::Index>(index)) = mpcRobotModel.getContactForce(probe, contactPointIndex);
+    jacobian.col(static_cast<Eigen::Index>(index)) =
+        mpcRobotModel.getContactForce(probe, contactPointIndex);
   }
   return jacobian;
 }
 
-vector_t normalContactForceRow(const MpcRobotModelBase<scalar_t>& mpcRobotModel, size_t contactPointIndex) {
+vector_t normalContactForceRow(const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+                               size_t contactPointIndex) {
   constexpr scalar_t kSignTolerance = 1.0e-12;
 
   // The normal force: the z component of the contact force.
-  const vector_t row = contactForceInputJacobian(mpcRobotModel, contactPointIndex).row(kZAxisIndex);
-  CHECK((row.array() >= -kSignTolerance).all()) << "[normalContactForceRow] the normal contact force must be non-negative in the "
-                                                   "model's input parameterization, or it cannot serve as a load indicator";
+  const vector_t row =
+      contactForceInputJacobian(mpcRobotModel, contactPointIndex)
+          .row(kZAxisIndex);
+  CHECK((row.array() >= -kSignTolerance).all())
+      << "[normalContactForceRow] the normal contact force must be "
+         "non-negative in the "
+         "model's input parameterization, or it cannot serve as a load "
+         "indicator";
   CHECK_GT(row.cwiseAbs().maxCoeff(), kSignTolerance)
-      << "[normalContactForceRow] no input of contact " << contactPointIndex << " produces a normal force";
+      << "[normalContactForceRow] no input of contact " << contactPointIndex
+      << " produces a normal force";
   return row;
 }
 

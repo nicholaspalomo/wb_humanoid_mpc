@@ -42,30 +42,42 @@ namespace ocs2::humanoid {
 
 namespace {
 
-// The largest force Jacobian entry outside a contact's input block that still counts as zero.
+// The largest force Jacobian entry outside a contact's input block that still
+// counts as zero.
 constexpr scalar_t kOutsideBlockTolerance = 1.0e-12;
 
-/** The rows of the cone: the friction row of both forms, then the un-gated form's Fz >= 0. */
+/** The rows of the cone: the friction row of both forms, then the un-gated
+ * form's Fz >= 0. */
 constexpr int kFrictionRow = 0;
 constexpr int kNormalForceRow = 1;
 
 /**
- * This contact's columns of the force Jacobian, with the contract they rest on verified rather than assumed.
+ * This contact's columns of the force Jacobian, with the contract they rest on
+ * verified rather than assumed.
  *
- * MpcRobotModelBase declares that a contact's inputs occupy `[getContactWrenchStartIndices, + getContactInputDim)`.
- * A model whose contact force also depended on inputs outside that block would lose those columns here, so the block
- * is checked against the full probe once, at construction, where the cost is irrelevant.
+ * MpcRobotModelBase declares that a contact's inputs occupy
+ * `[getContactWrenchStartIndices, + getContactInputDim)`. A model whose contact
+ * force also depended on inputs outside that block would lose those columns
+ * here, so the block is checked against the full probe once, at construction,
+ * where the cost is irrelevant.
  */
-matrix_t contactBlockOfForceJacobian(const MpcRobotModelBase<scalar_t>& mpcRobotModel, size_t contactPointIndex) {
-  const Eigen::Index start = static_cast<Eigen::Index>(mpcRobotModel.getContactWrenchStartIndices(contactPointIndex));
-  const Eigen::Index width = static_cast<Eigen::Index>(mpcRobotModel.getContactInputDim(contactPointIndex));
-  const matrix_t jacobian = contactForceInputJacobian(mpcRobotModel, contactPointIndex);
+matrix_t contactBlockOfForceJacobian(
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    size_t contactPointIndex) {
+  const Eigen::Index start = static_cast<Eigen::Index>(
+      mpcRobotModel.getContactWrenchStartIndices(contactPointIndex));
+  const Eigen::Index width = static_cast<Eigen::Index>(
+      mpcRobotModel.getContactInputDim(contactPointIndex));
+  const matrix_t jacobian =
+      contactForceInputJacobian(mpcRobotModel, contactPointIndex);
 
   matrix_t outsideTheBlock = jacobian;
   outsideTheBlock.middleCols(start, width).setZero();
   CHECK(outsideTheBlock.isZero(kOutsideBlockTolerance))
-      << "[FrictionForceConeConstraint] the force of contact " << contactPointIndex << " depends on inputs outside its own block [" << start
-      << ", " << start + width << "), which the cone's Jacobian would drop";
+      << "[FrictionForceConeConstraint] the force of contact "
+      << contactPointIndex << " depends on inputs outside its own block ["
+      << start << ", " << start + width
+      << "), which the cone's Jacobian would drop";
   return jacobian.middleCols(start, width);
 }
 
@@ -74,27 +86,36 @@ matrix_t contactBlockOfForceJacobian(const MpcRobotModelBase<scalar_t>& mpcRobot
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-FrictionForceConeConstraint::FrictionForceConeConstraint(const SwitchedModelReferenceManager& referenceManager,
-                                                         Config config,
-                                                         size_t contactPointIndex,
-                                                         const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                                         bool scheduleGated)
-    // The un-gated friction row is convex in Fz, so it is linearized rather than handed to the penalty with its
-    // indefinite Hessian; see the class comment.
-    : StateInputConstraint(scheduleGated ? ConstraintOrder::Quadratic : ConstraintOrder::Linear),
+FrictionForceConeConstraint::FrictionForceConeConstraint(
+    const SwitchedModelReferenceManager& referenceManager,
+    Config config,
+    size_t contactPointIndex,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    bool scheduleGated)
+    // The un-gated friction row is convex in Fz, so it is linearized rather
+    // than handed to the penalty with its indefinite Hessian; see the class
+    // comment.
+    : StateInputConstraint(scheduleGated ? ConstraintOrder::Quadratic
+                                         : ConstraintOrder::Linear),
       referenceManagerPtr_(&referenceManager),
       mpcRobotModelPtr_(&mpcRobotModel),
       config_(scheduleGated ? config : withoutAdhesion(config)),
       contactPointIndex_(contactPointIndex),
-      contactInputStart_(mpcRobotModel.getContactWrenchStartIndices(contactPointIndex)),
+      contactInputStart_(
+          mpcRobotModel.getContactWrenchStartIndices(contactPointIndex)),
       contactInputDim_(mpcRobotModel.getContactInputDim(contactPointIndex)),
-      contactForceInputJacobian_(contactBlockOfForceJacobian(mpcRobotModel, contactPointIndex)),
+      contactForceInputJacobian_(
+          contactBlockOfForceJacobian(mpcRobotModel, contactPointIndex)),
       scheduleGated_(scheduleGated) {}
 
-FrictionForceConeConstraint::Config FrictionForceConeConstraint::withoutAdhesion(Config config) {
+FrictionForceConeConstraint::Config
+FrictionForceConeConstraint::withoutAdhesion(Config config) {
   if (config.gripperForce > 0.0) {
-    LOG(WARNING) << "[FrictionForceConeConstraint] the contact-implicit formulation drops " << "the gripper force of its Config ("
-                 << config.gripperForce << " N): an always-active cone cannot credit a foot in flight with adhesion.";
+    LOG(WARNING) << "[FrictionForceConeConstraint] the contact-implicit "
+                    "formulation drops "
+                 << "the gripper force of its Config (" << config.gripperForce
+                 << " N): an always-active cone cannot credit a foot in flight "
+                    "with adhesion.";
   }
   config.gripperForce = 0.0;
   return config;
@@ -104,7 +125,8 @@ FrictionForceConeConstraint::Config FrictionForceConeConstraint::withoutAdhesion
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-FrictionForceConeConstraint::FrictionForceConeConstraint(const FrictionForceConeConstraint& rhs)
+FrictionForceConeConstraint::FrictionForceConeConstraint(
+    const FrictionForceConeConstraint& rhs)
     : StateInputConstraint(rhs),
       referenceManagerPtr_(rhs.referenceManagerPtr_),
       mpcRobotModelPtr_(rhs.mpcRobotModelPtr_),
@@ -113,8 +135,8 @@ FrictionForceConeConstraint::FrictionForceConeConstraint(const FrictionForceCone
       contactInputStart_(rhs.contactInputStart_),
       contactInputDim_(rhs.contactInputDim_),
       contactForceInputJacobian_(rhs.contactForceInputJacobian_),
-      // isActive_ was dropped here, so every per-thread copy the SQP solver makes of the problem silently reverted a
-      // deactivated cone to active.
+      // isActive_ was dropped here, so every per-thread copy the SQP solver
+      // makes of the problem silently reverted a deactivated cone to active.
       isActive_(rhs.isActive_),
       scheduleGated_(rhs.scheduleGated_) {}
 
@@ -123,8 +145,9 @@ FrictionForceConeConstraint::FrictionForceConeConstraint(const FrictionForceCone
 /******************************************************************************************************/
 bool FrictionForceConeConstraint::isActive(scalar_t time) const {
   if (!isActive_) return false;
-  // Under the contact-implicit formulation the mode schedule no longer decides which foot carries load, so it cannot
-  // be allowed to decide which foot's force is bounded either; see contactConstraintsAreScheduleGated().
+  // Under the contact-implicit formulation the mode schedule no longer decides
+  // which foot carries load, so it cannot be allowed to decide which foot's
+  // force is bounded either; see contactConstraintsAreScheduleGated().
   if (!scheduleGated_) return true;
   return referenceManagerPtr_->getContactFlags(time)[contactPointIndex_];
 }
@@ -132,11 +155,13 @@ bool FrictionForceConeConstraint::isActive(scalar_t time) const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-vector_t FrictionForceConeConstraint::getValue(scalar_t /*time*/,
-                                               const vector_t& /*state*/,
-                                               const vector_t& input,
-                                               const PreComputation& /*preComp*/) const {
-  const vector3_t contactForce = mpcRobotModelPtr_->getContactForce(input, contactPointIndex_);
+vector_t FrictionForceConeConstraint::getValue(
+    scalar_t /*time*/,
+    const vector_t& /*state*/,
+    const vector_t& input,
+    const PreComputation& /*preComp*/) const {
+  const vector3_t contactForce =
+      mpcRobotModelPtr_->getContactForce(input, contactPointIndex_);
   const vector3_t localForce = t_R_w_ * contactForce;
   return coneConstraint(localForce);
 }
@@ -144,46 +169,65 @@ vector_t FrictionForceConeConstraint::getValue(scalar_t /*time*/,
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-VectorFunctionLinearApproximation FrictionForceConeConstraint::getLinearApproximation(scalar_t /*time*/,
-                                                                                      const vector_t& state,
-                                                                                      const vector_t& input,
-                                                                                      const PreComputation& /*preComp*/) const {
-  const vector3_t contactForce = mpcRobotModelPtr_->getContactForce(input, contactPointIndex_);
+VectorFunctionLinearApproximation
+FrictionForceConeConstraint::getLinearApproximation(
+    scalar_t /*time*/,
+    const vector_t& state,
+    const vector_t& input,
+    const PreComputation& /*preComp*/) const {
+  const vector3_t contactForce =
+      mpcRobotModelPtr_->getContactForce(input, contactPointIndex_);
   const vector3_t localForce = t_R_w_ * contactForce;
 
-  const LocalForceDerivatives localForceDerivatives = computeLocalForceDerivatives();
-  const ConeLocalDerivatives coneLocalDerivatives = computeConeLocalDerivatives(localForce);
-  const ConeDerivatives coneDerivatives = computeConeConstraintDerivatives(coneLocalDerivatives, localForceDerivatives);
+  const LocalForceDerivatives localForceDerivatives =
+      computeLocalForceDerivatives();
+  const ConeLocalDerivatives coneLocalDerivatives =
+      computeConeLocalDerivatives(localForce);
+  const ConeDerivatives coneDerivatives = computeConeConstraintDerivatives(
+      coneLocalDerivatives, localForceDerivatives);
 
   VectorFunctionLinearApproximation linearApproximation;
   linearApproximation.f = coneConstraint(localForce);
-  linearApproximation.dfdx = matrix_t::Zero(linearApproximation.f.size(), state.size());
-  linearApproximation.dfdu = frictionConeInputDerivative(input.size(), coneDerivatives);
+  linearApproximation.dfdx =
+      matrix_t::Zero(linearApproximation.f.size(), state.size());
+  linearApproximation.dfdu =
+      frictionConeInputDerivative(input.size(), coneDerivatives);
   return linearApproximation;
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-VectorFunctionQuadraticApproximation FrictionForceConeConstraint::getQuadraticApproximation(scalar_t /*time*/,
-                                                                                            const vector_t& state,
-                                                                                            const vector_t& input,
-                                                                                            const PreComputation& /*preComp*/) const {
-  const vector3_t contactForce = mpcRobotModelPtr_->getContactForce(input, contactPointIndex_);
+VectorFunctionQuadraticApproximation
+FrictionForceConeConstraint::getQuadraticApproximation(
+    scalar_t /*time*/,
+    const vector_t& state,
+    const vector_t& input,
+    const PreComputation& /*preComp*/) const {
+  const vector3_t contactForce =
+      mpcRobotModelPtr_->getContactForce(input, contactPointIndex_);
   const vector3_t localForce = t_R_w_ * contactForce;
 
-  const LocalForceDerivatives localForceDerivatives = computeLocalForceDerivatives();
-  const ConeLocalDerivatives coneLocalDerivatives = computeConeLocalDerivatives(localForce);
-  const ConeDerivatives coneDerivatives = computeConeConstraintDerivatives(coneLocalDerivatives, localForceDerivatives);
+  const LocalForceDerivatives localForceDerivatives =
+      computeLocalForceDerivatives();
+  const ConeLocalDerivatives coneLocalDerivatives =
+      computeConeLocalDerivatives(localForce);
+  const ConeDerivatives coneDerivatives = computeConeConstraintDerivatives(
+      coneLocalDerivatives, localForceDerivatives);
 
   VectorFunctionQuadraticApproximation quadraticApproximation;
   quadraticApproximation.f = coneConstraint(localForce);
-  quadraticApproximation.dfdx = matrix_t::Zero(quadraticApproximation.f.size(), state.size());
-  quadraticApproximation.dfdu = frictionConeInputDerivative(input.size(), coneDerivatives);
+  quadraticApproximation.dfdx =
+      matrix_t::Zero(quadraticApproximation.f.size(), state.size());
+  quadraticApproximation.dfdu =
+      frictionConeInputDerivative(input.size(), coneDerivatives);
   for (const matrix_t& d2Cone_du2 : coneDerivatives.d2Cone_du2) {
-    quadraticApproximation.dfdxx.emplace_back(frictionConeSecondDerivativeState(state.size()));
-    quadraticApproximation.dfduu.emplace_back(frictionConeSecondDerivativeInput(input.size(), d2Cone_du2));
-    quadraticApproximation.dfdux.emplace_back(matrix_t::Zero(input.size(), state.size()));
+    quadraticApproximation.dfdxx.emplace_back(
+        frictionConeSecondDerivativeState(state.size()));
+    quadraticApproximation.dfduu.emplace_back(
+        frictionConeSecondDerivativeInput(input.size(), d2Cone_du2));
+    quadraticApproximation.dfdux.emplace_back(
+        matrix_t::Zero(input.size(), state.size()));
   }
   return quadraticApproximation;
 }
@@ -191,11 +235,13 @@ VectorFunctionQuadraticApproximation FrictionForceConeConstraint::getQuadraticAp
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-FrictionForceConeConstraint::LocalForceDerivatives FrictionForceConeConstraint::computeLocalForceDerivatives() const {
+FrictionForceConeConstraint::LocalForceDerivatives
+FrictionForceConeConstraint::computeLocalForceDerivatives() const {
   LocalForceDerivatives localForceDerivatives{};
-  // The cone is evaluated on `t_R_w * getContactForce(input)`, so its derivative is that same rotation applied to the
-  // model's own force Jacobian - NOT the rotation on its own, which is only the answer when the input happens to
-  // store the force directly.
+  // The cone is evaluated on `t_R_w * getContactForce(input)`, so its
+  // derivative is that same rotation applied to the model's own force Jacobian
+  // - NOT the rotation on its own, which is only the answer when the input
+  // happens to store the force directly.
   localForceDerivatives.dF_du.noalias() = t_R_w_ * contactForceInputJacobian_;
   return localForceDerivatives;
 }
@@ -203,39 +249,57 @@ FrictionForceConeConstraint::LocalForceDerivatives FrictionForceConeConstraint::
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-FrictionForceConeConstraint::ConeLocalDerivatives FrictionForceConeConstraint::computeConeLocalDerivatives(
+FrictionForceConeConstraint::ConeLocalDerivatives
+FrictionForceConeConstraint::computeConeLocalDerivatives(
     const vector3_t& localForces) const {
   const scalar_t F_x_square = localForces.x() * localForces.x();
   const scalar_t F_y_square = localForces.y() * localForces.y();
-  const scalar_t F_tangent_square = F_x_square + F_y_square + config_.regularization;
+  const scalar_t F_tangent_square =
+      F_x_square + F_y_square + config_.regularization;
   const scalar_t F_tangent_norm = std::sqrt(F_tangent_square);
-  const scalar_t F_tangent_square_pow32 = F_tangent_norm * F_tangent_square;  // = F_tangent_square ^ (3/2)
+  const scalar_t F_tangent_square_pow32 =
+      F_tangent_norm * F_tangent_square;  // = F_tangent_square ^ (3/2)
 
   ConeLocalDerivatives coneDerivatives;
-  const Eigen::Index numRows = scheduleGated_ ? kNumGatedConstraints : kNumUngatedConstraints;
+  const Eigen::Index numRows =
+      scheduleGated_ ? kNumGatedConstraints : kNumUngatedConstraints;
   coneDerivatives.dCone_dF = matrix_t::Zero(numRows, kForceDim);
-  coneDerivatives.d2Cone_dF2.assign(static_cast<size_t>(numRows), matrix3_t::Zero());
+  coneDerivatives.d2Cone_dF2.assign(static_cast<size_t>(numRows),
+                                    matrix3_t::Zero());
 
-  // Row 0, the friction row. Its tangential half, -sqrt(Fx^2 + Fy^2 + regularization), is common to both forms.
-  coneDerivatives.dCone_dF(kFrictionRow, kXAxisIndex) = -localForces.x() / F_tangent_norm;
-  coneDerivatives.dCone_dF(kFrictionRow, kYAxisIndex) = -localForces.y() / F_tangent_norm;
+  // Row 0, the friction row. Its tangential half, -sqrt(Fx^2 + Fy^2 +
+  // regularization), is common to both forms.
+  coneDerivatives.dCone_dF(kFrictionRow, kXAxisIndex) =
+      -localForces.x() / F_tangent_norm;
+  coneDerivatives.dCone_dF(kFrictionRow, kYAxisIndex) =
+      -localForces.y() / F_tangent_norm;
   matrix3_t& frictionHessian = coneDerivatives.d2Cone_dF2[kFrictionRow];
-  frictionHessian(kXAxisIndex, kXAxisIndex) = -(F_y_square + config_.regularization) / F_tangent_square_pow32;
-  frictionHessian(kXAxisIndex, kYAxisIndex) = localForces.x() * localForces.y() / F_tangent_square_pow32;
-  frictionHessian(kYAxisIndex, kXAxisIndex) = frictionHessian(kXAxisIndex, kYAxisIndex);
-  frictionHessian(kYAxisIndex, kYAxisIndex) = -(F_x_square + config_.regularization) / F_tangent_square_pow32;
+  frictionHessian(kXAxisIndex, kXAxisIndex) =
+      -(F_y_square + config_.regularization) / F_tangent_square_pow32;
+  frictionHessian(kXAxisIndex, kYAxisIndex) =
+      localForces.x() * localForces.y() / F_tangent_square_pow32;
+  frictionHessian(kYAxisIndex, kXAxisIndex) =
+      frictionHessian(kXAxisIndex, kYAxisIndex);
+  frictionHessian(kYAxisIndex, kYAxisIndex) =
+      -(F_x_square + config_.regularization) / F_tangent_square_pow32;
 
   if (scheduleGated_) {
     // mu * (Fz + gripperForce): linear in Fz.
-    coneDerivatives.dCone_dF(kFrictionRow, kZAxisIndex) = config_.frictionCoefficient;
+    coneDerivatives.dCone_dF(kFrictionRow, kZAxisIndex) =
+        config_.frictionCoefficient;
   } else {
-    // sqrt(mu^2 Fz^2 + regularization): its slope runs from 0 at the unloaded foot to mu under load, and its curvature
-    // mu^2 regularization / (mu^2 Fz^2 + regularization)^(3/2) is positive - the reason this form is linearized.
-    const scalar_t muSquare = config_.frictionCoefficient * config_.frictionCoefficient;
-    const scalar_t F_normal_square = muSquare * localForces.z() * localForces.z() + config_.regularization;
+    // sqrt(mu^2 Fz^2 + regularization): its slope runs from 0 at the unloaded
+    // foot to mu under load, and its curvature mu^2 regularization / (mu^2 Fz^2
+    // + regularization)^(3/2) is positive - the reason this form is linearized.
+    const scalar_t muSquare =
+        config_.frictionCoefficient * config_.frictionCoefficient;
+    const scalar_t F_normal_square =
+        muSquare * localForces.z() * localForces.z() + config_.regularization;
     const scalar_t F_normal_norm = std::sqrt(F_normal_square);
-    coneDerivatives.dCone_dF(kFrictionRow, kZAxisIndex) = muSquare * localForces.z() / F_normal_norm;
-    frictionHessian(kZAxisIndex, kZAxisIndex) = muSquare * config_.regularization / (F_normal_norm * F_normal_square);
+    coneDerivatives.dCone_dF(kFrictionRow, kZAxisIndex) =
+        muSquare * localForces.z() / F_normal_norm;
+    frictionHessian(kZAxisIndex, kZAxisIndex) =
+        muSquare * config_.regularization / (F_normal_norm * F_normal_square);
     // Row 1, Fz >= 0: linear.
     coneDerivatives.dCone_dF(kNormalForceRow, kZAxisIndex) = 1.0;
   }
@@ -245,33 +309,48 @@ FrictionForceConeConstraint::ConeLocalDerivatives FrictionForceConeConstraint::c
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-vector_t FrictionForceConeConstraint::coneConstraint(const vector3_t& localForces) const {
-  const scalar_t F_tangent_square = localForces.x() * localForces.x() + localForces.y() * localForces.y() + config_.regularization;
+vector_t FrictionForceConeConstraint::coneConstraint(
+    const vector3_t& localForces) const {
+  const scalar_t F_tangent_square = localForces.x() * localForces.x() +
+                                    localForces.y() * localForces.y() +
+                                    config_.regularization;
   const scalar_t F_tangent_norm = std::sqrt(F_tangent_square);
   if (scheduleGated_) {
-    return (vector_t(kNumGatedConstraints) << config_.frictionCoefficient * (localForces.z() + config_.gripperForce) - F_tangent_norm)
+    return (vector_t(kNumGatedConstraints)
+            << config_.frictionCoefficient *
+                       (localForces.z() + config_.gripperForce) -
+                   F_tangent_norm)
         .finished();
   }
-  // The exact Coulomb cone, as two rows that are both zero at the zero force; see the class comment for why the gated
-  // row with sqrt(regularization) added back - which this term used to evaluate - admitted more friction than mu.
+  // The exact Coulomb cone, as two rows that are both zero at the zero force;
+  // see the class comment for why the gated row with sqrt(regularization) added
+  // back - which this term used to evaluate - admitted more friction than mu.
   const scalar_t muFz = config_.frictionCoefficient * localForces.z();
-  const scalar_t F_normal_norm = std::sqrt(muFz * muFz + config_.regularization);
-  return (vector_t(kNumUngatedConstraints) << F_normal_norm - F_tangent_norm, localForces.z()).finished();
+  const scalar_t F_normal_norm =
+      std::sqrt(muFz * muFz + config_.regularization);
+  return (vector_t(kNumUngatedConstraints) << F_normal_norm - F_tangent_norm,
+          localForces.z())
+      .finished();
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-FrictionForceConeConstraint::ConeDerivatives FrictionForceConeConstraint::computeConeConstraintDerivatives(
-    const ConeLocalDerivatives& coneLocalDerivatives, const LocalForceDerivatives& localForceDerivatives) const {
+FrictionForceConeConstraint::ConeDerivatives
+FrictionForceConeConstraint::computeConeConstraintDerivatives(
+    const ConeLocalDerivatives& coneLocalDerivatives,
+    const LocalForceDerivatives& localForceDerivatives) const {
   ConeDerivatives coneDerivatives;
   // First order derivatives
-  coneDerivatives.dCone_du.noalias() = coneLocalDerivatives.dCone_dF * localForceDerivatives.dF_du;
+  coneDerivatives.dCone_du.noalias() =
+      coneLocalDerivatives.dCone_dF * localForceDerivatives.dF_du;
 
   // Second order derivatives, one per row
   coneDerivatives.d2Cone_du2.reserve(coneLocalDerivatives.d2Cone_dF2.size());
   for (const matrix3_t& d2Cone_dF2 : coneLocalDerivatives.d2Cone_dF2) {
-    coneDerivatives.d2Cone_du2.emplace_back(localForceDerivatives.dF_du.transpose() * d2Cone_dF2 * localForceDerivatives.dF_du);
+    coneDerivatives.d2Cone_du2.emplace_back(
+        localForceDerivatives.dF_du.transpose() * d2Cone_dF2 *
+        localForceDerivatives.dF_du);
   }
   return coneDerivatives;
 }
@@ -279,19 +358,25 @@ FrictionForceConeConstraint::ConeDerivatives FrictionForceConeConstraint::comput
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-matrix_t FrictionForceConeConstraint::frictionConeInputDerivative(size_t inputDim, const ConeDerivatives& coneDerivatives) const {
+matrix_t FrictionForceConeConstraint::frictionConeInputDerivative(
+    size_t inputDim, const ConeDerivatives& coneDerivatives) const {
   matrix_t dhdu = matrix_t::Zero(coneDerivatives.dCone_du.rows(), inputDim);
-  dhdu.middleCols(static_cast<Eigen::Index>(contactInputStart_), static_cast<Eigen::Index>(contactInputDim_)) = coneDerivatives.dCone_du;
+  dhdu.middleCols(static_cast<Eigen::Index>(contactInputStart_),
+                  static_cast<Eigen::Index>(contactInputDim_)) =
+      coneDerivatives.dCone_du;
   return dhdu;
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-matrix_t FrictionForceConeConstraint::frictionConeSecondDerivativeInput(size_t inputDim, const matrix_t& d2Cone_du2) const {
+matrix_t FrictionForceConeConstraint::frictionConeSecondDerivativeInput(
+    size_t inputDim, const matrix_t& d2Cone_du2) const {
   matrix_t ddhdudu = matrix_t::Zero(inputDim, inputDim);
-  ddhdudu.block(static_cast<Eigen::Index>(contactInputStart_), static_cast<Eigen::Index>(contactInputStart_),
-                static_cast<Eigen::Index>(contactInputDim_), static_cast<Eigen::Index>(contactInputDim_)) = d2Cone_du2;
+  ddhdudu.block(static_cast<Eigen::Index>(contactInputStart_),
+                static_cast<Eigen::Index>(contactInputStart_),
+                static_cast<Eigen::Index>(contactInputDim_),
+                static_cast<Eigen::Index>(contactInputDim_)) = d2Cone_du2;
   ddhdudu.diagonal().array() -= config_.hessianDiagonalShift;
   return ddhdudu;
 }
@@ -299,7 +384,8 @@ matrix_t FrictionForceConeConstraint::frictionConeSecondDerivativeInput(size_t i
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-matrix_t FrictionForceConeConstraint::frictionConeSecondDerivativeState(size_t stateDim) const {
+matrix_t FrictionForceConeConstraint::frictionConeSecondDerivativeState(
+    size_t stateDim) const {
   matrix_t ddhdxdx = matrix_t::Zero(stateDim, stateDim);
   ddhdxdx.diagonal().array() -= config_.hessianDiagonalShift;
   return ddhdxdx;

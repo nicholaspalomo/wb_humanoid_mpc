@@ -45,36 +45,48 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::validation {
 
 /**
- * The whole-body MPC as its MPC node builds it (WBMpcNode::Create()): the interface and the SQP MPC with the motion
- * manager and the parameter updater as its synchronized modules. And WBMpcMrtJointController as its robot binary builds it
- * (WBMpcRobotMain.cpp), with the task file's controller settings, behind MrtRobotController with the binary's CycleInputOrder.
+ * The whole-body MPC as its MPC node builds it (WBMpcNode::Create()): the
+ * interface and the SQP MPC with the motion manager and the parameter updater
+ * as its synchronized modules. And WBMpcMrtJointController as its robot binary
+ * builds it (WBMpcRobotMain.cpp), with the task file's controller settings,
+ * behind MrtRobotController with the binary's CycleInputOrder.
  *
  * Not thread-safe: one thread drives a run.
  */
 class WholeBodyClosedLoopDriver final : public ClosedLoopDriver {
  public:
-  static absl::StatusOr<std::unique_ptr<WholeBodyClosedLoopDriver>> create(const RobotConfiguration& configuration,
-                                                                           const ClosedLoopDriverOptions& options);
+  static absl::StatusOr<std::unique_ptr<WholeBodyClosedLoopDriver>> create(
+      const RobotConfiguration& configuration,
+      const ClosedLoopDriverOptions& options);
 
   ~WholeBodyClosedLoopDriver() override;
 
   WholeBodyClosedLoopDriver(const WholeBodyClosedLoopDriver&) = delete;
-  WholeBodyClosedLoopDriver& operator=(const WholeBodyClosedLoopDriver&) = delete;
+  WholeBodyClosedLoopDriver& operator=(const WholeBodyClosedLoopDriver&) =
+      delete;
 
-  bool isEnteringMpc() const override { return controller_->controller().isHolding(); }
-  const SystemObservation& currentObservation() const override { return controller_->controller().getCurrentObservation(); }
-  const vector_t& latestPolicyInput() const override { return controller_->controller().getLatestPolicyInput(); }
+  bool isEnteringMpc() const override {
+    return controller_->controller().isHolding();
+  }
+  const SystemObservation& currentObservation() const override {
+    return controller_->controller().getCurrentObservation();
+  }
+  const vector_t& latestPolicyInput() const override {
+    return controller_->controller().getLatestPolicyInput();
+  }
 
  private:
   WholeBodyClosedLoopDriver() = default;
 
-  absl::Status initialize(const RobotConfiguration& configuration, const ClosedLoopDriverOptions& options);
+  absl::Status initialize(const RobotConfiguration& configuration,
+                          const ClosedLoopDriverOptions& options);
 
   std::unique_ptr<WBMpcInterface> interface_;
-  // Watches the task and reference files as the node's does; shared because OCS2's addSynchronizedModule() takes a
-  // std::shared_ptr.
+  // Watches the task and reference files as the node's does; shared because
+  // OCS2's addSynchronizedModule() takes a std::shared_ptr.
   std::shared_ptr<MpcParameterUpdaterModule> parameterUpdater_;
-  MrtRobotController<WBMpcMrtJointController>* absl_nullable controller_ = nullptr;  ///< robotController_, typed
+  MrtRobotController<WBMpcMrtJointController>* absl_nullable controller_ =
+      nullptr;  ///< robotController_, typed
 };
 
 }  // namespace ocs2::humanoid::validation

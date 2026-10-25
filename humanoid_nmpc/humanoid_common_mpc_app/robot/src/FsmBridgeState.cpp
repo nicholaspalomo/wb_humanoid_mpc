@@ -35,11 +35,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-FsmBridgeState::FsmBridgeState(const robot::model::RobotDescription& robotDescription,
-                               const robot::model::RobotState& initState,
-                               OperatorCommandMailbox* absl_nonnull commands,
-                               FsmStateMailbox* absl_nonnull fsmStates,
-                               bool gantryLocked)
+FsmBridgeState::FsmBridgeState(
+    const robot::model::RobotDescription& robotDescription,
+    const robot::model::RobotState& initState,
+    OperatorCommandMailbox* absl_nonnull commands,
+    FsmStateMailbox* absl_nonnull fsmStates,
+    bool gantryLocked)
     : commands_(commands), fsmStates_(fsmStates) {
   nominalJointPositions_.resize(robotDescription.getNumJoints(), 0.0);
   for (size_t i = 0; i < robotDescription.getNumJoints(); ++i) {
@@ -53,12 +54,15 @@ void FsmBridgeState::publish(absl::string_view modeName, bool gantryLocked) {
   fsmStates_->write(modeName, gantryLocked, controllerResets_, mpcHealthy_);
 }
 
-void FsmBridgeState::publishControllerReset(absl::string_view modeName, bool gantryLocked) {
+void FsmBridgeState::publishControllerReset(absl::string_view modeName,
+                                            bool gantryLocked) {
   ++controllerResets_;
   publish(modeName, gantryLocked);
 }
 
-void FsmBridgeState::setMpcHealthy(bool mpcHealthy, absl::string_view modeName, bool gantryLocked) {
+void FsmBridgeState::setMpcHealthy(bool mpcHealthy,
+                                   absl::string_view modeName,
+                                   bool gantryLocked) {
   if (mpcHealthy == mpcHealthy_) {
     return;
   }

@@ -64,7 +64,9 @@ def _python_leaves() -> list[str]:
     lines = []
     for message in _FILE_MESSAGES:
         for field in config_schema.schema_fields(message.DESCRIPTOR):
-            reload = tuning_options_pb2.TuningOptions.Reload.Name(field.tuning.reload)
+            reload = tuning_options_pb2.TuningOptions.Reload.Name(
+                field.tuning.reload
+            )
             formulations = ",".join(field.tuning.formulations)
             tunable = 1 if field.renders else 0
             lines.append(
@@ -77,7 +79,9 @@ def _python_leaves() -> list[str]:
 class TuningInheritanceParityTest(unittest.TestCase):
     """configLeaves() and config_schema.schema_fields() read the same options."""
 
-    def test_both_walks_find_the_same_fields_with_the_same_options(self) -> None:
+    def test_both_walks_find_the_same_fields_with_the_same_options(
+        self,
+    ) -> None:
         printed = subprocess.run(
             [CONFIG_LEAVES_BINARY], check=True, capture_output=True, text=True
         ).stdout
@@ -85,12 +89,18 @@ class TuningInheritanceParityTest(unittest.TestCase):
         python = _python_leaves()
         self.assertGreater(len(cpp), 300, "the C++ walk found too few fields")
         self.assertEqual(
-            sorted(set(cpp) - set(python)), [], "fields the C++ walk reads otherwise"
+            sorted(set(cpp) - set(python)),
+            [],
+            "fields the C++ walk reads otherwise",
         )
         self.assertEqual(
-            sorted(set(python) - set(cpp)), [], "fields the Python walk reads otherwise"
+            sorted(set(python) - set(cpp)),
+            [],
+            "fields the Python walk reads otherwise",
         )
-        self.assertEqual(cpp, python, "the two walks visit the fields in another order")
+        self.assertEqual(
+            cpp, python, "the two walks visit the fields in another order"
+        )
 
     def test_the_walks_see_the_inherited_options(self) -> None:
         # Positive control: the comparison covers a field that inherits each option from its block.

@@ -38,25 +38,35 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Applies the gains of the whole-body MPC's foot constraints, model_settings.foot_constraint: the stance foot's
- * position, orientation, velocity and acceleration gains to the coefficients of the hard or soft zero_velocity term of
- * every foot (ZeroAccelerationConstraintCppAd::configure() with stanceFootAccelerationConstraintConfig(), as the
- * interface built them), and the swing foot's vertical velocity and acceleration gains to every worker's
- * WBMpcPreComputation (setSwingFootGains()), which derives the normal-motion constraint of a swing foot from them. The
- * coefficients are applied to the CppAD kinematics outside the tapes. The swing foot's position gain reaches the
- * pre-computation through FootConstraintSoftWeightsApplier, and the soft weights of the block are its as well.
+ * Applies the gains of the whole-body MPC's foot constraints,
+ * model_settings.foot_constraint: the stance foot's position, orientation,
+ * velocity and acceleration gains to the coefficients of the hard or soft
+ * zero_velocity term of every foot
+ * (ZeroAccelerationConstraintCppAd::configure() with
+ * stanceFootAccelerationConstraintConfig(), as the interface built them), and
+ * the swing foot's vertical velocity and acceleration gains to every worker's
+ * WBMpcPreComputation (setSwingFootGains()), which derives the normal-motion
+ * constraint of a swing foot from them. The coefficients are applied to the
+ * CppAD kinematics outside the tapes. The swing foot's position gain reaches
+ * the pre-computation through FootConstraintSoftWeightsApplier, and the soft
+ * weights of the block are its as well.
  *
  * Not thread-safe (HotFieldApplier).
  */
 class StanceFootAccelerationGainsApplier final : public HotFieldApplier {
  public:
-  /** Returns the fields it applies: the position, orientation, velocity and acceleration gains of the foot constraint. */
+  /** Returns the fields it applies: the position, orientation, velocity and
+   * acceleration gains of the foot constraint. */
   static absl::Span<const absl::string_view> staticFields();
 
   StanceFootAccelerationGainsApplier() = default;
 
-  absl::string_view name() const override { return "StanceFootAccelerationGainsApplier"; }
-  absl::Span<const absl::string_view> fields() const final { return staticFields(); }
+  absl::string_view name() const override {
+    return "StanceFootAccelerationGainsApplier";
+  }
+  absl::Span<const absl::string_view> fields() const final {
+    return staticFields();
+  }
   void apply(HotUpdateTarget& target) override;
 };
 

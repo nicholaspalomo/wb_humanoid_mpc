@@ -41,14 +41,20 @@ std::string FootholdRegularizationCost::describe() const {
   return weightLine("w sum_i ||dp_{i,k}||^2 on the running nodes");
 }
 
-void FootholdRegularizationCost::configure(const ContactPlanningConfig& config) {
+void FootholdRegularizationCost::configure(
+    const ContactPlanningConfig& config) {
   weight_ = config.footholdRegularization.weight;
 }
 
-void FootholdRegularizationCost::addToStage(const ContactPlanningContext& /*ctx*/, int /*node*/, StageAccumulator& stage) const {
+void FootholdRegularizationCost::addToStage(
+    const ContactPlanningContext& /*ctx*/,
+    int /*node*/,
+    StageAccumulator& stage) const {
   for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
     for (size_t foot = 0; foot < kNumContacts; ++foot) {
-      stage.addQuadraticResidual(/*xCoefficients=*/{}, {{idx_.footDelta[foot][axis], 1.0}}, /*offset=*/0.0, weight_);
+      stage.addQuadraticResidual(/*xCoefficients=*/{},
+                                 {{idx_.footDelta[foot][axis], 1.0}},
+                                 /*offset=*/0.0, weight_);
     }
   }
 }

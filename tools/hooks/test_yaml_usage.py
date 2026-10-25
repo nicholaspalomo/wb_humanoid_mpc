@@ -35,7 +35,10 @@ from tools.hooks import yaml_usage
 
 
 def _found(name, source, path):
-    return [(f.line, f.column) for f in check_test_support.findings(name, source, path)]
+    return [
+        (f.line, f.column)
+        for f in check_test_support.findings(name, source, path)
+    ]
 
 
 class ConfigYamlTest(unittest.TestCase):
@@ -58,7 +61,9 @@ class ConfigYamlTest(unittest.TestCase):
             "tools/deploy/compose.yaml",
         ):
             with self.subTest(path=path):
-                self.assertEqual(_found(yaml_usage.CONFIG_YAML, "a: 1\n", path), [])
+                self.assertEqual(
+                    _found(yaml_usage.CONFIG_YAML, "a: 1\n", path), []
+                )
 
     def test_behaves_like_every_check(self):
         check_test_support.assert_check_behaves(
@@ -71,7 +76,10 @@ class ConfigYamlTest(unittest.TestCase):
 
 class YamlCppTest(unittest.TestCase):
     def test_an_include_of_a_yaml_cpp_header_is_flagged(self):
-        source = '#include <vector>\n#include "yaml-cpp/yaml.h"\n  #  include <yaml-cpp/node/node.h>\n#include_next "yaml-cpp/x.h"\n'
+        source = (
+            '#include <vector>\n#include "yaml-cpp/yaml.h"\n  #  include'
+            ' <yaml-cpp/node/node.h>\n#include_next "yaml-cpp/x.h"\n'
+        )
         self.assertEqual(
             _found(yaml_usage.YAML_CPP, source, "src/a.cpp"),
             [(2, 10), (3, 14), (4, 15)],
@@ -88,19 +96,30 @@ class YamlCppTest(unittest.TestCase):
         self.assertEqual(_found(yaml_usage.YAML_CPP, source, "src/a.cpp"), [])
 
     def test_a_bazel_label_of_the_repository_is_flagged(self):
-        source = 'cc_library(\n    deps = [\n        "@yaml_cpp",\n        "@@yaml_cpp//:yaml_cpp",\n    ],\n)\n'
+        source = (
+            'cc_library(\n    deps = [\n        "@yaml_cpp",\n       '
+            ' "@@yaml_cpp//:yaml_cpp",\n    ],\n)\n'
+        )
         self.assertEqual(
-            _found(yaml_usage.YAML_CPP, source, "pkg/BUILD.bazel"), [(3, 9), (4, 9)]
+            _found(yaml_usage.YAML_CPP, source, "pkg/BUILD.bazel"),
+            [(3, 9), (4, 9)],
         )
 
     def test_a_bazel_comment_or_another_repository_is_not(self):
-        source = '# "@yaml_cpp" was removed.\ndeps = ["@yaml_cpp_tools", "//yaml_cpp:x"]  # "@yaml_cpp"\n'
-        self.assertEqual(_found(yaml_usage.YAML_CPP, source, "pkg/BUILD.bazel"), [])
+        source = (
+            '# "@yaml_cpp" was removed.\ndeps = ["@yaml_cpp_tools",'
+            ' "//yaml_cpp:x"]  # "@yaml_cpp"\n'
+        )
+        self.assertEqual(
+            _found(yaml_usage.YAML_CPP, source, "pkg/BUILD.bazel"), []
+        )
 
     def test_other_languages_are_not_read(self):
         self.assertEqual(
             _found(
-                yaml_usage.YAML_CPP, '#include "yaml-cpp/yaml.h"\n', "docs/README.md"
+                yaml_usage.YAML_CPP,
+                '#include "yaml-cpp/yaml.h"\n',
+                "docs/README.md",
             ),
             [],
         )
@@ -117,7 +136,9 @@ class YamlCppTest(unittest.TestCase):
 
 class RepositoryTest(unittest.TestCase):
     def test_the_check_lists_the_configuration_directories(self):
-        self.assertEqual(yaml_usage.CONFIG_DIRS, ("robot_models/", "humanoid_nmpc/"))
+        self.assertEqual(
+            yaml_usage.CONFIG_DIRS, ("robot_models/", "humanoid_nmpc/")
+        )
 
 
 if __name__ == "__main__":

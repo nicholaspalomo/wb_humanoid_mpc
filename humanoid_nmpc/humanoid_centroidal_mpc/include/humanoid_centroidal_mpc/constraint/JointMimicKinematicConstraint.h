@@ -44,13 +44,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The equality constraint of a mimic joint, q_child = multiplier * q_parent (the task file's mimicJoints blocks, the
- * knees): one row, positionGain * (multiplier * q_parent - q_child) + (multiplier * v_parent - v_child) = 0, linear in
- * the joint angles of the state and the joint velocities of the input. Not thread-safe; the solver clones it per worker.
+ * The equality constraint of a mimic joint, q_child = multiplier * q_parent
+ * (the task file's mimicJoints blocks, the knees): one row, positionGain *
+ * (multiplier * q_parent - q_child) + (multiplier * v_parent - v_child) = 0,
+ * linear in the joint angles of the state and the joint velocities of the
+ * input. Not thread-safe; the solver clones it per worker.
  */
 class JointMimicKinematicConstraint final : public StateInputConstraint {
  public:
-  /** The mimic pair of Create(), with both joints resolved to their index among the MPC joints. */
+  /** The mimic pair of Create(), with both joints resolved to their index among
+   * the MPC joints. */
   struct Config {
     std::string parentJointName;
     std::string childJointName;
@@ -61,39 +64,52 @@ class JointMimicKinematicConstraint final : public StateInputConstraint {
   };
 
   /**
-   * The constraint q_child = multiplier * q_parent between two MPC joints of `mpcRobotModel`, which must outlive it.
+   * The constraint q_child = multiplier * q_parent between two MPC joints of
+   * `mpcRobotModel`, which must outlive it.
    *
-   * @return NotFound naming the joint when `parentJointName` or `childJointName` is not an active joint of the MPC
-   *         model; InvalidArgument when `positionGain` is not positive.
+   * @return NotFound naming the joint when `parentJointName` or
+   * `childJointName` is not an active joint of the MPC model; InvalidArgument
+   * when `positionGain` is not positive.
    */
-  static absl::StatusOr<std::unique_ptr<JointMimicKinematicConstraint>> Create(const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                                                               const std::string& parentJointName,
-                                                                               const std::string& childJointName,
-                                                                               scalar_t multiplier,
-                                                                               scalar_t positionGain);
+  static absl::StatusOr<std::unique_ptr<JointMimicKinematicConstraint>> Create(
+      const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+      const std::string& parentJointName,
+      const std::string& childJointName,
+      scalar_t multiplier,
+      scalar_t positionGain);
 
   ~JointMimicKinematicConstraint() override = default;
-  JointMimicKinematicConstraint* absl_nonnull clone() const override { return new JointMimicKinematicConstraint(*this); }
-  // Copied only by clone(), whose copy constructor is private; never assigned or moved.
-  JointMimicKinematicConstraint& operator=(const JointMimicKinematicConstraint&) = delete;
+  JointMimicKinematicConstraint* absl_nonnull clone() const override {
+    return new JointMimicKinematicConstraint(*this);
+  }
+  // Copied only by clone(), whose copy constructor is private; never assigned
+  // or moved.
+  JointMimicKinematicConstraint& operator=(
+      const JointMimicKinematicConstraint&) = delete;
   JointMimicKinematicConstraint(JointMimicKinematicConstraint&&) = delete;
-  JointMimicKinematicConstraint& operator=(JointMimicKinematicConstraint&&) = delete;
+  JointMimicKinematicConstraint& operator=(JointMimicKinematicConstraint&&) =
+      delete;
 
   bool isActive(scalar_t time) const override;
   void setActive(bool isActive) override { isActive_ = isActive; }
   bool getActive() const override { return isActive_; }
   size_t getNumConstraints(scalar_t /*time*/) const override { return 1; }
-  vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
-  VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
-                                                           const vector_t& state,
-                                                           const vector_t& input,
-                                                           const PreComputation& preComp) const override;
+  vector_t getValue(scalar_t time,
+                    const vector_t& state,
+                    const vector_t& input,
+                    const PreComputation& preComp) const override;
+  VectorFunctionLinearApproximation getLinearApproximation(
+      scalar_t time,
+      const vector_t& state,
+      const vector_t& input,
+      const PreComputation& preComp) const override;
 
   /** The mimic pair, as Create() resolved it. */
   const Config& getConfig() const { return config_; }
 
  private:
-  JointMimicKinematicConstraint(const MpcRobotModelBase<scalar_t>& mpcRobotModel, Config config);
+  JointMimicKinematicConstraint(
+      const MpcRobotModelBase<scalar_t>& mpcRobotModel, Config config);
   JointMimicKinematicConstraint(const JointMimicKinematicConstraint& rhs);
 
   const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModelPtr_;

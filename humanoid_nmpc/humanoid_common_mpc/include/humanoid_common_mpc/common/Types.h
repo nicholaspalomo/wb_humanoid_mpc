@@ -44,9 +44,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2 {
 
-// The fixed-size vectors and matrices, named for their size: each holds several quantities of that size (a vector4_t is
-// a quaternion's coefficients, a walking command or a homogeneous point; a vector6_t a twist or a wrench), so the size
-// is the name's, not one quantity's.
+// The fixed-size vectors and matrices, named for their size: each holds several
+// quantities of that size (a vector4_t is a quaternion's coefficients, a
+// walking command or a homogeneous point; a vector6_t a twist or a wrench), so
+// the size is the name's, not one quantity's.
 // NOLINTBEGIN(magic-number): each alias is named for its size, which no quantity's dimension names.
 template <typename SCALAR_T>
 using VECTOR_T = Eigen::Matrix<SCALAR_T, -1, 1>;
@@ -98,12 +99,14 @@ using ad_quaternion_t = QUATERNION_T<ad_scalar_t>;
 */
 /******************************************************************************************************/
 
-// The number of contacts and their indices: humanoid_common_mpc/common/BipedFeet.h.
+// The number of contacts and their indices:
+// humanoid_common_mpc/common/BipedFeet.h.
 
 template <typename T>
 using feet_array_t = std::array<T, kNumContacts>;
 
-/** A per-foot array with every entry set to `value`; use it instead of brace lists that hard-code the number of feet. */
+/** A per-foot array with every entry set to `value`; use it instead of brace
+ * lists that hard-code the number of feet. */
 template <typename T>
 feet_array_t<T> makeFeetArray(const T& value) {
   feet_array_t<T> array;
@@ -111,9 +114,12 @@ feet_array_t<T> makeFeetArray(const T& value) {
   return array;
 }
 
-using contact_flag_t = feet_array_t<bool>;  // describes which feet are in contacts [left_contact, right_contact]
+using contact_flag_t =
+    feet_array_t<bool>;  // describes which feet are in contacts [left_contact,
+                         // right_contact]
 
-// The contact wrench and its entries (ocs2_core/Dimensions.h): the force, then the torque.
+// The contact wrench and its entries (ocs2_core/Dimensions.h): the force, then
+// the torque.
 inline constexpr size_t kContactWrenchDim = kWrenchDim;
 
 inline constexpr size_t kWrenchForceXIndex = kXAxisIndex;
@@ -126,16 +132,19 @@ namespace humanoid {
 
 /******************************************************************************************************/
 /* Floating base & generalized coordinates definition
-   The floating base is Pinocchio's Composite(Translation, Spherical) root joint: its configuration is the position
-   (x, y, z) and the unit quaternion (x, y, z, w) of the base orientation, its velocity the world-frame linear velocity
-   and the body angular velocity. Actuated joints follow the floating base degrees of freedom. The display keeps the
-   Euler angles (yaw, pitch, roll) of the orientation (getBaseDofNames()).
+   The floating base is Pinocchio's Composite(Translation, Spherical) root
+   joint: its configuration is the position (x, y, z) and the unit quaternion
+   (x, y, z, w) of the base orientation, its velocity the world-frame linear
+   velocity and the body angular velocity. Actuated joints follow the floating
+   base degrees of freedom. The display keeps the Euler angles (yaw, pitch,
+   roll) of the orientation (getBaseDofNames()).
 */
 /******************************************************************************************************/
 
 inline constexpr size_t kBasePosZIndex = kZAxisIndex;
 
-/** The position limits of the MPC joints, in the order of ModelSettings::mpcModelJointNames: [rad] or [m] per joint. */
+/** The position limits of the MPC joints, in the order of
+ * ModelSettings::mpcModelJointNames: [rad] or [m] per joint. */
 struct JointPositionLimits {
   vector_t lower;
   vector_t upper;
@@ -150,10 +159,13 @@ inline constexpr size_t kBaseTranslationDim = kPositionDim;
 inline constexpr size_t kBaseRotationDim = 3;
 
 /**
- * The base's entries of the Pinocchio configuration q (nq = kBaseConfigurationDim + the MPC joints) and of its velocity
- * v, the tangent of q (nv = kBaseVelocityDim + the MPC joints): q holds the position and the quaternion (x, y, z, w), v
- * the world linear velocity and the body angular velocity (humanoid_nmpc/docs/quaternion_base_orientation/README.md,
- * section 2.2). A buffer of q is sized with the first, one of v (velocities, generalized forces) with the second.
+ * The base's entries of the Pinocchio configuration q (nq =
+ * kBaseConfigurationDim + the MPC joints) and of its velocity v, the tangent of
+ * q (nv = kBaseVelocityDim + the MPC joints): q holds the position and the
+ * quaternion (x, y, z, w), v the world linear velocity and the body angular
+ * velocity (humanoid_nmpc/docs/quaternion_base_orientation/README.md,
+ * section 2.2). A buffer of q is sized with the first, one of v (velocities,
+ * generalized forces) with the second.
  */
 inline constexpr size_t kBaseConfigurationDim = kPoseCoefficients;
 inline constexpr size_t kBaseVelocityDim = kPoseTangentDim;
@@ -162,22 +174,26 @@ inline constexpr size_t kJointConfigurationOffset = kBaseConfigurationDim;
 inline constexpr size_t kJointVelocityOffset = kBaseVelocityDim;
 
 /**
- * The display names of the six base degrees of freedom of a pose: the position and the ZYX Euler angles of the
- * orientation, which the display buffers hold instead of the quaternion of q.
+ * The display names of the six base degrees of freedom of a pose: the position
+ * and the ZYX Euler angles of the orientation, which the display buffers hold
+ * instead of the quaternion of q.
  */
 inline const std::vector<std::string>& getBaseDofNames() {
   static const absl::NoDestructor<std::vector<std::string>> kBaseDofNames(
-      std::vector<std::string>{"base_x", "base_y", "base_z", "base_yaw", "base_pitch", "base_roll"});
+      std::vector<std::string>{"base_x", "base_y", "base_z", "base_yaw",
+                               "base_pitch", "base_roll"});
   return *kBaseDofNames;
 }
 
 /**
- * The names of the base's kBaseVelocityDim entries of the Pinocchio velocity v (and of a generalized force): the linear
- * velocity in the world frame, then the angular velocity in the base frame.
+ * The names of the base's kBaseVelocityDim entries of the Pinocchio velocity v
+ * (and of a generalized force): the linear velocity in the world frame, then
+ * the angular velocity in the base frame.
  */
 inline const std::vector<std::string>& getBaseVelocityDofNames() {
-  static const absl::NoDestructor<std::vector<std::string>> kBaseVelocityDofNames(
-      std::vector<std::string>{"base_vx", "base_vy", "base_vz", "base_wx", "base_wy", "base_wz"});
+  static const absl::NoDestructor<std::vector<std::string>>
+      kBaseVelocityDofNames(std::vector<std::string>{
+          "base_vx", "base_vy", "base_vz", "base_wx", "base_wy", "base_wz"});
   return *kBaseVelocityDofNames;
 }
 

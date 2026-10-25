@@ -41,21 +41,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::mujoco_sim_interface {
 
 /**
- * The EGL library the web viewer renders through, loaded at run time with dlopen() rather than linked, so that the
- * robot binary needs no EGL (and no Mesa) to start and a machine without EGL gets a Status that names the fix.
+ * The EGL library the web viewer renders through, loaded at run time with
+ * dlopen() rather than linked, so that the robot binary needs no EGL (and no
+ * Mesa) to start and a machine without EGL gets a Status that names the fix.
  *
- * Get() loads a library once per name and keeps it for the life of the process: it is never dlclose()d, because glvnd
- * and Mesa keep destructors and thread-local state that are unsafe to unload, and MuJoCo caches the OpenGL entry
- * points process-wide. Thread-safe: Get() may be called from any thread, and a library is immutable once loaded.
+ * Get() loads a library once per name and keeps it for the life of the process:
+ * it is never dlclose()d, because glvnd and Mesa keep destructors and
+ * thread-local state that are unsafe to unload, and MuJoCo caches the OpenGL
+ * entry points process-wide. Thread-safe: Get() may be called from any thread,
+ * and a library is immutable once loaded.
  *
- * Only the EGL code of the web viewer (EglContext.cpp) and its tests include this header; the EGL headers come with
- * EGL_NO_X11 (the egl_headers target), so that no translation unit sees Xlib through them.
+ * Only the EGL code of the web viewer (EglContext.cpp) and its tests include
+ * this header; the EGL headers come with EGL_NO_X11 (the egl_headers target),
+ * so that no translation unit sees Xlib through them.
  */
 class EglLibrary {
  public:
   /**
-   * The EGL entry points the viewer uses, resolved through eglGetProcAddress. The core ones are never null in a loaded
-   * library (Get() fails instead); the extensions are null where the library has none. (The PFN types are pointer
+   * The EGL entry points the viewer uses, resolved through eglGetProcAddress.
+   * The core ones are never null in a loaded library (Get() fails instead); the
+   * extensions are null where the library has none. (The PFN types are pointer
    * typedefs, which carry no nullability annotation.)
    */
   struct Functions {
@@ -70,18 +75,22 @@ class EglLibrary {
     PFNEGLCREATEPBUFFERSURFACEPROC createPbufferSurface;
     PFNEGLDESTROYSURFACEPROC destroySurface;
     PFNEGLMAKECURRENTPROC makeCurrent;
-    // Extensions (EGL_EXT_platform_base, EGL_EXT_device_enumeration, EGL_EXT_device_query).
+    // Extensions (EGL_EXT_platform_base, EGL_EXT_device_enumeration,
+    // EGL_EXT_device_query).
     PFNEGLGETPLATFORMDISPLAYEXTPROC getPlatformDisplay;
     PFNEGLQUERYDEVICESEXTPROC queryDevices;
     PFNEGLQUERYDEVICESTRINGEXTPROC queryDeviceString;
   };
 
   /**
-   * The EGL library `soname` (`libEGL.so.1`, WebViewerOptions::eglLibrary), loaded on the first call for that name and
-   * the same object on every later one. Fails with Unavailable when it cannot be loaded or lacks a core entry point,
-   * saying how to install it or run without the web viewer; a failure is not remembered, so a later call tries again.
+   * The EGL library `soname` (`libEGL.so.1`, WebViewerOptions::eglLibrary),
+   * loaded on the first call for that name and the same object on every later
+   * one. Fails with Unavailable when it cannot be loaded or lacks a core entry
+   * point, saying how to install it or run without the web viewer; a failure is
+   * not remembered, so a later call tries again.
    */
-  static absl::StatusOr<const EglLibrary* absl_nonnull> Get(absl::string_view soname);
+  static absl::StatusOr<const EglLibrary* absl_nonnull> Get(
+      absl::string_view soname);
 
   EglLibrary(const EglLibrary&) = delete;
   EglLibrary& operator=(const EglLibrary&) = delete;
@@ -93,7 +102,8 @@ class EglLibrary {
   const std::string& soname() const { return soname_; }
 
  private:
-  EglLibrary(std::string soname, const Functions& functions) : soname_(std::move(soname)), functions_(functions) {}
+  EglLibrary(std::string soname, const Functions& functions)
+      : soname_(std::move(soname)), functions_(functions) {}
 
   /** Loads `soname` and resolves its entry points (Get()). */
   static absl::StatusOr<Functions> load(const std::string& soname);

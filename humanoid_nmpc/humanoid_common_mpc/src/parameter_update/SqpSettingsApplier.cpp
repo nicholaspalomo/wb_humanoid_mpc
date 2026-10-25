@@ -61,10 +61,14 @@ absl::Span<const absl::string_view> SqpSettingsApplier::staticFields() {
 
 void SqpSettingsApplier::apply(HotUpdateTarget& target) {
   const std::optional<sqp::Settings> reloaded =
-      convertedOrReported(toSqpSettings(target.task().multiple_shooting), target.source(), "multiple_shooting");
+      convertedOrReported(toSqpSettings(target.task().multiple_shooting),
+                          target.source(), "multiple_shooting");
   if (!reloaded.has_value()) return;
-  target.solver().setLiveSettings(SqpSolver::LiveSettings{
-      .sqpIteration = reloaded->sqpIteration, .deltaTol = reloaded->deltaTol, .gMax = reloaded->g_max, .gMin = reloaded->g_min});
+  target.solver().setLiveSettings(
+      SqpSolver::LiveSettings{.sqpIteration = reloaded->sqpIteration,
+                              .deltaTol = reloaded->deltaTol,
+                              .gMax = reloaded->g_max,
+                              .gMin = reloaded->g_min});
 }
 
 }  // namespace ocs2::humanoid

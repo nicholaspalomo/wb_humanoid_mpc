@@ -47,53 +47,75 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * A Gauss-Newton cost on the task-space error of one link - position, orientation, linear and angular velocity - against
- * the link pose the reference state implies, generated with CppAD.
+ * A Gauss-Newton cost on the task-space error of one link - position,
+ * orientation, linear and angular velocity - against the link pose the
+ * reference state implies, generated with CppAD.
  *
- * The robot model and the reference manager, when given, must outlive it. setWeights() retunes it between solves. Like
- * every OCS2 term it is cloned for each solver thread, and a single instance is not thread-safe.
+ * The robot model and the reference manager, when given, must outlive it.
+ * setWeights() retunes it between solves. Like every OCS2 term it is cloned for
+ * each solver thread, and a single instance is not thread-safe.
  */
-class EndEffectorKinematicsQuadraticCost : public ocs2::StateInputCostGaussNewtonAd {
+class EndEffectorKinematicsQuadraticCost
+    : public ocs2::StateInputCostGaussNewtonAd {
  public:
   /**
-   * `referenceManager`, when given, shapes the reference state's base pose with the locomotion heuristics before the
-   * link's reference pose is computed from it (SwitchedModelReferenceManager::shapeBasePose). Pass it for a link whose
-   * orientation follows the base - the torso - or its term regularizes the tilt towards the unshaped target while the
-   * base-pose costs regularize it towards the shaped one, and the stiffer of the two cancels the heuristic. Null leaves
-   * the reference exactly as the target trajectory has it.
+   * `referenceManager`, when given, shapes the reference state's base pose with
+   * the locomotion heuristics before the link's reference pose is computed from
+   * it (SwitchedModelReferenceManager::shapeBasePose). Pass it for a link whose
+   * orientation follows the base - the torso - or its term regularizes the tilt
+   * towards the unshaped target while the base-pose costs regularize it towards
+   * the shaped one, and the stiffer of the two cancels the heuristic. Null
+   * leaves the reference exactly as the target trajectory has it.
    */
-  EndEffectorKinematicsQuadraticCost(const EndEffectorKinematicsWeights& weights,
-                                     const PinocchioInterface& pinocchioInterface,
-                                     const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
-                                     const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
-                                     const std::string& endEffectorName,
-                                     const ModelSettings& modelSettings,
-                                     const SwitchedModelReferenceManager* absl_nullable referenceManager = nullptr);
+  EndEffectorKinematicsQuadraticCost(
+      const EndEffectorKinematicsWeights& weights,
+      const PinocchioInterface& pinocchioInterface,
+      const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
+      const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
+      const std::string& endEffectorName,
+      const ModelSettings& modelSettings,
+      const SwitchedModelReferenceManager* absl_nullable referenceManager =
+          nullptr);
 
   ~EndEffectorKinematicsQuadraticCost() override = default;
-  EndEffectorKinematicsQuadraticCost& operator=(const EndEffectorKinematicsQuadraticCost&) = delete;
-  EndEffectorKinematicsQuadraticCost(EndEffectorKinematicsQuadraticCost&&) = delete;
-  EndEffectorKinematicsQuadraticCost& operator=(EndEffectorKinematicsQuadraticCost&&) = delete;
-  EndEffectorKinematicsQuadraticCost* absl_nonnull clone() const override { return new EndEffectorKinematicsQuadraticCost(*this); }
+  EndEffectorKinematicsQuadraticCost& operator=(
+      const EndEffectorKinematicsQuadraticCost&) = delete;
+  EndEffectorKinematicsQuadraticCost(EndEffectorKinematicsQuadraticCost&&) =
+      delete;
+  EndEffectorKinematicsQuadraticCost& operator=(
+      EndEffectorKinematicsQuadraticCost&&) = delete;
+  EndEffectorKinematicsQuadraticCost* absl_nonnull clone() const override {
+    return new EndEffectorKinematicsQuadraticCost(*this);
+  }
 
-  vector_t getParameters(scalar_t time, const TargetTrajectories& targetTrajectories, const PreComputation& preComputation) const override;
+  vector_t getParameters(scalar_t time,
+                         const TargetTrajectories& targetTrajectories,
+                         const PreComputation& preComputation) const override;
 
   bool isActive(scalar_t /*time*/) const override { return isActive_; }
   void setActive(bool active) { isActive_ = active; }
   bool getActive() const { return isActive_; }
 
-  void getWeights(vector12_t& weights) const { weights = sqrtWeights_.cwiseProduct(sqrtWeights_); }
-  void setWeights(const vector12_t& weights) { sqrtWeights_ = weights.cwiseSqrt(); }
+  void getWeights(vector12_t& weights) const {
+    weights = sqrtWeights_.cwiseProduct(sqrtWeights_);
+  }
+  void setWeights(const vector12_t& weights) {
+    sqrtWeights_ = weights.cwiseSqrt();
+  }
 
  protected:
-  /** The parameters of the taped cost: the reference cost element, then the square roots of the weights. */
-  static constexpr int kNumParameters = kEndEffectorCostElementDim + kEndEffectorTaskSpaceErrorDim;
+  /** The parameters of the taped cost: the reference cost element, then the
+   * square roots of the weights. */
+  static constexpr int kNumParameters =
+      kEndEffectorCostElementDim + kEndEffectorTaskSpaceErrorDim;
 
-  EndEffectorKinematicsQuadraticCost(const EndEffectorKinematicsQuadraticCost& other);
+  EndEffectorKinematicsQuadraticCost(
+      const EndEffectorKinematicsQuadraticCost& other);
 
-  static EndEffectorKinematicsCostElement<scalar_t> getReferenceCostElement(const vector_t& state,
-                                                                            const vector_t& input,
-                                                                            const EndEffectorKinematics<scalar_t>& endEffectorKinematics);
+  static EndEffectorKinematicsCostElement<scalar_t> getReferenceCostElement(
+      const vector_t& state,
+      const vector_t& input,
+      const EndEffectorKinematics<scalar_t>& endEffectorKinematics);
 
   ad_vector_t costVectorFunction(ad_scalar_t time,
                                  const ad_vector_t& state,
@@ -104,11 +126,14 @@ class EndEffectorKinematicsQuadraticCost : public ocs2::StateInputCostGaussNewto
   size_t n_parameters_ = kNumParameters;
   pinocchio::FrameIndex frameID_;
   PinocchioInterfaceCppAd pinocchioInterfaceCppAd_;
-  const std::unique_ptr<EndEffectorKinematics<scalar_t>> endEffectorKinematicsPtr_;
+  const std::unique_ptr<EndEffectorKinematics<scalar_t>>
+      endEffectorKinematicsPtr_;
   std::unique_ptr<MpcRobotModelBase<ad_scalar_t>> mpcRobotModelADPtr_;
   bool isActive_ = true;
-  /// Shapes the reference base pose when set; see the constructor. Shared, read-only, across the solver's clones.
-  const SwitchedModelReferenceManager* absl_nullable referenceManagerPtr_ = nullptr;
+  /// Shapes the reference base pose when set; see the constructor. Shared,
+  /// read-only, across the solver's clones.
+  const SwitchedModelReferenceManager* absl_nullable referenceManagerPtr_ =
+      nullptr;
 };
 
 }  // namespace ocs2::humanoid

@@ -36,13 +36,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * A cost on the binaries that is not part of the QP: exact for a complete assignment, a lower bound for a partial one.
+ * A cost on the binaries that is not part of the QP: exact for a complete
+ * assignment, a lower bound for a partial one.
  *
- * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
  */
 class AssignmentCost : public ContactPlanningTerm {
  public:
-  virtual scalar_t cost(const ContactLogicState& state, const MiqpAssignment& assignment) const = 0;
+  virtual scalar_t cost(const ContactLogicState& state,
+                        const MiqpAssignment& assignment) const = 0;
 };
 
 }  // namespace ocs2::humanoid

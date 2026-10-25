@@ -136,7 +136,9 @@ class BlueprintStructureTest(unittest.TestCase):
                 )
 
     def test_rows_follow_the_rows_of_the_panel_tabs(self) -> None:
-        for tab, container in zip(telemetry_contract.PANEL_TABS, self.tabs.contents):
+        for tab, container in zip(
+            telemetry_contract.PANEL_TABS, self.tabs.contents
+        ):
             self.assertEqual(
                 [len(row.contents) for row in container.contents],
                 [len(row) for row in tab.rows],
@@ -151,7 +153,9 @@ class BlueprintStructureTest(unittest.TestCase):
         for behavior in scene.visualizer_overrides.values():
             self.assertIsInstance(behavior, rrb.EntityBehavior)
 
-    def test_the_eye_starts_above_the_ground_looking_at_the_origin(self) -> None:
+    def test_the_eye_starts_above_the_ground_looking_at_the_origin(
+        self,
+    ) -> None:
         x, y, z = blueprint.initial_eye_position()
         # About 2.45 m from a focal point near the origin, above the ground.
         self.assertGreater(z, 0.5)
@@ -183,7 +187,9 @@ class BlueprintRoundTripTest(unittest.TestCase):
         self.assertTrue(
             expected <= contents.view_names(), expected - contents.view_names()
         )
-        self.assertIn([False], contents.blueprint_values("EntityBehavior:visible"))
+        self.assertIn(
+            [False], contents.blueprint_values("EntityBehavior:visible")
+        )
 
 
 if __name__ == "__main__":

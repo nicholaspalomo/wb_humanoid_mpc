@@ -27,10 +27,13 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// asFeedforwardController(), asLinearController() and asManifoldLinearController() find the exact type of a policy's
-// controller: each finds its own type and no other, from a const or a mutable controller, and a controller of another
-// class whose getType() reports one of the three is none of them. So the conversions, the solution time window and the
-// realtime evaluator all refuse or skip it alike, as they do every controller the link does not carry.
+// asFeedforwardController(), asLinearController() and
+// asManifoldLinearController() find the exact type of a policy's controller:
+// each finds its own type and no other, from a const or a mutable controller,
+// and a controller of another class whose getType() reports one of the three is
+// none of them. So the conversions, the solution time window and the realtime
+// evaluator all refuse or skip it alike, as they do every controller the link
+// does not carry.
 
 #include <cstddef>
 #include <memory>
@@ -62,23 +65,31 @@ namespace {
 
 using test_data::PolicyShape;
 
-/** A controller of a type the link does not carry, which claims to be one it does carry. */
+/** A controller of a type the link does not carry, which claims to be one it
+ * does carry. */
 class ImpostorController final : public ControllerBase {
  public:
-  explicit ImpostorController(ControllerType claimedType) : claimedType_(claimedType) {}
-  vector_t computeInput(scalar_t /*t*/, const vector_t& /*x*/) override { return vector_t(); }
+  explicit ImpostorController(ControllerType claimedType)
+      : claimedType_(claimedType) {}
+  vector_t computeInput(scalar_t /*t*/, const vector_t& /*x*/) override {
+    return vector_t();
+  }
   int size() const override { return 1; }
   ControllerType getType() const override { return claimedType_; }
   void clear() override {}
   bool empty() const override { return false; }
-  ImpostorController* absl_nonnull clone() const override { return new ImpostorController(*this); }
+  ImpostorController* absl_nonnull clone() const override {
+    return new ImpostorController(*this);
+  }
 
  private:
   ControllerType claimedType_;
 };
 
 TEST(PolicyControllersTest, AFeedforwardControllerIsOneAndNoLinearController) {
-  FeedforwardController controller(/*controllerTime=*/{0.0, 1.0}, /*controllerFeedforward=*/{vector_t::Ones(2), vector_t::Zero(2)});
+  FeedforwardController controller(
+      /*controllerTime=*/{0.0, 1.0},
+      /*controllerFeedforward=*/{vector_t::Ones(2), vector_t::Zero(2)});
   const ControllerBase& constBase = controller;
   ControllerBase& base = controller;
   EXPECT_EQ(asFeedforwardController(constBase), &controller);
@@ -88,8 +99,10 @@ TEST(PolicyControllersTest, AFeedforwardControllerIsOneAndNoLinearController) {
 }
 
 TEST(PolicyControllersTest, ALinearControllerIsOneAndNoFeedforwardController) {
-  LinearController controller(/*controllerTime=*/{0.0, 1.0}, /*controllerBias=*/{vector_t::Ones(2), vector_t::Zero(2)},
-                              /*controllerGain=*/{matrix_t::Identity(2, 3), matrix_t::Zero(2, 3)});
+  LinearController controller(
+      /*controllerTime=*/{0.0, 1.0},
+      /*controllerBias=*/{vector_t::Ones(2), vector_t::Zero(2)},
+      /*controllerGain=*/{matrix_t::Identity(2, 3), matrix_t::Zero(2, 3)});
   const ControllerBase& constBase = controller;
   ControllerBase& base = controller;
   EXPECT_EQ(asLinearController(constBase), &controller);
@@ -100,12 +113,18 @@ TEST(PolicyControllersTest, ALinearControllerIsOneAndNoFeedforwardController) {
   EXPECT_EQ(asManifoldLinearController(base), nullptr);
 }
 
-TEST(PolicyControllersTest, AManifoldLinearControllerIsOneAndNeitherOfTheOthers) {
-  const std::shared_ptr<const StateManifold> manifold = test_data::toyStateManifold();
-  const vector_t anchor = vector_t::Unit(static_cast<Eigen::Index>(manifold->getAmbientDim()), /*i=*/6);
-  const matrix_t gain = matrix_t::Ones(2, static_cast<Eigen::Index>(manifold->getTangentDim()));
-  ManifoldLinearController controller(/*timeStamp=*/{0.0, 1.0}, /*anchorStates=*/{anchor, anchor},
-                                      /*nominalInputs=*/{vector_t::Ones(2), vector_t::Zero(2)}, /*feedbackGains=*/{gain, gain}, manifold);
+TEST(PolicyControllersTest,
+     AManifoldLinearControllerIsOneAndNeitherOfTheOthers) {
+  const std::shared_ptr<const StateManifold> manifold =
+      test_data::toyStateManifold();
+  const vector_t anchor = vector_t::Unit(
+      static_cast<Eigen::Index>(manifold->getAmbientDim()), /*i=*/6);
+  const matrix_t gain =
+      matrix_t::Ones(2, static_cast<Eigen::Index>(manifold->getTangentDim()));
+  ManifoldLinearController controller(
+      /*timeStamp=*/{0.0, 1.0}, /*anchorStates=*/{anchor, anchor},
+      /*nominalInputs=*/{vector_t::Ones(2), vector_t::Zero(2)},
+      /*feedbackGains=*/{gain, gain}, manifold);
   const ControllerBase& constBase = controller;
   ControllerBase& base = controller;
   EXPECT_EQ(asManifoldLinearController(constBase), &controller);
@@ -115,12 +134,15 @@ TEST(PolicyControllersTest, AManifoldLinearControllerIsOneAndNeitherOfTheOthers)
   EXPECT_EQ(asFeedforwardController(constBase), nullptr);
   EXPECT_EQ(asFeedforwardController(base), nullptr);
 
-  FeedforwardController feedforward(/*controllerTime=*/{0.0}, /*controllerFeedforward=*/{vector_t::Ones(2)});
+  FeedforwardController feedforward(
+      /*controllerTime=*/{0.0}, /*controllerFeedforward=*/{vector_t::Ones(2)});
   EXPECT_EQ(asManifoldLinearController(feedforward), nullptr);
 }
 
 TEST(PolicyControllersTest, AControllerThatOnlyReportsTheTypeIsNone) {
-  for (const ControllerType claimedType : {ControllerType::FEEDFORWARD, ControllerType::LINEAR, ControllerType::MANIFOLD_LINEAR}) {
+  for (const ControllerType claimedType :
+       {ControllerType::FEEDFORWARD, ControllerType::LINEAR,
+        ControllerType::MANIFOLD_LINEAR}) {
     ImpostorController controller(claimedType);
     ASSERT_EQ(controller.getType(), claimedType);
     EXPECT_EQ(asLinearController(controller), nullptr);
@@ -131,24 +153,35 @@ TEST(PolicyControllersTest, AControllerThatOnlyReportsTheTypeIsNone) {
 
 TEST(PolicyControllersTest, AControllerThatReportsLinearIsRefusedEverywhere) {
   std::mt19937 generator(/*sd=*/7);
-  const PolicyShape shape{.nodes = 10, .stateDim = 3, .inputDim = 2, .events = 1, .controllerType = ControllerType::LINEAR};
+  const PolicyShape shape{.nodes = 10,
+                          .stateDim = 3,
+                          .inputDim = 2,
+                          .events = 1,
+                          .controllerType = ControllerType::LINEAR};
   PrimalSolution policy = test_data::randomPrimalSolution(generator, shape);
-  policy.controllerPtr_ = std::make_unique<ImpostorController>(ControllerType::LINEAR);
-  ASSERT_EQ(policy.controllerPtr_->getType(), ControllerType::LINEAR) << "the reason PolicyControllers.h does not trust getType()";
+  policy.controllerPtr_ =
+      std::make_unique<ImpostorController>(ControllerType::LINEAR);
+  ASSERT_EQ(policy.controllerPtr_->getType(), ControllerType::LINEAR)
+      << "the reason PolicyControllers.h does not trust getType()";
 
   humanoid_mpc_msgs::MpcPolicy message;
-  const absl::Status encoded = policyToProto(CommandData(), policy, PerformanceIndex(), &message);
+  const absl::Status encoded =
+      policyToProto(CommandData(), policy, PerformanceIndex(), &message);
   EXPECT_EQ(encoded.code(), absl::StatusCode::kInvalidArgument) << encoded;
 
-  RealtimePolicyEvaluator evaluator(ModelDimensions{.stateDim = shape.stateDim, .inputDim = shape.inputDim, .numModes = 2});
-  const vector_t state = vector_t::Zero(static_cast<Eigen::Index>(shape.stateDim));
+  RealtimePolicyEvaluator evaluator(ModelDimensions{
+      .stateDim = shape.stateDim, .inputDim = shape.inputDim, .numModes = 2});
+  const vector_t state =
+      vector_t::Zero(static_cast<Eigen::Index>(shape.stateDim));
   vector_t mpcState;
   vector_t mpcInput;
   size_t mode = 0;
-  EXPECT_EQ(evaluator.evaluate(policy, policy.timeTrajectory_.front(), state, mpcState, mpcInput, mode),
+  EXPECT_EQ(evaluator.evaluate(policy, policy.timeTrajectory_.front(), state,
+                               mpcState, mpcInput, mode),
             RealtimePolicyEvaluator::Outcome::kUnsupportedController);
 
-  // The solution is cut and the controller it does not recognize is left in place.
+  // The solution is cut and the controller it does not recognize is left in
+  // place.
   const ControllerBase* absl_nonnull impostor = policy.controllerPtr_.get();
   trimToSolutionWindow(policy.timeTrajectory_[shape.nodes / 2], &policy);
   EXPECT_LT(policy.timeTrajectory_.size(), shape.nodes);

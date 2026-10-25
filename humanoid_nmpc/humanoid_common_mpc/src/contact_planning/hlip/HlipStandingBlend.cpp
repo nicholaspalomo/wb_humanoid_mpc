@@ -42,16 +42,24 @@ scalar_t squaredRatio(scalar_t value, scalar_t threshold) {
 
 }  // namespace
 
-scalar_t HlipStandingBlend::activity(const vector2_t& velocityCommand, scalar_t yawRateCommand, const vector2_t& comVelocity) const {
+scalar_t HlipStandingBlend::activity(const vector2_t& velocityCommand,
+                                     scalar_t yawRateCommand,
+                                     const vector2_t& comVelocity) const {
   const HlipBlendParameters& p = parameters_;
-  return squaredRatio(velocityCommand(0), p.maxCommandedVelocityX) + squaredRatio(velocityCommand(1), p.maxCommandedVelocityY) +
-         squaredRatio(yawRateCommand, p.maxCommandedYawRate) + squaredRatio(comVelocity(0), p.maxComVelocityX) +
+  return squaredRatio(velocityCommand(0), p.maxCommandedVelocityX) +
+         squaredRatio(velocityCommand(1), p.maxCommandedVelocityY) +
+         squaredRatio(yawRateCommand, p.maxCommandedYawRate) +
+         squaredRatio(comVelocity(0), p.maxComVelocityX) +
          squaredRatio(comVelocity(1), p.maxComVelocityY);
 }
 
-scalar_t HlipStandingBlend::weight(const vector2_t& velocityCommand, scalar_t yawRateCommand, const vector2_t& comVelocity) const {
+scalar_t HlipStandingBlend::weight(const vector2_t& velocityCommand,
+                                   scalar_t yawRateCommand,
+                                   const vector2_t& comVelocity) const {
   const scalar_t phi = activity(velocityCommand, yawRateCommand, comVelocity);
-  return 0.5 * std::tanh(parameters_.sharpness * (phi - parameters_.threshold)) + kHalfPointWeight;
+  return 0.5 *
+             std::tanh(parameters_.sharpness * (phi - parameters_.threshold)) +
+         kHalfPointWeight;
 }
 
 }  // namespace ocs2::humanoid

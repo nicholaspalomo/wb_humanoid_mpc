@@ -105,7 +105,9 @@ class StandInBridge:
     def draw_pending_scene(self) -> None:
         self.record("pending_scene")
 
-    def report(self, bus_rejected: int = 0, sink_dropped: int = 0) -> str | None:
+    def report(
+        self, bus_rejected: int = 0, sink_dropped: int = 0
+    ) -> str | None:
         del bus_rejected, sink_dropped  # Unused.
         return None
 
@@ -141,7 +143,8 @@ class WriterThreadTest(unittest.TestCase):
     def publish_status(self) -> None:
         self.time += 0.01
         self.publisher.publish(
-            topics.MPC_STATUS, mpc_status_pb2.MpcStatus(observation_time=self.time)
+            topics.MPC_STATUS,
+            mpc_status_pb2.MpcStatus(observation_time=self.time),
         )
 
     def publish_until(self, condition: Callable[[], bool]) -> bool:
@@ -158,7 +161,9 @@ class WriterThreadTest(unittest.TestCase):
     def test_the_handlers_run_on_the_writer_thread_in_order(self) -> None:
         feed = self.feed()
         feed.start()
-        self.assertTrue(self.publish_until(lambda: len(self.bridge.statuses) >= 20))
+        self.assertTrue(
+            self.publish_until(lambda: len(self.bridge.statuses) >= 20)
+        )
         self.assertTrue(feed.stop())
         self.assertEqual(self.bridge.threads, {"rerun_bridge_writer"})
         self.assertEqual(self.bridge.statuses, sorted(self.bridge.statuses))
@@ -174,18 +179,25 @@ class WriterThreadTest(unittest.TestCase):
             self.publish_until(lambda: feed.dropped() >= 10),
             f"dropped {feed.dropped()}",
         )
-        self.assertEqual(feed.dropped_by_topic(), {topics.MPC_STATUS: feed.dropped()})
+        self.assertEqual(
+            feed.dropped_by_topic(), {topics.MPC_STATUS: feed.dropped()}
+        )
         self.assertTrue(wait_for(lambda: feed.writer_stalled_for() > 0.2))
         stopped: list[bool] = []
-        stopper = threading.Thread(
-            target=lambda: stopped.append(feed.stop(recording_flush_timeout=0.1))
-        )
+
+        def stop() -> None:
+            stopped.append(feed.stop(recording_flush_timeout=0.1))
+
+        stopper = threading.Thread(target=stop)
         started = time.monotonic()
         stopper.start()
         stopper.join(timeout=bus_bridge.SHUTDOWN_DRAIN_TIMEOUT_S + TIMEOUT_S)
-        self.assertFalse(stopper.is_alive(), "stop() waited for the blocked handler")
+        self.assertFalse(
+            stopper.is_alive(), "stop() waited for the blocked handler"
+        )
         self.assertLess(
-            time.monotonic() - started, bus_bridge.SHUTDOWN_DRAIN_TIMEOUT_S + 2.0
+            time.monotonic() - started,
+            bus_bridge.SHUTDOWN_DRAIN_TIMEOUT_S + 2.0,
         )
         self.assertEqual(stopped, [False])
 
@@ -193,7 +205,9 @@ class WriterThreadTest(unittest.TestCase):
         self.bridge.release.clear()
         feed = self.feed(max_queued_messages=8)
         feed.start()
-        self.assertTrue(self.publish_until(lambda: feed.writer_stalled_for() > 0.05))
+        self.assertTrue(
+            self.publish_until(lambda: feed.writer_stalled_for() > 0.05)
+        )
         for mode in ("A", "B", "C", "D", "E", "F"):
             self.publisher.publish(
                 topics.ROBOT_FSM_STATE, fsm_state_pb2.FsmState(mode=mode)
@@ -206,7 +220,9 @@ class WriterThreadTest(unittest.TestCase):
         time.sleep(0.2)
         self.assertEqual(self.bridge.events.count("fsm"), 1)
 
-    def test_a_pause_drops_and_a_resume_reconnects_before_any_message(self) -> None:
+    def test_a_pause_drops_and_a_resume_reconnects_before_any_message(
+        self,
+    ) -> None:
         feed = self.feed()
         feed.pause("the viewer is unreachable")
         feed.start()
@@ -217,7 +233,9 @@ class WriterThreadTest(unittest.TestCase):
             self.bridge.record("reconnect")
 
         feed.resume(reconnect)
-        self.assertTrue(self.publish_until(lambda: len(self.bridge.statuses) >= 3))
+        self.assertTrue(
+            self.publish_until(lambda: len(self.bridge.statuses) >= 3)
+        )
         self.assertFalse(feed.paused)
         self.assertEqual(self.bridge.events[0], "reconnect")
         # An unreachable viewer at stop is not waited for.
@@ -240,7 +258,9 @@ class WriterThreadTest(unittest.TestCase):
         self.assertIn("pending_scene", self.bridge.events)
 
     def test_the_queue_must_hold_a_message(self) -> None:
-        with self.assertRaisesRegex(ValueError, "max_queued_messages must be positive"):
+        with self.assertRaisesRegex(
+            ValueError, "max_queued_messages must be positive"
+        ):
             bus_bridge.BusBridge(
                 self.bridge,  # type: ignore[arg-type]  # A stand-in with the methods the BusBridge calls.
                 isolated_network(),

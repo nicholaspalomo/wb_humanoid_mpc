@@ -48,55 +48,76 @@ namespace ocs2::humanoid {
 absl::Status checkPayloadSchema(const google::protobuf::Message& message) {
   const std::vector<std::string> unknown = nproto::UnknownFieldPaths(message);
   if (unknown.empty()) return absl::OkStatus();
-  return absl::FailedPreconditionError(absl::StrCat("the ", message.GetDescriptor()->full_name(),
-                                                    " has fields this build's schema does not (", absl::StrJoin(unknown, ", "),
-                                                    "): it was sent by a build with another schema version"));
+  return absl::FailedPreconditionError(
+      absl::StrCat("the ", message.GetDescriptor()->full_name(),
+                   " has fields this build's schema does not (",
+                   absl::StrJoin(unknown, ", "),
+                   "): it was sent by a build with another schema version"));
 }
 
 std::string mpcParameterUpdateSchemaFingerprint() {
-  return nproto::SchemaFingerprint(*humanoid_mpc_config::MpcParameterUpdate::descriptor());
+  return nproto::SchemaFingerprint(
+      *humanoid_mpc_config::MpcParameterUpdate::descriptor());
 }
 
-absl::Status checkMpcParameterUpdate(const humanoid_mpc_config::MpcParameterUpdate& message,
-                                     absl::string_view robotName,
-                                     absl::string_view taskFileIdentity) {
+absl::Status checkMpcParameterUpdate(
+    const humanoid_mpc_config::MpcParameterUpdate& message,
+    absl::string_view robotName,
+    absl::string_view taskFileIdentity) {
   if (absl::Status schema = checkPayloadSchema(message); !schema.ok()) {
     return schema;
   }
-  if (const std::string own = mpcParameterUpdateSchemaFingerprint(); message.schema_fingerprint() != own) {
-    return absl::FailedPreconditionError(absl::StrCat("the MpcParameterUpdate has the schema fingerprint '", message.schema_fingerprint(),
-                                                      "', this build's is '", own,
-                                                      "': it was sent by a build with another schema version"));
+  if (const std::string own = mpcParameterUpdateSchemaFingerprint();
+      message.schema_fingerprint() != own) {
+    return absl::FailedPreconditionError(
+        absl::StrCat("the MpcParameterUpdate has the schema fingerprint '",
+                     message.schema_fingerprint(), "', this build's is '", own,
+                     "': it was sent by a build with another schema version"));
   }
-  if (!robotName.empty() && message.task().model_settings().robot_name() != robotName) {
-    return absl::FailedPreconditionError(absl::StrCat("the MpcParameterUpdate is the task file of the robot '",
-                                                      message.task().model_settings().robot_name(), "', and this is '", robotName, "'"));
+  if (!robotName.empty() &&
+      message.task().model_settings().robot_name() != robotName) {
+    return absl::FailedPreconditionError(
+        absl::StrCat("the MpcParameterUpdate is the task file of the robot '",
+                     message.task().model_settings().robot_name(),
+                     "', and this is '", robotName, "'"));
   }
   if (!taskFileIdentity.empty() && message.config_path() != taskFileIdentity) {
     return absl::FailedPreconditionError(
-        absl::StrCat("the MpcParameterUpdate is the task file ", message.config_path().empty() ? "<no config_path>" : message.config_path(),
-                     ", and this one runs ", taskFileIdentity, ": an update of another configuration is not applied"));
+        absl::StrCat("the MpcParameterUpdate is the task file ",
+                     message.config_path().empty() ? "<no config_path>"
+                                                   : message.config_path(),
+                     ", and this one runs ", taskFileIdentity,
+                     ": an update of another configuration is not applied"));
   }
   return absl::OkStatus();
 }
 
 std::string jointPdGainsFileSchemaFingerprint() {
-  return nproto::SchemaFingerprint(*humanoid_mpc_config::JointPdGainsFile::descriptor());
+  return nproto::SchemaFingerprint(
+      *humanoid_mpc_config::JointPdGainsFile::descriptor());
 }
 
-absl::Status checkJointPdGainsUpdate(const humanoid_mpc_config::JointPdGainsUpdate& message, absl::string_view pdGainsFileIdentity) {
+absl::Status checkJointPdGainsUpdate(
+    const humanoid_mpc_config::JointPdGainsUpdate& message,
+    absl::string_view pdGainsFileIdentity) {
   if (absl::Status schema = checkPayloadSchema(message); !schema.ok()) {
     return schema;
   }
-  if (const std::string own = jointPdGainsFileSchemaFingerprint(); message.schema_fingerprint() != own) {
-    return absl::FailedPreconditionError(absl::StrCat("the JointPdGainsUpdate has the schema fingerprint '", message.schema_fingerprint(),
-                                                      "', this build's is '", own,
-                                                      "': it was sent by a build with another schema version"));
+  if (const std::string own = jointPdGainsFileSchemaFingerprint();
+      message.schema_fingerprint() != own) {
+    return absl::FailedPreconditionError(
+        absl::StrCat("the JointPdGainsUpdate has the schema fingerprint '",
+                     message.schema_fingerprint(), "', this build's is '", own,
+                     "': it was sent by a build with another schema version"));
   }
-  if (!pdGainsFileIdentity.empty() && message.config_path() != pdGainsFileIdentity) {
-    return absl::FailedPreconditionError(absl::StrCat(
-        "the JointPdGainsUpdate is the joint PD gains file ", message.config_path().empty() ? "<no config_path>" : message.config_path(),
-        ", and this one runs ", pdGainsFileIdentity, ": an update of another configuration is not applied"));
+  if (!pdGainsFileIdentity.empty() &&
+      message.config_path() != pdGainsFileIdentity) {
+    return absl::FailedPreconditionError(
+        absl::StrCat("the JointPdGainsUpdate is the joint PD gains file ",
+                     message.config_path().empty() ? "<no config_path>"
+                                                   : message.config_path(),
+                     ", and this one runs ", pdGainsFileIdentity,
+                     ": an update of another configuration is not applied"));
   }
   return absl::OkStatus();
 }

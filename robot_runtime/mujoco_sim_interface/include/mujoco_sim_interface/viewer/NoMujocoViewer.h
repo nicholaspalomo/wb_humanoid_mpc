@@ -38,8 +38,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::mujoco_sim_interface {
 
 /**
- * The `none` viewer: draws nothing and starts no thread, so the simulator runs exactly as without a viewer. It always
- * starts, which is why a viewer list may end with it to fall back (`web,none`). Thread-safe.
+ * The `none` viewer: draws nothing and starts no thread, so the simulator runs
+ * exactly as without a viewer. It always starts, which is why a viewer list may
+ * end with it to fall back (`web,none`). Thread-safe.
  */
 class NoMujocoViewer final : public MujocoViewer {
  public:

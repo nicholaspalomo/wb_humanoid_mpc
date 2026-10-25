@@ -42,25 +42,33 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_model/RobotState.h"
 
 /*
- * A recording of robot states is the input of the solve benchmark, recorded once by a walking run and replayed by every
- * later benchmark: it must come back from its file as the very states that were recorded, and it must refuse a robot
- * whose joints are not the ones it was recorded on.
+ * A recording of robot states is the input of the solve benchmark, recorded
+ * once by a walking run and replayed by every later benchmark: it must come
+ * back from its file as the very states that were recorded, and it must refuse
+ * a robot whose joints are not the ones it was recorded on.
  */
 
 namespace ocs2::humanoid::validation {
 namespace {
 
-constexpr char kG1Urdf[] = "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf";
-constexpr char kAtlasUrdf[] = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
+constexpr char kG1Urdf[] =
+    "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf";
+constexpr char kAtlasUrdf[] =
+    "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
 
-robot::model::RobotState randomState(const robot::model::RobotDescription& description, std::mt19937& generator) {
+robot::model::RobotState randomState(
+    const robot::model::RobotDescription& description,
+    std::mt19937& generator) {
   std::uniform_real_distribution<double> uniform(-1.0, 1.0);
   robot::model::RobotState state(description, /*contactSize=*/2);
   state.setTime(12.345 + uniform(generator));
-  state.setRootPositionInWorldFrame(Eigen::Vector3d(uniform(generator), uniform(generator), 0.8 + 0.1 * uniform(generator)));
+  state.setRootPositionInWorldFrame(Eigen::Vector3d(
+      uniform(generator), uniform(generator), 0.8 + 0.1 * uniform(generator)));
   state.setRootRotationLocalToWorldFrame(Eigen::Quaterniond::UnitRandom());
-  state.setRootLinearVelocityInLocalFrame(Eigen::Vector3d(uniform(generator), uniform(generator), uniform(generator)));
-  state.setRootAngularVelocityInLocalFrame(Eigen::Vector3d(uniform(generator), uniform(generator), uniform(generator)));
+  state.setRootLinearVelocityInLocalFrame(Eigen::Vector3d(
+      uniform(generator), uniform(generator), uniform(generator)));
+  state.setRootAngularVelocityInLocalFrame(Eigen::Vector3d(
+      uniform(generator), uniform(generator), uniform(generator)));
   for (const robot::joint_index_t joint : description.getJointIndices()) {
     state.setJointPosition(joint, uniform(generator));
     state.setJointVelocity(joint, 10.0 * uniform(generator));
@@ -71,7 +79,8 @@ robot::model::RobotState randomState(const robot::model::RobotDescription& descr
 }
 
 TEST(RecordedRobotStates, ARecordingReadsBackAsTheStatesThatWereRecorded) {
-  absl::StatusOr<robot::model::RobotDescription> descriptionOrStatus = robot::model::RobotDescription::Create(kG1Urdf);
+  absl::StatusOr<robot::model::RobotDescription> descriptionOrStatus =
+      robot::model::RobotDescription::Create(kG1Urdf);
   ASSERT_TRUE(descriptionOrStatus.ok()) << descriptionOrStatus.status();
   const robot::model::RobotDescription& description = *descriptionOrStatus;
   std::mt19937 generator(7);
@@ -80,7 +89,8 @@ TEST(RecordedRobotStates, ARecordingReadsBackAsTheStatesThatWereRecorded) {
   std::vector<robot::model::RobotState> states;
   for (int k = 0; k < 5; ++k) {
     states.push_back(randomState(description, generator));
-    recording.records.push_back(recordRobotState(states.back(), description, Eigen::Vector4d(0.1 * k, -0.2, 0.79, 0.3)));
+    recording.records.push_back(recordRobotState(
+        states.back(), description, Eigen::Vector4d(0.1 * k, -0.2, 0.79, 0.3)));
   }
   GoldenProvenance provenance;
   provenance.gitCommit = "c331ddd";
@@ -95,17 +105,24 @@ TEST(RecordedRobotStates, ARecordingReadsBackAsTheStatesThatWereRecorded) {
   ASSERT_EQ(read->records.size(), states.size());
 
   for (size_t k = 0; k < states.size(); ++k) {
-    const absl::StatusOr<robot::model::RobotState> state = toRobotState(read->records[k], read->jointNames, description);
+    const absl::StatusOr<robot::model::RobotState> state =
+        toRobotState(read->records[k], read->jointNames, description);
     ASSERT_TRUE(state.ok()) << state.status();
     const robot::model::RobotState& expected = states[k];
     EXPECT_EQ(state->getTime(), expected.getTime());
-    EXPECT_EQ(state->getRootPositionInWorldFrame(), expected.getRootPositionInWorldFrame());
-    EXPECT_EQ(state->getRootRotationLocalToWorldFrame().coeffs(), expected.getRootRotationLocalToWorldFrame().coeffs());
-    EXPECT_EQ(state->getRootLinearVelocityInLocalFrame(), expected.getRootLinearVelocityInLocalFrame());
-    EXPECT_EQ(state->getRootAngularVelocityInLocalFrame(), expected.getRootAngularVelocityInLocalFrame());
+    EXPECT_EQ(state->getRootPositionInWorldFrame(),
+              expected.getRootPositionInWorldFrame());
+    EXPECT_EQ(state->getRootRotationLocalToWorldFrame().coeffs(),
+              expected.getRootRotationLocalToWorldFrame().coeffs());
+    EXPECT_EQ(state->getRootLinearVelocityInLocalFrame(),
+              expected.getRootLinearVelocityInLocalFrame());
+    EXPECT_EQ(state->getRootAngularVelocityInLocalFrame(),
+              expected.getRootAngularVelocityInLocalFrame());
     for (const robot::joint_index_t joint : description.getJointIndices()) {
-      EXPECT_EQ(state->getJointPosition(joint), expected.getJointPosition(joint));
-      EXPECT_EQ(state->getJointVelocity(joint), expected.getJointVelocity(joint));
+      EXPECT_EQ(state->getJointPosition(joint),
+                expected.getJointPosition(joint));
+      EXPECT_EQ(state->getJointVelocity(joint),
+                expected.getJointVelocity(joint));
     }
     EXPECT_EQ(state->getContactFlags(), expected.getContactFlags());
     EXPECT_EQ(read->records[k].guiCommand, recording.records[k].guiCommand);
@@ -113,25 +130,32 @@ TEST(RecordedRobotStates, ARecordingReadsBackAsTheStatesThatWereRecorded) {
 }
 
 TEST(RecordedRobotStates, JointsAreMatchedByNameWhateverTheirOrder) {
-  // The order of a RobotDescription's joints is not the same in every process: a recording made in one process is read
-  // in another, so its joints are matched by name.
-  absl::StatusOr<robot::model::RobotDescription> descriptionOrStatus = robot::model::RobotDescription::Create(kG1Urdf);
+  // The order of a RobotDescription's joints is not the same in every process:
+  // a recording made in one process is read in another, so its joints are
+  // matched by name.
+  absl::StatusOr<robot::model::RobotDescription> descriptionOrStatus =
+      robot::model::RobotDescription::Create(kG1Urdf);
   ASSERT_TRUE(descriptionOrStatus.ok()) << descriptionOrStatus.status();
   const robot::model::RobotDescription& description = *descriptionOrStatus;
   std::mt19937 generator(11);
   const robot::model::RobotState state = randomState(description, generator);
-  const RobotStateRecord record = recordRobotState(state, description, Eigen::Vector4d::Zero());
+  const RobotStateRecord record =
+      recordRobotState(state, description, Eigen::Vector4d::Zero());
   const std::vector<std::string>& names = description.getJointNames();
   std::vector<size_t> order(names.size());
-  for (size_t i = 0; i < order.size(); ++i) order[i] = order.size() - 1 - i;  // reversed
+  for (size_t i = 0; i < order.size(); ++i)
+    order[i] = order.size() - 1 - i;  // reversed
   RobotStateRecord reordered = record;
   std::vector<std::string> reorderedNames(names.size());
   for (size_t i = 0; i < order.size(); ++i) {
     reorderedNames[i] = names[order[i]];
-    reordered.jointPositions(static_cast<Eigen::Index>(i)) = record.jointPositions(static_cast<Eigen::Index>(order[i]));
-    reordered.jointVelocities(static_cast<Eigen::Index>(i)) = record.jointVelocities(static_cast<Eigen::Index>(order[i]));
+    reordered.jointPositions(static_cast<Eigen::Index>(i)) =
+        record.jointPositions(static_cast<Eigen::Index>(order[i]));
+    reordered.jointVelocities(static_cast<Eigen::Index>(i)) =
+        record.jointVelocities(static_cast<Eigen::Index>(order[i]));
   }
-  const absl::StatusOr<robot::model::RobotState> read = toRobotState(reordered, reorderedNames, description);
+  const absl::StatusOr<robot::model::RobotState> read =
+      toRobotState(reordered, reorderedNames, description);
   ASSERT_TRUE(read.ok()) << read.status();
   for (const robot::joint_index_t joint : description.getJointIndices()) {
     EXPECT_EQ(read->getJointPosition(joint), state.getJointPosition(joint));
@@ -140,26 +164,39 @@ TEST(RecordedRobotStates, JointsAreMatchedByNameWhateverTheirOrder) {
 
   std::vector<std::string> duplicated = names;
   duplicated.back() = duplicated.front();
-  EXPECT_EQ(toRobotState(record, duplicated, description).status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(toRobotState(record, duplicated, description).status().code(),
+            absl::StatusCode::kInvalidArgument);
 }
 
 TEST(RecordedRobotStates, ARecordingRefusesAnotherRobot) {
-  absl::StatusOr<robot::model::RobotDescription> g1OrStatus = robot::model::RobotDescription::Create(kG1Urdf);
+  absl::StatusOr<robot::model::RobotDescription> g1OrStatus =
+      robot::model::RobotDescription::Create(kG1Urdf);
   ASSERT_TRUE(g1OrStatus.ok()) << g1OrStatus.status();
   const robot::model::RobotDescription& g1 = *g1OrStatus;
-  absl::StatusOr<robot::model::RobotDescription> atlasOrStatus = robot::model::RobotDescription::Create(kAtlasUrdf);
+  absl::StatusOr<robot::model::RobotDescription> atlasOrStatus =
+      robot::model::RobotDescription::Create(kAtlasUrdf);
   ASSERT_TRUE(atlasOrStatus.ok()) << atlasOrStatus.status();
   const robot::model::RobotDescription& atlas = *atlasOrStatus;
   std::mt19937 generator(3);
-  const RobotStateRecord record = recordRobotState(randomState(g1, generator), g1, Eigen::Vector4d::Zero());
-  EXPECT_EQ(toRobotState(record, g1.getJointNames(), atlas).status().code(), absl::StatusCode::kInvalidArgument);
+  const RobotStateRecord record =
+      recordRobotState(randomState(g1, generator), g1, Eigen::Vector4d::Zero());
+  EXPECT_EQ(toRobotState(record, g1.getJointNames(), atlas).status().code(),
+            absl::StatusCode::kInvalidArgument);
 
-  GoldenFile withoutNames = toGoldenFile(RecordedRobotStates{.jointNames = g1.getJointNames(), .records = {record}}, GoldenProvenance());
+  GoldenFile withoutNames =
+      toGoldenFile(RecordedRobotStates{.jointNames = g1.getJointNames(),
+                                       .records = {record}},
+                   GoldenProvenance());
   withoutNames.provenance.notes.clear();
-  EXPECT_EQ(fromGoldenFile(withoutNames).status().code(), absl::StatusCode::kInvalidArgument);
-  GoldenFile truncated = toGoldenFile(RecordedRobotStates{.jointNames = g1.getJointNames(), .records = {record}}, GoldenProvenance());
+  EXPECT_EQ(fromGoldenFile(withoutNames).status().code(),
+            absl::StatusCode::kInvalidArgument);
+  GoldenFile truncated =
+      toGoldenFile(RecordedRobotStates{.jointNames = g1.getJointNames(),
+                                       .records = {record}},
+                   GoldenProvenance());
   truncated.entries.pop_back();
-  EXPECT_EQ(fromGoldenFile(truncated).status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(fromGoldenFile(truncated).status().code(),
+            absl::StatusCode::kInvalidArgument);
 }
 
 }  // namespace

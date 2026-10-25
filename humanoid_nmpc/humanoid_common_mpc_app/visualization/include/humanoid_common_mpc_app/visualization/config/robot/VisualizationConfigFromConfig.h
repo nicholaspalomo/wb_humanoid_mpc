@@ -40,15 +40,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::visualization {
 
 /**
- * What the visualization publisher takes from the robot's typed task file. rerun_scene_frequency absent is the default
- * rate, reported as the default; a frame list the file leaves out, or lists empty, is `contactFrameNames`
+ * What the visualization publisher takes from the robot's typed task file.
+ * rerun_scene_frequency absent is the default rate, reported as the default; a
+ * frame list the file leaves out, or lists empty, is `contactFrameNames`
  * (ModelSettings::contactNames).
  *
- * @return InvalidArgument naming the field when rerun_scene_frequency is not a positive finite number, or when a frame
- *         list names a frame twice or a frame whose name is not made of letters, digits, '_', '-' and '.' (the
- *         characters of an entity path of the Rerun bridge).
+ * @return InvalidArgument naming the field when rerun_scene_frequency is not a
+ * positive finite number, or when a frame list names a frame twice or a frame
+ * whose name is not made of letters, digits, '_', '-' and '.' (the characters
+ * of an entity path of the Rerun bridge).
  */
-absl::StatusOr<VisualizationConfig> visualizationConfigFromConfig(const mpc_config::TaskFile& task,
-                                                                  const std::vector<std::string>& contactFrameNames);
+absl::StatusOr<VisualizationConfig> visualizationConfigFromConfig(
+    const mpc_config::TaskFile& task,
+    const std::vector<std::string>& contactFrameNames);
 
 }  // namespace ocs2::humanoid::visualization

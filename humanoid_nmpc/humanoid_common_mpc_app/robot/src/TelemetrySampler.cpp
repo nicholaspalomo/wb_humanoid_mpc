@@ -38,7 +38,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-msgs::RobotStateSample TelemetrySampler::prototype(const std::vector<std::string>& jointNames) {
+msgs::RobotStateSample TelemetrySampler::prototype(
+    const std::vector<std::string>& jointNames) {
   const Eigen::Index numJoints = static_cast<Eigen::Index>(jointNames.size());
   msgs::RobotStateSample sample;
   sample.joint_names = jointNames;
@@ -58,13 +59,15 @@ msgs::RobotStateSample TelemetrySampler::prototype(const std::vector<std::string
 TelemetrySampler::TelemetrySampler(const Config& config)
     : decimation_(std::max<size_t>(1, config.decimation)),
       numJoints_(config.jointNames.size()),
-      queue_(std::max<size_t>(1, config.capacity), prototype(config.jointNames)) {}
+      queue_(std::max<size_t>(1, config.capacity),
+             prototype(config.jointNames)) {}
 
-bool TelemetrySampler::sample(const robot::model::RobotState& robotState,
-                              const robot::model::RobotJointAction& jointAction,
-                              absl::string_view controlMode,
-                              const contact_flag_t& measuredContactFlags,
-                              const std::array<vector3_t, kNumContacts>& measuredContactForces) {
+bool TelemetrySampler::sample(
+    const robot::model::RobotState& robotState,
+    const robot::model::RobotJointAction& jointAction,
+    absl::string_view controlMode,
+    const contact_flag_t& measuredContactFlags,
+    const std::array<vector3_t, kNumContacts>& measuredContactForces) {
   if (++cycle_ < decimation_) {
     return false;
   }
@@ -72,46 +75,68 @@ bool TelemetrySampler::sample(const robot::model::RobotState& robotState,
   samplesTaken_.fetch_add(1, std::memory_order_relaxed);
   queue_.tryPushInPlace([&](msgs::RobotStateSample& slot) {
     slot.time = robotState.getTime();
-    // Every control mode name fits std::string's small-string buffer, so this copies without allocating.
+    // Every control mode name fits std::string's small-string buffer, so this
+    // copies without allocating.
     slot.control_mode.assign(controlMode.data(), controlMode.size());
     const vector3_t position = robotState.getRootPositionInWorldFrame();
-    slot.base_position_world = {.x = position.x(), .y = position.y(), .z = position.z()};
-    const quaternion_t orientation = robotState.getRootRotationLocalToWorldFrame();
-    slot.base_orientation_world = {.w = orientation.w(), .x = orientation.x(), .y = orientation.y(), .z = orientation.z()};
-    const vector3_t linearVelocity = robotState.getRootLinearVelocityInLocalFrame();
-    slot.base_linear_velocity_local = {.x = linearVelocity.x(), .y = linearVelocity.y(), .z = linearVelocity.z()};
-    const vector3_t angularVelocity = robotState.getRootAngularVelocityInLocalFrame();
-    slot.base_angular_velocity_local = {.x = angularVelocity.x(), .y = angularVelocity.y(), .z = angularVelocity.z()};
+    slot.base_position_world = {
+        .x = position.x(), .y = position.y(), .z = position.z()};
+    const quaternion_t orientation =
+        robotState.getRootRotationLocalToWorldFrame();
+    slot.base_orientation_world = {.w = orientation.w(),
+                                   .x = orientation.x(),
+                                   .y = orientation.y(),
+                                   .z = orientation.z()};
+    const vector3_t linearVelocity =
+        robotState.getRootLinearVelocityInLocalFrame();
+    slot.base_linear_velocity_local = {.x = linearVelocity.x(),
+                                       .y = linearVelocity.y(),
+                                       .z = linearVelocity.z()};
+    const vector3_t angularVelocity =
+        robotState.getRootAngularVelocityInLocalFrame();
+    slot.base_angular_velocity_local = {.x = angularVelocity.x(),
+                                        .y = angularVelocity.y(),
+                                        .z = angularVelocity.z()};
     for (size_t joint = 0; joint < numJoints_; ++joint) {
       const Eigen::Index row = static_cast<Eigen::Index>(joint);
-      const std::optional<robot::model::JointAction>& action = jointAction[joint];  // joint < numJoints_, the description's
+      const std::optional<robot::model::JointAction>& action =
+          jointAction[joint];  // joint < numJoints_, the description's
       slot.joint_positions[row] = robotState.getJointPosition(joint);
       slot.joint_velocities[row] = robotState.getJointVelocity(joint);
-      // The RobotState carries no measured effort yet (nothing fills JointState::measuredEffort).
+      // The RobotState carries no measured effort yet (nothing fills
+      // JointState::measuredEffort).
       slot.joint_measured_efforts[row] = 0.0;
-      // robot_state_sample.proto: a joint without an action has a NaN position target, which RobotStateDecoder reads as
-      // "no action" (its applied effort is then zero, its target drawn at the measured position). Its gains, velocity
-      // target and feedforward read as zero.
-      slot.joint_position_targets[row] = action.has_value() ? action->q_des : std::numeric_limits<double>::quiet_NaN();
-      slot.joint_velocity_targets[row] = action.has_value() ? action->qd_des : 0.0;
+      // robot_state_sample.proto: a joint without an action has a NaN position
+      // target, which RobotStateDecoder reads as "no action" (its applied
+      // effort is then zero, its target drawn at the measured position). Its
+      // gains, velocity target and feedforward read as zero.
+      slot.joint_position_targets[row] =
+          action.has_value() ? action->q_des
+                             : std::numeric_limits<double>::quiet_NaN();
+      slot.joint_velocity_targets[row] =
+          action.has_value() ? action->qd_des : 0.0;
       slot.joint_kp[row] = action.has_value() ? action->kp : 0.0;
       slot.joint_kd[row] = action.has_value() ? action->kd : 0.0;
-      slot.joint_feed_forward_efforts[row] = action.has_value() ? action->feed_forward_effort : 0.0;
+      slot.joint_feed_forward_efforts[row] =
+          action.has_value() ? action->feed_forward_effort : 0.0;
     }
     for (size_t contact = 0; contact < kNumContacts; ++contact) {
       slot.contact_flags[contact] = measuredContactFlags[contact];
       msgs::Wrench& wrench = slot.measured_contact_wrenches[contact];
-      wrench.force = {
-          .x = measuredContactForces[contact].x(), .y = measuredContactForces[contact].y(), .z = measuredContactForces[contact].z()};
+      wrench.force = {.x = measuredContactForces[contact].x(),
+                      .y = measuredContactForces[contact].y(),
+                      .z = measuredContactForces[contact].z()};
       wrench.torque = msgs::Vector3();
     }
   });
   return true;
 }
 
-size_t TelemetrySampler::drain(absl::FunctionRef<void(const msgs::RobotStateSample& sample)> consumer) {
+size_t TelemetrySampler::drain(
+    absl::FunctionRef<void(const msgs::RobotStateSample& sample)> consumer) {
   size_t drained = 0;
-  while (queue_.tryPopInPlace([&](const msgs::RobotStateSample& sample) { consumer(sample); })) {
+  while (queue_.tryPopInPlace(
+      [&](const msgs::RobotStateSample& sample) { consumer(sample); })) {
     ++drained;
   }
   return drained;

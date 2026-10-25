@@ -71,7 +71,9 @@ editions_pb2 = importlib.import_module("tools.nproto.test.editions_pb2")
 oneofs_pb2 = importlib.import_module("tools.nproto.test.oneofs_pb2")
 optionals_pb2 = importlib.import_module("tools.nproto.test.optionals_pb2")
 outer_pb2 = importlib.import_module("tools.nproto.test.outer_pb2")
-repeated_fields_pb2 = importlib.import_module("tools.nproto.test.repeated_fields_pb2")
+repeated_fields_pb2 = importlib.import_module(
+    "tools.nproto.test.repeated_fields_pb2"
+)
 scalars_pb2 = importlib.import_module("tools.nproto.test.scalars_pb2")
 
 ROOT = os.path.join(os.environ.get("TEST_SRCDIR", ""), "_main")
@@ -187,7 +189,9 @@ class ValueEditTest(unittest.TestCase):
         self.assertEqual(message.fixed32_value, 7)
         self.assertIn("float_value: 0.2\n", result.text)
         self.assertIn('string_value: "quo\\"te\\n"\n', result.text)
-        self.assertIn(f"double_value: 2.25  # {LINT}.IfChange(x)\n", result.text)
+        self.assertIn(
+            f"double_value: 2.25  # {LINT}.IfChange(x)\n", result.text
+        )
         self.assertEqual(_comments(result.text), _comments(SCALARS_TEXT))
 
     def test_a_value_the_file_holds_keeps_its_spelling(self):
@@ -256,7 +260,9 @@ class ValueEditTest(unittest.TestCase):
 
     def test_edit_leaves_the_parsed_file_as_it_was(self):
         message = scalars_pb2.Scalars()
-        nproto_textproto.parse_textproto(SCALARS_TEXT, message, "scalars.textproto")
+        nproto_textproto.parse_textproto(
+            SCALARS_TEXT, message, "scalars.textproto"
+        )
         document = textproto_document.parse(SCALARS_TEXT, "scalars.textproto")
         before = _serialized(message)
         first = textproto_save.edit(
@@ -278,7 +284,9 @@ class ValueEditTest(unittest.TestCase):
             "double_value: 'x'\n",
             "a {",
         ):
-            with self.subTest(text=text), self.assertRaises(textproto_save.SaveError):
+            with self.subTest(text=text), self.assertRaises(
+                textproto_save.SaveError
+            ):
                 textproto_save.apply_edits(
                     text, scalars_pb2.Scalars, [], "bad.textproto"
                 )
@@ -343,7 +351,9 @@ kind: 1
             textproto_save.SetValue("inners[1].weights[2]", 3.0),
             textproto_save.SetValue("inners[0].leaf.label", "c"),
         )
-        self.assertEqual(list(result.message.inners[1].weights), [1.5, 2.0, 3.0])
+        self.assertEqual(
+            list(result.message.inners[1].weights), [1.5, 2.0, 3.0]
+        )
         self.assertIn("  weights: [1.5, 2, 3.0]\n", result.text)
         self.assertEqual(result.message.inners[0].leaf.label, "c")
         with self.assertRaises(textproto_save.SaveError):
@@ -358,17 +368,24 @@ kind: 1
             textproto_save.AppendValue("inners[1].weights", 3),
             textproto_save.AppendValue(
                 "inners",
-                {"kind": "KIND_SWING", "weights": [4.0], "leaf": {"label": "d"}},
+                {
+                    "kind": "KIND_SWING",
+                    "weights": [4.0],
+                    "leaf": {"label": "d"},
+                },
             ),
             textproto_save.AppendValue("inners", {}),
         )
         self.assertEqual(len(result.message.inners), 4)
-        self.assertEqual(list(result.message.inners[1].weights), [1.0, 2.0, 3.0])
+        self.assertEqual(
+            list(result.message.inners[1].weights), [1.0, 2.0, 3.0]
+        )
         self.assertEqual(result.message.inners[2].leaf.label, "d")
         # After a block over several lines, a new block is written over several lines too.
         self.assertTrue(
             result.text.endswith(
-                'inners {\n  kind: KIND_SWING\n  weights: 4.0\n  leaf {\n    label: "d"\n  }\n}\ninners {}\nkind: 1\n'
+                "inners {\n  kind: KIND_SWING\n  weights: 4.0\n  leaf {\n   "
+                ' label: "d"\n  }\n}\ninners {}\nkind: 1\n'
             )
         )
         one_line = textproto_save.apply_edits(
@@ -378,7 +395,8 @@ kind: 1
             "o",
         )
         self.assertEqual(
-            one_line.text, "inners { kind: KIND_STANCE }\ninners { weights: 1.0 }\n"
+            one_line.text,
+            "inners { kind: KIND_STANCE }\ninners { weights: 1.0 }\n",
         )
         for edit in (
             textproto_save.AppendValue("kind", 1),
@@ -387,7 +405,9 @@ kind: 1
             textproto_save.AppendValue("inners", {"weights": 1.0}),
             textproto_save.AppendValue("inners[0]", {}),
         ):
-            with self.subTest(edit=edit), self.assertRaises(textproto_save.SaveError):
+            with self.subTest(edit=edit), self.assertRaises(
+                textproto_save.SaveError
+            ):
                 self.edit(edit)
 
     def test_remove_fields_and_elements(self):
@@ -442,12 +462,17 @@ scalars { string_value: "l_leg_hpx" double_value: 25 }  # hip roll
 
     def edit(self, *edits: textproto_save.Edit) -> textproto_save.EditResult:
         return textproto_save.apply_edits(
-            self.TASK, repeated_fields_pb2.RepeatedFields, edits, "keyed.textproto"
+            self.TASK,
+            repeated_fields_pb2.RepeatedFields,
+            edits,
+            "keyed.textproto",
         )
 
     def test_keyed_elements_are_edited_and_created(self):
         result = self.edit(
-            textproto_save.SetValue("scalars[string_value=back_bkz].double_value", 6.0),
+            textproto_save.SetValue(
+                "scalars[string_value=back_bkz].double_value", 6.0
+            ),
             textproto_save.SetValue(
                 "scalars[string_value=r_leg_hpx].double_value", 30.0
             ),
@@ -461,8 +486,9 @@ scalars { string_value: "l_leg_hpx" double_value: 25 }  # hip roll
         )
         self.assertTrue(
             result.text.endswith(
-                'scalars { string_value: "l_leg_hpx" double_value: 25 }  # hip roll\n'
-                'scalars { string_value: "r_leg_hpx" double_value: 30.0 }\n'
+                'scalars { string_value: "l_leg_hpx" double_value: 25 }  # hip'
+                ' roll\nscalars { string_value: "r_leg_hpx" double_value:'
+                " 30.0 }\n"
             )
         )
         removed = self.edit(
@@ -471,13 +497,17 @@ scalars { string_value: "l_leg_hpx" double_value: 25 }  # hip roll
         self.assertEqual(len(removed.message.scalars), 1)
         self.assertNotIn("hip roll", removed.text)
 
-    def test_edits_after_a_key_change_mean_what_they_mean_one_after_another(self):
+    def test_edits_after_a_key_change_mean_what_they_mean_one_after_another(
+        self,
+    ):
         rename = textproto_save.SetValue(
             "scalars[string_value=back_bkz].string_value", "back_bky"
         )
         renamed = self.edit(
             rename,
-            textproto_save.SetValue("scalars[string_value=back_bky].double_value", 7.0),
+            textproto_save.SetValue(
+                "scalars[string_value=back_bky].double_value", 7.0
+            ),
         )
         self.assertEqual(
             [(s.string_value, s.double_value) for s in renamed.message.scalars],
@@ -485,7 +515,9 @@ scalars { string_value: "l_leg_hpx" double_value: 25 }  # hip roll
         )
         created = self.edit(
             rename,
-            textproto_save.SetValue("scalars[string_value=back_bkz].double_value", 1.0),
+            textproto_save.SetValue(
+                "scalars[string_value=back_bkz].double_value", 1.0
+            ),
         )
         self.assertEqual(
             [(s.string_value, s.double_value) for s in created.message.scalars],
@@ -508,17 +540,25 @@ scalars { string_value: "l_leg_hpx" double_value: 25 }  # hip roll
             side_effect=original,
         ) as set_scalars:
             result = self.edit(*edits)
-        self.assertEqual([s.double_value for s in result.message.scalars], [6.0, 26.0])
+        self.assertEqual(
+            [s.double_value for s in result.message.scalars], [6.0, 26.0]
+        )
         self.assertEqual(result.message.scalars[1].int32_value, 3)
-        written = [call.args[1] for call in set_scalars.call_args_list if call.args[1]]
+        written = [
+            call.args[1] for call in set_scalars.call_args_list if call.args[1]
+        ]
         self.assertEqual([len(values) for values in written], [2])
 
     def test_a_key_must_be_a_value_and_select_one_element(self):
         with self.assertRaises(textproto_save.SaveError):
-            self.edit(textproto_save.SetValue("scalars[no_field=x].double_value", 1.0))
+            self.edit(
+                textproto_save.SetValue("scalars[no_field=x].double_value", 1.0)
+            )
         with self.assertRaises(textproto_save.SaveError):
             self.edit(
-                textproto_save.SetValue("scalars[int32_value=3].double_value", 1.0)
+                textproto_save.SetValue(
+                    "scalars[int32_value=3].double_value", 1.0
+                )
             )  # not a string: not created
         twice = f'{self.TASK}scalars {{ string_value: "back_bkz" }}\n'
         with self.assertRaises(textproto_save.SaveError):
@@ -550,20 +590,27 @@ class FileTest(unittest.TestCase):
     def test_save_replaces_the_file_in_one_rename(self):
         inode = os.stat(self.path).st_ino
         result = textproto_save.save(
-            self.path, scalars_pb2.Scalars, [textproto_save.SetValue("int32_value", 6)]
+            self.path,
+            scalars_pb2.Scalars,
+            [textproto_save.SetValue("int32_value", 6)],
         )
         self.assertTrue(result.changed)
         self.assertEqual(
-            self.contents(), SCALARS_TEXT.replace("int32_value: 5", "int32_value: 6")
+            self.contents(),
+            SCALARS_TEXT.replace("int32_value: 5", "int32_value: 6"),
         )
         self.assertNotEqual(os.stat(self.path).st_ino, inode)
         self.assertEqual(stat.S_IMODE(os.stat(self.path).st_mode), 0o640)
-        self.assertEqual(sorted(os.listdir(self.directory)), ["scalars.textproto"])
+        self.assertEqual(
+            sorted(os.listdir(self.directory)), ["scalars.textproto"]
+        )
 
     def test_an_unchanged_file_is_not_written(self):
         inode = os.stat(self.path).st_ino
         result = textproto_save.save(
-            self.path, scalars_pb2.Scalars, [textproto_save.SetValue("int32_value", 5)]
+            self.path,
+            scalars_pb2.Scalars,
+            [textproto_save.SetValue("int32_value", 5)],
         )
         self.assertFalse(result.changed)
         self.assertEqual(os.stat(self.path).st_ino, inode)
@@ -584,7 +631,9 @@ class FileTest(unittest.TestCase):
             with self.assertRaises(OSError):
                 textproto_save.write_atomically(self.path, "int32_value: 7\n")
         self.assertEqual(self.contents(), SCALARS_TEXT)
-        self.assertEqual(sorted(os.listdir(self.directory)), ["scalars.textproto"])
+        self.assertEqual(
+            sorted(os.listdir(self.directory)), ["scalars.textproto"]
+        )
 
     def test_a_link_is_written_through_and_a_new_file_created(self):
         link = os.path.join(self.directory, "link.textproto")
@@ -601,7 +650,9 @@ class FileTest(unittest.TestCase):
         backup = textproto_save.ensure_backup(self.path)
         self.assertEqual(backup, f"{self.path}.bak")
         textproto_save.save(
-            self.path, scalars_pb2.Scalars, [textproto_save.SetValue("int32_value", 6)]
+            self.path,
+            scalars_pb2.Scalars,
+            [textproto_save.SetValue("int32_value", 6)],
         )
         self.assertEqual(textproto_save.ensure_backup(self.path), backup)
         self.assertEqual(self.contents(backup), SCALARS_TEXT)
@@ -644,7 +695,9 @@ def _key_field(
     return None
 
 
-def _leaves(message: Any, segments=(), steps=()) -> tuple[list[_Leaf], list[_Leaf]]:
+def _leaves(
+    message: Any, segments=(), steps=()
+) -> tuple[list[_Leaf], list[_Leaf]]:
     """(the scalars of `message`, its blocks and elements), each with a path that selects keyed elements by key."""
     scalars: list[_Leaf] = []
     blocks: list[_Leaf] = []
@@ -654,7 +707,9 @@ def _leaves(message: Any, segments=(), steps=()) -> tuple[list[_Leaf], list[_Lea
         if field.message_type is None:
             if field.is_repeated:
                 for index, item in enumerate(value):
-                    segment = textproto_document.PathSegment(field.name, index=index)
+                    segment = textproto_document.PathSegment(
+                        field.name, index=index
+                    )
                     path = textproto_document.format_path((*segments, segment))
                     scalars.append(
                         _Leaf(path, (*steps, (field.name, index)), field, item)
@@ -663,22 +718,32 @@ def _leaves(message: Any, segments=(), steps=()) -> tuple[list[_Leaf], list[_Lea
                 path = textproto_document.format_path(
                     (*segments, textproto_document.PathSegment(field.name))
                 )
-                scalars.append(_Leaf(path, (*steps, (field.name, None)), field, value))
+                scalars.append(
+                    _Leaf(path, (*steps, (field.name, None)), field, value)
+                )
             continue
         elements = list(value) if field.is_repeated else [value]
         key_field = (
-            _key_field(field.message_type, elements) if field.is_repeated else None
+            _key_field(field.message_type, elements)
+            if field.is_repeated
+            else None
         )
         for index, element in enumerate(elements):
             if not field.is_repeated:
                 segment = textproto_document.PathSegment(field.name)
             elif key_field is not None:
                 segment = textproto_document.PathSegment(
-                    field.name, key=(key_field.name, getattr(element, key_field.name))
+                    field.name,
+                    key=(key_field.name, getattr(element, key_field.name)),
                 )
             else:
-                segment = textproto_document.PathSegment(field.name, index=index)
-            child_steps = (*steps, (field.name, index if field.is_repeated else None))
+                segment = textproto_document.PathSegment(
+                    field.name, index=index
+                )
+            child_steps = (
+                *steps,
+                (field.name, index if field.is_repeated else None),
+            )
             path = textproto_document.format_path((*segments, segment))
             blocks.append(_Leaf(path, child_steps, field, element))
             child_scalars, child_blocks = _leaves(
@@ -693,12 +758,16 @@ def _parent(message: Any, steps: tuple[tuple[str, int | None], ...]) -> Any:
     current = message
     for name, index in steps[:-1]:
         current = (
-            getattr(current, name) if index is None else getattr(current, name)[index]
+            getattr(current, name)
+            if index is None
+            else getattr(current, name)[index]
         )
     return current
 
 
-def _set(message: Any, steps: tuple[tuple[str, int | None], ...], value: Any) -> None:
+def _set(
+    message: Any, steps: tuple[tuple[str, int | None], ...], value: Any
+) -> None:
     parent = _parent(message, steps)
     name, index = steps[-1]
     if index is None:
@@ -722,7 +791,9 @@ def _mutated(field: FieldDescriptor, value: Any) -> Any:
         return not value
     if field.type in _INTEGER_RANGES:
         assert isinstance(value, int)
-        return value + 1 if value < _INTEGER_RANGES[field.type][1] else value - 1
+        return (
+            value + 1 if value < _INTEGER_RANGES[field.type][1] else value - 1
+        )
     if field.type in (FieldDescriptor.TYPE_DOUBLE, FieldDescriptor.TYPE_FLOAT):
         assert isinstance(value, float)
         changed = value * 1.5 + 0.25 if math.isfinite(value) else 1.0
@@ -769,7 +840,11 @@ def _random_scalar(field: FieldDescriptor, rng: random.Random) -> Any:
                 rng.uniform(-1e3, 1e3),
             ]
         )
-        return _float32(value) if field.type == FieldDescriptor.TYPE_FLOAT else value
+        return (
+            _float32(value)
+            if field.type == FieldDescriptor.TYPE_FLOAT
+            else value
+        )
     if field.type == FieldDescriptor.TYPE_STRING:
         return rng.choice(
             [
@@ -795,7 +870,10 @@ def _random_message(message: Any, rng: random.Random, depth: int = 0) -> None:
         if field.GetOptions().deprecated or _is_map(field):
             continue
         if field.containing_oneof is not None:
-            if field.containing_oneof.name in taken_oneofs or rng.random() < 0.5:
+            if (
+                field.containing_oneof.name in taken_oneofs
+                or rng.random() < 0.5
+            ):
                 continue
             taken_oneofs.add(field.containing_oneof.name)
         elif not field.is_required and rng.random() < 0.3:
@@ -805,7 +883,9 @@ def _random_message(message: Any, rng: random.Random, depth: int = 0) -> None:
                 continue
             if field.is_repeated:
                 for _ in range(rng.randint(0, 3)):
-                    _random_message(getattr(message, field.name).add(), rng, depth + 1)
+                    _random_message(
+                        getattr(message, field.name).add(), rng, depth + 1
+                    )
             else:
                 getattr(message, field.name).SetInParent()
                 _random_message(getattr(message, field.name), rng, depth + 1)
@@ -819,13 +899,17 @@ def _random_message(message: Any, rng: random.Random, depth: int = 0) -> None:
 def _spelling(field: FieldDescriptor, value: Any, rng: random.Random) -> str:
     """One of the textproto spellings of `value`."""
     if field.type == FieldDescriptor.TYPE_BOOL:
-        return rng.choice(["true", "True", "t"] if value else ["false", "False", "f"])
+        return rng.choice(
+            ["true", "True", "t"] if value else ["false", "False", "f"]
+        )
     if field.type == FieldDescriptor.TYPE_ENUM:
         name = field.enum_type.values_by_number[value].name
         return rng.choice([name, name, str(value)])
     if field.type in _INTEGER_RANGES:
         assert isinstance(value, int)
-        return rng.choice([str(value), hex(value) if value >= 0 else str(value)])
+        return rng.choice(
+            [str(value), hex(value) if value >= 0 else str(value)]
+        )
     if field.type in (FieldDescriptor.TYPE_DOUBLE, FieldDescriptor.TYPE_FLOAT):
         assert isinstance(value, float)
         if not math.isfinite(value):
@@ -849,7 +933,11 @@ def _spelling(field: FieldDescriptor, value: Any, rng: random.Random) -> str:
             f"{value:.17g}",
             f"{value:e}" if float(f"{value:e}") == value else repr(value),
         ]
-        if value.is_integer() and abs(value) < 1e15 and math.copysign(1.0, value) > 0:
+        if (
+            value.is_integer()
+            and abs(value) < 1e15
+            and math.copysign(1.0, value) > 0
+        ):
             options.append(str(int(value)))
         return rng.choice(options)
     if field.type == FieldDescriptor.TYPE_BYTES:
@@ -869,24 +957,30 @@ def _render(message: Any, rng: random.Random, indent: str = "") -> list[str]:
     for field, value in message.ListFields():
         if rng.random() < 0.2:
             lines.append(
-                f"{indent}# {rng.choice(['a comment', f'{LINT}.IfChange(label)', f'{LINT}.ThenChange(//a:b)'])}"
+                f"{indent}#"
+                f" {rng.choice(['a comment', f'{LINT}.IfChange(label)', f'{LINT}.ThenChange(//a:b)'])}"
             )
         trailing = rng.choice(["", "", "  # trailing comment"])
         if field.message_type is None:
             values = list(value) if field.is_repeated else [value]
             if field.is_repeated and rng.random() < 0.3:
-                spelled = ", ".join(_spelling(field, item, rng) for item in values)
+                spelled = ", ".join(
+                    _spelling(field, item, rng) for item in values
+                )
                 lines.append(f"{indent}{field.name}: [{spelled}]{trailing}")
                 continue
             for item in values:
                 separator = rng.choice(["", "", ",", ";"])
                 lines.append(
-                    f"{indent}{field.name}: {_spelling(field, item, rng)}{separator}{trailing}"
+                    f"{indent}{field.name}:"
+                    f" {_spelling(field, item, rng)}{separator}{trailing}"
                 )
             continue
         for element in list(value) if field.is_repeated else [value]:
             inner = _render(element, rng, f"{indent}  ")
-            one_line = all("#" not in line for line in inner) and rng.random() < 0.4
+            one_line = (
+                all("#" not in line for line in inner) and rng.random() < 0.4
+            )
             if one_line:
                 body = " ".join(line.strip() for line in inner)
                 padded = f" {body} " if body else ""
@@ -894,7 +988,11 @@ def _render(message: Any, rng: random.Random, indent: str = "") -> list[str]:
             elif rng.random() < 0.15:
                 lines += [f"{indent}{field.name}: <", *inner, f"{indent}>"]
             else:
-                lines += [f"{indent}{field.name} {{{trailing}", *inner, f"{indent}}}"]
+                lines += [
+                    f"{indent}{field.name} {{{trailing}",
+                    *inner,
+                    f"{indent}}}",
+                ]
     return lines
 
 
@@ -923,7 +1021,9 @@ def _absent_scalars(
         path = f"{prefix}.{field.name}" if prefix else field.name
         if field.message_type is None:
             if field.name not in present:
-                found.append(_Leaf(path, (*steps, (field.name, None)), field, None))
+                found.append(
+                    _Leaf(path, (*steps, (field.name, None)), field, None)
+                )
         elif depth < 2 and not message.HasField(field.name):
             found += _absent_scalars(
                 getattr(message, field.name),
@@ -943,7 +1043,9 @@ def _sample(items: list) -> list:
     """At most SAMPLE_SIZE of `items`, evenly spread, in order."""
     if len(items) <= SAMPLE_SIZE:
         return items
-    return [items[index * len(items) // SAMPLE_SIZE] for index in range(SAMPLE_SIZE)]
+    return [
+        items[index * len(items) // SAMPLE_SIZE] for index in range(SAMPLE_SIZE)
+    ]
 
 
 def _is_key(leaf: _Leaf) -> bool:
@@ -995,7 +1097,9 @@ class PropertyTest(unittest.TestCase):
         for leaf in scalars:
             with self.subTest(source=source, unchanged=leaf.path):
                 same = textproto_save.edit(
-                    document, original, [textproto_save.SetValue(leaf.path, leaf.value)]
+                    document,
+                    original,
+                    [textproto_save.SetValue(leaf.path, leaf.value)],
                 )
                 self.assertFalse(same.changed)
                 self.assertEqual(same.text, text)
@@ -1018,12 +1122,16 @@ class PropertyTest(unittest.TestCase):
                 node = document.scalar(leaf.path)
                 value = _mutated(leaf.field, leaf.value)
                 result = textproto_save.edit(
-                    document, original, [textproto_save.SetValue(leaf.path, value)]
+                    document,
+                    original,
+                    [textproto_save.SetValue(leaf.path, value)],
                 )
                 expected = message_class()
                 expected.CopyFrom(original)
                 _set(expected, leaf.steps, value)
-                self.assertEqual(_serialized(result.message), _serialized(expected))
+                self.assertEqual(
+                    _serialized(result.message), _serialized(expected)
+                )
                 self.assertEqual(result.text[: node.start], text[: node.start])
                 self.assertEqual(
                     result.text[len(result.text) - (len(text) - node.end) :],
@@ -1034,12 +1142,16 @@ class PropertyTest(unittest.TestCase):
             with self.subTest(source=source, inserted=leaf.path):
                 value = _random_scalar(leaf.field, rng)
                 result = textproto_save.edit(
-                    document, original, [textproto_save.SetValue(leaf.path, value)]
+                    document,
+                    original,
+                    [textproto_save.SetValue(leaf.path, value)],
                 )
                 expected = message_class()
                 expected.CopyFrom(original)
                 _set(expected, leaf.steps, value)
-                self.assertEqual(_serialized(result.message), _serialized(expected))
+                self.assertEqual(
+                    _serialized(result.message), _serialized(expected)
+                )
                 prefix, suffix = _common_affixes(text, result.text)
                 self.assertEqual(prefix + suffix, len(text))
                 self.assertEqual(_comments(result.text), _comments(text))
@@ -1053,7 +1165,9 @@ class PropertyTest(unittest.TestCase):
                 expected = message_class()
                 expected.CopyFrom(original)
                 _clear(expected, leaf.steps)
-                self.assertEqual(_serialized(result.message), _serialized(expected))
+                self.assertEqual(
+                    _serialized(result.message), _serialized(expected)
+                )
                 prefix, suffix = _common_affixes(text, result.text)
                 self.assertEqual(prefix + suffix, len(result.text))
 
@@ -1066,7 +1180,9 @@ class PropertyTest(unittest.TestCase):
                 with self.subTest(source=source):
                     parsed = message_class()
                     nproto_textproto.parse_textproto(text, parsed, source)
-                    self.assertEqual(_serialized(parsed), _serialized(message), text)
+                    self.assertEqual(
+                        _serialized(parsed), _serialized(message), text
+                    )
                 self.check_file(source, text, message_class, rng)
 
     def test_the_shipped_configuration_files(self):
@@ -1116,7 +1232,9 @@ def _shipped_files() -> list[tuple[str, Any]]:
                 ), f"{path}: no module {module}"
                 continue
             importlib.import_module(module)
-            descriptor = descriptor_pool.Default().FindMessageTypeByName(header[1])
+            descriptor = descriptor_pool.Default().FindMessageTypeByName(
+                header[1]
+            )
             found.append((path, message_factory.GetMessageClass(descriptor)))
     return found
 

@@ -64,7 +64,9 @@ SIGNATURE = re.compile(
 def generated_files() -> list[str]:
     files = []
     for suffix in (".nproto.h", ".nproto.pb.h", ".nproto.pb.cc"):
-        files += glob.glob(os.path.join(RUNFILES, "**", f"*{suffix}"), recursive=True)
+        files += glob.glob(
+            os.path.join(RUNFILES, "**", f"*{suffix}"), recursive=True
+        )
     return sorted(set(files))
 
 
@@ -78,17 +80,35 @@ class GeneratedCodeTest(unittest.TestCase):
     def test_there_is_code_of_every_library(self):
         names = [os.path.relpath(path, RUNFILES) for path in generated_files()]
         self.assertTrue(
-            any("humanoid_mpc_msgs/mpc_policy.nproto.h" in name for name in names),
+            any(
+                "humanoid_mpc_msgs/mpc_policy.nproto.h" in name
+                for name in names
+            ),
             names,
         )
         self.assertTrue(
-            any("tools/nproto/test/maps.nproto.pb.cc" in name for name in names), names
+            any(
+                "tools/nproto/test/maps.nproto.pb.cc" in name for name in names
+            ),
+            names,
+        )
+        # The test proto whose names make the generated code wrap its lines.
+        self.assertTrue(
+            any(
+                "tools/nproto/test/long_names.nproto.pb.cc" in name
+                for name in names
+            ),
+            names,
         )
         self.assertTrue(
-            any("nproto_test/other/point.nproto.h" in name for name in names), names
+            any("nproto_test/other/point.nproto.h" in name for name in names),
+            names,
         )
         self.assertTrue(
-            any("humanoid_mpc_config/task_file.nproto.h" in name for name in names),
+            any(
+                "humanoid_mpc_config/task_file.nproto.h" in name
+                for name in names
+            ),
             names,
         )
 
@@ -124,7 +144,9 @@ class GeneratedCodeTest(unittest.TestCase):
             relative = os.path.relpath(path, RUNFILES)
             findings += [
                 str(found)
-                for found in checks.run_file(source, relative, checks.names(), RUNFILES)
+                for found in checks.run_file(
+                    source, relative, checks.names(), RUNFILES
+                )
             ]
         self.assertEqual(findings, [], "\n".join(findings))
 
@@ -140,7 +162,9 @@ class GeneratedCodeTest(unittest.TestCase):
         for path in generated_files():
             relative = os.path.relpath(path, RUNFILES)
             applicable = {
-                check.name for check in checks.REGISTRY if check.applies_to(relative)
+                check.name
+                for check in checks.REGISTRY
+                if check.applies_to(relative)
             }
             self.assertLessEqual(expected, applicable, relative)
             # The generated code outside tests is production code, whose literals are named constants.
@@ -154,13 +178,15 @@ class GeneratedCodeTest(unittest.TestCase):
             if path.endswith(STRUCT_HEADER):
                 continue
             with open(path, encoding="utf-8") as file:
+                # A wrapped signature breaks its lines between tokens, so whitespace is compared as one space.
                 outputs += [
-                    parameters.split(",")[-1].strip()
+                    " ".join(parameters.split(",")[-1].split())
                     for parameters in SIGNATURE.findall(file.read())
                 ]
         self.assertTrue(outputs)
         self.assertEqual(
-            [output for output in outputs if "* absl_nonnull " not in output], []
+            [output for output in outputs if "* absl_nonnull " not in output],
+            [],
         )
 
     def test_struct_headers_include_no_protobuf_and_no_abseil(self):
@@ -171,7 +197,9 @@ class GeneratedCodeTest(unittest.TestCase):
             for line in code_lines(path):
                 if line.startswith(
                     "#include"
-                ) and not ALLOWED_STRUCT_HEADER_INCLUDES.fullmatch(line.strip()):
+                ) and not ALLOWED_STRUCT_HEADER_INCLUDES.fullmatch(
+                    line.strip()
+                ):
                     includes.append(
                         f"{os.path.relpath(path, RUNFILES)}: {line.strip()}"
                     )

@@ -42,33 +42,46 @@ namespace robot::mujoco_sim_interface {
 class MujocoSimInterface;
 
 /**
- * Contact estimator for simulation: the measured contact state is the ground truth of the physics engine.
+ * Contact estimator for simulation: the measured contact state is the ground
+ * truth of the physics engine.
  *
- * A contact point counts as touching when MuJoCo reports more than MujocoSimConfig::contactForceThreshold newtons of
- * normal force between its body and anything outside the robot (see MujocoSimInterface::updateGroundTruthContacts). The
- * flags are those of the latest simulation step and are read without blocking the simulation thread. A contact point
- * whose MuJoCo body could not be resolved, and every contact point of a simulator without contact detection, is
- * reported as touching, so that such a point keeps its planned contact wrenches as it always did.
+ * A contact point counts as touching when MuJoCo reports more than
+ * MujocoSimConfig::contactForceThreshold newtons of normal force between its
+ * body and anything outside the robot (see
+ * MujocoSimInterface::updateGroundTruthContacts). The flags are those of the
+ * latest simulation step and are read without blocking the simulation thread. A
+ * contact point whose MuJoCo body could not be resolved, and every contact
+ * point of a simulator without contact detection, is reported as touching, so
+ * that such a point keeps its planned contact wrenches as it always did.
  */
 class CheaterSimContactEstimator final : public robot::model::ContactEstimator {
  public:
   /**
-   * Reads the contact masks of `sim`, which must outlive the estimator. Logs once, here, when the simulator has no
-   * contact detection: estimateContactFlags() runs on the control thread.
+   * Reads the contact masks of `sim`, which must outlive the estimator. Logs
+   * once, here, when the simulator has no contact detection:
+   * estimateContactFlags() runs on the control thread.
    */
-  explicit CheaterSimContactEstimator(const MujocoSimInterface* absl_nonnull sim);
+  explicit CheaterSimContactEstimator(
+      const MujocoSimInterface* absl_nonnull sim);
 
-  /** Reads the simulator's masks (atomics); allocates nothing once `flags` holds the contact points. */
-  void estimateContactFlags(const robot::model::RobotState& robotState, std::vector<bool>& flags) override;
+  /** Reads the simulator's masks (atomics); allocates nothing once `flags`
+   * holds the contact points. */
+  void estimateContactFlags(const robot::model::RobotState& robotState,
+                            std::vector<bool>& flags) override;
 
-  absl::string_view getName() const override { return "CheaterSimContactEstimator"; }
+  absl::string_view getName() const override {
+    return "CheaterSimContactEstimator";
+  }
 
   /**
    * The flag vector for the given masks; exposed for tests.
    * @param groundTruthMask Bit i set: contact point i carries contact force.
-   * @param unresolvedMask Bit i set: contact point i has no MuJoCo body (it is reported as touching).
-   * @param numDetectedContacts Contact points the simulator resolves (0: no contact detection at all).
-   * @param numContactPoints Contact points of the controller, the size of the result.
+   * @param unresolvedMask Bit i set: contact point i has no MuJoCo body (it is
+   * reported as touching).
+   * @param numDetectedContacts Contact points the simulator resolves (0: no
+   * contact detection at all).
+   * @param numContactPoints Contact points of the controller, the size of the
+   * result.
    */
   static std::vector<bool> flagsFromMasks(uint32_t groundTruthMask,
                                           uint32_t unresolvedMask,
@@ -76,20 +89,27 @@ class CheaterSimContactEstimator final : public robot::model::ContactEstimator {
                                           size_t numContactPoints);
 
   /** flagsFromMasks() into `flags`, resized to `numContactPoints`. */
-  static void writeFlagsFromMasks(
-      uint32_t groundTruthMask, uint32_t unresolvedMask, size_t numDetectedContacts, size_t numContactPoints, std::vector<bool>& flags);
+  static void writeFlagsFromMasks(uint32_t groundTruthMask,
+                                  uint32_t unresolvedMask,
+                                  size_t numDetectedContacts,
+                                  size_t numContactPoints,
+                                  std::vector<bool>& flags);
 
  private:
   const MujocoSimInterface* absl_nonnull sim_;
 };
 
-/** Name of the CheaterSimContactEstimator in the ContactEstimatorRegistry (task file `contact_estimator: "cheater_sim"`). */
+/** Name of the CheaterSimContactEstimator in the ContactEstimatorRegistry (task
+ * file `contact_estimator: "cheater_sim"`). */
 inline constexpr char kCheaterSimContactEstimatorName[] = "cheater_sim";
 
 /**
- * Adds the CheaterSimContactEstimator of `sim` to `registry` under kCheaterSimContactEstimatorName. `sim` must outlive
- * `registry` and every estimator it creates.
+ * Adds the CheaterSimContactEstimator of `sim` to `registry` under
+ * kCheaterSimContactEstimatorName. `sim` must outlive `registry` and every
+ * estimator it creates.
  */
-void registerCheaterSimContactEstimator(robot::model::ContactEstimatorRegistry& registry, const MujocoSimInterface* absl_nonnull sim);
+void registerCheaterSimContactEstimator(
+    robot::model::ContactEstimatorRegistry& registry,
+    const MujocoSimInterface* absl_nonnull sim);
 
 }  // namespace robot::mujoco_sim_interface

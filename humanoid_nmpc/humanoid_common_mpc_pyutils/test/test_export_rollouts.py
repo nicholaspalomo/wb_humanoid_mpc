@@ -43,7 +43,9 @@ import numpy as np
 from humanoid_common_mpc_pyutils import export_rollouts
 
 
-def write_log(path: str, header: Sequence[str], rows: list[list[float]]) -> None:
+def write_log(
+    path: str, header: Sequence[str], rows: list[list[float]]
+) -> None:
     with open(path, "w", newline="", encoding="utf-8") as stream:
         writer = csv.writer(stream)
         writer.writerow(header)
@@ -57,9 +59,12 @@ class DefaultColumnsTest(unittest.TestCase):
             (["x0", "x1"], ["u0"]),
         )
 
-    def test_a_header_without_state_or_input_columns_has_no_defaults(self) -> None:
+    def test_a_header_without_state_or_input_columns_has_no_defaults(
+        self,
+    ) -> None:
         self.assertEqual(
-            export_rollouts.default_columns(["time", "mode", "h_x", "F_l_x"]), ([], [])
+            export_rollouts.default_columns(["time", "mode", "h_x", "F_l_x"]),
+            ([], []),
         )
 
 
@@ -86,16 +91,23 @@ class ExportTest(unittest.TestCase):
         )
         assert output is not None
         data = np.load(output)
-        np.testing.assert_allclose(data["observations"], [[1, 2], [4, 5], [7, 8]])
+        np.testing.assert_allclose(
+            data["observations"], [[1, 2], [4, 5], [7, 8]]
+        )
         np.testing.assert_allclose(data["actions"], [[3], [6], [9]])
 
     def test_named_columns_override_the_defaults_and_a_missing_one_is_an_error(
         self,
     ) -> None:
         path = os.path.join(self.directory, "mpc_observation_1.csv")
-        write_log(path, ["time", "mode", "x0", "x1", "u0"], [[0.0, 3, 1.0, 2.0, 3.0]])
+        write_log(
+            path, ["time", "mode", "x0", "x1", "u0"], [[0.0, 3, 1.0, 2.0, 3.0]]
+        )
         output = export_rollouts.export_csv_to_h5(
-            [path], os.path.join(self.directory, "demos.npz"), ["x1"], ["x0", "u0"]
+            [path],
+            os.path.join(self.directory, "demos.npz"),
+            ["x1"],
+            ["x0", "u0"],
         )
         assert output is not None
         data = np.load(output)
@@ -118,7 +130,10 @@ class ExportTest(unittest.TestCase):
                 [path], os.path.join(self.directory, "demos.npz")
             )
         output = export_rollouts.export_csv_to_h5(
-            [path], os.path.join(self.directory, "demos.npz"), ["h_x"], ["F_l_x"]
+            [path],
+            os.path.join(self.directory, "demos.npz"),
+            ["h_x"],
+            ["F_l_x"],
         )
         assert output is not None
         data = np.load(output)

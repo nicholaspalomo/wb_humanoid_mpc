@@ -36,17 +36,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 std::string FootYawTrackingCost::describe() const {
-  return weightLine("w sum_i (psi_{i,k} - theta_nom,k)^2 at every node (against the nominal heading)");
+  return weightLine(
+      "w sum_i (psi_{i,k} - theta_nom,k)^2 at every node (against the nominal "
+      "heading)");
 }
 
 void FootYawTrackingCost::configure(const ContactPlanningConfig& config) {
   weight_ = config.footYawTracking.weight;
 }
 
-void FootYawTrackingCost::addToStage(const ContactPlanningContext& ctx, int node, StageAccumulator& stage) const {
+void FootYawTrackingCost::addToStage(const ContactPlanningContext& ctx,
+                                     int node,
+                                     StageAccumulator& stage) const {
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
-    stage.addQuadraticResidual({{idx_.footYaw[foot], 1.0}}, /*uCoefficients=*/{}, -ctx.nominal->heading[static_cast<size_t>(node)],
-                               weight_);
+    stage.addQuadraticResidual(
+        {{idx_.footYaw[foot], 1.0}}, /*uCoefficients=*/{},
+        -ctx.nominal->heading[static_cast<size_t>(node)], weight_);
   }
 }
 

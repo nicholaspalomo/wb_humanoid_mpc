@@ -117,7 +117,9 @@ class TunedFile:
         message = self.message_class()
         try:
             text = nproto_textproto.read_textproto_file(self.path)
-            nproto_textproto.check_proto_message_header(text, message, self.path)
+            nproto_textproto.check_proto_message_header(
+                text, message, self.path
+            )
             nproto_textproto.parse_textproto(text, message, self.path)
             document = textproto_document.parse(text, self.path)
         except (
@@ -134,7 +136,9 @@ class TunedFile:
         self.message = message
         self.document = document
         self._changes = {}
-        self._parameters = config_schema.parameters(message, document, self._registries)
+        self._parameters = config_schema.parameters(
+            message, document, self._registries
+        )
         self._by_path = {spec.path: spec for spec in self._parameters}
 
     def parameters(self) -> list[config_schema.ParameterSpec]:
@@ -188,11 +192,13 @@ class TunedFile:
         # Negated, so that NaN is refused too.
         if (
             spec.tuning.minimum is not None
-            and spec.kind in (config_schema.Kind.NUMBER, config_schema.Kind.INTEGER)
+            and spec.kind
+            in (config_schema.Kind.NUMBER, config_schema.Kind.INTEGER)
             and not converted >= spec.tuning.minimum
         ):
             raise ValueError(
-                f"{path} is {converted}, which is below its minimum of {spec.tuning.minimum}"
+                f"{path} is {converted}, which is below its minimum of"
+                f" {spec.tuning.minimum}"
             )
         if spec.value is not None and _same(spec.value, converted):
             # Back to the file's value, or a default left at the default: nothing to write into the file.
@@ -222,11 +228,16 @@ class TunedFile:
     def edited(self) -> textproto_save.EditResult:
         """The file with the changes made: its text, and its message parsed strictly from that text.
 
+        Returns:
+          The edited text and message; the file on disk is not written.
+
         Raises:
           TunedFileError: The edited text would not parse into the edited message (textproto_save.SaveError).
         """
         try:
-            return textproto_save.edit(self.document, self.message, self.edits())
+            return textproto_save.edit(
+                self.document, self.message, self.edits()
+            )
         except textproto_save.SaveError as error:
             raise TunedFileError(str(error)) from error
 
@@ -249,7 +260,9 @@ class TunedFile:
         if self._changes:
             textproto_save.ensure_backup(self.path)
         try:
-            result = textproto_save.save(self.path, self.message_class, self.edits())
+            result = textproto_save.save(
+                self.path, self.message_class, self.edits()
+            )
         except textproto_save.SaveError as error:
             raise TunedFileError(str(error)) from error
         self._checkpoint(
@@ -280,7 +293,9 @@ class TunedFile:
         try:
             text = nproto_textproto.read_textproto_file(self.path)
             message = self.message_class()
-            nproto_textproto.check_proto_message_header(text, message, self.path)
+            nproto_textproto.check_proto_message_header(
+                text, message, self.path
+            )
             nproto_textproto.parse_textproto(text, message, self.path)
             document = textproto_document.parse(text, self.path)
             new_parameters = config_schema.parameters(
@@ -360,5 +375,8 @@ def group_of(spec: config_schema.ParameterSpec) -> str:
         and element is not None
         and not spec.label.endswith(f".{spec.field.name}")
     ):
-        segments = (*segments[:-1], textproto_document.PathSegment(element.name))
+        segments = (
+            *segments[:-1],
+            textproto_document.PathSegment(element.name),
+        )
     return textproto_document.format_path(segments)

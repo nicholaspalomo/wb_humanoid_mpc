@@ -39,8 +39,11 @@ namespace robot::mujoco_sim_interface {
 std::vector<ViewerInfo> availableViewers() {
   // LINT.IfChange(viewer_descriptions)
   return {
-      {.name = kGlfwViewerName, .description = "a GLFW window on DISPLAY (the X11/VNC desktop)"},
-      {.name = kWebViewerName, .description = "a browser tab: offscreen EGL frames served over HTTP (default http://localhost:6090)"},
+      {.name = kGlfwViewerName,
+       .description = "a GLFW window on DISPLAY (the X11/VNC desktop)"},
+      {.name = kWebViewerName,
+       .description = "a browser tab: offscreen EGL frames served over HTTP "
+                      "(default http://localhost:6090)"},
       {.name = kNoViewerName, .description = "no viewer"},
   };
   // LINT.ThenChange(//robot_runtime/mujoco_sim_interface/include/mujoco_sim_interface/viewer/ViewerNames.h:viewer_names)
@@ -48,7 +51,8 @@ std::vector<ViewerInfo> availableViewers() {
 
 std::string availableViewerNames() {
   std::vector<std::string> names;
-  for (const ViewerInfo& viewer : availableViewers()) names.push_back(viewer.name);
+  for (const ViewerInfo& viewer : availableViewers())
+    names.push_back(viewer.name);
   return absl::StrJoin(names, ", ");
 }
 

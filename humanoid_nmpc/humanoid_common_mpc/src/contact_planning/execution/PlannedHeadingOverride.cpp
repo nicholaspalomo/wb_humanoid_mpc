@@ -40,30 +40,38 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-scalar_t acomHeadingOffset(const AngularCenterOfMass& acom, const vector_t& jointAngles) {
-  return twistHeading(quaternionExp(acom.computeJointOrientationOffset(jointAngles)));
+scalar_t acomHeadingOffset(const AngularCenterOfMass& acom,
+                           const vector_t& jointAngles) {
+  return twistHeading(
+      quaternionExp(acom.computeJointOrientationOffset(jointAngles)));
 }
 
 std::string PlannedHeadingOverride::describe() const {
-  return "the plan's heading replaces the commanded base yaw of the MPC target trajectory";
+  return "the plan's heading replaces the commanded base yaw of the MPC target "
+         "trajectory";
 }
 
-void PlannedHeadingOverride::overrideTarget(const ExecutionContext& ctx, TargetTrajectories& targetTrajectories) const {
+void PlannedHeadingOverride::overrideTarget(
+    const ExecutionContext& ctx, TargetTrajectories& targetTrajectories) const {
   if (!ctx.hasPlan() || !ctx.activePlan->hasHeading()) return;
   const ContactPlan& plan = *ctx.activePlan;
-  const AngularCenterOfMass* absl_nullable acom = (acom_ != nullptr) ? acom_->get() : nullptr;
+  const AngularCenterOfMass* absl_nullable acom =
+      (acom_ != nullptr) ? acom_->get() : nullptr;
   const size_t n = targetTrajectories.timeTrajectory.size();
   for (size_t i = 0; i < n; ++i) {
     const scalar_t time = targetTrajectories.timeTrajectory[i];
-    // The heading lookup clamps to the last node, so a knot past the plan's end would get the plan's final heading
-    // rather than keep the operator's yaw; see PlannedComOverride, which has the same guard for the same reason.
+    // The heading lookup clamps to the last node, so a knot past the plan's end
+    // would get the plan's final heading rather than keep the operator's yaw;
+    // see PlannedComOverride, which has the same guard for the same reason.
     if (!planCoversTime(plan, time)) continue;
     const std::optional<scalar_t> heading = plan.headingAtTime(time);
     if (!heading.has_value()) continue;
     vector_t& stateRef = targetTrajectories.stateTrajectory[i];
     vector3_t euler = mpcRobotModel_->getBaseOrientationEulerZyx(stateRef);
     scalar_t offset = 0.0;
-    if (acom != nullptr) offset = acomHeadingOffset(*acom, mpcRobotModel_->getJointAngles(stateRef));
+    if (acom != nullptr)
+      offset =
+          acomHeadingOffset(*acom, mpcRobotModel_->getJointAngles(stateRef));
     euler(0) = moduloAngleWithReference(*heading - offset, euler(0));
     mpcRobotModel_->setBaseOrientationEulerZyx(stateRef, euler);
   }

@@ -77,6 +77,8 @@ from google.protobuf.compiler import plugin_pb2
 from nproto import options_pb2
 from nproto import retired_field_options_pb2
 
+import nproto_layout
+
 FieldDescriptor: TypeAlias = descriptor_module.FieldDescriptor
 Descriptor: TypeAlias = descriptor_module.Descriptor
 EnumDescriptor: TypeAlias = descriptor_module.EnumDescriptor
@@ -107,11 +109,11 @@ OUTPUT_NULLABILITY = "absl_nonnull"
 NULLABILITY_HEADER = "absl/base/nullability.h"
 # LINT.ThenChange(//tools/nproto/include/nproto/Conversions.h:output_parameters)
 
-# The repository's .clang-format.
-COLUMN_LIMIT = 140
+# The column limit of the repository's .clang-format, which the generated code keeps to (nproto_layout.py).
+COLUMN_LIMIT = nproto_layout.COLUMN_LIMIT
 INDENT = "  "
 # The width the generator wraps its own comments to, so that they stay clear of the column limit when indented.
-COMMENT_WIDTH = 116
+COMMENT_WIDTH = 72
 
 # The editions the generator understands: proto2, proto3 and edition 2023 (descriptor.proto's Edition numbers).
 MINIMUM_EDITION = descriptor_pb2.EDITION_PROTO2
@@ -129,7 +131,9 @@ _ENUM_VALUE = 2
 _NEXT_ID = re.compile(r"Next ID: \d+")
 # IFTTT directives of a .proto file guard the .proto file; in the generated code they would guard nothing.
 _LINT_DIRECTIVE = re.compile(r"LINT\.(IfChange|ThenChange)\b.*")
-_QUALIFIED_NAME = re.compile(r"(::)?[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)*")
+_QUALIFIED_NAME = re.compile(
+    r"(::)?[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)*"
+)
 
 _CPP_KEYWORDS = frozenset(
     """alignas alignof and and_eq asm atomic_cancel atomic_commit atomic_noexcept auto bitand bitor bool break case
@@ -266,9 +270,9 @@ def top_level_definitions(
     file_proto: descriptor_pb2.FileDescriptorProto,
 ) -> list[Definition]:
     """The file's top-level messages, then its top-level enums."""
-    return [Definition("message", message) for message in file_proto.message_type] + [
-        Definition("enum", enum) for enum in file_proto.enum_type
-    ]
+    return [
+        Definition("message", message) for message in file_proto.message_type
+    ] + [Definition("enum", enum) for enum in file_proto.enum_type]
 
 
 _Options: TypeAlias = (
@@ -278,7 +282,9 @@ _Options: TypeAlias = (
 )
 
 
-def _extension_value(options: _Options, extension: FieldDescriptor) -> str | None:
+def _extension_value(
+    options: _Options, extension: FieldDescriptor
+) -> str | None:
     """The value of the string option `extension` in `options`, or None when it is not set.
 
     When the options were parsed before nproto's extensions were registered, the option is an unknown field of them;
@@ -304,7 +310,9 @@ def _bool_option(options: _Options, extension: FieldDescriptor) -> bool:
     if options.HasExtension(extension):
         return bool(options.Extensions[extension])
     reparsed = type(options).FromString(options.SerializeToString())
-    return bool(reparsed.HasExtension(extension) and reparsed.Extensions[extension])
+    return bool(
+        reparsed.HasExtension(extension) and reparsed.Extensions[extension]
+    )
 
 
 def retired_fields(
@@ -313,7 +321,9 @@ def retired_fields(
     """(name, replacement) of every `(nproto.retired_field)` option of a message, in declaration order."""
     entries = options.Extensions[retired_field_options_pb2.retired_field]
     if not entries:
-        reparsed = descriptor_pb2.MessageOptions.FromString(options.SerializeToString())
+        reparsed = descriptor_pb2.MessageOptions.FromString(
+            options.SerializeToString()
+        )
         entries = reparsed.Extensions[retired_field_options_pb2.retired_field]
     return [(entry.name, entry.replacement) for entry in entries]
 
@@ -326,7 +336,9 @@ def retired_key(name: str) -> str:
 def definition_option(definition: Definition) -> str | None:
     """The value of the definition's `option (nproto.generate_struct)` (enums: generate_enum), or None."""
     if definition.keyword == "message":
-        return _extension_value(definition.proto.options, options_pb2.generate_struct)
+        return _extension_value(
+            definition.proto.options, options_pb2.generate_struct
+        )
     return _extension_value(definition.proto.options, options_pb2.generate_enum)
 
 
@@ -358,13 +370,64 @@ def _comment_lines(text: str) -> list[str]:
             continue  # tools/hooks/proto_next_id.py's bookkeeping, which means nothing to the struct
         if _LINT_DIRECTIVE.fullmatch(stripped):
             continue
-        result.append((f"// {stripped}") if stripped else "//")
+        result.append(f"// {stripped}" if stripped else "//")
     # A blank line closing a comment would leave a lone "//"; drop it, as clang-format leaves it alone but it adds noise.
     while result and result[-1] == "//":
         result.pop()
     while result and result[0] == "//":
         result.pop(0)
     return result
+
+
+# A full-line `//` comment: its prefix (the indentation, the slashes and the space after them) and its text.
+_FULL_LINE_COMMENT = re.compile(r"^(\s*// ?)(.*)$")
+# A comment line that starts a list item, which clang-format never joins onto the line above.
+_LIST_ITEM = re.compile(r"^([-*+]|\d+[.)])\s")
+
+
+def _continues_comment(prefix: str, line: str) -> bool:
+    """Whether `line` is a full-line comment with `prefix` that continues the paragraph of the line above."""
+    match = _FULL_LINE_COMMENT.fullmatch(line)
+    if match is None or match.group(1) != prefix or not match.group(2):
+        return False
+    return _LIST_ITEM.match(match.group(2)) is None
+
+
+def _fit_comments(content: str) -> str:
+    """`content` with every full-line comment broken to COLUMN_LIMIT, as clang-format breaks it.
+
+    A comment copied from the .proto file keeps its lines, which may be longer than a line of C++ at its indentation. A
+    line past the limit is broken at its last space within it, and the rest joins the next line when that line continues
+    the paragraph; otherwise it becomes a line of its own. A word longer than the line is left whole, as clang-format
+    leaves it.
+
+    Args:
+      content: A generated file.
+
+    Returns:
+      `content` with its full-line comments fitted; code lines and short comment lines unchanged.
+    """
+    lines = content.split("\n")
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        match = _FULL_LINE_COMMENT.fullmatch(line)
+        cut = (
+            line.rfind(" ", len(match.group(1)) + 1, COLUMN_LIMIT + 1)
+            if match
+            else -1
+        )
+        if match is None or len(line) <= COLUMN_LIMIT or cut < 0:
+            i += 1
+            continue
+        prefix = match.group(1)
+        lines[i], rest = line[:cut].rstrip(), line[cut + 1 :].strip()
+        if i + 1 < len(lines) and _continues_comment(prefix, lines[i + 1]):
+            lines[i + 1] = f"{prefix}{rest} {lines[i + 1][len(prefix):]}"
+        else:
+            lines.insert(i + 1, f"{prefix}{rest}")
+        i += 1
+    return "\n".join(lines)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -380,12 +443,16 @@ class TypeInfo:
 class TypeTable:
     """The structs of every message and enum of the request's files that names one, by protobuf full name."""
 
-    def __init__(self, file_protos: Sequence[descriptor_pb2.FileDescriptorProto]):
+    def __init__(
+        self, file_protos: Sequence[descriptor_pb2.FileDescriptorProto]
+    ):
         self.types: dict[str, TypeInfo] = {}
         self.files: dict[str, descriptor_pb2.FileDescriptorProto] = {}
         for file_proto in file_protos:
             self.files[file_proto.name] = file_proto
-            package = file_proto.package.split(".") if file_proto.package else []
+            package = (
+                file_proto.package.split(".") if file_proto.package else []
+            )
             for definition in top_level_definitions(file_proto):
                 value = definition_option(definition)
                 if value is None:
@@ -400,7 +467,9 @@ class TypeTable:
                         file_proto.name,
                     )
                 else:
-                    self._add_enum(path, package, [definition.name], file_proto.name)
+                    self._add_enum(
+                        path, package, [definition.name], file_proto.name
+                    )
 
     def _full_name(self, package: list[str], nesting: list[str]) -> str:
         """The protobuf full name of the type `nesting` (outermost first) of `package`: `pkg.Outer.Inner`."""
@@ -435,7 +504,10 @@ class TypeTable:
             )
         for enum in message.enum_type:
             self._add_enum(
-                struct_path + (enum.name,), package, nesting + [enum.name], file_name
+                struct_path + (enum.name,),
+                package,
+                nesting + [enum.name],
+                file_name,
             )
 
     def _add_enum(
@@ -470,19 +542,25 @@ class TypeTable:
                 break
         if owner is None:
             raise GenerationError(
-                f"{user} has type {full_name}, which nproto cannot find in the request."
+                f"{user} has type {full_name}, which nproto cannot find in the"
+                " request."
             )
         file_name, definition, top_name = owner
         raise GenerationError(
-            f"{user} has type {full_name}, which has no nproto struct: {definition.keyword} {top_name} "
-            f"({file_name}) sets no option {definition.option} (well-known types such as google.protobuf.Timestamp "
-            f"have none either). Give it the option, 'option {definition.option} = \"<namespace>::{definition.name}\";' "
-            "as the first statement of its body, or use another type."
+            f"{user} has type {full_name}, which has no nproto struct:"
+            f" {definition.keyword} {top_name} ({file_name}) sets no option"
+            f" {definition.option} (well-known types such as"
+            " google.protobuf.Timestamp have none either). Give it the option,"
+            f" 'option {definition.option} ="
+            f' "<namespace>::{definition.name}";\' as the first statement of'
+            " its body, or use another type."
         )
 
 
 def validate_definition_option(
-    file_proto: descriptor_pb2.FileDescriptorProto, definition: Definition, value: str
+    file_proto: descriptor_pb2.FileDescriptorProto,
+    definition: Definition,
+    value: str,
 ) -> tuple[str, ...]:
     """The C++ path the option `value` of the top-level `definition` names; raises GenerationError when nproto cannot use it."""
     name = file_proto.name
@@ -491,19 +569,21 @@ def validate_definition_option(
     what = f"{keyword} {definition.name}"
     if not _QUALIFIED_NAME.fullmatch(value):
         raise GenerationError(
-            f'{name}: {what}: option {option} = "{value}" is not a fully qualified C++ name such as '
-            f'"my::project::{definition.name}".'
+            f'{name}: {what}: option {option} = "{value}" is not a fully'
+            f' qualified C++ name such as "my::project::{definition.name}".'
         )
     path = tuple(value.lstrip(":").split("::"))
     for component in path:
         if component in _CPP_KEYWORDS:
             raise GenerationError(
-                f'{name}: {what}: option {option} = "{value}": "{component}" is a C++ keyword.'
+                f'{name}: {what}: option {option} = "{value}": "{component}" is'
+                " a C++ keyword."
             )
         if component in _UNQUALIFIED_TYPES:
             raise GenerationError(
-                f'{name}: {what}: option {option} = "{value}": "{component}" is a type the generated code names '
-                "without std::, which a namespace of that name would hide."
+                f'{name}: {what}: option {option} = "{value}": "{component}" is'
+                " a type the generated code names without std::, which a"
+                " namespace of that name would hide."
             )
     if path[-1] != definition.name:
         expected = (
@@ -512,25 +592,30 @@ def validate_definition_option(
             else definition.name
         )
         raise GenerationError(
-            f'{name}: {what}: option {option} = "{value}" names a type {path[-1]}, but the C++ type is named after '
-            f'the {keyword}: "{expected}".'
+            f'{name}: {what}: option {option} = "{value}" names a type'
+            f" {path[-1]}, but the C++ type is named after the {keyword}:"
+            f' "{expected}".'
         )
     if len(path) < 2:
         raise GenerationError(
-            f'{name}: {what}: option {option} = "{value}" puts the type in the global namespace; name a namespace, '
-            f'e.g. "my::project::{definition.name}".'
+            f'{name}: {what}: option {option} = "{value}" puts the type in the'
+            " global namespace; name a namespace, e.g."
+            f' "my::project::{definition.name}".'
         )
     package = file_proto.package.split(".") if file_proto.package else []
     if list(path) == package + [definition.name]:
         raise GenerationError(
-            f'{name}: {what}: option {option} = "{value}" is the C++ name protobuf already gives '
-            f"{'.'.join(package + [definition.name])}; put the type in a namespace of its own, e.g. "
-            f"\"{'::'.join(package)}::nproto::{definition.name}\"."
+            f'{name}: {what}: option {option} = "{value}" is the C++ name'
+            f' protobuf already gives {".".join(package + [definition.name])};'
+            " put the type in a namespace of its own, e.g."
+            f' "{"::".join(package)}::nproto::{definition.name}".'
         )
     return path
 
 
-def _nested_options(definition: Definition, scope: str) -> list[tuple[str, str, str]]:
+def _nested_options(
+    definition: Definition, scope: str
+) -> list[tuple[str, str, str]]:
     """(keyword, full name, option) of every type nested in `definition` that sets an nproto option of its own."""
     found: list[tuple[str, str, str]] = []
     if definition.keyword != "message":
@@ -550,7 +635,9 @@ def _nested_options(definition: Definition, scope: str) -> list[tuple[str, str, 
     return found
 
 
-def validate_option(file_proto: descriptor_pb2.FileDescriptorProto) -> tuple[str, ...]:
+def validate_option(
+    file_proto: descriptor_pb2.FileDescriptorProto,
+) -> tuple[str, ...]:
     """The C++ path of the file's one top-level definition; raises GenerationError when nproto cannot generate it."""
     name = file_proto.name
     definitions = top_level_definitions(file_proto)
@@ -558,30 +645,37 @@ def validate_option(file_proto: descriptor_pb2.FileDescriptorProto) -> tuple[str
         return ()
     if len(definitions) > 1:
         listed = ", ".join(
-            f"{definition.keyword} {definition.name}" for definition in definitions
+            f"{definition.keyword} {definition.name}"
+            for definition in definitions
         )
         raise GenerationError(
-            f"{name}: defines {len(definitions)} top-level types ({listed}); a file holds exactly one message or enum "
-            "(tools/hooks/proto_file_layout.py), whose option names the one struct or enum class nproto generates "
-            "for the file."
+            f"{name}: defines {len(definitions)} top-level types ({listed}); a"
+            " file holds exactly one message or enum"
+            " (tools/hooks/proto_file_layout.py), whose option names the one"
+            " struct or enum class nproto generates for the file."
         )
     definition = definitions[0]
     value = definition_option(definition)
     if value is None:
         raise GenerationError(
-            f"{name}: {definition.keyword} {definition.name} does not name the C++ type nproto generates for it. "
-            f"Write 'option {definition.option} = \"<namespace>::{definition.name}\";' as the first statement of its "
-            f"body, with 'import \"{OPTIONS_IMPORT}\";' ({README})."
+            f"{name}: {definition.keyword} {definition.name} does not name the"
+            " C++ type nproto generates for it. Write 'option"
+            f' {definition.option} = "<namespace>::{definition.name}";\' as'
+            " the first statement of its body, with 'import"
+            f' "{OPTIONS_IMPORT}";\' ({README}).'
         )
     path = validate_definition_option(file_proto, definition, value)
     package = f"{file_proto.package}." if file_proto.package else ""
     nested = _nested_options(definition, package + definition.name)
     if nested:
         keyword, full_name, option = nested[0]
-        cpp_name = "::".join(path[:-1] + tuple(full_name[len(package) :].split(".")))
+        cpp_name = "::".join(
+            path[:-1] + tuple(full_name[len(package) :].split("."))
+        )
         raise GenerationError(
-            f"{name}: nested {keyword} {full_name} sets option {option}. Nested types are generated as nested C++ "
-            f"types of their parent's struct ({cpp_name}) and carry no option of their own; remove it."
+            f"{name}: nested {keyword} {full_name} sets option {option}. Nested"
+            " types are generated as nested C++ types of their parent's struct"
+            f" ({cpp_name}) and carry no option of their own; remove it."
         )
     return path
 
@@ -625,13 +719,19 @@ class _Includes:
         """The #include lines, blocks separated by an empty line: the standard headers, the libraries, the project."""
         blocks: list[list[str]] = []
         if self.standard:
-            blocks.append([f"#include <{header}>" for header in sorted(self.standard)])
+            blocks.append(
+                [f"#include <{header}>" for header in sorted(self.standard)]
+            )
         # Eigen and Abseil are both "other libraries": one block, quoted (.clang-format:include_categories).
-        libraries = sorted(self.absl | ({"Eigen/Core"} if self.eigen else set()))
+        libraries = sorted(
+            self.absl | ({"Eigen/Core"} if self.eigen else set())
+        )
         if libraries:
             blocks.append([f'#include "{header}"' for header in libraries])
         if self.project:
-            blocks.append([f'#include "{header}"' for header in sorted(self.project)])
+            blocks.append(
+                [f'#include "{header}"' for header in sorted(self.project)]
+            )
         lines: list[str] = []
         for block in blocks:
             if lines:
@@ -719,23 +819,22 @@ def _constants(field: _Field) -> list[tuple[str, str]]:
     return constants
 
 
-def _declaration_lines(declaration: str, initializer: str | None) -> list[str]:
-    """`<declaration> = <initializer>;`, or `<declaration>;` without an initializer, wrapped as clang-format wraps it.
+def _member_lines(
+    declaration: str, initializer: str | None = None
+) -> list[str]:
+    """`<declaration> = <initializer>;`, or `<declaration>;`, a member of a struct broken as clang-format breaks it.
 
     Args:
       declaration: The declaration up to its initializer, its indentation included: `  double gain`.
       initializer: The initializer, or None (or empty) for none.
 
     Returns:
-      The declaration's lines: one, or two with the initializer on the second when one line would be too long.
+      The declaration's lines (nproto_layout.wrap()).
     """
-    if not initializer:
-        return [f"{declaration};"]
-    line = f"{declaration} = {initializer};"
-    if len(line) <= COLUMN_LIMIT:
-        return [line]
-    indent = declaration[: len(declaration) - len(declaration.lstrip())]
-    return [f"{declaration} =", f"{indent}{INDENT * 2}{initializer};"]
+    line = (
+        f"{declaration} = {initializer};" if initializer else f"{declaration};"
+    )
+    return nproto_layout.wrap(line, nproto_layout.Kind.MEMBER)
 
 
 def _note_value_includes(field: FieldDescriptor, includes: _Includes) -> None:
@@ -746,75 +845,16 @@ def _note_value_includes(field: FieldDescriptor, includes: _Includes) -> None:
         includes.standard.add("string")
 
 
-def _signature_lines(signature: str, suffix: str) -> list[str]:
-    """A function signature, with its parameters one per line under the open parenthesis when it is too long."""
-    line = signature + suffix
-    if len(line) <= COLUMN_LIMIT:
-        return [line]
-    open_paren = signature.index("(")
-    parameters = signature[open_paren + 1 : -1].split(", ")
-    indent = " " * (open_paren + 1)
-    lines = [f"{signature[: open_paren + 1]}{parameters[0]},"]
-    for parameter in parameters[1:-1]:
-        lines.append(f"{indent}{parameter},")
-    lines.append(f"{indent}{parameters[-1]}){suffix}")
-    return lines
+def _function_lines(signature: str, suffix: str) -> list[str]:
+    """A function declaration (`suffix` `;`) or the first line of a definition (` {`, ` {}`), as clang-format breaks it."""
+    return nproto_layout.wrap(signature + suffix, nproto_layout.Kind.FUNCTION)
 
 
-def _top_level_arguments(text: str) -> list[str]:
-    """The arguments of a call, `text` being what its parentheses hold, split at the commas outside nested parentheses."""
-    arguments: list[str] = []
-    depth = 0
-    start = 0
-    for index, character in enumerate(text):
-        if character in "([{<":
-            depth += 1
-        elif character in ")]}>" and not (character == ">" and text[index - 1] == "-"):
-            depth -= 1
-        elif character == "," and depth == 0:
-            arguments.append(text[start:index].strip())
-            start = index + 1
-    arguments.append(text[start:].strip())
-    return arguments
-
-
-def _wrap_statement(line: str) -> list[str]:
-    """`line`, a call statement ending in `);`, wrapped as clang-format wraps it when it is longer than a line.
-
-    The arguments are packed onto each line as far as they fit and continue aligned after the call's open parenthesis.
-
-    Args:
-      line: One statement, its indentation included.
-
-    Returns:
-      The statement's lines.
-    """
-    if len(line) <= COLUMN_LIMIT or not line.endswith(");") or "(" not in line:
-        return [line]
-    open_paren = line.index("(")
-    arguments = _top_level_arguments(line[open_paren + 1 : -2])
-    continuation = " " * (open_paren + 1)
-    lines: list[str] = []
-    current = line[: open_paren + 1]
-    fresh = True  # nothing after the parenthesis or the continuation indent yet
-    for index, argument in enumerate(arguments):
-        piece = argument + ("," if index + 1 < len(arguments) else ");")
-        candidate = current + ("" if fresh else " ") + piece
-        if not fresh and len(candidate) > COLUMN_LIMIT:
-            lines.append(current)
-            current = continuation + piece
-        else:
-            current = candidate
-        fresh = False
-    lines.append(current)
-    return lines
-
-
-def _wrap_statements(lines: list[str]) -> list[str]:
-    """`lines` with every statement longer than a line wrapped (_wrap_statement())."""
+def _statement_lines(lines: list[str]) -> list[str]:
+    """`lines`, the statements and control lines of a function body, each broken as clang-format breaks it."""
     wrapped: list[str] = []
     for line in lines:
-        wrapped.extend(_wrap_statement(line))
+        wrapped.extend(nproto_layout.wrap(line, nproto_layout.Kind.STATEMENT))
     return wrapped
 
 
@@ -890,12 +930,14 @@ class _FileGenerator:
     def _check_name(self, name: str, what: str) -> None:
         if name in _CPP_KEYWORDS:
             raise GenerationError(
-                f"{self.name}: {what} is named '{name}', a C++ keyword, which cannot name a struct member; rename it."
+                f"{self.name}: {what} is named '{name}', a C++ keyword, which"
+                " cannot name a struct member; rename it."
             )
         if name in _UNQUALIFIED_TYPES:
             raise GenerationError(
-                f"{self.name}: {what} is named '{name}', a type the generated code names without std::, which a "
-                "member or type of that name would hide; rename it."
+                f"{self.name}: {what} is named '{name}', a type the generated"
+                " code names without std::, which a member or type of that"
+                " name would hide; rename it."
             )
 
     def _fields(self, message: Descriptor) -> list[_Field]:
@@ -950,15 +992,22 @@ class _FileGenerator:
         self, field: FieldDescriptor, oneof: str | None
     ) -> None:
         """Raises GenerationError unless `field` can carry (nproto.optional_message): a singular message outside a oneof."""
-        if field.type not in _MESSAGE_TYPES or field.is_repeated or _is_map(field):
+        if (
+            field.type not in _MESSAGE_TYPES
+            or field.is_repeated
+            or _is_map(field)
+        ):
             raise GenerationError(
-                f"{self.name}: field {field.full_name} sets option {OPTIONAL_MESSAGE_OPTION}, which only a singular "
-                "message field can carry: it makes the member a std::optional of the submessage's struct."
+                f"{self.name}: field {field.full_name} sets option"
+                f" {OPTIONAL_MESSAGE_OPTION}, which only a singular message"
+                " field can carry: it makes the member a std::optional of the"
+                " submessage's struct."
             )
         if oneof is not None:
             raise GenerationError(
-                f"{self.name}: field {field.full_name} sets option {OPTIONAL_MESSAGE_OPTION}, but it is an alternative of "
-                f"oneof {oneof}, whose std::variant already tells whether it is set."
+                f"{self.name}: field {field.full_name} sets option"
+                f" {OPTIONAL_MESSAGE_OPTION}, but it is an alternative of oneof"
+                f" {oneof}, whose std::variant already tells whether it is set."
             )
 
     def check_retired_fields(self) -> None:
@@ -966,23 +1015,31 @@ class _FileGenerator:
         for message in self._messages():
             raw = self.raw_messages[message.full_name]
             seen: dict[str, str] = {}
-            live = {retired_key(field.name): field.name for field in message.fields}
+            live = {
+                retired_key(field.name): field.name for field in message.fields
+            }
             for name, replacement in retired_fields(raw.options):
-                where = f"{self.name}: message {message.full_name}: option {RETIRED_FIELD_OPTION}"
+                where = (
+                    f"{self.name}: message {message.full_name}: option"
+                    f" {RETIRED_FIELD_OPTION}"
+                )
                 if not name.strip() or not replacement.strip():
                     raise GenerationError(
-                        f"{where} needs a name and a replacement: "
-                        '{ name: "old_name" replacement: "what to write instead" }.'
+                        f"{where} needs a name and a replacement: {{ name:"
+                        ' "old_name" replacement: "what to write instead" }.'
                     )
                 key = retired_key(name)
                 if key in live:
                     raise GenerationError(
-                        f"{where} retires '{name}', which is the live field {live[key]} of the message: a file that sets "
-                        "it parses, so the retirement could never be reported. Rename the field or drop the entry."
+                        f"{where} retires '{name}', which is the live field"
+                        f" {live[key]} of the message: a file that sets it"
+                        " parses, so the retirement could never be reported."
+                        " Rename the field or drop the entry."
                     )
                 if key in seen:
                     raise GenerationError(
-                        f"{where} retires '{name}' and '{seen[key]}', which are one name; list it once."
+                        f"{where} retires '{name}' and '{seen[key]}', which are"
+                        " one name; list it once."
                     )
                 seen[key] = name
 
@@ -1050,11 +1107,16 @@ class _FileGenerator:
                 if target.full_name not in messages:
                     continue  # another file: imports cannot form a cycle
                 if state.get(target.full_name) == 1:
-                    cycle = stack[stack.index(target.full_name) :] + [target.full_name]
+                    cycle = stack[stack.index(target.full_name) :] + [
+                        target.full_name
+                    ]
                     raise GenerationError(
-                        f"{self.name}: message {target.full_name} contains itself ({' -> '.join(cycle)}, through "
-                        f"field {field.full_name}). nproto structs hold their fields by value, so a recursive "
-                        "message has no struct; break the cycle (e.g. with an index into a repeated field)."
+                        f"{self.name}: message {target.full_name} contains"
+                        f" itself ({' -> '.join(cycle)}, through field"
+                        f" {field.full_name}). nproto structs hold their fields"
+                        " by value, so a recursive message has no struct;"
+                        " break the cycle (e.g. with an index into a repeated"
+                        " field)."
                     )
                 if state.get(target.full_name) is None:
                     visit(target.full_name)
@@ -1082,7 +1144,9 @@ class _FileGenerator:
             names.update(constant for constant, _ in _constants(field))
         return names
 
-    def render(self, target: tuple[str, ...], scope: Sequence[Descriptor]) -> str:
+    def render(
+        self, target: tuple[str, ...], scope: Sequence[Descriptor]
+    ) -> str:
         """The C++ name of the struct or enum at `target` as code inside the structs `scope` (outermost first) writes it.
 
         Names in this file's namespace are written relative to it, unless a member or nested type of an enclosing
@@ -1138,10 +1202,12 @@ class _FileGenerator:
             return "std::string"
         if field.type == FieldDescriptor.TYPE_ENUM:
             return self.render(
-                self._type_info(field.enum_type.full_name, user).struct_path, scope
+                self._type_info(field.enum_type.full_name, user).struct_path,
+                scope,
             )
         return self.render(
-            self._type_info(field.message_type.full_name, user).struct_path, scope
+            self._type_info(field.message_type.full_name, user).struct_path,
+            scope,
         )
 
     def _member_type(
@@ -1156,7 +1222,10 @@ class _FileGenerator:
             includes.standard.add("map")
             _note_value_includes(key, includes)
             _note_value_includes(value, includes)
-            return f"std::map<{self._value_type(key, scope, user)}, {self._value_type(value, scope, user)}>"
+            return (
+                f"std::map<{self._value_type(key, scope, user)},"
+                f" {self._value_type(value, scope, user)}>"
+            )
         if field.kind == _KIND_EIGEN:
             includes.eigen = True
             return _EIGEN_VECTORS[descriptor.type]
@@ -1188,8 +1257,9 @@ class _FileGenerator:
             name = enumerator_name(value.name, prefix)
             if name in seen:
                 raise GenerationError(
-                    f"{self.name}: enum values {seen[name]} and {value.name} of {enum.full_name} both become the "
-                    f"enumerator {name}; rename one of them."
+                    f"{self.name}: enum values {seen[name]} and {value.name} of"
+                    f" {enum.full_name} both become the enumerator {name};"
+                    " rename one of them."
                 )
             seen[name] = value.name
             result.append((name, value.number, index))
@@ -1199,7 +1269,9 @@ class _FileGenerator:
         for name, value_number, _ in self._enumerators(enum):
             if value_number == number:
                 return name
-        raise GenerationError(f"{self.name}: {enum.full_name} has no value {number}.")
+        raise GenerationError(
+            f"{self.name}: {enum.full_name} has no value {number}."
+        )
 
     # ----------------------------------------------------------------------------------------------------------------
     # Defaults
@@ -1236,7 +1308,9 @@ class _FileGenerator:
             return f"{value}u"
         return str(value)
 
-    def _default(self, field: _Field, scope: Sequence[Descriptor]) -> str | None:
+    def _default(
+        self, field: _Field, scope: Sequence[Descriptor]
+    ) -> str | None:
         """The default member initializer of a singular, non-optional field outside a oneof, or None."""
         descriptor = field.descriptor
         explicit = descriptor.has_default_value
@@ -1263,7 +1337,8 @@ class _FileGenerator:
         if field.kind == _KIND_ENUM:
             enum_type = self.render(
                 self._type_info(
-                    descriptor.enum_type.full_name, f"field {descriptor.full_name}"
+                    descriptor.enum_type.full_name,
+                    f"field {descriptor.full_name}",
                 ).struct_path,
                 scope,
             )
@@ -1318,7 +1393,9 @@ class _FileGenerator:
             for index, child in enumerate(message.nested_types)
             if not child.GetOptions().map_entry
         ]
-        by_name = {child.full_name: (child, child_path) for child, child_path in nested}
+        by_name = {
+            child.full_name: (child, child_path) for child, child_path in nested
+        }
         depends_on: dict[str, set[str]] = {}
         for child, _ in nested:
             references = self._subtree_references(child)
@@ -1354,9 +1431,13 @@ class _FileGenerator:
         for index, enum in enumerate(message.enum_types):
             includes.standard.add("cstdint")
             blocks.append(
-                self._enum_lines(enum, path + (_MESSAGE_ENUM_TYPE, index), inner)
+                self._enum_lines(
+                    enum, path + (_MESSAGE_ENUM_TYPE, index), inner
+                )
             )
-        for nested, nested_path in self._nested_messages_in_order(message, path):
+        for nested, nested_path in self._nested_messages_in_order(
+            message, path
+        ):
             blocks.append(
                 self._struct_lines(nested, nested_path, inner_scope, includes)
             )
@@ -1366,16 +1447,21 @@ class _FileGenerator:
         for field in fields:
             if field.oneof:
                 includes.standard.add("cstddef")
-                position = [f.name for f in fields if f.oneof == field.oneof].index(
-                    field.name
-                ) + 1
-                constants.append(
-                    f"{inner}static constexpr {SIZE} {_index_constant(field)} = {position};"
+                position = [
+                    f.name for f in fields if f.oneof == field.oneof
+                ].index(field.name) + 1
+                constants.extend(
+                    _member_lines(
+                        f"{inner}static constexpr"
+                        f" {SIZE} {_index_constant(field)}",
+                        str(position),
+                    )
                 )
         if constants:
             constants.insert(
                 0,
-                f"{inner}// The alternative of each oneof field in its std::variant (index 0 is std::monostate: none is set).",
+                f"{inner}// The alternative of each oneof field in its"
+                " std::variant (index 0 is std::monostate: none is set).",
             )
             blocks.append(constants)
 
@@ -1401,19 +1487,21 @@ class _FileGenerator:
                 default = self._default(field, inner_scope)
             if default and _has_default_constant(field):
                 defaults.extend(
-                    _declaration_lines(
-                        f"{inner}static constexpr {member_type} {_default_constant(field)}",
+                    _member_lines(
+                        f"{inner}static constexpr"
+                        f" {member_type} {_default_constant(field)}",
                         default,
                     )
                 )
                 default = _default_constant(field)
             members.extend(
-                _declaration_lines(f"{inner}{member_type} {field.name}", default)
+                _member_lines(f"{inner}{member_type} {field.name}", default)
             )
         if defaults:
             defaults.insert(
                 0,
-                f"{inner}// The explicit defaults of the .proto file ([default = ...]), the initializers of the members.",
+                f"{inner}// The explicit defaults of the .proto file ([default"
+                " = ...]), the initializers of the members.",
             )
             blocks.append(defaults)
         if members:
@@ -1456,7 +1544,9 @@ class _FileGenerator:
         )
         lines.extend(
             f"{inner}// {line}"
-            for line in _wrap_comment(f"oneof {oneof_descriptor.name}: {alternatives}.")
+            for line in _wrap_comment(
+                f"oneof {oneof_descriptor.name}: {alternatives}."
+            )
         )
         for field in members:
             for comment in field.comment:
@@ -1468,16 +1558,13 @@ class _FileGenerator:
         types = ["std::monostate"] + [
             self._member_type(field, scope, includes) for field in members
         ]
-        declaration = f"{inner}std::variant<{', '.join(types)}> {oneof};"
-        if len(declaration) > COLUMN_LIMIT:
-            raise GenerationError(
-                f"{self.name}: the std::variant of oneof {oneof_descriptor.full_name} is longer than "
-                f"{COLUMN_LIMIT} columns; shorten the names of its alternatives' types."
-            )
-        lines.append(declaration)
+        lines.extend(
+            _member_lines(f"{inner}std::variant<{', '.join(types)}> {oneof}")
+        )
         return lines
 
     def _message_path(self, message: Descriptor) -> tuple[int, ...]:
+        """The source code info path of `message` (descriptor.proto field numbers), nested messages included."""
         chain: list[Descriptor] = []
         current: Descriptor | None = message
         while current is not None:
@@ -1486,58 +1573,78 @@ class _FileGenerator:
         top = list(self.file.message_types_by_name.values()).index(chain[0])
         path: tuple[int, ...] = (_FILE_MESSAGE_TYPE, top)
         for parent, child in zip(chain, chain[1:]):
-            path += (_MESSAGE_NESTED_TYPE, list(parent.nested_types).index(child))
+            path += (
+                _MESSAGE_NESTED_TYPE,
+                list(parent.nested_types).index(child),
+            )
         return path
 
-    def _equality_lines(self, message: Descriptor, struct_name: str) -> list[str]:
+    def _equality_lines(
+        self, message: Descriptor, struct_name: str
+    ) -> list[str]:
         """operator== and operator!= of the struct of `message`, at namespace scope."""
         fields = self._fields(message)
         if not fields:
-            unnamed = f"(const {struct_name}& /*lhs*/, const {struct_name}& /*rhs*/)"
+            unnamed = (
+                f"(const {struct_name}& /*lhs*/, const {struct_name}& /*rhs*/)"
+            )
             return [
-                *_signature_lines(f"inline bool operator=={unnamed}", " {"),
+                *_function_lines(f"inline bool operator=={unnamed}", " {"),
                 f"{INDENT}return true;",
                 "}",
                 "",
-                *_signature_lines(f"inline bool operator!={unnamed}", " {"),
+                *_function_lines(f"inline bool operator!={unnamed}", " {"),
                 f"{INDENT}return false;",
                 "}",
             ]
         parameters = f"(const {struct_name}& lhs, const {struct_name}& rhs)"
-        lines = _signature_lines(f"inline bool operator=={parameters}", " {")
+        body: list[str] = []
         members: list[tuple[str, bool]] = []
         for field in fields:
             member = field.oneof if field.oneof else field.name
             if all(name != member for name, _ in members):
-                members.append((member, field.kind == _KIND_EIGEN and not field.oneof))
+                members.append(
+                    (member, field.kind == _KIND_EIGEN and not field.oneof)
+                )
         for member, is_eigen in members:
             # Eigen compares vectors of one size only, so the sizes are compared first.
             conditions = (
-                [f"lhs.{member}.size() != rhs.{member}.size()"] if is_eigen else []
+                [f"lhs.{member}.size() != rhs.{member}.size()"]
+                if is_eigen
+                else []
             )
             conditions.append(f"lhs.{member} != rhs.{member}")
             for condition in conditions:
-                lines.append(f"{INDENT}if ({condition}) {{")
-                lines.append(f"{INDENT * 2}return false;")
-                lines.append(f"{INDENT}}}")
-        lines.append(f"{INDENT}return true;")
-        lines.append("}")
-        lines.append("")
-        lines.extend(_signature_lines(f"inline bool operator!={parameters}", " {"))
-        lines.append(f"{INDENT}return !(lhs == rhs);")
-        lines.append("}")
-        return lines
+                body.append(f"{INDENT}if ({condition}) {{")
+                body.append(f"{INDENT * 2}return false;")
+                body.append(f"{INDENT}}}")
+        body.append(f"{INDENT}return true;")
+        return [
+            *_function_lines(f"inline bool operator=={parameters}", " {"),
+            *_statement_lines(body),
+            "}",
+            "",
+            *_function_lines(f"inline bool operator!={parameters}", " {"),
+            f"{INDENT}return !(lhs == rhs);",
+            "}",
+        ]
 
-    def _all_messages_post_order(self) -> list[tuple[Descriptor, tuple[int, ...]]]:
+    def _all_messages_post_order(
+        self,
+    ) -> list[tuple[Descriptor, tuple[int, ...]]]:
         """Every message of the file in the order its struct is complete: nested ones before their parents."""
         result: list[tuple[Descriptor, tuple[int, ...]]] = []
 
         def visit(message: Descriptor, path: tuple[int, ...]) -> None:
-            for nested, nested_path in self._nested_messages_in_order(message, path):
+            for nested, nested_path in self._nested_messages_in_order(
+                message, path
+            ):
                 visit(nested, nested_path)
             result.append((message, path))
 
-        for index, message in enumerate(self.file.message_types_by_name.values()):
+        for index, message in enumerate(
+            self.file.message_types_by_name.values()
+        ):
             visit(message, (_FILE_MESSAGE_TYPE, index))
         return result
 
@@ -1549,7 +1656,9 @@ class _FileGenerator:
 
     def _struct_name(self, descriptor: Descriptor | EnumDescriptor) -> str:
         """The name of a struct or enum of this file at namespace scope: `TargetContactPatch::Kind`."""
-        return self.render(self.table.types[descriptor.full_name].struct_path, [])
+        return self.render(
+            self.table.types[descriptor.full_name].struct_path, []
+        )
 
     def _header_comment(self, lines: list[str]) -> list[str]:
         return [f"// {line}" if line else "//" for line in lines]
@@ -1569,11 +1678,17 @@ class _FileGenerator:
         body: list[str] = []
         definition: str | None = None
         if self.proto.message_type:
-            top = self.file.message_types_by_name[self.proto.message_type[0].name]
-            body.extend(self._struct_lines(top, (_FILE_MESSAGE_TYPE, 0), [], includes))
+            top = self.file.message_types_by_name[
+                self.proto.message_type[0].name
+            ]
+            body.extend(
+                self._struct_lines(top, (_FILE_MESSAGE_TYPE, 0), [], includes)
+            )
             for message, _ in self._all_messages_post_order():
                 body.append("")
-                body.extend(self._equality_lines(message, self._struct_name(message)))
+                body.extend(
+                    self._equality_lines(message, self._struct_name(message))
+                )
             definition = f"struct {'::'.join(self.path)}"
         else:
             enum = self.file.enum_types_by_name[self.proto.enum_type[0].name]
@@ -1586,16 +1701,25 @@ class _FileGenerator:
             includes.project.add(stem + STRUCT_HEADER_SUFFIX)
         header = self._header_comment(
             _wrap_comment(
-                f"Generated by nproto ({README}) from {self.name}. Do not edit.\n\n"
-                f"The plain C++ {definition} of {self._top_full_name()}. Its conversions to and from the protobuf "
-                f"{'message' if self.proto.message_type else 'enum'} are in {self.stem}{CONVERSIONS_HEADER_SUFFIX}."
+                f"Generated by nproto ({README}) from {self.name}. Do not"
+                f" edit.\n\nThe plain C++ {definition} of"
+                f" {self._top_full_name()}. Its conversions to and from the"
+                " protobuf"
+                f" {'message' if self.proto.message_type else 'enum'} are in"
+                f" {self.stem}{CONVERSIONS_HEADER_SUFFIX}."
             )
         )
         lines = header + ["", "#pragma once", ""]
         include_lines = includes.lines()
         if include_lines:
             lines += include_lines + [""]
-        lines += self._namespace_open() + [""] + body + [""] + self._namespace_close()
+        lines += (
+            self._namespace_open()
+            + [""]
+            + body
+            + [""]
+            + self._namespace_close()
+        )
         return "".join(f"{line}\n" for line in lines)
 
     def _top_full_name(self) -> str:
@@ -1623,8 +1747,14 @@ class _FileGenerator:
             result.append(
                 (
                     enum.full_name,
-                    f"void ToProto({struct} value, {_output_parameter(proto, 'proto')})",
-                    f"absl::Status FromProto({proto} proto, {_output_parameter(struct, 'value')})",
+                    (
+                        f"void ToProto({struct} value,"
+                        f" {_output_parameter(proto, 'proto')})"
+                    ),
+                    (
+                        f"absl::Status FromProto({proto} proto,"
+                        f" {_output_parameter(struct, 'value')})"
+                    ),
                 )
             )
         for message, _ in self._all_messages_post_order():
@@ -1633,8 +1763,14 @@ class _FileGenerator:
             result.append(
                 (
                     message.full_name,
-                    f"void ToProto(const {struct}& value, {_output_parameter(proto, 'proto')})",
-                    f"absl::Status FromProto(const {proto}& proto, {_output_parameter(struct, 'value')})",
+                    (
+                        f"void ToProto(const {struct}& value,"
+                        f" {_output_parameter(proto, 'proto')})"
+                    ),
+                    (
+                        f"absl::Status FromProto(const {proto}& proto,"
+                        f" {_output_parameter(struct, 'value')})"
+                    ),
                 )
             )
         return result
@@ -1651,21 +1787,31 @@ class _FileGenerator:
             if body:
                 body.append("")
             body.append(f"// {comment}")
-            body.extend(_signature_lines(to_proto, ";"))
-            body.extend(_signature_lines(from_proto, ";"))
+            body.extend(_function_lines(to_proto, ";"))
+            body.extend(_function_lines(from_proto, ";"))
         header = self._header_comment(
             _wrap_comment(
-                f"Generated by nproto ({README}) from {self.name}. Do not edit.\n\n"
-                f"ToProto() and FromProto() between the struct {'::'.join(self.path)} "
-                f"({self.stem}{STRUCT_HEADER_SUFFIX}) and the protobuf message {self._top_full_name()} "
-                f"({self.stem}.pb.h). Converting into an object that already has the shape of the value (the same "
-                "sizes, the same oneof alternatives, the same map keys) does not allocate; the README lists what does. "
-                "FromProto() fails only on a value the struct cannot hold, an enum number the enum does not define, and "
-                "leaves the struct partially written then."
+                f"Generated by nproto ({README}) from {self.name}. Do not"
+                " edit.\n\nToProto() and FromProto() between the struct"
+                f" {'::'.join(self.path)} ({self.stem}{STRUCT_HEADER_SUFFIX})"
+                " and the protobuf message"
+                f" {self._top_full_name()} ({self.stem}.pb.h). Converting into"
+                " an object that already has the shape of the value (the same"
+                " sizes, the same oneof alternatives, the same map keys) does"
+                " not allocate; the README lists what does. FromProto() fails"
+                " only on a value the struct cannot hold, an enum number the"
+                " enum does not define, and leaves the struct partially"
+                " written then."
             )
         )
         lines = header + ["", "#pragma once", ""] + includes.lines() + [""]
-        lines += self._namespace_open() + [""] + body + [""] + self._namespace_close()
+        lines += (
+            self._namespace_open()
+            + [""]
+            + body
+            + [""]
+            + self._namespace_close()
+        )
         return "".join(f"{line}\n" for line in lines)
 
     def conversions_source(self) -> str:
@@ -1690,7 +1836,11 @@ class _FileGenerator:
                 f"Generated by nproto ({README}) from {self.name}. Do not edit."
             )
         )
-        lines = header + ["", f'#include "{self.stem}{CONVERSIONS_HEADER_SUFFIX}"', ""]
+        lines = header + [
+            "",
+            f'#include "{self.stem}{CONVERSIONS_HEADER_SUFFIX}"',
+            "",
+        ]
         lines += includes.lines() + [""]
         lines += self._namespace_open() + [""] + body + self._namespace_close()
         return "".join(f"{line}\n" for line in lines)
@@ -1702,45 +1852,43 @@ class _FileGenerator:
         includes.standard.add("cstdint")
         struct = self._struct_name(enum)
         proto = self.table.types[enum.full_name].proto_class
-        lines = _signature_lines(
-            f"void ToProto({struct} value, {_output_parameter(proto, 'proto')})", " {"
+        lines = _function_lines(
+            f"void ToProto({struct} value,"
+            f" {_output_parameter(proto, 'proto')})",
+            " {",
         )
-        lines.append(f"{INDENT}*proto = static_cast<{proto}>(value);")
+        lines.extend(
+            _statement_lines([f"{INDENT}*proto = static_cast<{proto}>(value);"])
+        )
         lines.append("}")
         lines.append("")
         lines.extend(
-            _signature_lines(
-                f"absl::Status FromProto({proto} proto, {_output_parameter(struct, 'value')})",
+            _function_lines(
+                f"absl::Status FromProto({proto} proto,"
+                f" {_output_parameter(struct, 'value')})",
                 " {",
             )
         )
-        lines.append(f"{INDENT}switch (static_cast<{INT32}>(proto)) {{")
+        body = [f"{INDENT}switch (static_cast<{INT32}>(proto)) {{"]
         seen: set[int] = set()
         for name, number, _ in self._enumerators(enum):
             if number in seen:
                 continue  # an alias (allow_alias): the first name of the number wins
             seen.add(number)
             # The enumerator names the number (`magic-number`): the enum class has the proto's numbers and int32_t.
-            label = f"{INDENT * 2}case static_cast<{INT32}>({struct}::{name}):"
-            if len(label) > COLUMN_LIMIT:
-                raise GenerationError(
-                    f"{self.name}: the enumerator {struct}::{name} of enum {enum.full_name} is too long for nproto's "
-                    "code."
-                )
-            lines.append(label)
-            lines.append(f"{INDENT * 3}*value = {struct}::{name};")
-            lines.append(f"{INDENT * 3}return absl::OkStatus();")
-        lines.append(f"{INDENT * 2}default:")
-        error = f'::nproto::internal::UnknownEnumValueError(static_cast<{INT32}>(proto), "{enum.full_name}")'
-        statement = f"{INDENT * 3}return {error};"
-        if len(statement) > COLUMN_LIMIT:
-            raise GenerationError(
-                f"{self.name}: the name of enum {enum.full_name} is too long for nproto's code."
+            body.append(
+                f"{INDENT * 2}case static_cast<{INT32}>({struct}::{name}):"
             )
-        lines.append(statement)
-        lines.append(f"{INDENT}}}")
-        lines.append("}")
-        return lines
+            body.append(f"{INDENT * 3}*value = {struct}::{name};")
+            body.append(f"{INDENT * 3}return absl::OkStatus();")
+        body.append(f"{INDENT * 2}default:")
+        error = (
+            f"::nproto::internal::UnknownEnumValueError(static_cast<{INT32}>(proto),"
+            f' "{enum.full_name}")'
+        )
+        body.append(f"{INDENT * 3}return {error};")
+        body.append(f"{INDENT}}}")
+        return lines + _statement_lines(body) + ["}"]
 
     def _proto_enum(self, field: FieldDescriptor) -> str:
         return self._type_info(
@@ -1754,21 +1902,25 @@ class _FileGenerator:
         fields = self._fields(message)
         parameter = "value" if fields else "/*value*/"
         proto_parameter = "proto" if fields else "/*proto*/"
-        signature = f"void ToProto(const {struct}& {parameter}, {_output_parameter(proto_class, proto_parameter)})"
+        signature = (
+            f"void ToProto(const {struct}& {parameter},"
+            f" {_output_parameter(proto_class, proto_parameter)})"
+        )
         if not fields:
-            return _signature_lines(signature, " {}")
-        lines = _signature_lines(signature, " {")
+            return _function_lines(signature, " {}")
+        body: list[str] = []
         emitted: set[str] = set()
         for field in fields:
             if field.oneof:
                 if field.oneof in emitted:
                     continue
                 emitted.add(field.oneof)
-                lines.extend(self._oneof_to_proto_lines(message, fields, field.oneof))
+                body.extend(
+                    self._oneof_to_proto_lines(message, fields, field.oneof)
+                )
                 continue
-            lines.extend(self._field_to_proto_lines(field))
-        lines.append("}")
-        return _wrap_statements(lines)
+            body.extend(self._field_to_proto_lines(field))
+        return _function_lines(signature, " {") + _statement_lines(body) + ["}"]
 
     def _field_to_proto_lines(self, field: _Field) -> list[str]:
         """The statements of ToProto() that write `field`, which is not in a oneof, into the message."""
@@ -1807,7 +1959,8 @@ class _FileGenerator:
             _KIND_MAP: "MapToProto",
         }[kind]
         return [
-            f"{i1}::nproto::internal::{helper}({member}, proto->mutable_{accessor}());"
+            f"{i1}::nproto::internal::{helper}({member},"
+            f" proto->mutable_{accessor}());"
         ]
 
     def _oneof_to_proto_lines(
@@ -1824,7 +1977,8 @@ class _FileGenerator:
             alternative = f"std::get<{constant}>(value.{oneof})"
             if field.kind == _KIND_MESSAGE:
                 statement = (
-                    f"ToProto({alternative}, proto->mutable_{field.accessor}());"
+                    f"ToProto({alternative},"
+                    f" proto->mutable_{field.accessor}());"
                 )
             elif field.kind == _KIND_ENUM:
                 statement = f"proto->set_{field.accessor}(static_cast<{self._proto_enum(field.descriptor)}>({alternative}));"
@@ -1846,29 +2000,35 @@ class _FileGenerator:
         fields = self._fields(message)
         parameter = "proto" if fields else "/*proto*/"
         value_parameter = "value" if fields else "/*value*/"
-        lines = _signature_lines(
-            f"absl::Status FromProto(const {proto_class}& {parameter}, {_output_parameter(struct, value_parameter)})",
+        lines = _function_lines(
+            f"absl::Status FromProto(const {proto_class}& {parameter},"
+            f" {_output_parameter(struct, value_parameter)})",
             " {",
         )
+        body: list[str] = []
         if any(_can_fail(field) for field in fields):
-            lines.append(f"{INDENT}absl::Status status;")
+            body.append(f"{INDENT}absl::Status status;")
         emitted: set[str] = set()
         for field in fields:
             if field.oneof:
                 if field.oneof in emitted:
                     continue
                 emitted.add(field.oneof)
-                lines.extend(self._oneof_from_proto_lines(message, fields, field.oneof))
+                body.extend(
+                    self._oneof_from_proto_lines(message, fields, field.oneof)
+                )
                 continue
-            lines.extend(self._field_from_proto_lines(field))
-        lines.append(f"{INDENT}return absl::OkStatus();")
-        lines.append("}")
-        return _wrap_statements(lines)
+            body.extend(self._field_from_proto_lines(field))
+        body.append(f"{INDENT}return absl::OkStatus();")
+        return lines + _statement_lines(body) + ["}"]
 
     def _check_status(self, name: str, indent: str) -> list[str]:
         return [
             f"{indent}if (!status.ok()) {{",
-            f'{indent}{INDENT}return ::nproto::internal::AnnotateError("{name}", status);',
+            (
+                f"{indent}{INDENT}return"
+                f' ::nproto::internal::AnnotateError("{name}", status);'
+            ),
             f"{indent}}}",
         ]
 
@@ -1882,10 +2042,13 @@ class _FileGenerator:
             presence = f"proto.has_{field.accessor}()"
             if kind in (_KIND_ENUM, _KIND_MESSAGE):
                 return [
-                    f"{i1}status = ::nproto::internal::ConvertOptionalFromProto({presence}, {getter}, &{member});"
+                    f"{i1}status ="
+                    f" ::nproto::internal::ConvertOptionalFromProto({presence},"
+                    f" {getter}, &{member});"
                 ] + self._check_status(field.name, i1)
             return [
-                f"{i1}::nproto::internal::CopyOptionalFromProto({presence}, {getter}, &{member});"
+                f"{i1}::nproto::internal::CopyOptionalFromProto({presence},"
+                f" {getter}, &{member});"
             ]
         if kind == _KIND_SCALAR:
             return [f"{i1}{member} = {getter};"]
@@ -1898,7 +2061,9 @@ class _FileGenerator:
         if kind == _KIND_ENUMS:
             proto_enum = self._proto_enum(field.descriptor)
             return [
-                f"{i1}status = ::nproto::internal::EnumsFromProto<{proto_enum}>({getter}, &{member});"
+                f"{i1}status ="
+                f" ::nproto::internal::EnumsFromProto<{proto_enum}>({getter},"
+                f" &{member});"
             ] + self._check_status(field.name, i1)
         helper = {
             _KIND_EIGEN: "VectorFromProto",
@@ -1927,12 +2092,15 @@ class _FileGenerator:
             getter = f"proto.{field.accessor}()"
             if field.kind in (_KIND_ENUM, _KIND_MESSAGE):
                 lines.append(
-                    f"{i2}status = ::nproto::internal::ConvertAlternativeFromProto<{constant}>({getter}, &value->{oneof});"
+                    f"{i2}status ="
+                    f" ::nproto::internal::ConvertAlternativeFromProto<{constant}>({getter},"
+                    f" &value->{oneof});"
                 )
                 lines.extend(self._check_status(field.name, i2))
             else:
                 lines.append(
-                    f"{i2}::nproto::internal::CopyAlternativeFromProto<{constant}>({getter}, &value->{oneof});"
+                    f"{i2}::nproto::internal::CopyAlternativeFromProto<{constant}>({getter},"
+                    f" &value->{oneof});"
                 )
         lines.append(f"{i1}}} else {{")
         lines.append(f"{i2}value->{oneof}.emplace<std::monostate>();")
@@ -1963,8 +2131,9 @@ class _FileGenerator:
             member = field.oneof or field.name
             if member in nested_names:
                 raise GenerationError(
-                    f"{self.name}: {message.full_name} has a nested type and a "
-                    f"{'oneof' if field.oneof else 'field'} both named {member}, which one struct cannot hold."
+                    f"{self.name}: {message.full_name} has a nested type and a"
+                    f" {'oneof' if field.oneof else 'field'} both named"
+                    f" {member}, which one struct cannot hold."
                 )
             if field.oneof:
                 self._check_name(
@@ -1973,13 +2142,15 @@ class _FileGenerator:
             for constant, what in _constants(field):
                 if constant in constants and constants[constant] != field.name:
                     raise GenerationError(
-                        f"{self.name}: fields {constants[constant]} and {field.name} of {message.full_name} both "
-                        f"name the {what} {constant}; rename one of them."
+                        f"{self.name}: fields {constants[constant]} and"
+                        f" {field.name} of {message.full_name} both name the"
+                        f" {what} {constant}; rename one of them."
                     )
                 if constant in members or constant in nested_names:
                     raise GenerationError(
-                        f"{self.name}: {message.full_name} has a member or nested type named {constant}, which is "
-                        f"also the {what} of field {field.name}; rename one of them."
+                        f"{self.name}: {message.full_name} has a member or"
+                        f" nested type named {constant}, which is also the"
+                        f" {what} of field {field.name}; rename one of them."
                     )
                 constants[constant] = field.name
 
@@ -1995,6 +2166,8 @@ class _FileGenerator:
             (CONVERSIONS_HEADER_SUFFIX, self.conversions_header()),
             (CONVERSIONS_SOURCE_SUFFIX, self.conversions_source()),
         ):
+            content = _fit_comments(content)
+            self._check_line_lengths(self.stem + suffix, content)
             files.append(
                 plugin_pb2.CodeGeneratorResponse.File(
                     name=self.stem + suffix, content=content
@@ -2002,19 +2175,49 @@ class _FileGenerator:
             )
         return files
 
+    def _check_line_lengths(self, file_name: str, content: str) -> None:
+        """Raises GenerationError if a line of code in `content` is longer than COLUMN_LIMIT although wrapped.
+
+        The generator breaks every statement and declaration as clang-format does (nproto_layout.py); a line still too
+        long has a name that does not fit a line by itself, which clang-format would break differently or not at all.
+        A comment may keep a word longer than a line, which clang-format leaves whole, and an #include is never broken.
+
+        Args:
+          file_name: The name of the generated file, for the error.
+          content: The generated file.
+        """
+        for number, line in enumerate(content.split("\n"), start=1):
+            if (
+                len(line) <= COLUMN_LIMIT
+                or _FULL_LINE_COMMENT.fullmatch(line)
+                or line.startswith("#include ")
+            ):
+                continue
+            raise GenerationError(
+                f"{self.name}: a name is too long for nproto's code: line"
+                f" {number} of {file_name}, `{line.strip()}`, is"
+                f" {len(line)} columns wide, more than the {COLUMN_LIMIT} of a"
+                " line, even broken as clang-format breaks it; shorten the"
+                " name."
+            )
+
 
 def _empty_files(
     file_proto: descriptor_pb2.FileDescriptorProto,
 ) -> list[plugin_pb2.CodeGeneratorResponse.File]:
     """The three files of a .proto file that defines no message or enum (only options, extensions or services)."""
     stem = output_stem(file_proto.name)
-    note = f"// Generated by nproto ({README}) from {file_proto.name}, which defines no message or enum.\n"
+    note = _fit_comments(
+        f"// Generated by nproto ({README}) from {file_proto.name}, which"
+        " defines no message or enum.\n"
+    )
     return [
         plugin_pb2.CodeGeneratorResponse.File(
             name=stem + STRUCT_HEADER_SUFFIX, content=f"{note}\n#pragma once\n"
         ),
         plugin_pb2.CodeGeneratorResponse.File(
-            name=stem + CONVERSIONS_HEADER_SUFFIX, content=f"{note}\n#pragma once\n"
+            name=stem + CONVERSIONS_HEADER_SUFFIX,
+            content=f"{note}\n#pragma once\n",
         ),
         plugin_pb2.CodeGeneratorResponse.File(
             name=stem + CONVERSIONS_SOURCE_SUFFIX, content=note

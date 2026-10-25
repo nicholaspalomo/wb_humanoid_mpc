@@ -150,7 +150,8 @@ class ScalarBatcher:
             )
         indexes.append(
             rr.TimeColumn(
-                WALL_TIMELINE, timestamp=np.asarray(batch.wall_times, dtype=np.float64)
+                WALL_TIMELINE,
+                timestamp=np.asarray(batch.wall_times, dtype=np.float64),
             )
         )
         self._recording.send_columns(
@@ -185,7 +186,10 @@ def _index_field(timeline: str, arrow_type: pa.DataType) -> pa.Field:
         timeline,
         arrow_type,
         nullable=False,
-        metadata={b"rerun:kind": _INDEX_KIND, b"rerun:index_name": timeline.encode()},
+        metadata={
+            b"rerun:kind": _INDEX_KIND,
+            b"rerun:index_name": timeline.encode(),
+        },
     )
 
 
@@ -296,7 +300,9 @@ class FrameBatcher:
         if frames == 0:
             return 0
         columns = {
-            path: column for path, column in self._columns.items() if column.frames
+            path: column
+            for path, column in self._columns.items()
+            if column.frames
         }
         robot_times, wall_times = self._robot_times, self._wall_times
         self._robot_times, self._wall_times, self._columns = [], [], {}

@@ -40,27 +40,31 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::web_viewer {
 
 /**
- * Decodes JPEG images to RGB with libjpeg-turbo, for the tests that check the frames the viewer serves.
+ * Decodes JPEG images to RGB with libjpeg-turbo, for the tests that check the
+ * frames the viewer serves.
  *
  * Not thread-safe: one decoder per thread.
  */
 class JpegDecoder {
  public:
-  // A decoded image: `height` rows of `width` RGB pixels, top row first, no row padding.
+  // A decoded image: `height` rows of `width` RGB pixels, top row first, no row
+  // padding.
   struct Image {
     int width = 0;
     int height = 0;
     std::vector<uint8_t> rgb = {};
   };
 
-  /** Creates a decoder; Internal when libjpeg-turbo cannot allocate its decompressor. */
+  /** Creates a decoder; Internal when libjpeg-turbo cannot allocate its
+   * decompressor. */
   static absl::StatusOr<std::unique_ptr<JpegDecoder>> Create();
 
   ~JpegDecoder();
   JpegDecoder(const JpegDecoder&) = delete;
   JpegDecoder& operator=(const JpegDecoder&) = delete;
 
-  /** Decodes `jpeg`; InvalidArgument when it is not a JPEG image libjpeg-turbo can read. */
+  /** Decodes `jpeg`; InvalidArgument when it is not a JPEG image libjpeg-turbo
+   * can read. */
   absl::StatusOr<Image> decode(absl::string_view jpeg);
 
  private:

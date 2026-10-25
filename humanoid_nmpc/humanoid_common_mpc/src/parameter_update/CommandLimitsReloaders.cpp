@@ -40,14 +40,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-std::vector<MpcParameterUpdaterModule::ReferenceFileReloader> makeCommandLimitsReloaders(
-    TargetTrajectoriesCalculatorBase* absl_nonnull calculator, std::shared_ptr<ProceduralMpcMotionManager> motionManager) {
+std::vector<MpcParameterUpdaterModule::ReferenceFileReloader>
+makeCommandLimitsReloaders(
+    TargetTrajectoriesCalculatorBase* absl_nonnull calculator,
+    std::shared_ptr<ProceduralMpcMotionManager> motionManager) {
   std::vector<MpcParameterUpdaterModule::ReferenceFileReloader> reloaders;
   reloaders.emplace_back([calculator](const ReferenceSettings& settings) {
     calculator->applyCommandLimits(settings);
     return absl::OkStatus();
   });
-  reloaders.emplace_back([motionManager = std::move(motionManager)](const ReferenceSettings& settings) {
+  reloaders.emplace_back([motionManager = std::move(motionManager)](
+                             const ReferenceSettings& settings) {
     return motionManager->applyCommandLimits(settings);
   });
   return reloaders;

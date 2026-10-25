@@ -46,7 +46,13 @@ BINARIES = (
     "bin/humanoid_nmpc/humanoid_wb_mpc_app/humanoid_wb_mpc_robot",
 )
 # LINT.IfChange(robot_configurations)
-ROBOTS = ("drc_atlas", "engineai_sa01", "unitree_g1", "unitree_g1_wb", "unitree_r1")
+ROBOTS = (
+    "drc_atlas",
+    "engineai_sa01",
+    "unitree_g1",
+    "unitree_g1_wb",
+    "unitree_r1",
+)
 # LINT.ThenChange(//tools/deploy/BUILD.bazel:robot_configurations)
 # The flags whose values are files the robot process reads.
 FILE_FLAGS = (
@@ -84,20 +90,26 @@ class RobotBundleTest(unittest.TestCase):
         for member in self.members:
             with self.subTest(member=member.name):
                 self.assertTrue(member.isfile() or member.isdir())
-                self.assertEqual((member.uid, member.gid, member.mtime), (0, 0, 0))
+                self.assertEqual(
+                    (member.uid, member.gid, member.mtime), (0, 0, 0)
+                )
                 self.assertIn(member.mode, (0o644, 0o755))
 
     def test_the_layout(self) -> None:
         for binary in BINARIES:
             with self.subTest(binary=binary):
                 self.assertTrue(os.access(self.path(binary), os.X_OK))
-                self.assertTrue(os.path.isdir(self.path(f"{binary}.runfiles/_main")))
+                self.assertTrue(
+                    os.path.isdir(self.path(f"{binary}.runfiles/_main"))
+                )
         for script in (
             "robot_entrypoint.sh",
             "netem.sh",
             "collect_runtime_libraries.sh",
         ):
-            self.assertTrue(os.access(self.path(f"bin/{script}"), os.X_OK), script)
+            self.assertTrue(
+                os.access(self.path(f"bin/{script}"), os.X_OK), script
+            )
         self.assertEqual(
             sorted(os.listdir(self.path("launch"))),
             sorted(f"{robot}.sh" for robot in ROBOTS),
@@ -118,7 +130,12 @@ class RobotBundleTest(unittest.TestCase):
 
     def test_the_binaries_find_their_libraries_from_the_bundle(self) -> None:
         result = subprocess.run(
-            ["sh", self.path("bin/collect_runtime_libraries.sh"), "check", self.root],
+            [
+                "sh",
+                self.path("bin/collect_runtime_libraries.sh"),
+                "check",
+                self.root,
+            ],
             capture_output=True,
             text=True,
             check=False,  # The assertion below shows the output.
@@ -126,9 +143,14 @@ class RobotBundleTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         for binary in BINARIES:
             output = subprocess.run(
-                ["ldd", self.path(binary)], capture_output=True, text=True, check=True
+                ["ldd", self.path(binary)],
+                capture_output=True,
+                text=True,
+                check=True,
             ).stdout
-            mujoco = [line for line in output.splitlines() if "libmujoco" in line]
+            mujoco = [
+                line for line in output.splitlines() if "libmujoco" in line
+            ]
             with self.subTest(binary=binary):
                 self.assertEqual(len(mujoco), 1, output)
                 # From the bundle's own runfiles, never from Bazel's output tree.
@@ -145,13 +167,18 @@ class RobotBundleTest(unittest.TestCase):
             copy = os.path.join(directory, "bundle")
             shutil.copytree(self.root, copy, symlinks=True)
             for binary in BINARIES:
-                with open(os.path.join(copy, binary), "w", encoding="utf-8") as stream:
+                with open(
+                    os.path.join(copy, binary), "w", encoding="utf-8"
+                ) as stream:
                     stream.write(
-                        '#!/bin/sh\necho "$0"\nfor a in "$@"; do echo "$a"; done\n'
+                        '#!/bin/sh\necho "$0"\nfor a in "$@"; do echo "$a";'
+                        " done\n"
                     )
             for robot in ROBOTS:
                 with self.subTest(robot=robot):
-                    lines = self.run_script(os.path.join(copy, "launch", f"{robot}.sh"))
+                    lines = self.run_script(
+                        os.path.join(copy, "launch", f"{robot}.sh")
+                    )
                     program, arguments = lines[0], lines[1:]
                     self.assertIn(
                         (
@@ -161,7 +188,9 @@ class RobotBundleTest(unittest.TestCase):
                         ),
                         BINARIES,
                     )
-                    flags = dict(argument.split("=", 1) for argument in arguments)
+                    flags = dict(
+                        argument.split("=", 1) for argument in arguments
+                    )
                     for flag in FILE_FLAGS:
                         self.assertTrue(
                             os.path.isfile(os.path.join(copy, flags[flag])),
@@ -175,7 +204,9 @@ class RobotBundleTest(unittest.TestCase):
                         "joint_pd_gains.textproto",
                     )
                     # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/config/ConfigFiles.h:config_layout)
-                    self.assertTrue(os.path.isfile(os.path.join(copy, gains)), gains)
+                    self.assertTrue(
+                        os.path.isfile(os.path.join(copy, gains)), gains
+                    )
                     self.assertEqual(flags["--backend"], "mujoco")
                     # The launch file names no viewer, so the plot configuration's mujoco_viewer (web) chooses unless
                     # the image or the environment names one; the web viewer serves this machine only.
@@ -187,32 +218,42 @@ class RobotBundleTest(unittest.TestCase):
                     self.assertEqual(flags["--web_viewer_address"], "127.0.0.1")
                     # Without a store directory the robot reads the bundle's files in place; the images set one.
                     self.assertEqual(flags["--config_store_dir"], "")
-                    self.assertEqual(flags["--config_seed"], "when_bundle_changes")
+                    self.assertEqual(
+                        flags["--config_seed"], "when_bundle_changes"
+                    )
                     formulation = (
                         "humanoid_wb_mpc"
                         if robot.endswith("_wb")
                         else "humanoid_centroidal_mpc"
                     )
-                    self.assertTrue(program.endswith(f"/{formulation}_robot"), program)
+                    self.assertTrue(
+                        program.endswith(f"/{formulation}_robot"), program
+                    )
 
             # The environment chooses: the network file, the viewer, the priority, the stored configuration.
             lines = self.run_script(
                 os.path.join(copy, "launch", "drc_atlas.sh"),
                 {
-                    "WB_ROBOT_NETWORK_FILE": "config/ipc/two_machine.example.textproto",
+                    "WB_ROBOT_NETWORK_FILE": (
+                        "config/ipc/two_machine.example.textproto"
+                    ),
                     "WB_ROBOT_VIEWER": "web,none",
                     "WB_ROBOT_WEB_VIEWER_PORT": "16090",
                     "WB_ROBOT_REALTIME_PRIORITY": "0",
-                    "WB_ROBOT_CONFIG_STORE_DIR": "/var/lib/wb-humanoid-robot/config/drc_atlas",
+                    "WB_ROBOT_CONFIG_STORE_DIR": (
+                        "/var/lib/wb-humanoid-robot/config/drc_atlas"
+                    ),
                     "WB_ROBOT_CONFIG_SEED": "every_start",
                 },
             )
             self.assertIn(
-                "--config_store_dir=/var/lib/wb-humanoid-robot/config/drc_atlas", lines
+                "--config_store_dir=/var/lib/wb-humanoid-robot/config/drc_atlas",
+                lines,
             )
             self.assertIn("--config_seed=every_start", lines)
             self.assertIn(
-                "--network_config=config/ipc/two_machine.example.textproto", lines
+                "--network_config=config/ipc/two_machine.example.textproto",
+                lines,
             )
             self.assertIn("--viewer=web,none", lines)
             self.assertIn("--web_viewer_port=16090", lines)
@@ -224,7 +265,10 @@ class RobotBundleTest(unittest.TestCase):
                 with self.subTest(default=default):
                     lines = self.run_script(
                         os.path.join(copy, "bin", "robot_entrypoint.sh"),
-                        {"ROBOT": "drc_atlas", "WB_ROBOT_DEFAULT_VIEWER": default},
+                        {
+                            "ROBOT": "drc_atlas",
+                            "WB_ROBOT_DEFAULT_VIEWER": default,
+                        },
                     )
                     self.assertIn(f"--viewer={default}", lines)
                     lines = self.run_script(
@@ -232,7 +276,9 @@ class RobotBundleTest(unittest.TestCase):
                         {
                             "ROBOT": "drc_atlas",
                             "WB_ROBOT_DEFAULT_VIEWER": default,
-                            "WB_ROBOT_PLOT_CONFIG": "/etc/wb-humanoid-robot/plot_config.textproto",
+                            "WB_ROBOT_PLOT_CONFIG": (
+                                "/etc/wb-humanoid-robot/plot_config.textproto"
+                            ),
                         },
                     )
                     self.assertIn("--viewer=", lines)
@@ -248,7 +294,12 @@ class RobotBundleTest(unittest.TestCase):
         env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin")}
         env.update(environment or {})
         result = subprocess.run(
-            [script], capture_output=True, text=True, env=env, timeout=30, check=False
+            [script],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=30,
+            check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.splitlines()

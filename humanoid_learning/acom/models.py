@@ -54,7 +54,9 @@ def siren_init(
         w_bound = jnp.sqrt(6.0 / in_dim) / omega_0
 
     k1, k2 = jax.random.split(key)
-    w = jax.random.uniform(k1, (out_dim, in_dim), minval=-w_bound, maxval=w_bound)
+    w = jax.random.uniform(
+        k1, (out_dim, in_dim), minval=-w_bound, maxval=w_bound
+    )
     b = jax.random.uniform(k2, (out_dim,), minval=-w_bound, maxval=w_bound)
     return w, b
 
@@ -69,9 +71,18 @@ def quaternion_product(a: jnp.ndarray, b: jnp.ndarray) -> jnp.ndarray:
     """Returns the Hamilton product a (x) b of quaternion coefficients (x, y, z, w)."""
     a_vector, a_scalar = a[:3], a[3]
     b_vector, b_scalar = b[:3], b[3]
-    vector = a_scalar * b_vector + b_scalar * a_vector + jnp.cross(a_vector, b_vector)
+    vector = (
+        a_scalar * b_vector
+        + b_scalar * a_vector
+        + jnp.cross(a_vector, b_vector)
+    )
     return jnp.concatenate(
-        [vector, jnp.reshape(a_scalar * b_scalar - jnp.dot(a_vector, b_vector), (1,))]
+        [
+            vector,
+            jnp.reshape(
+                a_scalar * b_scalar - jnp.dot(a_vector, b_vector), (1,)
+            ),
+        ]
     )
 
 
@@ -99,16 +110,30 @@ def quaternion_rotation_matrix(xi: jnp.ndarray) -> jnp.ndarray:
     x, y, z, w = xi[0], xi[1], xi[2], xi[3]
     return jnp.array(
         [
-            [1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y - z * w), 2.0 * (x * z + y * w)],
-            [2.0 * (x * y + z * w), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z - x * w)],
-            [2.0 * (x * z - y * w), 2.0 * (y * z + x * w), 1.0 - 2.0 * (x * x + y * y)],
+            [
+                1.0 - 2.0 * (y * y + z * z),
+                2.0 * (x * y - z * w),
+                2.0 * (x * z + y * w),
+            ],
+            [
+                2.0 * (x * y + z * w),
+                1.0 - 2.0 * (x * x + z * z),
+                2.0 * (y * z - x * w),
+            ],
+            [
+                2.0 * (x * z - y * w),
+                2.0 * (y * z + x * w),
+                1.0 - 2.0 * (x * x + y * y),
+            ],
         ]
     )
 
 
 def _cross_product_matrix(v: jnp.ndarray) -> jnp.ndarray:
     """Returns [v]x, the matrix of the cross product with v."""
-    return jnp.array([[0.0, -v[2], v[1]], [v[2], 0.0, -v[0]], [-v[1], v[0], 0.0]])
+    return jnp.array(
+        [[0.0, -v[2], v[1]], [v[2], 0.0, -v[0]], [-v[1], v[0], 0.0]]
+    )
 
 
 def so3_right_jacobian(phi: jnp.ndarray) -> jnp.ndarray:
@@ -207,7 +232,11 @@ class SirenACOM:
 
         # First layer
         w, b = siren_init(
-            keys[0], self.in_dim, self.hidden_dim, is_first=True, omega_0=self.omega_0
+            keys[0],
+            self.in_dim,
+            self.hidden_dim,
+            is_first=True,
+            omega_0=self.omega_0,
         )
         params.append((w, b))
 
@@ -224,9 +253,14 @@ class SirenACOM:
 
         # Output layer (linear readout with small initialization)
         w_bound = jnp.sqrt(6.0 / self.hidden_dim) / self.omega_0
-        k_w, _ = jax.random.split(keys[-1])  # The readout's bias starts at zero.
+        k_w, _ = jax.random.split(
+            keys[-1]
+        )  # The readout's bias starts at zero.
         w_out = jax.random.uniform(
-            k_w, (self.out_dim, self.hidden_dim), minval=-w_bound, maxval=w_bound
+            k_w,
+            (self.out_dim, self.hidden_dim),
+            minval=-w_bound,
+            maxval=w_bound,
         )
         b_out = jnp.zeros((self.out_dim,))
         params.append((w_out, b_out))
@@ -269,7 +303,9 @@ class SirenACOM:
             The ACoM attitude, unit quaternion coefficients (x, y, z, w).
         """
         xi_hat = xi / jnp.linalg.norm(xi)
-        return quaternion_product(xi_hat, quaternion_exp(self.forward(params, q_j)))
+        return quaternion_product(
+            xi_hat, quaternion_exp(self.forward(params, q_j))
+        )
 
     def acom_attitude_tangent_jacobian(
         self, params: SirenParams, q_j: jnp.ndarray
@@ -322,5 +358,6 @@ class SirenACOM:
             J_l(Delta_theta(q_j)) J_Delta_theta(q_j), shape (3, n_j).
         """
         return jnp.dot(
-            so3_left_jacobian(self.forward(params, q_j)), self.jacobian_qj(params, q_j)
+            so3_left_jacobian(self.forward(params, q_j)),
+            self.jacobian_qj(params, q_j),
         )

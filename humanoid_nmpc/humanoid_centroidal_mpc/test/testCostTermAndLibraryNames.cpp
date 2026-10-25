@@ -39,57 +39,88 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
 #include "humanoid_common_mpc/common/CostTermNames.h"
+#include "humanoid_common_mpc/constraint/FootCollisionCbfConstraint.h"
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
 
 /**
- * The names CentroidalMpcInterface registers its CppAD terms under and the names it builds their CppAD libraries with,
- * pinned with today's strings. Each pair is the same string, defined twice on purpose: the term name is what the
- * parameter updater finds the term by, the library name is the folder of generated code under cppad_code_gen/ (the
- * library suffixes are the classes' own). A rename of a term must never rename a library, which would regenerate it and
- * could change the problem's numbers, so either change fails here. Builds no CppAD model.
+ * The names CentroidalMpcInterface registers its CppAD terms under and the
+ * names it builds their CppAD libraries with, pinned with today's strings. Each
+ * pair is the same string, defined twice on purpose: the term name is what the
+ * parameter updater finds the term by, the library name is the folder of
+ * generated code under cppad_code_gen/ (the library suffixes are the classes'
+ * own). A rename of a term must never rename a library, which would regenerate
+ * it and could change the problem's numbers, so either change fails here.
+ * Builds no CppAD model.
  */
 namespace ocs2::humanoid {
 namespace {
 
 TEST(CostTermAndLibraryNames, TheDcmTerminalCostKeepsItsTermAndLibraryNames) {
   EXPECT_EQ(absl::string_view(DcmTerminalCost::kTermName), "dcmTerminalCost");
-  // The library is "dcmTerminalCost_p11" (DcmTerminalCost.cpp appends its parameter count).
-  EXPECT_EQ(absl::string_view(DcmTerminalCost::kLibraryName), "dcmTerminalCost");
+  // The library is "dcmTerminalCost_p11" (DcmTerminalCost.cpp appends its
+  // parameter count).
+  EXPECT_EQ(absl::string_view(DcmTerminalCost::kLibraryName),
+            "dcmTerminalCost");
 }
 
 TEST(CostTermAndLibraryNames, TheFootCostKeepsItsTermAndLibraryNames) {
-  for (const std::string footName : {"foot_l_contact", "foot_r_contact", "left_ankle_roll_link"}) {
+  for (const std::string footName :
+       {"foot_l_contact", "foot_r_contact", "left_ankle_roll_link"}) {
     SCOPED_TRACE(footName);
-    EXPECT_EQ(taskSpaceKinematicsCostName(footName), absl::StrCat(footName, "_TaskSpaceKinematicsCost"));
-    // The library is "<foot>_TaskSpaceKinematicsCost_tiltAngle" (CentroidalMpcEndEffectorFootCost.cpp appends the
-    // residual's version, which changes with the residual).
-    EXPECT_EQ(CentroidalMpcEndEffectorFootCost::libraryName(footName), absl::StrCat(footName, "_TaskSpaceKinematicsCost"));
+    EXPECT_EQ(taskSpaceKinematicsCostName(footName),
+              absl::StrCat(footName, "_TaskSpaceKinematicsCost"));
+    // The library is "<foot>_TaskSpaceKinematicsCost_tiltAngle"
+    // (CentroidalMpcEndEffectorFootCost.cpp appends the residual's version,
+    // which changes with the residual).
+    EXPECT_EQ(CentroidalMpcEndEffectorFootCost::libraryName(footName),
+              absl::StrCat(footName, "_TaskSpaceKinematicsCost"));
   }
-  EXPECT_EQ(absl::string_view(CentroidalMpcEndEffectorFootCost::kLibraryVersionSuffix), "_tiltAngle");
+  EXPECT_EQ(absl::string_view(
+                CentroidalMpcEndEffectorFootCost::kLibraryVersionSuffix),
+            "_tiltAngle");
 }
 
-TEST(CostTermAndLibraryNames, TheOtherTermsKeepTheNamesTheInterfaceRegistersThemUnder) {
-  // Terms whose libraries are named after their frames or the factory's own literals, not after these.
-  EXPECT_EQ(absl::string_view(kStateInputQuadraticCostTerm), "stateInputQuadraticCost");
+TEST(CostTermAndLibraryNames,
+     TheOtherTermsKeepTheNamesTheInterfaceRegistersThemUnder) {
+  // Terms whose libraries are named after their frames or the factory's own
+  // literals, not after these.
+  EXPECT_EQ(absl::string_view(kStateInputQuadraticCostTerm),
+            "stateInputQuadraticCost");
   EXPECT_EQ(absl::string_view(kStateQuadraticCostTerm), "stateQuadraticCost");
   EXPECT_EQ(absl::string_view(kInputQuadraticCostTerm), "inputQuadraticCost");
   EXPECT_EQ(absl::string_view(kTerminalCostTerm), "terminalCost");
   EXPECT_EQ(absl::string_view(kJointLimitsTerm), "jointLimits");
-  EXPECT_EQ(absl::string_view(kFootCollisionTerm), "FootCollisionSoftConstraint");
-  EXPECT_EQ(externalTorqueCostName("foot_l_contact"), "foot_l_contact_ExternalTorqueQuadraticCost");
-  EXPECT_EQ(zeroVelocityTermName("foot_l_contact"), "foot_l_contact_zeroVelocity");
-  EXPECT_EQ(basisNonNegativityTermName("foot_l_contact"), "foot_l_contact_basisNonNegativity");
+  EXPECT_EQ(absl::string_view(kFootCollisionTerm),
+            "FootCollisionSoftConstraint");
+  EXPECT_EQ(absl::string_view(kFootCollisionCbfTerm),
+            "FootCollisionCbfSoftConstraint");
+  EXPECT_EQ(absl::string_view(FootCollisionCbfConstraint::kLibraryName),
+            "FootCollisionCbfConstraint");
+  EXPECT_EQ(externalTorqueCostName("foot_l_contact"),
+            "foot_l_contact_ExternalTorqueQuadraticCost");
+  EXPECT_EQ(zeroVelocityTermName("foot_l_contact"),
+            "foot_l_contact_zeroVelocity");
+  EXPECT_EQ(basisNonNegativityTermName("foot_l_contact"),
+            "foot_l_contact_basisNonNegativity");
 }
 
-// The single-rigid-body model tapes other dynamics and another momentum mapping under the same library names and sizes,
-// so its libraries live in a folder of their own; the full centroidal dynamics keeps the folder every robot ships with,
-// whose library names the benchmark baselines count.
-TEST(CostTermAndLibraryNames, TheCppAdModelFolderKeyNamesEveryCentroidalModelButTheFullDynamics) {
-  EXPECT_EQ(cppAdModelFolderKey(CentroidalModelType::FullCentroidalDynamics, kWrenchInputsLibraryKey), "wrench_inputs");
-  EXPECT_EQ(cppAdModelFolderKey(CentroidalModelType::FullCentroidalDynamics, /*inputParameterizationKey=*/"basis_abc"), "basis_abc");
-  EXPECT_EQ(cppAdModelFolderKey(CentroidalModelType::SingleRigidBodyDynamics, kWrenchInputsLibraryKey),
+// The single-rigid-body model tapes other dynamics and another momentum mapping
+// under the same library names and sizes, so its libraries live in a folder of
+// their own; the full centroidal dynamics keeps the folder every robot ships
+// with, whose library names the benchmark baselines count.
+TEST(CostTermAndLibraryNames,
+     TheCppAdModelFolderKeyNamesEveryCentroidalModelButTheFullDynamics) {
+  EXPECT_EQ(cppAdModelFolderKey(CentroidalModelType::FullCentroidalDynamics,
+                                kWrenchInputsLibraryKey),
+            "wrench_inputs");
+  EXPECT_EQ(cppAdModelFolderKey(CentroidalModelType::FullCentroidalDynamics,
+                                /*inputParameterizationKey=*/"basis_abc"),
+            "basis_abc");
+  EXPECT_EQ(cppAdModelFolderKey(CentroidalModelType::SingleRigidBodyDynamics,
+                                kWrenchInputsLibraryKey),
             "single_rigid_body_dynamics/wrench_inputs");
-  EXPECT_EQ(cppAdModelFolderKey(CentroidalModelType::SingleRigidBodyDynamics, /*inputParameterizationKey=*/"basis_abc"),
+  EXPECT_EQ(cppAdModelFolderKey(CentroidalModelType::SingleRigidBodyDynamics,
+                                /*inputParameterizationKey=*/"basis_abc"),
             "single_rigid_body_dynamics/basis_abc");
 }
 

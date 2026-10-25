@@ -53,9 +53,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::mujoco_sim_interface {
 namespace {
 
-using LibraryTable = absl::flat_hash_map<std::string, std::unique_ptr<const EglLibrary>>;
+using LibraryTable =
+    absl::flat_hash_map<std::string, std::unique_ptr<const EglLibrary>>;
 
-/** Every EGL library loaded so far, by name; never shrinks (see the class comment). */
+/** Every EGL library loaded so far, by name; never shrinks (see the class
+ * comment). */
 struct LoadedLibraries {
   absl::Mutex mutex;
   LibraryTable byName ABSL_GUARDED_BY(mutex);
@@ -66,50 +68,76 @@ LoadedLibraries& loadedLibraries() {
   return *libraries;
 }
 
-/** What to do when the web viewer has no EGL, appended to every failure of Get(). */
+/** What to do when the web viewer has no EGL, appended to every failure of
+ * Get(). */
 std::string howToGetEgl() {
   return absl::StrCat(
-      "install libegl1 and libegl-mesa0 (the dev and robot-sim images have them), use a GPU container with NVIDIA's EGL, "
+      "install libegl1 and libegl-mesa0 (the dev and robot-sim images have "
+      "them), use a GPU container with NVIDIA's EGL, "
       "or choose --viewer=",
-      kNoViewerName, " (or list ", kNoViewerName, " after ", kWebViewerName, ", --viewer=", kWebViewerName, ",", kNoViewerName,
-      ", to fall back)");
+      kNoViewerName, " (or list ", kNoViewerName, " after ", kWebViewerName,
+      ", --viewer=", kWebViewerName, ",", kNoViewerName, ", to fall back)");
 }
 
-/** The entry point `name` of the library, as the function pointer type `Function`; null when it has none. */
+/** The entry point `name` of the library, as the function pointer type
+ * `Function`; null when it has none. */
 template <typename Function>
-Function resolve(PFNEGLGETPROCADDRESSPROC getProcAddress, const char* absl_nonnull name) {
+Function resolve(PFNEGLGETPROCADDRESSPROC getProcAddress,
+                 const char* absl_nonnull name) {
   return reinterpret_cast<Function>(getProcAddress(name));
 }
 
 }  // namespace
 
-absl::StatusOr<EglLibrary::Functions> EglLibrary::load(const std::string& soname) {
-  // RTLD_LOCAL: the library's symbols stay out of the global namespace, so that they cannot satisfy another library's
-  // lookups. MuJoCo still finds the GL of the context made current through it (dl_iterate_phdr sees local objects).
+absl::StatusOr<EglLibrary::Functions> EglLibrary::load(
+    const std::string& soname) {
+  // RTLD_LOCAL: the library's symbols stay out of the global namespace, so that
+  // they cannot satisfy another library's lookups. MuJoCo still finds the GL of
+  // the context made current through it (dl_iterate_phdr sees local objects).
   void* absl_nullable handle = dlopen(soname.c_str(), RTLD_NOW | RTLD_LOCAL);
   if (handle == nullptr) {
     const char* absl_nullable error = dlerror();
-    return absl::UnavailableError(absl::StrCat("the web viewer renders through EGL, and ", soname, " could not be loaded (",
-                                               error != nullptr ? error : "no reason given", "): ", howToGetEgl()));
+    return absl::UnavailableError(absl::StrCat(
+        "the web viewer renders through EGL, and ", soname,
+        " could not be loaded (", error != nullptr ? error : "no reason given",
+        "): ", howToGetEgl()));
   }
-  PFNEGLGETPROCADDRESSPROC getProcAddress = reinterpret_cast<PFNEGLGETPROCADDRESSPROC>(dlsym(handle, "eglGetProcAddress"));
+  PFNEGLGETPROCADDRESSPROC getProcAddress =
+      reinterpret_cast<PFNEGLGETPROCADDRESSPROC>(
+          dlsym(handle, "eglGetProcAddress"));
   if (getProcAddress == nullptr) {
-    return absl::UnavailableError(absl::StrCat(soname, " exports no eglGetProcAddress, so it is no EGL library: ", howToGetEgl()));
+    return absl::UnavailableError(absl::StrCat(
+        soname, " exports no eglGetProcAddress, so it is no EGL library: ",
+        howToGetEgl()));
   }
-  PFNEGLGETERRORPROC getError = resolve<PFNEGLGETERRORPROC>(getProcAddress, "eglGetError");
-  PFNEGLQUERYSTRINGPROC queryString = resolve<PFNEGLQUERYSTRINGPROC>(getProcAddress, "eglQueryString");
-  PFNEGLINITIALIZEPROC initialize = resolve<PFNEGLINITIALIZEPROC>(getProcAddress, "eglInitialize");
-  PFNEGLBINDAPIPROC bindApi = resolve<PFNEGLBINDAPIPROC>(getProcAddress, "eglBindAPI");
-  PFNEGLCHOOSECONFIGPROC chooseConfig = resolve<PFNEGLCHOOSECONFIGPROC>(getProcAddress, "eglChooseConfig");
-  PFNEGLCREATECONTEXTPROC createContext = resolve<PFNEGLCREATECONTEXTPROC>(getProcAddress, "eglCreateContext");
-  PFNEGLDESTROYCONTEXTPROC destroyContext = resolve<PFNEGLDESTROYCONTEXTPROC>(getProcAddress, "eglDestroyContext");
-  PFNEGLCREATEPBUFFERSURFACEPROC createPbufferSurface = resolve<PFNEGLCREATEPBUFFERSURFACEPROC>(getProcAddress, "eglCreatePbufferSurface");
-  PFNEGLDESTROYSURFACEPROC destroySurface = resolve<PFNEGLDESTROYSURFACEPROC>(getProcAddress, "eglDestroySurface");
-  PFNEGLMAKECURRENTPROC makeCurrent = resolve<PFNEGLMAKECURRENTPROC>(getProcAddress, "eglMakeCurrent");
-  if (getError == nullptr || queryString == nullptr || initialize == nullptr || bindApi == nullptr || chooseConfig == nullptr ||
-      createContext == nullptr || destroyContext == nullptr || createPbufferSurface == nullptr || destroySurface == nullptr ||
+  PFNEGLGETERRORPROC getError =
+      resolve<PFNEGLGETERRORPROC>(getProcAddress, "eglGetError");
+  PFNEGLQUERYSTRINGPROC queryString =
+      resolve<PFNEGLQUERYSTRINGPROC>(getProcAddress, "eglQueryString");
+  PFNEGLINITIALIZEPROC initialize =
+      resolve<PFNEGLINITIALIZEPROC>(getProcAddress, "eglInitialize");
+  PFNEGLBINDAPIPROC bindApi =
+      resolve<PFNEGLBINDAPIPROC>(getProcAddress, "eglBindAPI");
+  PFNEGLCHOOSECONFIGPROC chooseConfig =
+      resolve<PFNEGLCHOOSECONFIGPROC>(getProcAddress, "eglChooseConfig");
+  PFNEGLCREATECONTEXTPROC createContext =
+      resolve<PFNEGLCREATECONTEXTPROC>(getProcAddress, "eglCreateContext");
+  PFNEGLDESTROYCONTEXTPROC destroyContext =
+      resolve<PFNEGLDESTROYCONTEXTPROC>(getProcAddress, "eglDestroyContext");
+  PFNEGLCREATEPBUFFERSURFACEPROC createPbufferSurface =
+      resolve<PFNEGLCREATEPBUFFERSURFACEPROC>(getProcAddress,
+                                              "eglCreatePbufferSurface");
+  PFNEGLDESTROYSURFACEPROC destroySurface =
+      resolve<PFNEGLDESTROYSURFACEPROC>(getProcAddress, "eglDestroySurface");
+  PFNEGLMAKECURRENTPROC makeCurrent =
+      resolve<PFNEGLMAKECURRENTPROC>(getProcAddress, "eglMakeCurrent");
+  if (getError == nullptr || queryString == nullptr || initialize == nullptr ||
+      bindApi == nullptr || chooseConfig == nullptr ||
+      createContext == nullptr || destroyContext == nullptr ||
+      createPbufferSurface == nullptr || destroySurface == nullptr ||
       makeCurrent == nullptr) {
-    return absl::UnavailableError(absl::StrCat(soname, " lacks a core EGL 1.4 entry point: ", howToGetEgl()));
+    return absl::UnavailableError(absl::StrCat(
+        soname, " lacks a core EGL 1.4 entry point: ", howToGetEgl()));
   }
   return Functions{
       .getProcAddress = getProcAddress,
@@ -123,23 +151,30 @@ absl::StatusOr<EglLibrary::Functions> EglLibrary::load(const std::string& soname
       .createPbufferSurface = createPbufferSurface,
       .destroySurface = destroySurface,
       .makeCurrent = makeCurrent,
-      .getPlatformDisplay = resolve<PFNEGLGETPLATFORMDISPLAYEXTPROC>(getProcAddress, "eglGetPlatformDisplayEXT"),
-      .queryDevices = resolve<PFNEGLQUERYDEVICESEXTPROC>(getProcAddress, "eglQueryDevicesEXT"),
-      .queryDeviceString = resolve<PFNEGLQUERYDEVICESTRINGEXTPROC>(getProcAddress, "eglQueryDeviceStringEXT"),
+      .getPlatformDisplay = resolve<PFNEGLGETPLATFORMDISPLAYEXTPROC>(
+          getProcAddress, "eglGetPlatformDisplayEXT"),
+      .queryDevices = resolve<PFNEGLQUERYDEVICESEXTPROC>(getProcAddress,
+                                                         "eglQueryDevicesEXT"),
+      .queryDeviceString = resolve<PFNEGLQUERYDEVICESTRINGEXTPROC>(
+          getProcAddress, "eglQueryDeviceStringEXT"),
   };
 }
 
-absl::StatusOr<const EglLibrary* absl_nonnull> EglLibrary::Get(absl::string_view soname) {
+absl::StatusOr<const EglLibrary* absl_nonnull> EglLibrary::Get(
+    absl::string_view soname) {
   LoadedLibraries& libraries = loadedLibraries();
   absl::MutexLock lock(libraries.mutex);
-  const std::pair<LibraryTable::iterator, bool> entry = libraries.byName.try_emplace(soname);
+  const std::pair<LibraryTable::iterator, bool> entry =
+      libraries.byName.try_emplace(soname);
   if (!entry.second) return entry.first->second.get();
   absl::StatusOr<Functions> functions = load(entry.first->first);
   if (!functions.ok()) {
-    libraries.byName.erase(entry.first);  // not remembered: a later call tries again
+    libraries.byName.erase(
+        entry.first);  // not remembered: a later call tries again
     return functions.status();
   }
-  entry.first->second = absl::WrapUnique(new EglLibrary(entry.first->first, *functions));
+  entry.first->second =
+      absl::WrapUnique(new EglLibrary(entry.first->first, *functions));
   return entry.first->second.get();
 }
 

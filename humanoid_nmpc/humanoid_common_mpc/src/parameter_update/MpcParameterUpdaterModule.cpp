@@ -66,25 +66,29 @@ namespace ocs2::humanoid {
 namespace {
 
 // Where an enqueued update comes from, for the log.
-constexpr absl::string_view kEnqueuedUpdateSource = "the enqueued parameter update (operator/mpc_parameters)";
+constexpr absl::string_view kEnqueuedUpdateSource =
+    "the enqueued parameter update (operator/mpc_parameters)";
 
 /**
- * The SqpSolver of `mpc`, or nullptr when it runs another solver: the hot reload reaches the settings and the per-worker
- * problems of an SqpSolver only.
+ * The SqpSolver of `mpc`, or nullptr when it runs another solver: the hot
+ * reload reaches the settings and the per-worker problems of an SqpSolver only.
  */
 SqpSolver* absl_nullable sqpSolverOf(MPC_BASE& mpc) {
   // NOLINTNEXTLINE(rtti): MPC_BASE hands its solver out as a SolverBase, and only an SqpSolver has what is reloaded.
   return dynamic_cast<SqpSolver*>(mpc.getSolverPtr());
 }
 
-/** Logs the reload of `source` as stopped part-way when `status`, what exceptionsToStatus() caught out of it, is an error. */
+/** Logs the reload of `source` as stopped part-way when `status`, what
+ * exceptionsToStatus() caught out of it, is an error. */
 void reportStoppedReload(absl::string_view source, const absl::Status& status) {
   if (!status.ok()) {
-    LOG(ERROR) << "[MpcParameterUpdaterModule] the reload of " << source << " stopped part-way: " << status.message();
+    LOG(ERROR) << "[MpcParameterUpdaterModule] the reload of " << source
+               << " stopped part-way: " << status.message();
   }
 }
 
-/** The name the tuning options give the formulation of `mpc` (ConfigReload.h). */
+/** The name the tuning options give the formulation of `mpc` (ConfigReload.h).
+ */
 absl::string_view formulationName(StateInputLayout::Mpc mpc) {
   switch (mpc) {
     case StateInputLayout::Mpc::kCentroidal:
@@ -92,47 +96,63 @@ absl::string_view formulationName(StateInputLayout::Mpc mpc) {
     case StateInputLayout::Mpc::kWholeBody:
       return kWholeBodyFormulation;
   }
-  // Unreachable for the enumerators above; a value cast from outside them reports only what every formulation reads.
+  // Unreachable for the enumerators above; a value cast from outside them
+  // reports only what every formulation reads.
   return absl::string_view();
 }
 
 /**
- * Whether a watched file written at `writeTime` is an older edit than the live update that arrived at `liveUpdateArrival`
- * (nullopt: none has arrived), and so must not be applied over it.
+ * Whether a watched file written at `writeTime` is an older edit than the live
+ * update that arrived at `liveUpdateArrival` (nullopt: none has arrived), and
+ * so must not be applied over it.
  */
-bool isOlderThanTheLiveUpdate(std::filesystem::file_time_type writeTime, std::optional<std::filesystem::file_time_type> liveUpdateArrival) {
+bool isOlderThanTheLiveUpdate(
+    std::filesystem::file_time_type writeTime,
+    std::optional<std::filesystem::file_time_type> liveUpdateArrival) {
   return liveUpdateArrival.has_value() && writeTime < *liveUpdateArrival;
 }
 
-/** Logs that the edit of `file` written before the newest live update was not applied over it. */
+/** Logs that the edit of `file` written before the newest live update was not
+ * applied over it. */
 void reportSupersededFile(absl::string_view file) {
-  LOG(INFO) << "[MpcParameterUpdaterModule] " << file
-            << " was written before the newest update of operator/mpc_parameters, which supersedes it; it was not applied.";
+  LOG(INFO)
+      << "[MpcParameterUpdaterModule] " << file
+      << " was written before the newest update of operator/mpc_parameters, "
+         "which supersedes it; it was not applied.";
 }
 
 }  // namespace
 
-std::optional<std::filesystem::file_time_type> lastWriteTime(absl::string_view path) {
+std::optional<std::filesystem::file_time_type> lastWriteTime(
+    absl::string_view path) {
   if (path.empty()) return std::nullopt;
   std::error_code error;
-  const std::filesystem::file_time_type time = std::filesystem::last_write_time(std::filesystem::path(path), error);
+  const std::filesystem::file_time_type time =
+      std::filesystem::last_write_time(std::filesystem::path(path), error);
   if (error) return std::nullopt;
   return time;
 }
 
-absl::StatusOr<std::unique_ptr<MpcParameterUpdaterModule>> MpcParameterUpdaterModule::Create(MPC_BASE* absl_nullable mpcPtr,
-                                                                                             Options options) {
+absl::StatusOr<std::unique_ptr<MpcParameterUpdaterModule>>
+MpcParameterUpdaterModule::Create(MPC_BASE* absl_nullable mpcPtr,
+                                  Options options) {
   for (size_t i = 0; i < options.appliers.size(); ++i) {
     if (options.appliers[i] == nullptr) {
       return absl::InvalidArgumentError(
-          absl::StrCat("[MpcParameterUpdaterModule] applier ", i, " of ", options.appliers.size(), " is null."));
+          absl::StrCat("[MpcParameterUpdaterModule] applier ", i, " of ",
+                       options.appliers.size(), " is null."));
     }
   }
-  SqpSolver* absl_nullable sqpSolverPtr = mpcPtr != nullptr ? sqpSolverOf(*mpcPtr) : nullptr;
-  return absl::WrapUnique(new MpcParameterUpdaterModule(mpcPtr, sqpSolverPtr, std::move(options)));
+  SqpSolver* absl_nullable sqpSolverPtr =
+      mpcPtr != nullptr ? sqpSolverOf(*mpcPtr) : nullptr;
+  return absl::WrapUnique(
+      new MpcParameterUpdaterModule(mpcPtr, sqpSolverPtr, std::move(options)));
 }
 
-MpcParameterUpdaterModule::MpcParameterUpdaterModule(MPC_BASE* absl_nullable mpcPtr, SqpSolver* absl_nullable sqpSolverPtr, Options options)
+MpcParameterUpdaterModule::MpcParameterUpdaterModule(
+    MPC_BASE* absl_nullable mpcPtr,
+    SqpSolver* absl_nullable sqpSolverPtr,
+    Options options)
     : mpcPtr_(mpcPtr),
       sqpSolverPtr_(sqpSolverPtr),
       taskFile_(std::move(options.taskFile)),
@@ -144,26 +164,34 @@ MpcParameterUpdaterModule::MpcParameterUpdaterModule(MPC_BASE* absl_nullable mpc
       referenceManagerPtr_(options.referenceManager),
       appliers_(std::move(options.appliers)),
       fileCheckPeriod_(options.fileCheckPeriod),
-      clock_(options.clock ? std::move(options.clock) : []() { return absl::Now(); }) {
-  taskFileLastWriteTime_ = options.taskFileReadAt.value_or(lastWriteTime(taskFile_).value_or(std::filesystem::file_time_type()));
-  referenceFileLastWriteTime_ =
-      options.referenceFileReadAt.value_or(lastWriteTime(referenceFile_).value_or(std::filesystem::file_time_type()));
+      clock_(options.clock ? std::move(options.clock)
+                           : []() { return absl::Now(); }) {
+  taskFileLastWriteTime_ = options.taskFileReadAt.value_or(
+      lastWriteTime(taskFile_).value_or(std::filesystem::file_time_type()));
+  referenceFileLastWriteTime_ = options.referenceFileReadAt.value_or(
+      lastWriteTime(referenceFile_)
+          .value_or(std::filesystem::file_time_type()));
   contactPlanningFileLastWriteTime_ =
-      options.contactPlanningFileReadAt.value_or(lastWriteTime(contactPlanningFile_).value_or(std::filesystem::file_time_type()));
+      options.contactPlanningFileReadAt.value_or(
+          lastWriteTime(contactPlanningFile_)
+              .value_or(std::filesystem::file_time_type()));
 }
 
 std::vector<std::string> MpcParameterUpdaterModule::appliedFields() const {
   std::vector<absl::Span<const absl::string_view>> fieldLists;
   fieldLists.reserve(appliers_.size());
-  for (const std::unique_ptr<HotFieldApplier>& applier : appliers_) fieldLists.push_back(applier->fields());
+  for (const std::unique_ptr<HotFieldApplier>& applier : appliers_)
+    fieldLists.push_back(applier->fields());
   return sortedFieldUnion(fieldLists);
 }
 
-void MpcParameterUpdaterModule::setContactPlannerModule(std::shared_ptr<ContactPlannerModule> contactPlannerModule) {
+void MpcParameterUpdaterModule::setContactPlannerModule(
+    std::shared_ptr<ContactPlannerModule> contactPlannerModule) {
   contactPlannerModulePtr_ = std::move(contactPlannerModule);
 }
 
-void MpcParameterUpdaterModule::addReferenceFileReloader(ReferenceFileReloader reloader) {
+void MpcParameterUpdaterModule::addReferenceFileReloader(
+    ReferenceFileReloader reloader) {
   referenceFileReloaders_.push_back(std::move(reloader));
 }
 
@@ -171,15 +199,20 @@ void MpcParameterUpdaterModule::addReferenceFileReloader(ReferenceFileReloader r
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-void MpcParameterUpdaterModule::preSolverRun(scalar_t /*initTime*/,
-                                             scalar_t /*finalTime*/,
-                                             const vector_t& /*currentState*/,
-                                             const ReferenceManagerInterface& /*referenceManager*/) {
-  // First, before any reload: the reference manager has just rebuilt this solve's references, so this is the moment
-  // what follows them (the contact-implicit terms' ground) can take them.
+void MpcParameterUpdaterModule::preSolverRun(
+    scalar_t /*initTime*/,
+    scalar_t /*finalTime*/,
+    const vector_t& /*currentState*/,
+    const ReferenceManagerInterface& /*referenceManager*/) {
+  // First, before any reload: the reference manager has just rebuilt this
+  // solve's references, so this is the moment what follows them (the
+  // contact-implicit terms' ground) can take them.
   if (sqpSolverPtr_ != nullptr) {
     for (std::unique_ptr<HotFieldApplier>& applier : appliers_) {
-      reportStoppedReload(applier->name(), exceptionsToStatus([&]() { applier->beforeEverySolve(*sqpSolverPtr_, referenceManagerPtr_); }));
+      reportStoppedReload(applier->name(), exceptionsToStatus([&]() {
+                            applier->beforeEverySolve(*sqpSolverPtr_,
+                                                      referenceManagerPtr_);
+                          }));
     }
   }
 
@@ -188,9 +221,11 @@ void MpcParameterUpdaterModule::preSolverRun(scalar_t /*initTime*/,
     applyPendingUpdate();
   }
 
-  // Pathway 1: the modification times of the watched files, polled at fileCheckPeriod_. After the update, so that the
-  // two are applied in the order they were made: a file written before the newest update arrived is not applied over it
-  // (applyChangedFiles()), and one written after it is applied last.
+  // Pathway 1: the modification times of the watched files, polled at
+  // fileCheckPeriod_. After the update, so that the two are applied in the
+  // order they were made: a file written before the newest update arrived is
+  // not applied over it (applyChangedFiles()), and one written after it is
+  // applied last.
   const absl::Time now = clock_();
   if (now - lastFileCheck_ >= fileCheckPeriod_) {
     lastFileCheck_ = now;
@@ -207,52 +242,71 @@ void MpcParameterUpdaterModule::applyPendingUpdate() {
     hasPendingUpdate_.store(false, std::memory_order_release);
   }
   if (!update.has_value()) return;
-  // Every conversion reports a block it cannot use by its field and keeps the running one, and every applier runs
-  // inside exceptionsToStatus(); this one is the last line of defense, so that nothing an update contains can throw out
-  // of the solver's pre-solve hook.
+  // Every conversion reports a block it cannot use by its field and keeps the
+  // running one, and every applier runs inside exceptionsToStatus(); this one
+  // is the last line of defense, so that nothing an update contains can throw
+  // out of the solver's pre-solve hook.
   reportStoppedReload(kEnqueuedUpdateSource, exceptionsToStatus([&]() {
                         applyTaskFile(update->task, kEnqueuedUpdateSource);
                         if (update->contact_planning.has_value()) {
-                          applyContactPlanningFile(*update->contact_planning, kEnqueuedUpdateSource);
+                          applyContactPlanningFile(*update->contact_planning,
+                                                   kEnqueuedUpdateSource);
                         }
                       }));
 }
 
 void MpcParameterUpdaterModule::applyChangedFiles() {
   std::optional<std::filesystem::file_time_type> taskFileUpdateArrival;
-  std::optional<std::filesystem::file_time_type> contactPlanningFileUpdateArrival;
+  std::optional<std::filesystem::file_time_type>
+      contactPlanningFileUpdateArrival;
   {
     absl::MutexLock lock(&pendingMutex_);
     taskFileUpdateArrival = taskFileUpdateArrival_;
     contactPlanningFileUpdateArrival = contactPlanningFileUpdateArrival_;
   }
-  if (const std::optional<std::filesystem::file_time_type> time = lastWriteTime(taskFile_);
+  if (const std::optional<std::filesystem::file_time_type> time =
+          lastWriteTime(taskFile_);
       time.has_value() && *time != taskFileLastWriteTime_) {
     taskFileLastWriteTime_ = *time;
     if (isOlderThanTheLiveUpdate(*time, taskFileUpdateArrival)) {
       reportSupersededFile(taskFile_);
-    } else if (absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(taskFile_); task.ok()) {
-      reportStoppedReload(taskFile_, exceptionsToStatus([&]() { applyTaskFile(*task, taskFile_); }));
+    } else if (absl::StatusOr<mpc_config::TaskFile> task =
+                   loadTaskFile(taskFile_);
+               task.ok()) {
+      reportStoppedReload(taskFile_, exceptionsToStatus([&]() {
+                            applyTaskFile(*task, taskFile_);
+                          }));
     } else {
-      LOG(ERROR) << "[MpcParameterUpdaterModule] " << taskFile_ << " was not reloaded, nothing was applied: " << task.status().message();
+      LOG(ERROR) << "[MpcParameterUpdaterModule] " << taskFile_
+                 << " was not reloaded, nothing was applied: "
+                 << task.status().message();
     }
   }
-  if (const std::optional<std::filesystem::file_time_type> time = lastWriteTime(contactPlanningFile_);
+  if (const std::optional<std::filesystem::file_time_type> time =
+          lastWriteTime(contactPlanningFile_);
       time.has_value() && *time != contactPlanningFileLastWriteTime_) {
     contactPlanningFileLastWriteTime_ = *time;
     if (isOlderThanTheLiveUpdate(*time, contactPlanningFileUpdateArrival)) {
       reportSupersededFile(contactPlanningFile_);
-    } else if (absl::StatusOr<mpc_config::ContactPlanningFile> file = loadContactPlanningFile(contactPlanningFile_); file.ok()) {
-      reportStoppedReload(contactPlanningFile_, exceptionsToStatus([&]() { applyContactPlanningFile(*file, contactPlanningFile_); }));
+    } else if (absl::StatusOr<mpc_config::ContactPlanningFile> file =
+                   loadContactPlanningFile(contactPlanningFile_);
+               file.ok()) {
+      reportStoppedReload(contactPlanningFile_, exceptionsToStatus([&]() {
+                            applyContactPlanningFile(*file,
+                                                     contactPlanningFile_);
+                          }));
     } else {
       LOG(ERROR) << "[MpcParameterUpdaterModule] " << contactPlanningFile_
-                 << " was not reloaded, the running planner is kept: " << file.status().message();
+                 << " was not reloaded, the running planner is kept: "
+                 << file.status().message();
     }
   }
-  // The command limits and ramps live in the reference file, which nothing else watches: without this a change to it
-  // needed a restart of the controller (the Command Limits tab of the remote control writes exactly this file).
+  // The command limits and ramps live in the reference file, which nothing else
+  // watches: without this a change to it needed a restart of the controller
+  // (the Command Limits tab of the remote control writes exactly this file).
   if (referenceFileReloaders_.empty()) return;
-  if (const std::optional<std::filesystem::file_time_type> time = lastWriteTime(referenceFile_);
+  if (const std::optional<std::filesystem::file_time_type> time =
+          lastWriteTime(referenceFile_);
       time.has_value() && *time != referenceFileLastWriteTime_) {
     referenceFileLastWriteTime_ = *time;
     reloadReferenceFile();
@@ -260,32 +314,43 @@ void MpcParameterUpdaterModule::applyChangedFiles() {
 }
 
 void MpcParameterUpdaterModule::reloadReferenceFile() {
-  // Converted once for every consumer, so that they all apply the same limits, and a file they cannot use is reported
-  // once, naming it, and reaches none of them.
-  const absl::StatusOr<mpc_config::ReferenceFile> file = loadReferenceFile(referenceFile_);
-  const absl::StatusOr<ReferenceSettings> settings = file.ok() ? referenceSettingsFromConfig(*file) : file.status();
+  // Converted once for every consumer, so that they all apply the same limits,
+  // and a file they cannot use is reported once, naming it, and reaches none of
+  // them.
+  const absl::StatusOr<mpc_config::ReferenceFile> file =
+      loadReferenceFile(referenceFile_);
+  const absl::StatusOr<ReferenceSettings> settings =
+      file.ok() ? referenceSettingsFromConfig(*file) : file.status();
   if (!settings.ok()) {
     LOG(WARNING) << "[MpcParameterUpdaterModule] " << referenceFile_
-                 << " was not reloaded, the running command limits are kept: " << settings.status().message();
+                 << " was not reloaded, the running command limits are kept: "
+                 << settings.status().message();
     return;
   }
   bool refused = false;
   for (const ReferenceFileReloader& reload : referenceFileReloaders_) {
     // A reloader that refuses the limits leaves the others to run.
     if (const absl::Status status = reload(*settings); !status.ok()) {
-      LOG(WARNING) << "[MpcParameterUpdaterModule] Failed to reload " << referenceFile_ << ": " << status.message();
+      LOG(WARNING) << "[MpcParameterUpdaterModule] Failed to reload "
+                   << referenceFile_ << ": " << status.message();
       refused = true;
     }
   }
-  if (!refused) LOG(INFO) << "[MpcParameterUpdaterModule] Reloaded command limits from " << referenceFile_;
+  if (!refused)
+    LOG(INFO) << "[MpcParameterUpdaterModule] Reloaded command limits from "
+              << referenceFile_;
 }
 
-void MpcParameterUpdaterModule::enqueueParameterUpdate(const mpc_config::MpcParameterUpdate& update) {
-  // On the clock of the files' modification times, which applyChangedFiles() compares it with.
-  const std::filesystem::file_time_type arrival = std::filesystem::file_time_type::clock::now();
+void MpcParameterUpdaterModule::enqueueParameterUpdate(
+    const mpc_config::MpcParameterUpdate& update) {
+  // On the clock of the files' modification times, which applyChangedFiles()
+  // compares it with.
+  const std::filesystem::file_time_type arrival =
+      std::filesystem::file_time_type::clock::now();
   absl::MutexLock lock(&pendingMutex_);
   taskFileUpdateArrival_ = arrival;
-  if (update.contact_planning.has_value()) contactPlanningFileUpdateArrival_ = arrival;
+  if (update.contact_planning.has_value())
+    contactPlanningFileUpdateArrival_ = arrival;
   pendingUpdate_ = update;
   hasPendingUpdate_.store(true, std::memory_order_release);
 }
@@ -294,37 +359,48 @@ void MpcParameterUpdaterModule::enqueueParameterUpdate(const mpc_config::MpcPara
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-void MpcParameterUpdaterModule::reportStartUpChanges(const mpc_config::TaskFile& task, absl::string_view source) const {
+void MpcParameterUpdaterModule::reportStartUpChanges(
+    const mpc_config::TaskFile& task, absl::string_view source) const {
   humanoid_mpc_config::TaskFile running;
   mpc_config::ToProto(runningTask_, &running);
   humanoid_mpc_config::TaskFile reloaded;
   mpc_config::ToProto(task, &reloaded);
-  // Only what this MPC reads at its start: a field of the other formulation, the GUI's own and one no one applies
-  // (kUnspecified) are not this MPC's to restart for, and the robot process reads its own copy of the file.
+  // Only what this MPC reads at its start: a field of the other formulation,
+  // the GUI's own and one no one applies (kUnspecified) are not this MPC's to
+  // restart for, and the robot process reads its own copy of the file.
   const absl::string_view formulation = formulationName(layout_.mpc);
   std::vector<std::string> mpcFields;
   std::vector<std::string> robotFields;
   for (const ConfigChange& change : changedStartUpFields(running, reloaded)) {
     if (change.reload != ConfigReload::kStartUp) continue;
     if (isReadByTheMpc(change.consumer)) {
-      if (isReadByFormulation(change.formulations, formulation)) mpcFields.push_back(change.path);
+      if (isReadByFormulation(change.formulations, formulation))
+        mpcFields.push_back(change.path);
     } else if (change.consumer == kRobotConsumer) {
       robotFields.push_back(change.path);
     }
   }
   if (!mpcFields.empty()) {
-    LOG(WARNING) << "[MpcParameterUpdaterModule] " << source << " changes " << mpcFields.size()
-                 << " field(s) that a reload does not apply; they take effect at the MPC's next start: " << absl::StrJoin(mpcFields, ", ");
+    LOG(WARNING) << "[MpcParameterUpdaterModule] " << source << " changes "
+                 << mpcFields.size()
+                 << " field(s) that a reload does not apply; they take effect "
+                    "at the MPC's next start: "
+                 << absl::StrJoin(mpcFields, ", ");
   }
   if (!robotFields.empty()) {
-    LOG(INFO) << "[MpcParameterUpdaterModule] " << source << " changes " << robotFields.size()
-              << " field(s) the robot process reads, at its own next start, from its copy of the file: "
+    LOG(INFO) << "[MpcParameterUpdaterModule] " << source << " changes "
+              << robotFields.size()
+              << " field(s) the robot process reads, at its own next start, "
+                 "from its copy of the file: "
               << absl::StrJoin(robotFields, ", ");
   }
 }
 
-void MpcParameterUpdaterModule::applyTaskFile(const mpc_config::TaskFile& task, absl::string_view source) {
-  LOG(INFO) << "[MpcParameterUpdaterModule] Applying in-place parameter updates from " << source << "...";
+void MpcParameterUpdaterModule::applyTaskFile(const mpc_config::TaskFile& task,
+                                              absl::string_view source) {
+  LOG(INFO)
+      << "[MpcParameterUpdaterModule] Applying in-place parameter updates from "
+      << source << "...";
   reportStartUpChanges(task, source);
 
   if (mpcPtr_ == nullptr) {
@@ -332,43 +408,62 @@ void MpcParameterUpdaterModule::applyTaskFile(const mpc_config::TaskFile& task, 
     return;
   }
   if (sqpSolverPtr_ == nullptr) {
-    LOG(ERROR) << "[MpcParameterUpdaterModule] Underlying solver is not SqpSolver. Cannot update parameters.";
+    LOG(ERROR) << "[MpcParameterUpdaterModule] Underlying solver is not "
+                  "SqpSolver. Cannot update parameters.";
     return;
   }
   if (sqpSolverPtr_->getOcpDefinitions().empty()) {
-    LOG(ERROR) << "[MpcParameterUpdaterModule] the SqpSolver has no problem to update.";
+    LOG(ERROR) << "[MpcParameterUpdaterModule] the SqpSolver has no problem to "
+                  "update.";
     return;
   }
 
-  // Every applier writes its own objects, so one that throws leaves the others' writes intact and the next one runs.
-  HotUpdateTarget target(&task, sqpSolverPtr_, referenceManagerPtr_, &layout_, inputDim_, source);
+  // Every applier writes its own objects, so one that throws leaves the others'
+  // writes intact and the next one runs.
+  HotUpdateTarget target(&task, sqpSolverPtr_, referenceManagerPtr_, &layout_,
+                         inputDim_, source);
   bool stopped = false;
   for (std::unique_ptr<HotFieldApplier>& applier : appliers_) {
-    if (const absl::Status status = exceptionsToStatus([&]() { applier->apply(target); }); !status.ok()) {
-      LOG(ERROR) << "[MpcParameterUpdaterModule] " << applier->name() << " of the reload of " << source
+    if (const absl::Status status =
+            exceptionsToStatus([&]() { applier->apply(target); });
+        !status.ok()) {
+      LOG(ERROR) << "[MpcParameterUpdaterModule] " << applier->name()
+                 << " of the reload of " << source
                  << " stopped part-way: " << status.message();
       stopped = true;
     }
   }
-  if (!stopped) LOG(INFO) << "[MpcParameterUpdaterModule] Successfully applied in-place parameter updates to SqpSolver.";
+  if (!stopped)
+    LOG(INFO) << "[MpcParameterUpdaterModule] Successfully applied in-place "
+                 "parameter updates to SqpSolver.";
 }
 
-void MpcParameterUpdaterModule::applyContactPlanningFile(const mpc_config::ContactPlanningFile& file, absl::string_view source) {
+void MpcParameterUpdaterModule::applyContactPlanningFile(
+    const mpc_config::ContactPlanningFile& file, absl::string_view source) {
   if (contactPlannerModulePtr_ == nullptr) return;
-  // Converted WITHOUT the validation of ContactPlanningConfig, exactly as the MPC interface does at start-up: the
-  // parameters a robot may leave out of its file, or at 0, to mean "derive this one from the model" - shared.com_height
-  // and the two zmp_support_region half widths - are only filled in by ContactPlanningModelParameters::applyTo(), which
-  // ContactPlannerModule::setConfig() runs before it validates. Validating first would refuse every reload of a robot
-  // that takes the documented option; setConfig() still refuses, and the log reports, a genuinely inconsistent edit.
+  // Converted WITHOUT the validation of ContactPlanningConfig, exactly as the
+  // MPC interface does at start-up: the parameters a robot may leave out of its
+  // file, or at 0, to mean "derive this one from the model" - shared.com_height
+  // and the two zmp_support_region half widths - are only filled in by
+  // ContactPlanningModelParameters::applyTo(), which
+  // ContactPlannerModule::setConfig() runs before it validates. Validating
+  // first would refuse every reload of a robot that takes the documented
+  // option; setConfig() still refuses, and the log reports, a genuinely
+  // inconsistent edit.
   absl::StatusOr<ContactPlanningConfig> config =
-      contactPlanningConfigFromConfig(file, ContactPlanningValidation::kDeferUntilModelParametersApplied);
+      contactPlanningConfigFromConfig(
+          file, ContactPlanningValidation::kDeferUntilModelParametersApplied);
   absl::Status applied = config.status();
   if (applied.ok()) applied = contactPlannerModulePtr_->setConfig(*config);
   if (applied.ok()) {
-    LOG(INFO) << "[MpcParameterUpdaterModule] Applied the contact planner's configuration from " << source << ".";
+    LOG(INFO) << "[MpcParameterUpdaterModule] Applied the contact planner's "
+                 "configuration from "
+              << source << ".";
   } else {
-    LOG(WARNING) << "[MpcParameterUpdaterModule] the contact planner's configuration of " << source
-                 << " was not applied, the running one is kept: " << applied.message();
+    LOG(WARNING)
+        << "[MpcParameterUpdaterModule] the contact planner's configuration of "
+        << source
+        << " was not applied, the running one is kept: " << applied.message();
   }
 }
 

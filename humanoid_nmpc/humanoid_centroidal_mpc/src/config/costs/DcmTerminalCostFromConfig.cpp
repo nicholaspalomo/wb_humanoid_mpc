@@ -43,15 +43,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-absl::StatusOr<DcmTerminalCost::Config> dcmTerminalCostConfigFromConfig(const mpc_config::DcmTerminalCostConfig& dcmTerminalCost) {
+absl::StatusOr<DcmTerminalCost::Config> dcmTerminalCostConfigFromConfig(
+    const mpc_config::DcmTerminalCostConfig& dcmTerminalCost) {
   DcmTerminalCost::Config config;
   if (dcmTerminalCost.com_height.has_value()) {
     const double comHeight = *dcmTerminalCost.com_height;
     if (!std::isfinite(comHeight) || comHeight <= 0.0) {
-      return absl::InvalidArgumentError(absl::StrCat("[DcmTerminalCost] ", DcmTerminalCost::kConfigPrefix, "com_height is ", comHeight,
-                                                     ", which is not a pendulum height: give a positive height, or leave ",
-                                                     DcmTerminalCost::kConfigPrefix,
-                                                     "com_height out for the model's center of mass above its feet at initial_state."));
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[DcmTerminalCost] ", DcmTerminalCost::kConfigPrefix,
+          "com_height is ", comHeight,
+          ", which is not a pendulum height: give a positive height, or leave ",
+          DcmTerminalCost::kConfigPrefix,
+          "com_height out for the model's center of mass above its feet at "
+          "initial_state."));
     }
     config.comHeight = comHeight;
   }

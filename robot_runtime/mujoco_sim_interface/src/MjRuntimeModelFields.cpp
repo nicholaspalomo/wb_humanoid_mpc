@@ -44,7 +44,8 @@ namespace robot::mujoco_sim_interface {
 using ::ocs2::kPositionDim;
 namespace {
 
-/** Returns the first `count` elements of a model array; `count` zeros for a null array (MuJoCo's empty one). */
+/** Returns the first `count` elements of a model array; `count` zeros for a
+ * null array (MuJoCo's empty one). */
 template <typename T>
 std::vector<T> arrayOf(const T* absl_nullable field, int count) {
   std::vector<T> values(static_cast<size_t>(std::max(count, 0)));
@@ -52,13 +53,15 @@ std::vector<T> arrayOf(const T* absl_nullable field, int count) {
   return values;
 }
 
-/** Copies `values.size()` elements of a model array into `values`; nothing from a null array. */
+/** Copies `values.size()` elements of a model array into `values`; nothing from
+ * a null array. */
 template <typename T>
 void copyOut(const T* absl_nullable field, std::vector<T>& values) {
   if (field != nullptr) std::copy_n(field, values.size(), values.begin());
 }
 
-/** Copies `values` into the first `values.size()` elements of a model array; nothing into a null array. */
+/** Copies `values` into the first `values.size()` elements of a model array;
+ * nothing into a null array. */
 template <typename T>
 void copyIn(const std::vector<T>& values, T* absl_nullable field) {
   if (field != nullptr) std::copy(values.begin(), values.end(), field);
@@ -77,14 +80,17 @@ MjRuntimeModelFields::MjRuntimeModelFields(const mjModel* absl_nonnull model)
       bodyConaffinity_(arrayOf(model->body_conaffinity, model->nbody)),
       bodyMass_(arrayOf(model->body_mass, model->nbody)),
       bodyInertia_(arrayOf(model->body_inertia, kPositionDim * model->nbody)),
-      bodyInvweight0_(arrayOf(model->body_invweight0, kMjBodyInvweightSize * model->nbody)),
+      bodyInvweight0_(
+          arrayOf(model->body_invweight0, kMjBodyInvweightSize * model->nbody)),
       bodySubtreemass_(arrayOf(model->body_subtreemass, model->nbody)),
       bodyGravcomp_(arrayOf(model->body_gravcomp, model->nbody)) {}
 
 bool MjRuntimeModelFields::fits(const mjModel* absl_nonnull model) const {
   // One array per size is enough: they were all sized together, from one model.
-  return model->nbody > 0 && dofDamping_.size() == static_cast<size_t>(model->nv) &&
-         eqData_.size() == static_cast<size_t>(model->neq) * mjNEQDATA && geomContype_.size() == static_cast<size_t>(model->ngeom) &&
+  return model->nbody > 0 &&
+         dofDamping_.size() == static_cast<size_t>(model->nv) &&
+         eqData_.size() == static_cast<size_t>(model->neq) * mjNEQDATA &&
+         geomContype_.size() == static_cast<size_t>(model->ngeom) &&
          bodyMass_.size() == static_cast<size_t>(model->nbody);
 }
 

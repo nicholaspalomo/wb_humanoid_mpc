@@ -42,13 +42,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_config/task_file.pb.h"
 
 /*
- * Prints every value field of the configuration files as the C++ side reads its tuning options (configLeaves(),
- * humanoid_common_mpc/config/ConfigReload.h), one line per field:
+ * Prints every value field of the configuration files as the C++ side reads its
+ * tuning options (configLeaves(), humanoid_common_mpc/config/ConfigReload.h),
+ * one line per field:
  *
- *   <file message>\t<path>\t<reload>\t<consumer>\t<formulations, comma-separated>\t<tunable: 0 or 1>
+ *   <file message>\t<path>\t<reload>\t<consumer>\t<formulations,
+ * comma-separated>\t<tunable: 0 or 1>
  *
- * The tuning GUI reads the same options with a walk of its own (remote_control/config_schema.py);
- * test_tuning_inheritance_parity.py compares the two.
+ * The tuning GUI reads the same options with a walk of its own
+ * (remote_control/config_schema.py); test_tuning_inheritance_parity.py compares
+ * the two.
  */
 namespace {
 
@@ -68,13 +71,17 @@ absl::string_view reloadName(ocs2::humanoid::ConfigReload reload) {
 
 int main() {
   // LINT.IfChange(file_messages)
-  const std::initializer_list<const google::protobuf::Descriptor* absl_nonnull> files = {
-      humanoid_mpc_config::TaskFile::descriptor(), humanoid_mpc_config::ReferenceFile::descriptor(),
-      humanoid_mpc_config::ContactPlanningFile::descriptor(), humanoid_mpc_config::JointPdGainsFile::descriptor()};
+  const std::initializer_list<const google::protobuf::Descriptor* absl_nonnull>
+      files = {humanoid_mpc_config::TaskFile::descriptor(),
+               humanoid_mpc_config::ReferenceFile::descriptor(),
+               humanoid_mpc_config::ContactPlanningFile::descriptor(),
+               humanoid_mpc_config::JointPdGainsFile::descriptor()};
   // LINT.ThenChange(//humanoid_nmpc/remote_control/test/test_tuning_inheritance_parity.py:file_messages)
   for (const google::protobuf::Descriptor* absl_nonnull file : files) {
-    for (const ocs2::humanoid::ConfigLeaf& leaf : ocs2::humanoid::configLeaves(*file)) {
-      absl::PrintF("%s\t%s\t%s\t%s\t%s\t%d\n", file->full_name(), leaf.path, reloadName(leaf.reload), leaf.consumer,
+    for (const ocs2::humanoid::ConfigLeaf& leaf :
+         ocs2::humanoid::configLeaves(*file)) {
+      absl::PrintF("%s\t%s\t%s\t%s\t%s\t%d\n", file->full_name(), leaf.path,
+                   reloadName(leaf.reload), leaf.consumer,
                    absl::StrJoin(leaf.formulations, ","), leaf.tunable ? 1 : 0);
     }
   }

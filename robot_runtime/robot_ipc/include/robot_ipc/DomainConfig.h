@@ -38,8 +38,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace robot::ipc {
 
-// The DDSI port mapping (DDSI-RTPS 2.5, 9.6.1.1), which Cyclone DDS applies with its defaults. The Python bus and the
-// docs use the same numbers.
+// The DDSI port mapping (DDSI-RTPS 2.5, 9.6.1.1), which Cyclone DDS applies
+// with its defaults. The Python bus and the docs use the same numbers.
 // LINT.IfChange(dds_ports)
 inline constexpr int kDdsPortBase = 7400;
 inline constexpr int kDdsDomainGain = 250;
@@ -57,29 +57,40 @@ struct PortRange {
 };
 
 /**
- * The unicast UDP ports the processes of one machine use on `network`: process index i (Cyclone picks the lowest free
- * one) listens on kDdsPortBase + kDdsDomainGain * domainId + kDdsUnicastDiscoveryOffset + kDdsParticipantGain * i
- * (discovery) and on the port after it (data), for i below TransportOptions::maxProcessesPerHost. Domain 0 with 20
- * processes: 7410-7449. A firewall between the machines opens this range for UDP; the bus sends no multicast.
+ * The unicast UDP ports the processes of one machine use on `network`: process
+ * index i (Cyclone picks the lowest free one) listens on kDdsPortBase +
+ * kDdsDomainGain * domainId + kDdsUnicastDiscoveryOffset + kDdsParticipantGain
+ * * i (discovery) and on the port after it (data), for i below
+ * TransportOptions::maxProcessesPerHost. Domain 0 with 20 processes: 7410-7449.
+ * A firewall between the machines opens this range for UDP; the bus sends no
+ * multicast.
  */
 PortRange unicastPortRange(const NetworkConfig& network);
 
 /**
- * The address of the network interface the process of `nodeName` uses: its node's host when that is an IPv4 address
- * (127.0.0.1 for a loopback host); for a bus that only subscribes (`nodeName` empty), 127.0.0.1 when every node is on
- * loopback, else the first node host that is an address of this machine. Empty: Cyclone DDS picks the interface (a
- * node whose host is a host name, or a subscriber on a machine that is no node's). A node host that is an IPv4
- * address of no interface of this machine is Unavailable: the node runs on another machine.
+ * The address of the network interface the process of `nodeName` uses: its
+ * node's host when that is an IPv4 address (127.0.0.1 for a loopback host); for
+ * a bus that only subscribes (`nodeName` empty), 127.0.0.1 when every node is
+ * on loopback, else the first node host that is an address of this machine.
+ * Empty: Cyclone DDS picks the interface (a node whose host is a host name, or
+ * a subscriber on a machine that is no node's). A node host that is an IPv4
+ * address of no interface of this machine is Unavailable: the node runs on
+ * another machine.
  */
-absl::StatusOr<std::string> interfaceAddressFor(const NetworkConfig& network, absl::string_view nodeName);
+absl::StatusOr<std::string> interfaceAddressFor(const NetworkConfig& network,
+                                                absl::string_view nodeName);
 
 /**
- * The Cyclone DDS configuration (XML) of a process of `network` publishing as `nodeName` (empty: only subscribing),
- * which the bus passes to dds_create_domain(): the interface of interfaceAddressFor(), no multicast, unicast discovery
- * to the host of every node with automatic process indices, the domain tag, the lease and the transport sizes of
- * NetworkConfig::transport. The same network and node give the same text in C++ and in Python
- * (robot_ipc.domain_config.cyclone_domain_config). Errors are those of interfaceAddressFor().
+ * The Cyclone DDS configuration (XML) of a process of `network` publishing as
+ * `nodeName` (empty: only subscribing), which the bus passes to
+ * dds_create_domain(): the interface of interfaceAddressFor(), no multicast,
+ * unicast discovery to the host of every node with automatic process indices,
+ * the domain tag, the lease and the transport sizes of
+ * NetworkConfig::transport. The same network and node give the same text in C++
+ * and in Python (robot_ipc.domain_config.cyclone_domain_config). Errors are
+ * those of interfaceAddressFor().
  */
-absl::StatusOr<std::string> cycloneDomainConfig(const NetworkConfig& network, absl::string_view nodeName);
+absl::StatusOr<std::string> cycloneDomainConfig(const NetworkConfig& network,
+                                                absl::string_view nodeName);
 
 }  // namespace robot::ipc

@@ -43,38 +43,47 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopMetrics.h"
 
 /*
- * What a solve's SQP step is made of, for the closed-loop metrics (SolveSample::sqpStep) and the equivalence suites'
- * convergence tests: the line search's verdicts and constraint violation from the solver's iteration record
- * (SqpSolver::getIterationRecords()), and the largest residual of the hard swing-foot normal-velocity rows from the
- * values of the solution's nodes (SolverBase::getSolutionMetrics()). The functions read and allocate only what they
- * return; none is meant for the realtime thread.
+ * What a solve's SQP step is made of, for the closed-loop metrics
+ * (SolveSample::sqpStep) and the equivalence suites' convergence tests: the
+ * line search's verdicts and constraint violation from the solver's iteration
+ * record (SqpSolver::getIterationRecords()), and the largest residual of the
+ * hard swing-foot normal-velocity rows from the values of the solution's nodes
+ * (SolverBase::getSolutionMetrics()). The functions read and allocate only what
+ * they return; none is meant for the realtime thread.
  */
 
 namespace ocs2::humanoid::validation {
 
 /**
- * Returns the term indices, in `constraints` (an optimal control problem's equalityConstraintPtr), of the hard
- * normal-velocity constraints of `contactNames` (registered under contact_term::kNormalVelocity), in their order; a
- * contact without one is left out, so a problem without the hard rows gives none.
+ * Returns the term indices, in `constraints` (an optimal control problem's
+ * equalityConstraintPtr), of the hard normal-velocity constraints of
+ * `contactNames` (registered under contact_term::kNormalVelocity), in their
+ * order; a contact without one is left out, so a problem without the hard rows
+ * gives none.
  */
-std::vector<size_t> normalVelocityTermIndices(const StateInputConstraintCollection& constraints,
-                                              absl::Span<const std::string> contactNames);
+std::vector<size_t> normalVelocityTermIndices(
+    const StateInputConstraintCollection& constraints,
+    absl::Span<const std::string> contactNames);
 
 /**
- * Returns max |value| of the state-input equality terms `termIndices` over the intermediate nodes of `metrics`; empty
- * when none of them has a value there (a term is inactive at a node where its value is empty). An index past a node's
+ * Returns max |value| of the state-input equality terms `termIndices` over the
+ * intermediate nodes of `metrics`; empty when none of them has a value there (a
+ * term is inactive at a node where its value is empty). An index past a node's
  * terms is skipped.
  */
-std::optional<double> largestEqualityConstraintResidual(const ProblemMetrics& metrics, absl::Span<const size_t> termIndices);
+std::optional<double> largestEqualityConstraintResidual(
+    const ProblemMetrics& metrics, absl::Span<const size_t> termIndices);
 
 /** Returns the SqpStepKind of the line-search verdict `stepType`. */
 SqpStepKind sqpStepKindOf(FilterLinesearch::StepType stepType);
 
 /**
- * Returns the sample of the SQP iteration `iteration`: its step size, the rules that accepted its step and judged its
- * full step, the full step's constraint violation and the constraint violation after the step; and the largest residual
- * of the normal-velocity terms `normalVelocityTerms` (normalVelocityTermIndices()) over `metrics`, the values of the
- * nodes the iteration's step reached.
+ * Returns the sample of the SQP iteration `iteration`: its step size, the rules
+ * that accepted its step and judged its full step, the full step's constraint
+ * violation and the constraint violation after the step; and the largest
+ * residual of the normal-velocity terms `normalVelocityTerms`
+ * (normalVelocityTermIndices()) over `metrics`, the values of the nodes the
+ * iteration's step reached.
  */
 SqpStepSample sqpStepSampleOf(const sqp::IterationRecord& iteration,
                               const ProblemMetrics& metrics,

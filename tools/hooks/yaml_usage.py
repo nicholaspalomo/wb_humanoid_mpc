@@ -58,7 +58,8 @@ CONFIG_DIRS = ("robot_models/", "humanoid_nmpc/")
 YAML_EXTENSIONS = (".yaml", ".yml")
 
 _INCLUDE = re.compile(
-    r'^[ \t]*#[ \t]*include(?:_next)?[ \t]*([<"])(yaml-cpp/[^>"\n]*)[>"]', re.MULTILINE
+    r'^[ \t]*#[ \t]*include(?:_next)?[ \t]*([<"])(yaml-cpp/[^>"\n]*)[>"]',
+    re.MULTILINE,
 )
 _LABEL = re.compile(r"""["']@{1,2}yaml_cpp(?:\b|//)[^"'\n]*["']""")
 
@@ -66,7 +67,9 @@ _LABEL = re.compile(r"""["']@{1,2}yaml_cpp(?:\b|//)[^"'\n]*["']""")
 def is_config_yaml(path: str) -> bool:
     """True for a YAML file in one of the configuration directories (`path` relative to the repository root)."""
     path = lint_files.normalize(path)
-    return path.startswith(CONFIG_DIRS) and path.lower().endswith(YAML_EXTENSIONS)
+    return path.startswith(CONFIG_DIRS) and path.lower().endswith(
+        YAML_EXTENSIONS
+    )
 
 
 def _first_content_line(source: str) -> int:
@@ -89,8 +92,9 @@ def _config_yaml_findings(source: str, path: str) -> list[check_types.Finding]:
             _first_content_line(source),
             1,
             CONFIG_YAML,
-            "a YAML file where the MPC's configuration lives; its files are typed textprotos "
-            "(humanoid_nmpc/humanoid_mpc_config/README.md), and nothing reads YAML.",
+            "a YAML file where the MPC's configuration lives; its files are"
+            " typed textprotos (humanoid_nmpc/humanoid_mpc_config/README.md),"
+            " and nothing reads YAML.",
         )
     ]
 
@@ -152,18 +156,32 @@ CHECKS = [
         languages=frozenset({check_types.Language.TEXT}),
         scope=lint_files.Scope.FIRST_PARTY,
         check_source=_config_yaml_findings,
-        description="no .yaml or .yml file under robot_models/ or humanoid_nmpc/: the MPC's configuration files are "
-        "typed textprotos (humanoid_nmpc/humanoid_mpc_config).",
-        hint="Write the configuration as a textproto of its schema (humanoid_nmpc/humanoid_mpc_config/README.md).",
+        description=(
+            "no .yaml or .yml file under robot_models/ or humanoid_nmpc/: the"
+            " MPC's configuration files are typed textprotos"
+            " (humanoid_nmpc/humanoid_mpc_config)."
+        ),
+        hint=(
+            "Write the configuration as a textproto of its schema"
+            " (humanoid_nmpc/humanoid_mpc_config/README.md)."
+        ),
     ),
     check_types.Check(
         name=YAML_CPP,
-        languages=frozenset({check_types.Language.CPP, check_types.Language.STARLARK}),
+        languages=frozenset(
+            {check_types.Language.CPP, check_types.Language.STARLARK}
+        ),
         scope=lint_files.Scope.NOT_THIRDPARTY,
         check_source=_yaml_cpp_findings,
-        description="no yaml-cpp: no #include of a yaml-cpp/ header and no @yaml_cpp label; the configuration is read "
-        "by nproto's strict textproto parser.",
-        hint="Read configuration through its typed textproto (humanoid_common_mpc/config/ConfigFiles.h, "
-        "nproto::LoadTextprotoFile()).",
+        description=(
+            "no yaml-cpp: no #include of a yaml-cpp/ header and no @yaml_cpp"
+            " label; the configuration is read by nproto's strict textproto"
+            " parser."
+        ),
+        hint=(
+            "Read configuration through its typed textproto"
+            " (humanoid_common_mpc/config/ConfigFiles.h,"
+            " nproto::LoadTextprotoFile())."
+        ),
     ),
 ]

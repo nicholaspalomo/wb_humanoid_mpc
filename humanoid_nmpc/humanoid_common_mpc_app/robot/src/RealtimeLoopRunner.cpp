@@ -51,23 +51,30 @@ robot::realtime::RealtimeThreadConfig defaultRealtimeThreadConfig() {
   return config;
 }
 
-RealtimeLoopRunner::RealtimeLoopRunner(RealtimeLoopConfig config) : config_(std::move(config)) {}
+RealtimeLoopRunner::RealtimeLoopRunner(RealtimeLoopConfig config)
+    : config_(std::move(config)) {}
 
 RealtimeLoopRunner::~RealtimeLoopRunner() {
   stop();
 }
 
-absl::Status RealtimeLoopRunner::start(CycleFunction cycle, FaultFunction fault) {
+absl::Status RealtimeLoopRunner::start(CycleFunction cycle,
+                                       FaultFunction fault) {
   if (cycle == nullptr) {
-    return absl::InvalidArgumentError("RealtimeLoopRunner::start(): the cycle function is empty");
+    return absl::InvalidArgumentError(
+        "RealtimeLoopRunner::start(): the cycle function is empty");
   }
   if (config_.period <= std::chrono::nanoseconds::zero()) {
-    return absl::InvalidArgumentError(absl::StrCat("RealtimeLoopRunner: the period must be positive, got ", config_.period.count(), " ns"));
+    return absl::InvalidArgumentError(
+        absl::StrCat("RealtimeLoopRunner: the period must be positive, got ",
+                     config_.period.count(), " ns"));
   }
   {
     absl::MutexLock lock(lifecycleMutex_);
     if (started_) {
-      return absl::FailedPreconditionError("RealtimeLoopRunner::start(): the loop was started before; a runner runs once");
+      return absl::FailedPreconditionError(
+          "RealtimeLoopRunner::start(): the loop was started before; a runner "
+          "runs once");
     }
     started_ = true;
     cycle_ = std::move(cycle);
@@ -87,7 +94,8 @@ void RealtimeLoopRunner::stop() {
   }
 }
 
-bool RealtimeLoopRunner::takeTimingSnapshot(robot::realtime::LoopTimingSnapshot& snapshot) {
+bool RealtimeLoopRunner::takeTimingSnapshot(
+    robot::realtime::LoopTimingSnapshot& snapshot) {
   if (!timing_.acquireRead()) {
     return false;
   }
@@ -96,15 +104,18 @@ bool RealtimeLoopRunner::takeTimingSnapshot(robot::realtime::LoopTimingSnapshot&
 }
 
 void RealtimeLoopRunner::run() {
-  // The process's shutdown signals go to the other threads: a handler running on this thread would steal its time.
+  // The process's shutdown signals go to the other threads: a handler running
+  // on this thread would steal its time.
   sigset_t shutdownSignals;
   sigemptyset(&shutdownSignals);
   sigaddset(&shutdownSignals, SIGINT);
   sigaddset(&shutdownSignals, SIGTERM);
   pthread_sigmask(SIG_BLOCK, &shutdownSignals, /*oldset=*/nullptr);
   configureStatus_ = robot::realtime::configureCurrentThread(config_.thread);
-  // Everything the loop needs is built before the first cycle, on this thread, so that the cycles allocate nothing.
-  robot::realtime::LoopTimingStats statistics(config_.period, config_.reportingWindow);
+  // Everything the loop needs is built before the first cycle, on this thread,
+  // so that the cycles allocate nothing.
+  robot::realtime::LoopTimingStats statistics(config_.period,
+                                              config_.reportingWindow);
   robot::realtime::PeriodicTimer timer(config_.period, config_.overrunPolicy);
   configured_.Notify();
 
@@ -112,8 +123,9 @@ void RealtimeLoopRunner::run() {
   while (!stopRequested_.load(std::memory_order_acquire)) {
     const robot::realtime::TimerWakeup wakeup = timer.waitForNextPeriod();
     if (stopRequested_.load(std::memory_order_acquire)) break;
-    // The cycle runs the controller, which calls OCS2 and Pinocchio code that throws: the class comment's A CYCLE THAT
-    // THROWS boundary, which puts the robot in its safe state instead of letting the exception end the process.
+    // The cycle runs the controller, which calls OCS2 and Pinocchio code that
+    // throws: the class comment's A CYCLE THAT THROWS boundary, which puts the
+    // robot in its safe state instead of letting the exception end the process.
     try {  // NOLINT(exceptions): see above
       cycle_();
     } catch (const std::exception& error) {  // NOLINT(exceptions): see above
@@ -133,13 +145,15 @@ void RealtimeLoopRunner::run() {
 }
 
 void RealtimeLoopRunner::recordFault(const char* absl_nonnull message) {
-  const size_t length = std::min(std::strlen(message), faultMessage_.size() - 1);
+  const size_t length =
+      std::min(std::strlen(message), faultMessage_.size() - 1);
   std::memcpy(faultMessage_.data(), message, length);
   faultMessage_[length] = '\0';
   if (fault_ != nullptr) {
     try {  // NOLINT(exceptions): the fault function must not throw; if it does, the loop ends all the same
       fault_();
-    } catch (...) {  // NOLINT(exceptions, bugprone-empty-catch): see above; the cycle's fault is what faultMessage() reports
+      // NOLINTNEXTLINE(exceptions, bugprone-empty-catch): see above; the cycle's fault is what faultMessage() reports
+    } catch (...) {
     }
   }
   faulted_.store(true, std::memory_order_release);
@@ -147,7 +161,8 @@ void RealtimeLoopRunner::recordFault(const char* absl_nonnull message) {
 
 std::string RealtimeLoopRunner::faultMessage() const {
   if (!faulted()) return std::string();
-  return std::string(faultMessage_.data(), ::strnlen(faultMessage_.data(), faultMessage_.size()));
+  return std::string(faultMessage_.data(),
+                     ::strnlen(faultMessage_.data(), faultMessage_.size()));
 }
 
 }  // namespace ocs2::humanoid

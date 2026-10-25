@@ -67,12 +67,15 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
             operator_test_support.ATLAS_CONFIG, self.tmpdir
         )
         self.task_file = os.path.join(config, "mpc", "task.textproto")
-        self.planner_file = os.path.join(config, "mpc", "contact_planning.textproto")
+        self.planner_file = os.path.join(
+            config, "mpc", "contact_planning.textproto"
+        )
         self.publisher = operator_test_support.RecordingPublisher(
             topics.OPERATOR_MPC_PARAMETERS
         )
         self.original = {
-            path: self._read(path) for path in (self.task_file, self.planner_file)
+            path: self._read(path)
+            for path in (self.task_file, self.planner_file)
         }
 
     def _read(self, path: str) -> str:
@@ -91,7 +94,9 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
             self.root, task_file=task_file or self.task_file, **options
         )
 
-    def _row(self, tab: mpc_params_tab.MpcParamsTab, key: str) -> slider_row.SliderRow:
+    def _row(
+        self, tab: mpc_params_tab.MpcParamsTab, key: str
+    ) -> slider_row.SliderRow:
         self.assertTrue(tab.render_category_containing(key), key)
         row = tab.slider_rows[key]
         assert isinstance(row, slider_row.SliderRow), key
@@ -100,14 +105,20 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
     def _published(self) -> mpc_parameter_update_pb2.MpcParameterUpdate:
         """The last update published; every update published so far names the task file it is of."""
         for update in self.publisher.messages:
-            assert isinstance(update, mpc_parameter_update_pb2.MpcParameterUpdate)
+            assert isinstance(
+                update, mpc_parameter_update_pb2.MpcParameterUpdate
+            )
             self.assertTrue(update.config_path)
         message = self.publisher.last_message
-        assert isinstance(message, mpc_parameter_update_pb2.MpcParameterUpdate), message
+        assert isinstance(
+            message, mpc_parameter_update_pb2.MpcParameterUpdate
+        ), message
         return message
 
     def _files_unchanged(self) -> bool:
-        return all(self._read(path) == text for path, text in self.original.items())
+        return all(
+            self._read(path) == text for path, text in self.original.items()
+        )
 
     def _flush(self, tab: mpc_params_tab.MpcParamsTab) -> None:
         """Runs the pending debounced publish now."""
@@ -126,7 +137,8 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
         self.assertTrue(self._files_unchanged())
         # The task file's identity, which a receiver running another configuration refuses the update by.
         self.assertEqual(
-            published.config_path, robot_config_save.config_path_of(self.task_file)
+            published.config_path,
+            robot_config_save.config_path_of(self.task_file),
         )
 
     def test_the_update_is_the_files_parsed_strictly_with_the_change(self):
@@ -135,7 +147,9 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
         planner_row.set_value(0.05)
         self._flush(tab)
         published = self._published()
-        task = nproto_textproto.load_textproto(self.task_file, task_file_pb2.TaskFile)
+        task = nproto_textproto.load_textproto(
+            self.task_file, task_file_pb2.TaskFile
+        )
         planner = nproto_textproto.load_textproto(
             self.planner_file, contact_planning_file_pb2.ContactPlanningFile
         )
@@ -150,7 +164,9 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
         published = self._published()
         self.assertEqual(
             published.task,
-            nproto_textproto.load_textproto(self.task_file, task_file_pb2.TaskFile),
+            nproto_textproto.load_textproto(
+                self.task_file, task_file_pb2.TaskFile
+            ),
         )
 
     def test_a_robot_without_a_contact_planner_sends_none(self):
@@ -172,7 +188,9 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
         row.set_value(row.get_value() + 1.0)
         self._row(tab, PLANNER_DT).set_value(0.05)
         self.assertTrue(tab.save())
-        task = nproto_textproto.load_textproto(self.task_file, task_file_pb2.TaskFile)
+        task = nproto_textproto.load_textproto(
+            self.task_file, task_file_pb2.TaskFile
+        )
         planner = nproto_textproto.load_textproto(
             self.planner_file, contact_planning_file_pb2.ContactPlanningFile
         )
@@ -191,7 +209,9 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
         tab = self._tab()
         shown = self._row(tab, STATE_SCALING).get_value()
         # An editor's save after the tab loaded the file, then the operator tunes another file's row.
-        task = nproto_textproto.load_textproto(self.task_file, task_file_pb2.TaskFile)
+        task = nproto_textproto.load_textproto(
+            self.task_file, task_file_pb2.TaskFile
+        )
         task.state_weights.scaling = shown + 7.0
         with open(self.task_file, "w", encoding="utf-8") as handle:
             handle.write(nproto_textproto.file_text(task))
@@ -240,19 +260,25 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
         self._flush(tab)
         self.assertEqual(self.publisher.publish_count, 1)
 
-    def test_rows_are_keyed_by_their_path_and_labeled_by_their_field_names(self):
+    def test_rows_are_keyed_by_their_path_and_labeled_by_their_field_names(
+        self,
+    ):
         tab = self._tab()
         joint = "state_weights.joint_positions[joint=back_bkz].value"
         self.assertTrue(tab.render_category_containing(joint))
         # The field and the joint's key, from below the block; the comment of the line is not part of it.
-        self.assertEqual(tab.slider_rows[joint].name, "joint_positions[back_bkz]")
+        self.assertEqual(
+            tab.slider_rows[joint].name, "joint_positions[back_bkz]"
+        )
         # Every row of the block on screen is a parameter of a file, by its path.
         for key in tab.slider_rows:
             with self.subTest(key=key):
                 file, path = tab._locate(key)
                 self.assertTrue(file.has(path))
 
-    def test_the_contact_estimator_selection_publishes_its_name_and_saves_it(self):
+    def test_the_contact_estimator_selection_publishes_its_name_and_saves_it(
+        self,
+    ):
         tab = self._tab()
         notified: list[str | None] = []
 
@@ -261,12 +287,16 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
 
         tab.on_base_controller_fields_changed = record
         self.assertIn(
-            "contact_estimator", [spec.path for spec in tab.base_controller_fields()]
+            "contact_estimator",
+            [spec.path for spec in tab.base_controller_fields()],
         )
         self.assertTrue(tab.can_set_base_controller_fields())
-        self.assertEqual(tab.base_controller_value("contact_estimator"), "cheater_sim")
+        self.assertEqual(
+            tab.base_controller_value("contact_estimator"), "cheater_sim"
+        )
         self.assertIn(
-            "always_in_contact", tab.base_controller_choices("contact_estimator")
+            "always_in_contact",
+            tab.base_controller_choices("contact_estimator"),
         )
         tab.set_base_controller_value("contact_estimator", "always_in_contact")
         self.assertEqual(
@@ -274,7 +304,9 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
         )
         self.assertIn("always_in_contact", notified)
         self._flush(tab)
-        self.assertEqual(self._published().task.contact_estimator, "always_in_contact")
+        self.assertEqual(
+            self._published().task.contact_estimator, "always_in_contact"
+        )
         self.assertTrue(self._files_unchanged())
         self.assertTrue(tab.save())
         self.assertIn(
@@ -286,11 +318,15 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
             tab.base_controller_value("contact_estimator"), "always_in_contact"
         )
 
-    def test_the_contact_estimator_selection_is_ignored_without_online_tuning(self):
+    def test_the_contact_estimator_selection_is_ignored_without_online_tuning(
+        self,
+    ):
         tab = self._tab(enable_online_tuning=False)
         self.assertFalse(tab.can_set_base_controller_fields())
         tab.set_base_controller_value("contact_estimator", "always_in_contact")
-        self.assertEqual(tab.base_controller_value("contact_estimator"), "cheater_sim")
+        self.assertEqual(
+            tab.base_controller_value("contact_estimator"), "cheater_sim"
+        )
         self.assertEqual(self.publisher.publish_count, 0)
 
     def test_a_file_that_does_not_parse_is_reported_and_shows_nothing(self):

@@ -46,32 +46,43 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 namespace {
-// A candidate whose admissible stretch falls short of the incumbent's by more than this does not admit it.
+// A candidate whose admissible stretch falls short of the incumbent's by more
+// than this does not admit it.
 constexpr scalar_t kAdmissibleStretchTolerance = 1.0e-9;
-// A candidate replaces the incumbent only when it lowers the objective by more than this.
+// A candidate replaces the incumbent only when it lowers the objective by more
+// than this.
 constexpr scalar_t kMinObjectiveImprovement = 1.0e-6;
 }  // namespace
 
 std::string EventShiftLocalSearchStage::describe() const {
-  return absl::StrCat("shift every contact event of the incumbent by one node while it improves, ", params_.iterations, " rounds, ",
-                      params_.maxTime, " s");
+  return absl::StrCat(
+      "shift every contact event of the incumbent by one node while it "
+      "improves, ",
+      params_.iterations, " rounds, ", params_.maxTime, " s");
 }
 
-void EventShiftLocalSearchStage::configure(const ContactPlanningConfig& config) {
+void EventShiftLocalSearchStage::configure(
+    const ContactPlanningConfig& config) {
   params_ = config.eventShiftLocalSearch;
 }
 
 absl::Status EventShiftLocalSearchStage::afterSearch(SearchRun& run) const {
   const SearchRun::Clock::time_point start = SearchRun::Clock::now();
-  const std::function<scalar_t()> elapsed = [&start]() { return std::chrono::duration<scalar_t>(SearchRun::Clock::now() - start).count(); };
+  const std::function<scalar_t()> elapsed = [&start]() {
+    return std::chrono::duration<scalar_t>(SearchRun::Clock::now() - start)
+        .count();
+  };
   MiqpResult& result = *run.result;
   SearchStatistics& statistics = *run.statistics;
   const scalar_t timeBudget = params_.maxTime;
-  if (!result.hasIncumbent || params_.iterations <= 0 || timeBudget <= 0.0) return absl::OkStatus();
+  if (!result.hasIncumbent || params_.iterations <= 0 || timeBudget <= 0.0)
+    return absl::OkStatus();
   const int N = run.config->planner.numNodes;
   const MiqpAssignment& initial = *run.initialAssignment;
-  // The grid the incumbent is on: planner.dt unless a stage listed before this one re-timed it (cadence_stretch).
-  const scalar_t stretch = run.chosenDt > 0.0 ? run.chosenDt / run.config->planner.dt : 1.0;
+  // The grid the incumbent is on: planner.dt unless a stage listed before this
+  // one re-timed it (cadence_stretch).
+  const scalar_t stretch =
+      run.chosenDt > 0.0 ? run.chosenDt / run.config->planner.dt : 1.0;
 
   std::set<MiqpAssignment> evaluated;
   evaluated.insert(result.assignment);
@@ -81,10 +92,13 @@ absl::Status EventShiftLocalSearchStage::afterSearch(SearchRun& run) const {
     bool improved = false;
     for (size_t foot = 0; foot < kNumContacts; ++foot) {
       for (int k = 1; k < N; ++k) {
-        const size_t index = static_cast<size_t>(ContactLogicState::contactBinaryIndex(k, foot));
-        const size_t previousIndex = static_cast<size_t>(ContactLogicState::contactBinaryIndex(k - 1, foot));
+        const size_t index =
+            static_cast<size_t>(ContactLogicState::contactBinaryIndex(k, foot));
+        const size_t previousIndex = static_cast<size_t>(
+            ContactLogicState::contactBinaryIndex(k - 1, foot));
         if (base[index] == base[previousIndex]) continue;  // no transition at k
-        // Move the transition one node earlier (the previous node takes the new value) or later (this node keeps the old).
+        // Move the transition one node earlier (the previous node takes the new
+        // value) or later (this node keeps the old).
         for (const int shift : {-1, +1}) {
           MiqpAssignment candidate = base;
           if (shift < 0) {
@@ -95,13 +109,18 @@ absl::Status EventShiftLocalSearchStage::afterSearch(SearchRun& run) const {
             candidate[index] = base[previousIndex];
           }
           if (!(*run.propagate)(candidate)) continue;
-          // The propagation checks the gait limits on the planner.dt grid, but after a cadence_stretch listed earlier
-          // the problem being searched - and the plan to be emitted - is on the stretched grid, where a phase lasts
-          // chosenDt per node. A candidate that moves a touch-down one node later is then legal in nodes and too long
-          // in seconds (a five-node swing at dt 0.1 against a 0.5 s maximum passes propagation and executes for
-          // 0.625 s at a stretch of 1.25), so the candidate has to admit the stretch the incumbent was emitted with.
-          if (stretch > 1.0 && CadenceStretchStage::admissibleStretch(*run.config, candidate, N, stretch, run.input) <
-                                   stretch - kAdmissibleStretchTolerance) {
+          // The propagation checks the gait limits on the planner.dt grid, but
+          // after a cadence_stretch listed earlier the problem being searched -
+          // and the plan to be emitted - is on the stretched grid, where a
+          // phase lasts chosenDt per node. A candidate that moves a touch-down
+          // one node later is then legal in nodes and too long in seconds (a
+          // five-node swing at dt 0.1 against a 0.5 s maximum passes
+          // propagation and executes for 0.625 s at a stretch of 1.25), so the
+          // candidate has to admit the stretch the incumbent was emitted with.
+          if (stretch > 1.0 &&
+              CadenceStretchStage::admissibleStretch(*run.config, candidate, N,
+                                                     stretch, run.input) <
+                  stretch - kAdmissibleStretchTolerance) {
             continue;
           }
           if (!evaluated.insert(candidate).second) continue;
@@ -109,19 +128,26 @@ absl::Status EventShiftLocalSearchStage::afterSearch(SearchRun& run) const {
           OcpQpSolution solution;
           scalar_t objective = 0.0;
           ++statistics.numLocalSearchQps;
-          // A candidate the solver rejects ends the search; the improvements before it stay adopted.
-          ASSIGN_OR_RETURN(const bool solved, run.miqp->solveFixed(*run.problem, *run.binaries, candidate, *run.propagate,
-                                                                   *run.assignmentCost, solution, objective));
+          // A candidate the solver rejects ends the search; the improvements
+          // before it stay adopted.
+          ASSIGN_OR_RETURN(
+              const bool solved,
+              run.miqp->solveFixed(*run.problem, *run.binaries, candidate,
+                                   *run.propagate, *run.assignmentCost,
+                                   solution, objective));
           if (!solved) continue;
           statistics.totalQpIterations += solution.iterations;
-          if (objective < result.incumbentObjective - kMinObjectiveImprovement) {
+          if (objective <
+              result.incumbentObjective - kMinObjectiveImprovement) {
             result.incumbentObjective = objective;
             result.solution = solution;
             result.assignment = candidate;
             improved = true;
             statistics.localSearchImproved = true;
             if (run.verbose) {
-              LOG(INFO) << "[LipContactPlanner] local search improved the objective to " << objective;
+              LOG(INFO) << "[LipContactPlanner] local search improved the "
+                           "objective to "
+                        << objective;
             }
           }
         }

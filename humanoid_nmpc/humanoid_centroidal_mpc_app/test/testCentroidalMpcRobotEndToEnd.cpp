@@ -64,24 +64,36 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_model/RobotDescription.h"
 
 /*
- * The robot binary end to end, in the topology the hardware runs: humanoid_centroidal_mpc_robot is started as its own
- * process (the MuJoCo backend without a viewer, on the DRC Atlas files, the remote MPC link), and the test plays the laptop: an
- * MpcServer around a scripted MPC, and an operator, on a loopback network file of its own. The robot comes up in
- * ZERO_TORQUE on the gantry and streams observations; the operator takes it through JOINT_PD into WB_MPC; the policy of
- * the MPC - the robot held where it is, with one joint offset so that its action can be told from JOINT_PD's - reaches
- * the joint targets; the loop holds its period; and when the MPC side goes away the link is lost and the controller
- * holds the robot with the JOINT_PD action, while the mode stays WB_MPC. SIGTERM ends the process cleanly.
+ * The robot binary end to end, in the topology the hardware runs:
+ * humanoid_centroidal_mpc_robot is started as its own process (the MuJoCo
+ * backend without a viewer, on the DRC Atlas files, the remote MPC link), and
+ * the test plays the laptop: an MpcServer around a scripted MPC, and an
+ * operator, on a loopback network file of its own. The robot comes up in
+ * ZERO_TORQUE on the gantry and streams observations; the operator takes it
+ * through JOINT_PD into WB_MPC; the policy of the MPC - the robot held where it
+ * is, with one joint offset so that its action can be told from JOINT_PD's -
+ * reaches the joint targets; the loop holds its period; and when the MPC side
+ * goes away the link is lost and the controller holds the robot with the
+ * JOINT_PD action, while the mode stays WB_MPC. SIGTERM ends the process
+ * cleanly.
  */
 
 namespace ocs2::humanoid {
 namespace {
 
-constexpr char kRobotBinary[] = "humanoid_nmpc/humanoid_centroidal_mpc_app/humanoid_centroidal_mpc_robot";
-constexpr char kAtlasTask[] = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto";
-constexpr char kAtlasReference[] = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.textproto";
-constexpr char kAtlasUrdf[] = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
-constexpr char kAtlasScene[] = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml";
-/** [rad] What the scripted MPC adds to the last joint of the model, so that its action differs from JOINT_PD's. */
+constexpr char kRobotBinary[] =
+    "humanoid_nmpc/humanoid_centroidal_mpc_app/humanoid_centroidal_mpc_robot";
+constexpr char kAtlasTask[] =
+    "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto";
+constexpr char kAtlasReference[] =
+    "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/"
+    "reference.textproto";
+constexpr char kAtlasUrdf[] =
+    "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
+constexpr char kAtlasScene[] =
+    "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml";
+/** [rad] What the scripted MPC adds to the last joint of the model, so that its
+ * action differs from JOINT_PD's. */
 constexpr double kJointOffset = 0.1;
 /** The modes of a humanoid MPC: the contact combinations of its two feet. */
 constexpr size_t kNumModes = 4;
@@ -91,7 +103,8 @@ using test_support::createBus;
 using test_support::ScriptedOperator;
 using test_support::waitFor;
 
-/** The latest FSM state the operator received: a test failure and an empty state when none has come. */
+/** The latest FSM state the operator received: a test failure and an empty
+ * state when none has come. */
 humanoid_mpc_msgs::FsmState fsmStateOf(const ScriptedOperator& remoteControl) {
   std::optional<humanoid_mpc_msgs::FsmState> state = remoteControl.fsmState();
   if (!state.has_value()) {
@@ -101,7 +114,8 @@ humanoid_mpc_msgs::FsmState fsmStateOf(const ScriptedOperator& remoteControl) {
   return *std::move(state);
 }
 
-/** The latest loop timing the operator received: a test failure and an empty one when none has come. */
+/** The latest loop timing the operator received: a test failure and an empty
+ * one when none has come. */
 humanoid_mpc_msgs::LoopTiming timingOf(const ScriptedOperator& remoteControl) {
   std::optional<humanoid_mpc_msgs::LoopTiming> timing = remoteControl.timing();
   if (!timing.has_value()) {
@@ -111,8 +125,10 @@ humanoid_mpc_msgs::LoopTiming timingOf(const ScriptedOperator& remoteControl) {
   return *std::move(timing);
 }
 
-/** The robot binary's command line on the DRC Atlas files and `networkFile`, its viewer chosen by `viewerArgument`. */
-std::vector<std::string> robotCommand(const std::string& networkFile, const std::string& viewerArgument) {
+/** The robot binary's command line on the DRC Atlas files and `networkFile`,
+ * its viewer chosen by `viewerArgument`. */
+std::vector<std::string> robotCommand(const std::string& networkFile,
+                                      const std::string& viewerArgument) {
   return {kRobotBinary,
           "--robot_name=drc_atlas",
           absl::StrCat("--task_file=", kAtlasTask),
@@ -125,42 +141,64 @@ std::vector<std::string> robotCommand(const std::string& networkFile, const std:
           "--backend_cores=none"};
 }
 
-/** Writes a plot configuration to `path` whose mujoco_viewer is `viewer`, replacing the file. */
+/** Writes a plot configuration to `path` whose mujoco_viewer is `viewer`,
+ * replacing the file. */
 void writePlotConfig(const std::string& path, absl::string_view viewer) {
-  std::ofstream(path, std::ios::trunc) << absl::StrCat("# proto-file: humanoid_nmpc/humanoid_rerun_viewer/proto/plot_config.proto\n",
-                                                       "# proto-message: humanoid_rerun_viewer_proto.PlotConfig\n", "mujoco_viewer: \"",
-                                                       viewer, "\"\n");
+  std::ofstream(path, std::ios::trunc) << absl::StrCat(
+      "# proto-file: "
+      "humanoid_nmpc/humanoid_rerun_viewer/proto/plot_config.proto\n",
+      "# proto-message: humanoid_rerun_viewer_proto.PlotConfig\n",
+      "mujoco_viewer: \"", viewer, "\"\n");
 }
 
-TEST(CentroidalMpcRobotEndToEnd, ReachesWbMpcAppliesThePolicyHoldsItsPeriodAndHoldsJointPdOnLinkLoss) {
-  // The laptop's view of the model: the controller's dimensions, with no optimal control problem built.
+TEST(CentroidalMpcRobotEndToEnd,
+     ReachesWbMpcAppliesThePolicyHoldsItsPeriodAndHoldsJointPdOnLinkLoss) {
+  // The laptop's view of the model: the controller's dimensions, with no
+  // optimal control problem built.
   absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface =
-      CentroidalMpcInterface::CreateControllerModels(kAtlasTask, kAtlasUrdf, kAtlasReference);
+      CentroidalMpcInterface::CreateControllerModels(kAtlasTask, kAtlasUrdf,
+                                                     kAtlasReference);
   ASSERT_TRUE(interface.ok()) << interface.status();
-  const MpcRobotModelBase<scalar_t>& model = (*interface)->getEffectiveMpcRobotModel();
-  const ipc::ModelDimensions dimensions{.stateDim = model.getStateDim(), .inputDim = model.getInputDim(), .numModes = kNumModes};
-  const std::string offsetJoint = (*interface)->modelSettings().mpcModelJointNames.back();
-  absl::StatusOr<robot::model::RobotDescription> descriptionOrStatus = robot::model::RobotDescription::Create(kAtlasUrdf);
+  const MpcRobotModelBase<scalar_t>& model =
+      (*interface)->getEffectiveMpcRobotModel();
+  const ipc::ModelDimensions dimensions{.stateDim = model.getStateDim(),
+                                        .inputDim = model.getInputDim(),
+                                        .numModes = kNumModes};
+  const std::string offsetJoint =
+      (*interface)->modelSettings().mpcModelJointNames.back();
+  absl::StatusOr<robot::model::RobotDescription> descriptionOrStatus =
+      robot::model::RobotDescription::Create(kAtlasUrdf);
   ASSERT_TRUE(descriptionOrStatus.ok()) << descriptionOrStatus.status();
   const robot::model::RobotDescription& description = *descriptionOrStatus;
   const size_t offsetJointIndex = description.getJointIndex(offsetJoint);
 
-  // A network file of the test's own: the robot, the MPC and the operator on free loopback ports.
-  const std::string networkFile = (std::filesystem::path(std::getenv("TEST_TMPDIR")) / "network.textproto").string();
+  // A network file of the test's own: the robot, the MPC and the operator on
+  // free loopback ports.
+  const std::string networkFile =
+      (std::filesystem::path(std::getenv("TEST_TMPDIR")) / "network.textproto")
+          .string();
   const absl::StatusOr<robot::ipc::NetworkConfig> network =
-      test_support::writeLoopbackNetworkFile(networkFile, {"robot", "mpc", "operator"});
+      test_support::writeLoopbackNetworkFile(networkFile,
+                                             {"robot", "mpc", "operator"});
   ASSERT_TRUE(network.ok()) << network.status();
 
-  // The MPC side: a scripted MPC that holds the robot where it solved from, with the last joint offset.
+  // The MPC side: a scripted MPC that holds the robot where it solved from,
+  // with the last joint offset.
   mpc::Settings settings;
   settings.timeHorizon_ = 1.0;
   settings.solutionTimeWindow_ = -1.0;
-  std::unique_ptr<mpc_test::ScriptedMpc> mpc = std::make_unique<mpc_test::ScriptedMpc>(settings, dimensions.inputDim);
-  // The JOINT_PD posture of the offset joint: the task file's initial state, which the robot starts in.
-  const vector_t initialJointAngles = model.getJointAngles((*interface)->getInitialState());
+  std::unique_ptr<mpc_test::ScriptedMpc> mpc =
+      std::make_unique<mpc_test::ScriptedMpc>(settings, dimensions.inputDim);
+  // The JOINT_PD posture of the offset joint: the task file's initial state,
+  // which the robot starts in.
+  const vector_t initialJointAngles =
+      model.getJointAngles((*interface)->getInitialState());
   const double nominal = initialJointAngles(initialJointAngles.size() - 1);
-  const Eigen::Index offsetIndex = static_cast<Eigen::Index>(dimensions.stateDim) - 1;
-  mpc->solver().setPlan([offsetIndex, nominal](scalar_t /*time*/, scalar_t /*initTime*/, const vector_t& initState) {
+  const Eigen::Index offsetIndex =
+      static_cast<Eigen::Index>(dimensions.stateDim) - 1;
+  mpc->solver().setPlan([offsetIndex, nominal](scalar_t /*time*/,
+                                               scalar_t /*initTime*/,
+                                               const vector_t& initState) {
     vector_t state = initState;
     state(offsetIndex) = nominal + kJointOffset;
     return state;
@@ -169,12 +207,18 @@ TEST(CentroidalMpcRobotEndToEnd, ReachesWbMpcAppliesThePolicyHoldsItsPeriodAndHo
   ipc::MpcServer::Config serverConfig;
   serverConfig.dimensions = dimensions;
   serverConfig.mpcDesiredFrequency = 50.0;
-  // The robot binary stamps its model layout, and refuses a policy of another, an unstamped one included.
-  serverConfig.modelFingerprint = modelLayoutFingerprint((*interface)->modelSettings());
-  absl::StatusOr<std::unique_ptr<ipc::MpcServer>> server = ipc::MpcServer::Create(
-      mpcBus.get(), mpc.get(),
-      [](const SystemObservation& observation) { return TargetTrajectories({observation.time}, {observation.state}, {observation.input}); },
-      serverConfig);
+  // The robot binary stamps its model layout, and refuses a policy of another,
+  // an unstamped one included.
+  serverConfig.modelFingerprint =
+      modelLayoutFingerprint((*interface)->modelSettings());
+  absl::StatusOr<std::unique_ptr<ipc::MpcServer>> server =
+      ipc::MpcServer::Create(
+          mpcBus.get(), mpc.get(),
+          [](const SystemObservation& observation) {
+            return TargetTrajectories({observation.time}, {observation.state},
+                                      {observation.input});
+          },
+          serverConfig);
   ASSERT_TRUE(server.ok()) << server.status();
 
   // The operator.
@@ -184,31 +228,52 @@ TEST(CentroidalMpcRobotEndToEnd, ReachesWbMpcAppliesThePolicyHoldsItsPeriodAndHo
   remoteControl.start();
 
   // The robot.
-  ChildProcess robot({kRobotBinary, "--robot_name=drc_atlas", absl::StrCat("--task_file=", kAtlasTask),
-                      absl::StrCat("--reference_file=", kAtlasReference), absl::StrCat("--urdf_file=", kAtlasUrdf),
-                      absl::StrCat("--mjcf_file=", kAtlasScene), absl::StrCat("--network_config=", networkFile), "--viewer=none",
-                      "--realtime_cores=none", "--backend_cores=none"});
-  ASSERT_TRUE(waitFor([&]() { return remoteControl.fsmState().has_value() || !robot.running(); }, absl::Seconds(60)));
+  ChildProcess robot({kRobotBinary, "--robot_name=drc_atlas",
+                      absl::StrCat("--task_file=", kAtlasTask),
+                      absl::StrCat("--reference_file=", kAtlasReference),
+                      absl::StrCat("--urdf_file=", kAtlasUrdf),
+                      absl::StrCat("--mjcf_file=", kAtlasScene),
+                      absl::StrCat("--network_config=", networkFile),
+                      "--viewer=none", "--realtime_cores=none",
+                      "--backend_cores=none"});
+  ASSERT_TRUE(waitFor(
+      [&]() {
+        return remoteControl.fsmState().has_value() || !robot.running();
+      },
+      absl::Seconds(60)));
   ASSERT_TRUE(robot.running()) << "the robot process exited on start-up";
   EXPECT_EQ(fsmStateOf(remoteControl).mode(), "ZERO_TORQUE");
   EXPECT_TRUE(fsmStateOf(remoteControl).gantry_locked());
 
-  // The robot streams observations from ZERO_TORQUE on, and the MPC solves them.
-  ASSERT_TRUE(waitFor([&]() { return (*server)->statistics().policiesPublished > 5; }, absl::Seconds(20)));
+  // The robot streams observations from ZERO_TORQUE on, and the MPC solves
+  // them.
+  ASSERT_TRUE(
+      waitFor([&]() { return (*server)->statistics().policiesPublished > 5; },
+              absl::Seconds(20)));
 
   ASSERT_TRUE(remoteControl.enterMode("JOINT_PD"));
   const uint64_t resetsBeforeEntry = (*server)->statistics().robotResetsServed;
   ASSERT_TRUE(remoteControl.enterMode("WB_MPC"));
 
-  // The entry into WB_MPC resets the MPC from the robot as it is; the policy solved after it is ramped in, and the
-  // offset joint's target leaves the JOINT_PD posture for the MPC's.
-  EXPECT_TRUE(waitFor([&]() { return (*server)->statistics().robotResetsServed > resetsBeforeEntry; }, absl::Seconds(10)));
-  // The offset joint's target: its JOINT_PD posture plus the scripted offset under the MPC's action (once the entry
-  // ramp, mpcEntryBlendTime, is over), the posture itself under the JOINT_PD action.
-  const std::function<std::optional<double>(absl::string_view)> offsetTarget = [&](absl::string_view mode) -> std::optional<double> {
-    const std::optional<humanoid_mpc_msgs::RobotStateSample> sample = remoteControl.sample();
-    if (!sample.has_value() || sample->control_mode() != mode) return std::nullopt;
-    return sample->joint_position_targets(static_cast<int>(offsetJointIndex)) - nominal;
+  // The entry into WB_MPC resets the MPC from the robot as it is; the policy
+  // solved after it is ramped in, and the offset joint's target leaves the
+  // JOINT_PD posture for the MPC's.
+  EXPECT_TRUE(waitFor(
+      [&]() {
+        return (*server)->statistics().robotResetsServed > resetsBeforeEntry;
+      },
+      absl::Seconds(10)));
+  // The offset joint's target: its JOINT_PD posture plus the scripted offset
+  // under the MPC's action (once the entry ramp, mpcEntryBlendTime, is over),
+  // the posture itself under the JOINT_PD action.
+  const std::function<std::optional<double>(absl::string_view)> offsetTarget =
+      [&](absl::string_view mode) -> std::optional<double> {
+    const std::optional<humanoid_mpc_msgs::RobotStateSample> sample =
+        remoteControl.sample();
+    if (!sample.has_value() || sample->control_mode() != mode)
+      return std::nullopt;
+    return sample->joint_position_targets(static_cast<int>(offsetJointIndex)) -
+           nominal;
   };
   ASSERT_TRUE(waitFor(
       [&]() {
@@ -219,23 +284,37 @@ TEST(CentroidalMpcRobotEndToEnd, ReachesWbMpcAppliesThePolicyHoldsItsPeriodAndHo
       << "the MPC's policy never reached the joint targets";
   ASSERT_TRUE(fsmStateOf(remoteControl).mpc_healthy());
   ASSERT_TRUE(remoteControl.timing().has_value());
-  EXPECT_GE(timingOf(remoteControl).policy_age_s(), 0.0) << "a policy of the MPC is in use";
+  EXPECT_GE(timingOf(remoteControl).policy_age_s(), 0.0)
+      << "a policy of the MPC is in use";
 
-  // The loop holds its period: a few overruns and skipped periods at most, over the whole run. A period lost to a late
-  // wake-up overruns nothing, so the skipped periods are checked on their own.
-  ASSERT_TRUE(waitFor([&]() { return remoteControl.timing().has_value() && timingOf(remoteControl).cycles() > 1000; }, absl::Seconds(20)));
+  // The loop holds its period: a few overruns and skipped periods at most, over
+  // the whole run. A period lost to a late wake-up overruns nothing, so the
+  // skipped periods are checked on their own.
+  ASSERT_TRUE(waitFor(
+      [&]() {
+        return remoteControl.timing().has_value() &&
+               timingOf(remoteControl).cycles() > 1000;
+      },
+      absl::Seconds(20)));
   const humanoid_mpc_msgs::LoopTiming timing = timingOf(remoteControl);
-  EXPECT_DOUBLE_EQ(timing.target_period_s(), 0.01) << "the shipped rate of the Atlas (mpc.mrt_desired_frequency 100 Hz)";
-  EXPECT_LE(timing.overruns(), timing.cycles() / 100) << timing.overruns() << " overruns in " << timing.cycles() << " cycles";
-  EXPECT_LE(timing.missed_periods(), timing.cycles() / 100) << timing.missed_periods() << " skipped periods in " << timing.cycles()
-                                                            << " cycles (latest wake-up " << timing.max_lateness_s() << " s late)";
+  EXPECT_DOUBLE_EQ(timing.target_period_s(), 0.01)
+      << "the shipped rate of the Atlas (mpc.mrt_desired_frequency 100 Hz)";
+  EXPECT_LE(timing.overruns(), timing.cycles() / 100)
+      << timing.overruns() << " overruns in " << timing.cycles() << " cycles";
+  EXPECT_LE(timing.missed_periods(), timing.cycles() / 100)
+      << timing.missed_periods() << " skipped periods in " << timing.cycles()
+      << " cycles (latest wake-up " << timing.max_lateness_s() << " s late)";
   EXPECT_NEAR(timing.mean_period_s(), 0.01, 0.002);
 
-  // The MPC side goes away: the link is lost after mpcLink.policyTimeout, the controller holds the robot with the
-  // JOINT_PD action (the offset is gone from the targets), and the mode stays WB_MPC.
+  // The MPC side goes away: the link is lost after mpcLink.policyTimeout, the
+  // controller holds the robot with the JOINT_PD action (the offset is gone
+  // from the targets), and the mode stays WB_MPC.
   (*server)->stop();
   mpcBus->stop();
-  ASSERT_TRUE(waitFor([&]() { return !fsmStateOf(remoteControl).mpc_healthy(); }, absl::Seconds(10))) << "no link loss reported";
+  ASSERT_TRUE(
+      waitFor([&]() { return !fsmStateOf(remoteControl).mpc_healthy(); },
+              absl::Seconds(10)))
+      << "no link loss reported";
   EXPECT_EQ(fsmStateOf(remoteControl).mode(), "WB_MPC");
   EXPECT_TRUE(waitFor(
       [&]() {
@@ -245,49 +324,73 @@ TEST(CentroidalMpcRobotEndToEnd, ReachesWbMpcAppliesThePolicyHoldsItsPeriodAndHo
       absl::Seconds(10)))
       << "the robot was not held with the JOINT_PD action";
 
-  EXPECT_EQ(robot.terminate(absl::Seconds(20)), 0) << "the robot process did not end cleanly on SIGTERM";
+  EXPECT_EQ(robot.terminate(absl::Seconds(20)), 0)
+      << "the robot process did not end cleanly on SIGTERM";
   remoteControl.stop();
 }
 
-TEST(CentroidalMpcRobotEndToEnd, AViewerListTheRegistryRefusesEndsTheStartWithAFailure) {
-  // The viewer is chosen by name: an unknown one (vnc) and a list whose later entry could never start (glfw cannot fail at
-  // start-up) end the process at start-up with a failure, before the bus or the simulator comes up.
-  const std::string networkFile = (std::filesystem::path(std::getenv("TEST_TMPDIR")) / "refused_network.textproto").string();
-  ASSERT_TRUE(test_support::writeLoopbackNetworkFile(networkFile, {"robot", "mpc", "operator"}).ok());
-  for (const std::string& viewer : std::vector<std::string>{"--viewer=vnc", "--viewer=glfw,none"}) {
+TEST(CentroidalMpcRobotEndToEnd,
+     AViewerListTheRegistryRefusesEndsTheStartWithAFailure) {
+  // The viewer is chosen by name: an unknown one (vnc) and a list whose later
+  // entry could never start (glfw cannot fail at start-up) end the process at
+  // start-up with a failure, before the bus or the simulator comes up.
+  const std::string networkFile =
+      (std::filesystem::path(std::getenv("TEST_TMPDIR")) /
+       "refused_network.textproto")
+          .string();
+  ASSERT_TRUE(test_support::writeLoopbackNetworkFile(
+                  networkFile, {"robot", "mpc", "operator"})
+                  .ok());
+  for (const std::string& viewer :
+       std::vector<std::string>{"--viewer=vnc", "--viewer=glfw,none"}) {
     ChildProcess robot(robotCommand(networkFile, viewer));
-    EXPECT_TRUE(waitFor([&]() { return !robot.running(); }, absl::Seconds(30))) << viewer << " was not refused";
+    EXPECT_TRUE(waitFor([&]() { return !robot.running(); }, absl::Seconds(30)))
+        << viewer << " was not refused";
     EXPECT_EQ(robot.terminate(absl::Seconds(5)), 1) << viewer;
   }
 }
 
-TEST(CentroidalMpcRobotEndToEnd, WithoutViewerTheMujocoViewerOfThePlotConfigurationStartsOrIsRefused) {
-  // Without --viewer the robot reads its viewer from --plot_config. Two starts that differ only in the file's
-  // mujoco_viewer show that it was read: "none" comes up (the operator hears the robot in ZERO_TORQUE), the unknown "vnc"
-  // ends the start with a failure. A robot that ignored the file would start the same default viewer (web) both times,
-  // and both starts would end alike.
+TEST(CentroidalMpcRobotEndToEnd,
+     WithoutViewerTheMujocoViewerOfThePlotConfigurationStartsOrIsRefused) {
+  // Without --viewer the robot reads its viewer from --plot_config. Two starts
+  // that differ only in the file's mujoco_viewer show that it was read: "none"
+  // comes up (the operator hears the robot in ZERO_TORQUE), the unknown "vnc"
+  // ends the start with a failure. A robot that ignored the file would start
+  // the same default viewer (web) both times, and both starts would end alike.
   const std::filesystem::path directory(std::getenv("TEST_TMPDIR"));
-  const std::string networkFile = (directory / "plot_config_network.textproto").string();
+  const std::string networkFile =
+      (directory / "plot_config_network.textproto").string();
   const absl::StatusOr<robot::ipc::NetworkConfig> network =
-      test_support::writeLoopbackNetworkFile(networkFile, {"robot", "mpc", "operator"});
+      test_support::writeLoopbackNetworkFile(networkFile,
+                                             {"robot", "mpc", "operator"});
   ASSERT_TRUE(network.ok()) << network.status();
-  const std::string plotConfig = (directory / "viewer_plot_config.textproto").string();
+  const std::string plotConfig =
+      (directory / "viewer_plot_config.textproto").string();
 
   writePlotConfig(plotConfig, /*viewer=*/"none");
   {
     ScriptedOperator remoteControl(*network);
     remoteControl.start();
-    ChildProcess robot(robotCommand(networkFile, absl::StrCat("--plot_config=", plotConfig)));
-    ASSERT_TRUE(waitFor([&]() { return remoteControl.fsmState().has_value() || !robot.running(); }, absl::Seconds(60)));
-    ASSERT_TRUE(robot.running()) << "the robot did not start on the plot configuration's viewer none";
+    ChildProcess robot(
+        robotCommand(networkFile, absl::StrCat("--plot_config=", plotConfig)));
+    ASSERT_TRUE(waitFor(
+        [&]() {
+          return remoteControl.fsmState().has_value() || !robot.running();
+        },
+        absl::Seconds(60)));
+    ASSERT_TRUE(robot.running())
+        << "the robot did not start on the plot configuration's viewer none";
     EXPECT_EQ(fsmStateOf(remoteControl).mode(), "ZERO_TORQUE");
-    EXPECT_EQ(robot.terminate(absl::Seconds(20)), 0) << "the robot process did not end cleanly on SIGTERM";
+    EXPECT_EQ(robot.terminate(absl::Seconds(20)), 0)
+        << "the robot process did not end cleanly on SIGTERM";
     remoteControl.stop();
   }
 
   writePlotConfig(plotConfig, /*viewer=*/"vnc");
-  ChildProcess robot(robotCommand(networkFile, absl::StrCat("--plot_config=", plotConfig)));
-  EXPECT_TRUE(waitFor([&]() { return !robot.running(); }, absl::Seconds(30))) << "the plot configuration's viewer vnc was not refused";
+  ChildProcess robot(
+      robotCommand(networkFile, absl::StrCat("--plot_config=", plotConfig)));
+  EXPECT_TRUE(waitFor([&]() { return !robot.running(); }, absl::Seconds(30)))
+      << "the plot configuration's viewer vnc was not refused";
   EXPECT_EQ(robot.terminate(absl::Seconds(5)), 1);
 }
 

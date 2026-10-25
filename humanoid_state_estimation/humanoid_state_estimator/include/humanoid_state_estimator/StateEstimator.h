@@ -38,12 +38,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::estimation {
 
 /**
- * A stage of the robot process's realtime cycle between the backend and the controller: it takes the state the backend
- * measured and hands on the state the controller consumes, in particular the base's position and linear velocity, which
- * no sensor measures directly on hardware. Selected by name (StateEstimatorRegistry, the task file's state_estimator).
+ * A stage of the robot process's realtime cycle between the backend and the
+ * controller: it takes the state the backend measured and hands on the state
+ * the controller consumes, in particular the base's position and linear
+ * velocity, which no sensor measures directly on hardware. Selected by name
+ * (StateEstimatorRegistry, the task file's state_estimator).
  *
- * THREADS. reset() and estimate() are for the realtime thread: both are realtime-safe (no allocation, no lock, no I/O)
- * once the estimator is built. failedUpdates() is for any thread. The class is otherwise not thread-safe.
+ * THREADS. reset() and estimate() are for the realtime thread: both are
+ * realtime-safe (no allocation, no lock, no I/O) once the estimator is built.
+ * failedUpdates() is for any thread. The class is otherwise not thread-safe.
  */
 class StateEstimator {
  public:
@@ -53,19 +56,23 @@ class StateEstimator {
   virtual absl::string_view name() const = 0;
 
   /**
-   * Restarts the estimate from `measured`, taken as the truth: at start-up, and after the plant jumped by a means no
-   * sensor saw (a simulator putting the robot back). Realtime-safe.
+   * Restarts the estimate from `measured`, taken as the truth: at start-up, and
+   * after the plant jumped by a means no sensor saw (a simulator putting the
+   * robot back). Realtime-safe.
    */
   virtual void reset(const robot::model::RobotState& measured) = 0;
 
   /**
-   * The state the controller consumes this cycle, from the state `measured` the backend published. The reference stays
-   * valid until the next call of estimate() or reset() and the lifetime of `measured` (the ground truth hands back
-   * `measured` itself). Allocates nothing.
+   * The state the controller consumes this cycle, from the state `measured` the
+   * backend published. The reference stays valid until the next call of
+   * estimate() or reset() and the lifetime of `measured` (the ground truth
+   * hands back `measured` itself). Allocates nothing.
    */
-  virtual const robot::model::RobotState& estimate(const robot::model::RobotState& measured) = 0;
+  virtual const robot::model::RobotState& estimate(
+      const robot::model::RobotState& measured) = 0;
 
-  /** The updates that failed (a non-finite reading) and kept the previous estimate. Any thread. */
+  /** The updates that failed (a non-finite reading) and kept the previous
+   * estimate. Any thread. */
   virtual uint64_t failedUpdates() const = 0;
 };
 

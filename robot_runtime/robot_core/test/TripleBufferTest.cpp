@@ -173,8 +173,8 @@ TEST(TripleBufferTest, ConcurrentSPSCReaderSeesMonotonicallyIncreasingValues) {
 
   // We must have eventually seen the final value
   EXPECT_EQ(lastSeen, kNumWrites);
-  // Consumer should have read at least 1 value (though likely far fewer than kNumWrites
-  // because the triple buffer drops intermediate values)
+  // Consumer should have read at least 1 value (though likely far fewer than
+  // kNumWrites because the triple buffer drops intermediate values)
   EXPECT_GT(readCount, 0);
 }
 
@@ -215,7 +215,9 @@ TEST(TripleBufferTest, ConcurrentSPSCNoDataRaceConsistentStruct) {
   while (!done.load(std::memory_order_acquire) || buf.hasNewData()) {
     if (buf.acquireRead()) {
       ASSERT_TRUE(buf.readSlot().isConsistent())
-          << "Torn read detected at read " << readCount << ", header=" << buf.readSlot().header << ", footer=" << buf.readSlot().footer;
+          << "Torn read detected at read " << readCount
+          << ", header=" << buf.readSlot().header
+          << ", footer=" << buf.readSlot().footer;
       ++readCount;
     }
   }
@@ -237,16 +239,21 @@ TEST(TripleBufferTest, ReaderNeverBlocksBoundedLatency) {
   constexpr int kNumReads = 10000;
 
   // Measure reader latency without any writer
-  const std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+  const std::chrono::steady_clock::time_point start =
+      std::chrono::steady_clock::now();
   for (int i = 0; i < kNumReads; ++i) {
     buf.acquireRead();
     (void)buf.readSlot();
   }
-  const std::chrono::steady_clock::duration elapsed = std::chrono::steady_clock::now() - start;
-  const std::chrono::nanoseconds::rep avgNs = std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count() / kNumReads;
+  const std::chrono::steady_clock::duration elapsed =
+      std::chrono::steady_clock::now() - start;
+  const std::chrono::nanoseconds::rep avgNs =
+      std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count() /
+      kNumReads;
 
   // Reader should never block — avg latency should be well under 1µs
-  EXPECT_LT(avgNs, 1000) << "Average read latency " << avgNs << "ns exceeds 1µs";
+  EXPECT_LT(avgNs, 1000) << "Average read latency " << avgNs
+                         << "ns exceeds 1µs";
 }
 
 }  // namespace

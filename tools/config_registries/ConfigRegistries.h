@@ -35,24 +35,31 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::config_registries {
 
-/** Where config_registries.textproto is, from the repository root (and in the runfiles of a target that has it). */
-inline constexpr char kConfigRegistriesFile[] = "humanoid_nmpc/humanoid_mpc_config/config_registries.textproto";
+/** Where config_registries.textproto is, from the repository root (and in the
+ * runfiles of a target that has it). */
+inline constexpr char kConfigRegistriesFile[] =
+    "humanoid_nmpc/humanoid_mpc_config/config_registries.textproto";
 
 /**
- * Collects the names each registry of the stack accepts, read from the registries themselves (each one's own list of
- * names): the MPC's terms, contact inputs, contact schedule sources, basis vectors, centroidal models, stance
- * constraints and foot cost phases, the contact planner, its threading, its terms and its terminal DCM targets, the
- * locomotion heuristics, the robot process's telemetry sinks, contact estimators and whole-body feedforwards, and the
- * simulator's gantry holds, projectiles and visualizations. A registry is named as the schemas'
- * (humanoid_mpc_config.tuning) options name it; the registries are sorted by name, and each keeps its own order.
- * Allocates; touches no global state but the registries' own constants.
+ * Collects the names each registry of the stack accepts, read from the
+ * registries themselves (each one's own list of names): the MPC's terms,
+ * contact inputs, contact schedule sources, basis vectors, centroidal models,
+ * stance constraints and foot cost phases, the contact planner, its threading,
+ * its terms and its terminal DCM targets, the locomotion heuristics, the robot
+ * process's telemetry sinks, contact estimators and whole-body feedforwards,
+ * and the simulator's gantry holds, projectiles and visualizations. A registry
+ * is named as the schemas' (humanoid_mpc_config.tuning) options name it; the
+ * registries are sorted by name, and each keeps its own order. Allocates;
+ * touches no global state but the registries' own constants.
  */
 mpc_config::ConfigRegistries collectConfigRegistries();
 
 /**
- * Formats `registries` as config_registries.textproto: its schema header, a comment saying how it is written, and one
- * `registries { name: ... names: ... }` block per registry, one name per line.
+ * Formats `registries` as config_registries.textproto: its schema header, a
+ * comment saying how it is written, and one `registries { name: ... names: ...
+ * }` block per registry, one name per line.
  */
-std::string configRegistriesText(const mpc_config::ConfigRegistries& registries);
+std::string configRegistriesText(
+    const mpc_config::ConfigRegistries& registries);
 
 }  // namespace ocs2::humanoid::config_registries

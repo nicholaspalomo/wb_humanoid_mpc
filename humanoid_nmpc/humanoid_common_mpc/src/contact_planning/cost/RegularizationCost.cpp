@@ -36,7 +36,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 std::string RegularizationCost::describe() const {
-  return absl::StrCat("Q += ", state_, " I at every node, R += ", input_, " I on the running nodes");
+  return absl::StrCat("Q += ", state_, " I at every node, R += ", input_,
+                      " I on the running nodes");
 }
 
 void RegularizationCost::configure(const ContactPlanningConfig& config) {
@@ -44,7 +45,9 @@ void RegularizationCost::configure(const ContactPlanningConfig& config) {
   input_ = config.regularization.input;
 }
 
-void RegularizationCost::addToStage(const ContactPlanningContext& /*ctx*/, int /*node*/, StageAccumulator& stage) const {
+void RegularizationCost::addToStage(const ContactPlanningContext& /*ctx*/,
+                                    int /*node*/,
+                                    StageAccumulator& stage) const {
   stage.addStateRegularization(state_);
   stage.addInputRegularization(input_);
 }

@@ -34,28 +34,32 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace robot::realtime {
 
-// Times here are std::chrono::nanoseconds on CLOCK_MONOTONIC: the clock clock_nanosleep() paces against, which neither
-// jumps with the wall clock nor stops while the thread runs. (absl::Time is a wall-clock instant, and has no monotonic
-// counterpart.)
+// Times here are std::chrono::nanoseconds on CLOCK_MONOTONIC: the clock
+// clock_nanosleep() paces against, which neither jumps with the wall clock nor
+// stops while the thread runs. (absl::Time is a wall-clock instant, and has no
+// monotonic counterpart.)
 
 /// The current CLOCK_MONOTONIC time.
 std::chrono::nanoseconds monotonicNow();
 
-/// Sleeps the calling thread until CLOCK_MONOTONIC reaches `deadline`; returns at once if it already has.
+/// Sleeps the calling thread until CLOCK_MONOTONIC reaches `deadline`; returns
+/// at once if it already has.
 void sleepUntil(std::chrono::nanoseconds deadline);
 
 /// What PeriodicTimer does with the deadlines that pass while a cycle overruns.
 enum class OverrunPolicy {
   /**
-   * Drop them. The cycle after an overrun starts at once and the next deadline is the first one of the original grid
-   * that is still ahead, so the loop never runs cycles back to back and stays in phase. For a controller, which should
-   * act on the latest state rather than replay the cycles it missed.
+   * Drop them. The cycle after an overrun starts at once and the next deadline
+   * is the first one of the original grid that is still ahead, so the loop
+   * never runs cycles back to back and stays in phase. For a controller, which
+   * should act on the latest state rather than replay the cycles it missed.
    */
   kSkipMissedPeriods,
   /**
-   * Serve every one. After an overrun the loop runs cycles back to back, without sleeping, until it is back on
-   * schedule, so that the number of cycles keeps pace with time. For a fixed-step simulation or anything that counts
-   * cycles as time.
+   * Serve every one. After an overrun the loop runs cycles back to back,
+   * without sleeping, until it is back on schedule, so that the number of
+   * cycles keeps pace with time. For a fixed-step simulation or anything that
+   * counts cycles as time.
    */
   kCatchUp,
 };
@@ -64,9 +68,11 @@ enum class OverrunPolicy {
 struct TimerWakeup {
   /// The deadline the call waited for (CLOCK_MONOTONIC).
   std::chrono::nanoseconds deadline{0};
-  /// How long after that deadline the thread woke: the scheduling latency, or the overrun when it was already past.
+  /// How long after that deadline the thread woke: the scheduling latency, or
+  /// the overrun when it was already past.
   std::chrono::nanoseconds lateness{0};
-  /// Deadlines after `deadline` that had passed as well and that kSkipMissedPeriods dropped; 0 with kCatchUp.
+  /// Deadlines after `deadline` that had passed as well and that
+  /// kSkipMissedPeriods dropped; 0 with kCatchUp.
   int64_t missedPeriods = 0;
 };
 
@@ -77,8 +83,9 @@ struct DeadlineAdvance {
 };
 
 /**
- * The deadline arithmetic of PeriodicTimer, apart from any clock so that the policies can be tested exactly: after a
- * wake-up at `wakeupTime` that served `servedDeadline`, the next deadline and the deadlines the policy dropped. The
+ * The deadline arithmetic of PeriodicTimer, apart from any clock so that the
+ * policies can be tested exactly: after a wake-up at `wakeupTime` that served
+ * `servedDeadline`, the next deadline and the deadlines the policy dropped. The
  * deadlines always stay on the grid `servedDeadline + k * period`.
  */
 DeadlineAdvance advanceDeadline(std::chrono::nanoseconds servedDeadline,
@@ -87,13 +94,13 @@ DeadlineAdvance advanceDeadline(std::chrono::nanoseconds servedDeadline,
                                 OverrunPolicy overrunPolicy);
 
 /**
- * Paces a loop with absolute deadlines on CLOCK_MONOTONIC (clock_nanosleep with TIMER_ABSTIME), so that neither the
- * cycle's compute time nor the wake-up latency accumulates into drift:
+ * Paces a loop with absolute deadlines on CLOCK_MONOTONIC (clock_nanosleep with
+ * TIMER_ABSTIME), so that neither the cycle's compute time nor the wake-up
+ * latency accumulates into drift:
  *
- *   PeriodicTimer timer(std::chrono::milliseconds(2), OverrunPolicy::kSkipMissedPeriods);
- *   timer.start();
- *   while (running) {
- *     const TimerWakeup wakeup = timer.waitForNextPeriod();
+ *   PeriodicTimer timer(std::chrono::milliseconds(2),
+ * OverrunPolicy::kSkipMissedPeriods); timer.start(); while (running) { const
+ * TimerWakeup wakeup = timer.waitForNextPeriod();
  *     ...
  *   }
  *
@@ -107,12 +114,14 @@ class PeriodicTimer {
   /// (Re)starts the schedule with the first deadline one period from now.
   void start();
 
-  /// (Re)starts the schedule with the first deadline at `firstDeadline` (CLOCK_MONOTONIC), e.g. to phase two loops.
+  /// (Re)starts the schedule with the first deadline at `firstDeadline`
+  /// (CLOCK_MONOTONIC), e.g. to phase two loops.
   void startAt(std::chrono::nanoseconds firstDeadline);
 
   /**
-   * Sleeps until the next deadline, or returns at once when it has already passed, and moves the schedule on as the
-   * overrun policy says. Starts the schedule first if start() has not been called.
+   * Sleeps until the next deadline, or returns at once when it has already
+   * passed, and moves the schedule on as the overrun policy says. Starts the
+   * schedule first if start() has not been called.
    */
   TimerWakeup waitForNextPeriod();
 

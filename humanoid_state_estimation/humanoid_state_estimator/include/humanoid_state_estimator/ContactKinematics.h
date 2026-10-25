@@ -43,12 +43,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::estimation {
 
-/** A contact point of the robot: a frame of the URDF and a point rigidly attached to it, in that frame's axes. */
+/** A contact point of the robot: a frame of the URDF and a point rigidly
+ * attached to it, in that frame's axes. */
 struct ContactPointSpec {
   /**
-   * Frames of the URDF's Pinocchio model (a link, a joint or a fixed frame), in order of preference: the first one the
-   * URDF has is the contact's frame. The MPC's contact frames are added to its model from the task file's contact
-   * rectangles and are not in the URDF, so a caller names them first and their parent joint after.
+   * Frames of the URDF's Pinocchio model (a link, a joint or a fixed frame), in
+   * order of preference: the first one the URDF has is the contact's frame. The
+   * MPC's contact frames are added to its model from the task file's contact
+   * rectangles and are not in the URDF, so a caller names them first and their
+   * parent joint after.
    */
   std::vector<std::string> frameNames;
   /** [m] The contact point in the chosen frame. */
@@ -56,32 +59,39 @@ struct ContactPointSpec {
 };
 
 /**
- * The leg kinematics of a floating-base robot, relative to its base: where each contact point is in the base frame and
- * how fast it moves relative to the base, from the joint positions and velocities alone.
+ * The leg kinematics of a floating-base robot, relative to its base: where each
+ * contact point is in the base frame and how fast it moves relative to the
+ * base, from the joint positions and velocities alone.
  *
- * The URDF is built as a FIXED-BASE Pinocchio model (pinocchio::urdf::buildModel() without a root joint), so the base
- * link is the model's universe and every result is in the base frame: p_rel = p_contact - p_base expressed in the base
- * axes, and v_rel = J(q) q_dot, the velocity of the contact point relative to the base, in the base axes. The world
- * velocity of a contact point follows as v_contact = v_base + R (omega x p_rel + v_rel), with R the base's orientation
- * and omega its angular velocity in the base frame.
+ * The URDF is built as a FIXED-BASE Pinocchio model
+ * (pinocchio::urdf::buildModel() without a root joint), so the base link is the
+ * model's universe and every result is in the base frame: p_rel = p_contact -
+ * p_base expressed in the base axes, and v_rel = J(q) q_dot, the velocity of
+ * the contact point relative to the base, in the base axes. The world velocity
+ * of a contact point follows as v_contact = v_base + R (omega x p_rel + v_rel),
+ * with R the base's orientation and omega its angular velocity in the base
+ * frame.
  *
- * The joint vectors given to update() are in the robot's joint order (the joint names given to Create(), by robot joint
- * index); a model joint the robot does not name stays at its neutral position with zero velocity. Revolute and
- * prismatic joints (one coordinate) and continuous joints (Pinocchio's unbounded revolute, q = (cos, sin)) are
- * supported.
+ * The joint vectors given to update() are in the robot's joint order (the joint
+ * names given to Create(), by robot joint index); a model joint the robot does
+ * not name stays at its neutral position with zero velocity. Revolute and
+ * prismatic joints (one coordinate) and continuous joints (Pinocchio's
+ * unbounded revolute, q = (cos, sin)) are supported.
  *
  * update() allocates nothing; the class is not thread-safe.
  */
 class ContactKinematics {
  public:
   /**
-   * The kinematics of `contacts` on the URDF `urdfFile`, with the joint vectors in the order of `jointNames`.
-   * InvalidArgument for a URDF that does not parse, a contact none of whose frames is in it (the message lists its
+   * The kinematics of `contacts` on the URDF `urdfFile`, with the joint vectors
+   * in the order of `jointNames`. InvalidArgument for a URDF that does not
+   * parse, a contact none of whose frames is in it (the message lists its
    * frames), a joint of an unsupported type, or no contact.
    */
-  static absl::StatusOr<std::unique_ptr<ContactKinematics>> Create(const std::string& urdfFile,
-                                                                   const std::vector<ContactPointSpec>& contacts,
-                                                                   const std::vector<std::string>& jointNames);
+  static absl::StatusOr<std::unique_ptr<ContactKinematics>> Create(
+      const std::string& urdfFile,
+      const std::vector<ContactPointSpec>& contacts,
+      const std::vector<std::string>& jointNames);
 
   ContactKinematics(const ContactKinematics&) = delete;
   ContactKinematics& operator=(const ContactKinematics&) = delete;
@@ -90,29 +100,44 @@ class ContactKinematics {
   ~ContactKinematics();
 
   size_t numContacts() const { return contactFrameNames_.size(); }
-  /** The name of the frame contact `contact` was resolved to (ContactPointSpec::frameNames). */
-  const std::string& contactFrameName(size_t contact) const { return contactFrameNames_[contact]; }
-  /** The number of joints update() takes: the size of the joint names given to Create(). */
+  /** The name of the frame contact `contact` was resolved to
+   * (ContactPointSpec::frameNames). */
+  const std::string& contactFrameName(size_t contact) const {
+    return contactFrameNames_[contact];
+  }
+  /** The number of joints update() takes: the size of the joint names given to
+   * Create(). */
   size_t numJoints() const { return numRobotJoints_; }
-  /** [m/s^2] The gravity of the model, in the world (base-aligned at rest) axes: (0, 0, -9.81). */
+  /** [m/s^2] The gravity of the model, in the world (base-aligned at rest)
+   * axes: (0, 0, -9.81). */
   const vector3_t& gravity() const { return gravity_; }
 
   /**
-   * Computes every contact point's position and velocity relative to the base. `jointPositions` and `jointVelocities`
-   * have numJoints() entries in the robot's joint order. Allocates nothing.
+   * Computes every contact point's position and velocity relative to the base.
+   * `jointPositions` and `jointVelocities` have numJoints() entries in the
+   * robot's joint order. Allocates nothing.
    */
   void update(const vector_t& jointPositions, const vector_t& jointVelocities);
 
-  /** [m] Contact `contact`'s position relative to the base, in the base frame, as of the last update(). */
-  const vector3_t& contactPositionInBase(size_t contact) const { return contactPositions_[contact]; }
-  /** [m/s] Contact `contact`'s velocity relative to the base (J q_dot), in the base frame, as of the last update(). */
-  const vector3_t& contactVelocityInBase(size_t contact) const { return contactVelocities_[contact]; }
+  /** [m] Contact `contact`'s position relative to the base, in the base frame,
+   * as of the last update(). */
+  const vector3_t& contactPositionInBase(size_t contact) const {
+    return contactPositions_[contact];
+  }
+  /** [m/s] Contact `contact`'s velocity relative to the base (J q_dot), in the
+   * base frame, as of the last update(). */
+  const vector3_t& contactVelocityInBase(size_t contact) const {
+    return contactVelocities_[contact];
+  }
 
  private:
-  /** The Pinocchio model and data and how the robot's joints map onto them (defined in ContactKinematics.cpp). */
+  /** The Pinocchio model and data and how the robot's joints map onto them
+   * (defined in ContactKinematics.cpp). */
   struct Model;
 
-  ContactKinematics(std::unique_ptr<Model> model, std::vector<std::string> contactFrameNames, size_t numRobotJoints);
+  ContactKinematics(std::unique_ptr<Model> model,
+                    std::vector<std::string> contactFrameNames,
+                    size_t numRobotJoints);
 
   /** Never null. */
   std::unique_ptr<Model> model_;

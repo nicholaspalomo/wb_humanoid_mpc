@@ -64,10 +64,13 @@ PROTO_FILE_HEADER = "proto-file:"
 PROTO_MESSAGE_HEADER = "proto-message:"
 # LINT.ThenChange(//tools/nproto/src/Textproto.cpp:header_lines, //tools/hooks/textproto_headers.py:header_lines)
 
-_UNKNOWN_FIELD = re.compile(r'^Message type "([^"]+)" has no field named "([^"]+)"\.')
+_UNKNOWN_FIELD = re.compile(
+    r'^Message type "([^"]+)" has no field named "([^"]+)"\.'
+)
 # text_format reports a field given twice at its value; the C++ parser, and so this one, at its name.
 _REPEATED_FIELD = re.compile(
-    r'^Message type "[^"]+" should not have multiple "([^"]+)" (?:fields|extensions)\.'
+    r'^Message type "[^"]+" should not have multiple "([^"]+)"'
+    r" (?:fields|extensions)\."
 )
 _TOKEN = re.compile(
     r"""(?P<space>\s+)
@@ -124,7 +127,9 @@ def _message_options(
 
 
 # LINT.IfChange(retired_options)
-def retired_fields(descriptor: descriptor_module.Descriptor) -> list[tuple[str, str]]:
+def retired_fields(
+    descriptor: descriptor_module.Descriptor,
+) -> list[tuple[str, str]]:
     """(name, replacement) of every (nproto.retired_field) option of the message `descriptor`, in declaration order."""
     entries = _message_options(descriptor).Extensions[
         retired_field_options_pb2.retired_field
@@ -192,7 +197,9 @@ def _tokens(text: str) -> list[_Token]:
         kind = match.lastgroup or "symbol"
         if kind not in ("space", "comment"):
             tokens.append(
-                _Token(kind, match.group(), line, match.start() - line_start + 1)
+                _Token(
+                    kind, match.group(), line, match.start() - line_start + 1
+                )
             )
         newlines = match.group().count("\n")
         if newlines:
@@ -212,7 +219,10 @@ class _DeprecatedFieldFinder:
         return self.tokens[index].text if index < len(self.tokens) else ""
 
     def message(
-        self, index: int, descriptor: descriptor_module.Descriptor | None, closing: str
+        self,
+        index: int,
+        descriptor: descriptor_module.Descriptor | None,
+        closing: str,
     ) -> int:
         """Walks the fields of a message body from `index` up to `closing` (empty: the end); returns the index after it."""
         while index < len(self.tokens) and self._text(index) != closing:
@@ -238,12 +248,16 @@ class _DeprecatedFieldFinder:
                 index += 1
         return index + 1
 
-    def value(self, index: int, field: descriptor_module.FieldDescriptor | None) -> int:
+    def value(
+        self, index: int, field: descriptor_module.FieldDescriptor | None
+    ) -> int:
         """Walks one value of `field` (a scalar, a message or a list) from `index`; returns the index after it."""
         text = self._text(index)
         if text in ("{", "<"):
             message_type = field.message_type if field is not None else None
-            return self.message(index + 1, message_type, "}" if text == "{" else ">")
+            return self.message(
+                index + 1, message_type, "}" if text == "{" else ">"
+            )
         if text == "[":
             index += 1
             while index < len(self.tokens) and self._text(index) != "]":
@@ -287,7 +301,9 @@ def _field_name_position(
     return position
 
 
-def parse_textproto(text: str, message: message_module.Message, source: str) -> None:
+def parse_textproto(
+    text: str, message: message_module.Message, source: str
+) -> None:
     """Replaces the contents of `message` with the textproto `text`, parsed strictly (the module docstring).
 
     Args:
@@ -302,7 +318,8 @@ def parse_textproto(text: str, message: message_module.Message, source: str) -> 
     header = header_message(text)
     if header is not None and header[1] != full_name:
         raise TextprotoError(
-            f"{source}:{header[0]}:1: {source} is a {header[1]} (its '# proto-message:' header), not a {full_name}"
+            f"{source}:{header[0]}:1: {source} is a {header[1]} (its '#"
+            f" proto-message:' header), not a {full_name}"
         )
     pool = message.DESCRIPTOR.file.pool
     message.Clear()
@@ -317,7 +334,9 @@ def parse_textproto(text: str, message: message_module.Message, source: str) -> 
         column = error.GetColumn() or 1
         repeated = _REPEATED_FIELD.match(original)
         if repeated is not None:
-            line, column = _field_name_position(text, line, column, repeated.group(1))
+            line, column = _field_name_position(
+                text, line, column, repeated.group(1)
+            )
         raise TextprotoError(f"{source}:{line}:{column}: {problem}") from error
     missing = message.FindInitializationErrors()
     if missing:
@@ -329,7 +348,8 @@ def parse_textproto(text: str, message: message_module.Message, source: str) -> 
     if finder.found:
         token, field = finder.found[0]
         raise TextprotoError(
-            f'{source}:{token.line}:{token.column}: text format contains deprecated field "{field.name}"'
+            f"{source}:{token.line}:{token.column}: text format contains"
+            f' deprecated field "{field.name}"'
         )
 
 
@@ -350,7 +370,9 @@ def read_textproto_file(path: str) -> str:
         with open(path, "r", encoding="utf-8", newline="") as file:
             return file.read()
     except UnicodeDecodeError as error:
-        raise TextprotoError(f"{path}:1:1: cannot decode as UTF-8: {error}") from error
+        raise TextprotoError(
+            f"{path}:1:1: cannot decode as UTF-8: {error}"
+        ) from error
 
 
 def check_proto_message_header(
@@ -372,8 +394,10 @@ def check_proto_message_header(
     """
     if header_message(text) is None:
         raise TextprotoError(
-            f"{source}:1:1: {source} names no schema: a configuration file opens with "
-            f"'# {PROTO_MESSAGE_HEADER} {message.DESCRIPTOR.full_name}' in its leading comment block"
+            f"{source}:1:1: {source} names no schema: a configuration file"
+            " opens with '#"
+            f" {PROTO_MESSAGE_HEADER} {message.DESCRIPTOR.full_name}' in its"
+            " leading comment block"
         )
 
 

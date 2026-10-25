@@ -54,44 +54,58 @@ enum class MpcCostType {
   kTaskSpaceTorsoCost,
   kExternalTorqueCost,
   kJointTorqueCost,
-  // Ends the horizon on the Divergent Component of Motion (capture point) viability cost instead of the quadratic
-  // Q_final cost of `terminal_cost`; the two are alternatives, and the conversion refuses a list that names both.
-  // Centroidal MPC only. It replaced the `use_dcm_terminal_cost` boolean, which the strict parser now refuses
-  // (humanoid_nmpc/docs/README.md, section 1).
+  // Ends the horizon on the Divergent Component of Motion (capture point)
+  // viability cost instead of the quadratic Q_final cost of `terminal_cost`;
+  // the two are alternatives, and the conversion refuses a list that names
+  // both. Centroidal MPC only. It replaced the `use_dcm_terminal_cost` boolean,
+  // which the strict parser now refuses (humanoid_nmpc/docs/README.md, section
+  // 1).
   kDcmTerminalCost,
-  // Regulates the whole-body center of mass and the Angular Center of Mass instead of the base pose: listing it builds
-  // ComAndAcomTrackingCost and zeroes the base-pose block of every quadratic state weight (Q, and Q_final, whose
-  // terminal node then gets a terminal ComAndAcomTrackingCost of its own). Centroidal MPC only. It replaced the
-  // `use_com_and_acom_tracking` boolean, which the strict parser now refuses (humanoid_learning/acom/README.md).
+  // Regulates the whole-body center of mass and the Angular Center of Mass
+  // instead of the base pose: listing it builds ComAndAcomTrackingCost and
+  // zeroes the base-pose block of every quadratic state weight (Q, and Q_final,
+  // whose terminal node then gets a terminal ComAndAcomTrackingCost of its
+  // own). Centroidal MPC only. It replaced the `use_com_and_acom_tracking`
+  // boolean, which the strict parser now refuses
+  // (humanoid_learning/acom/README.md).
   kComAndAcomTrackingCost,
 };
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/common/MpcFormulationConfig.cpp:mpc_cost_registry)
 
 /**
- * @brief Enumeration of available MPC soft constraint terms (barriers / penalties).
+ * @brief Enumeration of available MPC soft constraint terms (barriers /
+ * penalties).
  */
 enum class MpcSoftConstraintType {
   kJointLimits,
   kFootCollision,
+  // The foot and knee collision spheres of kFootCollision kept apart by a
+  // control barrier function, which bounds how fast they approach as well as
+  // how close (FootCollisionCbfConstraint).
+  kFootCollisionCbf,
   kFrictionForceCone,
   kContactMomentXy,
   kContactWrenchCone,
   kZeroVelocity,
-  // The swing-foot vertical servo of the hard `normal_velocity` constraint, priced instead of imposed. The hard form
-  // fixes the whole height profile of a scheduled swing, so the solver can neither land early nor late - fatal under
-  // the contact-implicit formulation, which exists to give it exactly that freedom. As a cost it shapes the swing and
-  // is overruled whenever anything else pays more, which is what a reduced-order plan's guidance should be.
+  // The swing-foot vertical servo of the hard `normal_velocity` constraint,
+  // priced instead of imposed. The hard form fixes the whole height profile of
+  // a scheduled swing, so the solver can neither land early nor late - fatal
+  // under the contact-implicit formulation, which exists to give it exactly
+  // that freedom. As a cost it shapes the swing and is overruled whenever
+  // anything else pays more, which is what a reduced-order plan's guidance
+  // should be.
   kNormalVelocity,
-  // The relaxed complementarity conditions of rigid contact, which replace the schedule-gated zero_wrench and
-  // zero_velocity constraints and let the MPC decide contact itself
-  // (humanoid_nmpc/docs/contact_implicit_mpc/README.md).
+  // The relaxed complementarity conditions of rigid contact, which replace the
+  // schedule-gated zero_wrench and zero_velocity constraints and let the MPC
+  // decide contact itself (humanoid_nmpc/docs/contact_implicit_mpc/README.md).
   kContactComplementarity,
   kForceWeightedSlip,
   kGroundPenetration,
 };
 
 /**
- * @brief Enumeration of available MPC hard constraint terms (equality / inequality constraints).
+ * @brief Enumeration of available MPC hard constraint terms (equality /
+ * inequality constraints).
  */
 enum class MpcHardConstraintType {
   kZeroWrench,
@@ -101,7 +115,8 @@ enum class MpcHardConstraintType {
 };
 
 /**
- * @brief Container holding the active MPC formulation tasks the task file lists (mpcFormulationTasksFromConfig()).
+ * @brief Container holding the active MPC formulation tasks the task file lists
+ * (mpcFormulationTasksFromConfig()).
  */
 struct MpcFormulationTasks {
   absl::flat_hash_set<MpcCostType> costs;
@@ -110,109 +125,152 @@ struct MpcFormulationTasks {
 
   bool hasCost(MpcCostType type) const { return costs.contains(type); }
 
-  bool hasSoftConstraint(MpcSoftConstraintType type) const { return softConstraints.contains(type); }
+  bool hasSoftConstraint(MpcSoftConstraintType type) const {
+    return softConstraints.contains(type);
+  }
 
-  bool hasHardConstraint(MpcHardConstraintType type) const { return hardConstraints.contains(type); }
+  bool hasHardConstraint(MpcHardConstraintType type) const {
+    return hardConstraints.contains(type);
+  }
 };
 
 /**
- * @brief Whether the contact constraints may be gated on the mode schedule's contact flags.
+ * @brief Whether the contact constraints may be gated on the mode schedule's
+ * contact flags.
  *
- * The friction cone, the wrench cone, the center-of-pressure limits and the non-negativity of the basis scalings were
- * all written to switch themselves off while the schedule calls a foot a swing foot. That was only ever sound because
- * the hard `zero_wrench` constraint pinned the swinging foot's wrench to zero, so there was nothing left for a cone to
- * bound. The contact-implicit formulation removes `zero_wrench` - checkMpcFormulationTasks() insists on it - and with
- * it the reason those terms could be switched off. Left gated, a foot the schedule calls a swing foot would carry an
- * unbounded wrench: adhesion, unlimited friction, a center of pressure anywhere.
+ * The friction cone, the wrench cone, the center-of-pressure limits and the
+ * non-negativity of the basis scalings were all written to switch themselves
+ * off while the schedule calls a foot a swing foot. That was only ever sound
+ * because the hard `zero_wrench` constraint pinned the swinging foot's wrench
+ * to zero, so there was nothing left for a cone to bound. The contact-implicit
+ * formulation removes `zero_wrench` - checkMpcFormulationTasks() insists on it
+ * - and with it the reason those terms could be switched off. Left gated, a
+ * foot the schedule calls a swing foot would carry an unbounded wrench:
+ * adhesion, unlimited friction, a center of pressure anywhere.
  *
- * So the gate follows `zero_wrench` rather than the contact-implicit terms themselves. That is the narrower and the
- * stronger condition: it is also correct for a task file that drops `zero_wrench` without listing the
- * contact-implicit terms, which the conversion permits and which keying off those terms would leave unguarded.
+ * So the gate follows `zero_wrench` rather than the contact-implicit terms
+ * themselves. That is the narrower and the stronger condition: it is also
+ * correct for a task file that drops `zero_wrench` without listing the
+ * contact-implicit terms, which the conversion permits and which keying off
+ * those terms would leave unguarded.
  *
  * See humanoid_nmpc/docs/contact_implicit_mpc/README.md.
  */
-bool contactConstraintsAreScheduleGated(const MpcFormulationTasks& formulationTasks);
+bool contactConstraintsAreScheduleGated(
+    const MpcFormulationTasks& formulationTasks);
 
 /**
- * @brief Whether the task set selects the contact-implicit formulation, i.e. lists any of its three terms.
+ * @brief Whether the task set selects the contact-implicit formulation, i.e.
+ * lists any of its three terms.
  *
- * On a task set that came out of mpcFormulationTasksFromConfig() this is a single question about the formulation rather
- * than about one term, because the conversion refuses any of `contact_complementarity`, `force_weighted_slip` and
- * `ground_penetration` without the other two. On a set assembled by hand it errs towards "yes": any one of the three is
- * enough, so a caller that refuses the formulation (the whole-body MPC does) refuses a partial one as well.
+ * On a task set that came out of mpcFormulationTasksFromConfig() this is a
+ * single question about the formulation rather than about one term, because the
+ * conversion refuses any of `contact_complementarity`, `force_weighted_slip`
+ * and `ground_penetration` without the other two. On a set assembled by hand it
+ * errs towards "yes": any one of the three is enough, so a caller that refuses
+ * the formulation (the whole-body MPC does) refuses a partial one as well.
  */
-bool usesContactImplicitFormulation(const MpcFormulationTasks& formulationTasks);
+bool usesContactImplicitFormulation(
+    const MpcFormulationTasks& formulationTasks);
 
 /**
- * @brief Checks the values of the `contact_implicit` block of a task file, as ModelSettings converted it.
+ * @brief Checks the values of the `contact_implicit` block of a task file, as
+ * ModelSettings converted it.
  *
- * The contact-implicit terms divide by the three references and by the smoothing length, and wrap the three weights in
- * quadratic penalties, so a value out of range is not a tuning mistake the solver can live with: a zero reference or
- * smoothing is a division by zero, and a negative weight turns the penalty into a reward - a negative
- * `penetrationWeight` pays a foot to go through the floor. The term constructors CHECK their own arguments as a last
- * line of defense, but a CHECK aborts the process from inside CentroidalMpcInterface::Create(), which returns a Status,
- * so this is the check that has to run first: CentroidalMpcInterface runs it before it builds any term of the
- * formulation, and MpcParameterUpdaterModule on every hot reload of the block.
+ * The contact-implicit terms divide by the three references and by the
+ * smoothing length, and wrap the three weights in quadratic penalties, so a
+ * value out of range is not a tuning mistake the solver can live with: a zero
+ * reference or smoothing is a division by zero, and a negative weight turns the
+ * penalty into a reward - a negative `penetrationWeight` pays a foot to go
+ * through the floor. The term constructors CHECK their own arguments as a last
+ * line of defense, but a CHECK aborts the process from inside
+ * CentroidalMpcInterface::Create(), which returns a Status, so this is the
+ * check that has to run first: CentroidalMpcInterface runs it before it builds
+ * any term of the formulation, and MpcParameterUpdaterModule on every hot
+ * reload of the block.
  *
- * Which field is a weight and which a divisor is ModelSettings::contactImplicitKeys()'s to say.
+ * Which field is a weight and which a divisor is
+ * ModelSettings::contactImplicitKeys()'s to say.
  *
- * @return OkStatus when every weight is finite and non-negative and every reference and the smoothing length are finite
- *         and positive; otherwise InvalidArgument naming the offending `contact_implicit.<field>`.
+ * @return OkStatus when every weight is finite and non-negative and every
+ * reference and the smoothing length are finite and positive; otherwise
+ * InvalidArgument naming the offending `contact_implicit.<field>`.
  */
-absl::Status validateContactImplicitConfig(const ModelSettings::ContactImplicitConfig& config);
+absl::Status validateContactImplicitConfig(
+    const ModelSettings::ContactImplicitConfig& config);
 
-// String to Enum conversions (supports snake_case and camelCase, case-insensitive). An unknown name is an
-// InvalidArgument whose message lists the canonical name of every entry of the registry, generated from the registry
-// itself, so that a term added to it is offered without anyone having to remember a second list.
+// String to Enum conversions (supports snake_case and camelCase,
+// case-insensitive). An unknown name is an InvalidArgument whose message lists
+// the canonical name of every entry of the registry, generated from the
+// registry itself, so that a term added to it is offered without anyone having
+// to remember a second list.
 absl::StatusOr<MpcCostType> stringToMpcCostType(absl::string_view name);
 absl::StatusOr<std::string> mpcCostTypeToString(MpcCostType type);
 
-absl::StatusOr<MpcSoftConstraintType> stringToMpcSoftConstraintType(absl::string_view name);
-absl::StatusOr<std::string> mpcSoftConstraintTypeToString(MpcSoftConstraintType type);
+absl::StatusOr<MpcSoftConstraintType> stringToMpcSoftConstraintType(
+    absl::string_view name);
+absl::StatusOr<std::string> mpcSoftConstraintTypeToString(
+    MpcSoftConstraintType type);
 
-absl::StatusOr<MpcHardConstraintType> stringToMpcHardConstraintType(absl::string_view name);
-absl::StatusOr<std::string> mpcHardConstraintTypeToString(MpcHardConstraintType type);
+absl::StatusOr<MpcHardConstraintType> stringToMpcHardConstraintType(
+    absl::string_view name);
+absl::StatusOr<std::string> mpcHardConstraintTypeToString(
+    MpcHardConstraintType type);
 
-// The canonical name of every entry of the cost, soft-constraint and hard-constraint registries, once each, in the order
-// of the enum: the spelling a task file's costs, soft_constraints and hard_constraints list (the registries accept the
-// other spellings above too), and what the unknown-name messages and the tuning GUI's choices offer.
+// The canonical name of every entry of the cost, soft-constraint and
+// hard-constraint registries, once each, in the order of the enum: the spelling
+// a task file's costs, soft_constraints and hard_constraints list (the
+// registries accept the other spellings above too), and what the unknown-name
+// messages and the tuning GUI's choices offer.
 std::vector<std::string> mpcCostNames();
 std::vector<std::string> mpcSoftConstraintNames();
 std::vector<std::string> mpcHardConstraintNames();
 
 /**
- * Where the mode schedule and the swing feet's landing targets come from, selected by name with the top-level task-file
- * field `contact_schedule_source` (kContactScheduleSourceKey).
+ * Where the mode schedule and the swing feet's landing targets come from,
+ * selected by name with the top-level task-file field `contact_schedule_source`
+ * (kContactScheduleSourceKey).
  *
- *   gait_schedule    (default, and what every robot ships) the clock-driven gait schedule of the reference files,
- *                    with the nominal footholds (`nominal_foothold`, the locomotion heuristics' foothold channel).
- *   contact_planner  the online contact planner: the contact sequence, the switching times and the footholds are
- *                    planned on a reduced model and replace the gait schedule. WHICH planner runs is not chosen here
- *                    but by `planner.type` in the robot's contact_planning.textproto, the one source of truth for it, next
- *                    to the blocks that tune it. Centroidal MPC only: the whole-body MPC refuses it.
+ *   gait_schedule    (default, and what every robot ships) the clock-driven
+ * gait schedule of the reference files, with the nominal footholds
+ * (`nominal_foothold`, the locomotion heuristics' foothold channel).
+ *   contact_planner  the online contact planner: the contact sequence, the
+ * switching times and the footholds are planned on a reduced model and replace
+ * the gait schedule. WHICH planner runs is not chosen here but by
+ * `planner.type` in the robot's contact_planning.textproto, the one source of
+ * truth for it, next to the blocks that tune it. Centroidal MPC only: the
+ * whole-body MPC refuses it.
  *
- * The choice decides which reference manager the problem is built on, so it is structural: it takes effect at start-up
- * only. See humanoid_nmpc/docs/README.md, section 2.
+ * The choice decides which reference manager the problem is built on, so it is
+ * structural: it takes effect at start-up only. See
+ * humanoid_nmpc/docs/README.md, section 2.
  */
 enum class ContactScheduleSource { kGaitSchedule, kContactPlanner };
 
 // LINT.IfChange(contact_schedule_source_names)
 /** The top-level task-file field that names the contact schedule source. */
-inline constexpr absl::string_view kContactScheduleSourceKey = "contact_schedule_source";
-inline constexpr absl::string_view kGaitScheduleContactScheduleSource = "gait_schedule";
-inline constexpr absl::string_view kContactPlannerContactScheduleSource = "contact_planner";
+inline constexpr absl::string_view kContactScheduleSourceKey =
+    "contact_schedule_source";
+inline constexpr absl::string_view kGaitScheduleContactScheduleSource =
+    "gait_schedule";
+inline constexpr absl::string_view kContactPlannerContactScheduleSource =
+    "contact_planner";
 /**
- * The boolean the field replaced (true meant contact_planner). A task file that still carries it is refused by the
- * strict parser whatever its value (a retired field of TaskFile), so that a stale file cannot silently run the other
- * contact schedule.
+ * The boolean the field replaced (true meant contact_planner). A task file that
+ * still carries it is refused by the strict parser whatever its value (a
+ * retired field of TaskFile), so that a stale file cannot silently run the
+ * other contact schedule.
  */
-inline constexpr absl::string_view kRetiredContactPlanningKey = "useContactPlanning";
+inline constexpr absl::string_view kRetiredContactPlanningKey =
+    "useContactPlanning";
 // clang-format off
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/common/MpcFormulationConfig.cpp:contact_schedule_source_registry, //robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto:contact_schedule_source_config, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto:contact_schedule_source_config, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto:contact_schedule_source_config, //robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto:contact_schedule_source_config, //robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.textproto:contact_schedule_source_config, //tools/locomotion_heuristics/derive_parameters.py:contact_schedule_source_name, //humanoid_nmpc/humanoid_mpc_config/task_file.proto:contact_schedule_source)
 // clang-format on
 
-/** The contact schedule source of a task file that does not name one. It is what every robot ran before the key existed. */
-inline constexpr ContactScheduleSource kDefaultContactScheduleSource = ContactScheduleSource::kGaitSchedule;
+/** The contact schedule source of a task file that does not name one. It is
+ * what every robot ran before the key existed. */
+inline constexpr ContactScheduleSource kDefaultContactScheduleSource =
+    ContactScheduleSource::kGaitSchedule;
 
 /** Every registered contact schedule source name, in registration order. */
 std::vector<std::string> contactScheduleSourceNames();
@@ -221,9 +279,11 @@ std::vector<std::string> contactScheduleSourceNames();
 absl::string_view contactScheduleSourceName(ContactScheduleSource source);
 
 /**
- * Resolves a name to its contact schedule source. An unknown name is an InvalidArgumentError that names
- * kContactScheduleSourceKey and lists every valid name.
+ * Resolves a name to its contact schedule source. An unknown name is an
+ * InvalidArgumentError that names kContactScheduleSourceKey and lists every
+ * valid name.
  */
-absl::StatusOr<ContactScheduleSource> contactScheduleSourceFromName(absl::string_view name);
+absl::StatusOr<ContactScheduleSource> contactScheduleSourceFromName(
+    absl::string_view name);
 
 }  // namespace ocs2::humanoid

@@ -38,16 +38,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The robot state a simulation starts from: the base pose and the joint angles of the MPC's initial state (the task
- * file's initial_state), every other joint at zero.
+ * The robot state a simulation starts from: the base pose and the joint angles
+ * of the MPC's initial state (the task file's initial_state), every other joint
+ * at zero.
  * @param robotDescription Robot description parsed from URDF.
  * @param modelSettings Model settings containing mpcModelJointNames.
- * @param mpcRobotModel MPC robot model for kinematics and base state extraction.
+ * @param mpcRobotModel MPC robot model for kinematics and base state
+ * extraction.
  * @param initMpcState Initial MPC state vector.
  */
-robot::model::RobotState createInitialSimState(const robot::model::RobotDescription& robotDescription,
-                                               const ModelSettings& modelSettings,
-                                               const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                               const vector_t& initMpcState);
+robot::model::RobotState createInitialSimState(
+    const robot::model::RobotDescription& robotDescription,
+    const ModelSettings& modelSettings,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    const vector_t& initMpcState);
 
 }  // namespace ocs2::humanoid

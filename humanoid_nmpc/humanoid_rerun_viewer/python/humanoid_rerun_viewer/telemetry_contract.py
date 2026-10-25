@@ -95,20 +95,25 @@ RIGHT = "right"
 # How the producer names the series of a group whose names depend on the robot.
 JOINT_NAMES_RULE = "the robot's joints, ModelSettings::fullJointNames in order"
 DOF_NAMES_RULE = (
-    "base_x, base_y, base_z, base_yaw, base_pitch, base_roll (getBaseDofNames(): the base's Euler angles in place of "
-    "its quaternion), then ModelSettings::mpcModelJointNames in order"
+    "base_x, base_y, base_z, base_yaw, base_pitch, base_roll"
+    " (getBaseDofNames(): the base's Euler angles in place of its quaternion),"
+    " then ModelSettings::mpcModelJointNames in order"
 )
 DOF_VELOCITY_NAMES_RULE = (
-    "base_vx, base_vy, base_vz, base_wx, base_wy, base_wz (getBaseVelocityDofNames(): the world linear and the body "
-    "angular velocity), then ModelSettings::mpcModelJointNames in order"
+    "base_vx, base_vy, base_vz, base_wx, base_wy, base_wz"
+    " (getBaseVelocityDofNames(): the world linear and the body angular"
+    " velocity), then ModelSettings::mpcModelJointNames in order"
 )
 COST_TERM_NAMES_RULE = (
-    "<collection>/<term> per cost term of the solver's problem, in the order it was added: intermediate/, state/, "
-    "soft/, state_soft/ (at the solution's first node), final/, final_soft/ (at its last node)"
+    "<collection>/<term> per cost term of the solver's problem, in the order it"
+    " was added: intermediate/, state/, soft/, state_soft/ (at the solution's"
+    " first node), final/, final_soft/ (at its last node)"
 )
 CONSTRAINT_TERM_NAMES_RULE = (
-    "<collection>/<term> per constraint term of the solver's problem: equality/, state_equality/, inequality/, "
-    "state_inequality/ (at the solution's first node), final_equality/, final_inequality/ (at its last node)"
+    "<collection>/<term> per constraint term of the solver's problem:"
+    " equality/, state_equality/, inequality/, state_inequality/ (at the"
+    " solution's first node), final_equality/, final_inequality/ (at its last"
+    " node)"
 )
 STATE_NAMES_RULE = "x0, x1, ...: one per component of the MPC state"
 INPUT_NAMES_RULE = "u0, u1, ...: one per component of the MPC input"
@@ -205,7 +210,11 @@ def _pair(
     names: tuple[str, str] = MEASURED_VS_REFERENCE,
 ) -> SeriesGroup:
     return SeriesGroup(
-        path=path, names=names, unit=unit, description=description, colors=colors
+        path=path,
+        names=names,
+        unit=unit,
+        description=description,
+        colors=colors,
     )
 
 
@@ -226,65 +235,81 @@ def _triple(path: str, unit: str, description: str) -> SeriesGroup:
 
 
 _COM_POSITION = (
-    "the whole-body center of mass (Pinocchio's, of the source's q), world frame, at its height. measured: of the "
-    "sample; reference: of the target trajectory; plan: of the MPC policy"
+    "the whole-body center of mass (Pinocchio's, of the source's q), world"
+    " frame, at its height. measured: of the sample; reference: of the target"
+    " trajectory; plan: of the MPC policy"
 )
 _DCM = (
-    "the divergent component of motion (instantaneous capture point) xi = c + c_dot / omega, omega = sqrt(g / z0), g "
-    "the Pinocchio model's gravity, z0 the nominal state's CoM height above its feet (computeComHeightAboveFeet); NaN "
-    "without a nominal state. Sources as com/"
+    "the divergent component of motion (instantaneous capture point) xi = c +"
+    " c_dot / omega, omega = sqrt(g / z0), g the Pinocchio model's gravity, z0"
+    " the nominal state's CoM height above its feet"
+    " (computeComHeightAboveFeet); NaN without a nominal state. Sources as com/"
 )
 _ZMP = (
-    "the zero moment point of the source's contact wrenches at its contact frames, on the plane of their "
-    "normal-force-weighted height; NaN below 1 N of net normal force. measured: the force sensors' forces, which carry "
-    "no torque, so the normal-force-weighted mean of the contact frames; reference: of the target trajectory's input; "
-    "plan: of the MPC policy's input"
+    "the zero moment point of the source's contact wrenches at its contact"
+    " frames, on the plane of their normal-force-weighted height; NaN below 1 N"
+    " of net normal force. measured: the force sensors' forces, which carry no"
+    " torque, so the normal-force-weighted mean of the contact frames;"
+    " reference: of the target trajectory's input; plan: of the MPC policy's"
+    " input"
 )
 _ACOM = (
-    "the attitude of the angular center of mass (AngularCenterOfMass::acomAttitude() of the base quaternion and the "
-    "joints) as ZYX Euler angles, for display; NaN for a robot without an ACoM network. Sources as com/"
+    "the attitude of the angular center of mass"
+    " (AngularCenterOfMass::acomAttitude() of the base quaternion and the"
+    " joints) as ZYX Euler angles, for display; NaN for a robot without an ACoM"
+    " network. Sources as com/"
 )
 
 _BASE_POSITION = (
     "measured: root position; reference: base position of the target trajectory"
 )
 _BASE_EULER = (
-    "measured: root orientation as roll, pitch, yaw; reference: the target trajectory's"
+    "measured: root orientation as roll, pitch, yaw; reference: the target"
+    " trajectory's"
 )
-_BASE_LINEAR_VELOCITY = "measured: root linear velocity; reference: base CoM velocity of the target trajectory"
+_BASE_LINEAR_VELOCITY = (
+    "measured: root linear velocity; reference: base CoM velocity of the target"
+    " trajectory"
+)
 _BASE_EULER_RATE = (
-    "the ZYX Euler angle rates of the body angular velocity, T_B(Theta)^-1 w_B, for display; NaN within about 1e-6 rad "
-    "of a pitch of +-90 degrees. measured: of the sample; reference: of the target trajectory, 0 where it carries no "
-    "velocity"
+    "the ZYX Euler angle rates of the body angular velocity, T_B(Theta)^-1 w_B,"
+    " for display; NaN within about 1e-6 rad of a pitch of +-90 degrees."
+    " measured: of the sample; reference: of the target trajectory, 0 where it"
+    " carries no velocity"
 )
 _BASE_BODY_ANGULAR_VELOCITY = (
-    "the body angular velocity w_B, in the base frame. measured: the sample's base_angular_velocity_local; "
-    "reference: the target trajectory's, Pinocchio's v[3:6], 0 where it carries no velocity"
+    "the body angular velocity w_B, in the base frame. measured: the sample's"
+    " base_angular_velocity_local; reference: the target trajectory's,"
+    " Pinocchio's v[3:6], 0 where it carries no velocity"
 )
 _BASE_ANGULAR_VELOCITY = (
-    "the root's angular velocity in the world frame, R(xi) w_B. measured: of the sample; "
-    "reference: of the target trajectory, 0 where it carries no velocity"
+    "the root's angular velocity in the world frame, R(xi) w_B. measured: of"
+    " the sample; reference: of the target trajectory, 0 where it carries no"
+    " velocity"
 )
 _NORMAL_FORCE = (
-    "mpc: force z of the plan's contact wrench, the MPC policy's at the sample's time; "
-    "measured: the force sensor's"
+    "mpc: force z of the plan's contact wrench, the MPC policy's at the"
+    " sample's time; measured: the force sensor's"
 )
 _TANGENTIAL_FORCE = (
     "mpc_x, mpc_y: the policy's; measured_x, measured_y: the force sensor's"
 )
 _GENERALIZED_COORDINATE = (
-    "generalized coordinate, for an angle the base's Euler angle in place of its quaternion; reference: of the "
-    "target trajectory"
+    "generalized coordinate, for an angle the base's Euler angle in place of"
+    " its quaternion; reference: of the target trajectory"
 )
 _GENERALIZED_VELOCITY = (
-    "generalized velocity, for an angle the Euler angle rate, as base_pose/<angle>_rate; reference: of the target "
-    "trajectory"
+    "generalized velocity, for an angle the Euler angle rate, as"
+    " base_pose/<angle>_rate; reference: of the target trajectory"
 )
 _FOOT_ACCELERATION = (
-    "linear z of the classical acceleration of the contact frame, LOCAL_WORLD_ALIGNED; reference: of the target "
-    "trajectory"
+    "linear z of the classical acceleration of the contact frame,"
+    " LOCAL_WORLD_ALIGNED; reference: of the target trajectory"
 )
-_FOOT_VELOCITY = "linear z of the contact frame's velocity, LOCAL_WORLD_ALIGNED; reference: of the target trajectory"
+_FOOT_VELOCITY = (
+    "linear z of the contact frame's velocity, LOCAL_WORLD_ALIGNED; reference:"
+    " of the target trajectory"
+)
 
 # LINT.IfChange(panel_groups)
 PANEL_GROUPS: tuple[SeriesGroup, ...] = (
@@ -317,12 +342,24 @@ PANEL_GROUPS: tuple[SeriesGroup, ...] = (
         _ANGLE_COLORS,
     ),
     # Base Twist
-    _pair("base_twist/linear_x", "m/s", _BASE_LINEAR_VELOCITY, _POSITION_COLORS),
-    _pair("base_twist/linear_y", "m/s", _BASE_LINEAR_VELOCITY, _POSITION_COLORS),
-    _pair("base_twist/linear_z", "m/s", _BASE_LINEAR_VELOCITY, _POSITION_COLORS),
-    _pair("base_twist/angular_x", "rad/s", _BASE_ANGULAR_VELOCITY, _ANGLE_COLORS),
-    _pair("base_twist/angular_y", "rad/s", _BASE_ANGULAR_VELOCITY, _ANGLE_COLORS),
-    _pair("base_twist/angular_z", "rad/s", _BASE_ANGULAR_VELOCITY, _ANGLE_COLORS),
+    _pair(
+        "base_twist/linear_x", "m/s", _BASE_LINEAR_VELOCITY, _POSITION_COLORS
+    ),
+    _pair(
+        "base_twist/linear_y", "m/s", _BASE_LINEAR_VELOCITY, _POSITION_COLORS
+    ),
+    _pair(
+        "base_twist/linear_z", "m/s", _BASE_LINEAR_VELOCITY, _POSITION_COLORS
+    ),
+    _pair(
+        "base_twist/angular_x", "rad/s", _BASE_ANGULAR_VELOCITY, _ANGLE_COLORS
+    ),
+    _pair(
+        "base_twist/angular_y", "rad/s", _BASE_ANGULAR_VELOCITY, _ANGLE_COLORS
+    ),
+    _pair(
+        "base_twist/angular_z", "rad/s", _BASE_ANGULAR_VELOCITY, _ANGLE_COLORS
+    ),
     # Contact Forces
     _pair(
         "contact_forces/left_normal",
@@ -364,15 +401,35 @@ PANEL_GROUPS: tuple[SeriesGroup, ...] = (
     ),
     # Generalized Coordinates (Pinocchio)
     _pair(
-        "generalized_base/position_z", "m", _GENERALIZED_COORDINATE, _POSITION_COLORS
+        "generalized_base/position_z",
+        "m",
+        _GENERALIZED_COORDINATE,
+        _POSITION_COLORS,
     ),
-    _pair("generalized_base/pitch", "rad", _GENERALIZED_COORDINATE, _ANGLE_COLORS),
-    _pair("generalized_base/roll", "rad", _GENERALIZED_COORDINATE, _ANGLE_COLORS),
     _pair(
-        "generalized_base/velocity_z", "m/s", _GENERALIZED_VELOCITY, _POSITION_COLORS
+        "generalized_base/pitch", "rad", _GENERALIZED_COORDINATE, _ANGLE_COLORS
     ),
-    _pair("generalized_base/pitch_rate", "rad/s", _GENERALIZED_VELOCITY, _ANGLE_COLORS),
-    _pair("generalized_base/roll_rate", "rad/s", _GENERALIZED_VELOCITY, _ANGLE_COLORS),
+    _pair(
+        "generalized_base/roll", "rad", _GENERALIZED_COORDINATE, _ANGLE_COLORS
+    ),
+    _pair(
+        "generalized_base/velocity_z",
+        "m/s",
+        _GENERALIZED_VELOCITY,
+        _POSITION_COLORS,
+    ),
+    _pair(
+        "generalized_base/pitch_rate",
+        "rad/s",
+        _GENERALIZED_VELOCITY,
+        _ANGLE_COLORS,
+    ),
+    _pair(
+        "generalized_base/roll_rate",
+        "rad/s",
+        _GENERALIZED_VELOCITY,
+        _ANGLE_COLORS,
+    ),
     # Frame Kinematics & Acceleration (contact 0 is the left foot, contact 1 the right)
     _pair(
         "foot_kinematics/left_acceleration_z",
@@ -386,8 +443,12 @@ PANEL_GROUPS: tuple[SeriesGroup, ...] = (
         _FOOT_ACCELERATION,
         _POSITION_COLORS,
     ),
-    _pair("foot_kinematics/left_velocity_z", "m/s", _FOOT_VELOCITY, _ANGLE_COLORS),
-    _pair("foot_kinematics/right_velocity_z", "m/s", _FOOT_VELOCITY, _ANGLE_COLORS),
+    _pair(
+        "foot_kinematics/left_velocity_z", "m/s", _FOOT_VELOCITY, _ANGLE_COLORS
+    ),
+    _pair(
+        "foot_kinematics/right_velocity_z", "m/s", _FOOT_VELOCITY, _ANGLE_COLORS
+    ),
     # Balance (CoM, DCM, ZMP, ACoM)
     _triple("com/position_x", "m", _COM_POSITION),
     _triple("com/position_y", "m", _COM_POSITION),
@@ -407,7 +468,11 @@ def _robot_dependent(
     path: str, unit: str, description: str, names_rule: str
 ) -> SeriesGroup:
     return SeriesGroup(
-        path=path, names=(), unit=unit, description=description, names_rule=names_rule
+        path=path,
+        names=(),
+        unit=unit,
+        description=description,
+        names_rule=names_rule,
     )
 
 
@@ -422,7 +487,8 @@ JOINT_GROUPS: tuple[SeriesGroup, ...] = (
     _robot_dependent(
         "joints/position/target",
         "rad",
-        "position target of the joint action applied, the measured position without one",
+        "position target of the joint action applied, the measured position"
+        " without one",
         JOINT_NAMES_RULE,
     ),
     _robot_dependent(
@@ -440,7 +506,8 @@ JOINT_GROUPS: tuple[SeriesGroup, ...] = (
     _robot_dependent(
         "joints/effort/measured",
         "N m",
-        "effort applied: feed-forward + kp (q_des - q) + kd (qd_des - qd), 0 without an action",
+        "effort applied: feed-forward + kp (q_des - q) + kd (qd_des - qd), 0"
+        " without an action",
         JOINT_NAMES_RULE,
     ),
     _robot_dependent(
@@ -455,7 +522,8 @@ DOF_GROUPS: tuple[SeriesGroup, ...] = (
     _robot_dependent(
         "dofs/position/measured",
         "m, rad",
-        "generalized coordinates for display: base position, the Euler ZYX angles of the base quaternion, MPC joints",
+        "generalized coordinates for display: base position, the Euler ZYX"
+        " angles of the base quaternion, MPC joints",
         DOF_NAMES_RULE,
     ),
     _robot_dependent(
@@ -473,7 +541,8 @@ DOF_GROUPS: tuple[SeriesGroup, ...] = (
     _robot_dependent(
         "dofs/velocity/measured",
         "m/s, rad/s",
-        "generalized velocities: base world linear velocity, base body angular velocity, joints",
+        "generalized velocities: base world linear velocity, base body angular"
+        " velocity, joints",
         DOF_VELOCITY_NAMES_RULE,
     ),
     _robot_dependent(
@@ -491,13 +560,15 @@ DOF_GROUPS: tuple[SeriesGroup, ...] = (
     _robot_dependent(
         "dofs/force/measured",
         "N, N m",
-        "generalized forces, dual to the velocities: 0 for the base, the effort applied for a joint",
+        "generalized forces, dual to the velocities: 0 for the base, the effort"
+        " applied for a joint",
         DOF_VELOCITY_NAMES_RULE,
     ),
     _robot_dependent(
         "dofs/force/reference",
         "N, N m",
-        "generalized forces: 0 for the base, the feed-forward effort for a joint",
+        "generalized forces: 0 for the base, the feed-forward effort for a"
+        " joint",
         DOF_VELOCITY_NAMES_RULE,
     ),
 )
@@ -510,7 +581,10 @@ def _contact_wrench_groups(side: str) -> tuple[SeriesGroup, SeriesGroup]:
             path=f"contact_wrenches/{side}/{MPC}",
             names=WRENCH_NAMES,
             unit="N, N m",
-            description="the plan's contact wrench, the MPC policy's at the sample's time",
+            description=(
+                "the plan's contact wrench, the MPC policy's at the sample's"
+                " time"
+            ),
         ),
         SeriesGroup(
             path=f"contact_wrenches/{side}/{MEASURED}",
@@ -559,22 +633,27 @@ MPC_SOLUTION_GROUPS: tuple[SeriesGroup, ...] = (
             "inequality_lagrangian",
         ),
         unit="",
-        description="the solver's performance index of the latest solution, over its horizon (OCS2's PerformanceIndex); NaN "
-        "before the first",
+        description=(
+            "the solver's performance index of the latest solution, over its"
+            " horizon (OCS2's PerformanceIndex); NaN before the first"
+        ),
     ),
     _robot_dependent(
         "mpc_solution/costs",
         "",
-        "per cost term of the latest solution, evaluated on the solver thread with the solver's own problem: an intermediate "
-        "term's L(t0, x0, u0) at the first node (a rate, per second; 0 while inactive), a final term's Phi(tf, xf); NaN "
-        "before the first solution and for a term the problem no longer has",
+        "per cost term of the latest solution, evaluated on the solver thread"
+        " with the solver's own problem: an intermediate term's L(t0, x0, u0)"
+        " at the first node (a rate, per second; 0 while inactive), a final"
+        " term's Phi(tf, xf); NaN before the first solution and for a term the"
+        " problem no longer has",
         COST_TERM_NAMES_RULE,
     ),
     _robot_dependent(
         "mpc_solution/constraints",
         "",
-        "per constraint term of the latest solution, at the nodes of mpc_solution/costs: the 2-norm of its violation, |g| "
-        "for an equality g = 0, |min(g, 0)| for an inequality g >= 0; 0 while inactive",
+        "per constraint term of the latest solution, at the nodes of"
+        " mpc_solution/costs: the 2-norm of its violation, |g| for an equality"
+        " g = 0, |min(g, 0)| for an inequality g >= 0; 0 while inactive",
         CONSTRAINT_TERM_NAMES_RULE,
     ),
 )
@@ -600,8 +679,11 @@ FRAME_KINDS: dict[str, tuple[tuple[str, ...], str, str]] = {
     "wrench": (
         WRENCH_NAMES,
         "N, N m",
-        "measured: the force sensor's wrench for a contact frame; reference: the contact wrench of the target "
-        "trajectory's input; plan: the MPC policy's; 0 for a frame that is not a contact",
+        (
+            "measured: the force sensor's wrench for a contact frame;"
+            " reference: the contact wrench of the target trajectory's input;"
+            " plan: the MPC policy's; 0 for a frame that is not a contact"
+        ),
     ),
 }
 FRAME_SOURCES = (MEASURED, REFERENCE, PLAN)
@@ -694,7 +776,9 @@ def _triple_panel(title: str, path: str) -> Panel:
 
 
 def _contact_normal_panel(title: str, side: str) -> Panel:
-    return _pair_panel(title, f"contact_forces/{side}_normal", names=(MPC, MEASURED))
+    return _pair_panel(
+        title, f"contact_forces/{side}_normal", names=(MPC, MEASURED)
+    )
 
 
 def _contact_tangential_panel(title: str, side: str) -> Panel:
@@ -754,9 +838,15 @@ PANEL_TABS: tuple[Tab, ...] = (
                 _pair_panel("Linear Vel Z [m/s]", "base_twist/linear_z"),
             ),
             (
-                _pair_panel("Angular Vel X (world) [rad/s]", "base_twist/angular_x"),
-                _pair_panel("Angular Vel Y (world) [rad/s]", "base_twist/angular_y"),
-                _pair_panel("Angular Vel Z (world) [rad/s]", "base_twist/angular_z"),
+                _pair_panel(
+                    "Angular Vel X (world) [rad/s]", "base_twist/angular_x"
+                ),
+                _pair_panel(
+                    "Angular Vel Y (world) [rad/s]", "base_twist/angular_y"
+                ),
+                _pair_panel(
+                    "Angular Vel Z (world) [rad/s]", "base_twist/angular_z"
+                ),
             ),
         ),
     ),
@@ -768,7 +858,9 @@ PANEL_TABS: tuple[Tab, ...] = (
                 _contact_normal_panel("Right Foot Normal Force Fz [N]", RIGHT),
             ),
             (
-                _contact_tangential_panel("Left Foot Tangential Force Fx/Fy [N]", LEFT),
+                _contact_tangential_panel(
+                    "Left Foot Tangential Force Fx/Fy [N]", LEFT
+                ),
                 _contact_tangential_panel(
                     "Right Foot Tangential Force Fx/Fy [N]", RIGHT
                 ),
@@ -781,7 +873,10 @@ PANEL_TABS: tuple[Tab, ...] = (
             (
                 Panel(
                     title="Joint Positions & Targets",
-                    paths=("joints/position/measured", "joints/position/target"),
+                    paths=(
+                        "joints/position/measured",
+                        "joints/position/target",
+                    ),
                     curves=(
                         Curve("joints/position/measured", "[0]"),
                         Curve("joints/position/target", "[0]"),
@@ -791,7 +886,10 @@ PANEL_TABS: tuple[Tab, ...] = (
             (
                 Panel(
                     title="Joint Velocities",
-                    paths=("joints/velocity/measured", "joints/velocity/target"),
+                    paths=(
+                        "joints/velocity/measured",
+                        "joints/velocity/target",
+                    ),
                     curves=(Curve("joints/velocity/measured", "[0]"),),
                 ),
             ),
@@ -817,8 +915,12 @@ PANEL_TABS: tuple[Tab, ...] = (
             ),
             (
                 _pair_panel("Base Vz [m/s]", "generalized_base/velocity_z"),
-                _pair_panel("Base Pitch Rate [rad/s]", "generalized_base/pitch_rate"),
-                _pair_panel("Base Roll Rate [rad/s]", "generalized_base/roll_rate"),
+                _pair_panel(
+                    "Base Pitch Rate [rad/s]", "generalized_base/pitch_rate"
+                ),
+                _pair_panel(
+                    "Base Roll Rate [rad/s]", "generalized_base/roll_rate"
+                ),
             ),
         ),
     ),
@@ -840,7 +942,8 @@ PANEL_TABS: tuple[Tab, ...] = (
                     "Left Foot Twist Z [m/s]", "foot_kinematics/left_velocity_z"
                 ),
                 _pair_panel(
-                    "Right Foot Twist Z [m/s]", "foot_kinematics/right_velocity_z"
+                    "Right Foot Twist Z [m/s]",
+                    "foot_kinematics/right_velocity_z",
                 ),
             ),
         ),

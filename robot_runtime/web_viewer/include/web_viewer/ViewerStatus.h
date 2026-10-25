@@ -42,10 +42,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::web_viewer {
 
 /**
- * What the viewer shows and how, as the render thread reports it with ViewerFrameMailbox::publishStatus() and GET
- * /state answers it (viewerStatusJson()).
+ * What the viewer shows and how, as the render thread reports it with
+ * ViewerFrameMailbox::publishStatus() and GET /state answers it
+ * (viewerStatusJson()).
  *
- * Passive data: the render thread fills in a whole value after each frame, and the server reads a copy.
+ * Passive data: the render thread fills in a whole value after each frame, and
+ * the server reads a copy.
  */
 struct ViewerStatus {
   // The camera, as mjvCamera holds it.
@@ -85,19 +87,23 @@ struct ViewerStatus {
 
   Camera camera = {};
   Render render = {};
-  // Whether each MuJoCo geom group (index 0 to mjNGROUP - 1) is drawn; the keys '0' to '5' toggle them.
+  // Whether each MuJoCo geom group (index 0 to mjNGROUP - 1) is drawn; the keys
+  // '0' to '5' toggle them.
   std::vector<bool> geomGroups = {};
   std::vector<Visualization> visualizations = {};
 };
 
 /**
- * Returns `status` as a JSON object: {"camera": {"mode", "azimuth", "elevation", "distance", "lookat"}, "render":
- * {"width", "height", "targetFps", "measuredFps", "quality"}, "geomGroups": [bool], "visualizations": [{"name",
- * "hotkey", "enabled", "description"}]}. A hotkey of 0 is null, and so is a number that is not finite.
+ * Returns `status` as a JSON object: {"camera": {"mode", "azimuth",
+ * "elevation", "distance", "lookat"}, "render":
+ * {"width", "height", "targetFps", "measuredFps", "quality"}, "geomGroups":
+ * [bool], "visualizations": [{"name", "hotkey", "enabled", "description"}]}. A
+ * hotkey of 0 is null, and so is a number that is not finite.
  */
 std::string viewerStatusJson(const ViewerStatus& status);
 
-/** Returns `text` as a JSON string literal, quotes included, with the characters JSON requires escaped. */
+/** Returns `text` as a JSON string literal, quotes included, with the
+ * characters JSON requires escaped. */
 std::string jsonString(absl::string_view text);
 
 }  // namespace robot::web_viewer

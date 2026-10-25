@@ -58,12 +58,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-// The layout of the store: each file at its path below the robot's config/ directory, and the files the store keeps
-// beside them.
+// The layout of the store: each file at its path below the robot's config/
+// directory, and the files the store keeps beside them.
 // LINT.IfChange(config_store_layout)
 constexpr absl::string_view kStoredTaskFile = "mpc/task.textproto";
-constexpr absl::string_view kStoredReferenceFile = "command/reference.textproto";
-// The PD gains: kJointPdGainsFileInConfigDirectory; the contact planner's mirror: kContactPlanningFileName in mpc/.
+constexpr absl::string_view kStoredReferenceFile =
+    "command/reference.textproto";
+// The PD gains: kJointPdGainsFileInConfigDirectory; the contact planner's
+// mirror: kContactPlanningFileName in mpc/.
 constexpr absl::string_view kSeedSuffix = ".seed";
 constexpr absl::string_view kRejectedSuffix = ".rejected";
 constexpr absl::string_view kBootMarker = ".booting";
@@ -71,8 +73,10 @@ constexpr absl::string_view kBootMarker = ".booting";
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/README.md:config_store_layout, //tools/deploy/README.md:config_store_layout)
 // clang-format on
 
-/** The path of the file of `kind` below the store `directory`; empty for a kind the robot does not store. */
-std::string storedPathIn(const std::string& directory, msgs::ConfigFileKind kind) {
+/** The path of the file of `kind` below the store `directory`; empty for a kind
+ * the robot does not store. */
+std::string storedPathIn(const std::string& directory,
+                         msgs::ConfigFileKind kind) {
   const std::filesystem::path root(directory);
   switch (kind) {
     case msgs::ConfigFileKind::kTask:
@@ -89,11 +93,13 @@ std::string storedPathIn(const std::string& directory, msgs::ConfigFileKind kind
 
 // The index of the task file in the arrays of RobotConfigDirectory.
 constexpr size_t kTaskIndex = 0;
-static_assert(kStoredConfigFileKinds[kTaskIndex] == msgs::ConfigFileKind::kTask, "the task file is the first stored kind");
+static_assert(kStoredConfigFileKinds[kTaskIndex] == msgs::ConfigFileKind::kTask,
+              "the task file is the first stored kind");
 
 /**
- * Whether the file at `path` was last written before the machine booted (the boot time of /proc/stat): a start that was
- * ended by the machine going down, not by what it ran. False when either time cannot be read.
+ * Whether the file at `path` was last written before the machine booted (the
+ * boot time of /proc/stat): a start that was ended by the machine going down,
+ * not by what it ran. False when either time cannot be read.
  */
 bool writtenBeforeTheMachineBooted(const std::string& path) {
   struct stat status = {};
@@ -103,7 +109,8 @@ bool writtenBeforeTheMachineBooted(const std::string& path) {
   for (const absl::string_view line : absl::StrSplit(*machine, '\n')) {
     absl::string_view value = line;
     int64_t bootTime = 0;
-    if (absl::ConsumePrefix(&value, "btime ") && absl::SimpleAtoi(value, &bootTime)) {
+    if (absl::ConsumePrefix(&value, "btime ") &&
+        absl::SimpleAtoi(value, &bootTime)) {
       return static_cast<int64_t>(status.st_mtime) < bootTime;
     }
   }
@@ -117,7 +124,8 @@ struct ReadFile {
   std::string bytes;
 };
 
-/** The file at `path`, which need not exist; an error other than its absence is returned. */
+/** The file at `path`, which need not exist; an error other than its absence is
+ * returned. */
 absl::StatusOr<ReadFile> readIfThere(const std::string& path) {
   absl::StatusOr<std::string> bytes = readFileBytes(path);
   if (bytes.ok()) return ReadFile{.exists = true, .bytes = *std::move(bytes)};
@@ -126,8 +134,10 @@ absl::StatusOr<ReadFile> readIfThere(const std::string& path) {
 }
 
 /**
- * `done`, an operation on a file of the store, with a DataLoss (the file was written, renamed or removed, but its
- * directory could not be synced: AtomicFileWrite.h) logged and taken as done: the robot reads what was written.
+ * `done`, an operation on a file of the store, with a DataLoss (the file was
+ * written, renamed or removed, but its directory could not be synced:
+ * AtomicFileWrite.h) logged and taken as done: the robot reads what was
+ * written.
  */
 absl::Status doneOrNotDurable(absl::Status done) {
   if (!absl::IsDataLoss(done)) return done;
@@ -138,20 +148,28 @@ absl::Status doneOrNotDurable(absl::Status done) {
 /** Creates the directory of `path` and its parents. */
 absl::Status createParentOf(const std::string& path) {
   std::error_code error;
-  std::filesystem::create_directories(std::filesystem::path(path).parent_path(), error);
-  if (error) return absl::UnavailableError(absl::StrCat("cannot create the directory of ", path, ": ", error.message()));
+  std::filesystem::create_directories(std::filesystem::path(path).parent_path(),
+                                      error);
+  if (error)
+    return absl::UnavailableError(absl::StrCat(
+        "cannot create the directory of ", path, ": ", error.message()));
   return absl::OkStatus();
 }
 
 }  // namespace
 
-absl::StatusOr<ConfigSeedPolicy> configSeedPolicyFromName(absl::string_view name) {
-  if (name == kWhenBundleChangesSeedPolicyName) return ConfigSeedPolicy::kWhenBundleChanges;
+absl::StatusOr<ConfigSeedPolicy> configSeedPolicyFromName(
+    absl::string_view name) {
+  if (name == kWhenBundleChangesSeedPolicyName)
+    return ConfigSeedPolicy::kWhenBundleChanges;
   if (name == kEveryStartSeedPolicyName) return ConfigSeedPolicy::kEveryStart;
   if (name == kNeverSeedPolicyName) return ConfigSeedPolicy::kNever;
-  return absl::InvalidArgumentError(
-      absl::StrCat("There is no seed policy '", name, "' (--config_seed). Available: ",
-                   absl::StrJoin({kWhenBundleChangesSeedPolicyName, kEveryStartSeedPolicyName, kNeverSeedPolicyName}, ", "), "."));
+  return absl::InvalidArgumentError(absl::StrCat(
+      "There is no seed policy '", name, "' (--config_seed). Available: ",
+      absl::StrJoin({kWhenBundleChangesSeedPolicyName,
+                     kEveryStartSeedPolicyName, kNeverSeedPolicyName},
+                    ", "),
+      "."));
 }
 
 absl::string_view configSeedPolicyName(ConfigSeedPolicy policy) {
@@ -166,19 +184,26 @@ absl::string_view configSeedPolicyName(ConfigSeedPolicy policy) {
   return "unknown";
 }
 
-RobotConfigDirectory::RobotConfigDirectory(Options options) : options_(std::move(options)), files_(options_.seeds) {}
+RobotConfigDirectory::RobotConfigDirectory(Options options)
+    : options_(std::move(options)), files_(options_.seeds) {}
 
-absl::StatusOr<RobotConfigDirectory> RobotConfigDirectory::Open(Options options) {
+absl::StatusOr<RobotConfigDirectory> RobotConfigDirectory::Open(
+    Options options) {
   RobotConfigDirectory directory(std::move(options));
   for (size_t kind = 0; kind < kNumStoredConfigFileKinds; ++kind) {
     absl::StatusOr<std::string> seed = readFileBytes(directory.seedOf(kind));
     if (!seed.ok()) {
-      return absl::Status(seed.status().code(), absl::StrCat("the bundled configuration file cannot be read: ", seed.status().message()));
+      return absl::Status(
+          seed.status().code(),
+          absl::StrCat("the bundled configuration file cannot be read: ",
+                       seed.status().message()));
     }
     directory.seedBytes_[kind] = *std::move(seed);
   }
   if (directory.options_.storeDirectory.empty()) {
-    LOG(INFO) << "[RobotConfigDirectory] No configuration store (--config_store_dir): reading " << directory.files_.taskFile
+    LOG(INFO) << "[RobotConfigDirectory] No configuration store "
+                 "(--config_store_dir): reading "
+              << directory.files_.taskFile
               << " and the files beside it in place.";
     return directory;
   }
@@ -204,34 +229,53 @@ const std::string& RobotConfigDirectory::seedOf(size_t kind) const {
 }
 
 std::string RobotConfigDirectory::bootMarker() const {
-  return (std::filesystem::path(options_.storeDirectory) / std::string(kBootMarker)).string();
+  return (std::filesystem::path(options_.storeDirectory) /
+          std::string(kBootMarker))
+      .string();
 }
 
 absl::Status RobotConfigDirectory::prepareStore() {
   for (size_t kind = 0; kind < kNumStoredConfigFileKinds; ++kind) {
-    storedPaths_[kind] = storedPathIn(options_.storeDirectory, kStoredConfigFileKinds[kind]);
+    storedPaths_[kind] =
+        storedPathIn(options_.storeDirectory, kStoredConfigFileKinds[kind]);
   }
   const std::string marker = bootMarker();
   ASSIGN_OR_RETURN(const ReadFile previousBoot, readIfThere(marker));
-  for (size_t kind = 0; kind < kNumStoredConfigFileKinds; ++kind) RETURN_IF_ERROR(seedFile(kind));
+  for (size_t kind = 0; kind < kNumStoredConfigFileKinds; ++kind)
+    RETURN_IF_ERROR(seedFile(kind));
   RETURN_IF_ERROR(mirrorContactPlanningFile());
   if (previousBoot.exists && writtenBeforeTheMachineBooted(marker)) {
-    // The machine went down during the previous start (a power cut, a reboot): that says nothing about its files.
-    LOG(WARNING) << "[RobotConfigDirectory] The previous start did not confirm its boot (" << marker
-                 << " is there), but the machine has booted since: the stored copies are kept.";
+    // The machine went down during the previous start (a power cut, a reboot):
+    // that says nothing about its files.
+    LOG(WARNING) << "[RobotConfigDirectory] The previous start did not confirm "
+                    "its boot ("
+                 << marker
+                 << " is there), but the machine has booted since: the stored "
+                    "copies are kept.";
   } else if (previousBoot.exists) {
-    // The previous start died before it confirmed: what it ran on is not run again.
-    LOG(ERROR) << "[RobotConfigDirectory] The previous start did not confirm its boot (" << marker
-               << " is there): falling back to the bundled files for every stored copy that differs from them.";
-    for (size_t kind = 0; kind < kNumStoredConfigFileKinds; ++kind) RETURN_IF_ERROR(rejectStoredCopy(kind));
+    // The previous start died before it confirmed: what it ran on is not run
+    // again.
+    LOG(ERROR) << "[RobotConfigDirectory] The previous start did not confirm "
+                  "its boot ("
+               << marker
+               << " is there): falling back to the bundled files for every "
+                  "stored copy that differs from them.";
+    for (size_t kind = 0; kind < kNumStoredConfigFileKinds; ++kind)
+      RETURN_IF_ERROR(rejectStoredCopy(kind));
   }
-  RETURN_IF_ERROR(doneOrNotDurable(writeFileAtomically(marker, absl::StrCat(configSeedPolicyName(options_.seedPolicy), "\n"))));
-  files_ = Files{.taskFile = storedPathIn(options_.storeDirectory, msgs::ConfigFileKind::kTask),
-                 .referenceFile = storedPathIn(options_.storeDirectory, msgs::ConfigFileKind::kReference),
-                 .pdGainsFile = storedPathIn(options_.storeDirectory, msgs::ConfigFileKind::kJointPdGains)};
-  LOG(INFO) << "[RobotConfigDirectory] Reading the configuration store " << options_.storeDirectory
-            << " (--config_seed=" << configSeedPolicyName(options_.seedPolicy) << ")"
-            << (usesStoredCopies() ? ", which holds saved files." : ".");
+  RETURN_IF_ERROR(doneOrNotDurable(writeFileAtomically(
+      marker, absl::StrCat(configSeedPolicyName(options_.seedPolicy), "\n"))));
+  files_ =
+      Files{.taskFile = storedPathIn(options_.storeDirectory,
+                                     msgs::ConfigFileKind::kTask),
+            .referenceFile = storedPathIn(options_.storeDirectory,
+                                          msgs::ConfigFileKind::kReference),
+            .pdGainsFile = storedPathIn(options_.storeDirectory,
+                                        msgs::ConfigFileKind::kJointPdGains)};
+  LOG(INFO) << "[RobotConfigDirectory] Reading the configuration store "
+            << options_.storeDirectory
+            << " (--config_seed=" << configSeedPolicyName(options_.seedPolicy)
+            << ")" << (usesStoredCopies() ? ", which holds saved files." : ".");
   return absl::OkStatus();
 }
 
@@ -258,18 +302,24 @@ absl::Status RobotConfigDirectory::seedFile(size_t kind) {
   if (replace) {
     RETURN_IF_ERROR(createParentOf(stored));
     if (current.exists) {
-      RETURN_IF_ERROR(doneOrNotDurable(writeFileAtomically(absl::StrCat(stored, kStoredConfigFileBackupSuffix), current.bytes)));
-      LOG(INFO) << "[RobotConfigDirectory] " << stored << " is the bundle's " << seedOf(kind)
-                << " again (--config_seed=" << configSeedPolicyName(options_.seedPolicy) << "); the copy it replaced is " << stored
+      RETURN_IF_ERROR(doneOrNotDurable(writeFileAtomically(
+          absl::StrCat(stored, kStoredConfigFileBackupSuffix), current.bytes)));
+      LOG(INFO) << "[RobotConfigDirectory] " << stored << " is the bundle's "
+                << seedOf(kind) << " again (--config_seed="
+                << configSeedPolicyName(options_.seedPolicy)
+                << "); the copy it replaced is " << stored
                 << kStoredConfigFileBackupSuffix << ".";
     } else {
-      LOG(INFO) << "[RobotConfigDirectory] Seeded " << stored << " from " << seedOf(kind) << ".";
+      LOG(INFO) << "[RobotConfigDirectory] Seeded " << stored << " from "
+                << seedOf(kind) << ".";
     }
     RETURN_IF_ERROR(doneOrNotDurable(writeFileAtomically(stored, seed)));
   }
-  // The bundled bytes the copy was last seeded from; under kNever a copy that was kept is left as it was.
+  // The bundled bytes the copy was last seeded from; under kNever a copy that
+  // was kept is left as it was.
   const bool seeded = replace || current.bytes == seed;
-  if ((seeded || options_.seedPolicy != ConfigSeedPolicy::kNever) && (!seededFrom.exists || seededFrom.bytes != seed)) {
+  if ((seeded || options_.seedPolicy != ConfigSeedPolicy::kNever) &&
+      (!seededFrom.exists || seededFrom.bytes != seed)) {
     RETURN_IF_ERROR(doneOrNotDurable(writeFileAtomically(seedMarker, seed)));
   }
   differsFromSeed_[kind] = !replace && current.bytes != seed;
@@ -278,7 +328,8 @@ absl::Status RobotConfigDirectory::seedFile(size_t kind) {
 
 absl::Status RobotConfigDirectory::mirrorContactPlanningFile() const {
   const std::string seed = contactPlanningFileBeside(options_.seeds.taskFile);
-  const std::string mirror = contactPlanningFileBeside(storedPaths_[kTaskIndex]);
+  const std::string mirror =
+      contactPlanningFileBeside(storedPaths_[kTaskIndex]);
   ASSIGN_OR_RETURN(const ReadFile bundled, readIfThere(seed));
   if (!bundled.exists) return doneOrNotDurable(removeFile(mirror));
   ASSIGN_OR_RETURN(const ReadFile current, readIfThere(mirror));
@@ -292,17 +343,24 @@ absl::Status RobotConfigDirectory::rejectStoredCopy(size_t kind) {
   const std::string& stored = storedPaths_[kind];
   const std::string rejected = absl::StrCat(stored, kRejectedSuffix);
   RETURN_IF_ERROR(doneOrNotDurable(renameFile(stored, rejected)));
-  RETURN_IF_ERROR(doneOrNotDurable(writeFileAtomically(stored, seedBytes_[kind])));
-  RETURN_IF_ERROR(doneOrNotDurable(writeFileAtomically(absl::StrCat(stored, kSeedSuffix), seedBytes_[kind])));
+  RETURN_IF_ERROR(
+      doneOrNotDurable(writeFileAtomically(stored, seedBytes_[kind])));
+  RETURN_IF_ERROR(doneOrNotDurable(writeFileAtomically(
+      absl::StrCat(stored, kSeedSuffix), seedBytes_[kind])));
   differsFromSeed_[kind] = false;
-  LOG(ERROR) << "[RobotConfigDirectory] Rejected the stored " << stored << ": it is now " << rejected << ", and " << stored
+  LOG(ERROR) << "[RobotConfigDirectory] Rejected the stored " << stored
+             << ": it is now " << rejected << ", and " << stored
              << " is the bundle's " << seedOf(kind) << " again.";
   return absl::OkStatus();
 }
 
 void RobotConfigDirectory::useSeedsInPlace(const absl::Status& error) {
-  storeError_ = absl::StrCat("the configuration store ", options_.storeDirectory, " cannot be used: ", error.message());
-  LOG(ERROR) << "[RobotConfigDirectory] " << storeError_ << ". Reading the bundled files in place; a save from the GUI fails.";
+  storeError_ =
+      absl::StrCat("the configuration store ", options_.storeDirectory,
+                   " cannot be used: ", error.message());
+  LOG(ERROR)
+      << "[RobotConfigDirectory] " << storeError_
+      << ". Reading the bundled files in place; a save from the GUI fails.";
   files_ = options_.seeds;
   storedPaths_.fill(std::string());
   differsFromSeed_.fill(false);
@@ -346,13 +404,15 @@ absl::Status RobotConfigDirectory::confirmBoot() {
 }
 
 absl::Status RobotConfigDirectory::withdrawBootMarker() {
-  // The same file as confirmBoot(), for another reason: the start failed, but not on the stored copies.
+  // The same file as confirmBoot(), for another reason: the start failed, but
+  // not on the stored copies.
   return confirmBoot();
 }
 
 absl::Status RobotConfigDirectory::rejectStoredCopies() {
   if (storedPaths_[kTaskIndex].empty()) return absl::OkStatus();
-  for (size_t kind = 0; kind < kNumStoredConfigFileKinds; ++kind) RETURN_IF_ERROR(rejectStoredCopy(kind));
+  for (size_t kind = 0; kind < kNumStoredConfigFileKinds; ++kind)
+    RETURN_IF_ERROR(rejectStoredCopy(kind));
   return absl::OkStatus();
 }
 

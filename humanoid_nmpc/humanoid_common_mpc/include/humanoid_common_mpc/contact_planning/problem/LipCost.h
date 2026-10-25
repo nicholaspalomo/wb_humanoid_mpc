@@ -38,13 +38,17 @@ namespace ocs2::humanoid {
 /**
  * A quadratic cost on the stage variables.
  *
- * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
  */
 class LipCost : public ContactPlanningTerm {
  public:
   virtual NodeSet nodeSet() const = 0;
-  /** Adds the term's w (l_x' x + l_u' u + c)^2 contributions of node `node` to the stage. */
-  virtual void addToStage(const ContactPlanningContext& ctx, int node, StageAccumulator& stage) const = 0;
+  /** Adds the term's w (l_x' x + l_u' u + c)^2 contributions of node `node` to
+   * the stage. */
+  virtual void addToStage(const ContactPlanningContext& ctx,
+                          int node,
+                          StageAccumulator& stage) const = 0;
 };
 
 }  // namespace ocs2::humanoid

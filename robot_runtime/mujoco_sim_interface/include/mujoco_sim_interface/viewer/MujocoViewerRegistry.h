@@ -42,11 +42,15 @@ namespace robot::mujoco_sim_interface {
 class MujocoSimInterface;
 
 /**
- * Creates the viewer registered as `name` (ViewerNames.h) for `sim`, configured by `sim->getConfig().viewer`, without
- * starting it (MujocoViewer::start()). `sim` must outlive the viewer. Fails with InvalidArgument for an unknown name,
- * listing the valid ones, and with what the viewer's own creation returns (the web viewer: no EGL library, a port in
- * use). Call it on the thread that owns `sim`, before its physics thread starts: the web viewer copies the model.
+ * Creates the viewer registered as `name` (ViewerNames.h) for `sim`, configured
+ * by `sim->getConfig().viewer`, without starting it (MujocoViewer::start()).
+ * `sim` must outlive the viewer. Fails with InvalidArgument for an unknown
+ * name, listing the valid ones, and with what the viewer's own creation returns
+ * (the web viewer: no EGL library, a port in use). Call it on the thread that
+ * owns `sim`, before its physics thread starts: the web viewer copies the
+ * model.
  */
-absl::StatusOr<std::unique_ptr<MujocoViewer>> createViewer(absl::string_view name, const MujocoSimInterface* absl_nonnull sim);
+absl::StatusOr<std::unique_ptr<MujocoViewer>> createViewer(
+    absl::string_view name, const MujocoSimInterface* absl_nonnull sim);
 
 }  // namespace robot::mujoco_sim_interface

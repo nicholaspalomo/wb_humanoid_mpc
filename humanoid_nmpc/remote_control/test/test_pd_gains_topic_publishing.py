@@ -61,15 +61,23 @@ class TestTheSchemaTheTabReliesOn(unittest.TestCase):
             joint_pd_gains_file_pb2.JointPdGainsFile.JointGains,
         ):
             with self.subTest(message=message.DESCRIPTOR.full_name):
-                self.assertIn(joint_pd_tab.KP_FIELD, message.DESCRIPTOR.fields_by_name)
-                self.assertIn(joint_pd_tab.KD_FIELD, message.DESCRIPTOR.fields_by_name)
+                self.assertIn(
+                    joint_pd_tab.KP_FIELD, message.DESCRIPTOR.fields_by_name
+                )
+                self.assertIn(
+                    joint_pd_tab.KD_FIELD, message.DESCRIPTOR.fields_by_name
+                )
 
     def test_joints_are_grouped_by_limb(self):
-        self.assertEqual(joint_pd_tab.classify_joint_section("l_leg_kny"), "Left Leg")
+        self.assertEqual(
+            joint_pd_tab.classify_joint_section("l_leg_kny"), "Left Leg"
+        )
         self.assertEqual(
             joint_pd_tab.classify_joint_section("back_bkz"), "Torso & Spine"
         )
-        self.assertEqual(joint_pd_tab.classify_joint_section("gripper"), "Other Joints")
+        self.assertEqual(
+            joint_pd_tab.classify_joint_section("gripper"), "Other Joints"
+        )
 
 
 @operator_test_support.requires_display
@@ -133,7 +141,9 @@ class TestPdGainsTopicPublishing(unittest.TestCase):
         )
         self.assertIn(KNEE_KP, tab.slider_rows)
         self.assertIn(DEFAULT_KD, tab.slider_rows)
-        self.assertFalse(any(path.endswith("torque_limit") for path in tab.slider_rows))
+        self.assertFalse(
+            any(path.endswith("torque_limit") for path in tab.slider_rows)
+        )
 
     def test_a_change_publishes_the_file_and_writes_nothing(self):
         tab = self._tab()
@@ -145,7 +155,9 @@ class TestPdGainsTopicPublishing(unittest.TestCase):
             self.gains_file, joint_pd_gains_file_pb2.JointPdGainsFile
         )
         next(
-            entry for entry in expected.joint_gains if entry.joint == "l_leg_kny"
+            entry
+            for entry in expected.joint_gains
+            if entry.joint == "l_leg_kny"
         ).kp = row.get_value()
         self.assertEqual(published.gains, expected)
         self.assertEqual(
@@ -188,7 +200,9 @@ class TestPdGainsTopicPublishing(unittest.TestCase):
         }
         tab._scale_all(joint_pd_tab.KP_FIELD, 0.5)
         for path, value in saved.items():
-            self.assertAlmostEqual(tab.slider_rows[path].get_value(), value * 0.5)
+            self.assertAlmostEqual(
+                tab.slider_rows[path].get_value(), value * 0.5
+            )
         kd = self._slider(tab, DEFAULT_KD)
         self.assertFalse(kd.is_modified())
         self._flush(tab)
@@ -221,7 +235,9 @@ class TestPdGainsTopicPublishing(unittest.TestCase):
         )
         self.assertFalse(entry.HasField("kp"))
         self.assertEqual(entry.kd, 12.0)
-        self.assertAlmostEqual(published.gains.default_gains.kp, default_kp * 2.0)
+        self.assertAlmostEqual(
+            published.gains.default_gains.kp, default_kp * 2.0
+        )
 
     def test_reload_drops_the_changes_and_publishes_the_file(self):
         tab = self._tab()
@@ -304,7 +320,9 @@ class TestPdGainsTopicPublishing(unittest.TestCase):
         self.assertEqual(shown[0], joint_pd_tab.DEFAULT_GAINS_SECTION)
         self.assertIn("Left Leg", shown)
 
-    def test_a_typed_negative_gain_is_clamped_to_zero_and_published_non_negative(self):
+    def test_a_typed_negative_gain_is_clamped_to_zero_and_published_non_negative(
+        self,
+    ):
         tab = self._tab()
         default_kp = self._slider(tab, "default_gains.kp")
         default_kp.entry_var.set("-5")
@@ -320,11 +338,15 @@ class TestPdGainsTopicPublishing(unittest.TestCase):
         published = self._published()
         self.assertEqual(published.gains.default_gains.kp, 0.0)
         knee_entry = next(
-            entry for entry in published.gains.joint_gains if entry.joint == "l_leg_kny"
+            entry
+            for entry in published.gains.joint_gains
+            if entry.joint == "l_leg_kny"
         )
         self.assertEqual(knee_entry.kd, 0.0)
 
-    def test_hand_edit_on_disk_merges_with_operator_change_and_republishes(self):
+    def test_hand_edit_on_disk_merges_with_operator_change_and_republishes(
+        self,
+    ):
         tab = self._tab()
         knee_row = self._slider(tab, KNEE_KP)
         knee_val = knee_row.get_value()
@@ -352,7 +374,9 @@ class TestPdGainsTopicPublishing(unittest.TestCase):
         published = self._published()
         self.assertEqual(published.gains.default_gains.kd, new_kd)
         knee_entry = next(
-            entry for entry in published.gains.joint_gains if entry.joint == "l_leg_kny"
+            entry
+            for entry in published.gains.joint_gains
+            if entry.joint == "l_leg_kny"
         )
         self.assertEqual(knee_entry.kp, knee_val + 25.0)
 
@@ -371,7 +395,9 @@ class TestPdGainsTopicPublishing(unittest.TestCase):
         self._flush(tab)
         self.assertEqual(self._published().gains.default_gains.kd, new_kd)
         self.assertEqual(self._slider(tab, DEFAULT_KD).get_value(), new_kd)
-        self.assertEqual(self._slider(tab, KNEE_KP).get_value(), knee_val + 25.0)
+        self.assertEqual(
+            self._slider(tab, KNEE_KP).get_value(), knee_val + 25.0
+        )
 
     def test_reset_and_scaling_respect_disk_reloaded_values(self):
         tab = self._tab()

@@ -39,9 +39,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 std::string ReachabilityConstraint::describe() const {
-  return absl::StrCat("|e_x . (p_i - c)| <= ", params_.reachX, " m, ", params_.reachYInner,
-                      " <= side_i e_y . (p_i - c) <= ", params_.reachYOuter, " m at every node (first-order in the heading), ",
-                      penaltyText());
+  return absl::StrCat(
+      "|e_x . (p_i - c)| <= ", params_.reachX, " m, ", params_.reachYInner,
+      " <= side_i e_y . (p_i - c) <= ", params_.reachYOuter,
+      " m at every node (first-order in the heading), ", penaltyText());
 }
 
 void ReachabilityConstraint::configure(const ContactPlanningConfig& config) {
@@ -49,7 +50,9 @@ void ReachabilityConstraint::configure(const ContactPlanningConfig& config) {
   configurePenalty(config, config.reachability.slack);
 }
 
-void ReachabilityConstraint::addRows(const ContactPlanningContext& ctx, int node, RowBuilder& rows) const {
+void ReachabilityConstraint::addRows(const ContactPlanningContext& ctx,
+                                     int node,
+                                     RowBuilder& rows) const {
   const std::array<vector2_t, kHorizontalPositionDim>& axes = ctx.axesAt(node);
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
     for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
@@ -71,13 +74,17 @@ void ReachabilityConstraint::addRows(const ContactPlanningContext& ctx, int node
         upper = -params_.reachYInner;
       }
       const vector2_t dNominal =
-          ctx.hasHeading() ? vector2_t(ctx.nominal->feet[static_cast<size_t>(node)][foot] - ctx.nominal->com[static_cast<size_t>(node)])
-                           : vector2_t(vector2_t::Zero());
-      const ContactPlanningContext::HeadingFrameTerm frameTerm = ctx.frameTerm(node, axis, dNominal);
+          ctx.hasHeading()
+              ? vector2_t(ctx.nominal->feet[static_cast<size_t>(node)][foot] -
+                          ctx.nominal->com[static_cast<size_t>(node)])
+              : vector2_t(vector2_t::Zero());
+      const ContactPlanningContext::HeadingFrameTerm frameTerm =
+          ctx.frameTerm(node, axis, dNominal);
       const scalar_t g = frameTerm.gain;
       const scalar_t offset = frameTerm.offset;
       if (ctx.hasHeading()) xc.emplace_back(idx_.heading, g);
-      rows.addSoft(xc, /*uCoefficients=*/{}, lower - offset, upper - offset, penalty_);
+      rows.addSoft(xc, /*uCoefficients=*/{}, lower - offset, upper - offset,
+                   penalty_);
     }
   }
 }

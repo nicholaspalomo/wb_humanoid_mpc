@@ -48,15 +48,23 @@ _POLICY_LAYERS = ("Dense_0", "Dense_1", "Dense_2")
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Returns the command line of the export; `argv` None reads sys.argv."""
-    parser = argparse.ArgumentParser(description="Export JAX Actor Policy to ONNX")
+    parser = argparse.ArgumentParser(
+        description="Export JAX Actor Policy to ONNX"
+    )
     parser.add_argument(
         "--checkpoint_path",
         type=str,
         required=True,
-        help="The checkpoint bc_warmstart.py wrote (actor_critic.save_checkpoint())",
+        help=(
+            "The checkpoint bc_warmstart.py wrote"
+            " (actor_critic.save_checkpoint())"
+        ),
     )
     parser.add_argument(
-        "--output_path", type=str, default="policy.onnx", help="Output ONNX file path"
+        "--output_path",
+        type=str,
+        default="policy.onnx",
+        help="Output ONNX file path",
     )
     return parser.parse_args(argv)
 
@@ -76,13 +84,15 @@ def actor_weights(params: Any) -> dict[str, np.ndarray]:
     weights: dict[str, np.ndarray] = {}
     for layer in _POLICY_LAYERS:
         dense = params["params"][layer]
-        weights[f"{layer}/kernel"] = np.asarray(dense["kernel"], dtype=np.float32)
+        weights[f"{layer}/kernel"] = np.asarray(
+            dense["kernel"], dtype=np.float32
+        )
         weights[f"{layer}/bias"] = np.asarray(dense["bias"], dtype=np.float32)
     return weights
 
 
 def _checked_layers(
-    weights: dict[str, np.ndarray]
+    weights: dict[str, np.ndarray],
 ) -> list[tuple[np.ndarray, np.ndarray]]:
     """Returns the (kernel, bias) of every layer of `weights`, whose shapes are checked to chain."""
     missing: list[str] = []
@@ -101,11 +111,13 @@ def _checked_layers(
     for index, (kernel, bias) in enumerate(layers):
         if kernel.ndim != 2 or bias.shape != (kernel.shape[1],):
             raise ValueError(
-                f"{_POLICY_LAYERS[index]}: kernel {kernel.shape} and bias {bias.shape} are no dense layer"
+                f"{_POLICY_LAYERS[index]}: kernel {kernel.shape} and bias"
+                f" {bias.shape} are no dense layer"
             )
         if index > 0 and kernel.shape[0] != layers[index - 1][0].shape[1]:
             raise ValueError(
-                f"{_POLICY_LAYERS[index]} takes {kernel.shape[0]} inputs, its predecessor gives {layers[index - 1][0].shape[1]}"
+                f"{_POLICY_LAYERS[index]} takes {kernel.shape[0]} inputs, its"
+                f" predecessor gives {layers[index - 1][0].shape[1]}"
             )
     return layers
 
@@ -129,9 +141,12 @@ def export_policy_to_onnx(
     layers = _checked_layers(weights)
     obs_dim = layers[0][0].shape[0]
     act_dim = layers[-1][0].shape[1]
-    if normalizer.mean.shape != (obs_dim,) or normalizer.std.shape != (obs_dim,):
+    if normalizer.mean.shape != (obs_dim,) or normalizer.std.shape != (
+        obs_dim,
+    ):
         raise ValueError(
-            f"the normalizer ({normalizer.mean.shape}, {normalizer.std.shape}) is not of the observation's size {obs_dim}"
+            f"the normalizer ({normalizer.mean.shape}, {normalizer.std.shape})"
+            f" is not of the observation's size {obs_dim}"
         )
 
     input_tensor = onnx.helper.make_tensor_value_info(
@@ -149,8 +164,12 @@ def export_policy_to_onnx(
         ),
     ]
     nodes = [
-        onnx.helper.make_node("Sub", ["observation", "observation_mean"], ["centered"]),
-        onnx.helper.make_node("Div", ["centered", "observation_std"], ["normalized"]),
+        onnx.helper.make_node(
+            "Sub", ["observation", "observation_mean"], ["centered"]
+        ),
+        onnx.helper.make_node(
+            "Div", ["centered", "observation_std"], ["normalized"]
+        ),
     ]
     layer_input = "normalized"
     for index, (kernel, bias) in enumerate(layers):
@@ -166,9 +185,13 @@ def export_policy_to_onnx(
             )
         )
         if index + 1 < len(layers):
-            nodes.append(onnx.helper.make_node("Elu", [f"h{index}"], [f"h{index}_act"]))
+            nodes.append(
+                onnx.helper.make_node("Elu", [f"h{index}"], [f"h{index}_act"])
+            )
             layer_input = f"h{index}_act"
-    nodes.append(onnx.helper.make_node("Tanh", [f"h{len(layers) - 1}"], ["action"]))
+    nodes.append(
+        onnx.helper.make_node("Tanh", [f"h{len(layers) - 1}"], ["action"])
+    )
 
     graph = onnx.helper.make_graph(
         nodes=nodes,

@@ -39,14 +39,17 @@ namespace ocs2::humanoid {
 /**
  * `velocity_tracking`: w ||v_k - v_cmd||^2 at every node.
  *
- * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
  */
 class VelocityTrackingCost final : public LipWeightedCost {
  public:
   std::string describe() const override;
   void configure(const ContactPlanningConfig& config) override;
   NodeSet nodeSet() const override { return NodeSet::kAll; }
-  void addToStage(const ContactPlanningContext& ctx, int node, StageAccumulator& stage) const override;
+  void addToStage(const ContactPlanningContext& ctx,
+                  int node,
+                  StageAccumulator& stage) const override;
 };
 
 }  // namespace ocs2::humanoid

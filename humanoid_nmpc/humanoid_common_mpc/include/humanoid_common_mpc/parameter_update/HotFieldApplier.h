@@ -40,22 +40,30 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * One part of a hot reload of the task file: it converts the RELOAD_HOT fields it is responsible for (fields()) and
- * writes them into the running MPC. A formulation assembles its appliers in one list (HotFieldApplierList.h;
- * centroidalHotFieldAppliers(), wholeBodyHotFieldAppliers()) that MpcParameterUpdaterModule runs in order for every
- * reload, so that both formulations share one updater and differ only in the list.
+ * One part of a hot reload of the task file: it converts the RELOAD_HOT fields
+ * it is responsible for (fields()) and writes them into the running MPC. A
+ * formulation assembles its appliers in one list (HotFieldApplierList.h;
+ * centroidalHotFieldAppliers(), wholeBodyHotFieldAppliers()) that
+ * MpcParameterUpdaterModule runs in order for every reload, so that both
+ * formulations share one updater and differ only in the list.
  *
- * An applier finds the terms it writes by name in the running problem (CostTermNames.h, ContactTermNames.h) and skips the
- * ones the problem does not carry, which is the normal case; a block whose conversion refuses it is reported by its
- * field and the running values are kept. Appliers write disjoint parts of the problem, so that their order cannot change
- * the result: where two share a term, each writes only its own part, through that part's setter (the
- * stateInputQuadraticCost of a centroidal MPC with basis-vector contact inputs, whose Q QuadraticCostWeightsApplier sets
- * with setStateWeights() and whose R BasisInputsCostApplier sets with setInputWeights()).
+ * An applier finds the terms it writes by name in the running problem
+ * (CostTermNames.h, ContactTermNames.h) and skips the ones the problem does not
+ * carry, which is the normal case; a block whose conversion refuses it is
+ * reported by its field and the running values are kept. Appliers write
+ * disjoint parts of the problem, so that their order cannot change the result:
+ * where two share a term, each writes only its own part, through that part's
+ * setter (the stateInputQuadraticCost of a centroidal MPC with basis-vector
+ * contact inputs, whose Q QuadraticCostWeightsApplier sets with
+ * setStateWeights() and whose R BasisInputsCostApplier sets with
+ * setInputWeights()).
  *
- * Every applier class defines `static absl::Span<const absl::string_view> staticFields()` over a constexpr array in its
- * .cpp, inside a LINT.IfChange block whose ThenChange names the protos of the fields it lists, and implements fields() as
- * `final`, returning it: a formulation's list of hot fields is then known without an MPC (the reload-class coverage
- * test, humanoid_nmpc/humanoid_mpc_validation/test/testHotFieldCoverage.cpp).
+ * Every applier class defines `static absl::Span<const absl::string_view>
+ * staticFields()` over a constexpr array in its .cpp, inside a LINT.IfChange
+ * block whose ThenChange names the protos of the fields it lists, and
+ * implements fields() as `final`, returning it: a formulation's list of hot
+ * fields is then known without an MPC (the reload-class coverage test,
+ * humanoid_nmpc/humanoid_mpc_validation/test/testHotFieldCoverage.cpp).
  *
  * Not thread-safe: called on the solver thread only, between two solves.
  */
@@ -69,24 +77,31 @@ class HotFieldApplier {
   virtual absl::string_view name() const = 0;
 
   /**
-   * The task-file fields it applies, by their path from the file message ("state_weights",
-   * "multiple_shooting.g_max"); a block's path stands for every field below it.
+   * The task-file fields it applies, by their path from the file message
+   * ("state_weights", "multiple_shooting.g_max"); a block's path stands for
+   * every field below it.
    */
   virtual absl::Span<const absl::string_view> fields() const = 0;
 
   /**
-   * Converts its fields of target.task() and writes them into every worker's problem (target.problems()), the solver,
-   * the reference manager or what else it holds. A refused block is reported by its field (target.reportNotApplied())
-   * and the running values are kept.
+   * Converts its fields of target.task() and writes them into every worker's
+   * problem (target.problems()), the solver, the reference manager or what else
+   * it holds. A refused block is reported by its field
+   * (target.reportNotApplied()) and the running values are kept.
    */
   virtual void apply(HotUpdateTarget& target) = 0;
 
   /**
-   * Called first thing in every preSolverRun() of the updater, before any reload, with the solver and the reference
-   * manager (null when the updater has none), which has just built this solve's references: for what has to follow the
-   * references (the contact-implicit terms follow the ground they stand on). Nothing by default.
+   * Called first thing in every preSolverRun() of the updater, before any
+   * reload, with the solver and the reference manager (null when the updater
+   * has none), which has just built this solve's references: for what has to
+   * follow the references (the contact-implicit terms follow the ground they
+   * stand on). Nothing by default.
    */
-  virtual void beforeEverySolve(SqpSolver& /*solver*/, const SwitchedModelReferenceManager* absl_nullable /*referenceManager*/) {}
+  virtual void beforeEverySolve(
+      SqpSolver& /*solver*/,
+      const SwitchedModelReferenceManager* absl_nullable /*referenceManager*/) {
+  }
 
  protected:
   HotFieldApplier() = default;

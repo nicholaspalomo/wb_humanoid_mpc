@@ -46,7 +46,8 @@ EXAMPLE = os.path.join(HERE, "examples", "example.launch.textproto")
 
 # Prints every argument on a line of its own, so that a test sees the argument vector exactly.
 PRINT_ARGUMENTS = (
-    '["sh", "-c", "for a in \\"$@\\"; do printf \\"%s\\\\n\\" \\"$a\\"; done", "sh"'
+    '["sh", "-c", "for a in \\"$@\\"; do printf \\"%s\\\\n\\" \\"$a\\"; done",'
+    ' "sh"'
 )
 
 
@@ -140,8 +141,8 @@ class VariableTest(ScriptTestCase):
 
     def test_a_variable_follows_the_one_it_refers_to(self) -> None:
         path = self.launch(
-            'variables { name: "config_dir" value: "robots/a" }\n'
-            'variables { name: "task_file" value: "{config_dir}/task.textproto" }',
+            'variables { name: "config_dir" value: "robots/a" }\nvariables {'
+            ' name: "task_file" value: "{config_dir}/task.textproto" }',
             f'{PRINT_ARGUMENTS}, "--task_file={{task_file}}"',
         )
         script = self.export(path, env_prefix="WB_ROBOT_")
@@ -157,9 +158,12 @@ class VariableTest(ScriptTestCase):
             ["--task_file=mine.textproto"],
         )
 
-    def test_the_dependency_order_does_not_depend_on_the_file_order(self) -> None:
+    def test_the_dependency_order_does_not_depend_on_the_file_order(
+        self,
+    ) -> None:
         path = self.launch(
-            'variables { name: "b" value: "{a}-b" }\nvariables { name: "a" value: "a" }',
+            'variables { name: "b" value: "{a}-b" }\nvariables { name: "a"'
+            ' value: "a" }',
             f'{PRINT_ARGUMENTS}, "{{b}}"',
         )
         self.assertEqual(self.arguments(self.export(path)), ["a-b"])
@@ -176,7 +180,9 @@ class VariableTest(ScriptTestCase):
         )
         # A value from the environment is not expanded again either.
         self.assertEqual(
-            self.arguments(self.export(path), {"LAUNCH_V": "$(echo no) `no`"})[1],
+            self.arguments(self.export(path), {"LAUNCH_V": "$(echo no) `no`"})[
+                1
+            ],
             "==$(echo no) `no`==",
         )
 
@@ -184,7 +190,10 @@ class VariableTest(ScriptTestCase):
         path = self.launch("", f'{PRINT_ARGUMENTS}, "{{repo_root}}"')
         relative = self.export(path, root="..")
         self.assertEqual(
-            [os.path.realpath(argument) for argument in self.arguments(relative)],
+            [
+                os.path.realpath(argument)
+                for argument in self.arguments(relative)
+            ],
             [os.path.realpath(self.directory)],
         )
         absolute = self.export(path, root="/")
@@ -193,11 +202,15 @@ class VariableTest(ScriptTestCase):
     def test_the_process_runs_in_the_root(self) -> None:
         os.makedirs(os.path.join(self.directory, "data"))
         with open(
-            os.path.join(self.directory, "data", "file.txt"), "w", encoding="utf-8"
+            os.path.join(self.directory, "data", "file.txt"),
+            "w",
+            encoding="utf-8",
         ) as stream:
             stream.write("found\n")
         path = self.launch("", '["cat", "data/file.txt"')
-        self.assertEqual(self.arguments(self.export(path, root="..")), ["found"])
+        self.assertEqual(
+            self.arguments(self.export(path, root="..")), ["found"]
+        )
 
     def test_the_process_environment_and_delay_are_kept(self) -> None:
         path = self.launch(
@@ -216,14 +229,17 @@ class VariableTest(ScriptTestCase):
         # exec: the process has the script's PID, so it receives the signals sent to the script (docker stop).
         path = self.launch("", '["sh", "-c", "echo $$"')
         script = self.export(path)
-        with subprocess.Popen([script], stdout=subprocess.PIPE, text=True) as process:
+        with subprocess.Popen(
+            [script], stdout=subprocess.PIPE, text=True
+        ) as process:
             output, _ = process.communicate(timeout=30)
         self.assertEqual(process.returncode, 0)
         self.assertEqual(output.strip(), str(process.pid))
 
     def test_variables_that_share_a_shell_variable_are_refused(self) -> None:
         path = self.launch(
-            'variables { name: "a_b" value: "1" }\nvariables { name: "A_B" value: "2" }',
+            'variables { name: "a_b" value: "1" }\nvariables { name: "A_B"'
+            ' value: "2" }',
             '["true"',
         )
         with self.assertRaisesRegex(launch_file.LaunchFileError, r"LAUNCH_A_B"):
@@ -236,32 +252,56 @@ class VariableTest(ScriptTestCase):
 
     def test_a_machine_without_a_process_is_refused(self) -> None:
         path = self.launch("", '["true"')
-        with self.assertRaisesRegex(launch_file.LaunchFileError, "runs 0 processes"):
+        with self.assertRaisesRegex(
+            launch_file.LaunchFileError, "runs 0 processes"
+        ):
             launch_script.export_script(path, "laptop")
 
     def test_an_invalid_prefix_is_refused(self) -> None:
         path = self.launch("", '["true"')
         for prefix in ("lower_", "WITH-DASH", ""):
             with self.subTest(prefix=prefix):
-                with self.assertRaisesRegex(launch_file.LaunchFileError, "env_prefix"):
-                    launch_script.export_script(path, "robot", env_prefix=prefix)
+                with self.assertRaisesRegex(
+                    launch_file.LaunchFileError, "env_prefix"
+                ):
+                    launch_script.export_script(
+                        path, "robot", env_prefix=prefix
+                    )
 
 
 class CommandLineTest(ScriptTestCase):
     def test_main_writes_an_executable_script(self) -> None:
         output = os.path.join(self.directory, "robot.sh")
         status = launch_script.main(
-            [EXAMPLE, "--machine", "robot", "--output", output, "--set", "cycles=1"]
+            [
+                EXAMPLE,
+                "--machine",
+                "robot",
+                "--output",
+                output,
+                "--set",
+                "cycles=1",
+            ]
         )
         self.assertEqual(status, 0)
         self.assertTrue(os.stat(output).st_mode & stat.S_IXUSR)
         self.assertEqual(len(self.arguments(output)), 1)
 
-    def test_an_invalid_launch_file_is_a_usage_error_naming_its_line(self) -> None:
-        path = self.write_launch_file('processes { name: "robot" requried: true }\n')
+    def test_an_invalid_launch_file_is_a_usage_error_naming_its_line(
+        self,
+    ) -> None:
+        path = self.write_launch_file(
+            'processes { name: "robot" requried: true }\n'
+        )
         errors = io.StringIO()
         status = launch_script.main(
-            [path, "--machine", "robot", "--output", os.path.join(self.directory, "x")],
+            [
+                path,
+                "--machine",
+                "robot",
+                "--output",
+                os.path.join(self.directory, "x"),
+            ],
             err=errors,
         )
         self.assertEqual(status, launch_script.EXIT_USAGE)

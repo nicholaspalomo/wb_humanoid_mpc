@@ -84,7 +84,11 @@ def actual_findings(report_files: list[str]) -> list[str]:
 def _diff(name: str, expected: list[str], actual: list[str]) -> str:
     return "\n".join(
         difflib.unified_diff(
-            expected, actual, f"{name}.expected", f"{name} (clang-tidy)", lineterm=""
+            expected,
+            actual,
+            f"{name}.expected",
+            f"{name} (clang-tidy)",
+            lineterm="",
         )
     )
 
@@ -109,12 +113,15 @@ def check_configs(wrapper: str, configs: list[str]) -> list[str]:
         )
         if result.returncode != 0:
             failures.append(
-                f"{config}: clang-tidy --verify-config failed:\n{result.stdout}{result.stderr}"
+                f"{config}: clang-tidy --verify-config"
+                f" failed:\n{result.stdout}{result.stderr}"
             )
     return failures
 
 
-def check_fixtures(fixtures: list[dict], expected_files: list[str]) -> list[str]:
+def check_fixtures(
+    fixtures: list[dict], expected_files: list[str]
+) -> list[str]:
     """Compares each fixture's findings with its expected file.
 
     Args:
@@ -133,14 +140,17 @@ def check_fixtures(fixtures: list[dict], expected_files: list[str]) -> list[str]
     for fixture in fixtures:
         name = fixture["name"]
         if name not in expected_by_name:
-            failures.append(f"fixture {name} has no {name}{_EXPECTED_SUFFIX} file")
+            failures.append(
+                f"fixture {name} has no {name}{_EXPECTED_SUFFIX} file"
+            )
             continue
         with open(expected_by_name.pop(name), encoding="utf-8") as f:
             expected = expected_findings(f.read())
         actual = actual_findings(fixture["reports"])
         if actual != expected:
             failures.append(
-                f"fixture {name}: the findings differ from its expected file:\n{_diff(name, expected, actual)}"
+                f"fixture {name}: the findings differ from its expected"
+                f" file:\n{_diff(name, expected, actual)}"
             )
     failures += [
         f"{path} names no fixture of the self-test"
@@ -170,7 +180,9 @@ def check_rename(
     fixes: list[str] = []
     for fixture in fixtures:
         sources.update(
-            source for source in fixture["sources"] if source.startswith(renamed_prefix)
+            source
+            for source in fixture["sources"]
+            if source.startswith(renamed_prefix)
         )
         fixes += fixture["fixes"]
     if not sources:
@@ -178,19 +190,25 @@ def check_rename(
     failures = []
     with tempfile.TemporaryDirectory() as root:
         for source in sorted(sources):
-            os.makedirs(os.path.dirname(os.path.join(root, source)), exist_ok=True)
+            os.makedirs(
+                os.path.dirname(os.path.join(root, source)), exist_ok=True
+            )
             with open(source, "rb") as original, open(
                 os.path.join(root, source), "wb"
             ) as copy:
                 copy.write(original.read())
         result = clang_tidy_apply.plan(
-            clang_tidy_apply.load_diagnostics(fixes), ["*"], [renamed_prefix], root
+            clang_tidy_apply.load_diagnostics(fixes),
+            ["*"],
+            [renamed_prefix],
+            root,
         )
         if result.applied == 0:
             failures.append(f"no fix-it of {renamed_prefix} was applied")
         for (check, path, offset, message), reason in result.refused:
             failures.append(
-                f"left alone: {path} (byte {offset}): {message} [{check}]: {reason}"
+                f"left alone: {path} (byte {offset}): {message} [{check}]:"
+                f" {reason}"
             )
         clang_tidy_apply.apply(result, root)
         golden_by_path = {
@@ -220,7 +238,8 @@ def check_rename(
                     )
                 )
                 failures.append(
-                    f"{source}: the applied fix-its differ from the golden copy:\n{diff}"
+                    f"{source}: the applied fix-its differ from the golden"
+                    f" copy:\n{diff}"
                 )
         failures += [
             f"{path} is no file of {renamed_prefix}"
@@ -232,7 +251,10 @@ def check_rename(
 def main(argv: list[str]) -> int:
     """Runs the self-test of the manifest `argv[0]` and writes the empty stamp `argv[1]` when it passes."""
     if len(argv) != 2:
-        print("usage: clang_tidy_selftest <manifest.json> <stamp>", file=sys.stderr)
+        print(
+            "usage: clang_tidy_selftest <manifest.json> <stamp>",
+            file=sys.stderr,
+        )
         return 2
     manifest_path, stamp = argv
     with open(manifest_path, encoding="utf-8") as f:
@@ -249,7 +271,10 @@ def main(argv: list[str]) -> int:
         print(
             "\n\n".join(
                 [
-                    "❌ The clang-tidy aspect's self-test failed (tools/clang_tidy/README.md):",
+                    (
+                        "❌ The clang-tidy aspect's self-test failed"
+                        " (tools/clang_tidy/README.md):"
+                    ),
                     *failures,
                 ]
             ),

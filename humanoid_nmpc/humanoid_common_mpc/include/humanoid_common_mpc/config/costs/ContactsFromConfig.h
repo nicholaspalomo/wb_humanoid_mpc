@@ -44,105 +44,135 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
 #include "humanoid_mpc_config/contacts_config.nproto.h"
 
-// The contact geometry and the contact constraints from the task file's contacts block. Every value must be finite; each
-// error is an InvalidArgument naming the field of the block.
+// The contact geometry and the contact constraints from the task file's
+// contacts block. Every value must be finite; each error is an InvalidArgument
+// naming the field of the block.
 
 namespace ocs2::humanoid {
 
-/** The regularization of the basis scalings in the input cost of the basis-vector contact inputs. */
+/** The regularization of the basis scalings in the input cost of the
+ * basis-vector contact inputs. */
 struct BasisRegularizationSettings {
-  // The weight `reg` of the regularization (contacts.basis_scaling_regularization).
+  // The weight `reg` of the regularization
+  // (contacts.basis_scaling_regularization).
   scalar_t basisScalingRegularization = 0.0;
-  // Its shape, a name of the regularization registry (BasisInputsCostTransform.h).
+  // Its shape, a name of the regularization registry
+  // (BasisInputsCostTransform.h).
   std::string basisRegularization;
 };
 
 /**
- * The center point of contact `contactIndex` of `modelSettings`, offset by contacts.contact_frame_translation.
+ * The center point of contact `contactIndex` of `modelSettings`, offset by
+ * contacts.contact_frame_translation.
  *
- * @return InvalidArgument when `contactIndex` is not a contact of `modelSettings`, or naming a translation that is not
- *         finite.
+ * @return InvalidArgument when `contactIndex` is not a contact of
+ * `modelSettings`, or naming a translation that is not finite.
  */
-absl::StatusOr<ContactCenterPoint> contactCenterPointFromConfig(const mpc_config::ContactsConfig& contacts,
-                                                                const ModelSettings& modelSettings,
-                                                                int contactIndex);
+absl::StatusOr<ContactCenterPoint> contactCenterPointFromConfig(
+    const mpc_config::ContactsConfig& contacts,
+    const ModelSettings& modelSettings,
+    int contactIndex);
 
 /**
- * The sole of a contact, contacts.contact_rectangle around `centerPoint` (0 for a bound the block leaves out, scale
- * factor 1).
+ * The sole of a contact, contacts.contact_rectangle around `centerPoint` (0 for
+ * a bound the block leaves out, scale factor 1).
  */
-absl::StatusOr<ContactRectangle> contactRectangleFromConfig(const mpc_config::ContactsConfig& contacts,
-                                                            const ContactCenterPoint& centerPoint);
+absl::StatusOr<ContactRectangle> contactRectangleFromConfig(
+    const mpc_config::ContactsConfig& contacts,
+    const ContactCenterPoint& centerPoint);
 
 /**
- * The sole of contact `contactIndex` of `modelSettings`, around its center point (contactCenterPointFromConfig()).
+ * The sole of contact `contactIndex` of `modelSettings`, around its center
+ * point (contactCenterPointFromConfig()).
  */
-absl::StatusOr<ContactRectangle> contactRectangleFromConfig(const mpc_config::ContactsConfig& contacts,
-                                                            const ModelSettings& modelSettings,
-                                                            int contactIndex);
+absl::StatusOr<ContactRectangle> contactRectangleFromConfig(
+    const mpc_config::ContactsConfig& contacts,
+    const ModelSettings& modelSettings,
+    int contactIndex);
 
 /**
- * The ground of the whole-body contact constraints, contacts.contact_wrench_cone_soft_constraint. That one block is the
- * ground of the wrench cone, the generators of the basis-vector contact inputs and the online contact planner, and none
- * of them falls back to a library default: its five geometry fields are required.
+ * The ground of the whole-body contact constraints,
+ * contacts.contact_wrench_cone_soft_constraint. That one block is the ground of
+ * the wrench cone, the generators of the basis-vector contact inputs and the
+ * online contact planner, and none of them falls back to a library default: its
+ * five geometry fields are required.
  *
- * @return InvalidArgument naming a field that is missing, a num_basis_vectors below 3, or what
- *         ContactWrenchConeConstraint::validateConfig() refuses.
+ * @return InvalidArgument naming a field that is missing, a num_basis_vectors
+ * below 3, or what ContactWrenchConeConstraint::validateConfig() refuses.
  */
-absl::StatusOr<ContactWrenchConeConstraint::Config> contactWrenchConeConfigFromConfig(const mpc_config::ContactsConfig& contacts);
+absl::StatusOr<ContactWrenchConeConstraint::Config>
+contactWrenchConeConfigFromConfig(const mpc_config::ContactsConfig& contacts);
 
 /**
- * The relaxed barrier of the soft constraint contact_wrench_cone: the mu and delta of
- * contacts.contact_wrench_cone_soft_constraint, RelaxedBarrierPenalty::Config's own for the ones the block leaves out.
+ * The relaxed barrier of the soft constraint contact_wrench_cone: the mu and
+ * delta of contacts.contact_wrench_cone_soft_constraint,
+ * RelaxedBarrierPenalty::Config's own for the ones the block leaves out.
  *
  * @return InvalidArgument naming a mu or delta that is not finite and positive.
  */
-absl::StatusOr<RelaxedBarrierPenalty::Config> contactWrenchConeBarrierFromConfig(const mpc_config::ContactsConfig& contacts);
+absl::StatusOr<RelaxedBarrierPenalty::Config>
+contactWrenchConeBarrierFromConfig(const mpc_config::ContactsConfig& contacts);
 
 /**
- * The wrench-cone basis of one contact of the basis-vector contact inputs: the generator set contacts.basis_generator_set
- * built from contactWrenchConeConfigFromConfig() and `footprint` (ContactWrenchConeBasisMatrix::Create()).
+ * The wrench-cone basis of one contact of the basis-vector contact inputs: the
+ * generator set contacts.basis_generator_set built from
+ * contactWrenchConeConfigFromConfig() and `footprint`
+ * (ContactWrenchConeBasisMatrix::Create()).
  */
-absl::StatusOr<ContactWrenchConeBasisMatrix> contactWrenchConeBasisFromConfig(const mpc_config::ContactsConfig& contacts,
-                                                                              const ContactRectangle& footprint);
+absl::StatusOr<ContactWrenchConeBasisMatrix> contactWrenchConeBasisFromConfig(
+    const mpc_config::ContactsConfig& contacts,
+    const ContactRectangle& footprint);
 
 /**
- * The bases of both contacts of `modelSettings`, each around its own sole (contactRectangleFromConfig()).
+ * The bases of both contacts of `modelSettings`, each around its own sole
+ * (contactRectangleFromConfig()).
  */
-absl::StatusOr<feet_array_t<ContactWrenchConeBasisMatrix>> contactWrenchConeBasesFromConfig(const mpc_config::ContactsConfig& contacts,
-                                                                                            const ModelSettings& modelSettings);
+absl::StatusOr<feet_array_t<ContactWrenchConeBasisMatrix>>
+contactWrenchConeBasesFromConfig(const mpc_config::ContactsConfig& contacts,
+                                 const ModelSettings& modelSettings);
 
-/** The barrier that keeps the basis scalings non-negative, contacts.basis_non_negativity_barrier. */
-absl::StatusOr<PieceWisePolynomialBarrierPenalty::Config> basisNonNegativityBarrierFromConfig(const mpc_config::ContactsConfig& contacts);
+/** The barrier that keeps the basis scalings non-negative,
+ * contacts.basis_non_negativity_barrier. */
+absl::StatusOr<PieceWisePolynomialBarrierPenalty::Config>
+basisNonNegativityBarrierFromConfig(const mpc_config::ContactsConfig& contacts);
 
 /**
- * The regularization of the basis scalings, contacts.basis_scaling_regularization and contacts.basis_regularization.
+ * The regularization of the basis scalings,
+ * contacts.basis_scaling_regularization and contacts.basis_regularization.
  *
- * @return InvalidArgument for a weight that is not finite, and the registry's for a shape it does not know.
+ * @return InvalidArgument for a weight that is not finite, and the registry's
+ * for a shape it does not know.
  */
-absl::StatusOr<BasisRegularizationSettings> basisRegularizationFromConfig(const mpc_config::ContactsConfig& contacts);
+absl::StatusOr<BasisRegularizationSettings> basisRegularizationFromConfig(
+    const mpc_config::ContactsConfig& contacts);
 
 /**
- * The friction cone of the soft constraint friction_force_cone, from contacts.friction_force_cone_soft_constraint: its
- * friction coefficient, with FrictionForceConeConstraint::Config's own regularization and offsets.
+ * The friction cone of the soft constraint friction_force_cone, from
+ * contacts.friction_force_cone_soft_constraint: its friction coefficient, with
+ * FrictionForceConeConstraint::Config's own regularization and offsets.
  *
- * @return InvalidArgument for a friction coefficient that is not finite and positive, which the constraint's Config
- *         would refuse with a CHECK failure.
+ * @return InvalidArgument for a friction coefficient that is not finite and
+ * positive, which the constraint's Config would refuse with a CHECK failure.
  */
-absl::StatusOr<FrictionForceConeConstraint::Config> frictionForceConeConfigFromConfig(const mpc_config::ContactsConfig& contacts);
+absl::StatusOr<FrictionForceConeConstraint::Config>
+frictionForceConeConfigFromConfig(const mpc_config::ContactsConfig& contacts);
 
 /**
- * The relaxed barrier of friction_force_cone, the mu and delta of contacts.friction_force_cone_soft_constraint.
+ * The relaxed barrier of friction_force_cone, the mu and delta of
+ * contacts.friction_force_cone_soft_constraint.
  *
  * @return InvalidArgument for a mu or delta that is not finite and positive.
  */
-absl::StatusOr<RelaxedBarrierPenalty::Config> frictionForceConeBarrierFromConfig(const mpc_config::ContactsConfig& contacts);
+absl::StatusOr<RelaxedBarrierPenalty::Config>
+frictionForceConeBarrierFromConfig(const mpc_config::ContactsConfig& contacts);
 
 /**
- * The relaxed barrier of contact_moment_xy, the mu and delta of contacts.contact_moment_xy_soft_constraint.
+ * The relaxed barrier of contact_moment_xy, the mu and delta of
+ * contacts.contact_moment_xy_soft_constraint.
  *
  * @return InvalidArgument for a mu or delta that is not finite and positive.
  */
-absl::StatusOr<RelaxedBarrierPenalty::Config> contactMomentXyBarrierFromConfig(const mpc_config::ContactsConfig& contacts);
+absl::StatusOr<RelaxedBarrierPenalty::Config> contactMomentXyBarrierFromConfig(
+    const mpc_config::ContactsConfig& contacts);
 
 }  // namespace ocs2::humanoid

@@ -73,7 +73,9 @@ class LockTest(unittest.TestCase):
             match = _PIN.match(line)
             if match:
                 with self.subTest(package=match.group(1)):
-                    self.assertEqual(pins.get(match.group(1).lower()), match.group(2))
+                    self.assertEqual(
+                        pins.get(match.group(1).lower()), match.group(2)
+                    )
 
     def test_the_linter_runs_the_tools_of_the_lock(self):
         pins = _lock_pins()
@@ -85,11 +87,14 @@ class LockTest(unittest.TestCase):
 
 class InstallersTest(unittest.TestCase):
     def test_the_dev_image_installs_the_lock(self):
-        dockerfile = check_test_support.read_repository_file("docker/Dockerfile")
+        dockerfile = check_test_support.read_repository_file(
+            "docker/Dockerfile"
+        )
         self.assertIn(f"COPY {LOCK} ", dockerfile)
         self.assertRegex(
             dockerfile,
-            r"pip install [^\n]*--require-hashes -r /tmp/lint_requirements_lock\.txt",
+            r"pip install [^\n]*--require-hashes -r"
+            r" /tmp/lint_requirements_lock\.txt",
         )
         for tool in ("cpplint", "pylint", "mypy", "isort"):
             self.assertIn(f"/opt/wb-lint/bin/{tool}", dockerfile)
@@ -101,9 +106,9 @@ class InstallersTest(unittest.TestCase):
         self.assertIn(f"pip install --require-hashes -r {LOCK}", workflow)
         # Inside the pinned-versions block, so that the formatter test watches it.
         block = workflow[
-            workflow.index("LINT.IfChange(formatter_versions)") : workflow.index(
-                "LINT.ThenChange"
-            )
+            workflow.index(
+                "LINT.IfChange(formatter_versions)"
+            ) : workflow.index("LINT.ThenChange")
         ]
         self.assertIn(LOCK, block)
 
@@ -140,7 +145,9 @@ class LlvmToolsTest(unittest.TestCase):
     """docker/install_llvm_tools.sh installs clang-format and clang-tidy for the image and for CI's build job."""
 
     def test_clang_tidy_is_one_major_version_everywhere(self):
-        image = _version("docker/Dockerfile", r"^ARG CLANG_TIDY_VERSION=(\d+)\s*$")
+        image = _version(
+            "docker/Dockerfile", r"^ARG CLANG_TIDY_VERSION=(\d+)\s*$"
+        )
         script = _version(
             "docker/install_llvm_tools.sh",
             r'^CLANG_TIDY_VERSION="\$\{CLANG_TIDY_VERSION:-(\d+)\}"$',
@@ -162,14 +169,20 @@ class LlvmToolsTest(unittest.TestCase):
         )
         self.assertEqual(script, image)
         upstream = re.match(r"^\d+:(\d+\.\d+\.\d+)~", image)
-        assert upstream is not None, f"{image} is not an apt.llvm.org package version"
+        assert (
+            upstream is not None
+        ), f"{image} is not an apt.llvm.org package version"
         wrapper = _version(
-            "tools/clang_tidy/run_clang_tidy.sh", r"^CLANG_TIDY_FULL_VERSION=(\S+)$"
+            "tools/clang_tidy/run_clang_tidy.sh",
+            r"^CLANG_TIDY_FULL_VERSION=(\S+)$",
         )
         self.assertEqual(wrapper, upstream.group(1))
-        major = _version("docker/Dockerfile", r"^ARG CLANG_TIDY_VERSION=(\d+)\s*$")
+        major = _version(
+            "docker/Dockerfile", r"^ARG CLANG_TIDY_VERSION=(\d+)\s*$"
+        )
         self.assertTrue(
-            wrapper.startswith(f"{major}."), f"{wrapper} is not clang-tidy {major}"
+            wrapper.startswith(f"{major}."),
+            f"{wrapper} is not clang-tidy {major}",
         )
         installer = check_test_support.read_repository_file(
             "docker/install_llvm_tools.sh"
@@ -180,7 +193,9 @@ class LlvmToolsTest(unittest.TestCase):
         )
 
     def test_clang_format_is_ubuntus_everywhere(self):
-        image = _version("docker/Dockerfile", r"^ARG CLANG_FORMAT_VERSION=(\d+)\s*$")
+        image = _version(
+            "docker/Dockerfile", r"^ARG CLANG_FORMAT_VERSION=(\d+)\s*$"
+        )
         script = _version(
             "docker/install_llvm_tools.sh",
             r'^CLANG_FORMAT_VERSION="\$\{CLANG_FORMAT_VERSION:-(\d+)\}"$',
@@ -196,14 +211,18 @@ class LlvmToolsTest(unittest.TestCase):
             ["CLANG_TIDY_VERSION"],
         )
         self.assertIn(
-            'apt-get install -y --no-install-recommends "clang-format-${CLANG_FORMAT_VERSION}"',
+            "apt-get install -y --no-install-recommends"
+            ' "clang-format-${CLANG_FORMAT_VERSION}"',
             installer,
         )
 
     def test_the_image_and_ci_run_the_script(self):
-        dockerfile = check_test_support.read_repository_file("docker/Dockerfile")
+        dockerfile = check_test_support.read_repository_file(
+            "docker/Dockerfile"
+        )
         self.assertIn(
-            "COPY docker/install_llvm_tools.sh /tmp/install_llvm_tools.sh", dockerfile
+            "COPY docker/install_llvm_tools.sh /tmp/install_llvm_tools.sh",
+            dockerfile,
         )
         self.assertIn("sh /tmp/install_llvm_tools.sh all", dockerfile)
         self.assertNotIn("llvm-toolchain", dockerfile)

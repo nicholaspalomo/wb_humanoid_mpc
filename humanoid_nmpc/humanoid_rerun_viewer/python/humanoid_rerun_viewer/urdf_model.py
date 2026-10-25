@@ -196,10 +196,14 @@ class PackageResolver:
             above the URDF.
     """
 
-    def __init__(self, urdf_path: str, search_roots: Sequence[str] = ()) -> None:
+    def __init__(
+        self, urdf_path: str, search_roots: Sequence[str] = ()
+    ) -> None:
         self._urdf_directory = os.path.dirname(os.path.abspath(urdf_path))
         self._search_roots = tuple(
-            os.path.abspath(root) for root in search_roots if os.path.isdir(root)
+            os.path.abspath(root)
+            for root in search_roots
+            if os.path.isdir(root)
         )
         self._packages: dict[str, str | None] = {}
         self._indexes: dict[str, dict[str, str]] = {}
@@ -336,7 +340,11 @@ class _Parser:
         return UrdfError(f"{self._urdf_path}: {where}: {text}")
 
     def floats(
-        self, element: ElementTree.Element, attribute: str, count: int, where: str
+        self,
+        element: ElementTree.Element,
+        attribute: str,
+        count: int,
+        where: str,
     ) -> tuple[float, ...] | None:
         """The `count` finite numbers of `attribute`, or None when the element has no such attribute.
 
@@ -361,11 +369,17 @@ class _Parser:
             raise self.error(
                 where, f'{attribute}="{text}" is not {count} numbers'
             ) from None
-        if len(values) != count or not all(math.isfinite(value) for value in values):
-            raise self.error(where, f'{attribute}="{text}" is not {count} numbers')
+        if len(values) != count or not all(
+            math.isfinite(value) for value in values
+        ):
+            raise self.error(
+                where, f'{attribute}="{text}" is not {count} numbers'
+            )
         return values
 
-    def number(self, element: ElementTree.Element, attribute: str, where: str) -> float:
+    def number(
+        self, element: ElementTree.Element, attribute: str, where: str
+    ) -> float:
         """The one number of `attribute`; a UrdfError when it is missing or not a finite number."""
         values = self.floats(element, attribute, 1, where)
         if values is None:
@@ -421,7 +435,9 @@ class _Parser:
             path, media_type = twin, media_type_of(twin)
         return Mesh(uri=uri, path=path, media_type=media_type, scale=scale)  # type: ignore[arg-type]  # floats() returned three.
 
-    def geometry(self, geometry: ElementTree.Element, where: str) -> Geometry | None:
+    def geometry(
+        self, geometry: ElementTree.Element, where: str
+    ) -> Geometry | None:
         """The shape of a <geometry>, or None for a mesh that is not drawn; a UrdfError for anything but one shape."""
         shapes = list(geometry)
         if len(shapes) != 1:
@@ -487,7 +503,9 @@ def parse_urdf(
     except ElementTree.ParseError as error:
         raise UrdfError(f"{urdf_path}: not XML: {error}") from None
     if robot.tag != "robot":
-        raise UrdfError(f"{urdf_path}: the root element is <{robot.tag}>, not <robot>")
+        raise UrdfError(
+            f"{urdf_path}: the root element is <{robot.tag}>, not <robot>"
+        )
     parser = _Parser(urdf_path, PackageResolver(urdf_path, search_roots))
     parser.read_materials(robot)
 
@@ -506,11 +524,14 @@ def parse_urdf(
 
     children: set[str] = set()
     for joint in robot.findall("joint"):
-        children.update(child.get("link", "") for child in joint.findall("child"))
+        children.update(
+            child.get("link", "") for child in joint.findall("child")
+        )
     roots = [link for link in links if link not in children]
     if not roots:
         raise UrdfError(
-            f"{urdf_path}: every link is a joint's child, so there is no root link"
+            f"{urdf_path}: every link is a joint's child, so there is no root"
+            " link"
         )
     return RobotModel(
         name=robot.get("name", ""),
@@ -540,5 +561,7 @@ def load_urdf(path: str, search_roots: Sequence[str] = ()) -> RobotModel:
         with open(path, encoding="utf-8") as urdf:
             text = urdf.read()
     except OSError as error:
-        raise UrdfError(f"{path}: cannot read the URDF: {error.strerror}") from None
+        raise UrdfError(
+            f"{path}: cannot read the URDF: {error.strerror}"
+        ) from None
     return parse_urdf(text, path, search_roots)

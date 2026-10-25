@@ -34,8 +34,10 @@ namespace ocs2::humanoid {
 
 VECTOR18_T<scalar_t> EndEffectorDynamicsWeights::toVector() const {
   VECTOR18_T<scalar_t> weightVector;
-  weightVector << contactPositionErrorWeight, contactOrientationErrorWeight, contactLinearVelocityErrorWeight,
-      contactAngularVelocityErrorWeight, contactLinearAccelerationErrorWeight, contactAngularAccelerationErrorWeight;
+  weightVector << contactPositionErrorWeight, contactOrientationErrorWeight,
+      contactLinearVelocityErrorWeight, contactAngularVelocityErrorWeight,
+      contactLinearAccelerationErrorWeight,
+      contactAngularAccelerationErrorWeight;
   return weightVector;
 }
 

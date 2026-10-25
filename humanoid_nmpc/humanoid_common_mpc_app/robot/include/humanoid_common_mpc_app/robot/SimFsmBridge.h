@@ -49,47 +49,64 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The FsmBridge of the simulated robot (the `sim` supervisor of RobotSupervisorRegistry): the FSM commands switch the
- * simulator's torques and move its virtual gantry, the gantry follows the GUI's height slider while it is locked, and
- * a dodgeball throw from the GUI is handed to the simulator.
+ * The FsmBridge of the simulated robot (the `sim` supervisor of
+ * RobotSupervisorRegistry): the FSM commands switch the simulator's torques and
+ * move its virtual gantry, the gantry follows the GUI's height slider while it
+ * is locked, and a dodgeball throw from the GUI is handed to the simulator.
  *
- * The FSM commands: ZERO_TORQUE (or DISABLE_TORQUES) switches the torques off; JOINT_PD, GRAVITY_COMP, WB_MPC (or
- * MPC_ACTIVE, ENABLE_TORQUES) and SAFETY switch them on and enter the mode; LOCK_GANTRY and UNLOCK_GANTRY move the
- * virtual gantry. The fall recovery - catching a fallen robot, noticing the simulator's own resets, settling the
- * caught robot - is SimFallRecovery. Every call is for the realtime thread.
+ * The FSM commands: ZERO_TORQUE (or DISABLE_TORQUES) switches the torques off;
+ * JOINT_PD, GRAVITY_COMP, WB_MPC (or MPC_ACTIVE, ENABLE_TORQUES) and SAFETY
+ * switch them on and enter the mode; LOCK_GANTRY and UNLOCK_GANTRY move the
+ * virtual gantry. The fall recovery - catching a fallen robot, noticing the
+ * simulator's own resets, settling the caught robot - is SimFallRecovery. Every
+ * call is for the realtime thread.
  */
 class SimFsmBridge final : public FsmBridge {
  public:
   /**
-   * Captures the nominal joint positions from `initState` and writes the initial state (ZERO_TORQUE, the simulator's
-   * gantry) to `fsmStates`. The mailboxes, the simulator and the log must outlive the bridge; `eventLog` may be nullptr.
+   * Captures the nominal joint positions from `initState` and writes the
+   * initial state (ZERO_TORQUE, the simulator's gantry) to `fsmStates`. The
+   * mailboxes, the simulator and the log must outlive the bridge; `eventLog`
+   * may be nullptr.
    */
-  SimFsmBridge(const robot::model::RobotDescription& robotDescription,
-               const robot::model::RobotState& initState,
-               OperatorCommandMailbox* absl_nonnull commands,
-               FsmStateMailbox* absl_nonnull fsmStates,
-               robot::mujoco_sim_interface::MujocoSimInterface* absl_nonnull simulator,
-               RealtimeEventLog* absl_nullable eventLog = nullptr);
+  SimFsmBridge(
+      const robot::model::RobotDescription& robotDescription,
+      const robot::model::RobotState& initState,
+      OperatorCommandMailbox* absl_nonnull commands,
+      FsmStateMailbox* absl_nonnull fsmStates,
+      robot::mujoco_sim_interface::MujocoSimInterface* absl_nonnull simulator,
+      RealtimeEventLog* absl_nullable eventLog = nullptr);
 
   SimFsmBridge(const SimFsmBridge&) = delete;
   SimFsmBridge& operator=(const SimFsmBridge&) = delete;
   ~SimFsmBridge() override = default;
 
   void applyJointTargetUpdates() override { state_.applyJointTargetUpdates(); }
-  const std::vector<scalar_t>& getNominalJointPositions() const override { return state_.nominalJointPositions(); }
+  const std::vector<scalar_t>& getNominalJointPositions() const override {
+    return state_.nominalJointPositions();
+  }
 
   /**
-   * Hands the newest dodgeball throw to the simulator, then processes the oldest FSM command, if any, applies its mode
-   * and gantry changes to the simulator and publishes the updated state. Without a command, the gantry follows the
-   * height slider while it is locked.
+   * Hands the newest dodgeball throw to the simulator, then processes the
+   * oldest FSM command, if any, applies its mode and gantry changes to the
+   * simulator and publishes the updated state. Without a command, the gantry
+   * follows the height slider while it is locked.
    */
   bool processCommands(std::string& currentModeName) override;
 
   bool isGantryLocked() const override { return simulator_->isGantryLocked(); }
-  void publishFsmState(absl::string_view modeName) override { state_.publish(modeName, isGantryLocked()); }
-  void publishControllerReset(absl::string_view modeName) override { state_.publishControllerReset(modeName, isGantryLocked()); }
-  void setMpcHealthy(bool mpcHealthy, absl::string_view modeName) override { state_.setMpcHealthy(mpcHealthy, modeName, isGantryLocked()); }
-  uint64_t controllerResets() const override { return state_.controllerResets(); }
+  void publishFsmState(absl::string_view modeName) override {
+    state_.publish(modeName, isGantryLocked());
+  }
+  void publishControllerReset(absl::string_view modeName) override {
+    state_.publishControllerReset(modeName, isGantryLocked());
+  }
+  void setMpcHealthy(bool mpcHealthy, absl::string_view modeName) override {
+    state_.setMpcHealthy(mpcHealthy, modeName, isGantryLocked());
+  }
+  uint64_t controllerResets() const override {
+    return state_.controllerResets();
+  }
   bool mpcHealthy() const override { return state_.mpcHealthy(); }
 
  private:

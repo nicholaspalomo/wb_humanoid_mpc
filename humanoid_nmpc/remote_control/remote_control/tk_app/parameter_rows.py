@@ -336,7 +336,9 @@ class NameListRow(ttk.Frame):
         del state  # Nothing interactive.
 
 
-ParameterRow: TypeAlias = slider_row.SliderRow | CheckRow | ChoiceRow | NameListRow
+ParameterRow: TypeAlias = (
+    slider_row.SliderRow | CheckRow | ChoiceRow | NameListRow
+)
 
 
 def make_row(
@@ -414,5 +416,7 @@ def make_row(
         choice.on_change = on_change
         return choice
     if spec.kind == config_schema.Kind.NAME_LIST:
-        return NameListRow(parent, label, tuple(value or ()), label_width=label_width)
+        return NameListRow(
+            parent, label, tuple(value or ()), label_width=label_width
+        )
     return None

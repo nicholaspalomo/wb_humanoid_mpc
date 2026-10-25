@@ -43,12 +43,14 @@ void ContactSwitchCost::configure(const ContactPlanningConfig& config) {
   cost_ = config.contactSwitch.cost;
 }
 
-scalar_t ContactSwitchCost::cost(const ContactLogicState& s, const MiqpAssignment& a) const {
+scalar_t ContactSwitchCost::cost(const ContactLogicState& s,
+                                 const MiqpAssignment& a) const {
   int numSwitches = 0;
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
     int previous = s.input->contacts[foot] ? 1 : 0;
     for (int k = 0; k < s.numNodes; ++k) {
-      const int8_t value = a[static_cast<size_t>(ContactLogicState::contactBinaryIndex(k, foot))];
+      const int8_t value = a[static_cast<size_t>(
+          ContactLogicState::contactBinaryIndex(k, foot))];
       if (value == kMiqpFree) continue;
       if (previous >= 0 && value != previous) ++numSwitches;
       previous = value;

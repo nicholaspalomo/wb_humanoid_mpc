@@ -134,8 +134,8 @@ def _check_port_free(port: int, kind: str, flag: str) -> None:
             probe.bind(("0.0.0.0", port))
         except OSError as error:
             raise OSError(
-                f"the Rerun {kind} port {port} is in use (another bridge or a native Rerun viewer?); "
-                f"pass {flag}: {error}"
+                f"the Rerun {kind} port {port} is in use (another bridge or a"
+                f" native Rerun viewer?); pass {flag}: {error}"
             ) from error
 
 
@@ -217,7 +217,9 @@ class Sink:
             recording.disconnect()
 
     def _send_blueprint(self, recording: rr.RecordingStream) -> None:
-        recording.send_blueprint(self._blueprint, make_active=True, make_default=True)
+        recording.send_blueprint(
+            self._blueprint, make_active=True, make_default=True
+        )
 
     def _attach_first(self, recording: rr.RecordingStream) -> str:
         raise NotImplementedError
@@ -242,7 +244,8 @@ class _SpawnSink(Sink):
             port=self.options.grpc_port,
             connect=True,
             memory_limit=self.options.memory_limit,
-            executable_path=self.options.viewer_executable or viewer_executable(),
+            executable_path=self.options.viewer_executable
+            or viewer_executable(),
             recording=recording,
         )
         self._send_blueprint(recording)
@@ -296,8 +299,8 @@ class _ServeWebSink(Sink):
             recording.flush(timeout_sec=_SERVER_START_TIMEOUT_S)
         except RuntimeError as error:
             raise OSError(
-                f"the Rerun gRPC server on port {options.grpc_port} did not start (the port is in use?); "
-                f"pass --grpc_port: {error}"
+                f"the Rerun gRPC server on port {options.grpc_port} did not"
+                f" start (the port is in use?); pass --grpc_port: {error}"
             ) from error
         rr.serve_web_viewer(
             web_port=options.web_port,
@@ -305,7 +308,11 @@ class _ServeWebSink(Sink):
             connect_to=grpc_url,
         )
         self._grpc_url = grpc_url
-        return f"serving the web viewer at http://localhost:{options.web_port}/?url={grpc_url} (recording at {grpc_url})"
+        return (
+            "serving the web viewer at"
+            f" http://localhost:{options.web_port}/?url={grpc_url} (recording"
+            f" at {grpc_url})"
+        )
 
     def _attach_next(self, recording: rr.RecordingStream, run: int) -> str:
         recording.connect_grpc(self._grpc_url)
@@ -371,7 +378,9 @@ def sink_names() -> tuple[str, ...]:
     return tuple(SINKS)
 
 
-def make_sink(name: str, blueprint: rrb.Blueprint, options: SinkOptions) -> Sink:
+def make_sink(
+    name: str, blueprint: rrb.Blueprint, options: SinkOptions
+) -> Sink:
     """The sink `name` with `blueprint` as its layout; nothing is started before its first attach().
 
     Args:

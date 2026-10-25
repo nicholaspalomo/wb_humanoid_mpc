@@ -103,7 +103,9 @@ def _check_lines(path: str) -> list[str]:
 
 def _bzl_list(name: str) -> list[str]:
     source = check_test_support.read_repository_file(BZL)
-    match = re.search(rf"^{name} = \[(.*?)\]$", source, re.MULTILINE | re.DOTALL)
+    match = re.search(
+        rf"^{name} = \[(.*?)\]$", source, re.MULTILINE | re.DOTALL
+    )
     assert match is not None, name
     return re.findall(r'"([^"]*)"', match.group(1))
 
@@ -111,7 +113,9 @@ def _bzl_list(name: str) -> list[str]:
 def _header_filter() -> re.Pattern[str]:
     source = check_test_support.read_repository_file(BZL)
     match = re.search(
-        r'^FIRST_PARTY_HEADER_FILTER = "((?:[^"\\]|\\.)*)"$', source, re.MULTILINE
+        r'^FIRST_PARTY_HEADER_FILTER = "((?:[^"\\]|\\.)*)"$',
+        source,
+        re.MULTILINE,
     )
     assert match is not None
     return re.compile(match.group(1).encode().decode("unicode_escape"))
@@ -151,7 +155,9 @@ class ConfigurationTest(unittest.TestCase):
         self.assertEqual([check for check in checks if "*" in check], ["-*"])
         for check in NEVER_ENABLED:
             self.assertNotIn(check, checks)
-        self.assertFalse([check for check in checks if check.startswith("llvm-")])
+        self.assertFalse(
+            [check for check in checks if check.startswith("llvm-")]
+        )
 
     def test_each_clang_diagnostic_check_has_its_warning_flag(self):
         # `clang-diagnostic-<name>` reports clang's -W<name>, and the aspect drops every warning flag of the build.
@@ -166,7 +172,9 @@ class AspectFileListsTest(unittest.TestCase):
         self.assertEqual(
             tuple(_bzl_list("VENDORED_PACKAGES")), lint_files.VENDORED_DIRS
         )
-        self.assertEqual(tuple(_bzl_list("FIXTURE_PACKAGES")), lint_files.FIXTURE_DIRS)
+        self.assertEqual(
+            tuple(_bzl_list("FIXTURE_PACKAGES")), lint_files.FIXTURE_DIRS
+        )
         self.assertEqual(
             frozenset(_bzl_list("GENERATED_FILES")), lint_files.GENERATED_FILES
         )
@@ -179,7 +187,9 @@ class AspectFileListsTest(unittest.TestCase):
         for path in OTHER_HEADERS:
             self.assertNotRegex(path, header_filter)
 
-    def test_the_header_filter_covers_every_directory_with_first_party_cpp(self):
+    def test_the_header_filter_covers_every_directory_with_first_party_cpp(
+        self,
+    ):
         root = check_test_support.source_tree_root()
         directories = lint_files.cpp_top_level_dirs(root)
         self.assertIn("humanoid_nmpc", directories)

@@ -39,20 +39,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * What the robot process reads from the robot's task file besides the MPC's own settings (RobotProcessSettings), from
- * the typed file. A field the file leaves out takes the default of RobotProcessSettings, except that a list the file
- * leaves out is empty (a repeated field has no presence): no telemetry sinks, and no viewer markers rather than the
- * viewer's default set. The retired fields are refused by the strict parser already, with their replacement.
+ * What the robot process reads from the robot's task file besides the MPC's own
+ * settings (RobotProcessSettings), from the typed file. A field the file leaves
+ * out takes the default of RobotProcessSettings, except that a list the file
+ * leaves out is empty (a repeated field has no presence): no telemetry sinks,
+ * and no viewer markers rather than the viewer's default set. The retired
+ * fields are refused by the strict parser already, with their replacement.
  *
- * @return InvalidArgument naming the field when wb_mpc_feedforward names no feedforward, when contact_wrench_gate has a
- *         negative or NaN time, when telemetry_frequency is not positive, or when mpc_link.policy_timeout is not.
+ * @return InvalidArgument naming the field when wb_mpc_feedforward names no
+ * feedforward, when contact_wrench_gate has a negative or NaN time, when
+ * telemetry_frequency is not positive, or when mpc_link.policy_timeout is not.
  */
-absl::StatusOr<RobotProcessSettings> robotProcessSettingsFromConfig(const mpc_config::TaskFile& task);
+absl::StatusOr<RobotProcessSettings> robotProcessSettingsFromConfig(
+    const mpc_config::TaskFile& task);
 
 /**
- * The noise model of state_estimator `kalman` that the task file's kalman_state_estimator block gives, field for field;
- * KalmanBaseEstimator::Create() refuses a standard deviation that is not positive, naming the field.
+ * The noise model of state_estimator `kalman` that the task file's
+ * kalman_state_estimator block gives, field for field;
+ * KalmanBaseEstimator::Create() refuses a standard deviation that is not
+ * positive, naming the field.
  */
-estimation::KalmanBaseEstimator::Config kalmanBaseEstimatorConfigFromConfig(const mpc_config::KalmanStateEstimatorConfig& config);
+estimation::KalmanBaseEstimator::Config kalmanBaseEstimatorConfigFromConfig(
+    const mpc_config::KalmanStateEstimatorConfig& config);
 
 }  // namespace ocs2::humanoid

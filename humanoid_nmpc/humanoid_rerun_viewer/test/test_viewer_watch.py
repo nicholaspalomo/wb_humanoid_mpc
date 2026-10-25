@@ -75,7 +75,9 @@ class ViewerWatchTest(unittest.TestCase):
             changes.append(watch.poll())
         return changes
 
-    def test_a_viewer_unreachable_for_the_grace_period_is_gone_once(self) -> None:
+    def test_a_viewer_unreachable_for_the_grace_period_is_gone_once(
+        self,
+    ) -> None:
         probe = FakeProbe(up=False)
         watch = self.watch(up=True, probe=probe)
         polls = int(cli.VIEWER_GONE_AFTER_S / cli.VIEWER_PROBE_PERIOD_S) + 3
@@ -178,9 +180,13 @@ class FollowViewerTest(unittest.TestCase):
         reason = feed.paused_for[0]
         self.assertIn("127.0.0.1:40123", reason)
 
-    def test_a_viewer_that_is_back_is_reattached_and_sent_the_static_data(self) -> None:
+    def test_a_viewer_that_is_back_is_reattached_and_sent_the_static_data(
+        self,
+    ) -> None:
         sink = FakeSink(owns_viewer=False)
-        keep_running, feed, the_bridge = self.follow(sink, cli.ViewerChange.BACK)
+        keep_running, feed, the_bridge = self.follow(
+            sink, cli.ViewerChange.BACK
+        )
         self.assertTrue(keep_running)
         self.assertEqual(len(feed.reconnects), 1)
         reconnect = feed.reconnects[0]

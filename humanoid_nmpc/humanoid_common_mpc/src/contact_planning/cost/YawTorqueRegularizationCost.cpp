@@ -39,13 +39,19 @@ std::string YawTorqueRegularizationCost::describe() const {
   return weightLine("w sum_i tau_{i,k}^2 on the running nodes");
 }
 
-void YawTorqueRegularizationCost::configure(const ContactPlanningConfig& config) {
+void YawTorqueRegularizationCost::configure(
+    const ContactPlanningConfig& config) {
   weight_ = config.yawTorqueRegularization.weight;
 }
 
-void YawTorqueRegularizationCost::addToStage(const ContactPlanningContext& /*ctx*/, int /*node*/, StageAccumulator& stage) const {
+void YawTorqueRegularizationCost::addToStage(
+    const ContactPlanningContext& /*ctx*/,
+    int /*node*/,
+    StageAccumulator& stage) const {
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
-    stage.addQuadraticResidual(/*xCoefficients=*/{}, {{idx_.yawTorque[foot], 1.0}}, /*offset=*/0.0, weight_);
+    stage.addQuadraticResidual(/*xCoefficients=*/{},
+                               {{idx_.yawTorque[foot], 1.0}}, /*offset=*/0.0,
+                               weight_);
   }
 }
 

@@ -42,12 +42,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 absl::string_view wbMpcFeedforwardName(WbMpcFeedforward feedforward) {
-  return feedforward == WbMpcFeedforward::kGravityCompensation ? kGravityCompensationFeedforwardName : kInverseDynamicsFeedforwardName;
+  return feedforward == WbMpcFeedforward::kGravityCompensation
+             ? kGravityCompensationFeedforwardName
+             : kInverseDynamicsFeedforwardName;
 }
 
-absl::StatusOr<RobotProcessSettings> loadRobotProcessSettings(const std::string& taskFile) {
+absl::StatusOr<RobotProcessSettings> loadRobotProcessSettings(
+    const std::string& taskFile) {
   ASSIGN_OR_RETURN(const mpc_config::TaskFile task, loadTaskFile(taskFile));
-  absl::StatusOr<RobotProcessSettings> settings = robotProcessSettingsFromConfig(task);
+  absl::StatusOr<RobotProcessSettings> settings =
+      robotProcessSettingsFromConfig(task);
   if (!settings.ok()) {
     return withConfigFile(settings.status(), taskFile);
   }

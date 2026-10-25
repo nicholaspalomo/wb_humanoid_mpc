@@ -118,7 +118,9 @@ def top_level_definitions(source: str) -> list[Definition]:
         elif token.text == "}":
             depth = max(0, depth - 1)
         elif (
-            depth == 0 and token.text in DEFINITION_KEYWORDS and index + 2 < len(tokens)
+            depth == 0
+            and token.text in DEFINITION_KEYWORDS
+            and index + 2 < len(tokens)
         ):
             name = tokens[index + 1].text
             # `message Name {` (`extend pkg.Type {`); anything else with these words at file scope is not a definition.
@@ -139,7 +141,9 @@ class NprotoOption(NamedTuple):
     # The chain of definitions the option is declared in, outermost first: () at file scope, (("message", "Foo"),) in
     # the body of a top-level message, and so on.
     scope: tuple[tuple[str, str], ...]
-    first_in_body: bool  # it is the first statement of the body that declares it
+    first_in_body: (
+        bool  # it is the first statement of the body that declares it
+    )
 
 
 @dataclasses.dataclass
@@ -163,7 +167,9 @@ def nproto_options(source: str) -> list[NprotoOption]:
         if text == "{":
             previous = [t.text for t in tokens[max(0, index - 2) : index]]
             owner = None
-            if len(previous) == 2 and previous[0] in DEFINITION_KEYWORDS + ("oneof",):
+            if len(previous) == 2 and previous[0] in DEFINITION_KEYWORDS + (
+                "oneof",
+            ):
                 owner = (previous[0], previous[1])
             stack.append(_Block(owner))
             statement_start = True
@@ -189,11 +195,19 @@ def nproto_options(source: str) -> list[NprotoOption]:
                 and window[5] == ";"
             ):
                 value = window[4]
-                if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+                if (
+                    len(value) >= 2
+                    and value[0] == value[-1]
+                    and value[0] in "\"'"
+                ):
                     value = value[1:-1]
-                scope = tuple(block.owner for block in stack if block.owner is not None)
+                scope = tuple(
+                    block.owner for block in stack if block.owner is not None
+                )
                 first = bool(stack) and not stack[-1].has_statement
-                found.append(NprotoOption(window[1], value, token.line, scope, first))
+                found.append(
+                    NprotoOption(window[1], value, token.line, scope, first)
+                )
         statement_start = False
     return found
 
@@ -260,9 +274,11 @@ def check_reserved_names(source: str, path: str) -> list[Violation]:
         Violation(
             path,
             line,
-            f"reserves the field name '{name}': protobuf's C++ text parser silently skips a reserved name, so a file "
-            "that still sets it would parse and mean nothing. Reserve the number only, and list the name in "
-            '(nproto.retired_field) (tools/nproto/README.md, "Retired fields").',
+            f"reserves the field name '{name}': protobuf's C++ text parser"
+            " silently skips a reserved name, so a file that still sets it"
+            " would parse and mean nothing. Reserve the number only, and list"
+            " the name in (nproto.retired_field) (tools/nproto/README.md,"
+            ' "Retired fields").',
         )
         for line, name in reserved_names(source)
     ]
@@ -286,7 +302,9 @@ def check_struct_option(
 ) -> list[Violation]:
     """The nproto option of a file whose one definition is `definition` (a message or an enum)."""
     expected = (
-        NPROTO_STRUCT_OPTION if definition.keyword == "message" else NPROTO_ENUM_OPTION
+        NPROTO_STRUCT_OPTION
+        if definition.keyword == "message"
+        else NPROTO_ENUM_OPTION
     )
     example = f'option ({expected}) = "<namespace>::{definition.name}";'
     violations: list[Violation] = []
@@ -297,8 +315,9 @@ def check_struct_option(
                 Violation(
                     path,
                     option.line,
-                    f"({option.name}) is declared at file scope; move it into {definition.keyword} "
-                    f"{definition.name}, as the first statement of its body: '{example}'",
+                    f"({option.name}) is declared at file scope; move it into"
+                    f" {definition.keyword} {definition.name}, as the first"
+                    f" statement of its body: '{example}'",
                 )
             )
         elif option.scope == ((definition.keyword, definition.name),):
@@ -307,7 +326,8 @@ def check_struct_option(
                     Violation(
                         path,
                         option.line,
-                        f"a second nproto option in {definition.keyword} {definition.name}",
+                        "a second nproto option in"
+                        f" {definition.keyword} {definition.name}",
                     )
                 )
             else:
@@ -318,8 +338,9 @@ def check_struct_option(
                 Violation(
                     path,
                     option.line,
-                    f"({option.name}) in nested type {nested}: nested types are generated as nested C++ types of "
-                    f"their parent's struct and carry no option",
+                    f"({option.name}) in nested type {nested}: nested types are"
+                    " generated as nested C++ types of their parent's struct"
+                    " and carry no option",
                 )
             )
     if own is None:
@@ -328,8 +349,10 @@ def check_struct_option(
                 Violation(
                     path,
                     definition.line,
-                    f"{definition.keyword} {definition.name} does not name the C++ type nproto generates for it: write "
-                    f"'{example}' as the first statement of its body (with 'import \"{NPROTO_OPTIONS_IMPORT}\";')",
+                    f"{definition.keyword} {definition.name} does not name the"
+                    f" C++ type nproto generates for it: write '{example}' as"
+                    " the first statement of its body (with 'import"
+                    f' "{NPROTO_OPTIONS_IMPORT}";\')',
                 )
             )
         return violations
@@ -346,7 +369,8 @@ def check_struct_option(
             Violation(
                 path,
                 own.line,
-                f"({own.name}) must be the first statement of {definition.keyword} {definition.name}",
+                f"({own.name}) must be the first statement of"
+                f" {definition.keyword} {definition.name}",
             )
         )
     if (
@@ -357,8 +381,9 @@ def check_struct_option(
             Violation(
                 path,
                 own.line,
-                f"'{own.value}' is not a fully qualified C++ name ending in ::{definition.name} (e.g. "
-                f'"ocs2::humanoid::msgs::{definition.name}")',
+                f"'{own.value}' is not a fully qualified C++ name ending in"
+                f" ::{definition.name} (e.g."
+                f' "ocs2::humanoid::msgs::{definition.name}")',
             )
         )
     if NPROTO_OPTIONS_IMPORT not in imports(source):
@@ -366,7 +391,8 @@ def check_struct_option(
             Violation(
                 path,
                 own.line,
-                f"uses ({own.name}) without 'import \"{NPROTO_OPTIONS_IMPORT}\";'",
+                f"uses ({own.name}) without 'import"
+                f' "{NPROTO_OPTIONS_IMPORT}";\'',
             )
         )
     return violations
@@ -383,7 +409,8 @@ def check_source(source: str, path: str) -> list[Violation]:
             Violation(
                 path,
                 1,
-                "defines no message, enum or service; every .proto file defines exactly one",
+                "defines no message, enum or service; every .proto file defines"
+                " exactly one",
             )
         ]
     if all(d.keyword == "extend" for d in definitions):
@@ -397,8 +424,9 @@ def check_source(source: str, path: str) -> list[Violation]:
                 Violation(
                     path,
                     definition.line,
-                    f"{definition.keyword} {definition.name} is a further top-level definition here ({names}); move "
-                    f"it to its own file, {snake_case(definition.name)}{PROTO_EXTENSION}",
+                    f"{definition.keyword} {definition.name} is a further"
+                    f" top-level definition here ({names}); move it to its own"
+                    f" file, {snake_case(definition.name)}{PROTO_EXTENSION}",
                 )
             )
     first = definitions[0]
@@ -407,8 +435,9 @@ def check_source(source: str, path: str) -> list[Violation]:
             Violation(
                 path,
                 first.line,
-                f"{first.keyword} {first.name} belongs in {snake_case(first.name)}{PROTO_EXTENSION}, not in "
-                f"{stem}{PROTO_EXTENSION}",
+                f"{first.keyword} {first.name} belongs in"
+                f" {snake_case(first.name)}{PROTO_EXTENSION}, not in"
+                f" {stem}{PROTO_EXTENSION}",
             )
         )
     if first.keyword in ("message", "enum"):
@@ -429,10 +458,16 @@ CHECKS = [
         languages=frozenset({check_types.Language.PROTO}),
         scope=lint_files.Scope.FIRST_PARTY,
         check_source=_findings,
-        description="one top-level definition per .proto file, named after it, with its nproto option (google3's "
-        "1-1-1 rule); no message reserves a field name.",
-        hint="Give each .proto file one definition named after the file (message MpcPolicy -> mpc_policy.proto) whose "
-        "body opens with 'option (nproto.generate_struct) = \"<namespace>::MpcPolicy\";'. Retire a field with "
-        '(nproto.retired_field), not with `reserved "name"`.',
+        description=(
+            "one top-level definition per .proto file, named after it, with its"
+            " nproto option (google3's 1-1-1 rule); no message reserves a field"
+            " name."
+        ),
+        hint=(
+            "Give each .proto file one definition named after the file (message"
+            " MpcPolicy -> mpc_policy.proto) whose body opens with 'option"
+            ' (nproto.generate_struct) = "<namespace>::MpcPolicy";\'. Retire a'
+            ' field with (nproto.retired_field), not with `reserved "name"`.'
+        ),
     )
 ]

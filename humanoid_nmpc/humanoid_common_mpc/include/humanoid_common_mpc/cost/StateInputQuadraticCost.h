@@ -44,41 +44,51 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The quadratic state-input regularization of the MPC around the target trajectories (state_input_quadratic_cost), with
- * the input reference that carries the robot's weight on the feet in contact: a TuningQuadraticStateInputCost whose
- * references are the reference manager's getDesiredState() and getDesiredInput().
+ * The quadratic state-input regularization of the MPC around the target
+ * trajectories (state_input_quadratic_cost), with the input reference that
+ * carries the robot's weight on the feet in contact: a
+ * TuningQuadraticStateInputCost whose references are the reference manager's
+ * getDesiredState() and getDesiredInput().
  *
- * The reference manager and the robot model must outlive it. Like every OCS2 term it is cloned for each solver thread;
- * its const functions are safe to call concurrently, the weight setters are not.
+ * The reference manager and the robot model must outlive it. Like every OCS2
+ * term it is cloned for each solver thread; its const functions are safe to
+ * call concurrently, the weight setters are not.
  */
 class StateInputQuadraticCost final : public TuningQuadraticStateInputCost {
  public:
   /**
-   * The cost of `stateWeights` (Q, the tuning layout's: getStateTangentDim() square) and `inputWeights` (R, getInputDim()
-   * square) on `mpcRobotModel`, both retained with `referenceManager`. InvalidArgument when a weight matrix is refused
-   * (TuningQuadraticStateInputCost::setStateWeights(), setInputWeights()).
+   * The cost of `stateWeights` (Q, the tuning layout's: getStateTangentDim()
+   * square) and `inputWeights` (R, getInputDim() square) on `mpcRobotModel`,
+   * both retained with `referenceManager`. InvalidArgument when a weight matrix
+   * is refused (TuningQuadraticStateInputCost::setStateWeights(),
+   * setInputWeights()).
    */
-  static absl::StatusOr<std::unique_ptr<StateInputQuadraticCost>> Create(matrix_t stateWeights,
-                                                                         matrix_t inputWeights,
-                                                                         const SwitchedModelReferenceManager* absl_nonnull referenceManager,
-                                                                         const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModel);
+  static absl::StatusOr<std::unique_ptr<StateInputQuadraticCost>> Create(
+      matrix_t stateWeights,
+      matrix_t inputWeights,
+      const SwitchedModelReferenceManager* absl_nonnull referenceManager,
+      const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModel);
 
   ~StateInputQuadraticCost() override = default;
   StateInputQuadraticCost& operator=(const StateInputQuadraticCost&) = delete;
   StateInputQuadraticCost(StateInputQuadraticCost&&) = delete;
   StateInputQuadraticCost& operator=(StateInputQuadraticCost&&) = delete;
-  StateInputQuadraticCost* absl_nonnull clone() const override { return new StateInputQuadraticCost(*this); }
+  StateInputQuadraticCost* absl_nonnull clone() const override {
+    return new StateInputQuadraticCost(*this);
+  }
 
  private:
-  StateInputQuadraticCost(const SwitchedModelReferenceManager* absl_nonnull referenceManager,
-                          const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModel);
+  StateInputQuadraticCost(
+      const SwitchedModelReferenceManager* absl_nonnull referenceManager,
+      const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModel);
   StateInputQuadraticCost(const StateInputQuadraticCost& other) = default;
 
-  StateInputReference getReference(scalar_t time,
-                                   const vector_t& state,
-                                   const vector_t& input,
-                                   const TargetTrajectories& targetTrajectories,
-                                   const PreComputation& preComputation) const override;
+  StateInputReference getReference(
+      scalar_t time,
+      const vector_t& state,
+      const vector_t& input,
+      const TargetTrajectories& targetTrajectories,
+      const PreComputation& preComputation) const override;
 
   const SwitchedModelReferenceManager* absl_nonnull referenceManagerPtr_;
 };

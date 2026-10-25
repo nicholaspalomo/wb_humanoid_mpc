@@ -37,11 +37,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot {
 
 /**
- * The rate at which tick() is called, smoothed exponentially with `alpha` (0 < alpha <= 1; 1 keeps only the newest
- * period), for the simulator and renderer frame rates of the MuJoCo metrics overlay. Each rate is one over the period
- * between two ticks, so the first tick after construction or reset() only starts the clock, and fps() is 0 until the
- * second. A period of zero or less (two ticks within one tick of the steady clock) carries no rate and is skipped.
- * Not thread-safe: one thread ticks and reads it.
+ * The rate at which tick() is called, smoothed exponentially with `alpha` (0 <
+ * alpha <= 1; 1 keeps only the newest period), for the simulator and renderer
+ * frame rates of the MuJoCo metrics overlay. Each rate is one over the period
+ * between two ticks, so the first tick after construction or reset() only
+ * starts the clock, and fps() is 0 until the second. A period of zero or less
+ * (two ticks within one tick of the steady clock) carries no rate and is
+ * skipped. Not thread-safe: one thread ticks and reads it.
  */
 class FPSTracker {
  public:
@@ -49,7 +51,8 @@ class FPSTracker {
   static constexpr double kDefaultAlpha = 0.1;
 
   explicit FPSTracker(double alpha = kDefaultAlpha) : alpha_(alpha) {
-    ABSL_CHECK(alpha > 0.0 && alpha <= 1.0) << "FPSTracker: alpha must be in (0, 1], got " << alpha;
+    ABSL_CHECK(alpha > 0.0 && alpha <= 1.0)
+        << "FPSTracker: alpha must be in (0, 1], got " << alpha;
   }
 
   FPSTracker(const FPSTracker&) = default;
@@ -61,13 +64,15 @@ class FPSTracker {
   /** Records a tick now. */
   void tick() { tickAt(std::chrono::steady_clock::now()); }
 
-  /** Records a tick at `now`, which must not be earlier than the previous tick's. */
+  /** Records a tick at `now`, which must not be earlier than the previous
+   * tick's. */
   void tickAt(std::chrono::steady_clock::time_point now) {
     if (!lastTimePoint_.has_value()) {
       lastTimePoint_ = now;
       return;
     }
-    const double period = std::chrono::duration<double>(now - *lastTimePoint_).count();
+    const double period =
+        std::chrono::duration<double>(now - *lastTimePoint_).count();
     if (!(period > 0.0)) return;
     lastTimePoint_ = now;
     const double rate = 1.0 / period;
@@ -75,7 +80,8 @@ class FPSTracker {
     hasRate_ = true;
   }
 
-  /** Forgets the ticks so far: the next tick starts the clock again, and fps() is 0 until the one after it. */
+  /** Forgets the ticks so far: the next tick starts the clock again, and fps()
+   * is 0 until the one after it. */
   void reset() {
     lastTimePoint_.reset();
     hasRate_ = false;
@@ -87,7 +93,8 @@ class FPSTracker {
 
  private:
   double alpha_;  // Smoothing factor (0 < alpha <= 1)
-  /// Whether fps_ holds a rate yet; the first rate is taken as it is rather than smoothed against 0.
+  /// Whether fps_ holds a rate yet; the first rate is taken as it is rather
+  /// than smoothed against 0.
   bool hasRate_ = false;
   double fps_ = 0.0;
   /// The previous tick; empty before the first and after reset().

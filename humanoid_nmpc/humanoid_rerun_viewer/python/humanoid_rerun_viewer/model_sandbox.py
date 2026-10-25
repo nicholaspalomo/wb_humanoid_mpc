@@ -141,7 +141,8 @@ class SandboxScene:
         """
         if joint not in self._joints:
             raise KeyError(
-                f"'{joint}' is not a settable joint; the joints are: {', '.join(self._joints)}"
+                f"'{joint}' is not a settable joint; the joints are:"
+                f" {', '.join(self._joints)}"
             )
         if not math.isfinite(position):
             raise ValueError(
@@ -162,7 +163,9 @@ class SandboxScene:
                 self._positions = nominal
                 self._version += 1
 
-    def scene(self, time_s: float) -> visualization_scene_pb2.VisualizationScene:
+    def scene(
+        self, time_s: float
+    ) -> visualization_scene_pb2.VisualizationScene:
         """The scene of the current positions, at robot time `time_s`: one robot instance with every link."""
         poses = self.tree.link_poses(self.positions())
         message = visualization_scene_pb2.VisualizationScene(time=time_s)
@@ -234,14 +237,18 @@ class SliderWindow:  # pragma: no cover - drawn by test_model_sandbox where a di
 
     TITLE = "Model Sandbox"
 
-    def __init__(self, scene: SandboxScene, root: tkinter.Tk | None = None) -> None:
+    def __init__(
+        self, scene: SandboxScene, root: tkinter.Tk | None = None
+    ) -> None:
         self._scene = scene
         self.root = root if root is not None else tkinter.Tk()
         self.root.title(f"{self.TITLE}: {scene.tree.name}")
         frame = tkinter.Frame(self.root)
         frame.pack(fill="both", expand=True)
         canvas = tkinter.Canvas(frame, width=420, height=600)
-        scrollbar = tkinter.Scrollbar(frame, orient="vertical", command=canvas.yview)
+        scrollbar = tkinter.Scrollbar(
+            frame, orient="vertical", command=canvas.yview
+        )
         inner = tkinter.Frame(canvas)
         inner.bind(
             "<Configure>",
@@ -258,10 +265,7 @@ class SliderWindow:  # pragma: no cover - drawn by test_model_sandbox where a di
             lower, upper = slider_range(joint)
             # A variable trace rather than the scale's -command, which Tk only runs while the slider is drawn.
             value = tkinter.DoubleVar(self.root, value=positions[joint.name])
-            value.trace_add(
-                "write",
-                lambda *_, name=joint.name, value=value: self._moved(name, value.get()),
-            )
+            value.trace_add("write", self._mover(joint.name, value))
             slider = tkinter.Scale(
                 inner,
                 label=joint.name,
@@ -282,6 +286,16 @@ class SliderWindow:  # pragma: no cover - drawn by test_model_sandbox where a di
     def _moved(self, joint: str, value: float) -> None:
         self._scene.set_position(joint, value)
 
+    def _mover(
+        self, joint: str, value: tkinter.DoubleVar
+    ) -> Callable[..., None]:
+        """Returns the trace callback that moves `joint` to the value of `value`."""
+
+        def moved(*_: object) -> None:
+            self._moved(joint, value.get())
+
+        return moved
+
     def reset(self) -> None:
         self._scene.reset()
         positions = self._scene.positions()
@@ -293,7 +307,10 @@ def build_parser() -> argparse.ArgumentParser:
     """The parser of the sandbox's command line."""
     parser = argparse.ArgumentParser(
         prog="model_sandbox",
-        description="Draws a URDF in Rerun at its nominal joint positions or at those of a slider per joint.",
+        description=(
+            "Draws a URDF in Rerun at its nominal joint positions or at those"
+            " of a slider per joint."
+        ),
     )
     parser.add_argument("--urdf", required=True, help="the robot's URDF")
     parser.add_argument(
@@ -310,19 +327,28 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--ipc_node",
         default="mpc",
-        help="the bus node the scene is published as (default: %(default)s: no MPC runs in the sandbox)",
+        help=(
+            "the bus node the scene is published as (default: %(default)s: no"
+            " MPC runs in the sandbox)"
+        ),
     )
     parser.add_argument(
         "--republish_period",
         type=float,
         default=1.0,
-        help="[s] how often an unchanged scene goes out again, for a bridge that starts later",
+        help=(
+            "[s] how often an unchanged scene goes out again, for a bridge that"
+            " starts later"
+        ),
     )
     parser.add_argument(
         "--duration",
         type=float,
         default=0.0,
-        help="[s] stop after this long; 0 runs until Ctrl-C or until the window closes",
+        help=(
+            "[s] stop after this long; 0 runs until Ctrl-C or until the window"
+            " closes"
+        ),
     )
     parser.add_argument(
         "--log_level",
@@ -342,7 +368,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         _LOGGER.error("--republish_period must be positive")
         return EXIT_USAGE
     try:
-        tree = urdf_kinematics.load_kinematic_tree(cli.resolve_input_path(args.urdf))
+        tree = urdf_kinematics.load_kinematic_tree(
+            cli.resolve_input_path(args.urdf)
+        )
         network = robot_ipc.load_network_config(
             cli.resolve_input_path(args.network_config)
         )
@@ -375,7 +403,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             signal.signal(signum, request_stop)
     deadline = time.monotonic() + args.duration if args.duration > 0.0 else None
     _LOGGER.info(
-        "%s: %d links, %d joints to set, root '%s' at the origin; publishing %s as node '%s' (%s joints)",
+        "%s: %d links, %d joints to set, root '%s' at the origin; publishing %s"
+        " as node '%s' (%s joints)",
         tree.name,
         len(tree.links),
         len(scene.joints),

@@ -101,10 +101,15 @@ def _clean_str(value: str) -> str:
 
 # LINT.IfChange(viewer_list_rules)
 # The viewers nothing may follow in a preference list, since a later entry could never be used, and why.
-_LAST_VIEWERS = {NO_VIEWER: "always starts", GLFW_VIEWER: "cannot fail at start-up"}
+_LAST_VIEWERS = {
+    NO_VIEWER: "always starts",
+    GLFW_VIEWER: "cannot fail at start-up",
+}
 
 
-def check_mujoco_viewer(names: Sequence[str], source: str = "") -> tuple[str, ...]:
+def check_mujoco_viewer(
+    names: Sequence[str], source: str = ""
+) -> tuple[str, ...]:
     """Checks a mujoco_viewer preference list as the robot process checks it at start-up.
 
     Every name is one of MUJOCO_VIEWER_NAMES, exactly as written, none repeats, and nothing follows "none", which always
@@ -125,17 +130,18 @@ def check_mujoco_viewer(names: Sequence[str], source: str = "") -> tuple[str, ..
     for index, name in enumerate(names):
         if name not in MUJOCO_VIEWER_NAMES:
             raise PlotConfigError(
-                f"{prefix}mujoco_viewer: unknown viewer {name!r} in {listed!r}; the viewers are "
-                f"{', '.join(MUJOCO_VIEWER_NAMES)}"
+                f"{prefix}mujoco_viewer: unknown viewer {name!r} in {listed!r};"
+                f" the viewers are {', '.join(MUJOCO_VIEWER_NAMES)}"
             )
         if name in names[:index]:
             raise PlotConfigError(
-                f"{prefix}mujoco_viewer: the viewer {name!r} is listed twice in {listed!r}"
+                f"{prefix}mujoco_viewer: the viewer {name!r} is listed twice in"
+                f" {listed!r}"
             )
         if index + 1 < len(names) and name in _LAST_VIEWERS:
             raise PlotConfigError(
-                f"{prefix}mujoco_viewer: nothing may follow {name!r} in {listed!r}, as it "
-                f"{_LAST_VIEWERS[name]}"
+                f"{prefix}mujoco_viewer: nothing may follow {name!r} in"
+                f" {listed!r}, as it {_LAST_VIEWERS[name]}"
             )
     return tuple(names)
 
@@ -160,7 +166,8 @@ def check_telemetry_rate(rate: float, source: str = "") -> float:
     if not (rate >= 0.0 and math.isfinite(rate)):
         prefix = f"{source}: " if source else ""
         raise PlotConfigError(
-            f"{prefix}telemetry_rate_hz must be finite and non-negative (0: every sample), got {rate}"
+            f"{prefix}telemetry_rate_hz must be finite and non-negative (0:"
+            f" every sample), got {rate}"
         )
     return rate
 
@@ -193,7 +200,9 @@ def parse_plot_config(text: str, source: str = "") -> PlotConfig:
             parsed_as_proto = True
         except text_format.ParseError as error:
             prefix = f"{source}: " if source else ""
-            raise PlotConfigError(f"{prefix}cannot parse textproto: {error}") from error
+            raise PlotConfigError(
+                f"{prefix}cannot parse textproto: {error}"
+            ) from error
     else:
         try:
             text_format.Parse(text, message)
@@ -219,7 +228,9 @@ def parse_plot_config(text: str, source: str = "") -> PlotConfig:
                 r.strip() for r in message.robot_instances if r.strip()
             ),
             draw_terminal_state=draw_terminal,
-            mujoco_viewer=check_mujoco_viewer(tuple(message.mujoco_viewer), source),
+            mujoco_viewer=check_mujoco_viewer(
+                tuple(message.mujoco_viewer), source
+            ),
             telemetry_rate_hz=check_telemetry_rate(
                 (
                     message.telemetry_rate_hz
@@ -242,7 +253,9 @@ def parse_plot_config(text: str, source: str = "") -> PlotConfig:
         if not line or line.startswith("#"):
             continue
         if line.startswith("custom_tab_title:"):
-            custom_title = _clean_str(line.split(":", 1)[1]) or DEFAULT_CUSTOM_TAB_TITLE
+            custom_title = (
+                _clean_str(line.split(":", 1)[1]) or DEFAULT_CUSTOM_TAB_TITLE
+            )
             continue
         if line.startswith("robot_instances:"):
             val = _clean_str(line.split(":", 1)[1])
@@ -267,7 +280,9 @@ def parse_plot_config(text: str, source: str = "") -> PlotConfig:
             telemetry_rate_hz = check_telemetry_rate(rate, source)
             continue
         if line.startswith("record_unplotted_telemetry:"):
-            record_unplotted_telemetry = _parse_bool(_clean_str(line.split(":", 1)[1]))
+            record_unplotted_telemetry = _parse_bool(
+                _clean_str(line.split(":", 1)[1])
+            )
             continue
         signals.append(line)
     return PlotConfig(
@@ -356,17 +371,23 @@ def matches_tab_title(tab: telemetry_contract.Tab, pattern: str) -> bool:
     return _matches(tab.title, pattern)
 
 
-def matches_status_series(series: status_contract.StatusSeries, pattern: str) -> bool:
+def matches_status_series(
+    series: status_contract.StatusSeries, pattern: str
+) -> bool:
     """True if pattern matches the status series title, path, or series names."""
     if _matches(series.title, pattern):
         return True
     if _path_matches(series.path, pattern):
         return True
     clean_p = pattern.strip().lstrip("/")
-    if _matches(series.path.removeprefix(f"{status_contract.STATUS_ROOT}/"), clean_p):
+    if _matches(
+        series.path.removeprefix(f"{status_contract.STATUS_ROOT}/"), clean_p
+    ):
         return True
     for name in series.names:
-        if _matches(f"{series.path}/{name}", clean_p) or _matches(name, clean_p):
+        if _matches(f"{series.path}/{name}", clean_p) or _matches(
+            name, clean_p
+        ):
             return True
     return False
 
@@ -416,7 +437,9 @@ def filter_contract_tabs(
 
         if filtered_rows:
             filtered_tabs.append(
-                telemetry_contract.Tab(title=tab.title, rows=tuple(filtered_rows))
+                telemetry_contract.Tab(
+                    title=tab.title, rows=tuple(filtered_rows)
+                )
             )
 
     return filtered_tabs, matched_signals
@@ -476,7 +499,9 @@ def has_telemetry_signals(config: PlotConfig | None) -> bool:
     unmatched = unmatched_signals(config.signals, status_matched)
     if unmatched:
         return True
-    contract_tabs, _ = filter_contract_tabs(telemetry_contract.TABS, config.signals)
+    contract_tabs, _ = filter_contract_tabs(
+        telemetry_contract.TABS, config.signals
+    )
     return bool(contract_tabs)
 
 
@@ -488,7 +513,9 @@ def _plots_path(plotted: str, path: str) -> bool:
     return path == plotted
 
 
-def telemetry_selection(config: PlotConfig | None) -> Callable[[str], bool] | None:
+def telemetry_selection(
+    config: PlotConfig | None,
+) -> Callable[[str], bool] | None:
     """The telemetry groups the bridge records under `config`: those its plots draw.
 
     These are the groups of the contract panels the configuration shows (filter_contract_tabs()), and those its
@@ -503,7 +530,9 @@ def telemetry_selection(config: PlotConfig | None) -> Callable[[str], bool] | No
     """
     if config is None or config.record_unplotted_telemetry:
         return None
-    tabs, matched = filter_contract_tabs(telemetry_contract.TABS, config.signals)
+    tabs, matched = filter_contract_tabs(
+        telemetry_contract.TABS, config.signals
+    )
     plotted_paths: set[str] = set()
     for tab in tabs:
         for panel in tab.panels():
@@ -512,8 +541,12 @@ def telemetry_selection(config: PlotConfig | None) -> Callable[[str], bool] | No
     _, status_matched = filter_status_series(config.signals)
     custom = tuple(
         signal
-        for signal in unmatched_signals(config.signals, matched | status_matched)
-        if not signal.strip().lstrip("/").startswith(f"{scene_contract.STATUS_ROOT}/")
+        for signal in unmatched_signals(
+            config.signals, matched | status_matched
+        )
+        if not signal.strip()
+        .lstrip("/")
+        .startswith(f"{scene_contract.STATUS_ROOT}/")
     )
 
     def records(path: str) -> bool:

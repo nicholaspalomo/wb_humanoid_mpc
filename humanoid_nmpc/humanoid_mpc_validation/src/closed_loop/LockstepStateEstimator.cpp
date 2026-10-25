@@ -39,28 +39,36 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::validation {
 
 // LINT.IfChange(robot_process_state_estimator)
-estimation::StateEstimatorContext robotProcessStateEstimatorContext(const RobotProcessSettings& settings,
-                                                                    const ModelSettings& modelSettings,
-                                                                    const std::string& urdfFile,
-                                                                    const robot::model::RobotDescription* absl_nonnull description) {
-  return estimation::StateEstimatorContext{.urdfFile = urdfFile,
-                                           .contactFrameNames = modelSettings.contactNames,
-                                           .contactParentJointNames = modelSettings.contactParentJointNames,
-                                           .description = description,
-                                           .kalman = settings.kalmanStateEstimator};
+estimation::StateEstimatorContext robotProcessStateEstimatorContext(
+    const RobotProcessSettings& settings,
+    const ModelSettings& modelSettings,
+    const std::string& urdfFile,
+    const robot::model::RobotDescription* absl_nonnull description) {
+  return estimation::StateEstimatorContext{
+      .urdfFile = urdfFile,
+      .contactFrameNames = modelSettings.contactNames,
+      .contactParentJointNames = modelSettings.contactParentJointNames,
+      .description = description,
+      .kalman = settings.kalmanStateEstimator};
 }
 
-absl::StatusOr<std::unique_ptr<estimation::StateEstimator>> createRobotProcessStateEstimator(
+absl::StatusOr<std::unique_ptr<estimation::StateEstimator>>
+createRobotProcessStateEstimator(
     const RobotProcessSettings& settings,
     const ModelSettings& modelSettings,
     const std::string& urdfFile,
     absl::string_view taskFile,
     const robot::model::RobotDescription* absl_nonnull description) {
-  absl::StatusOr<std::unique_ptr<estimation::StateEstimator>> estimator = estimation::StateEstimatorRegistry().create(
-      settings.stateEstimator, robotProcessStateEstimatorContext(settings, modelSettings, urdfFile, description));
+  absl::StatusOr<std::unique_ptr<estimation::StateEstimator>> estimator =
+      estimation::StateEstimatorRegistry().create(
+          settings.stateEstimator,
+          robotProcessStateEstimatorContext(settings, modelSettings, urdfFile,
+                                            description));
   if (!estimator.ok()) {
-    return absl::Status(estimator.status().code(),
-                        absl::StrCat(taskFile.empty() ? "the task file" : taskFile, ": state_estimator: ", estimator.status().message()));
+    return absl::Status(
+        estimator.status().code(),
+        absl::StrCat(taskFile.empty() ? "the task file" : taskFile,
+                     ": state_estimator: ", estimator.status().message()));
   }
   return estimator;
 }

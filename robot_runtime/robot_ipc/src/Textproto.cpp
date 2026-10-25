@@ -42,33 +42,46 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::ipc {
 namespace {
 
-// The protobuf tokenizer counts lines and columns from 0; editors and compilers count them from 1.
+// The protobuf tokenizer counts lines and columns from 0; editors and compilers
+// count them from 1.
 constexpr int kFirstLine = 1;
 constexpr int kFirstColumn = 1;
 
-// Collects the parser's errors as "<source>:<line>:<column>: <problem>" instead of letting it log them.
-class TextprotoErrorCollector final : public google::protobuf::io::ErrorCollector {
+// Collects the parser's errors as "<source>:<line>:<column>: <problem>" instead
+// of letting it log them.
+class TextprotoErrorCollector final
+    : public google::protobuf::io::ErrorCollector {
  public:
-  explicit TextprotoErrorCollector(absl::string_view source) : source_(source) {}
+  explicit TextprotoErrorCollector(absl::string_view source)
+      : source_(source) {}
 
-  void RecordError(int line, google::protobuf::io::ColumnNumber column, absl::string_view message) override {
+  void RecordError(int line,
+                   google::protobuf::io::ColumnNumber column,
+                   absl::string_view message) override {
     record(line, column, message);
   }
 
-  // Strict: whatever the parser would only warn about is an error of the file too.
-  void RecordWarning(int line, google::protobuf::io::ColumnNumber column, absl::string_view message) override {
+  // Strict: whatever the parser would only warn about is an error of the file
+  // too.
+  void RecordWarning(int line,
+                     google::protobuf::io::ColumnNumber column,
+                     absl::string_view message) override {
     record(line, column, message);
   }
 
   const std::vector<std::string>& errors() const { return errors_; }
 
  private:
-  void record(int line, google::protobuf::io::ColumnNumber column, absl::string_view message) {
-    // A problem of the whole message (such as a missing proto2 required field) has no position.
+  void record(int line,
+              google::protobuf::io::ColumnNumber column,
+              absl::string_view message) {
+    // A problem of the whole message (such as a missing proto2 required field)
+    // has no position.
     if (line < 0) {
       errors_.push_back(absl::StrCat(source_, ": ", message));
     } else {
-      errors_.push_back(absl::StrCat(source_, ":", line + kFirstLine, ":", column + kFirstColumn, ": ", message));
+      errors_.push_back(absl::StrCat(source_, ":", line + kFirstLine, ":",
+                                     column + kFirstColumn, ": ", message));
     }
   }
 
@@ -78,11 +91,14 @@ class TextprotoErrorCollector final : public google::protobuf::io::ErrorCollecto
 
 }  // namespace
 
-absl::Status parseTextproto(absl::string_view text, absl::string_view source, google::protobuf::Message& message) {
+absl::Status parseTextproto(absl::string_view text,
+                            absl::string_view source,
+                            google::protobuf::Message& message) {
   TextprotoErrorCollector errors(source);
   google::protobuf::TextFormat::Parser parser;
   parser.RecordErrorsTo(&errors);
-  // The defaults already are the strict ones; set them anyway, so that the strictness does not hang on a default.
+  // The defaults already are the strict ones; set them anyway, so that the
+  // strictness does not hang on a default.
   parser.AllowUnknownField(/*allow=*/false);
   parser.AllowPartialMessage(/*allow=*/false);
   const bool parsed = parser.ParseFromString(text, &message);
@@ -90,12 +106,15 @@ absl::Status parseTextproto(absl::string_view text, absl::string_view source, go
     return absl::InvalidArgumentError(absl::StrJoin(errors.errors(), "\n"));
   }
   if (!parsed) {
-    return absl::InvalidArgumentError(absl::StrCat(source, ": not a valid textproto of ", message.GetDescriptor()->full_name()));
+    return absl::InvalidArgumentError(
+        absl::StrCat(source, ": not a valid textproto of ",
+                     message.GetDescriptor()->full_name()));
   }
   return absl::OkStatus();
 }
 
-absl::Status loadTextproto(const std::string& path, google::protobuf::Message& message) {
+absl::Status loadTextproto(const std::string& path,
+                           google::protobuf::Message& message) {
   std::ifstream file(path);
   if (!file) {
     return absl::NotFoundError(absl::StrCat("cannot open '", path, "'"));

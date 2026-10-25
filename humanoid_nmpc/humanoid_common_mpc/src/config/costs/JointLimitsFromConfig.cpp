@@ -39,11 +39,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-absl::StatusOr<PieceWisePolynomialBarrierPenalty::Config> jointLimitsBarrierFromConfig(const mpc_config::JointLimitsConfig& jointLimits) {
-  // A non-positive mu rewards a violation, and the polynomial barrier is discontinuous for a non-positive delta.
+absl::StatusOr<PieceWisePolynomialBarrierPenalty::Config>
+jointLimitsBarrierFromConfig(const mpc_config::JointLimitsConfig& jointLimits) {
+  // A non-positive mu rewards a violation, and the polynomial barrier is
+  // discontinuous for a non-positive delta.
   RETURN_IF_ERROR(requirePositive("joint_limits.mu", jointLimits.mu));
   RETURN_IF_ERROR(requirePositive("joint_limits.delta", jointLimits.delta));
-  return PieceWisePolynomialBarrierPenalty::Config(jointLimits.mu, jointLimits.delta);
+  return PieceWisePolynomialBarrierPenalty::Config(jointLimits.mu,
+                                                   jointLimits.delta);
 }
 
 }  // namespace ocs2::humanoid

@@ -45,24 +45,30 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::validation {
 
 /**
- * Returns the context the robot process builds its state estimator from (RobotProcess::Create()): the URDF
- * `urdfFile`, the MPC's contact frames and their parent joints of `modelSettings` (as the robot binaries hand them to
- * the backend options), the robot `description`, which is retained in the result and must outlive every estimator
- * built from it, and the `kalman` noise model of `settings`.
+ * Returns the context the robot process builds its state estimator from
+ * (RobotProcess::Create()): the URDF `urdfFile`, the MPC's contact frames and
+ * their parent joints of `modelSettings` (as the robot binaries hand them to
+ * the backend options), the robot `description`, which is retained in the
+ * result and must outlive every estimator built from it, and the `kalman` noise
+ * model of `settings`.
  */
-estimation::StateEstimatorContext robotProcessStateEstimatorContext(const RobotProcessSettings& settings,
-                                                                    const ModelSettings& modelSettings,
-                                                                    const std::string& urdfFile,
-                                                                    const robot::model::RobotDescription* absl_nonnull description);
+estimation::StateEstimatorContext robotProcessStateEstimatorContext(
+    const RobotProcessSettings& settings,
+    const ModelSettings& modelSettings,
+    const std::string& urdfFile,
+    const robot::model::RobotDescription* absl_nonnull description);
 
 /**
- * Builds the state estimator the task file's `state_estimator` names (settings.stateEstimator) with
- * robotProcessStateEstimatorContext(), as RobotProcess::Create() builds it: `ground_truth` hands the measured state on
- * itself, `kalman` estimates the base's position and linear velocity. An unknown name or an estimator that cannot be
- * built is the registry's error, prefixed with "<taskFile>: state_estimator: " as the robot process reports it.
- * `description` must outlive the estimator.
+ * Builds the state estimator the task file's `state_estimator` names
+ * (settings.stateEstimator) with robotProcessStateEstimatorContext(), as
+ * RobotProcess::Create() builds it: `ground_truth` hands the measured state on
+ * itself, `kalman` estimates the base's position and linear velocity. An
+ * unknown name or an estimator that cannot be built is the registry's error,
+ * prefixed with "<taskFile>: state_estimator: " as the robot process reports
+ * it. `description` must outlive the estimator.
  */
-absl::StatusOr<std::unique_ptr<estimation::StateEstimator>> createRobotProcessStateEstimator(
+absl::StatusOr<std::unique_ptr<estimation::StateEstimator>>
+createRobotProcessStateEstimator(
     const RobotProcessSettings& settings,
     const ModelSettings& modelSettings,
     const std::string& urdfFile,

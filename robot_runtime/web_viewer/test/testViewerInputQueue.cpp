@@ -39,7 +39,11 @@ namespace robot::web_viewer {
 namespace {
 
 ViewerInput drag(ViewerMouseButton button, bool shift, double dx, double dy) {
-  return ViewerInput{.type = ViewerInputType::kDrag, .button = button, .shift = shift, .dx = dx, .dy = dy};
+  return ViewerInput{.type = ViewerInputType::kDrag,
+                     .button = button,
+                     .shift = shift,
+                     .dx = dx,
+                     .dy = dy};
 }
 
 ViewerInput key(char character) {
@@ -48,12 +52,17 @@ ViewerInput key(char character) {
 
 TEST(ViewerInputQueueTest, MergesConsecutiveDragsWithTheSameButtonAndShift) {
   ViewerInputQueue queue;
-  queue.push(drag(ViewerMouseButton::kLeft, /*shift=*/false, /*dx=*/0.1, /*dy=*/0.2));
-  queue.push(drag(ViewerMouseButton::kLeft, /*shift=*/false, /*dx=*/0.3, /*dy=*/-0.1));
-  queue.push(drag(ViewerMouseButton::kLeft, /*shift=*/true, /*dx=*/0.5, /*dy=*/0.0));
-  queue.push(drag(ViewerMouseButton::kRight, /*shift=*/true, /*dx=*/0.5, /*dy=*/0.0));
+  queue.push(
+      drag(ViewerMouseButton::kLeft, /*shift=*/false, /*dx=*/0.1, /*dy=*/0.2));
+  queue.push(
+      drag(ViewerMouseButton::kLeft, /*shift=*/false, /*dx=*/0.3, /*dy=*/-0.1));
+  queue.push(
+      drag(ViewerMouseButton::kLeft, /*shift=*/true, /*dx=*/0.5, /*dy=*/0.0));
+  queue.push(
+      drag(ViewerMouseButton::kRight, /*shift=*/true, /*dx=*/0.5, /*dy=*/0.0));
   queue.push(key('k'));
-  queue.push(drag(ViewerMouseButton::kRight, /*shift=*/true, /*dx=*/0.25, /*dy=*/0.0));
+  queue.push(
+      drag(ViewerMouseButton::kRight, /*shift=*/true, /*dx=*/0.25, /*dy=*/0.0));
   const std::vector<ViewerInput> drained = queue.drain();
   ASSERT_EQ(drained.size(), 5U);
   EXPECT_DOUBLE_EQ(drained[0].dx, 0.4);
@@ -65,12 +74,17 @@ TEST(ViewerInputQueueTest, MergesConsecutiveDragsWithTheSameButtonAndShift) {
   EXPECT_DOUBLE_EQ(drained[4].dx, 0.25);
 }
 
-// The old merge clamped the sum to [-2, 2] and lost 5.5 of these 7.5 fractions: a fast swipe, which the page sends in
-// pieces of at most 2 (page/index.html), turned the camera by less than the swipe.
-TEST(ViewerInputQueueTest, AMergedDragKeepsTheRangeOfOneDragWithoutLosingMotion) {
+// The old merge clamped the sum to [-2, 2] and lost 5.5 of these 7.5 fractions:
+// a fast swipe, which the page sends in pieces of at most 2 (page/index.html),
+// turned the camera by less than the swipe.
+TEST(ViewerInputQueueTest,
+     AMergedDragKeepsTheRangeOfOneDragWithoutLosingMotion) {
   ViewerInputQueue queue;
-  for (int index = 0; index < 5; ++index) queue.push(drag(ViewerMouseButton::kMiddle, /*shift=*/false, /*dx=*/-1.5, /*dy=*/1.5));
-  queue.push(drag(ViewerMouseButton::kMiddle, /*shift=*/false, /*dx=*/0.25, /*dy=*/0.25));
+  for (int index = 0; index < 5; ++index)
+    queue.push(drag(ViewerMouseButton::kMiddle, /*shift=*/false, /*dx=*/-1.5,
+                    /*dy=*/1.5));
+  queue.push(drag(ViewerMouseButton::kMiddle, /*shift=*/false, /*dx=*/0.25,
+                  /*dy=*/0.25));
   const std::vector<ViewerInput> drained = queue.drain();
   double dx = 0.0;
   double dy = 0.0;
@@ -89,7 +103,8 @@ TEST(ViewerInputQueueTest, AMergedDragKeepsTheRangeOfOneDragWithoutLosingMotion)
 TEST(ViewerInputQueueTest, DropsTheOldestEventWhenFull) {
   ViewerInputQueue queue;
   constexpr int kPushed = ViewerInputQueue::kCapacity + 44;
-  for (int index = 0; index < kPushed; ++index) queue.push(key(static_cast<char>('a' + index % 26)));
+  for (int index = 0; index < kPushed; ++index)
+    queue.push(key(static_cast<char>('a' + index % 26)));
   EXPECT_EQ(queue.size(), ViewerInputQueue::kCapacity);
   EXPECT_EQ(queue.droppedCount(), 44);
   const std::vector<ViewerInput> drained = queue.drain();

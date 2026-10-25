@@ -42,31 +42,39 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** The generator of the arm-swing reference, selected by name (armSwingGeneratorFromName()). */
+/** The generator of the arm-swing reference, selected by name
+ * (armSwingGeneratorFromName()). */
 enum class ArmSwingGenerator {
   /** The arms hold the target's posture. */
   kNone,
-  /** The arms swing against the legs at the gait's cadence (SwitchedModelReferenceManager::getDesiredState()). */
+  /** The arms swing against the legs at the gait's cadence
+     (SwitchedModelReferenceManager::getDesiredState()). */
   kProcedural,
 };
 
-/** The names of the generators, in the registry's order: "procedural", "none". */
+/** The names of the generators, in the registry's order: "procedural", "none".
+ */
 std::vector<std::string> armSwingGeneratorNames();
 
-/** The generator named `name`; InvalidArgument listing the valid names otherwise. */
-absl::StatusOr<ArmSwingGenerator> armSwingGeneratorFromName(absl::string_view name);
+/** The generator named `name`; InvalidArgument listing the valid names
+ * otherwise. */
+absl::StatusOr<ArmSwingGenerator> armSwingGeneratorFromName(
+    absl::string_view name);
 
 /**
- * The tuning of the procedural arm swing (the task file's arm_swing block). Passive data; the defaults are the swing
- * the reference manager has always generated.
+ * The tuning of the procedural arm swing (the task file's arm_swing block).
+ * Passive data; the defaults are the swing the reference manager has always
+ * generated.
  *
- * At gait phase phi and commanded forward speed v (in the reference's heading), the left arm swings forward by
- * s = sin(2 pi (phi - phaseOffset)) v and the right arm by -s: the left shoulder turns by shoulderGain s in the
- * direction that swings it forward, the left elbow by elbowGain s in the direction that flexes it (ArmSwingDirections),
- * and the right ones by the same with -s.
+ * At gait phase phi and commanded forward speed v (in the reference's heading),
+ * the left arm swings forward by s = sin(2 pi (phi - phaseOffset)) v and the
+ * right arm by -s: the left shoulder turns by shoulderGain s in the direction
+ * that swings it forward, the left elbow by elbowGain s in the direction that
+ * flexes it (ArmSwingDirections), and the right ones by the same with -s.
  */
 struct ArmSwingSettings {
-  /** The default gains [rad s/m] and phase offset [gait cycles] of the arm_swing block. */
+  /** The default gains [rad s/m] and phase offset [gait cycles] of the
+   * arm_swing block. */
   static constexpr scalar_t kDefaultGain = 0.15;
   static constexpr scalar_t kDefaultPhaseOffset = 0.15;
 
@@ -76,14 +84,18 @@ struct ArmSwingSettings {
   scalar_t phaseOffset = kDefaultPhaseOffset;  // [gait cycles], finite
 };
 
-/** The arm_swing block as ArmSwingSettings: a known generator, finite gains that are not negative, a finite phase. */
-absl::StatusOr<ArmSwingSettings> armSwingSettingsFromConfig(const mpc_config::ArmSwingConfig& config);
+/** The arm_swing block as ArmSwingSettings: a known generator, finite gains
+ * that are not negative, a finite phase. */
+absl::StatusOr<ArmSwingSettings> armSwingSettingsFromConfig(
+    const mpc_config::ArmSwingConfig& config);
 
 /**
- * Which way each driven arm joint turns: +1 when a positive joint rate swings the arm forward (a shoulder) or flexes
- * the elbow (an elbow), -1 when a negative one does. Passive data. The defaults are the convention of a shoulder
- * pitch and an elbow whose positive rotation is about the robot's +y axis, which swings a hanging arm backward and
- * extends an elbow; they are the signs the reference manager used for every robot before they were derived.
+ * Which way each driven arm joint turns: +1 when a positive joint rate swings
+ * the arm forward (a shoulder) or flexes the elbow (an elbow), -1 when a
+ * negative one does. Passive data. The defaults are the convention of a
+ * shoulder pitch and an elbow whose positive rotation is about the robot's +y
+ * axis, which swings a hanging arm backward and extends an elbow; they are the
+ * signs the reference manager used for every robot before they were derived.
  */
 struct ArmSwingDirections {
   scalar_t leftShoulder = -1.0;
@@ -93,16 +105,21 @@ struct ArmSwingDirections {
 };
 
 /**
- * Derives the ArmSwingDirections of the joints model_settings.arm_joint_names names from the robot model at
- * `nominalState`, the nominal standing posture: a shoulder's sign is that of the forward (base x) velocity of the
- * center of mass of everything it carries, per unit of its joint rate; an elbow's is that of the rate at which its
- * joint closes the angle between the upper arm (elbow to shoulder joint) and the center of mass of everything the
- * elbow carries. FailedPrecondition when the model has no arm-swing joints, and InvalidArgument when a named joint
- * hardly swings its arm forward (under a tenth of its lever) or its axis hardly lies across the arm's plane, because
- * that joint is not one an arm swing can be built on. `pinocchioInterface` is used for scratch forward kinematics.
+ * Derives the ArmSwingDirections of the joints model_settings.arm_joint_names
+ * names from the robot model at `nominalState`, the nominal standing posture: a
+ * shoulder's sign is that of the forward (base x) velocity of the center of
+ * mass of everything it carries, per unit of its joint rate; an elbow's is that
+ * of the rate at which its joint closes the angle between the upper arm (elbow
+ * to shoulder joint) and the center of mass of everything the elbow carries.
+ * FailedPrecondition when the model has no arm-swing joints, and
+ * InvalidArgument when a named joint hardly swings its arm forward (under a
+ * tenth of its lever) or its axis hardly lies across the arm's plane, because
+ * that joint is not one an arm swing can be built on. `pinocchioInterface` is
+ * used for scratch forward kinematics.
  */
-absl::StatusOr<ArmSwingDirections> deriveArmSwingDirections(PinocchioInterface& pinocchioInterface,
-                                                            const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                                            const vector_t& nominalState);
+absl::StatusOr<ArmSwingDirections> deriveArmSwingDirections(
+    PinocchioInterface& pinocchioInterface,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    const vector_t& nominalState);
 
 }  // namespace ocs2::humanoid

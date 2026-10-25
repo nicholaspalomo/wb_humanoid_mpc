@@ -103,7 +103,9 @@ def resolve_input_path(path: str) -> str:
     if os.path.isabs(path):
         return path
     candidates = [
-        os.path.join(os.environ.get("BUILD_WORKING_DIRECTORY", os.getcwd()), path)
+        os.path.join(
+            os.environ.get("BUILD_WORKING_DIRECTORY", os.getcwd()), path
+        )
     ]
     workspace = os.environ.get("BUILD_WORKSPACE_DIRECTORY")
     if workspace:
@@ -152,7 +154,8 @@ class BusListener:
         """
         self.topic = topic
         self.endpoints = [
-            f"DDS domain {network.domain_id} (peers {', '.join(network.peer_hosts())})"
+            f"DDS domain {network.domain_id} (peers"
+            f" {', '.join(network.peer_hosts())})"
         ]
         self._messages: "queue.Queue[BusMessage]" = queue.Queue()
         self._bus = robot_ipc.Bus("", network)
@@ -160,7 +163,9 @@ class BusListener:
             if topic is None:
                 self._bus.subscribe_all_topics(self._on_any_topic)
             else:
-                self._bus.subscribe_raw(topic, self._on_topic, robot_ipc.Delivery.ALL)
+                self._bus.subscribe_raw(
+                    topic, self._on_topic, robot_ipc.Delivery.ALL
+                )
             self._bus.start()
         except BaseException:
             self._bus.close()
@@ -170,13 +175,16 @@ class BusListener:
         self._on_any_topic(self.topic or "", type_name, payload)
 
     def _on_any_topic(self, topic: str, type_name: str, payload: bytes) -> None:
-        self._messages.put(BusMessage(topic, type_name, payload, time.monotonic()))
+        self._messages.put(
+            BusMessage(topic, type_name, payload, time.monotonic())
+        )
 
     @property
     def malformed_messages(self) -> int:
         """The samples the bus dropped as not being a message of its wire protocol and layout."""
         return sum(
-            statistics.rejected for statistics in self._bus.statistics().values()
+            statistics.rejected
+            for statistics in self._bus.statistics().values()
         )
 
     def receive(self, timeout_s: float) -> BusMessage | None:

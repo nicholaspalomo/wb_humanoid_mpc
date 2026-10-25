@@ -119,7 +119,9 @@ class KeyboardCommand:
         self.min_pelvis_height = min_pelvis_height
         self.max_pelvis_height = max_pelvis_height
         self.pelvis_height_step = pelvis_height_step
-        self.pelvis_height = clamp(pelvis_height, min_pelvis_height, max_pelvis_height)
+        self.pelvis_height = clamp(
+            pelvis_height, min_pelvis_height, max_pelvis_height
+        )
         self.x_vel = 0.0
         self.y_vel = 0.0
         self.yaw_vel = 0.0
@@ -165,8 +167,9 @@ class KeyboardCommand:
 
     def status_line(self) -> str:
         return (
-            f"Command: x={self.x_vel:+.2f}, y={self.y_vel:+.2f}, yaw={self.yaw_vel:+.2f}, "
-            f"pelvis height={self.pelvis_height:.2f} m"
+            f"Command: x={self.x_vel:+.2f}, y={self.y_vel:+.2f},"
+            f" yaw={self.yaw_vel:+.2f}, pelvis"
+            f" height={self.pelvis_height:.2f} m"
         )
 
 
@@ -184,7 +187,9 @@ class TerminalInput:
 
     def __exit__(self, *exc_info: object) -> None:
         if self._saved_attributes is not None:
-            termios.tcsetattr(self._fd, termios.TCSADRAIN, self._saved_attributes)
+            termios.tcsetattr(
+                self._fd, termios.TCSADRAIN, self._saved_attributes
+            )
             self._saved_attributes = None
 
     def read_char(self) -> str | None:
@@ -236,7 +241,10 @@ class KeyboardWalkingCommandPublisher:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Publishes walking commands from the keyboard of this terminal on the IPC bus."
+        description=(
+            "Publishes walking commands from the keyboard of this terminal on"
+            " the IPC bus."
+        )
     )
     teleop.add_bus_flags(parser, default_node=operator_bus.TELEOP_NODE)
     teleop.add_reference_file_flag(parser)
@@ -247,7 +255,8 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if not sys.stdin.isatty():
         print(
-            "keyboard_velocity_publisher reads the keyboard of a terminal; stdin is not one.",
+            "keyboard_velocity_publisher reads the keyboard of a terminal;"
+            " stdin is not one.",
             file=sys.stderr,
         )
         return 2
@@ -264,7 +273,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         with TerminalInput() as terminal:
             node = KeyboardWalkingCommandPublisher(
-                publisher, terminal.read_char, terminal.discard_pending, state=state
+                publisher,
+                terminal.read_char,
+                terminal.discard_pending,
+                state=state,
             )
             teleop.publish_until_stopped(
                 publisher, node.tick, stop, lambda: state.pelvis_height

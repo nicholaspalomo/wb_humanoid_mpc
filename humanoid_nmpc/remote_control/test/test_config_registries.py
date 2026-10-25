@@ -63,7 +63,10 @@ ROBOT_FILE_SCHEMAS = (
         os.path.join("mpc", "contact_planning.textproto"),
         contact_planning_file_pb2.ContactPlanningFile,
     ),
-    (os.path.join("command", "reference.textproto"), reference_file_pb2.ReferenceFile),
+    (
+        os.path.join("command", "reference.textproto"),
+        reference_file_pb2.ReferenceFile,
+    ),
     (
         os.path.join("controller", "joint_pd_gains.textproto"),
         joint_pd_gains_file_pb2.JointPdGainsFile,
@@ -84,7 +87,9 @@ def _shipped_files() -> list[tuned_file.TunedFile]:
         for relative, message_class in ROBOT_FILE_SCHEMAS:
             path = os.path.join(config, relative)
             if os.path.exists(path):
-                files.append(tuned_file.TunedFile(path, message_class, _registries()))
+                files.append(
+                    tuned_file.TunedFile(path, message_class, _registries())
+                )
     return files
 
 
@@ -100,7 +105,9 @@ class TestTheFileNamesTheSchemasRegistries(unittest.TestCase):
         for message_class in FILE_SCHEMAS:
             fields = config_schema.schema_fields(message_class.DESCRIPTOR)
             named.update(
-                field.tuning.registry for field in fields if field.tuning.registry
+                field.tuning.registry
+                for field in fields
+                if field.tuning.registry
             )
         self.assertTrue(named)
         self.assertEqual(set(_registries()), named)
@@ -115,7 +122,9 @@ class TestTheFileNamesTheSchemasRegistries(unittest.TestCase):
                     continue
                 with self.subTest(file=file.path, path=spec.path):
                     values = (
-                        spec.value if isinstance(spec.value, tuple) else (spec.value,)
+                        spec.value
+                        if isinstance(spec.value, tuple)
+                        else (spec.value,)
                     )
                     for value in values:
                         if not value:
@@ -132,11 +141,15 @@ class TestARegistryStringIsADropDown(unittest.TestCase):
                     continue
                 with self.subTest(file=file.path, path=spec.path):
                     self.assertIn(spec.kind, REGISTRY_KINDS)
-                    self.assertEqual(spec.choices, registries[spec.tuning.registry])
+                    self.assertEqual(
+                        spec.choices, registries[spec.tuning.registry]
+                    )
 
     def test_the_contact_estimator_is_a_choice_of_every_estimator(self):
         task = tuned_file.TunedFile(
-            operator_test_support.ATLAS_TASK_FILE, task_file_pb2.TaskFile, _registries()
+            operator_test_support.ATLAS_TASK_FILE,
+            task_file_pb2.TaskFile,
+            _registries(),
         )
         spec = task.spec("contact_estimator")
         self.assertEqual(spec.kind, config_schema.Kind.CHOICE)
@@ -145,7 +158,9 @@ class TestARegistryStringIsADropDown(unittest.TestCase):
 
     def test_without_the_file_there_are_no_choices_and_nothing_fails(self):
         self.assertEqual(
-            config_files.load_registries(os.path.join("no", "such", "file.textproto")),
+            config_files.load_registries(
+                os.path.join("no", "such", "file.textproto")
+            ),
             {},
         )
         task = tuned_file.TunedFile(

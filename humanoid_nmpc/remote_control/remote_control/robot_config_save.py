@@ -99,7 +99,9 @@ class FileKind:
 # LINT.IfChange(file_kinds)
 FILE_KINDS: tuple[FileKind, ...] = (
     FileKind(KIND_TASK, task_file_pb2.TaskFile, "task file"),
-    FileKind(KIND_REFERENCE, reference_file_pb2.ReferenceFile, "reference file"),
+    FileKind(
+        KIND_REFERENCE, reference_file_pb2.ReferenceFile, "reference file"
+    ),
     FileKind(
         KIND_JOINT_PD_GAINS,
         joint_pd_gains_file_pb2.JointPdGainsFile,
@@ -127,7 +129,9 @@ def file_kind_of_message(full_name: str) -> FileKind | None:
 
 def schema_fingerprint(kind: int) -> str:
     """The fingerprint of the schema of the files of `kind` in this build, which the robot compares with its own."""
-    return nproto_schema.schema_fingerprint(file_kind(kind).message_class.DESCRIPTOR)
+    return nproto_schema.schema_fingerprint(
+        file_kind(kind).message_class.DESCRIPTOR
+    )
 
 
 def config_path_of(path: str) -> str:
@@ -174,12 +178,17 @@ def robot_name_of(kind: int, path: str) -> str:
     Raises:
       RobotNameError: The task file cannot be read or does not parse; the message names it.
     """
-    task_file = path if kind == KIND_TASK else config_files.task_file_beside(path)
+    task_file = (
+        path if kind == KIND_TASK else config_files.task_file_beside(path)
+    )
     try:
-        task = nproto_textproto.load_textproto(task_file, task_file_pb2.TaskFile)
+        task = nproto_textproto.load_textproto(
+            task_file, task_file_pb2.TaskFile
+        )
     except (OSError, nproto_textproto.TextprotoError) as error:
         raise RobotNameError(
-            f"the robot of {path} is named by its task file {task_file}, which cannot be read: {error}"
+            f"the robot of {path} is named by its task file {task_file}, which"
+            f" cannot be read: {error}"
         ) from error
     return str(task.model_settings.robot_name)
 
@@ -214,12 +223,22 @@ class SaveState(enum.Enum):
 
     SAVING = "saving"  # sent; no answer yet
     SAVED = "saved"  # the robot stored it
-    UNCHANGED = "unchanged"  # the robot's copy is the same text: nothing written
-    NOT_STORED = "not_stored"  # the robot has no store: it reads a file in place, the laptop's or its own
-    REFUSED = "refused"  # the robot refused it: the file, the robot or the schema is not the robot's
+    UNCHANGED = (  # the robot's copy is the same text: nothing written
+        "unchanged"
+    )
+    NOT_STORED = (  # the robot has no store: it reads a file in place, the laptop's or its own
+        "not_stored"
+    )
+    REFUSED = (  # the robot refused it: the file, the robot or the schema is not the robot's
+        "refused"
+    )
     FAILED = "failed"  # the robot could not write it
-    TIMED_OUT = "timed_out"  # no answer within the timeout: the robot's copy is unknown
-    NOT_SENT = "not_sent"  # never sent: the bus dropped it, or the GUI has no bus
+    TIMED_OUT = (  # no answer within the timeout: the robot's copy is unknown
+        "timed_out"
+    )
+    NOT_SENT = (  # never sent: the bus dropped it, or the GUI has no bus
+        "not_sent"
+    )
 
 
 # The robot's results, as states; a result this build does not know is FAILED.
@@ -291,7 +310,9 @@ def not_sent(kind: int, path: str, reason: str) -> SaveOutcome:
     )
 
 
-def describe(outcome: SaveOutcome, timeout: float = SAVE_TIMEOUT_SECONDS) -> str:
+def describe(
+    outcome: SaveOutcome, timeout: float = SAVE_TIMEOUT_SECONDS
+) -> str:
     """The status line of a tab after its Save: the laptop's copy, saved, and the robot's.
 
     Args:
@@ -308,20 +329,30 @@ def describe(outcome: SaveOutcome, timeout: float = SAVE_TIMEOUT_SECONDS) -> str
     if state == SaveState.SAVED:
         return f"{laptop} and on the robot ({outcome.stored_path})"
     if state == SaveState.UNCHANGED:
-        return f"{laptop} and on the robot ({outcome.stored_path}) … robot unchanged: its copy was the same"
+        return (
+            f"{laptop} and on the robot ({outcome.stored_path}) … robot"
+            " unchanged: its copy was the same"
+        )
     if state == SaveState.NOT_STORED:
         if outcome.reads_laptop_file:
-            return f"{laptop} · the robot has no store and reads this file ({outcome.stored_path})"
+            return (
+                f"{laptop} · the robot has no store and reads this file"
+                f" ({outcome.stored_path})"
+            )
         read = outcome.stored_path or "its own copy"
-        return f"{laptop} · the robot has no store: it reads {read} in place; this Save did not change it"
+        return (
+            f"{laptop} · the robot has no store: it reads {read} in place; this"
+            " Save did not change it"
+        )
     if state == SaveState.REFUSED:
         return f"{laptop} · the robot refused it: {outcome.message}"
     if state == SaveState.FAILED:
         return f"{laptop} · the robot could not store it: {outcome.message}"
     if state == SaveState.TIMED_OUT:
         return (
-            f"{laptop} · the robot did not answer in {timeout:g} s: the robot's copy is unknown; "
-            "Save again to retry (a repeat answers unchanged)"
+            f"{laptop} · the robot did not answer in {timeout:g} s: the robot's"
+            " copy is unknown; Save again to retry (a repeat answers"
+            " unchanged)"
         )
     if state == SaveState.NOT_SENT:
         return f"{laptop} · not sent to the robot: {outcome.message}"
@@ -498,8 +529,14 @@ def _answered(outcome: SaveOutcome, status: Any) -> SaveOutcome:
     """`outcome` as the robot's ConfigFileSaveStatus `status` answers it."""
     state = _STATES_OF_RESULTS.get(int(status.result), SaveState.FAILED)
     message = str(status.message)
-    if state == SaveState.FAILED and int(status.result) not in _STATES_OF_RESULTS:
-        message = f"the robot answered with result {int(status.result)}, which this GUI does not know: {message}"
+    if (
+        state == SaveState.FAILED
+        and int(status.result) not in _STATES_OF_RESULTS
+    ):
+        message = (
+            f"the robot answered with result {int(status.result)}, which this"
+            f" GUI does not know: {message}"
+        )
     stored_path = str(status.stored_path)
     return dataclasses.replace(
         outcome,
@@ -531,7 +568,9 @@ class SaveTracker:
     @property
     def timeout(self) -> float:
         """How long a save waits for its answer [s]."""
-        return SAVE_TIMEOUT_SECONDS if self._saver is None else self._saver.timeout
+        return (
+            SAVE_TIMEOUT_SECONDS if self._saver is None else self._saver.timeout
+        )
 
     def send(self, kind: int, path: str, text: str) -> SaveOutcome:
         """Sends the saved file `path` with the content `text` to the robot, for the robot its configuration names.
@@ -546,7 +585,9 @@ class SaveTracker:
         """
         self._sequence = None
         if self._saver is None:
-            self._shown = not_sent(kind, path, "the GUI is not connected to the bus")
+            self._shown = not_sent(
+                kind, path, "the GUI is not connected to the bus"
+            )
             return self._shown
         try:
             robot_name = robot_name_of(kind, path)
@@ -557,7 +598,8 @@ class SaveTracker:
         outcome = self._saver.outcome(self._sequence)
         if outcome is None:
             raise RuntimeError(
-                f"the saver does not remember the save {self._sequence} it just sent"
+                f"the saver does not remember the save {self._sequence} it just"
+                " sent"
             )
         self._shown = outcome
         return outcome

@@ -36,15 +36,18 @@ namespace ocs2::humanoid {
 namespace {
 
 bool isLowercaseLetterDigitOrUnderscore(char character) {
-  return (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') || character == '_';
+  return (character >= 'a' && character <= 'z') ||
+         (character >= '0' && character <= '9') || character == '_';
 }
 
 TEST(StateLayout, LayoutTagIsOneVersionedFolderName) {
-  // The tag is appended to the CppAD library folder as one path component: no separator, no dot, no upper case that a
-  // case-insensitive file system would fold.
+  // The tag is appended to the CppAD library folder as one path component: no
+  // separator, no dot, no upper case that a case-insensitive file system would
+  // fold.
   ASSERT_FALSE(kStateLayoutTag.empty());
   for (const char character : kStateLayoutTag) {
-    EXPECT_TRUE(isLowercaseLetterDigitOrUnderscore(character)) << "'" << character << "' in " << kStateLayoutTag;
+    EXPECT_TRUE(isLowercaseLetterDigitOrUnderscore(character))
+        << "'" << character << "' in " << kStateLayoutTag;
   }
   // It ends in a version, "_v<N>", which a change of the layout increments.
   const size_t versionStart = kStateLayoutTag.rfind("_v");

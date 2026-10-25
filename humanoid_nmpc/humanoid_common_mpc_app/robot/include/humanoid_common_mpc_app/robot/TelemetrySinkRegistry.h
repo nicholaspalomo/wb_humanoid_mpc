@@ -56,22 +56,26 @@ inline constexpr absl::string_view kBusTelemetrySinkName = "bus";
 // clang-format on
 
 /**
- * The telemetry sinks by name: the task file's `telemetry_sinks` lists the ones a robot process feeds (an empty list
- * turns its telemetry off). The only place a new sink is added; an unknown name is refused with the available ones.
+ * The telemetry sinks by name: the task file's `telemetry_sinks` lists the ones
+ * a robot process feeds (an empty list turns its telemetry off). The only place
+ * a new sink is added; an unknown name is refused with the available ones.
  *
  * Not thread-safe: built and used on one thread during set-up.
  */
 class TelemetrySinkRegistry {
  public:
-  using Factory = std::function<absl::StatusOr<std::unique_ptr<TelemetrySink>>(const TelemetrySinkContext& context)>;
+  using Factory = std::function<absl::StatusOr<std::unique_ptr<TelemetrySink>>(
+      const TelemetrySinkContext& context)>;
 
   /** A registry with the built-in sinks. */
   TelemetrySinkRegistry();
 
   void add(std::string name, std::string description, Factory factory);
   bool has(absl::string_view name) const;
-  /** The sink `name` names; InvalidArgument listing the available names for an unknown one. */
-  absl::StatusOr<std::unique_ptr<TelemetrySink>> create(absl::string_view name, const TelemetrySinkContext& context) const;
+  /** The sink `name` names; InvalidArgument listing the available names for an
+   * unknown one. */
+  absl::StatusOr<std::unique_ptr<TelemetrySink>> create(
+      absl::string_view name, const TelemetrySinkContext& context) const;
   /** "bus (publishes robot/state on the IPC bus), ...". */
   std::string availableNames() const;
   /** The registered names, in registration order. */

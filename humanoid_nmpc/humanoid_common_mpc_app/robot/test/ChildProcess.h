@@ -39,13 +39,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::test_support {
 
 /**
- * A binary of the distributed runtime started as its own process, as a launch file starts it: posix_spawn with the
- * test's environment, working directory and output, stopped with SIGTERM like the launcher stops it. A process still
- * running when the handle is destroyed is killed (SIGKILL), so a failed test leaves nothing behind.
+ * A binary of the distributed runtime started as its own process, as a launch
+ * file starts it: posix_spawn with the test's environment, working directory
+ * and output, stopped with SIGTERM like the launcher stops it. A process still
+ * running when the handle is destroyed is killed (SIGKILL), so a failed test
+ * leaves nothing behind.
  */
 class ChildProcess {
  public:
-  /** Starts `arguments` (the program first; a path, not looked up in PATH). CHECK-fails when it cannot be spawned. */
+  /** Starts `arguments` (the program first; a path, not looked up in PATH).
+   * CHECK-fails when it cannot be spawned. */
   explicit ChildProcess(const std::vector<std::string>& arguments);
 
   /** SIGKILL and reap, unless it has exited. */
@@ -57,8 +60,9 @@ class ChildProcess {
   bool running();
 
   /**
-   * SIGTERM, then its exit code: the code it exited with, 128 + N when a signal N ended it, or -1 when it did not exit
-   * within `timeout` (it is then killed).
+   * SIGTERM, then its exit code: the code it exited with, 128 + N when a signal
+   * N ended it, or -1 when it did not exit within `timeout` (it is then
+   * killed).
    */
   int terminate(absl::Duration timeout);
 

@@ -33,19 +33,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-robot::model::RobotState createInitialSimState(const robot::model::RobotDescription& robotDescription,
-                                               const ModelSettings& modelSettings,
-                                               const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                               const vector_t& initMpcState) {
-  robot::model::RobotState initState(robotDescription, /*contactSize=*/kNumContacts);
+robot::model::RobotState createInitialSimState(
+    const robot::model::RobotDescription& robotDescription,
+    const ModelSettings& modelSettings,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    const vector_t& initMpcState) {
+  robot::model::RobotState initState(robotDescription,
+                                     /*contactSize=*/kNumContacts);
   initState.setConfigurationToZero();
 
-  initState.setRootPositionInWorldFrame(mpcRobotModel.getBasePosition(initMpcState));
-  // The coefficients (x, y, z, w) of the base orientation, whatever the state stores.
-  initState.setRootRotationLocalToWorldFrame(quaternion_t(mpcRobotModel.getBaseOrientation(initMpcState)));
+  initState.setRootPositionInWorldFrame(
+      mpcRobotModel.getBasePosition(initMpcState));
+  // The coefficients (x, y, z, w) of the base orientation, whatever the state
+  // stores.
+  initState.setRootRotationLocalToWorldFrame(
+      quaternion_t(mpcRobotModel.getBaseOrientation(initMpcState)));
 
   const vector_t mpcJointAngles = mpcRobotModel.getJointAngles(initMpcState);
-  const std::vector<robot::joint_index_t> mpcJointIndices = robotDescription.getJointIndices(modelSettings.mpcModelJointNames);
+  const std::vector<robot::joint_index_t> mpcJointIndices =
+      robotDescription.getJointIndices(modelSettings.mpcModelJointNames);
   for (size_t i = 0; i < mpcJointIndices.size(); ++i) {
     initState.setJointPosition(mpcJointIndices[i], mpcJointAngles[i]);
   }

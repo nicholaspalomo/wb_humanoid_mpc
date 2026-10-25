@@ -109,9 +109,13 @@ class ViewerHotkeyDocsTest(unittest.TestCase):
     def test_every_visualization_key_has_a_row_naming_it(self) -> None:
         rows = _key_rows(_root_table())
         for key, (name, _) in _shipped_visualizations().items():
-            self.assertIn(key, rows, f"the README has no row for [{key}] {name}")
             self.assertIn(
-                f"`{name}", rows[key], f"the row of [{key}] does not name {name}"
+                key, rows, f"the README has no row for [{key}] {name}"
+            )
+            self.assertIn(
+                f"`{name}",
+                rows[key],
+                f"the row of [{key}] does not name {name}",
             )
 
     def test_every_row_is_a_viewer_key_or_a_shipped_visualization(self) -> None:
@@ -122,7 +126,9 @@ class ViewerHotkeyDocsTest(unittest.TestCase):
                 f"the README's [{key}] belongs to no visualization",
             )
 
-    def test_a_visualization_no_shipped_file_enables_says_to_list_it(self) -> None:
+    def test_a_visualization_no_shipped_file_enables_says_to_list_it(
+        self,
+    ) -> None:
         rows = _key_rows(_root_table())
         for key, (name, enabled) in _shipped_visualizations().items():
             if enabled:
@@ -133,12 +139,15 @@ class ViewerHotkeyDocsTest(unittest.TestCase):
                 self.assertIn(
                     _LIST_IT,
                     rows[key],
-                    f"{name} is off in every shipped task file: its row must say so",
+                    f"{name} is off in every shipped task file: its row must"
+                    " say so",
                 )
 
     def test_p_opens_the_markers_panel_of_the_web_page(self) -> None:
         self.assertIn("Markers panel", _key_rows(_root_table())["p"])
-        self.assertIn("Markers panel", _key_rows(_read(_DEV_CONTAINER_README))["p"])
+        self.assertIn(
+            "Markers panel", _key_rows(_read(_DEV_CONTAINER_README))["p"]
+        )
 
     def test_the_dev_container_readme_leaves_the_visualization_keys_to_the_root_readme(
         self,
@@ -148,7 +157,8 @@ class ViewerHotkeyDocsTest(unittest.TestCase):
             self.assertIn(
                 key,
                 _VIEWER_KEYS,
-                f".devcontainer/README.md documents [{key}], a visualization's key",
+                f".devcontainer/README.md documents [{key}], a"
+                " visualization's key",
             )
         self.assertIn("../README.md#mujoco-3d-viewer-hotkeys--controls", text)
 

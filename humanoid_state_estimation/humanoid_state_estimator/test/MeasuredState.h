@@ -35,10 +35,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::estimation::test_support {
 
 /**
- * The state a backend without a position sensor would publish at `sample`: the truth of the IMU (orientation, angular
- * velocity, specific force), the joints, the contact flags and the time, and a zero base position and linear velocity -
- * so that a state estimator that hands them on is told from one that estimates them.
+ * The state a backend without a position sensor would publish at `sample`: the
+ * truth of the IMU (orientation, angular velocity, specific force), the joints,
+ * the contact flags and the time, and a zero base position and linear velocity
+ * - so that a state estimator that hands them on is told from one that
+ * estimates them.
  */
-void writeMeasuredState(const WalkingSample& sample, robot::model::RobotState& state);
+void writeMeasuredState(const WalkingSample& sample,
+                        robot::model::RobotState& state);
 
 }  // namespace ocs2::humanoid::estimation::test_support

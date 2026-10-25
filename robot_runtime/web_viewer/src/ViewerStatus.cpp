@@ -44,7 +44,8 @@ namespace {
 
 // The quotes around a JSON string.
 constexpr size_t kJsonStringQuotes = 2;
-// JSON escapes the control characters, U+0000 to U+001F: the characters below this.
+// JSON escapes the control characters, U+0000 to U+001F: the characters below
+// this.
 constexpr int kJsonControlCharacterEnd = 0x20;
 
 // A JSON number, or null for one JSON cannot spell (NaN, infinity).
@@ -58,21 +59,32 @@ absl::string_view jsonBool(bool value) {
 }
 
 std::string cameraJson(const ViewerStatus::Camera& camera) {
-  return absl::StrCat(R"({"mode":)", jsonString(viewerCameraModeName(camera.mode)), R"(,"azimuth":)", jsonNumber(camera.azimuth),
-                      R"(,"elevation":)", jsonNumber(camera.elevation), R"(,"distance":)", jsonNumber(camera.distance), R"(,"lookat":[)",
-                      jsonNumber(camera.lookat[ocs2::kXAxisIndex]), ",", jsonNumber(camera.lookat[ocs2::kYAxisIndex]), ",",
-                      jsonNumber(camera.lookat[ocs2::kZAxisIndex]), "]}");
+  return absl::StrCat(
+      R"({"mode":)", jsonString(viewerCameraModeName(camera.mode)),
+      R"(,"azimuth":)", jsonNumber(camera.azimuth), R"(,"elevation":)",
+      jsonNumber(camera.elevation), R"(,"distance":)",
+      jsonNumber(camera.distance), R"(,"lookat":[)",
+      jsonNumber(camera.lookat[ocs2::kXAxisIndex]), ",",
+      jsonNumber(camera.lookat[ocs2::kYAxisIndex]), ",",
+      jsonNumber(camera.lookat[ocs2::kZAxisIndex]), "]}");
 }
 
 std::string renderJson(const ViewerStatus::Render& render) {
-  return absl::StrCat(R"({"width":)", render.width, R"(,"height":)", render.height, R"(,"targetFps":)", render.targetFps,
-                      R"(,"measuredFps":)", jsonNumber(render.measuredFps), R"(,"quality":)", render.quality, "}");
+  return absl::StrCat(R"({"width":)", render.width, R"(,"height":)",
+                      render.height, R"(,"targetFps":)", render.targetFps,
+                      R"(,"measuredFps":)", jsonNumber(render.measuredFps),
+                      R"(,"quality":)", render.quality, "}");
 }
 
-std::string visualizationJson(const ViewerStatus::Visualization& visualization) {
-  const std::string hotkey = visualization.hotkey == 0 ? "null" : jsonString(std::string{visualization.hotkey});
-  return absl::StrCat(R"({"name":)", jsonString(visualization.name), R"(,"hotkey":)", hotkey, R"(,"enabled":)",
-                      jsonBool(visualization.enabled), R"(,"description":)", jsonString(visualization.description), "}");
+std::string visualizationJson(
+    const ViewerStatus::Visualization& visualization) {
+  const std::string hotkey =
+      visualization.hotkey == 0 ? "null"
+                                : jsonString(std::string{visualization.hotkey});
+  return absl::StrCat(R"({"name":)", jsonString(visualization.name),
+                      R"(,"hotkey":)", hotkey, R"(,"enabled":)",
+                      jsonBool(visualization.enabled), R"(,"description":)",
+                      jsonString(visualization.description), "}");
 }
 
 }  // namespace
@@ -99,7 +111,8 @@ std::string jsonString(absl::string_view text) {
         break;
       default:
         if (static_cast<unsigned char>(character) < kJsonControlCharacterEnd) {
-          absl::StrAppendFormat(&json, R"(\u%04x)", static_cast<int>(character));
+          absl::StrAppendFormat(&json, R"(\u%04x)",
+                                static_cast<int>(character));
         } else {
           json += character;
         }
@@ -111,7 +124,8 @@ std::string jsonString(absl::string_view text) {
 
 std::string viewerStatusJson(const ViewerStatus& status) {
   std::string json =
-      absl::StrCat(R"({"camera":)", cameraJson(status.camera), R"(,"render":)", renderJson(status.render), R"(,"geomGroups":[)");
+      absl::StrCat(R"({"camera":)", cameraJson(status.camera), R"(,"render":)",
+                   renderJson(status.render), R"(,"geomGroups":[)");
   for (size_t group = 0; group < status.geomGroups.size(); ++group) {
     if (group > 0) json += ',';
     json += jsonBool(status.geomGroups[group]);

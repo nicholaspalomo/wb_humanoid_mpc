@@ -40,17 +40,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::estimation::test_support {
 
-/** test/data/prismatic_biped.urdf, its feet and its joints in robot joint order (their names sorted). */
-inline constexpr char kPrismaticBipedUrdf[] = "humanoid_state_estimation/humanoid_state_estimator/test/data/prismatic_biped.urdf";
+/** test/data/prismatic_biped.urdf, its feet and its joints in robot joint order
+ * (their names sorted). */
+inline constexpr char kPrismaticBipedUrdf[] =
+    "humanoid_state_estimation/humanoid_state_estimator/test/data/"
+    "prismatic_biped.urdf";
 inline constexpr size_t kNumFeet = 2;
 inline constexpr size_t kNumJoints = 6;
 std::vector<std::string> prismaticBipedJointNames();
 std::vector<std::string> prismaticBipedFootFrames();
 
-/** The world gravity the trajectory's accelerometer reading subtracts [m/s^2]. */
+/** The world gravity the trajectory's accelerometer reading subtracts [m/s^2].
+ */
 inline const vector3_t kGravity(0.0, 0.0, -9.81);
 
-/** The true state of the prismatic biped at one time, and what its sensors read then. */
+/** The true state of the prismatic biped at one time, and what its sensors read
+ * then. */
 struct WalkingSample {
   scalar_t time = 0.0;
   vector3_t basePosition = vector3_t::Zero();
@@ -72,10 +77,12 @@ struct WalkingSample {
 };
 
 /**
- * A walk of the prismatic biped, in closed form: the base moves forward at 0.4 m/s and sways sideways and up and down,
- * and turns about all three axes (Z-Y-X angles that oscillate); the feet alternate, each standing still on the ground
- * at z = 0 and swinging 0.3 of a 0.8 s gait period to a foothold ahead, with a short double support between swings.
- * The joints are q = R^T (c - p) - o and q_dot = -omega x R^T (c - p) + R^T (c_dot - v), the leg kinematics of the
+ * A walk of the prismatic biped, in closed form: the base moves forward at 0.4
+ * m/s and sways sideways and up and down, and turns about all three axes (Z-Y-X
+ * angles that oscillate); the feet alternate, each standing still on the ground
+ * at z = 0 and swinging 0.3 of a 0.8 s gait period to a foothold ahead, with a
+ * short double support between swings. The joints are q = R^T (c - p) - o and
+ * q_dot = -omega x R^T (c - p) + R^T (c_dot - v), the leg kinematics of the
  * URDF solved exactly, so a perfect estimator reproduces the base.
  */
 WalkingSample walkingSample(scalar_t time);

@@ -54,7 +54,9 @@ import robot_ipc
 README = operator_test_support.repo_path(
     "humanoid_nmpc", "docs", "distributed_runtime", "README.md"
 )
-NETWORK_FILE = operator_test_support.repo_path("config", "ipc", "network.textproto")
+NETWORK_FILE = operator_test_support.repo_path(
+    "config", "ipc", "network.textproto"
+)
 
 # The packages of the messages on the bus: the bus messages, and the configuration files the tuning tabs publish whole.
 MESSAGE_PACKAGES = ("humanoid_mpc_msgs", "humanoid_mpc_config")
@@ -109,18 +111,24 @@ class TestTheReadmeTable(unittest.TestCase):
                 self.assertIn(
                     row.message_class.DESCRIPTOR.file.package, MESSAGE_PACKAGES
                 )
-                self.assertEqual(row.message_class.DESCRIPTOR.name, readme.message)
+                self.assertEqual(
+                    row.message_class.DESCRIPTOR.name, readme.message
+                )
                 self.assertEqual(row.delivery.value, readme.delivery)
 
     def test_the_tuning_topics_carry_their_files_typed(self):
         # The payload is the file: the whole task and contact-planning file, the whole PD gains file. A save carries
         # the saved file's text, which the robot parses as it parses the file at start-up, and the robot answers it.
         expected = {
-            topics.OPERATOR_MPC_PARAMETERS: "humanoid_mpc_config.MpcParameterUpdate",
+            topics.OPERATOR_MPC_PARAMETERS: (
+                "humanoid_mpc_config.MpcParameterUpdate"
+            ),
             topics.OPERATOR_PD_GAINS: "humanoid_mpc_config.JointPdGainsUpdate",
             topics.OPERATOR_DODGEBALL_THROW: "humanoid_mpc_msgs.DodgeballThrow",
             topics.OPERATOR_CONFIG_SAVE: "humanoid_mpc_msgs.ConfigFileSave",
-            topics.ROBOT_CONFIG_SAVE_STATUS: "humanoid_mpc_msgs.ConfigFileSaveStatus",
+            topics.ROBOT_CONFIG_SAVE_STATUS: (
+                "humanoid_mpc_msgs.ConfigFileSaveStatus"
+            ),
         }
         for topic, name in expected.items():
             with self.subTest(topic=topic):
@@ -148,13 +156,19 @@ class TestTheReadmeTable(unittest.TestCase):
             for topic, row in self.table.items()
             if "GUI" in row.publisher or "GUI" in row.subscribers
         }
-        self.assertEqual({row.topic for row in operator_bus.OPERATOR_TOPICS}, expected)
+        self.assertEqual(
+            {row.topic for row in operator_bus.OPERATOR_TOPICS}, expected
+        )
 
     def test_teleop_publishes_only_what_the_readme_lets_it(self):
         teleop_topics = {
-            topic for topic, row in self.table.items() if "teleop" in row.publisher
+            topic
+            for topic, row in self.table.items()
+            if "teleop" in row.publisher
         }
-        self.assertEqual(teleop_topics, {topics.OPERATOR_WALKING_VELOCITY_COMMAND})
+        self.assertEqual(
+            teleop_topics, {topics.OPERATOR_WALKING_VELOCITY_COMMAND}
+        )
 
 
 class TestWhatTheCodePublishes(unittest.TestCase):
@@ -179,7 +193,9 @@ class TestWhatTheCodePublishes(unittest.TestCase):
             if row.direction is operator_bus.Direction.PUBLISH
         }
         self.assertEqual(published, expected_published)
-        subscribed = {topic: entry[0] for topic, entry in bus.subscriptions.items()}
+        subscribed = {
+            topic: entry[0] for topic, entry in bus.subscriptions.items()
+        }
         self.assertEqual(
             subscribed,
             {
@@ -198,7 +214,9 @@ class TestWhatTheCodePublishes(unittest.TestCase):
             node_name: str, network: object
         ) -> operator_test_support.RecordingBus:
             del network  # Unused.
-            return buses.setdefault(node_name, operator_test_support.RecordingBus())
+            return buses.setdefault(
+                node_name, operator_test_support.RecordingBus()
+            )
 
         with mock.patch.object(robot_ipc, "Bus", recording_bus):
             publisher = teleop.connect_walking_command_publisher(NETWORK_FILE)
@@ -231,16 +249,22 @@ class TestWhatTheCodePublishes(unittest.TestCase):
         )
 
     def test_the_walking_command_rate_is_the_readmes(self):
-        readme = read_topic_table(README)[topics.OPERATOR_WALKING_VELOCITY_COMMAND]
+        readme = read_topic_table(README)[
+            topics.OPERATOR_WALKING_VELOCITY_COMMAND
+        ]
         with open(README, "r", encoding="utf-8") as handle:
-            line = next(row for row in handle if row.startswith(f"| `{readme.topic}`"))
+            line = next(
+                row for row in handle if row.startswith(f"| `{readme.topic}`")
+            )
         rate = re.search(r"(\d+(?:\.\d+)?) Hz", line.split("|")[7])
         assert rate is not None, line
         self.assertEqual(float(rate.group(1)), teleop.WALKING_COMMAND_RATE_HZ)
 
 
 class TestTheNodes(unittest.TestCase):
-    def test_the_gui_teleop_and_config_push_nodes_are_in_the_shipped_network_file(self):
+    def test_the_gui_teleop_and_config_push_nodes_are_in_the_shipped_network_file(
+        self,
+    ):
         network = robot_ipc.load_network_config(NETWORK_FILE)
         for name in (
             operator_bus.OPERATOR_NODE,
@@ -259,14 +283,18 @@ class TestTheNodes(unittest.TestCase):
             with self.subTest(topic=row.topic):
                 entry = network.find_topic(row.topic)
                 assert entry is not None, row.topic
-                self.assertEqual(entry.profile.value, table[row.topic].qos_profile)
+                self.assertEqual(
+                    entry.profile.value, table[row.topic].qos_profile
+                )
                 if row.direction is operator_bus.Direction.PUBLISH:
                     self.assertIn(operator_bus.OPERATOR_NODE, entry.publishers)
 
     def test_the_network_file_path_of_the_binaries_is_the_shipped_one(self):
         self.assertTrue(
             os.path.isfile(
-                operator_test_support.repo_path(operator_bus.DEFAULT_NETWORK_CONFIG)
+                operator_test_support.repo_path(
+                    operator_bus.DEFAULT_NETWORK_CONFIG
+                )
             )
         )
 

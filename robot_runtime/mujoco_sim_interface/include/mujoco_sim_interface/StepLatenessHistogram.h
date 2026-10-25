@@ -39,18 +39,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::mujoco_sim_interface {
 
 /**
- * How late the physics loop finished its steps: one sample per step, the time by which the step overran the start of
- * the next one (zero or less when it finished in time). The physics thread records; any thread reads the count, the
- * percentiles and the maximum, to check that nothing else on the machine (a viewer, say) delays the simulation.
+ * How late the physics loop finished its steps: one sample per step, the time
+ * by which the step overran the start of the next one (zero or less when it
+ * finished in time). The physics thread records; any thread reads the count,
+ * the percentiles and the maximum, to check that nothing else on the machine (a
+ * viewer, say) delays the simulation.
  *
- * Every bin is preallocated and every operation is a relaxed atomic, so record() is wait-free and allocation-free on
- * the physics thread. One thread records at a time; reads may run concurrently and see a sample count that is a few
- * samples behind the bins. reset() while samples are recorded loses or keeps those samples.
+ * Every bin is preallocated and every operation is a relaxed atomic, so
+ * record() is wait-free and allocation-free on the physics thread. One thread
+ * records at a time; reads may run concurrently and see a sample count that is
+ * a few samples behind the bins. reset() while samples are recorded loses or
+ * keeps those samples.
  */
 class StepLatenessHistogram {
  public:
   static constexpr int64_t kBinWidthNanoseconds = 5'000;  // 5 us
-  static constexpr int kNumBins = 4'000;                  // up to 20 ms; later samples share the last bin
+  static constexpr int kNumBins =
+      4'000;  // up to 20 ms; later samples share the last bin
 
   StepLatenessHistogram() = default;
   StepLatenessHistogram(const StepLatenessHistogram&) = delete;
@@ -59,7 +64,8 @@ class StepLatenessHistogram {
   StepLatenessHistogram& operator=(StepLatenessHistogram&&) = delete;
   ~StepLatenessHistogram() = default;
 
-  /** Records one step that finished `lateness` after the start of the next one; a negative one counts as zero. */
+  /** Records one step that finished `lateness` after the start of the next one;
+   * a negative one counts as zero. */
   void record(std::chrono::nanoseconds lateness);
 
   /** Forgets every sample. */
@@ -69,15 +75,17 @@ class StepLatenessHistogram {
   int64_t count() const;
 
   /**
-   * The lateness that `fraction` (in [0, 1]) of the samples do not exceed, to the upper edge of its 5 us bin (the
-   * maximum for the last bin and for fraction 1); zero without samples.
+   * The lateness that `fraction` (in [0, 1]) of the samples do not exceed, to
+   * the upper edge of its 5 us bin (the maximum for the last bin and for
+   * fraction 1); zero without samples.
    */
   absl::Duration percentile(double fraction) const;
 
   /** The largest lateness recorded, exactly; zero without samples. */
   absl::Duration max() const;
 
-  /** The number of samples later than `lateness`, to the 5 us bin: those of the bins that start at or after it. */
+  /** The number of samples later than `lateness`, to the 5 us bin: those of the
+   * bins that start at or after it. */
   int64_t countLaterThan(absl::Duration lateness) const;
 
  private:

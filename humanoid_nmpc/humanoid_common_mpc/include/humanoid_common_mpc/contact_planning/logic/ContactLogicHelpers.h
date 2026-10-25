@@ -35,8 +35,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** Fixes a free binary; false when it is already fixed to the other value (a contradiction). */
-inline bool fixBinary(MiqpAssignment& a, int index, int8_t value, bool& changed) {
+/** Fixes a free binary; false when it is already fixed to the other value (a
+ * contradiction). */
+inline bool fixBinary(MiqpAssignment& a,
+                      int index,
+                      int8_t value,
+                      bool& changed) {
   int8_t& entry = a[static_cast<size_t>(index)];
   if (entry == kMiqpFree) {
     entry = value;

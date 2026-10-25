@@ -62,13 +62,19 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         description="Behavioral Cloning Pretraining from MPC Demonstrations"
     )
     parser.add_argument(
-        "--demos_path", type=str, default="", help="Path to HDF5 MPC demo dataset"
+        "--demos_path",
+        type=str,
+        default="",
+        help="Path to HDF5 MPC demo dataset",
     )
     parser.add_argument(
         "--epochs", type=int, default=10, help="Number of training epochs"
     )
     parser.add_argument(
-        "--batch_size", type=int, default=256, help="Minibatch size of one Adam step"
+        "--batch_size",
+        type=int,
+        default=256,
+        help="Minibatch size of one Adam step",
     )
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
     parser.add_argument(
@@ -81,7 +87,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--output_path",
         type=str,
         default="checkpoints/bc_policy.npz",
-        help="Output checkpoint; a relative path is relative to the workspace under bazel run",
+        help=(
+            "Output checkpoint; a relative path is relative to the workspace"
+            " under bazel run"
+        ),
     )
     return parser.parse_args(argv)
 
@@ -129,9 +138,14 @@ def train_behavioral_cloning(
     Raises:
         ValueError: On mismatched or empty demonstrations, actions outside [-1, 1], or a batch size below one.
     """
-    if observations.ndim != 2 or actions.ndim != 2 or len(observations) != len(actions):
+    if (
+        observations.ndim != 2
+        or actions.ndim != 2
+        or len(observations) != len(actions)
+    ):
         raise ValueError(
-            f"observations {observations.shape} and actions {actions.shape} are not (num_samples, dim) of one length"
+            f"observations {observations.shape} and actions {actions.shape} are"
+            " not (num_samples, dim) of one length"
         )
     num_samples = len(observations)
     if num_samples == 0:
@@ -158,7 +172,10 @@ def train_behavioral_cloning(
 
     @jax.jit
     def train_step(
-        params: Any, opt_state: optax.OptState, obs: jax.Array, targets: jax.Array
+        params: Any,
+        opt_state: optax.OptState,
+        obs: jax.Array,
+        targets: jax.Array,
     ) -> tuple[Any, optax.OptState, jax.Array]:
         loss, grads = jax.value_and_grad(loss_fn)(params, obs, targets)
         updates, opt_state = tx.update(grads, opt_state, params)
@@ -206,7 +223,9 @@ def _resolved_output_path(output_path: str) -> str:
     """Returns `output_path`, a relative one taken relative to the workspace under bazel run."""
     if os.path.isabs(output_path):
         return output_path
-    workspace = os.environ.get("BUILD_WORKSPACE_DIRECTORY", os.path.abspath("."))
+    workspace = os.environ.get(
+        "BUILD_WORKSPACE_DIRECTORY", os.path.abspath(".")
+    )
     return os.path.join(workspace, output_path)
 
 
@@ -237,11 +256,17 @@ def main(argv: Sequence[str] | None = None) -> None:
         ).astype(np.float32)
 
     result = train_behavioral_cloning(
-        observations, actions, args.epochs, args.lr, args.batch_size, seed=args.seed
+        observations,
+        actions,
+        args.epochs,
+        args.lr,
+        args.batch_size,
+        seed=args.seed,
     )
     actor_critic.save_checkpoint(output_path, result.params, result.normalizer)
     print(
-        f"✅ Behavioral cloning pretraining completed; checkpoint saved to {output_path}"
+        "✅ Behavioral cloning pretraining completed; checkpoint saved to"
+        f" {output_path}"
     )
 
 

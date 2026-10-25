@@ -37,21 +37,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The names the MPC interfaces register their cost and soft-constraint terms under in the optimal control problem's
- * collections, and that the hot-field appliers of the parameter updater (parameter_update/) find them again by.
+ * The names the MPC interfaces register their cost and soft-constraint terms
+ * under in the optimal control problem's collections, and that the hot-field
+ * appliers of the parameter updater (parameter_update/) find them again by.
  *
- * An applier treats an absent term as the normal case - most terms are only built for some task lists - so it could
- * never tell a term that is not listed from one whose name had drifted: a rename on one side turned every hot reload of
- * that term into a silent no-op. With one definition a rename is a rename on both sides. The per-foot contact terms are
- * in ContactTermNames.h.
+ * An applier treats an absent term as the normal case - most terms are only
+ * built for some task lists - so it could never tell a term that is not listed
+ * from one whose name had drifted: a rename on one side turned every hot reload
+ * of that term into a silent no-op. With one definition a rename is a rename on
+ * both sides. The per-foot contact terms are in ContactTermNames.h.
  *
- * These are COLLECTION names only. A CppAD term that used to take its code-generation model name from its collection
- * name has a library name of its own, with its own literal, beside its class, so that a change here can never rename a
- * generated library (test/parameter_update/testCostTermNames.cpp pins the strings).
+ * These are COLLECTION names only. A CppAD term that used to take its
+ * code-generation model name from its collection name has a library name of its
+ * own, with its own literal, beside its class, so that a change here can never
+ * rename a generated library (test/parameter_update/testCostTermNames.cpp pins
+ * the strings).
  */
 // LINT.IfChange(cost_term_names)
 // The quadratic costs of the state and input weights.
-inline constexpr char kStateInputQuadraticCostTerm[] = "stateInputQuadraticCost";
+inline constexpr char kStateInputQuadraticCostTerm[] =
+    "stateInputQuadraticCost";
 inline constexpr char kStateQuadraticCostTerm[] = "stateQuadraticCost";
 inline constexpr char kInputQuadraticCostTerm[] = "inputQuadraticCost";
 // The quadratic terminal cost of final_state_weights.
@@ -59,8 +64,12 @@ inline constexpr char kTerminalCostTerm[] = "terminalCost";
 // The state soft constraints.
 inline constexpr char kJointLimitsTerm[] = "jointLimits";
 inline constexpr char kFootCollisionTerm[] = "FootCollisionSoftConstraint";
+// The state-input soft constraints.
+inline constexpr char kFootCollisionCbfTerm[] =
+    "FootCollisionCbfSoftConstraint";
 
-/** The task-space kinematics cost of the link or foot `name` (a task_space_costs entry's name, or a contact's). */
+/** The task-space kinematics cost of the link or foot `name` (a
+ * task_space_costs entry's name, or a contact's). */
 inline std::string taskSpaceKinematicsCostName(absl::string_view name) {
   return absl::StrCat(name, "_TaskSpaceKinematicsCost");
 }
@@ -70,15 +79,18 @@ inline std::string externalTorqueCostName(absl::string_view footName) {
   return absl::StrCat(footName, "_ExternalTorqueQuadraticCost");
 }
 
-// The suffix of the stance-foot (zero velocity) constraint after the contact's name (zeroVelocityTermName()).
+// The suffix of the stance-foot (zero velocity) constraint after the contact's
+// name (zeroVelocityTermName()).
 inline constexpr char kZeroVelocityTermSuffix[] = "_zeroVelocity";
 
-/** The stance-foot (zero velocity) constraint of the contact `footName`, hard or soft. */
+/** The stance-foot (zero velocity) constraint of the contact `footName`, hard
+ * or soft. */
 inline std::string zeroVelocityTermName(absl::string_view footName) {
   return absl::StrCat(footName, kZeroVelocityTermSuffix);
 }
 
-/** The lambda >= 0 barrier of the basis-vector contact inputs of the contact `footName`. */
+/** The lambda >= 0 barrier of the basis-vector contact inputs of the contact
+ * `footName`. */
 inline std::string basisNonNegativityTermName(absl::string_view footName) {
   return absl::StrCat(footName, "_basisNonNegativity");
 }

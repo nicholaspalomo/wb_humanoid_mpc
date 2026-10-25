@@ -46,7 +46,8 @@ class AngularCenterOfMassTest : public ::testing::Test {
     numLayers_ = 2;
     omega0_ = 30.0;
 
-    acom_ = std::make_unique<AngularCenterOfMass>(inputDim_, numLayers_, omega0_);
+    acom_ =
+        std::make_unique<AngularCenterOfMass>(inputDim_, numLayers_, omega0_);
 
     // Initialize with deterministic pseudo-random weights
     std::mt19937 gen(42);
@@ -78,7 +79,8 @@ class AngularCenterOfMassTest : public ::testing::Test {
     lOut.weight = matrix_t(3, hiddenDim_);
     lOut.bias = vector_t(3);
     for (int r = 0; r < lOut.weight.rows(); ++r) {
-      for (int c = 0; c < lOut.weight.cols(); ++c) lOut.weight(r, c) = dist(gen);
+      for (int c = 0; c < lOut.weight.cols(); ++c)
+        lOut.weight(r, c) = dist(gen);
       lOut.bias(r) = dist(gen);
     }
     layers.push_back(lOut);
@@ -87,24 +89,31 @@ class AngularCenterOfMassTest : public ::testing::Test {
   }
 
   size_t inputDim_ = 0;
-  size_t hiddenDim_ = 0;  // Width of the synthetic hidden layers built in SetUp.
+  size_t hiddenDim_ =
+      0;  // Width of the synthetic hidden layers built in SetUp.
   size_t numLayers_ = 0;
   double omega0_ = 0.0;
   std::unique_ptr<AngularCenterOfMass> acom_;
 };
 
 TEST_F(AngularCenterOfMassTest, FloatingBaseEquivariance) {
-  const vector_t qJoints = vector_t::Random(static_cast<Eigen::Index>(inputDim_));
+  const vector_t qJoints =
+      vector_t::Random(static_cast<Eigen::Index>(inputDim_));
 
-  // The ACoM attitude of a base at the identity, and of the same joints on a turned and tilted base: the joint rotation
-  // composes on the right of the base, so rotating the whole robot rotates the ACoM one for one.
+  // The ACoM attitude of a base at the identity, and of the same joints on a
+  // turned and tilted base: the joint rotation composes on the right of the
+  // base, so rotating the whole robot rotates the ACoM one for one.
   const vector4_t identity(0.0, 0.0, 0.0, 1.0);
   const vector4_t baseRotation = quaternionExp(vector3_t(0.2, -0.3, 0.5));
   const vector4_t atIdentity = acom_->acomAttitude(identity, qJoints);
   const vector4_t rotated = acom_->acomAttitude(baseRotation, qJoints);
 
-  EXPECT_LT((atIdentity - quaternionExp(acom_->computeJointOrientationOffset(qJoints))).norm(), 1.0e-15);
-  EXPECT_LT((rotated - quaternionProduct(baseRotation, atIdentity)).norm(), 1.0e-15);
+  EXPECT_LT((atIdentity -
+             quaternionExp(acom_->computeJointOrientationOffset(qJoints)))
+                .norm(),
+            1.0e-15);
+  EXPECT_LT((rotated - quaternionProduct(baseRotation, atIdentity)).norm(),
+            1.0e-15);
   EXPECT_NEAR(rotated.norm(), 1.0, 1.0e-15);
 }
 
@@ -134,30 +143,52 @@ TEST_F(AngularCenterOfMassTest, AnalyticalJacobianVsFiniteDifference) {
 }
 
 TEST_F(AngularCenterOfMassTest, AttitudeTangentJacobianStructure) {
-  const vector_t qJoints = vector_t::Random(static_cast<Eigen::Index>(inputDim_));
+  const vector_t qJoints =
+      vector_t::Random(static_cast<Eigen::Index>(inputDim_));
   const vector3_t offset = acom_->computeJointOrientationOffset(qJoints);
-  const AcomAttitudeTangentJacobian jacobian = acom_->acomAttitudeTangentJacobian(qJoints);
+  const AcomAttitudeTangentJacobian jacobian =
+      acom_->acomAttitudeTangentJacobian(qJoints);
 
-  // The base block is the adjoint R(Delta_theta)^T, a rotation: a base perturbation is carried into the ACoM frame.
-  EXPECT_LT((jacobian.baseOrientation - quaternionRotationMatrix(quaternionExp(offset)).transpose()).norm(), 1.0e-12);
-  EXPECT_LT((jacobian.baseOrientation.transpose() * jacobian.baseOrientation - matrix3_t::Identity()).norm(), 1.0e-12);
+  // The base block is the adjoint R(Delta_theta)^T, a rotation: a base
+  // perturbation is carried into the ACoM frame.
+  EXPECT_LT((jacobian.baseOrientation -
+             quaternionRotationMatrix(quaternionExp(offset)).transpose())
+                .norm(),
+            1.0e-12);
+  EXPECT_LT((jacobian.baseOrientation.transpose() * jacobian.baseOrientation -
+             matrix3_t::Identity())
+                .norm(),
+            1.0e-12);
 
-  // The joint block is the right Jacobian of SO(3) at Delta_theta times the network's joint Jacobian.
+  // The joint block is the right Jacobian of SO(3) at Delta_theta times the
+  // network's joint Jacobian.
   ASSERT_EQ(jacobian.jointAngles.cols(), static_cast<Eigen::Index>(inputDim_));
-  EXPECT_LT((jacobian.jointAngles - so3RightJacobian(offset) * acom_->computeJointOffsetJacobian(qJoints)).norm(), 1.0e-12);
+  EXPECT_LT(
+      (jacobian.jointAngles -
+       so3RightJacobian(offset) * acom_->computeJointOffsetJacobian(qJoints))
+          .norm(),
+      1.0e-12);
 
-  // And it is the derivative of the attitude: central differences of the body rotation a joint step makes.
+  // And it is the derivative of the attitude: central differences of the body
+  // rotation a joint step makes.
   const vector4_t base = quaternionExp(vector3_t(-0.4, 0.1, 1.2));
   const vector4_t attitude = acom_->acomAttitude(base, qJoints);
   const double eps = 1.0e-7;
-  for (Eigen::Index joint = 0; joint < static_cast<Eigen::Index>(inputDim_); ++joint) {
+  for (Eigen::Index joint = 0; joint < static_cast<Eigen::Index>(inputDim_);
+       ++joint) {
     vector_t plus = qJoints;
     vector_t minus = qJoints;
     plus(joint) += eps;
     minus(joint) -= eps;
-    const vector3_t forward = quaternionLog(quaternionProduct(quaternionConjugate(attitude), acom_->acomAttitude(base, plus)));
-    const vector3_t backward = quaternionLog(quaternionProduct(quaternionConjugate(attitude), acom_->acomAttitude(base, minus)));
-    EXPECT_LT(((forward - backward) / (2.0 * eps) - jacobian.jointAngles.col(joint)).norm(), 1.0e-5) << "joint " << joint;
+    const vector3_t forward = quaternionLog(quaternionProduct(
+        quaternionConjugate(attitude), acom_->acomAttitude(base, plus)));
+    const vector3_t backward = quaternionLog(quaternionProduct(
+        quaternionConjugate(attitude), acom_->acomAttitude(base, minus)));
+    EXPECT_LT(
+        ((forward - backward) / (2.0 * eps) - jacobian.jointAngles.col(joint))
+            .norm(),
+        1.0e-5)
+        << "joint " << joint;
   }
 }
 

@@ -48,71 +48,101 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-bool JointPdGains::hasDimensions(size_t numMpcJoints, size_t numOtherJoints) const {
+bool JointPdGains::hasDimensions(size_t numMpcJoints,
+                                 size_t numOtherJoints) const {
   const Eigen::Index mpc = static_cast<Eigen::Index>(numMpcJoints);
   const Eigen::Index other = static_cast<Eigen::Index>(numOtherJoints);
-  return mpcJointKp.size() == mpc && mpcJointKd.size() == mpc && mpcJointTorqueLimit.size() == mpc && otherJointKp.size() == other &&
+  return mpcJointKp.size() == mpc && mpcJointKd.size() == mpc &&
+         mpcJointTorqueLimit.size() == mpc && otherJointKp.size() == other &&
          otherJointKd.size() == other && otherJointTorqueLimit.size() == other;
 }
 
-JointPdGains defaultJointPdGains(const JointPdGainsDefaults& defaults,
-                                 const std::vector<std::string>& mpcJointNames,
-                                 const std::vector<std::string>& otherJointNames) {
+JointPdGains defaultJointPdGains(
+    const JointPdGainsDefaults& defaults,
+    const std::vector<std::string>& mpcJointNames,
+    const std::vector<std::string>& otherJointNames) {
   JointPdGains gains;
   gains.defaults = defaults;
-  gains.mpcJointKp = vector_t::Constant(static_cast<Eigen::Index>(mpcJointNames.size()), defaults.kp);
-  gains.mpcJointKd = vector_t::Constant(static_cast<Eigen::Index>(mpcJointNames.size()), defaults.kd);
-  gains.mpcJointTorqueLimit = vector_t::Constant(static_cast<Eigen::Index>(mpcJointNames.size()), defaults.torqueLimit);
-  gains.otherJointKp = vector_t::Constant(static_cast<Eigen::Index>(otherJointNames.size()), defaults.kp * kOtherJointDefaultGainScale);
-  gains.otherJointKd = vector_t::Constant(static_cast<Eigen::Index>(otherJointNames.size()), defaults.kd * kOtherJointDefaultGainScale);
-  gains.otherJointTorqueLimit = vector_t::Constant(static_cast<Eigen::Index>(otherJointNames.size()), defaults.torqueLimit);
-  gains.gravityCompDampingFraction = mpc_config::JointPdGainsFile::kDefaultGravityCompDampingFraction;
-  gains.maxPolicyJointError = mpc_config::JointPdGainsFile::kDefaultMaxPolicyJointError;
-  gains.divergedPolicyJointTargetBound = mpc_config::JointPdGainsFile::kDefaultDivergedPolicyJointTargetBound;
+  gains.mpcJointKp = vector_t::Constant(
+      static_cast<Eigen::Index>(mpcJointNames.size()), defaults.kp);
+  gains.mpcJointKd = vector_t::Constant(
+      static_cast<Eigen::Index>(mpcJointNames.size()), defaults.kd);
+  gains.mpcJointTorqueLimit = vector_t::Constant(
+      static_cast<Eigen::Index>(mpcJointNames.size()), defaults.torqueLimit);
+  gains.otherJointKp =
+      vector_t::Constant(static_cast<Eigen::Index>(otherJointNames.size()),
+                         defaults.kp * kOtherJointDefaultGainScale);
+  gains.otherJointKd =
+      vector_t::Constant(static_cast<Eigen::Index>(otherJointNames.size()),
+                         defaults.kd * kOtherJointDefaultGainScale);
+  gains.otherJointTorqueLimit = vector_t::Constant(
+      static_cast<Eigen::Index>(otherJointNames.size()), defaults.torqueLimit);
+  gains.gravityCompDampingFraction =
+      mpc_config::JointPdGainsFile::kDefaultGravityCompDampingFraction;
+  gains.maxPolicyJointError =
+      mpc_config::JointPdGainsFile::kDefaultMaxPolicyJointError;
+  gains.divergedPolicyJointTargetBound =
+      mpc_config::JointPdGainsFile::kDefaultDivergedPolicyJointTargetBound;
   return gains;
 }
 
-absl::StatusOr<std::optional<JointPdGains>> loadJointPdGains(absl::string_view file,
-                                                             const std::vector<std::string>& mpcJointNames,
-                                                             const std::vector<std::string>& otherJointNames) {
+absl::StatusOr<std::optional<JointPdGains>> loadJointPdGains(
+    absl::string_view file,
+    const std::vector<std::string>& mpcJointNames,
+    const std::vector<std::string>& otherJointNames) {
   std::error_code error;
-  if (file.empty() || !std::filesystem::exists(std::filesystem::path(file), error)) {
+  if (file.empty() ||
+      !std::filesystem::exists(std::filesystem::path(file), error)) {
     return std::nullopt;
   }
   // The parser's errors name the file, the line and the column already.
-  ASSIGN_OR_RETURN(const mpc_config::JointPdGainsFile typed, loadJointPdGainsFile(file));
-  absl::StatusOr<JointPdGains> gains = jointPdGainsFromConfig(typed, mpcJointNames, otherJointNames);
+  ASSIGN_OR_RETURN(const mpc_config::JointPdGainsFile typed,
+                   loadJointPdGainsFile(file));
+  absl::StatusOr<JointPdGains> gains =
+      jointPdGainsFromConfig(typed, mpcJointNames, otherJointNames);
   if (!gains.ok()) {
-    return absl::InvalidArgumentError(absl::StrCat(file, ": ", gains.status().message()));
+    return absl::InvalidArgumentError(
+        absl::StrCat(file, ": ", gains.status().message()));
   }
   return std::optional<JointPdGains>(*std::move(gains));
 }
 
-absl::StatusOr<JointPdGains> loadRequiredJointPdGains(absl::string_view file,
-                                                      const std::vector<std::string>& mpcJointNames,
-                                                      const std::vector<std::string>& otherJointNames,
-                                                      absl::string_view controller) {
+absl::StatusOr<JointPdGains> loadRequiredJointPdGains(
+    absl::string_view file,
+    const std::vector<std::string>& mpcJointNames,
+    const std::vector<std::string>& otherJointNames,
+    absl::string_view controller) {
   if (file.empty()) {
     return absl::InvalidArgumentError(
-        absl::StrCat("[", controller, "] no joint PD gains file was given: the controller has no gains of its own and does not start."));
+        absl::StrCat("[", controller,
+                     "] no joint PD gains file was given: the controller has "
+                     "no gains of its own and does not start."));
   }
-  absl::StatusOr<std::optional<JointPdGains>> loaded = loadJointPdGains(file, mpcJointNames, otherJointNames);
+  absl::StatusOr<std::optional<JointPdGains>> loaded =
+      loadJointPdGains(file, mpcJointNames, otherJointNames);
   if (!loaded.ok()) {
-    return absl::Status(loaded.status().code(),
-                        absl::StrCat("[", controller, "] The joint PD gains file ", file,
-                                     " was refused, so the controller does not start: ", loaded.status().message()));
+    return absl::Status(
+        loaded.status().code(),
+        absl::StrCat("[", controller, "] The joint PD gains file ", file,
+                     " was refused, so the controller does not start: ",
+                     loaded.status().message()));
   }
   if (!loaded->has_value()) {
-    return absl::NotFoundError(absl::StrCat("[", controller, "] the joint PD gains file ", file,
-                                            " does not exist: the controller has no gains of its own and does not start."));
+    return absl::NotFoundError(
+        absl::StrCat("[", controller, "] the joint PD gains file ", file,
+                     " does not exist: the controller has no gains of its own "
+                     "and does not start."));
   }
   return **std::move(loaded);
 }
 
-std::filesystem::file_time_type jointPdGainsFileWriteTime(absl::string_view file) {
-  // The std::error_code overloads, which do not throw (AGENTS.md, <filesystem>).
+std::filesystem::file_time_type jointPdGainsFileWriteTime(
+    absl::string_view file) {
+  // The std::error_code overloads, which do not throw (AGENTS.md,
+  // <filesystem>).
   std::error_code error;
-  if (file.empty() || !std::filesystem::exists(std::filesystem::path(file), error)) {
+  if (file.empty() ||
+      !std::filesystem::exists(std::filesystem::path(file), error)) {
     return std::filesystem::file_time_type();
   }
   return std::filesystem::last_write_time(std::filesystem::path(file), error);

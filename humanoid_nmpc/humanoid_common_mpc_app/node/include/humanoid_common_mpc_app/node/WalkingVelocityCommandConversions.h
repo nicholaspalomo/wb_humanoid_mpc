@@ -37,8 +37,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::node {
 
 /**
- * The ranges of operator/walking_velocity_command (humanoid_mpc_msgs/walking_velocity_command.proto): the velocities are
- * normalized, and ProceduralMpcMotionManager scales them by the command limits of reference.textproto.
+ * The ranges of operator/walking_velocity_command
+ * (humanoid_mpc_msgs/walking_velocity_command.proto): the velocities are
+ * normalized, and ProceduralMpcMotionManager scales them by the command limits
+ * of reference.textproto.
  */
 inline constexpr scalar_t kMaxNormalizedVelocity = 1.0;
 /** [m] The pelvis height of the command is absolute, above the ground. */
@@ -46,20 +48,26 @@ inline constexpr scalar_t kMinPelvisHeight = 0.2;
 inline constexpr scalar_t kMaxPelvisHeight = 1.0;
 
 /**
- * `command` within the ranges above: the velocities clamped to [-kMaxNormalizedVelocity, kMaxNormalizedVelocity], the
- * pelvis height to [kMinPelvisHeight, kMaxPelvisHeight]. A value that is not finite passes std::clamp() unchanged;
- * walkingVelocityCommandFromProto() refuses it before it gets here. The lockstep closed loop
- * (humanoid_nmpc/humanoid_mpc_validation) clamps the GUI's messages with this, so that the clamp has one home.
+ * `command` within the ranges above: the velocities clamped to
+ * [-kMaxNormalizedVelocity, kMaxNormalizedVelocity], the pelvis height to
+ * [kMinPelvisHeight, kMaxPelvisHeight]. A value that is not finite passes
+ * std::clamp() unchanged; walkingVelocityCommandFromProto() refuses it before
+ * it gets here. The lockstep closed loop
+ * (humanoid_nmpc/humanoid_mpc_validation) clamps the GUI's messages with this,
+ * so that the clamp has one home.
  */
-WalkingVelocityCommand clampWalkingVelocityCommand(const WalkingVelocityCommand& command);
+WalkingVelocityCommand clampWalkingVelocityCommand(
+    const WalkingVelocityCommand& command);
 
 /**
  * The operator's command of an operator/walking_velocity_command message, for
- * ProceduralMpcMotionManager::setAndScaleVelocityCommand(): clampWalkingVelocityCommand() of its values.
+ * ProceduralMpcMotionManager::setAndScaleVelocityCommand():
+ * clampWalkingVelocityCommand() of its values.
  *
- * InvalidArgument naming the field when a value is not finite: a NaN would pass std::clamp() unchanged and reach every
- * target trajectory of the MPC.
+ * InvalidArgument naming the field when a value is not finite: a NaN would pass
+ * std::clamp() unchanged and reach every target trajectory of the MPC.
  */
-absl::StatusOr<WalkingVelocityCommand> walkingVelocityCommandFromProto(const humanoid_mpc_msgs::WalkingVelocityCommand& message);
+absl::StatusOr<WalkingVelocityCommand> walkingVelocityCommandFromProto(
+    const humanoid_mpc_msgs::WalkingVelocityCommand& message);
 
 }  // namespace ocs2::humanoid::node

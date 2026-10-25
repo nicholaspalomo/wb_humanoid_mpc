@@ -37,17 +37,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The locomotion heuristic layer's configuration from the task file's locomotion_heuristics block.
+ * The locomotion heuristic layer's configuration from the task file's
+ * locomotion_heuristics block.
  *
- * The three lists are copied as written, and each parameter block becomes the parameter struct of its heuristic, field
- * by field (capture_point.com_height_override is capturePoint.comHeightOverride). The schema's defaults are the
- * layer's own, so an absent block gives LocomotionHeuristicConfig{}, whose lists are empty: an exact no-op. Nothing is logged: a verbose
- * start-up prints the file, and formulation.summary() the lists.
+ * The three lists are copied as written, and each parameter block becomes the
+ * parameter struct of its heuristic, field by field
+ * (capture_point.com_height_override is capturePoint.comHeightOverride). The
+ * schema's defaults are the layer's own, so an absent block gives
+ * LocomotionHeuristicConfig{}, whose lists are empty: an exact no-op. Nothing
+ * is logged: a verbose start-up prints the file, and formulation.summary() the
+ * lists.
  *
  * @param config The locomotion_heuristics block.
- * @return The configuration; InvalidArgument when a value is not finite (inf or nan), and every error of
- * LocomotionHeuristicConfig::validate(): a name that is unknown, in the wrong list or listed twice, and a parameter outside its range.
+ * @return The configuration; InvalidArgument when a value is not finite (inf or
+ * nan), and every error of LocomotionHeuristicConfig::validate(): a name that
+ * is unknown, in the wrong list or listed twice, and a parameter outside its
+ * range.
  */
-absl::StatusOr<LocomotionHeuristicConfig> locomotionHeuristicConfigFromConfig(const mpc_config::LocomotionHeuristicsConfig& config);
+absl::StatusOr<LocomotionHeuristicConfig> locomotionHeuristicConfigFromConfig(
+    const mpc_config::LocomotionHeuristicsConfig& config);
 
 }  // namespace ocs2::humanoid

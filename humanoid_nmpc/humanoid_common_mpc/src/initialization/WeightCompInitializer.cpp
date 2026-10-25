@@ -39,10 +39,13 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-WeightCompInitializer::WeightCompInitializer(const PinocchioInterface& pinocchioInterface,
-                                             const SwitchedModelReferenceManager& referenceManager,
-                                             const MpcRobotModelBase<scalar_t>& mpcRobotModel)
-    : mpcRobotModelPtr_(&mpcRobotModel), pinocchioInterfacePtr_(&pinocchioInterface), referenceManagerPtr_(&referenceManager) {}
+WeightCompInitializer::WeightCompInitializer(
+    const PinocchioInterface& pinocchioInterface,
+    const SwitchedModelReferenceManager& referenceManager,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel)
+    : mpcRobotModelPtr_(&mpcRobotModel),
+      pinocchioInterfacePtr_(&pinocchioInterface),
+      referenceManagerPtr_(&referenceManager) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -65,9 +68,15 @@ WeightCompInitializer* absl_nonnull WeightCompInitializer::clone() const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-void WeightCompInitializer::compute(scalar_t time, const vector_t& state, scalar_t /*nextTime*/, vector_t& input, vector_t& nextState) {
-  const contact_flag_t contactFlags = referenceManagerPtr_->getContactFlags(time);
-  input = weightCompensatingInput(*pinocchioInterfacePtr_, contactFlags, *mpcRobotModelPtr_);
+void WeightCompInitializer::compute(scalar_t time,
+                                    const vector_t& state,
+                                    scalar_t /*nextTime*/,
+                                    vector_t& input,
+                                    vector_t& nextState) {
+  const contact_flag_t contactFlags =
+      referenceManagerPtr_->getContactFlags(time);
+  input = weightCompensatingInput(*pinocchioInterfacePtr_, contactFlags,
+                                  *mpcRobotModelPtr_);
   nextState = state;
 }
 

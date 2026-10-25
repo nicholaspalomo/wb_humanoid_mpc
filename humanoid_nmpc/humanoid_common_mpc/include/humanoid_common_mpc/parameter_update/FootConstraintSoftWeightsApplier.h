@@ -38,27 +38,35 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Applies the foot constraint's soft weights and the pre-computation's servo gain: soft_constraint_weight to the
- * penalty of a soft zero_velocity term (zeroVelocityTermName()), normal_velocity_soft_constraint_weight to the soft
- * normal-velocity term (contact_term::kNormalVelocitySoft), and position_error_gain_z to every worker's
- * HumanoidPreComputation (setNormalVelocityPositionErrorGain()), which the soft normal-velocity servo reads. A weight
- * that is not positive is refused by its field.
+ * Applies the foot constraint's soft weights and the pre-computation's servo
+ * gain: soft_constraint_weight to the penalty of a soft zero_velocity term
+ * (zeroVelocityTermName()), normal_velocity_soft_constraint_weight to the soft
+ * normal-velocity term (contact_term::kNormalVelocitySoft), and
+ * position_error_gain_z to every worker's HumanoidPreComputation
+ * (setNormalVelocityPositionErrorGain()), which the soft normal-velocity servo
+ * reads. A weight that is not positive is refused by its field.
  *
- * The zero_velocity twist gains are the formulation's own: ZeroVelocityGainsApplier (centroidal),
- * StanceFootAccelerationGainsApplier (whole-body). Not thread-safe (HotFieldApplier).
+ * The zero_velocity twist gains are the formulation's own:
+ * ZeroVelocityGainsApplier (centroidal), StanceFootAccelerationGainsApplier
+ * (whole-body). Not thread-safe (HotFieldApplier).
  */
 class FootConstraintSoftWeightsApplier final : public HotFieldApplier {
  public:
   /**
-   * The fields it applies: model_settings.foot_constraint.{soft_constraint_weight,
+   * The fields it applies:
+   * model_settings.foot_constraint.{soft_constraint_weight,
    * normal_velocity_soft_constraint_weight, position_error_gain_z}.
    */
   static absl::Span<const absl::string_view> staticFields();
 
   FootConstraintSoftWeightsApplier() = default;
 
-  absl::string_view name() const override { return "FootConstraintSoftWeightsApplier"; }
-  absl::Span<const absl::string_view> fields() const final { return staticFields(); }
+  absl::string_view name() const override {
+    return "FootConstraintSoftWeightsApplier";
+  }
+  absl::Span<const absl::string_view> fields() const final {
+    return staticFields();
+  }
   void apply(HotUpdateTarget& target) override;
 };
 

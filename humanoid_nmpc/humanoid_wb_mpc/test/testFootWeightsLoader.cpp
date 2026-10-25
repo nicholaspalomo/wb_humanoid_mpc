@@ -51,13 +51,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "nproto/Textproto.h"
 
 /**
- * The whole-body swing-foot cost weights as the task file gives them, task_space_foot_cost.weights, read by the strict
- * parser and the weights' conversion (endEffectorDynamicsWeightsFromConfig(), with which wholeBodyFootCostWeightsFromConfig()
- * ends after refusing what the foot cost does not have). The loader they replaced (EndEffectorDynamicsWeights::getWeights())
- * once wrote the lin_acceleration_* and ang_acceleration_* weights into the VELOCITY weights, over the lin_velocity_* and
- * ang_velocity_* weights it had just read, and left the acceleration weights at their defaults. Each field lands in its
- * own weight, and the G1 whole-body task file was rewritten with the values that were in effect, so the cost the robot ran
- * was unchanged by the fix (shown on frozen copies of the block before and after, not on the live file, which is tuned).
+ * The whole-body swing-foot cost weights as the task file gives them,
+ * task_space_foot_cost.weights, read by the strict parser and the weights'
+ * conversion (endEffectorDynamicsWeightsFromConfig(), with which
+ * wholeBodyFootCostWeightsFromConfig() ends after refusing what the foot cost
+ * does not have). The loader they replaced
+ * (EndEffectorDynamicsWeights::getWeights()) once wrote the lin_acceleration_*
+ * and ang_acceleration_* weights into the VELOCITY weights, over the
+ * lin_velocity_* and ang_velocity_* weights it had just read, and left the
+ * acceleration weights at their defaults. Each field lands in its own weight,
+ * and the G1 whole-body task file was rewritten with the values that were in
+ * effect, so the cost the robot ran was unchanged by the fix (shown on frozen
+ * copies of the block before and after, not on the live file, which is tuned).
  */
 namespace ocs2::humanoid {
 namespace {
@@ -67,15 +72,19 @@ using ::google::protobuf::FieldDescriptor;
 using ::google::protobuf::Message;
 using ::google::protobuf::Reflection;
 
-// The weight groups and their axes, in the order of EndEffectorDynamicsWeights::toVector().
-constexpr std::array<absl::string_view, 6> kWeightGroups = {"pos",          "orientation",      "lin_velocity",
-                                                            "ang_velocity", "lin_acceleration", "ang_acceleration"};
+// The weight groups and their axes, in the order of
+// EndEffectorDynamicsWeights::toVector().
+constexpr std::array<absl::string_view, 6> kWeightGroups = {
+    "pos",          "orientation",      "lin_velocity",
+    "ang_velocity", "lin_acceleration", "ang_acceleration"};
 constexpr std::array<absl::string_view, 3> kAxes = {"x", "y", "z"};
 constexpr size_t kNumWeights = kWeightGroups.size() * kAxes.size();
 
-/** The field of weight `index` of EndEffectorDynamicsWeights::toVector(), e.g. "lin_velocity_y" for 7. */
+/** The field of weight `index` of EndEffectorDynamicsWeights::toVector(), e.g.
+ * "lin_velocity_y" for 7. */
 std::string weightField(size_t index) {
-  return absl::StrCat(kWeightGroups[index / kAxes.size()], "_", kAxes[index % kAxes.size()]);
+  return absl::StrCat(kWeightGroups[index / kAxes.size()], "_",
+                      kAxes[index % kAxes.size()]);
 }
 
 std::string runfilePath(absl::string_view relativePath) {
@@ -92,29 +101,38 @@ std::string runfilePath(absl::string_view relativePath) {
 }
 
 /**
- * The foot cost weights of the task file `contents`, written below the header that names its schema to a file of its own under the test's
- * temporary directory and read as the stack reads a task file (loadTaskFile(), endEffectorDynamicsWeightsFromConfig()); a test failure and
- * the default weights when it does not read or convert.
+ * The foot cost weights of the task file `contents`, written below the header
+ * that names its schema to a file of its own under the test's temporary
+ * directory and read as the stack reads a task file (loadTaskFile(),
+ * endEffectorDynamicsWeightsFromConfig()); a test failure and the default
+ * weights when it does not read or convert.
  */
-EndEffectorDynamicsWeights footWeightsOf(absl::string_view name, absl::string_view contents) {
+EndEffectorDynamicsWeights footWeightsOf(absl::string_view name,
+                                         absl::string_view contents) {
   const std::string path =
-      (std::filesystem::path(testing::TempDir()) / absl::StrCat("testFootWeightsLoader_", name, ".textproto")).string();
-  std::ofstream(path) << "# proto-message: humanoid_mpc_config.TaskFile\n" << contents;
+      (std::filesystem::path(testing::TempDir()) /
+       absl::StrCat("testFootWeightsLoader_", name, ".textproto"))
+          .string();
+  std::ofstream(path) << "# proto-message: humanoid_mpc_config.TaskFile\n"
+                      << contents;
   const absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(path);
   EXPECT_TRUE(task.ok()) << task.status();
   if (!task.ok()) return EndEffectorDynamicsWeights();
   const absl::StatusOr<EndEffectorDynamicsWeights> weights =
-      endEffectorDynamicsWeightsFromConfig(task->task_space_foot_cost.weights, "task_space_foot_cost.weights");
+      endEffectorDynamicsWeightsFromConfig(task->task_space_foot_cost.weights,
+                                           "task_space_foot_cost.weights");
   EXPECT_TRUE(weights.ok()) << weights.status();
   return weights.ok() ? *weights : EndEffectorDynamicsWeights();
 }
 
 /**
- * What the loader applied before the fix to a block whose weights `read` holds, each in its own entry: the same 18
- * weights read, the acceleration weights written into the velocity weights, and the acceleration weights left at their
+ * What the loader applied before the fix to a block whose weights `read` holds,
+ * each in its own entry: the same 18 weights read, the acceleration weights
+ * written into the velocity weights, and the acceleration weights left at their
  * defaults.
  */
-EndEffectorDynamicsWeights legacyApplied(const EndEffectorDynamicsWeights& read) {
+EndEffectorDynamicsWeights legacyApplied(
+    const EndEffectorDynamicsWeights& read) {
   const VECTOR18_T<scalar_t> values = read.toVector();
   EndEffectorDynamicsWeights weights;
   weights.contactPositionErrorWeight = values.segment<3>(0);
@@ -126,10 +144,12 @@ EndEffectorDynamicsWeights legacyApplied(const EndEffectorDynamicsWeights& read)
   return weights;
 }
 
-// The parity record of the loader fix, as two frozen copies of the G1 whole-body block: as it shipped before the fix,
-// and as the fix rewrote it. Read by the legacy loader the first gives the weights the robot ran with; the second must
-// give the same weights as each field is read now. Both are history, so neither follows later tuning of the task file
-// (which TheShippedG1FileNamesEveryWeight checks only for properties).
+// The parity record of the loader fix, as two frozen copies of the G1
+// whole-body block: as it shipped before the fix, and as the fix rewrote it.
+// Read by the legacy loader the first gives the weights the robot ran with; the
+// second must give the same weights as each field is read now. Both are
+// history, so neither follows later tuning of the task file (which
+// TheShippedG1FileNamesEveryWeight checks only for properties).
 constexpr absl::string_view kLegacyShippedBlock = R"pb(
   task_space_foot_cost {
     weights {
@@ -181,7 +201,8 @@ constexpr absl::string_view kFixedShippedBlock = R"pb(
 )pb";
 
 TEST(FootWeightsLoader, EachFieldLandsInItsOwnWeight) {
-  // Every field a different value, so that a field read into another field's weight cannot go unnoticed.
+  // Every field a different value, so that a field read into another field's
+  // weight cannot go unnoticed.
   std::string contents = "task_space_foot_cost {\n  weights {\n";
   for (size_t i = 0; i < kNumWeights; ++i) {
     absl::StrAppend(&contents, "    ", weightField(i), ": ", i + 1, ".5\n");
@@ -192,44 +213,63 @@ TEST(FootWeightsLoader, EachFieldLandsInItsOwnWeight) {
   for (size_t i = 0; i < kNumWeights; ++i) {
     EXPECT_EQ(weights(i), static_cast<scalar_t>(i + 1) + 0.5) << weightField(i);
   }
-  // Positive control: the legacy loader lost the velocity weights and the acceleration fields on the same block.
+  // Positive control: the legacy loader lost the velocity weights and the
+  // acceleration fields on the same block.
   const VECTOR18_T<scalar_t> legacy = legacyApplied(read).toVector();
-  EXPECT_EQ(legacy(6), 13.5) << "the legacy loader wrote lin_acceleration_x into the linear velocity weight";
-  EXPECT_EQ(legacy(12), EndEffectorDynamicsWeights().contactLinearAccelerationErrorWeight(0));
+  EXPECT_EQ(legacy(6), 13.5) << "the legacy loader wrote lin_acceleration_x "
+                                "into the linear velocity weight";
+  EXPECT_EQ(
+      legacy(12),
+      EndEffectorDynamicsWeights().contactLinearAccelerationErrorWeight(0));
 }
 
-TEST(FootWeightsLoader, TheRewrittenBlockAppliesTheWeightsTheLegacyLoaderApplied) {
-  const EndEffectorDynamicsWeights legacyBlock = footWeightsOf("legacy_shipped", kLegacyShippedBlock);
-  const VECTOR18_T<scalar_t> appliedBefore = legacyApplied(legacyBlock).toVector();
-  const VECTOR18_T<scalar_t> appliedAfter = footWeightsOf("fixed_shipped", kFixedShippedBlock).toVector();
-  // Bit for bit: the cost takes the square roots of these as CppAD parameters, so the problem was unchanged exactly.
+TEST(FootWeightsLoader,
+     TheRewrittenBlockAppliesTheWeightsTheLegacyLoaderApplied) {
+  const EndEffectorDynamicsWeights legacyBlock =
+      footWeightsOf("legacy_shipped", kLegacyShippedBlock);
+  const VECTOR18_T<scalar_t> appliedBefore =
+      legacyApplied(legacyBlock).toVector();
+  const VECTOR18_T<scalar_t> appliedAfter =
+      footWeightsOf("fixed_shipped", kFixedShippedBlock).toVector();
+  // Bit for bit: the cost takes the square roots of these as CppAD parameters,
+  // so the problem was unchanged exactly.
   for (size_t i = 0; i < kNumWeights; ++i) {
     EXPECT_EQ(appliedAfter(i), appliedBefore(i)) << weightField(i);
   }
-  // Positive control: the legacy block read field by field is NOT what ran, so the values had to move in the file.
+  // Positive control: the legacy block read field by field is NOT what ran, so
+  // the values had to move in the file.
   EXPECT_NE(legacyBlock.toVector(), appliedBefore);
 }
 
 TEST(FootWeightsLoader, TheShippedG1FileNamesEveryWeight) {
-  // Properties only, so that tuning the block stays a tuning: every weight of the schema is given (an absent one would
-  // silently be 0), and every weight is finite and non-negative.
+  // Properties only, so that tuning the block stays a tuning: every weight of
+  // the schema is given (an absent one would silently be 0), and every weight
+  // is finite and non-negative.
   // LINT.IfChange(robot_files)
-  const std::string shippedTaskFile = runfilePath("robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto");
+  const std::string shippedTaskFile = runfilePath(
+      "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto");
   // LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/BUILD.bazel:foot_weights_loader_test_data)
-  ASSERT_FALSE(shippedTaskFile.empty()) << "the G1 whole-body task file is not in the runfiles";
-  const absl::StatusOr<humanoid_mpc_config::TaskFile> message = nproto::ParseTextprotoFile<humanoid_mpc_config::TaskFile>(shippedTaskFile);
+  ASSERT_FALSE(shippedTaskFile.empty())
+      << "the G1 whole-body task file is not in the runfiles";
+  const absl::StatusOr<humanoid_mpc_config::TaskFile> message =
+      nproto::ParseTextprotoFile<humanoid_mpc_config::TaskFile>(
+          shippedTaskFile);
   ASSERT_TRUE(message.ok()) << message.status();
   const Message& weightsMessage = message->task_space_foot_cost().weights();
   const Descriptor* absl_nonnull descriptor = weightsMessage.GetDescriptor();
   const Reflection* absl_nonnull reflection = weightsMessage.GetReflection();
-  ASSERT_EQ(static_cast<size_t>(descriptor->field_count()), kNumWeights) << "a weight of the schema is not one of this test's";
+  ASSERT_EQ(static_cast<size_t>(descriptor->field_count()), kNumWeights)
+      << "a weight of the schema is not one of this test's";
   for (int index = 0; index < descriptor->field_count(); ++index) {
     const FieldDescriptor* absl_nonnull field = descriptor->field(index);
-    EXPECT_TRUE(reflection->HasField(weightsMessage, field)) << "task_space_foot_cost.weights." << field->name();
+    EXPECT_TRUE(reflection->HasField(weightsMessage, field))
+        << "task_space_foot_cost.weights." << field->name();
   }
-  const absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(shippedTaskFile);
+  const absl::StatusOr<mpc_config::TaskFile> task =
+      loadTaskFile(shippedTaskFile);
   ASSERT_TRUE(task.ok()) << task.status();
-  const absl::StatusOr<EndEffectorDynamicsWeights> weights = wholeBodyFootCostWeightsFromConfig(task->task_space_foot_cost);
+  const absl::StatusOr<EndEffectorDynamicsWeights> weights =
+      wholeBodyFootCostWeightsFromConfig(task->task_space_foot_cost);
   ASSERT_TRUE(weights.ok()) << weights.status();
   EXPECT_TRUE(weights->toVector().allFinite());
   EXPECT_GE(weights->toVector().minCoeff(), 0.0);

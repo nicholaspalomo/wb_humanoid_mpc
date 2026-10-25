@@ -49,7 +49,9 @@ def _runfile(relative_path):
             os.path.join(os.environ["TEST_SRCDIR"], "_main"),
             os.environ["TEST_SRCDIR"],
         ]
-    roots.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+    roots.append(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
+    )
     for root in roots:
         candidate = os.path.join(root, relative_path)
         if os.path.exists(candidate):
@@ -64,7 +66,9 @@ def _host_ram_factor(bazelrc, command, flag):
     """The factor in `<command> --<flag>=HOST_RAM*<factor>`, or None when the flag is not written that way."""
     # LINT.IfChange(bazel_memory_bound)
     match = re.search(
-        r"^%s --%s=HOST_RAM\*([0-9.]+)\s*$" % (command, flag), bazelrc, re.MULTILINE
+        r"^%s --%s=HOST_RAM\*([0-9.]+)\s*$" % (command, flag),
+        bazelrc,
+        re.MULTILINE,
     )
     # LINT.ThenChange(//.bazelrc:bazel_memory_bound)
     return float(match.group(1)) if match else None
@@ -91,7 +95,9 @@ class BazelParallelismTest(unittest.TestCase):
     def test_tests_are_bounded_by_memory_and_at_most_the_build_share(self):
         build = _host_ram_factor(self.bazelrc, "build", "jobs")
         test = _host_ram_factor(self.bazelrc, "test", "local_test_jobs")
-        self.assertIsNotNone(test, "test --local_test_jobs is not bounded by HOST_RAM")
+        self.assertIsNotNone(
+            test, "test --local_test_jobs is not bounded by HOST_RAM"
+        )
         self.assertLessEqual(test, build)
         self.assertGreaterEqual(16384 * test, 1.0)
 
@@ -103,14 +109,18 @@ class BazelParallelismTest(unittest.TestCase):
         # `build --jobs=HOST_RAM*...` is not a count.
         self.assertIsNone(
             re.search(
-                r"^[\w:-]+ --(jobs|local_test_jobs)=\d+", self.bazelrc, re.MULTILINE
+                r"^[\w:-]+ --(jobs|local_test_jobs)=\d+",
+                self.bazelrc,
+                re.MULTILINE,
             ),
             "a fixed --jobs or --local_test_jobs count in .bazelrc",
         )
 
     def test_no_configuration_overrides_the_memory_bound(self):
         # The `<command>:<config>` lines, the clang-tidy aspect's among them (tools/clang_tidy), inherit the bound.
-        configurations = re.findall(r"^\w+:[\w-]+ .*$", self.bazelrc, re.MULTILINE)
+        configurations = re.findall(
+            r"^\w+:[\w-]+ .*$", self.bazelrc, re.MULTILINE
+        )
         self.assertTrue(
             any(line.startswith("build:clang-tidy ") for line in configurations)
         )
@@ -121,7 +131,8 @@ class BazelParallelismTest(unittest.TestCase):
 def _apt_packages(script):
     """The packages of the first `apt-get install -y --no-install-recommends` whose list continues over lines."""
     match = re.search(
-        r"apt-get install -y --no-install-recommends \\\n((?:.*\\\n)*.*)", script
+        r"apt-get install -y --no-install-recommends \\\n((?:.*\\\n)*.*)",
+        script,
     )
     return match.group(1).replace("\\", " ").split() if match else None
 
@@ -136,7 +147,9 @@ class LocalCiEmulatorTest(unittest.TestCase):
     def setUp(self):
         with open(_runfile("tools/ci_local.sh"), encoding="utf-8") as f:
             self.emulator = f.read()
-        with open(_runfile(".github/workflows/build_test.yml"), encoding="utf-8") as f:
+        with open(
+            _runfile(".github/workflows/build_test.yml"), encoding="utf-8"
+        ) as f:
             self.workflow = f.read()
         with open(_runfile(".bazelrc"), encoding="utf-8") as f:
             self.bazelrc = f.read()
@@ -147,7 +160,9 @@ class LocalCiEmulatorTest(unittest.TestCase):
         self.assertEqual(_apt_packages(self.emulator), workflow_packages)
 
     def test_it_runs_the_workflows_container_and_steps(self):
-        container = re.search(r"^    container: (\S+)\s*$", self.workflow, re.MULTILINE)
+        container = re.search(
+            r"^    container: (\S+)\s*$", self.workflow, re.MULTILINE
+        )
         assert container is not None, "the workflow names no container"
         self.assertIn('CI_IMAGE="%s"' % container.group(1), self.emulator)
         self.assertIn('  "${CI_IMAGE}" \\', self.emulator)
@@ -167,8 +182,12 @@ class LocalCiEmulatorTest(unittest.TestCase):
         workflow = dict(
             re.findall(r'echo "(\w+)=(\S+)" >> "\$GITHUB_ENV"', self.workflow)
         )
-        workflow_path = re.findall(r'echo "(\S+)" >> "\$GITHUB_PATH"', self.workflow)
-        emulator = dict(re.findall(r"^\s*export (\w+)=(\S+)$", self.emulator, re.M))
+        workflow_path = re.findall(
+            r'echo "(\S+)" >> "\$GITHUB_PATH"', self.workflow
+        )
+        emulator = dict(
+            re.findall(r"^\s*export (\w+)=(\S+)$", self.emulator, re.M)
+        )
         self.assertTrue(workflow, "the workflow sets no environment")
         self.assertEqual(
             emulator.pop("PATH", None), ":".join(workflow_path + ["\\${PATH}"])
@@ -189,7 +208,8 @@ class LocalCiEmulatorTest(unittest.TestCase):
         test_jobs = re.search(r"test --local_test_jobs=(\d+)", self.emulator)
         assert jobs is not None and test_jobs is not None
         self.assertLessEqual(
-            int(jobs.group(1)), 16384 * _host_ram_factor(self.bazelrc, "build", "jobs")
+            int(jobs.group(1)),
+            16384 * _host_ram_factor(self.bazelrc, "build", "jobs"),
         )
         self.assertLessEqual(
             int(test_jobs.group(1)),
@@ -216,7 +236,9 @@ class WorkflowJobsTest(unittest.TestCase):
     """
 
     def setUp(self):
-        with open(_runfile(".github/workflows/build_test.yml"), encoding="utf-8") as f:
+        with open(
+            _runfile(".github/workflows/build_test.yml"), encoding="utf-8"
+        ) as f:
             self.workflow = yaml.safe_load(f)
         self.jobs = self.workflow["jobs"]
         with open(_runfile("Makefile"), encoding="utf-8") as f:
@@ -252,7 +274,8 @@ class WorkflowJobsTest(unittest.TestCase):
         trim = _step(build, "Trim the Bazel Disk Cache")
         steps = build["steps"]
         self.assertLess(
-            steps.index(_step(build, "Build All (Bazel Monorepo)")), steps.index(trim)
+            steps.index(_step(build, "Build All (Bazel Monorepo)")),
+            steps.index(trim),
         )
         self.assertLess(steps.index(trim), steps.index(save))
         self.assertEqual(save["uses"], "actions/cache/save@v4")
@@ -267,7 +290,8 @@ class WorkflowJobsTest(unittest.TestCase):
         key = restore["with"]["key"]
         self.assertTrue(key.endswith("-${{ github.sha }}"))
         self.assertEqual(
-            restore["with"]["restore-keys"].strip(), key[: -len("${{ github.sha }}")]
+            restore["with"]["restore-keys"].strip(),
+            key[: -len("${{ github.sha }}")],
         )
         configure = _step(build, "Configure the Bazel Caches")["run"]
         for path in restore["with"]["path"].split():
@@ -286,24 +310,30 @@ class WorkflowJobsTest(unittest.TestCase):
         for pattern in patterns:
             self.assertRegex(pattern, r"^//[\w/]*(:all|/\.\.\.)$")
         self.assertEqual(
-            batches[-1]["targets"].split(), ["//..."] + ["-" + p for p in patterns]
+            batches[-1]["targets"].split(),
+            ["//..."] + ["-" + p for p in patterns],
         )
 
     def test_each_batch_runs_through_make_test_all(self):
-        run = _step(self.jobs["test"], "Run the Tests of the Batch")["run"].strip()
+        run = _step(self.jobs["test"], "Run the Tests of the Batch")[
+            "run"
+        ].strip()
         self.assertEqual(
             run, 'make test-all TEST_TARGETS="${{ matrix.batch.targets }}"'
         )
         # `--` before the patterns, so that Bazel reads a leading `-` as an exclusion and not as a flag.
         self.assertRegex(self.makefile, r"(?m)^TEST_TARGETS \?= //\.\.\.$")
         self.assertRegex(
-            self.makefile, r"(?m)^\t.*\$\(bazel_indexed\) test -- \$\(TEST_TARGETS\)$"
+            self.makefile,
+            r"(?m)^\t.*\$\(bazel_indexed\) test -- \$\(TEST_TARGETS\)$",
         )
 
     def test_a_second_run_of_one_branch_cancels_the_first(self):
         concurrency = self.workflow["concurrency"]
         self.assertIs(concurrency["cancel-in-progress"], True)
-        self.assertIn("github.head_ref || github.ref_name", concurrency["group"])
+        self.assertIn(
+            "github.head_ref || github.ref_name", concurrency["group"]
+        )
 
 
 class ContainerMemoryCapTest(unittest.TestCase):
@@ -318,11 +348,14 @@ class ContainerMemoryCapTest(unittest.TestCase):
         # LINT.ThenChange(//docker-compose.yaml:container_memory_limit)
 
     def test_the_dev_container_computes_the_cap_before_it_starts(self):
-        with open(_runfile(".devcontainer/devcontainer.json"), encoding="utf-8") as f:
+        with open(
+            _runfile(".devcontainer/devcontainer.json"), encoding="utf-8"
+        ) as f:
             devcontainer = f.read()
         self.assertRegex(
             devcontainer,
-            r'"initializeCommand":\s*"bash \$\{localWorkspaceFolder\}/tools/resource_limits/set_container_memory_limit.sh"',
+            r'"initializeCommand":\s*"bash'
+            r' \$\{localWorkspaceFolder\}/tools/resource_limits/set_container_memory_limit.sh"',
         )
 
 
@@ -337,9 +370,13 @@ class SetContainerMemoryLimitScriptTest(unittest.TestCase):
         self.dir.cleanup()
 
     def _run(self, total_kb=None, **env):
+        """Runs the script with `total_kb` of memory (when given) and the variables of `env`."""
         if total_kb is not None:
             with open(self.meminfo, "w", encoding="utf-8") as f:
-                f.write("MemTotal:       %d kB\nMemFree:        1000 kB\n" % total_kb)
+                f.write(
+                    "MemTotal:       %d kB\nMemFree:        1000 kB\n"
+                    % total_kb
+                )
         environment = {
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
             "WB_ENV_FILE": self.env_file,
@@ -371,7 +408,9 @@ class SetContainerMemoryLimitScriptTest(unittest.TestCase):
         self._run(total_kb=32 * 1024 * 1024, WB_CONTAINER_MEMORY_LIMIT="20g")
         self.assertIn("WB_CONTAINER_MEMORY_LIMIT=20g", self._env_lines())
 
-    def test_other_variables_are_kept_and_the_line_is_replaced_not_repeated(self):
+    def test_other_variables_are_kept_and_the_line_is_replaced_not_repeated(
+        self,
+    ):
         with open(self.env_file, "w", encoding="utf-8") as f:
             f.write("VNC_RESOLUTION=2560x1440\nWB_CONTAINER_MEMORY_LIMIT=1m\n")
         self._run(total_kb=16 * 1024 * 1024)
@@ -379,7 +418,11 @@ class SetContainerMemoryLimitScriptTest(unittest.TestCase):
         lines = self._env_lines()
         self.assertIn("VNC_RESOLUTION=2560x1440", lines)
         self.assertEqual(
-            [line for line in lines if line.startswith("WB_CONTAINER_MEMORY_LIMIT=")],
+            [
+                line
+                for line in lines
+                if line.startswith("WB_CONTAINER_MEMORY_LIMIT=")
+            ],
             ["WB_CONTAINER_MEMORY_LIMIT=13926m"],
         )
 

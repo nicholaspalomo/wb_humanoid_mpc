@@ -44,10 +44,16 @@ from tools.hooks import checks
 from tools.hooks import format_code
 from tools.hooks import lint_code
 
-_BRITISH = "the centre\n"  # NOLINT(american-spelling): the British spelling is the test's input
+_BRITISH = (
+    # NOLINTNEXTLINE(american-spelling): the British spelling is the test's input
+    "the centre\n"
+)
 
 
-def _context(root: str, files: list[str], **overrides: Any) -> lint_code.Context:
+def _context(
+    root: str, files: list[str], **overrides: Any
+) -> lint_code.Context:
+    """A Context that runs the token checks on `files`, with `overrides` replacing its fields."""
     context = lint_code.Context(
         root=root,
         files=files,
@@ -66,7 +72,13 @@ class StepsTest(unittest.TestCase):
         self.assertEqual(len(names), len(set(names)))
         self.assertEqual(names[0], "ifttt")
         self.assertIn("token-checks", names)
-        for heavy in ("cpplint", "pylint", "pylint-tests", "mypy", "mypy-tests"):
+        for heavy in (
+            "cpplint",
+            "pylint",
+            "pylint-tests",
+            "mypy",
+            "mypy-tests",
+        ):
             self.assertTrue(
                 next(s for s in lint_code.STEPS if s.name == heavy).heavy, heavy
             )
@@ -89,10 +101,13 @@ class StepsTest(unittest.TestCase):
 
         fake = (step("a", "failed"), step("b", "passed"), step("c", "skipped"))
         output = io.StringIO()
-        with mock.patch.object(lint_code, "STEPS", fake), contextlib.redirect_stdout(
-            output
+        with (
+            mock.patch.object(lint_code, "STEPS", fake),
+            contextlib.redirect_stdout(output),
         ):
-            status = lint_code.run(_context("/x", [], steps=frozenset({"a", "b", "c"})))
+            status = lint_code.run(
+                _context("/x", [], steps=frozenset({"a", "b", "c"}))
+            )
         self.assertEqual(status, 1)
         self.assertEqual(ran, ["a", "b", "c"], "a failing step stopped the run")
         text = output.getvalue()
@@ -103,9 +118,14 @@ class StepsTest(unittest.TestCase):
         self.assertIn("❌ Lint failed in: a (skipped: c)", text)
 
     def test_a_clean_run_passes(self):
-        fake = (lint_code.Step("a", "A", lambda context: lint_code.Result("passed")),)
-        with mock.patch.object(lint_code, "STEPS", fake), contextlib.redirect_stdout(
-            io.StringIO()
+        fake = (
+            lint_code.Step(
+                "a", "A", lambda context: lint_code.Result("passed")
+            ),
+        )
+        with (
+            mock.patch.object(lint_code, "STEPS", fake),
+            contextlib.redirect_stdout(io.StringIO()),
         ):
             self.assertEqual(
                 lint_code.run(_context("/x", [], steps=frozenset({"a"}))), 0
@@ -125,7 +145,9 @@ class OnlyTest(unittest.TestCase):
         self.assertEqual(selected, frozenset({"boost"}))
         self.assertEqual(steps, frozenset({"cpplint", "token-checks"}))
         selected, steps = lint_code._parse_only("cpplint")
-        self.assertEqual((selected, steps), (frozenset(), frozenset({"cpplint"})))
+        self.assertEqual(
+            (selected, steps), (frozenset(), frozenset({"cpplint"}))
+        )
 
     def test_each_check_runs_alone_when_named(self):
         for name in checks.names():
@@ -140,7 +162,9 @@ class OnlyTest(unittest.TestCase):
         self.assertEqual(steps, frozenset({"token-checks"}))
 
     def test_an_unknown_name(self):
-        with self.assertRaisesRegex(ValueError, "unknown check or step no-such"):
+        with self.assertRaisesRegex(
+            ValueError, "unknown check or step no-such"
+        ):
             lint_code._parse_only("boost,no-such")
 
 
@@ -156,7 +180,9 @@ class FilesTest(unittest.TestCase):
     def test_paths_narrow_the_files(self):
         root = self.repository.root
         select = lint_code._select_files
-        self.assertEqual(select(root, False, []), ["a/b/y.py", "a/x.cpp", "c/z.md"])
+        self.assertEqual(
+            select(root, False, []), ["a/b/y.py", "a/x.cpp", "c/z.md"]
+        )
         self.assertEqual(select(root, False, ["a"]), ["a/b/y.py", "a/x.cpp"])
         self.assertEqual(
             select(root, False, ["a/b/", "c/z.md"]), ["a/b/y.py", "c/z.md"]
@@ -181,12 +207,51 @@ class FilesTest(unittest.TestCase):
             lint_code._apply_fixes(root, ["c/z.md"], frozenset({"boost"})), []
         )
 
+    def test_fix_only_fixes_and_exits_without_linting(self):
+        root = self.repository.root
+        self.repository.write("c/z.md", _BRITISH)
+        with (
+            mock.patch.object(lint_code, "REPO_ROOT", root),
+            mock.patch.object(lint_code, "run") as lint_run,
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(lint_code.main(["--fix-only", "--paths", "c"]), 0)
+        lint_run.assert_not_called()
+        with open(os.path.join(root, "c/z.md"), encoding="utf-8") as f:
+            self.assertEqual(f.read(), "the center\n")
+
+    def test_fix_only_with_git_staged_fixes_only_the_staged_files(self):
+        root = self.repository.root
+        self.repository.write("c/z.md", _BRITISH)
+        self.repository.write("c/w.md", _BRITISH)
+        self.repository.git("add", "c/z.md")
+        with (
+            mock.patch.object(lint_code, "REPO_ROOT", root),
+            mock.patch.object(lint_code, "run") as lint_run,
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(lint_code.main(["--fix-only", "--git-staged"]), 0)
+        lint_run.assert_not_called()
+        with open(os.path.join(root, "c/z.md"), encoding="utf-8") as f:
+            self.assertEqual(f.read(), "the center\n")
+        with open(os.path.join(root, "c/w.md"), encoding="utf-8") as f:
+            self.assertEqual(f.read(), _BRITISH, "not staged")
+
+    def test_fix_does_not_lint_the_index_it_has_not_fixed(self):
+        with (
+            contextlib.redirect_stderr(io.StringIO()),
+            self.assertRaises(SystemExit),
+        ):
+            lint_code.main(["--fix", "--git-staged"])
+
 
 class TokenStepTest(unittest.TestCase):
     def setUp(self):
         self.repository = check_test_support.StagedRepository()
         self.repository.write("src/a.cpp", "#include <boost/variant.hpp>\n")
-        self.repository.write("src/b.cpp", "boost::optional<int> x;\nboost::any y;\n")
+        self.repository.write(
+            "src/b.cpp", "boost::optional<int> x;\nboost::any y;\n"
+        )
 
     def tearDown(self):
         self.repository.cleanup()
@@ -206,7 +271,9 @@ class TokenStepTest(unittest.TestCase):
 
     def test_summary(self):
         with open(
-            os.path.join(self.repository.root, "src/BUILD.bazel"), "w", encoding="utf-8"
+            os.path.join(self.repository.root, "src/BUILD.bazel"),
+            "w",
+            encoding="utf-8",
         ) as f:
             f.write("")
         context = _context(
@@ -218,7 +285,8 @@ class TokenStepTest(unittest.TestCase):
         result = lint_code._run_token_checks(context)
         self.assertEqual(result.status, "failed")
         self.assertEqual(
-            [line.split() for line in result.lines], [["3", "boost"], ["3", "//src"]]
+            [line.split() for line in result.lines],
+            [["3", "boost"], ["3", "//src"]],
         )
 
 
@@ -232,25 +300,37 @@ class WhitespaceTest(unittest.TestCase):
 
 
 class CpplintOutputTest(unittest.TestCase):
-    def test_markers_for_the_repositorys_own_checks_are_not_cpplints_business(self):
+    def test_markers_for_the_repositorys_own_checks_are_not_cpplints_business(
+        self,
+    ):
         output = (
-            "a.cpp:3:  Unknown NOLINT error category: argument-comment  [readability/nolint] [5]\n"
-            "a.cpp:4:  Unknown NOLINT error category: argumnet-comment  [readability/nolint] [5]\n"
-            "a.cpp:9:  Use int16_t/int64_t/etc, rather than the C type long  [runtime/int] [4]\n"
-            "Done processing a.cpp\n"
+            "a.cpp:3:  Unknown NOLINT error category: argument-comment "
+            " [readability/nolint] [5]\na.cpp:4:  Unknown NOLINT error"
+            " category: argumnet-comment  [readability/nolint] [5]\na.cpp:9: "
+            " Use int16_t/int64_t/etc, rather than the C type long "
+            " [runtime/int] [4]\nDone processing a.cpp\n"
         )
         self.assertEqual(
             lint_code.filter_cpplint_output(output),
             [
-                "a.cpp:4: Unknown NOLINT error category: argumnet-comment [readability/nolint]",
-                "a.cpp:9: Use int16_t/int64_t/etc, rather than the C type long [runtime/int]",
+                (
+                    "a.cpp:4: Unknown NOLINT error category: argumnet-comment"
+                    " [readability/nolint]"
+                ),
+                (
+                    "a.cpp:9: Use int16_t/int64_t/etc, rather than the C type"
+                    " long [runtime/int]"
+                ),
             ],
         )
 
     def test_the_ends_of_blocks_of_other_tools_are_not_findings(self):
         source = {
             ("a.cpp", 5): "// NOLINTEND(exceptions)",
-            ("a.cpp", 8): "  // NOLINTEND(misc-use-internal-linkage, exceptions)",
+            (
+                "a.cpp",
+                8,
+            ): "  // NOLINTEND(misc-use-internal-linkage, exceptions)",
             ("a.cpp", 11): "// NOLINTEND",
             ("a.cpp", 14): "// NOLINTEND(runtime/int)",
         }
@@ -284,7 +364,8 @@ class ToolVersionTest(unittest.TestCase):
             os.path.join(self.root, lint_code.LOCK_FILE), "w", encoding="utf-8"
         ) as f:
             f.write(
-                "cpplint==2.0.2 \\\n    --hash=sha256:abc\npylint==4.1.1 \\\n    --hash=sha256:def\n"
+                "cpplint==2.0.2 \\\n    --hash=sha256:abc\npylint==4.1.1 \\\n  "
+                "  --hash=sha256:def\n"
             )
 
     def tearDown(self):
@@ -297,17 +378,26 @@ class ToolVersionTest(unittest.TestCase):
         )
 
     def test_a_matching_tool_runs(self):
-        with mock.patch.object(lint_code, "installed_version", return_value="2.0.2"):
+        with mock.patch.object(
+            lint_code, "installed_version", return_value="2.0.2"
+        ):
             self.assertIsNone(
                 lint_code._tool_problem(_context(self.root, []), "cpplint")
             )
 
-    def test_a_missing_or_other_tool_is_an_error_in_ci_and_a_warning_otherwise(self):
+    def test_a_missing_or_other_tool_is_an_error_in_ci_and_a_warning_otherwise(
+        self,
+    ):
         for installed in (None, "1.6.1"):
-            with self.subTest(installed=installed), mock.patch.object(
-                lint_code, "installed_version", return_value=installed
+            with (
+                self.subTest(installed=installed),
+                mock.patch.object(
+                    lint_code, "installed_version", return_value=installed
+                ),
             ):
-                local = lint_code._tool_problem(_context(self.root, []), "cpplint")
+                local = lint_code._tool_problem(
+                    _context(self.root, []), "cpplint"
+                )
                 assert local is not None
                 self.assertEqual(local.status, "skipped")
                 self.assertIn("rebuild the dev container", local.lines[0])
@@ -318,13 +408,17 @@ class ToolVersionTest(unittest.TestCase):
                 self.assertEqual(ci.status, "failed")
 
     def test_the_version_is_read_from_the_tool(self):
-        with mock.patch.object(
-            lint_code.shutil, "which", return_value="/bin/tool"
-        ), mock.patch.object(
-            lint_code.subprocess,
-            "run",
-            return_value=mock.Mock(
-                stdout="pylint 4.1.1\nastroid 4.3.3\nPython 3.12.3\n", stderr=""
+        with (
+            mock.patch.object(
+                lint_code.shutil, "which", return_value="/bin/tool"
+            ),
+            mock.patch.object(
+                lint_code.subprocess,
+                "run",
+                return_value=mock.Mock(
+                    stdout="pylint 4.1.1\nastroid 4.3.3\nPython 3.12.3\n",
+                    stderr="",
+                ),
             ),
         ):
             self.assertEqual(lint_code.installed_version("pylint"), "4.1.1")
@@ -339,9 +433,8 @@ def write_fake_tool(
     path = os.path.join(directory, name)
     with open(path, "w", encoding="utf-8") as f:
         f.write(
-            "#!/bin/sh\n"
-            f'if [ "$1" = "--version" ]; then echo "{version_line}"; exit 0; fi\n'
-            f"echo 'formatted' >&2\nexit {status}\n"
+            f'#!/bin/sh\nif [ "$1" = "--version" ]; then echo "{version_line}";'
+            f" exit 0; fi\necho 'formatted' >&2\nexit {status}\n"
         )
     os.chmod(path, 0o755)
 
@@ -377,18 +470,24 @@ class FormatterVersionTest(unittest.TestCase):
         self.directory.cleanup()
 
     def test_the_pins(self):
-        self.assertEqual(lint_code.pinned_version(self.root, "clang-format"), "18")
+        self.assertEqual(
+            lint_code.pinned_version(self.root, "clang-format"), "18"
+        )
         self.assertEqual(lint_code.pinned_version(self.root, "black"), "24.2.0")
 
     def test_the_versions_are_read_from_the_tools(self):
         write_fake_tool(
-            self.bin, "clang-format", "Ubuntu clang-format version 18.1.8 (++2024)"
+            self.bin,
+            "clang-format",
+            "Ubuntu clang-format version 18.1.8 (++2024)",
         )
         write_fake_tool(self.bin, "black", "black, 24.2.0 (compiled: no)")
         self.assertEqual(lint_code.installed_version("clang-format"), "18")
         self.assertEqual(lint_code.installed_version("black"), "24.2.0")
 
-    def test_a_missing_or_other_formatter_fails_in_ci_and_is_skipped_otherwise(self):
+    def test_a_missing_or_other_formatter_fails_in_ci_and_is_skipped_otherwise(
+        self,
+    ):
         write_fake_tool(self.bin, "clang-format", "clang-format version 17.0.6")
         for step, files in (
             (lint_code._run_clang_format, ["a.cpp"]),
@@ -401,7 +500,9 @@ class FormatterVersionTest(unittest.TestCase):
                 self.assertEqual(ci.status, "failed", ci.lines)
         self.assertIn(
             "clang-format 17 is installed",
-            lint_code._run_clang_format(_context(self.root, ["a.cpp"])).lines[0],
+            lint_code._run_clang_format(_context(self.root, ["a.cpp"])).lines[
+                0
+            ],
         )
         self.assertIn(
             "black is not installed",
@@ -412,7 +513,9 @@ class FormatterVersionTest(unittest.TestCase):
         write_fake_tool(self.bin, "clang-format", "clang-format version 18.1.8")
         write_fake_tool(self.bin, "black", "black, 24.2.0 (compiled: no)")
         self.assertEqual(
-            lint_code._run_clang_format(_context(self.root, ["a.cpp"], ci=True)).status,
+            lint_code._run_clang_format(
+                _context(self.root, ["a.cpp"], ci=True)
+            ).status,
             "passed",
         )
         self.assertEqual(
@@ -423,31 +526,43 @@ class FormatterVersionTest(unittest.TestCase):
             self.bin, "clang-format", "clang-format version 18.1.8", status=1
         )
         self.assertEqual(
-            lint_code._run_clang_format(_context(self.root, ["a.cpp"], ci=True)).status,
+            lint_code._run_clang_format(
+                _context(self.root, ["a.cpp"], ci=True)
+            ).status,
             "failed",
         )
 
     def test_format_code_skips_another_version_and_reports_a_failure(self):
         write_fake_tool(self.bin, "clang-format", "clang-format version 17.0.6")
-        skipped = format_code._run_formatter(["clang-format", "-i", "a.cpp"], self.root)
+        skipped = format_code._run_formatter(
+            ["clang-format", "-i", "a.cpp"], self.root
+        )
         self.assertIsNone(skipped.error)
         self.assertIn("clang-format 17 is installed", skipped.warning or "")
-        missing = format_code._run_formatter(["black", "--quiet", "a.py"], self.root)
+        missing = format_code._run_formatter(
+            ["black", "--quiet", "a.py"], self.root
+        )
         self.assertIn("black is not installed", missing.warning or "")
         write_fake_tool(
             self.bin, "clang-format", "clang-format version 18.1.8", status=2
         )
-        failed = format_code._run_formatter(["clang-format", "-i", "a.cpp"], self.root)
+        failed = format_code._run_formatter(
+            ["clang-format", "-i", "a.cpp"], self.root
+        )
         self.assertIsNone(failed.warning)
         self.assertIn("failed with status 2", failed.error or "")
         write_fake_tool(self.bin, "clang-format", "clang-format version 18.1.8")
         self.assertEqual(
-            format_code._run_formatter(["clang-format", "-i", "a.cpp"], self.root),
+            format_code._run_formatter(
+                ["clang-format", "-i", "a.cpp"], self.root
+            ),
             format_code.FormatterOutcome(),
         )
 
 
-def _hold_lock(path: str, held: synchronize.Event, release: synchronize.Event) -> None:
+def _hold_lock(
+    path: str, held: synchronize.Event, release: synchronize.Event
+) -> None:
     with mock.patch.dict(os.environ, {lint_code.LINT_LOCK_ENVIRONMENT: path}):
         with lint_code.lint_lock("/unused"):
             held.set()
@@ -466,7 +581,8 @@ class MypyConfigTest(unittest.TestCase):
     def test_the_global_section_alone_is_sound(self):
         self.assertEqual(
             self._problems(
-                "[mypy]\nstrict_equality = True\nignore_missing_imports = True\n"
+                "[mypy]\nstrict_equality = True\nignore_missing_imports ="
+                " True\n"
             ),
             [],
         )
@@ -482,7 +598,8 @@ class MypyConfigTest(unittest.TestCase):
         )
         self.assertEqual(len(problems), 3, problems)
         for section, problem in zip(
-            ("[mypy-known]", "[mypy-tools.hooks.checks]", "[mypy-strict.*]"), problems
+            ("[mypy-known]", "[mypy-tools.hooks.checks]", "[mypy-strict.*]"),
+            problems,
         ):
             self.assertIn(section, problem)
             self.assertIn("type: ignore[<code>]", problem)
@@ -518,7 +635,9 @@ class LintLockTest(unittest.TestCase):
             context = multiprocessing.get_context("fork")
             held = context.Event()
             release = context.Event()
-            holder = context.Process(target=_hold_lock, args=(path, held, release))
+            holder = context.Process(
+                target=_hold_lock, args=(path, held, release)
+            )
             holder.start()
             try:
                 self.assertTrue(held.wait(30), "the child never took the lock")
@@ -547,10 +666,17 @@ class LintLockTest(unittest.TestCase):
     def test_an_uncontended_lock_does_not_wait(self):
         with tempfile.TemporaryDirectory() as directory:
             output = io.StringIO()
-            with mock.patch.dict(
-                os.environ,
-                {lint_code.LINT_LOCK_ENVIRONMENT: os.path.join(directory, "lint.lock")},
-            ), contextlib.redirect_stdout(output):
+            with (
+                mock.patch.dict(
+                    os.environ,
+                    {
+                        lint_code.LINT_LOCK_ENVIRONMENT: os.path.join(
+                            directory, "lint.lock"
+                        )
+                    },
+                ),
+                contextlib.redirect_stdout(output),
+            ):
                 with lint_code.lint_lock("/unused"):
                     pass
             self.assertEqual(output.getvalue(), "")

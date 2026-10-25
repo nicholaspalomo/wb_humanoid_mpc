@@ -27,9 +27,11 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// The viewer annotations of the policies the robot accepts (MpcPolicy.annotations: the contact planner's target contact
-// patches and the scaled walking command), handed to one consumer of the robot process by RemoteMpcLink::takeAnnotations():
-// those of the newest accepted policy, once each, and none of a policy the link drops.
+// The viewer annotations of the policies the robot accepts
+// (MpcPolicy.annotations: the contact planner's target contact patches and the
+// scaled walking command), handed to one consumer of the robot process by
+// RemoteMpcLink::takeAnnotations(): those of the newest accepted policy, once
+// each, and none of a policy the link drops.
 
 #include <atomic>
 #include <memory>
@@ -60,37 +62,46 @@ using test_support::observationAt;
 using test_support::resetTargetsFor;
 using test_support::waitFor;
 
-TEST(RemoteMpcLinkAnnotations, TheNewestAcceptedPolicysAnnotationsAreTakenOnce) {
+TEST(RemoteMpcLinkAnnotations,
+     TheNewestAcceptedPolicysAnnotationsAreTakenOnce) {
   std::unique_ptr<mpc_test::ScriptedMpc> mpc = test_support::makeScriptedMpc();
-  std::unique_ptr<robot::ipc::Bus> robotBus = test_support::createNodeBus("robot");
+  std::unique_ptr<robot::ipc::Bus> robotBus =
+      test_support::createNodeBus("robot");
   std::unique_ptr<robot::ipc::Bus> mpcBus = test_support::createNodeBus("mpc");
   MpcResetSupervisor supervisor;
   RemoteMpcLink::Config linkConfig;
   linkConfig.dimensions = modelDimensions();
-  absl::StatusOr<std::unique_ptr<RemoteMpcLink>> link = RemoteMpcLink::Create(robotBus.get(), &supervisor, linkConfig);
+  absl::StatusOr<std::unique_ptr<RemoteMpcLink>> link =
+      RemoteMpcLink::Create(robotBus.get(), &supervisor, linkConfig);
   ASSERT_TRUE(link.ok()) << link.status();
 
-  // Every policy carries two target patches and a velocity that counts the policies.
+  // Every policy carries two target patches and a velocity that counts the
+  // policies.
   std::atomic<int> solves{0};
   MpcServer::Hooks hooks;
-  hooks.annotationsProvider = [&](const CommandData& /*command*/, const PrimalSolution& /*solution*/,
-                                  humanoid_mpc_msgs::ViewerAnnotations* absl_nonnull annotations) {
-    const int solve = solves.fetch_add(1) + 1;
-    annotations->clear_target_contact_patches();
-    for (int contact = 0; contact < 2; ++contact) {
-      humanoid_mpc_msgs::TargetContactPatch* absl_nonnull patch = annotations->add_target_contact_patches();
-      patch->set_kind(contact == 0 ? humanoid_mpc_msgs::TargetContactPatch::KIND_NEXT_SWING
-                                   : humanoid_mpc_msgs::TargetContactPatch::KIND_STANCE);
-      patch->mutable_pose()->set_x(0.1 * contact);
-      patch->mutable_pose()->set_yaw(0.2);
-    }
-    annotations->set_scaled_velocity_x(static_cast<double>(solve));
-    annotations->set_scaled_yaw_rate(-0.3);
-    return absl::OkStatus();
-  };
+  hooks.annotationsProvider =
+      [&](const CommandData& /*command*/, const PrimalSolution& /*solution*/,
+          humanoid_mpc_msgs::ViewerAnnotations* absl_nonnull annotations) {
+        const int solve = solves.fetch_add(1) + 1;
+        annotations->clear_target_contact_patches();
+        for (int contact = 0; contact < 2; ++contact) {
+          humanoid_mpc_msgs::TargetContactPatch* absl_nonnull patch =
+              annotations->add_target_contact_patches();
+          patch->set_kind(
+              contact == 0
+                  ? humanoid_mpc_msgs::TargetContactPatch::KIND_NEXT_SWING
+                  : humanoid_mpc_msgs::TargetContactPatch::KIND_STANCE);
+          patch->mutable_pose()->set_x(0.1 * contact);
+          patch->mutable_pose()->set_yaw(0.2);
+        }
+        annotations->set_scaled_velocity_x(static_cast<double>(solve));
+        annotations->set_scaled_yaw_rate(-0.3);
+        return absl::OkStatus();
+      };
   MpcServer::Config serverConfig;
   serverConfig.dimensions = modelDimensions();
-  absl::StatusOr<std::unique_ptr<MpcServer>> server = MpcServer::Create(mpcBus.get(), mpc.get(), resetTargetsFor, serverConfig, hooks);
+  absl::StatusOr<std::unique_ptr<MpcServer>> server = MpcServer::Create(
+      mpcBus.get(), mpc.get(), resetTargetsFor, serverConfig, hooks);
   ASSERT_TRUE(server.ok()) << server.status();
   ASSERT_TRUE(robotBus->start().ok());
   ASSERT_TRUE(mpcBus->start().ok());
@@ -110,16 +121,19 @@ TEST(RemoteMpcLinkAnnotations, TheNewestAcceptedPolicysAnnotationsAreTakenOnce) 
   if (!annotations.target_contact_patches[0].pose.has_value()) {
     FAIL() << "the next swing's patch has a pose";
   }
-  const msgs::TargetContactPatch& stancePatch = annotations.target_contact_patches[1];
+  const msgs::TargetContactPatch& stancePatch =
+      annotations.target_contact_patches[1];
   if (!stancePatch.pose.has_value()) {
     FAIL() << "the stance patch has a pose";
   }
-  EXPECT_EQ(annotations.target_contact_patches[0].kind, msgs::TargetContactPatch::Kind::kNextSwing);
+  EXPECT_EQ(annotations.target_contact_patches[0].kind,
+            msgs::TargetContactPatch::Kind::kNextSwing);
   EXPECT_EQ(stancePatch.kind, msgs::TargetContactPatch::Kind::kStance);
   EXPECT_DOUBLE_EQ(stancePatch.pose->x, 0.1);
   EXPECT_DOUBLE_EQ(annotations.scaled_yaw_rate, -0.3);
   EXPECT_GE(annotations.scaled_velocity_x, 1.0);
-  // Taken once: the same policy's annotations are not handed out again; the next accepted policy brings new ones.
+  // Taken once: the same policy's annotations are not handed out again; the
+  // next accepted policy brings new ones.
   const double first = annotations.scaled_velocity_x;
   if (!(*link)->takeAnnotations(annotations)) {
     const uint64_t accepted = (*link)->statistics().policiesAccepted;
@@ -131,7 +145,8 @@ TEST(RemoteMpcLinkAnnotations, TheNewestAcceptedPolicysAnnotationsAreTakenOnce) 
     }));
     ASSERT_TRUE((*link)->takeAnnotations(annotations));
   }
-  EXPECT_GT(annotations.scaled_velocity_x, first) << "the annotations of a newer policy";
+  EXPECT_GT(annotations.scaled_velocity_x, first)
+      << "the annotations of a newer policy";
   (*server)->stop();
   mpcBus->stop();
   robotBus->stop();

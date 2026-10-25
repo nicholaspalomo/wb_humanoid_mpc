@@ -50,28 +50,35 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::node {
 
 /**
- * The dummy simulator of the laptop (humanoid_centroidal_mpc_dummy_sim, humanoid_wb_mpc_dummy_sim): the plant is the
- * MPC's own model, rolled out under the policy in use (the formulation's RolloutBase, MRT_BASE::rolloutPolicy()), and
- * the MPC is the MPC node, reached over the bus through an ipc::RemoteMpcLink exactly as the robot process reaches it.
- * It plays the robot (it publishes robot/mpc_observation as the bus node "robot"), so that it runs against the same MPC
- * node as the robot would. The loop:
+ * The dummy simulator of the laptop (humanoid_centroidal_mpc_dummy_sim,
+ * humanoid_wb_mpc_dummy_sim): the plant is the MPC's own model, rolled out
+ * under the policy in use (the formulation's RolloutBase,
+ * MRT_BASE::rolloutPolicy()), and the MPC is the MPC node, reached over the bus
+ * through an ipc::RemoteMpcLink exactly as the robot process reaches it. It
+ * plays the robot (it publishes robot/mpc_observation as the bus node "robot"),
+ * so that it runs against the same MPC node as the robot would. The loop:
  *
- *   1. it requests a full reset (the MPC node's first reset is a full one anyway) and sends the initial observation
- *      every step until the first policy has arrived;
- *   2. with a positive Config::mpcDesiredFrequency it runs synchronized with the MPC: every
- *      max(1, simulationFrequency / mpcDesiredFrequency) steps it waits for the policy solved from the observation it
- *      sent the step before (a policy that starts within 0.1 MPC periods of the plant's time), and it sends only the
- *      observation of the step before an MPC update. The plant's time therefore advances by exactly one MPC period per
- *      solve however long a solve takes;
- *   3. with mpcDesiredFrequency <= 0 it runs in real time: every step takes the newest policy, if one has arrived, and
- *      sends its observation;
- *   4. each step rolls the plant forward by 1 / simulationFrequency under the policy in use; the steps are paced on
- *      absolute deadlines (robot::realtime::PeriodicTimer, missed periods skipped).
+ *   1. it requests a full reset (the MPC node's first reset is a full one
+ * anyway) and sends the initial observation every step until the first policy
+ * has arrived;
+ *   2. with a positive Config::mpcDesiredFrequency it runs synchronized with
+ * the MPC: every max(1, simulationFrequency / mpcDesiredFrequency) steps it
+ * waits for the policy solved from the observation it sent the step before (a
+ * policy that starts within 0.1 MPC periods of the plant's time), and it sends
+ * only the observation of the step before an MPC update. The plant's time
+ * therefore advances by exactly one MPC period per solve however long a solve
+ * takes;
+ *   3. with mpcDesiredFrequency <= 0 it runs in real time: every step takes the
+ * newest policy, if one has arrived, and sends its observation;
+ *   4. each step rolls the plant forward by 1 / simulationFrequency under the
+ * policy in use; the steps are paced on absolute deadlines
+ * (robot::realtime::PeriodicTimer, missed periods skipped).
  *
- * The RemoteMpcLink's health is not acted on: the plant keeps rolling the policy in use out.
+ * The RemoteMpcLink's health is not acted on: the plant keeps rolling the
+ * policy in use out.
  *
- * THREADS. run() runs the loop on the caller's thread; the bus's IO thread runs the link. latestObservation() and
- * statistics() may be called from any thread.
+ * THREADS. run() runs the loop on the caller's thread; the bus's IO thread runs
+ * the link. latestObservation() and statistics() may be called from any thread.
  */
 class DummySimLoop {
  public:
@@ -83,15 +90,18 @@ class DummySimLoop {
 
     /** [Hz] The plant's step rate. Positive. */
     scalar_t simulationFrequency = kDefaultSimulationFrequency;
-    /** [Hz] The MPC's rate (mpc.mpc_desired_frequency): positive runs the loop synchronized with it, <= 0 in real time. */
+    /** [Hz] The MPC's rate (mpc.mpc_desired_frequency): positive runs the loop
+     * synchronized with it, <= 0 in real time. */
     scalar_t mpcDesiredFrequency = -1.0;
     /**
-     * The link to the MPC node: the model's dimensions, the policy timeout, and the MPC's state manifold
-     * (interface.getStateManifold()), on which the link decodes the node's manifold-linear policies and interpolates
-     * their states; the plant rolls them out on the rollout's own manifold.
+     * The link to the MPC node: the model's dimensions, the policy timeout, and
+     * the MPC's state manifold (interface.getStateManifold()), on which the
+     * link decodes the node's manifold-linear policies and interpolates their
+     * states; the plant rolls them out on the rollout's own manifold.
      */
     ipc::RemoteMpcLink::Config link;
-    /** How often a synchronized wait for a policy that does not come logs that it is still waiting. */
+    /** How often a synchronized wait for a policy that does not come logs that
+     * it is still waiting. */
     absl::Duration waitLogPeriod = kDefaultWaitLogPeriod;
   };
 
@@ -99,7 +109,8 @@ class DummySimLoop {
   struct Statistics {
     /** Plant steps rolled out. */
     uint64_t steps = 0;
-    /** Synchronized waits that ended with the policy solved from the observation sent for them. */
+    /** Synchronized waits that ended with the policy solved from the
+     * observation sent for them. */
     uint64_t synchronizedPolicies = 0;
     /** Policies taken into use (MRT_BASE::updatePolicy() swaps). */
     uint64_t policyUpdates = 0;
@@ -107,13 +118,15 @@ class DummySimLoop {
   };
 
   /**
-   * A loop on `bus`, which must not be running yet and must publish as the robot (node name "robot" in the shipped
-   * network), with `rollout` (cloned) as the plant. InvalidArgument for a frequency that is not positive or finite, and
-   * the errors of RemoteMpcLink::Create().
+   * A loop on `bus`, which must not be running yet and must publish as the
+   * robot (node name "robot" in the shipped network), with `rollout` (cloned)
+   * as the plant. InvalidArgument for a frequency that is not positive or
+   * finite, and the errors of RemoteMpcLink::Create().
    */
-  static absl::StatusOr<std::unique_ptr<DummySimLoop>> Create(std::unique_ptr<robot::ipc::Bus> bus,
-                                                              const RolloutBase& rollout,
-                                                              Config config);
+  static absl::StatusOr<std::unique_ptr<DummySimLoop>> Create(
+      std::unique_ptr<robot::ipc::Bus> bus,
+      const RolloutBase& rollout,
+      Config config);
 
   /** Stops the bus. */
   ~DummySimLoop();
@@ -121,13 +134,16 @@ class DummySimLoop {
   DummySimLoop& operator=(const DummySimLoop&) = delete;
 
   /**
-   * Starts the bus and runs the loop from `initialObservation` until `shouldStop()` returns true (checked every step
-   * and while waiting). Returns OK when stopped, FailedPrecondition when called a second time, and Internal when the
-   * rollout of the plant throws.
+   * Starts the bus and runs the loop from `initialObservation` until
+   * `shouldStop()` returns true (checked every step and while waiting). Returns
+   * OK when stopped, FailedPrecondition when called a second time, and Internal
+   * when the rollout of the plant throws.
    */
-  absl::Status run(const SystemObservation& initialObservation, absl::FunctionRef<bool()> shouldStop);
+  absl::Status run(const SystemObservation& initialObservation,
+                   absl::FunctionRef<bool()> shouldStop);
 
-  /** The plant's newest observation (the initial one before the first step). Thread-safe. */
+  /** The plant's newest observation (the initial one before the first step).
+   * Thread-safe. */
   SystemObservation latestObservation() const;
 
   /** Thread-safe. */
@@ -137,11 +153,15 @@ class DummySimLoop {
   DummySimLoop(std::unique_ptr<robot::ipc::Bus> bus, Config config);
 
   /** Steps until the first policy has arrived; false on stop. */
-  bool awaitInitialPolicy(const SystemObservation& initialObservation, absl::FunctionRef<bool()> shouldStop);
-  /** Waits for a policy that starts at `time` (synchronized loop); false on stop. */
+  bool awaitInitialPolicy(const SystemObservation& initialObservation,
+                          absl::FunctionRef<bool()> shouldStop);
+  /** Waits for a policy that starts at `time` (synchronized loop); false on
+   * stop. */
   bool awaitPolicyFor(scalar_t time, absl::FunctionRef<bool()> shouldStop);
-  /** One step of the plant under the policy in use; Internal, with the exception's message, when the rollout throws. */
-  absl::StatusOr<SystemObservation> forwardSimulation(const SystemObservation& observation);
+  /** One step of the plant under the policy in use; Internal, with the
+   * exception's message, when the rollout throws. */
+  absl::StatusOr<SystemObservation> forwardSimulation(
+      const SystemObservation& observation);
   void publishLatest(const SystemObservation& observation);
 
   std::unique_ptr<robot::ipc::Bus> bus_;

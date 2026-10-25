@@ -52,88 +52,120 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-/** The contact estimator `name` of the task file at `taskSource`, against the registry and its probe. */
-absl::Status checkContactEstimatorName(const std::string& name,
-                                       const std::string& taskSource,
-                                       const RobotConfigurationCheckContext& context) {
+/** The contact estimator `name` of the task file at `taskSource`, against the
+ * registry and its probe. */
+absl::Status checkContactEstimatorName(
+    const std::string& name,
+    const std::string& taskSource,
+    const RobotConfigurationCheckContext& context) {
   if (context.contactEstimators == nullptr) return absl::OkStatus();
-  const robot::model::ContactEstimatorRegistry& registry = *context.contactEstimators;
-  const std::string canonical = robot::model::ContactEstimatorRegistry::canonicalName(name);
+  const robot::model::ContactEstimatorRegistry& registry =
+      *context.contactEstimators;
+  const std::string canonical =
+      robot::model::ContactEstimatorRegistry::canonicalName(name);
   if (!registry.has(canonical)) {
-    return absl::InvalidArgumentError(absl::StrCat(taskSource, ": contact_estimator: there is no contact estimator '", name,
-                                                   "' on this robot. Available: ", registry.availableNames(), "."));
+    return absl::InvalidArgumentError(absl::StrCat(
+        taskSource, ": contact_estimator: there is no contact estimator '",
+        name, "' on this robot. Available: ", registry.availableNames(), "."));
   }
   if (!context.backendOptions.initialState.has_value()) return absl::OkStatus();
-  const std::shared_ptr<robot::model::ContactEstimator> estimator = registry.create(canonical);
-  return withConfigFile(checkContactEstimator(*estimator, *context.backendOptions.initialState, canonical),
-                        absl::StrCat(taskSource, ": contact_estimator"));
+  const std::shared_ptr<robot::model::ContactEstimator> estimator =
+      registry.create(canonical);
+  return withConfigFile(
+      checkContactEstimator(*estimator, *context.backendOptions.initialState,
+                            canonical),
+      absl::StrCat(taskSource, ": contact_estimator"));
 }
 
-/** Every name of the task file's telemetry_sinks against the sinks there are. */
-absl::Status checkTelemetrySinks(const RobotProcessSettings& settings, const std::string& taskSource) {
+/** Every name of the task file's telemetry_sinks against the sinks there are.
+ */
+absl::Status checkTelemetrySinks(const RobotProcessSettings& settings,
+                                 const std::string& taskSource) {
   const TelemetrySinkRegistry sinks;
   for (const std::string& name : settings.telemetrySinks) {
     if (!sinks.has(name)) {
-      return absl::InvalidArgumentError(
-          absl::StrCat(taskSource, ": telemetry_sinks: there is no telemetry sink '", name, "'. Available: ", sinks.availableNames(), "."));
+      return absl::InvalidArgumentError(absl::StrCat(
+          taskSource, ": telemetry_sinks: there is no telemetry sink '", name,
+          "'. Available: ", sinks.availableNames(), "."));
     }
   }
   return absl::OkStatus();
 }
 
-/** The task file's state_estimator against the registry, and the noise model of `kalman`. */
-absl::Status checkStateEstimator(const RobotProcessSettings& settings, const std::string& taskSource) {
+/** The task file's state_estimator against the registry, and the noise model of
+ * `kalman`. */
+absl::Status checkStateEstimator(const RobotProcessSettings& settings,
+                                 const std::string& taskSource) {
   const estimation::StateEstimatorRegistry estimators;
   if (!estimators.has(settings.stateEstimator)) {
-    return absl::InvalidArgumentError(absl::StrCat(taskSource, ": state_estimator: there is no state estimator '", settings.stateEstimator,
-                                                   "'. Available: ", estimators.availableNames(), "."));
+    return absl::InvalidArgumentError(absl::StrCat(
+        taskSource, ": state_estimator: there is no state estimator '",
+        settings.stateEstimator, "'. Available: ", estimators.availableNames(),
+        "."));
   }
-  if (settings.stateEstimator != estimation::kKalmanStateEstimatorName) return absl::OkStatus();
-  return withConfigFile(estimation::KalmanBaseEstimator::validateConfig(settings.kalmanStateEstimator), taskSource);
+  if (settings.stateEstimator != estimation::kKalmanStateEstimatorName)
+    return absl::OkStatus();
+  return withConfigFile(estimation::KalmanBaseEstimator::validateConfig(
+                            settings.kalmanStateEstimator),
+                        taskSource);
 }
 
 }  // namespace
 
-absl::StatusOr<RobotConfigFiles> loadRobotConfigFiles(const RobotConfigDirectory::Files& paths) {
+absl::StatusOr<RobotConfigFiles> loadRobotConfigFiles(
+    const RobotConfigDirectory::Files& paths) {
   RobotConfigFiles files;
   ASSIGN_OR_RETURN(files.task, loadTaskFile(paths.taskFile));
   ASSIGN_OR_RETURN(files.reference, loadReferenceFile(paths.referenceFile));
   ASSIGN_OR_RETURN(files.pdGains, loadJointPdGainsFile(paths.pdGainsFile));
-  ASSIGN_OR_RETURN(files.contactPlanning, loadContactPlanningFileBeside(paths.taskFile));
+  ASSIGN_OR_RETURN(files.contactPlanning,
+                   loadContactPlanningFileBeside(paths.taskFile));
   files.taskSource = paths.taskFile;
   files.referenceSource = paths.referenceFile;
   files.pdGainsSource = paths.pdGainsFile;
   return files;
 }
 
-absl::Status checkRobotConfiguration(const RobotConfigFiles& files, const RobotConfigurationCheckContext& context) {
-  if (!context.robotName.empty() && files.task.model_settings.robot_name != context.robotName) {
-    return absl::FailedPreconditionError(absl::StrCat(files.taskSource, ": model_settings.robot_name is '",
-                                                      files.task.model_settings.robot_name, "', and this robot is '", context.robotName,
-                                                      "'"));
+absl::Status checkRobotConfiguration(
+    const RobotConfigFiles& files,
+    const RobotConfigurationCheckContext& context) {
+  if (!context.robotName.empty() &&
+      files.task.model_settings.robot_name != context.robotName) {
+    return absl::FailedPreconditionError(
+        absl::StrCat(files.taskSource, ": model_settings.robot_name is '",
+                     files.task.model_settings.robot_name,
+                     "', and this robot is '", context.robotName, "'"));
   }
-  absl::StatusOr<RobotProcessSettings> settings = robotProcessSettingsFromConfig(files.task);
-  if (!settings.ok()) return withConfigFile(settings.status(), files.taskSource);
-  if (context.checkFormulation) RETURN_IF_ERROR(context.checkFormulation(files));
+  absl::StatusOr<RobotProcessSettings> settings =
+      robotProcessSettingsFromConfig(files.task);
+  if (!settings.ok())
+    return withConfigFile(settings.status(), files.taskSource);
+  if (context.checkFormulation)
+    RETURN_IF_ERROR(context.checkFormulation(files));
   if (!context.mpcJointNames.empty() || !context.otherJointNames.empty()) {
     // As the controller's loader reads it.
-    const absl::StatusOr<JointPdGains> gains = jointPdGainsFromConfig(files.pdGains, context.mpcJointNames, context.otherJointNames);
+    const absl::StatusOr<JointPdGains> gains = jointPdGainsFromConfig(
+        files.pdGains, context.mpcJointNames, context.otherJointNames);
     if (!gains.ok()) return withConfigFile(gains.status(), files.pdGainsSource);
   }
-  RETURN_IF_ERROR(checkContactEstimatorName(settings->contactEstimator, files.taskSource, context));
+  RETURN_IF_ERROR(checkContactEstimatorName(settings->contactEstimator,
+                                            files.taskSource, context));
   RETURN_IF_ERROR(checkTelemetrySinks(*settings, files.taskSource));
   RETURN_IF_ERROR(checkStateEstimator(*settings, files.taskSource));
   if (!context.backendName.empty()) {
     RobotBackendOptions options = context.backendOptions;
     options.simulator = settings->simulator;
-    RETURN_IF_ERROR(withConfigFile(RobotBackendRegistry().checkOptions(context.backendName, options), files.taskSource));
+    RETURN_IF_ERROR(withConfigFile(
+        RobotBackendRegistry().checkOptions(context.backendName, options),
+        files.taskSource));
   }
   return absl::OkStatus();
 }
 
-absl::Status checkConfigFileCandidate(const RobotConfigDirectory::Files& paths,
-                                      const ConfigFileCandidate& candidate,
-                                      const RobotConfigurationCheckContext& context) {
+absl::Status checkConfigFileCandidate(
+    const RobotConfigDirectory::Files& paths,
+    const ConfigFileCandidate& candidate,
+    const RobotConfigurationCheckContext& context) {
   ASSIGN_OR_RETURN(RobotConfigFiles files, loadRobotConfigFiles(paths));
   if (candidate.task.has_value()) {
     files.task = *candidate.task;

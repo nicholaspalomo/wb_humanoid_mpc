@@ -123,8 +123,12 @@ def write_loopback_network_file(path: str, nodes: tuple[str, ...]) -> None:
         domain_id=isolated.domain_id,
         domain_tag=isolated.domain_tag,
         topics=(
-            robot_ipc.TopicQos(topics.OPERATOR_CONFIG_SAVE, events, ("operator",)),
-            robot_ipc.TopicQos(topics.ROBOT_CONFIG_SAVE_STATUS, events, ("robot",)),
+            robot_ipc.TopicQos(
+                topics.OPERATOR_CONFIG_SAVE, events, ("operator",)
+            ),
+            robot_ipc.TopicQos(
+                topics.ROBOT_CONFIG_SAVE_STATUS, events, ("robot",)
+            ),
             robot_ipc.TopicQos(
                 topics.ROBOT_STATE, robot_ipc.QosProfile.LATEST, ("robot",)
             ),
@@ -210,10 +214,14 @@ class TwoCopySaveEndToEndTest(unittest.TestCase):
         self, publisher: robot_config_save.SavePublisher
     ) -> robot_config_save.RobotConfigSaver:
         return robot_config_save.RobotConfigSaver(
-            publisher, self.operator.config_save_statuses, timeout=SAVER_TIMEOUT_S
+            publisher,
+            self.operator.config_save_statuses,
+            timeout=SAVER_TIMEOUT_S,
         )
 
-    def _on_sample(self, sample: robot_state_sample_pb2.RobotStateSample) -> None:
+    def _on_sample(
+        self, sample: robot_state_sample_pb2.RobotStateSample
+    ) -> None:
         with self.lock:
             self.sample_times.append(sample.time)
 
@@ -227,13 +235,18 @@ class TwoCopySaveEndToEndTest(unittest.TestCase):
         )
 
         def reported() -> bool:
-            return bool(self.operator.take_fsm_states()) or not self._robot_running()
+            return (
+                bool(self.operator.take_fsm_states())
+                or not self._robot_running()
+            )
 
         self.assertTrue(
             self._pump_until(reported, START_TIMEOUT_S),
             "the robot process did not report its FSM state",
         )
-        self.assertTrue(self._robot_running(), "the robot process exited on start-up")
+        self.assertTrue(
+            self._robot_running(), "the robot process exited on start-up"
+        )
 
     def _robot_running(self) -> bool:
         return self.robot is not None and self.robot.running()
@@ -243,7 +256,9 @@ class TwoCopySaveEndToEndTest(unittest.TestCase):
         self.robot = None
         return code
 
-    def _pump_until(self, condition: Callable[[], bool], timeout: float) -> bool:
+    def _pump_until(
+        self, condition: Callable[[], bool], timeout: float
+    ) -> bool:
         """Runs Tk's event loop (the tabs' polls of the saver) until `condition` holds; whether it did in `timeout`."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -271,7 +286,8 @@ class TwoCopySaveEndToEndTest(unittest.TestCase):
         while time.monotonic() < deadline:
             self.assertTrue(tab.save(), "the laptop's copy was not saved")
             self._pump_until(
-                lambda: not tab.robot_save.outcome().waiting, SAVER_TIMEOUT_S + 1.0
+                lambda: not tab.robot_save.outcome().waiting,
+                SAVER_TIMEOUT_S + 1.0,
             )
             outcome = tab.robot_save.outcome()
             assert outcome is not None
@@ -280,13 +296,18 @@ class TwoCopySaveEndToEndTest(unittest.TestCase):
         self.fail(f"the robot did not answer the save: {outcome}")
 
     def _send(
-        self, saver: robot_config_save.RobotConfigSaver, text: str, robot_name: str
+        self,
+        saver: robot_config_save.RobotConfigSaver,
+        text: str,
+        robot_name: str,
     ) -> robot_config_save.SaveOutcome:
         """Sends `text` as the laptop's task file until the robot answers; the answered outcome."""
         task = os.path.join(self.config, "mpc", "task.textproto")
         deadline = time.monotonic() + ANSWER_TIMEOUT_S
         while time.monotonic() < deadline:
-            sequence = saver.send(robot_config_save.KIND_TASK, task, text, robot_name)
+            sequence = saver.send(
+                robot_config_save.KIND_TASK, task, text, robot_name
+            )
 
             def answered(sequence: int = sequence) -> bool:
                 saver.poll(saver.clock())
@@ -308,7 +329,9 @@ class TwoCopySaveEndToEndTest(unittest.TestCase):
         bundled_rate = bundled_telemetry_rate()
         saved_rate = bundled_rate / 5.0
         self._start_robot()
-        self.assertEqual(read_bytes(self._stored(STORED_TASK)), read_bytes(ATLAS_TASK))
+        self.assertEqual(
+            read_bytes(self._stored(STORED_TASK)), read_bytes(ATLAS_TASK)
+        )
         self.assertAlmostEqual(
             self._telemetry_rate(2.0), bundled_rate, delta=0.2 * bundled_rate
         )
@@ -334,7 +357,9 @@ class TwoCopySaveEndToEndTest(unittest.TestCase):
         gains._on_row_change(gain.path, gain.label, float(gain.value) + 1.0)
         limits = command_limits_tab.CommandLimitsTab(
             self.root,
-            reference_file=os.path.join(self.config, "command", "reference.textproto"),
+            reference_file=os.path.join(
+                self.config, "command", "reference.textproto"
+            ),
             robot_saver=self.saver,
         )
         assert limits.reference is not None
@@ -357,7 +382,9 @@ class TwoCopySaveEndToEndTest(unittest.TestCase):
                     outcome.state, (_Status.SAVED, _Status.UNCHANGED), outcome
                 )
                 self.assertEqual(outcome.stored_path, self._stored(stored))
-                self.assertEqual(read_bytes(self._stored(stored)), read_bytes(laptop))
+                self.assertEqual(
+                    read_bytes(self._stored(stored)), read_bytes(laptop)
+                )
                 self.assertNotEqual(read_bytes(laptop), read_bytes(bundled))
         self.assertAlmostEqual(
             stored_telemetry_rate(self._stored(STORED_TASK)), saved_rate
@@ -368,7 +395,9 @@ class TwoCopySaveEndToEndTest(unittest.TestCase):
         )
 
         # Started again, the robot runs the stored copies: the laptop's bytes, so its saved telemetry rate.
-        self.assertEqual(self._stop_robot(), 0, "the robot process did not end cleanly")
+        self.assertEqual(
+            self._stop_robot(), 0, "the robot process did not end cleanly"
+        )
         self._start_robot()
         self.assertAlmostEqual(
             self._telemetry_rate(2.0), saved_rate, delta=0.25 * saved_rate
@@ -393,7 +422,9 @@ class TwoCopySaveEndToEndTest(unittest.TestCase):
         editor = tuned_file.TunedFile(laptop_task, task_file_pb2.TaskFile)
         editor.set("telemetry_frequency", bundled_telemetry_rate() / 5.0)
         edited = editor.edited().text
-        self.assertNotEqual(edited.encode("utf-8"), bundled, "the edit changed nothing")
+        self.assertNotEqual(
+            edited.encode("utf-8"), bundled, "the edit changed nothing"
+        )
 
         # A GUI opened on another configuration: the whole-body G1's (robot "g1", not "atlas").
         other_config = copy_robot_config(G1_WB_PACKAGE, self.laptop)
@@ -405,7 +436,9 @@ class TwoCopySaveEndToEndTest(unittest.TestCase):
         )
         skewed = self._saver(_SkewedPublisher(self.operator.config_save))
         # Each refusal, and a part of the robot's reason for it.
-        refusals: list[tuple[str, Callable[[], robot_config_save.SaveOutcome], str]] = [
+        refusals: list[
+            tuple[str, Callable[[], robot_config_save.SaveOutcome], str]
+        ] = [
             (
                 "another configuration",
                 lambda: self._save(other),

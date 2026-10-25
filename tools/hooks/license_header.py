@@ -54,43 +54,59 @@ HOLDER_LINE = re.compile(
     r"^Copyright \(c\) \d{4}(?:-\d{4})?, [^\s.,][^.]*\. All rights reserved\.$"
 )
 PREAMBLE = (
-    "Redistribution and use in source and binary forms, with or without modification, are permitted provided that "
-    "the following conditions are met:"
+    "Redistribution and use in source and binary forms, with or without"
+    " modification, are permitted provided that the following conditions are"
+    " met:"
 )
 CONDITIONS = (
     (
         "the source-code condition",
-        "Redistributions of source code must retain the above copyright notice, this list of conditions and the "
-        "following disclaimer.",
+        (
+            "Redistributions of source code must retain the above copyright"
+            " notice, this list of conditions and the following disclaimer."
+        ),
     ),
     (
         "the binary-form condition",
-        "Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the "
-        "following disclaimer in the documentation and/or other materials provided with the distribution.",
+        (
+            "Redistributions in binary form must reproduce the above copyright"
+            " notice, this list of conditions and the following disclaimer in"
+            " the documentation and/or other materials provided with the"
+            " distribution."
+        ),
     ),
     (
         "the endorsement condition",
-        "Neither the name of the copyright holder nor the names of its contributors may be used to endorse or "
-        "promote products derived from this software without specific prior written permission.",
+        (
+            "Neither the name of the copyright holder nor the names of its"
+            " contributors may be used to endorse or promote products derived"
+            " from this software without specific prior written permission."
+        ),
     ),
 )
 DISCLAIMER = (
-    'THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED '
-    "WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR "
-    "PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, "
-    "INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT "
-    "OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON "
-    "ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) "
-    "ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."
+    'THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS'
+    ' IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,'
+    " THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR"
+    " PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR"
+    " CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,"
+    " EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,"
+    " PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR"
+    " PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF"
+    " LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING"
+    " NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS"
+    " SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."
 )
 
 # The repository's license, whose text every block repeats.
 LICENSE_FILE = (
-    "LICENCE.txt"  # NOLINT(american-spelling): the file's name in the repository.
+    # NOLINTNEXTLINE(american-spelling): the file's name in the repository.
+    "LICENCE.txt"
 )
 ADVICE = (
-    "start the file with the repository's BSD-3 license block as a comment: `Copyright (c) <year>, <holder>. All rights "
-    "reserved.`, the conditions and the disclaimer (copy it from a neighboring file)"
+    "start the file with the repository's BSD-3 license block as a comment:"
+    " `Copyright (c) <year>, <holder>. All rights reserved.`, the conditions"
+    " and the disclaimer (copy it from a neighboring file)"
 )
 _MARKERS = re.compile(r"^[\s/*#]*")
 _TRAILING_MARKERS = re.compile(r"[\s*/]*$")
@@ -129,8 +145,9 @@ def problems(lines: list[str]) -> list[str]:
     for line in holder_lines:
         if not HOLDER_LINE.match(line):
             found.append(
-                f"the holder line `{line}` is not `Copyright (c) <year>, <holder>. All rights reserved.`: name the "
-                "holder (`git log` says who wrote the file)"
+                f"the holder line `{line}` is not `Copyright (c) <year>,"
+                " <holder>. All rights reserved.`: name the holder (`git log`"
+                " says who wrote the file)"
             )
     text = " ".join(" ".join(lines).split())
     missing = [] if PREAMBLE in text else ["the preamble"]
@@ -139,7 +156,8 @@ def problems(lines: list[str]) -> list[str]:
         missing.append("the disclaimer")
     if missing:
         found.append(
-            f"the license block lacks {', '.join(missing)} of the BSD 3-Clause License: {ADVICE}"
+            f"the license block lacks {', '.join(missing)} of the BSD 3-Clause"
+            f" License: {ADVICE}"
         )
     return found
 
@@ -167,7 +185,9 @@ def leading_cpp_comment(source: str) -> tuple[str, int, int]:
     return "\n".join(comments), start, end
 
 
-def finding_lines(lines: list[str], start: int, end: int) -> list[tuple[int, str]]:
+def finding_lines(
+    lines: list[str], start: int, end: int
+) -> list[tuple[int, str]]:
     """problems() of a block whose comment_lines() are `lines`, each with its line: a holder line's own, else `end`.
 
     Args:
@@ -189,7 +209,9 @@ def finding_lines(lines: list[str], start: int, end: int) -> list[tuple[int, str
     return found
 
 
-def check_source(source: str, path: str = "<source>") -> list[check_types.Finding]:
+def check_source(
+    source: str, path: str = "<source>"
+) -> list[check_types.Finding]:
     """The findings of `license-header` in the C++ `source` of the file at `path`."""
     if not source.strip():
         return []
@@ -210,8 +232,13 @@ CHECKS = [
         languages=frozenset({check_types.Language.CPP}),
         scope=lint_files.Scope.FIRST_PARTY,
         check_source=check_source,
-        description="every C++ file starts with the repository's BSD-3 license block, with a named holder (AGENTS.md).",
-        hint="Copy the block of a neighboring file. A holder line names its holder (`git log`); an existing holder is "
-        "kept.",
+        description=(
+            "every C++ file starts with the repository's BSD-3 license block,"
+            " with a named holder (AGENTS.md)."
+        ),
+        hint=(
+            "Copy the block of a neighboring file. A holder line names its"
+            " holder (`git log`); an existing holder is kept."
+        ),
     )
 ]

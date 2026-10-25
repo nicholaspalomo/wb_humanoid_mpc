@@ -45,47 +45,69 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Creates the planner's terms by name and assembles the problem and the pipelines from the term lists of the
- * configuration, the analog of HumanoidCostConstraintFactory. Every `make*` returns an InvalidArgument for an unknown
- * name (the message lists the supported ones). Stateless; safe to call from any thread.
+ * Creates the planner's terms by name and assembles the problem and the
+ * pipelines from the term lists of the configuration, the analog of
+ * HumanoidCostConstraintFactory. Every `make*` returns an InvalidArgument for
+ * an unknown name (the message lists the supported ones). Stateless; safe to
+ * call from any thread.
  */
 class ContactPlanningTermFactory {
  public:
   ContactPlanningTermFactory() = delete;  // only static members
 
-  static absl::StatusOr<std::unique_ptr<LipModelBlock>> makeModelBlock(absl::string_view name);
-  static absl::StatusOr<std::unique_ptr<LipCost>> makeCost(absl::string_view name);
-  static absl::StatusOr<std::unique_ptr<LipConstraint>> makeSoftConstraint(absl::string_view name);
-  static absl::StatusOr<std::unique_ptr<LipConstraint>> makeHardConstraint(absl::string_view name);
-  static absl::StatusOr<std::unique_ptr<ContactLogicRule>> makeLogicRule(absl::string_view name);
-  static absl::StatusOr<std::unique_ptr<AssignmentCost>> makeAssignmentCost(absl::string_view name);
-  static absl::StatusOr<std::unique_ptr<SearchStage>> makeSearchStage(absl::string_view name);
+  static absl::StatusOr<std::unique_ptr<LipModelBlock>> makeModelBlock(
+      absl::string_view name);
+  static absl::StatusOr<std::unique_ptr<LipCost>> makeCost(
+      absl::string_view name);
+  static absl::StatusOr<std::unique_ptr<LipConstraint>> makeSoftConstraint(
+      absl::string_view name);
+  static absl::StatusOr<std::unique_ptr<LipConstraint>> makeHardConstraint(
+      absl::string_view name);
+  static absl::StatusOr<std::unique_ptr<ContactLogicRule>> makeLogicRule(
+      absl::string_view name);
+  static absl::StatusOr<std::unique_ptr<AssignmentCost>> makeAssignmentCost(
+      absl::string_view name);
+  static absl::StatusOr<std::unique_ptr<SearchStage>> makeSearchStage(
+      absl::string_view name);
   /**
-   * The execution rules the core knows (phase resetting, cadence modulation, DCM step adjustment). The planned heading
-   * override needs the robot model and lives with the reference manager, which passes its own maker as `extra`. A rule
-   * that neither the core nor `extra` builds is an InvalidArgument naming it.
+   * The execution rules the core knows (phase resetting, cadence modulation,
+   * DCM step adjustment). The planned heading override needs the robot model
+   * and lives with the reference manager, which passes its own maker as
+   * `extra`. A rule that neither the core nor `extra` builds is an
+   * InvalidArgument naming it.
    */
-  using ExtraRuleMaker = std::function<std::unique_ptr<ExecutionRule>(const std::string& canonicalName)>;
-  static absl::StatusOr<std::unique_ptr<ExecutionRule>> makeExecutionRule(absl::string_view name, const ExtraRuleMaker& extra = nullptr);
+  using ExtraRuleMaker = std::function<std::unique_ptr<ExecutionRule>(
+      const std::string& canonicalName)>;
+  static absl::StatusOr<std::unique_ptr<ExecutionRule>> makeExecutionRule(
+      absl::string_view name, const ExtraRuleMaker& extra = nullptr);
 
   /**
-   * The problem of the configuration's formulation: the listed terms in list order, finalized (layout composed, terms
-   * bound and configured). A formulation the problem cannot be assembled from is returned as the InvalidArgument of
-   * ContactPlanningFormulation::validateStatus(), which names the list and the term.
+   * The problem of the configuration's formulation: the listed terms in list
+   * order, finalized (layout composed, terms bound and configured). A
+   * formulation the problem cannot be assembled from is returned as the
+   * InvalidArgument of ContactPlanningFormulation::validateStatus(), which
+   * names the list and the term.
    *
-   * The builders configure the terms with the configuration's parameter values as they are: the values are checked by
-   * ContactPlanningConfig::validateStatus(), which the caller runs first, and a term's configure() only reads them.
+   * The builders configure the terms with the configuration's parameter values
+   * as they are: the values are checked by
+   * ContactPlanningConfig::validateStatus(), which the caller runs first, and a
+   * term's configure() only reads them.
    */
-  static absl::StatusOr<ContactPlanningProblem> buildProblemStatus(const ContactPlanningConfig& config);
-  /** The listed search stages, configured, in list order; an unknown or repeated name, or a missing block, as a Status. */
-  static absl::StatusOr<TermCollection<SearchStage>> buildSearchStagesStatus(const ContactPlanningConfig& config);
+  static absl::StatusOr<ContactPlanningProblem> buildProblemStatus(
+      const ContactPlanningConfig& config);
+  /** The listed search stages, configured, in list order; an unknown or
+   * repeated name, or a missing block, as a Status. */
+  static absl::StatusOr<TermCollection<SearchStage>> buildSearchStagesStatus(
+      const ContactPlanningConfig& config);
   /**
-   * The listed execution rules, configured, in list order. Besides what the formulation's validation rejects, a rule
-   * that only the reference manager can build (it needs the robot model) and `extra` does not build is an InvalidArgument
-   * naming the rule.
+   * The listed execution rules, configured, in list order. Besides what the
+   * formulation's validation rejects, a rule that only the reference manager
+   * can build (it needs the robot model) and `extra` does not build is an
+   * InvalidArgument naming the rule.
    */
-  static absl::StatusOr<TermCollection<ExecutionRule>> buildExecutionRulesStatus(const ContactPlanningConfig& config,
-                                                                                 const ExtraRuleMaker& extra = nullptr);
+  static absl::StatusOr<TermCollection<ExecutionRule>>
+  buildExecutionRulesStatus(const ContactPlanningConfig& config,
+                            const ExtraRuleMaker& extra = nullptr);
 };
 
 }  // namespace ocs2::humanoid

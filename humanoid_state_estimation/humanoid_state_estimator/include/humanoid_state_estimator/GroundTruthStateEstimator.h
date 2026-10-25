@@ -40,21 +40,29 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::estimation {
 
 /**
- * The `ground_truth` state estimator: the backend's state, unchanged. On the simulator that is the truth; on hardware
- * the base position and linear velocity are whatever the backend reports. Stateless and thread-compatible.
+ * The `ground_truth` state estimator: the backend's state, unchanged. On the
+ * simulator that is the truth; on hardware the base position and linear
+ * velocity are whatever the backend reports. Stateless and thread-compatible.
  */
 class GroundTruthStateEstimator final : public StateEstimator {
  public:
   GroundTruthStateEstimator() = default;
   GroundTruthStateEstimator(const GroundTruthStateEstimator&) = delete;
-  GroundTruthStateEstimator& operator=(const GroundTruthStateEstimator&) = delete;
+  GroundTruthStateEstimator& operator=(const GroundTruthStateEstimator&) =
+      delete;
   ~GroundTruthStateEstimator() override = default;
 
-  absl::string_view name() const override { return kGroundTruthStateEstimatorName; }
+  absl::string_view name() const override {
+    return kGroundTruthStateEstimatorName;
+  }
   void reset(const robot::model::RobotState& /*measured*/) override {}
-  /** `measured` itself, valid as long as `measured` is (the contract of StateEstimator::estimate()). */
+  /** `measured` itself, valid as long as `measured` is (the contract of
+   * StateEstimator::estimate()). */
   // NOLINTNEXTLINE(bugprone-return-const-ref-from-parameter): the base contract bounds the reference by `measured`'s life.
-  const robot::model::RobotState& estimate(const robot::model::RobotState& measured) override { return measured; }
+  const robot::model::RobotState& estimate(
+      const robot::model::RobotState& measured) override {
+    return measured;
+  }
   uint64_t failedUpdates() const override { return 0; }
 };
 

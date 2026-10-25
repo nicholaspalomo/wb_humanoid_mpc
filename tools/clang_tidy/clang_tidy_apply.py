@@ -146,7 +146,9 @@ def parse_fixes(text: str) -> list[Diagnostic]:
 class Plan:
     """What applying the fix-its would do: the accepted replacements per file and the diagnostics left alone."""
 
-    replacements: dict[str, set[Replacement]] = dataclasses.field(default_factory=dict)
+    replacements: dict[str, set[Replacement]] = dataclasses.field(
+        default_factory=dict
+    )
     refused: list[tuple[tuple[str, str, int, str], str]] = dataclasses.field(
         default_factory=list
     )
@@ -158,7 +160,9 @@ def _matches(check: str, globs: list[str]) -> bool:
     return any(fnmatch.fnmatchcase(check, glob) for glob in globs)
 
 
-def _refusal(replacements: set[Replacement], root: str, paths: list[str]) -> str | None:
+def _refusal(
+    replacements: set[Replacement], root: str, paths: list[str]
+) -> str | None:
     for replacement in sorted(replacements):
         path = replacement.path
         if os.path.isabs(path) or path.startswith(_OUTSIDE_SOURCE_TREE):
@@ -204,7 +208,10 @@ def plan(
             continue
         reason = None
         if any(not diagnostic.replacements for diagnostic in reported):
-            reason = "a translation unit reported it without a fix-it (inside a macro?)"
+            reason = (
+                "a translation unit reported it without a fix-it (inside a"
+                " macro?)"
+            )
         reason = reason or _refusal(replacements, root, paths)
         if reason is None:
             for replacement in replacements:
@@ -212,13 +219,18 @@ def plan(
                     replacement.overlaps(other)
                     for other in result.replacements.get(replacement.path, ())
                 ):
-                    reason = f"its edit of {replacement.path} overlaps another fix-it"
+                    reason = (
+                        f"its edit of {replacement.path} overlaps another"
+                        " fix-it"
+                    )
                     break
         if reason is not None:
             result.refused.append((identity, reason))
             continue
         for replacement in replacements:
-            result.replacements.setdefault(replacement.path, set()).add(replacement)
+            result.replacements.setdefault(replacement.path, set()).add(
+                replacement
+            )
         result.applied += 1
     return result
 
@@ -296,21 +308,28 @@ def main(argv: list[str] | None = None) -> int:
     )
     arguments = parser.parse_args(argv)
 
-    globs = [glob.strip() for glob in arguments.checks.split(",") if glob.strip()]
+    globs = [
+        glob.strip() for glob in arguments.checks.split(",") if glob.strip()
+    ]
     diagnostics = load_diagnostics(
         clang_tidy_report.output_group_files(arguments.bep, OUTPUT_GROUP)
     )
     result = plan(diagnostics, globs, arguments.paths, arguments.root)
     edited = apply(result, arguments.root)
     if edited and not arguments.no_format and shutil.which("clang-format"):
-        subprocess.run(["clang-format", "-i", *edited], cwd=arguments.root, check=True)
+        subprocess.run(
+            ["clang-format", "-i", *edited], cwd=arguments.root, check=True
+        )
     for path in edited:
         print(f"edited {path}")
     for (check, path, offset, message), reason in result.refused:
-        print(f"left alone: {path} (byte {offset}): {message} [{check}]: {reason}")
+        print(
+            f"left alone: {path} (byte {offset}): {message} [{check}]: {reason}"
+        )
     print(
-        f"clang-tidy fixes: {result.applied} applied in {len(edited)} files, {len(result.refused)} left alone, "
-        f"{result.without_fix} without a fix-it."
+        f"clang-tidy fixes: {result.applied} applied in {len(edited)} files,"
+        f" {len(result.refused)} left alone, {result.without_fix} without a"
+        " fix-it."
     )
     return 1 if result.refused else 0
 

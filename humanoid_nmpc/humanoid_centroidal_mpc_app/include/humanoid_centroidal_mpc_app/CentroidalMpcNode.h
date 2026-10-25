@@ -53,69 +53,96 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The MPC node of the centroidal MPC (humanoid_centroidal_mpc_node; humanoid_nmpc/docs/distributed_runtime/README.md):
- * an SQP MPC served on the bus by an MpcServer (node::MpcNodeRuntime) to the robot process, or to a dummy simulator:
+ * The MPC node of the centroidal MPC (humanoid_centroidal_mpc_node;
+ * humanoid_nmpc/docs/distributed_runtime/README.md): an SQP MPC served on the
+ * bus by an MpcServer (node::MpcNodeRuntime) to the robot process, or to a
+ * dummy simulator:
  *
- *   - CentroidalMpcInterface::Create() and an SqpMpc on its optimal control problem;
- *   - the procedural motion manager (gait changes and the velocity targets of CentroidalMpcTargetTrajectoriesCalculator),
- *     fed from operator/walking_velocity_command; a reset of the MPC resets it and, through its reset hook, the target
- *     calculator, whose filters are state of the same command path;
- *   - under contact_schedule_source: "contact_planner", the contact planner module;
- *   - the MPC parameter updater (makeCentroidalMpcParameterUpdater(), the live-tuning machinery both formulations share
- *     with the centroidal appliers; makeCommandLimitsReloaders() hands the command limits of a reloaded reference file
- *     to the target calculator and the motion manager), fed from operator/mpc_parameters;
- *   - resets to centroidalMpcResetTargetTrajectories(), the reset target the MRT joint controller hands its in-process
- *     link, so that both paths restart the MPC from the same target;
- *   - every policy carries the planner's target contact poses and the scaled velocity command (ViewerAnnotations);
- *   - the visualization publisher (humanoid_common_mpc_app/visualization), always running: viz/scene and viz/telemetry
- *     for the Rerun bridge, from every published policy and every robot/state sample, on a thread of its own.
+ *   - CentroidalMpcInterface::Create() and an SqpMpc on its optimal control
+ * problem;
+ *   - the procedural motion manager (gait changes and the velocity targets of
+ * CentroidalMpcTargetTrajectoriesCalculator), fed from
+ * operator/walking_velocity_command; a reset of the MPC resets it and, through
+ * its reset hook, the target calculator, whose filters are state of the same
+ * command path;
+ *   - under contact_schedule_source: "contact_planner", the contact planner
+ * module;
+ *   - the MPC parameter updater (makeCentroidalMpcParameterUpdater(), the
+ * live-tuning machinery both formulations share with the centroidal appliers;
+ * makeCommandLimitsReloaders() hands the command limits of a reloaded reference
+ * file to the target calculator and the motion manager), fed from
+ * operator/mpc_parameters;
+ *   - resets to centroidalMpcResetTargetTrajectories(), the reset target the
+ * MRT joint controller hands its in-process link, so that both paths restart
+ * the MPC from the same target;
+ *   - every policy carries the planner's target contact poses and the scaled
+ * velocity command (ViewerAnnotations);
+ *   - the visualization publisher (humanoid_common_mpc_app/visualization),
+ * always running: viz/scene and viz/telemetry for the Rerun bridge, from every
+ * published policy and every robot/state sample, on a thread of its own.
  *
- * The synchronized modules run in this order: motion manager, contact planner, parameter updater.
+ * The synchronized modules run in this order: motion manager, contact planner,
+ * parameter updater.
  */
 class CentroidalMpcNode {
  public:
   struct Options {
-    /** The solver thread: the MPC cores of ThreadAffinity.h, SCHED_FIFO when its priority is positive. */
-    robot::realtime::RealtimeThreadConfig solverThread = node::defaultSolverThreadConfig(/*realtimePriority=*/0);
-    /** The visualization publisher's thread and queue (its defaults suit the node). */
+    /** The solver thread: the MPC cores of ThreadAffinity.h, SCHED_FIFO when
+     * its priority is positive. */
+    robot::realtime::RealtimeThreadConfig solverThread =
+        node::defaultSolverThreadConfig(/*realtimePriority=*/0);
+    /** The visualization publisher's thread and queue (its defaults suit the
+     * node). */
     visualization::VisualizationPublisherOptions visualization;
-    /** node::MpcNodeRuntime::Config::walkingCommandTimeout: zero (the default) keeps the last walking command. */
+    /** node::MpcNodeRuntime::Config::walkingCommandTimeout: zero (the default)
+     * keeps the last walking command. */
     absl::Duration walkingCommandTimeout = absl::ZeroDuration();
   };
 
   /**
-   * Builds the MPC from `files` and registers it on `bus`, which must not be running yet and publishes as the MPC node
-   * ("mpc"). The errors of CentroidalMpcInterface::Create() (NotFound for a missing file), of the parameter updater, of
-   * the visualization publisher (the task file's visualization keys) and of node::MpcNodeRuntime::Create().
+   * Builds the MPC from `files` and registers it on `bus`, which must not be
+   * running yet and publishes as the MPC node
+   * ("mpc"). The errors of CentroidalMpcInterface::Create() (NotFound for a
+   * missing file), of the parameter updater, of the visualization publisher
+   * (the task file's visualization keys) and of node::MpcNodeRuntime::Create().
    */
-  static absl::StatusOr<std::unique_ptr<CentroidalMpcNode>> Create(const node::MpcFiles& files,
-                                                                   std::unique_ptr<robot::ipc::Bus> bus,
-                                                                   Options options);
+  static absl::StatusOr<std::unique_ptr<CentroidalMpcNode>> Create(
+      const node::MpcFiles& files,
+      std::unique_ptr<robot::ipc::Bus> bus,
+      Options options);
 
   /** Stops the node. */
   ~CentroidalMpcNode();
   CentroidalMpcNode(const CentroidalMpcNode&) = delete;
   CentroidalMpcNode& operator=(const CentroidalMpcNode&) = delete;
 
-  /** Starts the visualization thread, the bus and the solver thread, which waits for the robot's first observation. */
+  /** Starts the visualization thread, the bus and the solver thread, which
+   * waits for the robot's first observation. */
   absl::Status start();
 
-  /** Stops the visualization thread, the solver thread and the bus. Idempotent. */
+  /** Stops the visualization thread, the solver thread and the bus. Idempotent.
+   */
   void stop();
 
-  /** The target the node resets the MPC to from `observation` (centroidalMpcResetTargetTrajectories()). */
-  TargetTrajectories resetTargetTrajectories(const SystemObservation& observation) const;
+  /** The target the node resets the MPC to from `observation`
+   * (centroidalMpcResetTargetTrajectories()). */
+  TargetTrajectories resetTargetTrajectories(
+      const SystemObservation& observation) const;
 
-  /** The dimensions every observation is checked against: those of the effective model, the OCP's input layout. */
+  /** The dimensions every observation is checked against: those of the
+   * effective model, the OCP's input layout. */
   ipc::ModelDimensions dimensions() const;
 
   CentroidalMpcInterface& interface() { return *interface_; }
   ProceduralMpcMotionManager& motionManager() { return *motionManager_; }
   MpcParameterUpdaterModule& parameterUpdater() { return *parameterUpdater_; }
-  /** The MPC, whose solver the parameter updater writes; touch it from the solver thread only, or while it is stopped. */
+  /** The MPC, whose solver the parameter updater writes; touch it from the
+   * solver thread only, or while it is stopped. */
   SqpMpc& mpc() { return *mpc_; }
   node::MpcNodeRuntime& runtime() { return *runtime_; }
-  visualization::VisualizationPublisher& visualization() { return *visualization_; }
+  visualization::VisualizationPublisher& visualization() {
+    return *visualization_;
+  }
 
  private:
   CentroidalMpcNode() = default;
@@ -125,9 +152,11 @@ class CentroidalMpcNode {
   std::unique_ptr<CentroidalMpcTargetTrajectoriesCalculator> targetCalculator_;
   std::shared_ptr<ProceduralMpcMotionManager> motionManager_;
   std::shared_ptr<MpcParameterUpdaterModule> parameterUpdater_;
-  // Before the runtime, so that it outlives the MpcServer whose post-solve observer feeds it.
+  // Before the runtime, so that it outlives the MpcServer whose post-solve
+  // observer feeds it.
   std::unique_ptr<visualization::VisualizationPublisher> visualization_;
-  // Last, so that it is destroyed first: its solver thread drives everything above.
+  // Last, so that it is destroyed first: its solver thread drives everything
+  // above.
   std::unique_ptr<node::MpcNodeRuntime> runtime_;
 };
 

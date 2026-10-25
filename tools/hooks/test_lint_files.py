@@ -49,7 +49,8 @@ class ScopeTest(unittest.TestCase):
         ]:
             with self.subTest(path=path):
                 self.assertEqual(
-                    lint_files.in_scope(path, lint_files.Scope.FIRST_PARTY), expected
+                    lint_files.in_scope(path, lint_files.Scope.FIRST_PARTY),
+                    expected,
                 )
 
     def test_first_party_and_ocs2(self):
@@ -57,16 +58,22 @@ class ScopeTest(unittest.TestCase):
         self.assertTrue(lint_files.in_scope("lib/ocs2/core/src/A.cpp", scope))
         self.assertTrue(lint_files.in_scope("humanoid_nmpc/x/A.h", scope))
         self.assertFalse(
-            lint_files.in_scope("lib/ocs2/thirdparty/include/cppad/a.hpp", scope)
+            lint_files.in_scope(
+                "lib/ocs2/thirdparty/include/cppad/a.hpp", scope
+            )
         )
         self.assertFalse(lint_files.in_scope("lib/mujoco_vendor/x.h", scope))
         self.assertFalse(
             lint_files.in_scope("tools/clang_tidy/testdata/Bad.cpp", scope)
         )
 
-    def test_text_reads_fixtures_and_generated_files_but_not_vendored_code(self):
+    def test_text_reads_fixtures_and_generated_files_but_not_vendored_code(
+        self,
+    ):
         scope = lint_files.Scope.TEXT
-        self.assertTrue(lint_files.in_scope("tools/clang_tidy/testdata/Bad.cpp", scope))
+        self.assertTrue(
+            lint_files.in_scope("tools/clang_tidy/testdata/Bad.cpp", scope)
+        )
         self.assertTrue(
             lint_files.in_scope(sorted(lint_files.GENERATED_FILES)[0], scope)
         )
@@ -75,9 +82,13 @@ class ScopeTest(unittest.TestCase):
     def test_not_thirdparty(self):
         scope = lint_files.Scope.NOT_THIRDPARTY
         self.assertTrue(lint_files.in_scope("lib/ocs2/core/src/A.cpp", scope))
-        self.assertTrue(lint_files.in_scope("lib/mujoco_vendor/BUILD.bazel", scope))
+        self.assertTrue(
+            lint_files.in_scope("lib/mujoco_vendor/BUILD.bazel", scope)
+        )
         self.assertFalse(
-            lint_files.in_scope("lib/ocs2/thirdparty/include/cppad/a.hpp", scope)
+            lint_files.in_scope(
+                "lib/ocs2/thirdparty/include/cppad/a.hpp", scope
+            )
         )
 
     def test_non_test(self):
@@ -131,7 +142,9 @@ class RepositoryFilesTest(unittest.TestCase):
             ".bazel/bin/generated.h",
         ]:
             self.repository.write(path, "int x;\n")
-        self.repository.write(".gitignore", "src/ignored.cpp\nbazel-out/\n.bazel/\n")
+        self.repository.write(
+            ".gitignore", "src/ignored.cpp\nbazel-out/\n.bazel/\n"
+        )
 
     def tearDown(self):
         self.repository.cleanup()
@@ -161,7 +174,9 @@ class RepositoryFilesTest(unittest.TestCase):
         self.repository.git("add", "src/a.cpp")
         self.repository.write("src/a.cpp", "int y;\n")
         self.assertEqual(lint_files.staged_files(self.root), ["src/a.cpp"])
-        self.assertEqual(lint_files.staged_source(self.root, "src/a.cpp"), "int x;\n")
+        self.assertEqual(
+            lint_files.staged_source(self.root, "src/a.cpp"), "int x;\n"
+        )
 
 
 class BuildFilesTest(unittest.TestCase):
@@ -170,7 +185,10 @@ class BuildFilesTest(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.root = self.directory.name
         files = {
-            "pkg/BUILD.bazel": 'py_library(name = "a", imports = ["."])\npy_test(name = "t", imports = ["test"])\n',
+            "pkg/BUILD.bazel": (
+                'py_library(name = "a", imports = ["."])\npy_test(name = "t",'
+                ' imports = ["test"])\n'
+            ),
             "pkg/mod_a.py": "",
             "pkg/subpackage/x.py": "",
             "pkg/test/test_a.py": "",
@@ -217,13 +235,17 @@ class BuildFilesTest(unittest.TestCase):
         with mock.patch.object(
             lint_files.subprocess, "run", side_effect=OSError("no git")
         ):
-            self.assertEqual(lint_files.cpp_top_level_dirs(self.root), ["robot"])
+            self.assertEqual(
+                lint_files.cpp_top_level_dirs(self.root), ["robot"]
+            )
 
     def test_bazel_package(self):
         self.assertEqual(
             lint_files.bazel_package("pkg/test/test_a.py", self.root), "//pkg"
         )
-        self.assertEqual(lint_files.bazel_package("robot/src/A.cpp", self.root), "//")
+        self.assertEqual(
+            lint_files.bazel_package("robot/src/A.cpp", self.root), "//"
+        )
 
 
 if __name__ == "__main__":

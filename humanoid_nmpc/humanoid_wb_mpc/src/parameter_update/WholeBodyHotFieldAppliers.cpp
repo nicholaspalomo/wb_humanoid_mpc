@@ -54,31 +54,44 @@ namespace ocs2::humanoid {
 
 namespace {
 
-absl::StatusOr<std::unique_ptr<HotFieldApplier>> makeQuadraticCostWeightsApplier(const WBMpcInterface& /*interface*/) {
-  // The whole-body inputs are the contact wrenches and the joint accelerations input_weights is indexed on.
-  return std::make_unique<QuadraticCostWeightsApplier>(QuadraticCostWeightsApplier::InputCost::kInputWeights);
+absl::StatusOr<std::unique_ptr<HotFieldApplier>>
+makeQuadraticCostWeightsApplier(const WBMpcInterface& /*interface*/) {
+  // The whole-body inputs are the contact wrenches and the joint accelerations
+  // input_weights is indexed on.
+  return std::make_unique<QuadraticCostWeightsApplier>(
+      QuadraticCostWeightsApplier::InputCost::kInputWeights);
 }
 
 using Entry = HotFieldApplierEntry<WBMpcInterface>;
 
-// The one list: wholeBodyHotFieldAppliers() makes the appliers from it, in this order, and wholeBodyHotFieldNames()
-// reads their fields off it, so that the two cannot disagree.
+// The one list: wholeBodyHotFieldAppliers() makes the appliers from it, in this
+// order, and wholeBodyHotFieldNames() reads their fields off it, so that the
+// two cannot disagree.
 constexpr std::array<Entry, 7> kWholeBodyAppliers = {{
-    {.staticFields = &QuadraticCostWeightsApplier::staticFields, .make = &makeQuadraticCostWeightsApplier},
-    {.staticFields = &ConstraintPenaltiesApplier::staticFields, .make = &makeHotFieldApplier<ConstraintPenaltiesApplier, WBMpcInterface>},
+    {.staticFields = &QuadraticCostWeightsApplier::staticFields,
+     .make = &makeQuadraticCostWeightsApplier},
+    {.staticFields = &ConstraintPenaltiesApplier::staticFields,
+     .make = &makeHotFieldApplier<ConstraintPenaltiesApplier, WBMpcInterface>},
     {.staticFields = &FootConstraintSoftWeightsApplier::staticFields,
-     .make = &makeHotFieldApplier<FootConstraintSoftWeightsApplier, WBMpcInterface>},
-    {.staticFields = &ReferenceManagerApplier::staticFields, .make = &makeHotFieldApplier<ReferenceManagerApplier, WBMpcInterface>},
-    {.staticFields = &SqpSettingsApplier::staticFields, .make = &makeHotFieldApplier<SqpSettingsApplier, WBMpcInterface>},
-    {.staticFields = &WholeBodyCostWeightsApplier::staticFields, .make = &makeHotFieldApplier<WholeBodyCostWeightsApplier, WBMpcInterface>},
+     .make = &makeHotFieldApplier<FootConstraintSoftWeightsApplier,
+                                  WBMpcInterface>},
+    {.staticFields = &ReferenceManagerApplier::staticFields,
+     .make = &makeHotFieldApplier<ReferenceManagerApplier, WBMpcInterface>},
+    {.staticFields = &SqpSettingsApplier::staticFields,
+     .make = &makeHotFieldApplier<SqpSettingsApplier, WBMpcInterface>},
+    {.staticFields = &WholeBodyCostWeightsApplier::staticFields,
+     .make = &makeHotFieldApplier<WholeBodyCostWeightsApplier, WBMpcInterface>},
     {.staticFields = &StanceFootAccelerationGainsApplier::staticFields,
-     .make = &makeHotFieldApplier<StanceFootAccelerationGainsApplier, WBMpcInterface>},
+     .make = &makeHotFieldApplier<StanceFootAccelerationGainsApplier,
+                                  WBMpcInterface>},
 }};
 
 }  // namespace
 
-absl::StatusOr<std::vector<std::unique_ptr<HotFieldApplier>>> wholeBodyHotFieldAppliers(const WBMpcInterface& interface) {
-  return makeHotFieldAppliers(absl::MakeConstSpan(kWholeBodyAppliers), interface);
+absl::StatusOr<std::vector<std::unique_ptr<HotFieldApplier>>>
+wholeBodyHotFieldAppliers(const WBMpcInterface& interface) {
+  return makeHotFieldAppliers(absl::MakeConstSpan(kWholeBodyAppliers),
+                              interface);
 }
 
 std::vector<std::string> wholeBodyHotFieldNames() {

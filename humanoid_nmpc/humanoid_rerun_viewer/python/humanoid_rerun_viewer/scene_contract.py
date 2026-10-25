@@ -151,8 +151,12 @@ class MarkerKind(str, enum.Enum):
     """The VisualizationScene field a marker arrives in, and the Rerun archetype it becomes."""
 
     ARROWS = "arrows"  # humanoid_mpc_msgs.Arrows -> rerun.Arrows3D
-    SPHERES = "spheres"  # humanoid_mpc_msgs.Spheres -> rerun.Points3D with radii
-    LINE_STRIPS = "line_strips"  # humanoid_mpc_msgs.LineStrips -> rerun.LineStrips3D
+    SPHERES = (  # humanoid_mpc_msgs.Spheres -> rerun.Points3D with radii
+        "spheres"
+    )
+    LINE_STRIPS = (  # humanoid_mpc_msgs.LineStrips -> rerun.LineStrips3D
+        "line_strips"
+    )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -247,7 +251,9 @@ MARKERS: tuple[MarkerSpec, ...] = (
 )
 # LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/README.md:markers, //humanoid_nmpc/docs/distributed_runtime/README.md:rerun_mapping, //humanoid_nmpc/humanoid_common_mpc_app/visualization/include/humanoid_common_mpc_app/visualization/SceneContract.h:markers)
 
-MARKERS_BY_PATH: dict[str, MarkerSpec] = {marker.path: marker for marker in MARKERS}
+MARKERS_BY_PATH: dict[str, MarkerSpec] = {
+    marker.path: marker for marker in MARKERS
+}
 
 
 def hidden_by_default() -> tuple[str, ...]:

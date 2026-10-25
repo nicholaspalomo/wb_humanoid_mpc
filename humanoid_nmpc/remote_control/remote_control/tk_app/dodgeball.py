@@ -156,12 +156,21 @@ def spawn_offset(throw: DodgeballThrow) -> tuple[float, float, float]:
     )
 
 
-def minimum_launch_speed(throw: DodgeballThrow, gravity: float = GRAVITY) -> float:
+def minimum_launch_speed(
+    throw: DodgeballThrow, gravity: float = GRAVITY
+) -> float:
     """[m/s] The slowest launch that can reach the base at all: sqrt(g (d + dz)).
 
     Here d is the distance and dz the height of the base above the spawn point. A ball launched any slower falls short
     whichever way it is aimed, so `launch_speed` raises the slider's speed to this. It is 5.4 m/s from 3 m level with
     the base and 8.9 m/s from 8 m, which is why the bottom of the speed slider only works for short or high throws.
+
+    Args:
+        throw: the throw, clamped into the slider ranges first.
+        gravity: [m/s^2] the magnitude of the gravitational acceleration.
+
+    Returns:
+        The speed in m/s, 0 when the base is below the spawn point by at least the distance.
     """
     throw = throw.clamped()
     rise = -spawn_offset(throw)[2]
@@ -259,7 +268,9 @@ def impact_momentum(throw: DodgeballThrow, gravity: float = GRAVITY) -> float:
     return throw.mass_kg * math.hypot(*arrival_velocity(throw, gravity))
 
 
-def sample_random_angles(rng: random.Random | None = None) -> tuple[float, float]:
+def sample_random_angles(
+    rng: random.Random | None = None,
+) -> tuple[float, float]:
     """A random azimuth and elevation, uniform over their slider ranges.
 
     Only the two ANGLES. The distance, the speed and the MASS are left to the operator deliberately: those three set
@@ -321,7 +332,9 @@ def throw_message(
     message.spawn_offset.x, message.spawn_offset.y, message.spawn_offset.z = (
         round(value, 6) for value in offset
     )
-    message.launch_velocity.x, message.launch_velocity.y, message.launch_velocity.z = (
-        round(value, 6) for value in velocity
-    )
+    (
+        message.launch_velocity.x,
+        message.launch_velocity.y,
+        message.launch_velocity.z,
+    ) = (round(value, 6) for value in velocity)
     return message

@@ -41,14 +41,19 @@ namespace {
 constexpr scalar_t kMaxContactFlagSum = static_cast<scalar_t>(kBipedFootCount);
 }  // namespace
 
-static_assert(kNumContacts == kBipedFootCount, "the no-flight row is written for a biped");
+static_assert(kNumContacts == kBipedFootCount,
+              "the no-flight row is written for a biped");
 
 std::string NoFlightConstraint::describe() const {
   return "1 <= c_L + c_R <= 2 on the running nodes";
 }
 
-void NoFlightConstraint::addRows(const ContactPlanningContext& /*ctx*/, int /*node*/, RowBuilder& rows) const {
-  rows.addHard(/*xCoefficients=*/{}, {{idx_.contact[0], 1.0}, {idx_.contact[1], 1.0}}, /*lower=*/1.0, /*upper=*/kMaxContactFlagSum);
+void NoFlightConstraint::addRows(const ContactPlanningContext& /*ctx*/,
+                                 int /*node*/,
+                                 RowBuilder& rows) const {
+  rows.addHard(/*xCoefficients=*/{},
+               {{idx_.contact[0], 1.0}, {idx_.contact[1], 1.0}}, /*lower=*/1.0,
+               /*upper=*/kMaxContactFlagSum);
 }
 
 }  // namespace ocs2::humanoid

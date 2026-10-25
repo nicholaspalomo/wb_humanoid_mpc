@@ -64,20 +64,25 @@ constexpr std::array<absl::string_view, 10> kFields = {
 
 }  // namespace
 
-absl::Span<const absl::string_view> LocomotionHeuristicsApplier::staticFields() {
+absl::Span<const absl::string_view>
+LocomotionHeuristicsApplier::staticFields() {
   return absl::MakeConstSpan(kFields);
 }
 
 void LocomotionHeuristicsApplier::apply(HotUpdateTarget& target) {
   if (layer_ == nullptr) return;
-  // A half-typed coefficient in the tuning GUI must not take the controller down: the layer keeps the values it has.
+  // A half-typed coefficient in the tuning GUI must not take the controller
+  // down: the layer keeps the values it has.
   const std::optional<LocomotionHeuristicConfig> config = convertedOrReported(
-      locomotionHeuristicConfigFromConfig(target.task().locomotion_heuristics), target.source(), "locomotion_heuristics");
+      locomotionHeuristicConfigFromConfig(target.task().locomotion_heuristics),
+      target.source(), "locomotion_heuristics");
   if (!config.has_value()) return;
   if (const absl::Status status = layer_->reconfigure(*config); !status.ok()) {
     target.reportNotApplied("locomotion_heuristics", status);
   } else if (!layer_->empty()) {
-    LOG(INFO) << "[MpcParameterUpdaterModule] Applied the locomotion_heuristics coefficients from " << target.source() << ":\n"
+    LOG(INFO) << "[MpcParameterUpdaterModule] Applied the "
+                 "locomotion_heuristics coefficients from "
+              << target.source() << ":\n"
               << layer_->summary();
   }
 }

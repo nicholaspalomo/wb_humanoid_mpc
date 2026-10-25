@@ -27,13 +27,14 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// Writes humanoid_nmpc/humanoid_mpc_config/config_registries.textproto in the checkout from the linked registries
-// (tools/config_registries/README.md):
+// Writes humanoid_nmpc/humanoid_mpc_config/config_registries.textproto in the
+// checkout from the linked registries (tools/config_registries/README.md):
 //
 //   bazel run //tools/config_registries:print_config_registries
 //
-// Run it after a registry gains, loses or renames a name; //tools/config_registries:config_registries_test fails until
-// the file is written again.
+// Run it after a registry gains, loses or renames a name;
+// //tools/config_registries:config_registries_test fails until the file is
+// written again.
 
 #include <cstdlib>
 #include <filesystem>
@@ -52,14 +53,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   absl::ParseCommandLine(argc, argv);
   absl::InitializeLog();
-  const char* absl_nullable workspace = std::getenv("BUILD_WORKSPACE_DIRECTORY");
+  const char* absl_nullable workspace =
+      std::getenv("BUILD_WORKSPACE_DIRECTORY");
   if (workspace == nullptr) {
-    LOG(ERROR) << "run it with `bazel run`, which sets BUILD_WORKSPACE_DIRECTORY: it writes a file of the checkout.";
+    LOG(ERROR)
+        << "run it with `bazel run`, which sets BUILD_WORKSPACE_DIRECTORY: it "
+           "writes a file of the checkout.";
     return ocs2::humanoid::node::kUsageErrorExitCode;
   }
-  const std::string path = (std::filesystem::path(workspace) / ocs2::humanoid::config_registries::kConfigRegistriesFile).string();
+  const std::string path =
+      (std::filesystem::path(workspace) /
+       ocs2::humanoid::config_registries::kConfigRegistriesFile)
+          .string();
   const std::string text =
-      ocs2::humanoid::config_registries::configRegistriesText(ocs2::humanoid::config_registries::collectConfigRegistries());
+      ocs2::humanoid::config_registries::configRegistriesText(
+          ocs2::humanoid::config_registries::collectConfigRegistries());
   std::ofstream file(path, std::ios::binary | std::ios::trunc);
   file << text;
   file.close();

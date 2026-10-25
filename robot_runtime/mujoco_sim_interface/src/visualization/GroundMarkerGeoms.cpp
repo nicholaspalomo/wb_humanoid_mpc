@@ -65,14 +65,21 @@ void paint(mjvGeom* absl_nonnull geom, const MarkerColor& color) {
 
 }  // namespace
 
-bool addGroundDiscGeom(mjvScene* absl_nullable scene, double x, double y, double radius, const MarkerColor& color) {
+bool addGroundDiscGeom(mjvScene* absl_nullable scene,
+                       double x,
+                       double y,
+                       double radius,
+                       const MarkerColor& color) {
   mjvGeom* absl_nullable geom = nextGeom(scene);
   if (geom == nullptr) return false;
-  constexpr double kHalfHeight = 0.002;  // a thin cylinder just above the ground plane, so it is not z-fighting the floor
+  constexpr double kHalfHeight =
+      0.002;  // a thin cylinder just above the ground plane, so it is not
+              // z-fighting the floor
   const mjtNum size[kMjGeomSizeParameters] = {radius, kHalfHeight, 0.0};
   const mjtNum position[kPositionDim] = {x, y, kHalfHeight};
   const mjtNum identity[kMjMatrixSize] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
-  mjv_initGeom(geom, mjGEOM_CYLINDER, size, position, identity, /*rgba=*/nullptr);
+  mjv_initGeom(geom, mjGEOM_CYLINDER, size, position, identity,
+               /*rgba=*/nullptr);
   paint(geom, color);
   return true;
 }
@@ -84,7 +91,8 @@ bool addSphereGeom(mjvScene* absl_nullable scene,
   mjvGeom* absl_nullable geom = nextGeom(scene);
   if (geom == nullptr) return false;
   const mjtNum size[kMjGeomSizeParameters] = {radius, 0.0, 0.0};
-  const mjtNum at[kPositionDim] = {position[kXAxisIndex], position[kYAxisIndex], position[kZAxisIndex]};
+  const mjtNum at[kPositionDim] = {position[kXAxisIndex], position[kYAxisIndex],
+                                   position[kZAxisIndex]};
   const mjtNum identity[kMjMatrixSize] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
   mjv_initGeom(geom, mjGEOM_SPHERE, size, at, identity, /*rgba=*/nullptr);
   paint(geom, color);
@@ -98,7 +106,8 @@ bool addVerticalLineGeom(mjvScene* absl_nullable scene,
                          const MarkerColor& color) {
   mjvGeom* absl_nullable geom = nextGeom(scene);
   if (geom == nullptr) return false;
-  const mjtNum from[kPositionDim] = {position[kXAxisIndex], position[kYAxisIndex], position[kZAxisIndex]};
+  const mjtNum from[kPositionDim] = {
+      position[kXAxisIndex], position[kYAxisIndex], position[kZAxisIndex]};
   const mjtNum to[kPositionDim] = {position[0], position[1], groundHeight};
   mjv_connector(geom, mjGEOM_CAPSULE, width, from, to);
   paint(geom, color);

@@ -43,13 +43,16 @@ enum class MpcFormulation {
   kWholeBody,   ///< humanoid_wb_mpc
 };
 
-/** "centroidal" or "whole_body", as the metrics documents name a formulation. */
+/** "centroidal" or "whole_body", as the metrics documents name a formulation.
+ */
 std::string formulationName(MpcFormulation formulation);
 
 /**
- * One of the five configurations the closed-loop metrics and the solve benchmark run: the files the robot's launch files
- * pass to its robot binary and its MPC node (robot_models/<robot>/<package>/launch/robot.textproto and mpc.textproto),
- * as paths relative to the workspace root, which is the working directory of a Bazel test.
+ * One of the five configurations the closed-loop metrics and the solve
+ * benchmark run: the files the robot's launch files pass to its robot binary
+ * and its MPC node (robot_models/<robot>/<package>/launch/robot.textproto and
+ * mpc.textproto), as paths relative to the workspace root, which is the working
+ * directory of a Bazel test.
  */
 struct RobotConfiguration {
   std::string name;  ///< the registry name, e.g. drc_atlas
@@ -60,25 +63,30 @@ struct RobotConfiguration {
   std::string urdfFile;
   std::string sceneFile;  ///< the MuJoCo scene
   std::string pdGainsFile;
-  /// The walking scenario the robot survives, whose recorded states the solve benchmark replays by default: walk_0p5,
-  /// or walk_0p3 for a robot that falls at 0.5 m/s (EngineAI SA01 and Unitree R1).
+  /// The walking scenario the robot survives, whose recorded states the solve
+  /// benchmark replays by default: walk_0p5, or walk_0p3 for a robot that falls
+  /// at 0.5 m/s (EngineAI SA01 and Unitree R1).
   std::string walkingScenario = "walk_0p5";
 
   /**
-   * Every file the run depends on, whose hashes go into the provenance: the files above and the contact_planning.textproto
-   * beside the task file, when there is one.
+   * Every file the run depends on, whose hashes go into the provenance: the
+   * files above and the contact_planning.textproto beside the task file, when
+   * there is one.
    */
   std::vector<std::string> configurationFiles() const;
 };
 
 // LINT.IfChange(robot_configurations)
-/** drc_atlas, engineai_sa01, unitree_g1, unitree_r1 (centroidal) and unitree_g1_wb (whole-body). */
+/** drc_atlas, engineai_sa01, unitree_g1, unitree_r1 (centroidal) and
+ * unitree_g1_wb (whole-body). */
 const std::vector<RobotConfiguration>& robotConfigurations();
 // clang-format off
 // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/BUILD.bazel:robot_configurations, //Makefile:closed_loop_targets, //humanoid_nmpc/humanoid_common_mpc/test/equivalence/BUILD.bazel:mpc_equivalence_robots)
 // clang-format on
 
-/** The configuration named `name`; NotFound listing the names when there is none. */
-absl::StatusOr<RobotConfiguration> findRobotConfiguration(absl::string_view name);
+/** The configuration named `name`; NotFound listing the names when there is
+ * none. */
+absl::StatusOr<RobotConfiguration> findRobotConfiguration(
+    absl::string_view name);
 
 }  // namespace ocs2::humanoid::validation

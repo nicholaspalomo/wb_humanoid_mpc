@@ -38,14 +38,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Inserts `updatedGait` into `gaitSchedule` at the first event after 70% of the horizon [initTime, finalTime] (or where
- * the left swing that ends there starts), tiled up to the absolute time initTime + 1.5 * (finalTime - initTime). The
- * reference manager calls it on the solver thread before a solve, when the commanded gait changes.
+ * Inserts `updatedGait` into `gaitSchedule` at the first event after 70% of the
+ * horizon [initTime, finalTime] (or where the left swing that ends there
+ * starts), tiled up to the absolute time initTime + 1.5 * (finalTime -
+ * initTime). The reference manager calls it on the solver thread before a
+ * solve, when the commanded gait changes.
  *
- * @return [s] The time at which the schedule leaves the gait it ran for `updatedGait` (and for the transition stance
- *         GaitSchedule::insertModeSequenceTemplate() puts before it): ProceduralMpcMotionManager averages the measured
- *         motion over the cycle of the gait the schedule runs.
+ * @return [s] The time at which the schedule leaves the gait it ran for
+ * `updatedGait` (and for the transition stance
+ *         GaitSchedule::insertModeSequenceTemplate() puts before it):
+ * ProceduralMpcMotionManager averages the measured motion over the cycle of the
+ * gait the schedule runs.
  */
-scalar_t updateGaitSchedule(GaitSchedule& gaitSchedule, const ModeSequenceTemplate& updatedGait, scalar_t initTime, scalar_t finalTime);
+scalar_t updateGaitSchedule(GaitSchedule& gaitSchedule,
+                            const ModeSequenceTemplate& updatedGait,
+                            scalar_t initTime,
+                            scalar_t finalTime);
 
 }  // namespace ocs2::humanoid

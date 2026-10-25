@@ -123,7 +123,9 @@ class TestRerunViewerLauncher(unittest.TestCase):
         return binary
 
     def test_the_command_is_the_built_bridge_with_the_network_file(self):
-        launcher = rerun_viewer.RerunViewerLauncher(self.repo_root, self.network)
+        launcher = rerun_viewer.RerunViewerLauncher(
+            self.repo_root, self.network
+        )
         self.assertEqual(
             launcher.command(),
             [
@@ -162,20 +164,28 @@ class TestRerunViewerLauncher(unittest.TestCase):
     def test_the_bridge_spawns_its_viewer_on_the_guis_own_port(self):
         # A launch file's serve_web bridge holds the bridge's default gRPC port; rerun-sdk's spawn takes whatever
         # listens on its port for a viewer, so on that port the button would open none and stream into the web viewer.
-        self.assertNotEqual(rerun_viewer.GUI_RERUN_GRPC_PORT, _BRIDGE_DEFAULT_GRPC_PORT)
+        self.assertNotEqual(
+            rerun_viewer.GUI_RERUN_GRPC_PORT, _BRIDGE_DEFAULT_GRPC_PORT
+        )
         command = rerun_viewer.RerunViewerLauncher(
             self.repo_root, self.network
         ).command()
         self.assertIn("--rerun_sink=spawn", command)
-        self.assertIn(f"--grpc_port={rerun_viewer.GUI_RERUN_GRPC_PORT}", command)
+        self.assertIn(
+            f"--grpc_port={rerun_viewer.GUI_RERUN_GRPC_PORT}", command
+        )
 
-    def test_a_bridge_that_is_not_built_is_not_started_and_says_how_to_build_it(self):
+    def test_a_bridge_that_is_not_built_is_not_started_and_says_how_to_build_it(
+        self,
+    ):
         launcher = rerun_viewer.RerunViewerLauncher(
             self.repo_root, self.network, popen=self._fake_popen
         )
         result = launcher.open()
         self.assertFalse(result.started)
-        self.assertIn(f"bazel build {rerun_viewer.RERUN_BRIDGE_TARGET}", result.message)
+        self.assertIn(
+            f"bazel build {rerun_viewer.RERUN_BRIDGE_TARGET}", result.message
+        )
         self.assertEqual(self.calls, [])
 
     def test_a_built_bridge_is_started_once_in_its_own_session(self):
@@ -187,7 +197,9 @@ class TestRerunViewerLauncher(unittest.TestCase):
         command, options = self.calls[0]
         self.assertEqual(command, launcher.command())
         self.assertTrue(options["start_new_session"])
-        self.assertTrue(callable(options["preexec_fn"]), "no parent-death signal")
+        self.assertTrue(
+            callable(options["preexec_fn"]), "no parent-death signal"
+        )
         self.assertEqual(options["cwd"], self.repo_root)
         # While it runs, the button does not start a second one.
         second = launcher.open()
@@ -222,7 +234,9 @@ class TestRerunViewerLauncher(unittest.TestCase):
 
     def test_a_real_child_is_started_and_stopped(self):
         self._install_bridge()
-        launcher = rerun_viewer.RerunViewerLauncher(self.repo_root, self.network)
+        launcher = rerun_viewer.RerunViewerLauncher(
+            self.repo_root, self.network
+        )
         self.addCleanup(launcher.close)
         self.assertTrue(launcher.open().started)
         self.assertTrue(launcher.is_running())
@@ -233,7 +247,9 @@ class TestRerunViewerLauncher(unittest.TestCase):
         # A GUI killed outright runs no cleanup, and the bridge is in a session of its own that no process-group
         # teardown reaches: the kernel's parent-death signal is what ends it.
         pid_file = os.path.join(self.repo_root, "bridge.pid")
-        self._install_bridge(f'#!/bin/sh\necho $$ > "{pid_file}"\nexec sleep 60\n')
+        self._install_bridge(
+            f'#!/bin/sh\necho $$ > "{pid_file}"\nexec sleep 60\n'
+        )
         gui_script = textwrap.dedent(
             f"""
             import time

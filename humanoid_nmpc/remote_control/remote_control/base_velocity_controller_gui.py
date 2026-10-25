@@ -200,7 +200,10 @@ class App(tk.Tk):
         )
 
         style.configure(
-            "TLabel", background="#1e1e1e", foreground="#ffffff", font=("Helvetica", 11)
+            "TLabel",
+            background="#1e1e1e",
+            foreground="#ffffff",
+            font=("Helvetica", 11),
         )
 
         # Regular button style
@@ -281,8 +284,12 @@ class App(tk.Tk):
         )
         self.mpc_params_tab.pack(fill="both", expand=True)
         if not self.enable_online_tuning and online_tuning_reason:
-            self.joint_pd_tab.set_online_tuning_enabled(False, online_tuning_reason)
-            self.mpc_params_tab.set_online_tuning_enabled(False, online_tuning_reason)
+            self.joint_pd_tab.set_online_tuning_enabled(
+                False, online_tuning_reason
+            )
+            self.mpc_params_tab.set_online_tuning_enabled(
+                False, online_tuning_reason
+            )
 
         # Tab 4: Joint Targets (for JOINT_PD mode)
         tab_targets = ttk.Frame(self.notebook)
@@ -367,7 +374,9 @@ class App(tk.Tk):
         self.slider_frame = ttk.Frame(main_frame)
         self.slider_frame.grid(row=0, column=2, padx=15, pady=10, sticky="ns")
 
-        self.slider_label = ttk.Label(self.slider_frame, text="Root Height (LT + RT)")
+        self.slider_label = ttk.Label(
+            self.slider_frame, text="Root Height (LT + RT)"
+        )
         self.slider_label.pack(pady=(0, 5))
 
         self.slider = ttk.Scale(
@@ -398,7 +407,13 @@ class App(tk.Tk):
         self.fsm_dropdown = ttk.Combobox(
             fsm_frame,
             textvariable=self.fsm_mode_var,
-            values=["ZERO_TORQUE", "JOINT_PD", "GRAVITY_COMP", "WB_MPC", "SAFETY"],
+            values=[
+                "ZERO_TORQUE",
+                "JOINT_PD",
+                "GRAVITY_COMP",
+                "WB_MPC",
+                "SAFETY",
+            ],
             state="readonly",
             width=14,
         )
@@ -470,7 +485,9 @@ class App(tk.Tk):
         # Such as the controller's contact estimator (contact_estimator): one drop-down per field, of its choices, built
         # from the schema. The MPC Parameters tab owns each value and publishes it on the parameter topic.
         self.schema_choice_frame = ttk.Frame(main_frame)
-        self.schema_choice_frame.grid(row=2, column=0, columnspan=5, pady=(8, 0))
+        self.schema_choice_frame.grid(
+            row=2, column=0, columnspan=5, pady=(8, 0)
+        )
         # The drop-downs on screen, by the field's path, in schema order.
         self.schema_choices: dict[str, SchemaChoice] = {}
         self.mpc_params_tab.on_base_controller_fields_changed = (
@@ -512,7 +529,9 @@ class App(tk.Tk):
         """Sets the field `path` to its drop-down's value through the MPC Parameters tab, which publishes it live."""
         choice = self.schema_choices.get(path)
         if choice is not None:
-            self.mpc_params_tab.set_base_controller_value(path, choice.var.get())
+            self.mpc_params_tab.set_base_controller_value(
+                path, choice.var.get()
+            )
 
     def _sync_schema_choices(self) -> None:
         """Mirrors the tab's fields and values (file load, reset, save); disables the drop-downs when they cannot apply.
@@ -530,7 +549,9 @@ class App(tk.Tk):
                 )
                 for spec in specs
             }
-        state = "readonly" if tab.can_set_base_controller_fields() else "disabled"
+        state = (
+            "readonly" if tab.can_set_base_controller_fields() else "disabled"
+        )
         for path, choice in self.schema_choices.items():
             choice.combobox.configure(values=tab.base_controller_choices(path))
             choice.var.set(tab.base_controller_value(path) or "")
@@ -543,7 +564,10 @@ class App(tk.Tk):
         )
         var = tk.StringVar(value="")
         box = ttk.Combobox(
-            self.schema_choice_frame, textvariable=var, state="readonly", width=20
+            self.schema_choice_frame,
+            textvariable=var,
+            state="readonly",
+            width=20,
         )
         box.bind(
             "<<ComboboxSelected>>",
@@ -668,7 +692,9 @@ class App(tk.Tk):
         self.default_pelvis_height = height
         self.max_height = max(1.3, height + 0.3)
         self.height_scale = (self.max_height - self.min_height) / 100.0
-        self.slider_default_value = (height - self.min_height) / self.height_scale
+        self.slider_default_value = (
+            height - self.min_height
+        ) / self.height_scale
         self.slider.set(self.slider_default_value)
 
     def slider_height(self) -> float:
@@ -720,7 +746,9 @@ class App(tk.Tk):
     def set_knob_positions(
         self, msg: walking_velocity_command_pb2.WalkingVelocityCommand
     ) -> None:
-        self.joystick_left.set_position(msg.linear_velocity_x, msg.linear_velocity_y)
+        self.joystick_left.set_position(
+            msg.linear_velocity_x, msg.linear_velocity_y
+        )
         self.joystick_right.set_position(0.0, msg.angular_velocity_z)
         self.slider.set(
             (msg.desired_pelvis_height - self.min_height) / self.height_scale
@@ -739,7 +767,9 @@ class App(tk.Tk):
         )
 
 
-def moved_pelvis_height(height: float, old_default: float, new_default: float) -> float:
+def moved_pelvis_height(
+    height: float, old_default: float, new_default: float
+) -> float:
     """The commanded pelvis height `height` [m] after the default it was set from moved from `old_default` to `new_default`.
 
     The operator's offset from the default is kept: a height at the default follows it, and one set 5 cm below it stays
@@ -863,7 +893,9 @@ class OperatorGui:
         # The App's default pelvis height the controller's target last followed [m].
         self._default_pelvis_height = app.default_pelvis_height
         app.set_fsm_command_callback(bus.fsm_command.send)
-        app.set_publishes_walking_commands(walking_commands is WalkingCommands.PUBLISH)
+        app.set_publishes_walking_commands(
+            walking_commands is WalkingCommands.PUBLISH
+        )
 
     def tick(self) -> None:
         """One period: apply the received FSM states and, about once a second, the reference file; then publish one walking command."""
@@ -893,7 +925,9 @@ class OperatorGui:
     ) -> walking_velocity_command_pb2.WalkingVelocityCommand | None:
         """The walking command of this tick: the Xbox controller's while one is read, the App's otherwise."""
         gamepad = self._gamepad
-        default_moved = self._app.default_pelvis_height != self._default_pelvis_height
+        default_moved = (
+            self._app.default_pelvis_height != self._default_pelvis_height
+        )
         self._default_pelvis_height = self._app.default_pelvis_height
         if gamepad is not None and gamepad.connected:
             if not self._gamepad_drives_sticks or default_moved:
@@ -954,36 +988,53 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--task_file",
         default="",
-        help="task.textproto of the MPC Parameters tab (default: found next to "
-        "--reference_file, then a shipped robot's)",
+        help=(
+            "task.textproto of the MPC Parameters tab (default: found next to "
+            "--reference_file, then a shipped robot's)"
+        ),
     )
     parser.add_argument(
         "--reference_file",
         default="",
-        help="reference.textproto: the default pelvis height and joint targets (default: next to the task file)",
+        help=(
+            "reference.textproto: the default pelvis height and joint targets"
+            " (default: next to the task file)"
+        ),
     )
     parser.add_argument(
         "--pd_gains_file",
         default="",
-        help="joint_pd_gains.textproto of the Joint PD Gains tab (default: next to the task file)",
+        help=(
+            "joint_pd_gains.textproto of the Joint PD Gains tab (default: next"
+            " to the task file)"
+        ),
     )
     parser.add_argument(
         "--urdf_file",
         default="",
-        help="the robot's URDF, which the Rerun viewer button hands the Rerun bridge (default: none, no robot drawn)",
+        help=(
+            "the robot's URDF, which the Rerun viewer button hands the Rerun"
+            " bridge (default: none, no robot drawn)"
+        ),
     )
     parser.add_argument(
         "--default_pelvis_height",
         type=float,
         default=None,
-        help="the height slider's default [m] (default: the reference file's default_base_height)",
+        help=(
+            "the height slider's default [m] (default: the reference file's"
+            " default_base_height)"
+        ),
     )
     parser.add_argument(
         "--walking_commands",
         choices=[mode.value for mode in WalkingCommands],
         default=WalkingCommands.PUBLISH.value,
-        help="whether the GUI publishes the walking command (publish), or leaves it to a teleoperation publisher (off); "
-        "the Base Controller tab's checkbox changes it while the GUI runs (default: %(default)s)",
+        help=(
+            "whether the GUI publishes the walking command (publish), or leaves"
+            " it to a teleoperation publisher (off); the Base Controller tab's"
+            " checkbox changes it while the GUI runs (default: %(default)s)"
+        ),
     )
     teleop.add_bus_flags(parser, default_node=operator_bus.OPERATOR_NODE)
     return parser
@@ -996,7 +1047,8 @@ def _make_gamepad(
     try:
         # Imports pygame (xbox_controller_interface.PygameJoystickBackend), which may be missing or fail to start.
         controller = xbox_controller_interface.XBoxControllerInterface(
-            teleop.WALKING_COMMAND_RATE_HZ, initial_pelvis_height=initial_pelvis_height
+            teleop.WALKING_COMMAND_RATE_HZ,
+            initial_pelvis_height=initial_pelvis_height,
         )
     # pylint: disable-next=broad-exception-caught  # The GUI works without a controller.
     except Exception as error:
@@ -1015,11 +1067,15 @@ def main(argv: list[str] | None = None) -> int:
 
     repo_root = config_files.find_repo_root()
     # Paths on the command line are relative to where the GUI was started (bazel run changes into the runfiles).
-    network_config = config_files.resolve_input_path(args.network_config, repo_root)
+    network_config = config_files.resolve_input_path(
+        args.network_config, repo_root
+    )
     urdf_file = config_files.resolve_input_path(args.urdf_file, repo_root)
     try:
         files = config_files.resolve_config_files(
-            task_file=config_files.resolve_input_path(args.task_file, repo_root),
+            task_file=config_files.resolve_input_path(
+                args.task_file, repo_root
+            ),
             reference_file=config_files.resolve_input_path(
                 args.reference_file, repo_root
             ),
@@ -1053,11 +1109,11 @@ def main(argv: list[str] | None = None) -> int:
     ) as error:
         print(f"base_velocity_controller_gui: {error}", file=sys.stderr)
         return 1
-    viewer = (
-        rerun_viewer.RerunViewerLauncher(repo_root, network_config, urdf_file=urdf_file)
-        if repo_root
-        else None
-    )
+    viewer: rerun_viewer.RerunViewerLauncher | None = None
+    if repo_root:
+        viewer = rerun_viewer.RerunViewerLauncher(
+            repo_root, network_config, urdf_file=urdf_file
+        )
     app = App(
         pd_gains_file=files.pd_gains_file,
         task_file=files.task_file,

@@ -78,7 +78,8 @@ namespace {
 
 constexpr absl::Duration kTimeout = absl::Seconds(20);
 
-bool waitFor(const std::function<bool()>& condition, absl::Duration timeout = kTimeout) {
+bool waitFor(const std::function<bool()>& condition,
+             absl::Duration timeout = kTimeout) {
   const absl::Time deadline = absl::Now() + timeout;
   while (absl::Now() < deadline) {
     if (condition()) {
@@ -89,11 +90,15 @@ bool waitFor(const std::function<bool()>& condition, absl::Duration timeout = kT
   return condition();
 }
 
-/** Records what the publisher publishes; can hold the telemetry until released, like a slow network. */
+/** Records what the publisher publishes; can hold the telemetry until released,
+ * like a slow network. */
 class RecordingSink {
  public:
   VisualizationPublisher::PublishFunction function() {
-    return [this](absl::string_view topic, const google::protobuf::Message& message) { return publish(topic, message); };
+    return [this](absl::string_view topic,
+                  const google::protobuf::Message& message) {
+      return publish(topic, message);
+    };
   }
 
   /** Every telemetry publish waits for release() from now on. */
@@ -120,7 +125,8 @@ class RecordingSink {
   }
 
  private:
-  absl::Status publish(absl::string_view topic, const google::protobuf::Message& message) {
+  absl::Status publish(absl::string_view topic,
+                       const google::protobuf::Message& message) {
     if (topic == ipc::topics::kVizTelemetry) {
       if (holding_.load()) {
         heldNow_ = true;
@@ -128,10 +134,13 @@ class RecordingSink {
         heldNow_ = false;
       }
       absl::MutexLock lock(&mutex_);
-      telemetryTimes_.push_back(static_cast<const humanoid_mpc_msgs::TelemetrySeries&>(message).time());
+      telemetryTimes_.push_back(
+          static_cast<const humanoid_mpc_msgs::TelemetrySeries&>(message)
+              .time());
     } else if (topic == ipc::topics::kVizScene) {
       absl::MutexLock lock(&mutex_);
-      scenes_.push_back(static_cast<const humanoid_mpc_msgs::VisualizationScene&>(message));
+      scenes_.push_back(
+          static_cast<const humanoid_mpc_msgs::VisualizationScene&>(message));
     } else {
       ADD_FAILURE() << "published on " << topic;
     }
@@ -143,12 +152,14 @@ class RecordingSink {
   absl::Notification released_;
   mutable absl::Mutex mutex_;
   std::vector<double> telemetryTimes_ ABSL_GUARDED_BY(mutex_);
-  std::vector<humanoid_mpc_msgs::VisualizationScene> scenes_ ABSL_GUARDED_BY(mutex_);
+  std::vector<humanoid_mpc_msgs::VisualizationScene> scenes_
+      ABSL_GUARDED_BY(mutex_);
 };
 
 /**
- * The publisher's options of these tests: its thread keeps the scheduling of the test (kInherited), whose rate checks
- * share the machine with other tests. TheThreadRunsUnderSchedIdleByDefault checks the default, SCHED_IDLE.
+ * The publisher's options of these tests: its thread keeps the scheduling of
+ * the test (kInherited), whose rate checks share the machine with other tests.
+ * TheThreadRunsUnderSchedIdleByDefault checks the default, SCHED_IDLE.
  */
 VisualizationPublisher::Options testOptions() {
   VisualizationPublisher::Options options;
@@ -158,55 +169,71 @@ VisualizationPublisher::Options testOptions() {
 
 class VisualizationPublisherTest : public ::testing::Test {
  protected:
-  static void SetUpTestSuite() { robot_ = test::TestRobot::load(test::g1CentroidalFiles(), test::Formulation::kCentroidal).release(); }
+  static void SetUpTestSuite() {
+    robot_ = test::TestRobot::load(test::g1CentroidalFiles(),
+                                   test::Formulation::kCentroidal)
+                 .release();
+  }
   static void TearDownTestSuite() {
     delete robot_;
     robot_ = nullptr;
   }
 
-  std::unique_ptr<VisualizationPublisher> create(VisualizationPublisher::Options options, const std::string& taskFile = "") {
+  std::unique_ptr<VisualizationPublisher> create(
+      VisualizationPublisher::Options options,
+      const std::string& taskFile = "") {
     VisualizationModel model = robot_->model();
     if (!taskFile.empty()) {
       model.taskFile = taskFile;
     }
     absl::StatusOr<std::unique_ptr<VisualizationPublisher>> publisher =
-        VisualizationPublisher::Create(model, sink_.function(), std::move(options));
+        VisualizationPublisher::Create(model, sink_.function(),
+                                       std::move(options));
     EXPECT_TRUE(publisher.ok()) << publisher.status();
     return publisher.ok() ? std::move(*publisher) : nullptr;
   }
 
-  /** A copy of the G1's task file with rerun_scene_frequency set to `frequency`. */
+  /** A copy of the G1's task file with rerun_scene_frequency set to
+   * `frequency`. */
   static std::string taskFileWithSceneFrequency(double frequency) {
     std::ifstream stream(robot_->taskFile());
     std::stringstream text;
     text << stream.rdbuf();
     const std::string original = text.str();
-    const std::string replaced =
-        absl::StrReplaceAll(original, {{"rerun_scene_frequency: 30", absl::StrCat("rerun_scene_frequency: ", frequency)}});
-    EXPECT_NE(replaced, original) << "the G1's task file does not set rerun_scene_frequency: 30";
+    const std::string replaced = absl::StrReplaceAll(
+        original, {{"rerun_scene_frequency: 30",
+                    absl::StrCat("rerun_scene_frequency: ", frequency)}});
+    EXPECT_NE(replaced, original)
+        << "the G1's task file does not set rerun_scene_frequency: 30";
     const char* absl_nullable directory = std::getenv("TEST_TMPDIR");
-    const std::string path = absl::StrCat(directory != nullptr ? directory : "/tmp", "/task_scene_frequency.textproto");
+    const std::string path =
+        absl::StrCat(directory != nullptr ? directory : "/tmp",
+                     "/task_scene_frequency.textproto");
     std::ofstream(path) << replaced;
     return path;
   }
 
   static humanoid_mpc_msgs::RobotStateSample sampleAt(double time) {
-    return robot_->robotState(time, vector3_t(0.0, 0.0, 0.75), vector3_t::Zero());
+    return robot_->robotState(time, vector3_t(0.0, 0.0, 0.75),
+                              vector3_t::Zero());
   }
 
   /**
-   * Returns the scheduling policy of the thread of a publisher with `options`, as sched_getscheduler() reads it on that
-   * thread when it publishes its first message (the series of one sample); -1 when it published nothing.
+   * Returns the scheduling policy of the thread of a publisher with `options`,
+   * as sched_getscheduler() reads it on that thread when it publishes its first
+   * message (the series of one sample); -1 when it published nothing.
    */
   static int publishingThreadPolicy(VisualizationPublisher::Options options) {
     std::atomic<int> policy = -1;
-    absl::StatusOr<std::unique_ptr<VisualizationPublisher>> publisher = VisualizationPublisher::Create(
-        robot_->model(),
-        [&policy](absl::string_view /*topic*/, const google::protobuf::Message& /*message*/) {
-          policy = sched_getscheduler(/*pid=*/0);
-          return absl::OkStatus();
-        },
-        std::move(options));
+    absl::StatusOr<std::unique_ptr<VisualizationPublisher>> publisher =
+        VisualizationPublisher::Create(
+            robot_->model(),
+            [&policy](absl::string_view /*topic*/,
+                      const google::protobuf::Message& /*message*/) {
+              policy = sched_getscheduler(/*pid=*/0);
+              return absl::OkStatus();
+            },
+            std::move(options));
     EXPECT_TRUE(publisher.ok()) << publisher.status();
     if (!publisher.ok()) return -1;
     EXPECT_TRUE((*publisher)->start().ok());
@@ -241,7 +268,8 @@ TEST_F(VisualizationPublisherTest, EverySampleBecomesOneSeriesInOrder) {
   EXPECT_EQ(statistics.buildFailures, 0u);
 }
 
-TEST_F(VisualizationPublisherTest, ASlowPublisherMakesTheQueueDropSamplesAndNeverBlocksTheFeeders) {
+TEST_F(VisualizationPublisherTest,
+       ASlowPublisherMakesTheQueueDropSamplesAndNeverBlocksTheFeeders) {
   VisualizationPublisher::Options options = testOptions();
   options.robotStateQueueCapacity = 8;
   std::unique_ptr<VisualizationPublisher> publisher = create(options);
@@ -251,21 +279,29 @@ TEST_F(VisualizationPublisherTest, ASlowPublisherMakesTheQueueDropSamplesAndNeve
   ASSERT_TRUE(publisher->pushRobotState(sampleAt(0.0)));
   ASSERT_TRUE(waitFor([&] { return sink_.holdingOne(); }));
 
-  // The visualization thread is stuck publishing: every feeding call still returns at once, and the queue keeps at
-  // most its capacity (one slot is the sample being published).
+  // The visualization thread is stuck publishing: every feeding call still
+  // returns at once, and the queue keeps at most its capacity (one slot is the
+  // sample being published).
   CommandData command;
   PrimalSolution solution;
-  robot_->makePolicy(/*startTime=*/0.0, /*nodes=*/11, /*normalForce=*/300.0, vector2_t::Zero(), &command, &solution);
-  const SystemObservation observation = robot_->observation(/*time=*/0.0, ModeNumber::kStance);
-  const std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+  robot_->makePolicy(/*startTime=*/0.0, /*nodes=*/11, /*normalForce=*/300.0,
+                     vector2_t::Zero(), &command, &solution);
+  const SystemObservation observation =
+      robot_->observation(/*time=*/0.0, ModeNumber::kStance);
+  const std::chrono::steady_clock::time_point start =
+      std::chrono::steady_clock::now();
   size_t accepted = 0;
   const size_t pushes = 100;
   for (size_t sample = 1; sample <= pushes; ++sample) {
-    accepted += publisher->pushRobotState(sampleAt(0.01 * static_cast<double>(sample))) ? 1 : 0;
+    accepted +=
+        publisher->pushRobotState(sampleAt(0.01 * static_cast<double>(sample)))
+            ? 1
+            : 0;
     publisher->setObservation(observation);
     publisher->setPolicy(command, solution);
   }
-  const std::chrono::steady_clock::duration feeding = std::chrono::steady_clock::now() - start;
+  const std::chrono::steady_clock::duration feeding =
+      std::chrono::steady_clock::now() - start;
   EXPECT_LT(feeding, std::chrono::seconds(2));
   EXPECT_EQ(accepted, options.robotStateQueueCapacity - 1);
   EXPECT_EQ(publisher->statistics().robotStatesDropped, pushes - accepted);
@@ -282,11 +318,13 @@ TEST_F(VisualizationPublisherTest, ASlowPublisherMakesTheQueueDropSamplesAndNeve
 
 TEST_F(VisualizationPublisherTest, TheSceneIsPublishedAtMostAtItsFrequency) {
   const double frequency = 20.0;
-  std::unique_ptr<VisualizationPublisher> publisher = create(testOptions(), taskFileWithSceneFrequency(frequency));
+  std::unique_ptr<VisualizationPublisher> publisher =
+      create(testOptions(), taskFileWithSceneFrequency(frequency));
   ASSERT_NE(publisher, nullptr);
   EXPECT_EQ(publisher->config().sceneFrequency, frequency);
   ASSERT_TRUE(publisher->start().ok());
-  SystemObservation observation = robot_->observation(/*time=*/0.0, ModeNumber::kStance);
+  SystemObservation observation =
+      robot_->observation(/*time=*/0.0, ModeNumber::kStance);
   publisher->setObservation(observation);
   ASSERT_TRUE(waitFor([&] { return sink_.sceneCount() >= 1; }));
   const size_t first = sink_.sceneCount();
@@ -299,7 +337,8 @@ TEST_F(VisualizationPublisherTest, TheSceneIsPublishedAtMostAtItsFrequency) {
   }
   const size_t published = sink_.sceneCount() - first;
   publisher->stop();
-  EXPECT_LE(published, static_cast<size_t>(frequency * absl::ToDoubleSeconds(window)) + 2);
+  EXPECT_LE(published,
+            static_cast<size_t>(frequency * absl::ToDoubleSeconds(window)) + 2);
   EXPECT_GE(published, 5u);
   for (const humanoid_mpc_msgs::VisualizationScene& scene : sink_.scenes()) {
     EXPECT_GE(scene.robots_size(), 1);
@@ -312,11 +351,13 @@ TEST_F(VisualizationPublisherTest, NothingNewPublishesNoScene) {
   ASSERT_TRUE(publisher->start().ok());
   absl::SleepFor(absl::Milliseconds(100));
   EXPECT_EQ(sink_.sceneCount(), 0u) << "a scene without anything to draw";
-  publisher->setObservation(robot_->observation(/*time=*/0.0, ModeNumber::kStance));
+  publisher->setObservation(
+      robot_->observation(/*time=*/0.0, ModeNumber::kStance));
   ASSERT_TRUE(waitFor([&] { return sink_.sceneCount() >= 1; }));
   absl::SleepFor(absl::Milliseconds(300));
   EXPECT_EQ(sink_.sceneCount(), 1u);
-  publisher->setObservation(robot_->observation(/*time=*/0.1, ModeNumber::kStance));
+  publisher->setObservation(
+      robot_->observation(/*time=*/0.1, ModeNumber::kStance));
   ASSERT_TRUE(waitFor([&] { return sink_.sceneCount() >= 2; }));
   publisher->stop();
   EXPECT_EQ(publisher->statistics().scenesPublished, 2u);
@@ -328,9 +369,12 @@ TEST_F(VisualizationPublisherTest, TheSceneDrawsTheLatestPolicyAndSample) {
   ASSERT_TRUE(publisher->start().ok());
   CommandData command;
   PrimalSolution solution;
-  robot_->makePolicy(/*startTime=*/0.0, /*nodes=*/11, /*normalForce=*/300.0, vector2_t::Zero(), &command, &solution);
+  robot_->makePolicy(/*startTime=*/0.0, /*nodes=*/11, /*normalForce=*/300.0,
+                     vector2_t::Zero(), &command, &solution);
   // As MpcServer calls it after publishing a policy.
-  EXPECT_TRUE(publisher->postSolveObserver()(command, solution, PerformanceIndex()).ok());
+  EXPECT_TRUE(
+      publisher->postSolveObserver()(command, solution, PerformanceIndex())
+          .ok());
   EXPECT_EQ(publisher->statistics().policiesSet, 1u);
   EXPECT_EQ(publisher->statistics().observationsSet, 1u);
   ASSERT_TRUE(publisher->pushRobotState(sampleAt(0.05)));
@@ -346,7 +390,9 @@ TEST_F(VisualizationPublisherTest, TheSceneDrawsTheLatestPolicyAndSample) {
 }
 
 /** Whether `scenes` hold one at `time` that draws the measured robot. */
-bool hasMeasuredSceneAt(const std::vector<humanoid_mpc_msgs::VisualizationScene>& scenes, double time) {
+bool hasMeasuredSceneAt(
+    const std::vector<humanoid_mpc_msgs::VisualizationScene>& scenes,
+    double time) {
   for (const humanoid_mpc_msgs::VisualizationScene& scene : scenes) {
     if (scene.time() != time) continue;
     for (const humanoid_mpc_msgs::RobotModelInstance& robot : scene.robots()) {
@@ -357,35 +403,50 @@ bool hasMeasuredSceneAt(const std::vector<humanoid_mpc_msgs::VisualizationScene>
 }
 
 TEST_F(VisualizationPublisherTest, AStaleSampleGivesWayToTheObservation) {
-  // A sample older than robotStateTimeout is no longer drawn: the scene's measured robot and time are the observation's.
-  // 200 ms rather than less, so that a visualization thread delayed on a busy machine still draws the recent sample.
+  // A sample older than robotStateTimeout is no longer drawn: the scene's
+  // measured robot and time are the observation's. 200 ms rather than less, so
+  // that a visualization thread delayed on a busy machine still draws the
+  // recent sample.
   VisualizationPublisher::Options options = testOptions();
   options.robotStateTimeout = absl::Milliseconds(200);
-  std::unique_ptr<VisualizationPublisher> publisher = create(std::move(options));
+  std::unique_ptr<VisualizationPublisher> publisher =
+      create(std::move(options));
   ASSERT_NE(publisher, nullptr);
   ASSERT_TRUE(publisher->start().ok());
   CommandData command;
   PrimalSolution solution;
-  robot_->makePolicy(/*startTime=*/0.0, /*nodes=*/11, /*normalForce=*/300.0, vector2_t::Zero(), &command, &solution);
-  EXPECT_TRUE(publisher->postSolveObserver()(command, solution, PerformanceIndex()).ok());
+  robot_->makePolicy(/*startTime=*/0.0, /*nodes=*/11, /*normalForce=*/300.0,
+                     vector2_t::Zero(), &command, &solution);
+  EXPECT_TRUE(
+      publisher->postSolveObserver()(command, solution, PerformanceIndex())
+          .ok());
   ASSERT_TRUE(publisher->pushRobotState(sampleAt(0.05)));
-  ASSERT_TRUE(waitFor([&] { return hasMeasuredSceneAt(sink_.scenes(), /*time=*/0.05); })) << "the recent sample is drawn";
+  ASSERT_TRUE(waitFor([&] {
+    return hasMeasuredSceneAt(sink_.scenes(), /*time=*/0.05);
+  })) << "the recent sample is drawn";
   absl::SleepFor(absl::Milliseconds(600));
-  publisher->setObservation(robot_->observation(/*time=*/0.5, ModeNumber::kStance));
-  // The scene takes its time from the sample whenever it draws one, so 0.5 means the stale sample was left out.
-  ASSERT_TRUE(waitFor([&] { return hasMeasuredSceneAt(sink_.scenes(), /*time=*/0.5); })) << "the observation replaces the stale sample";
-  EXPECT_EQ(publisher->statistics().robotStatesRejected, 0u) << "the sample was dropped for its age, not rejected";
+  publisher->setObservation(
+      robot_->observation(/*time=*/0.5, ModeNumber::kStance));
+  // The scene takes its time from the sample whenever it draws one, so 0.5
+  // means the stale sample was left out.
+  ASSERT_TRUE(waitFor([&] {
+    return hasMeasuredSceneAt(sink_.scenes(), /*time=*/0.5);
+  })) << "the observation replaces the stale sample";
+  EXPECT_EQ(publisher->statistics().robotStatesRejected, 0u)
+      << "the sample was dropped for its age, not rejected";
   publisher->stop();
 }
 
-TEST_F(VisualizationPublisherTest, ASampleThatDoesNotDecodeIsCountedAndNotPlotted) {
+TEST_F(VisualizationPublisherTest,
+       ASampleThatDoesNotDecodeIsCountedAndNotPlotted) {
   std::unique_ptr<VisualizationPublisher> publisher = create(testOptions());
   ASSERT_NE(publisher, nullptr);
   ASSERT_TRUE(publisher->start().ok());
   humanoid_mpc_msgs::RobotStateSample sample = sampleAt(0.0);
   sample.mutable_joint_positions()->RemoveLast();
   ASSERT_TRUE(publisher->pushRobotState(sample));
-  ASSERT_TRUE(waitFor([&] { return publisher->statistics().robotStatesRejected == 1; }));
+  ASSERT_TRUE(waitFor(
+      [&] { return publisher->statistics().robotStatesRejected == 1; }));
   ASSERT_TRUE(publisher->pushRobotState(sampleAt(0.01)));
   ASSERT_TRUE(waitFor([&] { return sink_.telemetryCount() == 1; }));
   publisher->stop();
@@ -400,10 +461,12 @@ TEST_F(VisualizationPublisherTest, AClockThatGoesBackIsPlottedToo) {
     ASSERT_TRUE(publisher->pushRobotState(sampleAt(time)));
   }
   ASSERT_TRUE(waitFor([&] { return sink_.telemetryCount() == 4; }));
-  publisher->setObservation(robot_->observation(/*time=*/0.02, ModeNumber::kStance));
+  publisher->setObservation(
+      robot_->observation(/*time=*/0.02, ModeNumber::kStance));
   ASSERT_TRUE(waitFor([&] { return sink_.sceneCount() >= 1; }));
   publisher->stop();
-  EXPECT_EQ(sink_.telemetryTimes(), (std::vector<double>{5.0, 5.01, 0.0, 0.01}));
+  EXPECT_EQ(sink_.telemetryTimes(),
+            (std::vector<double>{5.0, 5.01, 0.0, 0.01}));
 }
 
 TEST_F(VisualizationPublisherTest, StartAndStopFollowTheirContract) {
@@ -421,23 +484,39 @@ TEST_F(VisualizationPublisherTest, StartAndStopFollowTheirContract) {
   publisher->stop();
 }
 
-// SCHED_IDLE by default, so that a solver thread that wakes on the publisher's core takes it at once; kInherited keeps
-// the scheduling of the thread that starts the publisher.
+// SCHED_IDLE by default, so that a solver thread that wakes on the publisher's
+// core takes it at once; kInherited keeps the scheduling of the thread that
+// starts the publisher.
 TEST_F(VisualizationPublisherTest, TheThreadRunsUnderSchedIdleByDefault) {
-  EXPECT_EQ(VisualizationPublisher::Options().threadPriority, robot::web_viewer::ViewerThreadPriority::kIdle);
-  EXPECT_EQ(publishingThreadPolicy(VisualizationPublisher::Options()), SCHED_IDLE);
-  EXPECT_EQ(publishingThreadPolicy(testOptions()), sched_getscheduler(/*pid=*/0));
-  EXPECT_NE(sched_getscheduler(/*pid=*/0), SCHED_IDLE) << "the test's own thread is not idled";
+  EXPECT_EQ(VisualizationPublisher::Options().threadPriority,
+            robot::web_viewer::ViewerThreadPriority::kIdle);
+  EXPECT_EQ(publishingThreadPolicy(VisualizationPublisher::Options()),
+            SCHED_IDLE);
+  EXPECT_EQ(publishingThreadPolicy(testOptions()),
+            sched_getscheduler(/*pid=*/0));
+  EXPECT_NE(sched_getscheduler(/*pid=*/0), SCHED_IDLE)
+      << "the test's own thread is not idled";
 }
 
 TEST_F(VisualizationPublisherTest, InvalidOptionsAreRefused) {
   VisualizationPublisher::Options options;
   options.robotStateQueueCapacity = 0;
-  EXPECT_EQ(VisualizationPublisher::Create(robot_->model(), sink_.function(), options).status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(
+      VisualizationPublisher::Create(robot_->model(), sink_.function(), options)
+          .status()
+          .code(),
+      absl::StatusCode::kInvalidArgument);
   options = VisualizationPublisher::Options();
   options.pollPeriod = absl::ZeroDuration();
-  EXPECT_EQ(VisualizationPublisher::Create(robot_->model(), sink_.function(), options).status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_EQ(VisualizationPublisher::Create(robot_->model(), VisualizationPublisher::PublishFunction()).status().code(),
+  EXPECT_EQ(
+      VisualizationPublisher::Create(robot_->model(), sink_.function(), options)
+          .status()
+          .code(),
+      absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(VisualizationPublisher::Create(
+                robot_->model(), VisualizationPublisher::PublishFunction())
+                .status()
+                .code(),
             absl::StatusCode::kInvalidArgument);
 }
 
@@ -445,13 +524,14 @@ std::unique_ptr<robot::ipc::Bus> createBus(const std::string& name) {
   robot::ipc::BusOptions options;
   options.nodeName = name;
   options.network = robot::ipc::isolatedTestNetwork({name});
-  absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus = robot::ipc::Bus::Create(std::move(options));
+  absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus =
+      robot::ipc::Bus::Create(std::move(options));
   EXPECT_TRUE(bus.ok()) << bus.status();
   return bus.ok() ? std::move(*bus) : nullptr;
 }
 
-// robot/state from a robot process reaches the plots over the bus: the subscription, the queue, the thread and the
-// publish on the MPC node's bus.
+// robot/state from a robot process reaches the plots over the bus: the
+// subscription, the queue, the thread and the publish on the MPC node's bus.
 TEST_F(VisualizationPublisherTest, RobotStateOnTheBusBecomesTelemetryOnTheBus) {
   std::unique_ptr<robot::ipc::Bus> mpcBus = createBus("mpc");
   std::unique_ptr<robot::ipc::Bus> robotBus = createBus("robot");
@@ -464,11 +544,12 @@ TEST_F(VisualizationPublisherTest, RobotStateOnTheBusBecomesTelemetryOnTheBus) {
   absl::Mutex mutex;
   std::vector<double> received;
   ASSERT_TRUE(bridgeBus
-                  ->subscribe<humanoid_mpc_msgs::TelemetrySeries>(ipc::topics::kVizTelemetry, robot::ipc::Delivery::kAll,
-                                                                  [&](const humanoid_mpc_msgs::TelemetrySeries& series) {
-                                                                    absl::MutexLock lock(&mutex);
-                                                                    received.push_back(series.time());
-                                                                  })
+                  ->subscribe<humanoid_mpc_msgs::TelemetrySeries>(
+                      ipc::topics::kVizTelemetry, robot::ipc::Delivery::kAll,
+                      [&](const humanoid_mpc_msgs::TelemetrySeries& series) {
+                        absl::MutexLock lock(&mutex);
+                        received.push_back(series.time());
+                      })
                   .ok());
   ASSERT_TRUE(mpcBus->start().ok());
   ASSERT_TRUE(robotBus->start().ok());
@@ -478,7 +559,8 @@ TEST_F(VisualizationPublisherTest, RobotStateOnTheBusBecomesTelemetryOnTheBus) {
   double time = 0.0;
   ASSERT_TRUE(waitFor([&] {
     time += 0.01;
-    EXPECT_TRUE(robotBus->publish(ipc::topics::kRobotState, sampleAt(time)).ok());
+    EXPECT_TRUE(
+        robotBus->publish(ipc::topics::kRobotState, sampleAt(time)).ok());
     absl::SleepFor(absl::Milliseconds(5));
     absl::MutexLock lock(&mutex);
     return received.size() >= 5;
@@ -493,11 +575,13 @@ TEST_F(VisualizationPublisherTest, RobotStateOnTheBusBecomesTelemetryOnTheBus) {
   }
 }
 
-// The visualization thread, SCHED_IDLE in the node, never takes the bus's locks, which the solver thread's
-// Bus::publish() takes too: it hands its messages to the bus's IO thread, which publishes them. Until the bus runs, a
-// message therefore waits in the publisher's outbox, and the bus has not seen the topic at all; Bus::publish() would
-// have serialized and queued it at once.
-TEST_F(VisualizationPublisherTest, TheBusPublishesTheVisualizationFromItsIoThread) {
+// The visualization thread, SCHED_IDLE in the node, never takes the bus's
+// locks, which the solver thread's Bus::publish() takes too: it hands its
+// messages to the bus's IO thread, which publishes them. Until the bus runs, a
+// message therefore waits in the publisher's outbox, and the bus has not seen
+// the topic at all; Bus::publish() would have serialized and queued it at once.
+TEST_F(VisualizationPublisherTest,
+       TheBusPublishesTheVisualizationFromItsIoThread) {
   std::unique_ptr<robot::ipc::Bus> mpcBus = createBus("mpc");
   ASSERT_NE(mpcBus, nullptr);
   absl::StatusOr<std::unique_ptr<VisualizationPublisher>> publisher =
@@ -505,12 +589,17 @@ TEST_F(VisualizationPublisherTest, TheBusPublishesTheVisualizationFromItsIoThrea
   ASSERT_TRUE(publisher.ok()) << publisher.status();
   ASSERT_TRUE((*publisher)->start().ok());
   ASSERT_TRUE((*publisher)->pushRobotState(sampleAt(/*time=*/0.0)));
-  ASSERT_TRUE(waitFor([&] { return (*publisher)->statistics().telemetryPublished == 1; }));
-  EXPECT_FALSE(mpcBus->statistics().contains(ipc::topics::kVizTelemetry)) << "the visualization thread called Bus::publish()";
+  ASSERT_TRUE(waitFor(
+      [&] { return (*publisher)->statistics().telemetryPublished == 1; }));
+  EXPECT_FALSE(mpcBus->statistics().contains(ipc::topics::kVizTelemetry))
+      << "the visualization thread called Bus::publish()";
   ASSERT_TRUE(mpcBus->start().ok());
   EXPECT_TRUE(waitFor([&] {
-    const absl::flat_hash_map<std::string, robot::ipc::TopicStatistics> statistics = mpcBus->statistics();
-    const absl::flat_hash_map<std::string, robot::ipc::TopicStatistics>::const_iterator it = statistics.find(ipc::topics::kVizTelemetry);
+    const absl::flat_hash_map<std::string, robot::ipc::TopicStatistics>
+        statistics = mpcBus->statistics();
+    const absl::flat_hash_map<std::string,
+                              robot::ipc::TopicStatistics>::const_iterator it =
+        statistics.find(ipc::topics::kVizTelemetry);
     return it != statistics.end() && it->second.written == 1;
   })) << "the IO thread sends what waited";
   EXPECT_EQ((*publisher)->statistics().publishFailures, 0u);
@@ -518,17 +607,22 @@ TEST_F(VisualizationPublisherTest, TheBusPublishesTheVisualizationFromItsIoThrea
   mpcBus->stop();
 }
 
-// The MPC node's attacher (node::MpcNodeRuntime::VisualizationAttacher): the publisher it creates on the node's bus takes
-// robot/state from the robot and the policies from the observer it returns, and publishes viz/telemetry and viz/scene
-// on that bus once the node starts it.
-TEST_F(VisualizationPublisherTest, TheBusAttacherPublishesOnTheNodesBusFromTheRobotAndTheObserver) {
+// The MPC node's attacher (node::MpcNodeRuntime::VisualizationAttacher): the
+// publisher it creates on the node's bus takes robot/state from the robot and
+// the policies from the observer it returns, and publishes viz/telemetry and
+// viz/scene on that bus once the node starts it.
+TEST_F(VisualizationPublisherTest,
+       TheBusAttacherPublishesOnTheNodesBusFromTheRobotAndTheObserver) {
   std::unique_ptr<robot::ipc::Bus> mpcBus = createBus("mpc");
   std::unique_ptr<robot::ipc::Bus> robotBus = createBus("robot");
   std::unique_ptr<robot::ipc::Bus> bridgeBus = createBus("bridge");
   ASSERT_TRUE(mpcBus != nullptr && robotBus != nullptr && bridgeBus != nullptr);
   std::unique_ptr<VisualizationPublisher> publisher;
-  const VisualizationPublisher::BusAttacher attacher = VisualizationPublisher::MakeBusAttacher(robot_->model(), testOptions(), &publisher);
-  absl::StatusOr<VisualizationPublisher::PostSolveObserver> observer = attacher(*mpcBus);
+  const VisualizationPublisher::BusAttacher attacher =
+      VisualizationPublisher::MakeBusAttacher(robot_->model(), testOptions(),
+                                              &publisher);
+  absl::StatusOr<VisualizationPublisher::PostSolveObserver> observer =
+      attacher(*mpcBus);
   ASSERT_TRUE(observer.ok()) << observer.status();
   ASSERT_NE(publisher, nullptr);
   ASSERT_TRUE(*observer);
@@ -536,20 +630,24 @@ TEST_F(VisualizationPublisherTest, TheBusAttacherPublishesOnTheNodesBusFromTheRo
   absl::Mutex mutex;
   size_t telemetryReceived = 0;
   size_t scenesReceived = 0;
-  ASSERT_TRUE(bridgeBus
-                  ->subscribe<humanoid_mpc_msgs::TelemetrySeries>(ipc::topics::kVizTelemetry, robot::ipc::Delivery::kAll,
-                                                                  [&](const humanoid_mpc_msgs::TelemetrySeries& /*series*/) {
-                                                                    absl::MutexLock lock(&mutex);
-                                                                    ++telemetryReceived;
-                                                                  })
-                  .ok());
-  ASSERT_TRUE(bridgeBus
-                  ->subscribe<humanoid_mpc_msgs::VisualizationScene>(ipc::topics::kVizScene, robot::ipc::Delivery::kAll,
-                                                                     [&](const humanoid_mpc_msgs::VisualizationScene& /*scene*/) {
-                                                                       absl::MutexLock lock(&mutex);
-                                                                       ++scenesReceived;
-                                                                     })
-                  .ok());
+  ASSERT_TRUE(
+      bridgeBus
+          ->subscribe<humanoid_mpc_msgs::TelemetrySeries>(
+              ipc::topics::kVizTelemetry, robot::ipc::Delivery::kAll,
+              [&](const humanoid_mpc_msgs::TelemetrySeries& /*series*/) {
+                absl::MutexLock lock(&mutex);
+                ++telemetryReceived;
+              })
+          .ok());
+  ASSERT_TRUE(
+      bridgeBus
+          ->subscribe<humanoid_mpc_msgs::VisualizationScene>(
+              ipc::topics::kVizScene, robot::ipc::Delivery::kAll,
+              [&](const humanoid_mpc_msgs::VisualizationScene& /*scene*/) {
+                absl::MutexLock lock(&mutex);
+                ++scenesReceived;
+              })
+          .ok());
   ASSERT_TRUE(mpcBus->start().ok());
   ASSERT_TRUE(robotBus->start().ok());
   ASSERT_TRUE(bridgeBus->start().ok());
@@ -558,13 +656,16 @@ TEST_F(VisualizationPublisherTest, TheBusAttacherPublishesOnTheNodesBusFromTheRo
 
   CommandData command;
   PrimalSolution solution;
-  robot_->makePolicy(/*startTime=*/0.0, /*nodes=*/11, /*normalForce=*/300.0, vector2_t::Zero(), &command, &solution);
+  robot_->makePolicy(/*startTime=*/0.0, /*nodes=*/11, /*normalForce=*/300.0,
+                     vector2_t::Zero(), &command, &solution);
   double time = 0.0;
   ASSERT_TRUE(waitFor([&] {
     time += 0.01;
-    // As the MpcServer calls it after every policy it publishes, and as the robot publishes its samples.
+    // As the MpcServer calls it after every policy it publishes, and as the
+    // robot publishes its samples.
     EXPECT_TRUE((*observer)(command, solution, PerformanceIndex()).ok());
-    EXPECT_TRUE(robotBus->publish(ipc::topics::kRobotState, sampleAt(time)).ok());
+    EXPECT_TRUE(
+        robotBus->publish(ipc::topics::kRobotState, sampleAt(time)).ok());
     absl::SleepFor(absl::Milliseconds(5));
     absl::MutexLock lock(&mutex);
     return telemetryReceived >= 3 && scenesReceived >= 1;
@@ -581,51 +682,68 @@ TEST_F(VisualizationPublisherTest, TheBusAttacherNeedsAPlaceForItsPublisher) {
   std::unique_ptr<robot::ipc::Bus> mpcBus = createBus("mpc");
   ASSERT_NE(mpcBus, nullptr);
   const VisualizationPublisher::BusAttacher attacher =
-      VisualizationPublisher::MakeBusAttacher(robot_->model(), VisualizationPublisher::Options(), /*publisher=*/nullptr);
-  EXPECT_EQ(attacher(*mpcBus).status().code(), absl::StatusCode::kInvalidArgument);
+      VisualizationPublisher::MakeBusAttacher(robot_->model(),
+                                              VisualizationPublisher::Options(),
+                                              /*publisher=*/nullptr);
+  EXPECT_EQ(attacher(*mpcBus).status().code(),
+            absl::StatusCode::kInvalidArgument);
 }
 
-// With the solver's problem, the post-solve observer evaluates its terms (on the calling thread, the solver's in the
-// node) and the next series plots them: the value of a quadratic cost at the solution's first node, by hand.
-TEST_F(VisualizationPublisherTest, TheObserverEvaluatesTheSolversTermsForTheTelemetry) {
-  const Eigen::Index stateDim = static_cast<Eigen::Index>(robot_->robotModel().getStateDim());
-  const Eigen::Index inputDim = static_cast<Eigen::Index>(robot_->robotModel().getInputDim());
+// With the solver's problem, the post-solve observer evaluates its terms (on
+// the calling thread, the solver's in the node) and the next series plots them:
+// the value of a quadratic cost at the solution's first node, by hand.
+TEST_F(VisualizationPublisherTest,
+       TheObserverEvaluatesTheSolversTermsForTheTelemetry) {
+  const Eigen::Index stateDim =
+      static_cast<Eigen::Index>(robot_->robotModel().getStateDim());
+  const Eigen::Index inputDim =
+      static_cast<Eigen::Index>(robot_->robotModel().getInputDim());
   OptimalControlProblem problem;
-  problem.costPtr->add("tracking", std::make_unique<QuadraticStateInputCost>(matrix_t::Identity(stateDim, stateDim),
-                                                                             matrix_t::Identity(inputDim, inputDim)));
+  problem.costPtr->add("tracking", std::make_unique<QuadraticStateInputCost>(
+                                       matrix_t::Identity(stateDim, stateDim),
+                                       matrix_t::Identity(inputDim, inputDim)));
   VisualizationModel model = robot_->model();
   model.solverProblem = &problem;
   absl::Mutex mutex;
   humanoid_mpc_msgs::TelemetrySeries latest;
-  absl::StatusOr<std::unique_ptr<VisualizationPublisher>> created = VisualizationPublisher::Create(
-      model,
-      [&mutex, &latest](absl::string_view topic, const google::protobuf::Message& message) {
-        if (topic == ipc::topics::kVizTelemetry) {
-          absl::MutexLock lock(&mutex);
-          latest = static_cast<const humanoid_mpc_msgs::TelemetrySeries&>(message);
-        }
-        return absl::OkStatus();
-      },
-      testOptions());
+  absl::StatusOr<std::unique_ptr<VisualizationPublisher>> created =
+      VisualizationPublisher::Create(
+          model,
+          [&mutex, &latest](absl::string_view topic,
+                            const google::protobuf::Message& message) {
+            if (topic == ipc::topics::kVizTelemetry) {
+              absl::MutexLock lock(&mutex);
+              latest = static_cast<const humanoid_mpc_msgs::TelemetrySeries&>(
+                  message);
+            }
+            return absl::OkStatus();
+          },
+          testOptions());
   ASSERT_TRUE(created.ok()) << created.status();
   std::unique_ptr<VisualizationPublisher> publisher = std::move(*created);
   ASSERT_TRUE(publisher->start().ok());
 
   CommandData command;
   PrimalSolution solution;
-  robot_->makePolicy(/*startTime=*/0.0, /*nodes=*/11, /*normalForce=*/300.0, vector2_t::Zero(), &command, &solution);
+  robot_->makePolicy(/*startTime=*/0.0, /*nodes=*/11, /*normalForce=*/300.0,
+                     vector2_t::Zero(), &command, &solution);
   PerformanceIndex performance;
   performance.merit = 7.0;
-  ASSERT_TRUE(publisher->postSolveObserver()(command, solution, performance).ok());
+  ASSERT_TRUE(
+      publisher->postSolveObserver()(command, solution, performance).ok());
   EXPECT_EQ(publisher->statistics().solutionTermsSet, 1u);
-  // The target at the first node is the nominal state with a zero input (TestRobot::makePolicy()).
-  const scalar_t expected = 0.5 * (solution.stateTrajectory_.front() - robot_->nominalState()).squaredNorm() +
-                            0.5 * solution.inputTrajectory_.front().squaredNorm();
+  // The target at the first node is the nominal state with a zero input
+  // (TestRobot::makePolicy()).
+  const scalar_t expected =
+      0.5 * (solution.stateTrajectory_.front() - robot_->nominalState())
+                .squaredNorm() +
+      0.5 * solution.inputTrajectory_.front().squaredNorm();
   ASSERT_TRUE(publisher->pushRobotState(sampleAt(0.05)));
   ASSERT_TRUE(waitFor([&] {
     absl::MutexLock lock(&mutex);
     for (const humanoid_mpc_msgs::ScalarGroup& group : latest.groups()) {
-      if (group.path() == "mpc_solution/performance" && group.values(0) == 7.0) return true;
+      if (group.path() == "mpc_solution/performance" && group.values(0) == 7.0)
+        return true;
     }
     return false;
   }));
@@ -642,8 +760,11 @@ TEST_F(VisualizationPublisherTest, TheObserverEvaluatesTheSolversTermsForTheTele
     EXPECT_TRUE(found);
   }
 
-  // A solution whose terms cannot be evaluated is reported and counted, and its policy is handed over all the same.
-  EXPECT_FALSE(publisher->postSolveObserver()(command, PrimalSolution(), performance).ok());
+  // A solution whose terms cannot be evaluated is reported and counted, and its
+  // policy is handed over all the same.
+  EXPECT_FALSE(
+      publisher->postSolveObserver()(command, PrimalSolution(), performance)
+          .ok());
   EXPECT_EQ(publisher->statistics().solutionTermFailures, 1u);
   EXPECT_EQ(publisher->statistics().policiesSet, 2u);
   publisher->stop();

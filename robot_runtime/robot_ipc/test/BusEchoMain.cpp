@@ -27,11 +27,14 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// The C++ half of //robot_runtime/robot_ipc:cross_language_test. It joins the network of --network_config as node
-// --node and, for every "<input>=<output>" pair of --echo, publishes every TestSample of the input topic back on the
-// output topic with origin set to kOrigin. It prints "CONFIG <its Cyclone DDS configuration>" and "READY" once it runs,
-// and when its standard input closes it stops and prints, for each input topic,
-// "STATS <topic> received=<n> delivered=<n> rejected=<n> missed=<n>".
+// The C++ half of //robot_runtime/robot_ipc:cross_language_test. It joins the
+// network of --network_config as node
+// --node and, for every "<input>=<output>" pair of --echo, publishes every
+// TestSample of the input topic back on the output topic with origin set to
+// kOrigin. It prints "CONFIG <its Cyclone DDS configuration>" and "READY" once
+// it runs, and when its standard input closes it stops and prints, for each
+// input topic, "STATS <topic> received=<n> delivered=<n> rejected=<n>
+// missed=<n>".
 
 #include <iostream>
 #include <memory>
@@ -56,7 +59,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ABSL_FLAG(std::string, network_config, "", "the network file the test wrote");
 ABSL_FLAG(std::string, node, "echo", "the node to publish as");
-ABSL_FLAG(std::string, echo, "test/to_cpp=test/from_cpp", "comma-separated <input topic>=<output topic> pairs");
+ABSL_FLAG(std::string,
+          echo,
+          "test/to_cpp=test/from_cpp",
+          "comma-separated <input topic>=<output topic> pairs");
 
 namespace {
 
@@ -71,15 +77,16 @@ struct EchoPair {
 };
 
 absl::Status subscribeEcho(robot::ipc::Bus& bus, const EchoPair& pair) {
-  return bus.subscribe<robot_ipc_test::TestSample>(pair.input, robot::ipc::Delivery::kAll,
-                                                   [&bus, output = pair.output](const robot_ipc_test::TestSample& sample) {
-                                                     robot_ipc_test::TestSample echo = sample;
-                                                     echo.set_origin(kOrigin);
-                                                     const absl::Status published = bus.publishFromIoThread(output, echo);
-                                                     if (!published.ok()) {
-                                                       LOG(ERROR) << published;
-                                                     }
-                                                   });
+  return bus.subscribe<robot_ipc_test::TestSample>(
+      pair.input, robot::ipc::Delivery::kAll,
+      [&bus, output = pair.output](const robot_ipc_test::TestSample& sample) {
+        robot_ipc_test::TestSample echo = sample;
+        echo.set_origin(kOrigin);
+        const absl::Status published = bus.publishFromIoThread(output, echo);
+        if (!published.ok()) {
+          LOG(ERROR) << published;
+        }
+      });
 }
 
 }  // namespace
@@ -91,7 +98,8 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
     return kUsageError;
   }
   std::vector<EchoPair> pairs;
-  for (const absl::string_view pair : absl::StrSplit(absl::GetFlag(FLAGS_echo), ',', absl::SkipEmpty())) {
+  for (const absl::string_view pair :
+       absl::StrSplit(absl::GetFlag(FLAGS_echo), ',', absl::SkipEmpty())) {
     const std::vector<std::string> topics = absl::StrSplit(pair, '=');
     if (topics.size() != 2) {
       LOG(ERROR) << "--echo: '" << pair << "' is not <input>=<output>";
@@ -100,7 +108,8 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
     pairs.push_back(EchoPair{.input = topics[0], .output = topics[1]});
   }
 
-  absl::StatusOr<robot::ipc::NetworkConfig> network = robot::ipc::loadNetworkConfig(absl::GetFlag(FLAGS_network_config));
+  absl::StatusOr<robot::ipc::NetworkConfig> network =
+      robot::ipc::loadNetworkConfig(absl::GetFlag(FLAGS_network_config));
   if (!network.ok()) {
     LOG(ERROR) << network.status();
     return 1;
@@ -108,7 +117,8 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   robot::ipc::BusOptions options;
   options.nodeName = absl::GetFlag(FLAGS_node);
   options.network = *std::move(network);
-  absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> created = robot::ipc::Bus::Create(std::move(options));
+  absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> created =
+      robot::ipc::Bus::Create(std::move(options));
   if (!created.ok()) {
     LOG(ERROR) << created.status();
     return 1;
@@ -127,7 +137,9 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   }
 
   // The test reads these lines before it writes.
-  std::cout << "CONFIG " << bus.domainConfig() << '\n' << "READY" << '\n' << std::flush;
+  std::cout << "CONFIG " << bus.domainConfig() << '\n'
+            << "READY" << '\n'
+            << std::flush;
   std::string line;
   while (std::getline(std::cin, line)) {
     // Runs until the test closes standard input.
@@ -135,9 +147,12 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   bus.stop();
 
   for (const EchoPair& pair : pairs) {
-    const robot::ipc::TopicStatistics statistics = bus.topicStatistics(pair.input);
-    std::cout << "STATS " << pair.input << " received=" << statistics.received << " delivered=" << statistics.delivered
-              << " rejected=" << statistics.rejected << " missed=" << statistics.missed << '\n';
+    const robot::ipc::TopicStatistics statistics =
+        bus.topicStatistics(pair.input);
+    std::cout << "STATS " << pair.input << " received=" << statistics.received
+              << " delivered=" << statistics.delivered
+              << " rejected=" << statistics.rejected
+              << " missed=" << statistics.missed << '\n';
   }
   std::cout << std::flush;
   return 0;

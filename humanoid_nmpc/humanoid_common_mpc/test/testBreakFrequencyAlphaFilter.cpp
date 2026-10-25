@@ -54,16 +54,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "nproto/Textproto.h"
 
 /*
- * The command filter of the procedural motion manager: a first-order low-pass filter on the solver time, configured by
- * reference.textproto's velocity_command_filter_break_frequency and shipped off. It used to blend its input with its initial
- * output by the wall-clock time since construction and never update either, so the "5 Hz" filter was a scale factor
- * t / (t + 0.032 s) that became the identity after start-up.
+ * The command filter of the procedural motion manager: a first-order low-pass
+ * filter on the solver time, configured by reference.textproto's
+ * velocity_command_filter_break_frequency and shipped off. It used to blend its
+ * input with its initial output by the wall-clock time since construction and
+ * never update either, so the "5 Hz" filter was a scale factor t / (t + 0.032
+ * s) that became the identity after start-up.
  */
 
 namespace ocs2::humanoid {
 namespace {
 
-constexpr scalar_t kStart = 300.0;  // [s] a clock far from zero: the filter runs on the time it is given
+constexpr scalar_t kStart = 300.0;  // [s] a clock far from zero: the filter
+                                    // runs on the time it is given
 
 vector_t constant(scalar_t value) {
   return vector_t::Constant(1, value);
@@ -73,55 +76,73 @@ scalar_t timeConstant(scalar_t breakFrequency) {
   return 1.0 / (2.0 * M_PI * breakFrequency);
 }
 
-BreakFrequencyAlphaFilter filterAt(scalar_t breakFrequency, scalar_t initialOutput = 0.0) {
+BreakFrequencyAlphaFilter filterAt(scalar_t breakFrequency,
+                                   scalar_t initialOutput = 0.0) {
   BreakFrequencyAlphaFilter filter(constant(initialOutput));
   EXPECT_TRUE(filter.setBreakFrequency(breakFrequency).ok());
   return filter;
 }
 
-TEST(BreakFrequencyAlphaFilter, aFilterThatIsOffIsTheIdentityFromTheFirstSample) {
+TEST(BreakFrequencyAlphaFilter,
+     aFilterThatIsOffIsTheIdentityFromTheFirstSample) {
   BreakFrequencyAlphaFilter filter(vector4_t::Zero());
   EXPECT_FALSE(filter.isEnabled());
   scalar_t time = kStart;
-  for (const vector4_t& command : {vector4_t(1.2, 0.0, 0.0, 0.0), vector4_t(-0.3, 0.25, 0.1, 1.0), vector4_t(vector4_t::Zero())}) {
+  for (const vector4_t& command :
+       {vector4_t(1.2, 0.0, 0.0, 0.0), vector4_t(-0.3, 0.25, 0.1, 1.0),
+        vector4_t(vector4_t::Zero())}) {
     EXPECT_EQ(filter.update(time, command), command);
     time += 0.013;
   }
 }
 
-TEST(BreakFrequencyAlphaFilter, theStepResponseIsTheContinuousFilterAtEverySampleHoweverTheyAreSpaced) {
-  const std::vector<scalar_t> steps = {0.004, 0.011, 0.0005, 0.02, 0.0071, 0.03, 0.0123, 0.001};
+TEST(BreakFrequencyAlphaFilter,
+     theStepResponseIsTheContinuousFilterAtEverySampleHoweverTheyAreSpaced) {
+  const std::vector<scalar_t> steps = {0.004,  0.011, 0.0005, 0.02,
+                                       0.0071, 0.03,  0.0123, 0.001};
   for (const scalar_t breakFrequency : {0.5, 2.0, 5.0}) {
     SCOPED_TRACE(absl::StrCat("f_c = ", breakFrequency, " Hz"));
     const scalar_t tau = timeConstant(breakFrequency);
     BreakFrequencyAlphaFilter filter = filterAt(breakFrequency);
-    EXPECT_EQ(filter.update(kStart, constant(1.0))(0), 0.0) << "the first sample starts the clock";
+    EXPECT_EQ(filter.update(kStart, constant(1.0))(0), 0.0)
+        << "the first sample starts the clock";
     scalar_t time = kStart;
     for (size_t k = 0; time - kStart < 5.0 * tau; ++k) {
       time += steps[k % steps.size()];
-      // The time the filter sees since the step, (kStart + t) - kStart, rather than t: the two differ in the last digit.
+      // The time the filter sees since the step, (kStart + t) - kStart, rather
+      // than t: the two differ in the last digit.
       const scalar_t elapsed = time - kStart;
-      EXPECT_NEAR(filter.update(time, constant(1.0))(0), 1.0 - std::exp(-elapsed / tau), 1.0e-12) << "t = " << elapsed;
+      EXPECT_NEAR(filter.update(time, constant(1.0))(0),
+                  1.0 - std::exp(-elapsed / tau), 1.0e-12)
+          << "t = " << elapsed;
     }
     EXPECT_GT(filter.getOutput()(0), 0.99);
   }
 }
 
-TEST(BreakFrequencyAlphaFilter, theOutputCoversOneMinusOneOverEOfAStepInOneTimeConstant) {
+TEST(BreakFrequencyAlphaFilter,
+     theOutputCoversOneMinusOneOverEOfAStepInOneTimeConstant) {
   for (const scalar_t breakFrequency : {1.0, 5.0, 20.0}) {
     const scalar_t tau = timeConstant(breakFrequency);
-    // A clock at 1 s, where one time constant is represented to the last digit that the checks below resolve.
+    // A clock at 1 s, where one time constant is represented to the last digit
+    // that the checks below resolve.
     const scalar_t start = 1.0;
-    const scalar_t expected = 0.4 + 2.0 * (1.0 - std::exp(-((start + tau) - start) / tau));
+    const scalar_t expected =
+        0.4 + 2.0 * (1.0 - std::exp(-((start + tau) - start) / tau));
     EXPECT_NEAR(expected, 0.4 + 2.0 * (1.0 - std::exp(-1.0)), 1.0e-12);
-    BreakFrequencyAlphaFilter oneSample = filterAt(breakFrequency, /*initialOutput=*/0.4);
+    BreakFrequencyAlphaFilter oneSample =
+        filterAt(breakFrequency, /*initialOutput=*/0.4);
     oneSample.update(start, constant(2.4));
-    EXPECT_NEAR(oneSample.update(start + tau, constant(2.4))(0), expected, 1.0e-12);
+    EXPECT_NEAR(oneSample.update(start + tau, constant(2.4))(0), expected,
+                1.0e-12);
 
-    BreakFrequencyAlphaFilter manySamples = filterAt(breakFrequency, /*initialOutput=*/0.4);
+    BreakFrequencyAlphaFilter manySamples =
+        filterAt(breakFrequency, /*initialOutput=*/0.4);
     manySamples.update(start, constant(2.4));
-    for (int k = 1; k < 100; ++k) manySamples.update(start + tau * k / 100.0, constant(2.4));
-    EXPECT_NEAR(manySamples.update(start + tau, constant(2.4))(0), expected, 1.0e-12);
+    for (int k = 1; k < 100; ++k)
+      manySamples.update(start + tau * k / 100.0, constant(2.4));
+    EXPECT_NEAR(manySamples.update(start + tau, constant(2.4))(0), expected,
+                1.0e-12);
   }
 }
 
@@ -129,35 +150,47 @@ TEST(BreakFrequencyAlphaFilter, itRunsOnTheTimeItIsGivenAndKeepsItsState) {
   BreakFrequencyAlphaFilter filter = filterAt(/*breakFrequency=*/5.0);
   const scalar_t tau = timeConstant(5.0);
   filter.update(kStart, constant(1.0));
-  // Wall-clock time passes, solver time does not: the output does not move. The filter this replaces grew with the
-  // wall clock here, to 0.39 of the input after the 20 ms below.
+  // Wall-clock time passes, solver time does not: the output does not move. The
+  // filter this replaces grew with the wall clock here, to 0.39 of the input
+  // after the 20 ms below.
   std::this_thread::sleep_for(std::chrono::milliseconds(20));
-  for (int k = 0; k < 100; ++k) EXPECT_EQ(filter.update(kStart, constant(1.0))(0), 0.0);
+  for (int k = 0; k < 100; ++k)
+    EXPECT_EQ(filter.update(kStart, constant(1.0))(0), 0.0);
 
-  // The state carries over: after ten time constants at 1, a step back to 0 decays from there, not from the seed.
+  // The state carries over: after ten time constants at 1, a step back to 0
+  // decays from there, not from the seed.
   const scalar_t settled = filter.update(kStart + 10.0 * tau, constant(1.0))(0);
   EXPECT_NEAR(settled, 1.0 - std::exp(-10.0), 1.0e-9);
   const scalar_t oneMore = (kStart + 11.0 * tau) - (kStart + 10.0 * tau);
-  EXPECT_NEAR(filter.update(kStart + 11.0 * tau, constant(0.0))(0), settled * std::exp(-oneMore / tau), 1.0e-12);
+  EXPECT_NEAR(filter.update(kStart + 11.0 * tau, constant(0.0))(0),
+              settled * std::exp(-oneMore / tau), 1.0e-12);
 }
 
-TEST(BreakFrequencyAlphaFilter, aResetReturnsToTheStateAfterConstructionAndKeepsTheBreakFrequency) {
-  BreakFrequencyAlphaFilter used = filterAt(/*breakFrequency=*/2.0, /*initialOutput=*/0.1);
+TEST(BreakFrequencyAlphaFilter,
+     aResetReturnsToTheStateAfterConstructionAndKeepsTheBreakFrequency) {
+  BreakFrequencyAlphaFilter used =
+      filterAt(/*breakFrequency=*/2.0, /*initialOutput=*/0.1);
   used.update(kStart, constant(1.0));
   used.update(kStart + 0.3, constant(-0.5));
-  ASSERT_NE(used.getOutput()(0), 0.1) << "positive control: the used filter has moved";
+  ASSERT_NE(used.getOutput()(0), 0.1)
+      << "positive control: the used filter has moved";
   used.reset();
   EXPECT_EQ(used.getOutput()(0), 0.1);
   EXPECT_EQ(used.getBreakFrequency(), 2.0);
 
-  BreakFrequencyAlphaFilter fresh = filterAt(/*breakFrequency=*/2.0, /*initialOutput=*/0.1);
-  // After the reset the clock starts again at the next sample, wherever that is.
+  BreakFrequencyAlphaFilter fresh =
+      filterAt(/*breakFrequency=*/2.0, /*initialOutput=*/0.1);
+  // After the reset the clock starts again at the next sample, wherever that
+  // is.
   for (const scalar_t time : {1.0, 1.02, 1.05, 1.3}) {
-    EXPECT_EQ(used.update(time, constant(0.7))(0), fresh.update(time, constant(0.7))(0)) << "t = " << time;
+    EXPECT_EQ(used.update(time, constant(0.7))(0),
+              fresh.update(time, constant(0.7))(0))
+        << "t = " << time;
   }
 }
 
-TEST(BreakFrequencyAlphaFilter, aClockThatRunsBackwardsRestartsTheClockAndHoldsTheOutput) {
+TEST(BreakFrequencyAlphaFilter,
+     aClockThatRunsBackwardsRestartsTheClockAndHoldsTheOutput) {
   const scalar_t tau = timeConstant(2.0);
   BreakFrequencyAlphaFilter filter = filterAt(/*breakFrequency=*/2.0);
   filter.update(/*time=*/5.0, constant(1.0));
@@ -165,7 +198,9 @@ TEST(BreakFrequencyAlphaFilter, aClockThatRunsBackwardsRestartsTheClockAndHoldsT
   ASSERT_GT(before, 0.0);
   EXPECT_EQ(filter.update(/*time=*/2.0, constant(1.0))(0), before);
   const scalar_t elapsed = (2.0 + tau) - 2.0;
-  EXPECT_NEAR(filter.update(2.0 + tau, constant(1.0))(0), before + (1.0 - before) * (1.0 - std::exp(-elapsed / tau)), 1.0e-12);
+  EXPECT_NEAR(filter.update(2.0 + tau, constant(1.0))(0),
+              before + (1.0 - before) * (1.0 - std::exp(-elapsed / tau)),
+              1.0e-12);
 }
 
 TEST(BreakFrequencyAlphaFilter, switchingTheFilterOnContinuesFromTheLastInput) {
@@ -173,7 +208,8 @@ TEST(BreakFrequencyAlphaFilter, switchingTheFilterOnContinuesFromTheLastInput) {
   EXPECT_EQ(filter.update(/*time=*/1.0, constant(0.8))(0), 0.8);
   ASSERT_TRUE(filter.setBreakFrequency(2.0).ok());
   EXPECT_TRUE(filter.isEnabled());
-  EXPECT_EQ(filter.update(/*time=*/1.1, constant(0.8))(0), 0.8) << "no jump back to the initial output";
+  EXPECT_EQ(filter.update(/*time=*/1.1, constant(0.8))(0), 0.8)
+      << "no jump back to the initial output";
   EXPECT_LT(filter.update(/*time=*/1.2, constant(0.0))(0), 0.8);
   EXPECT_GT(filter.getOutput()(0), 0.0);
   // And off again: the identity from the next sample.
@@ -181,22 +217,29 @@ TEST(BreakFrequencyAlphaFilter, switchingTheFilterOnContinuesFromTheLastInput) {
   EXPECT_EQ(filter.update(/*time=*/1.3, constant(-0.2))(0), -0.2);
 }
 
-TEST(BreakFrequencyAlphaFilter, anInvalidBreakFrequencyIsRejectedAndChangesNothing) {
+TEST(BreakFrequencyAlphaFilter,
+     anInvalidBreakFrequencyIsRejectedAndChangesNothing) {
   BreakFrequencyAlphaFilter filter = filterAt(/*breakFrequency=*/2.0);
-  for (const scalar_t invalid : {-1.0, std::numeric_limits<scalar_t>::quiet_NaN(), std::numeric_limits<scalar_t>::infinity()}) {
-    EXPECT_EQ(filter.setBreakFrequency(invalid).code(), absl::StatusCode::kInvalidArgument) << invalid;
+  for (const scalar_t invalid :
+       {-1.0, std::numeric_limits<scalar_t>::quiet_NaN(),
+        std::numeric_limits<scalar_t>::infinity()}) {
+    EXPECT_EQ(filter.setBreakFrequency(invalid).code(),
+              absl::StatusCode::kInvalidArgument)
+        << invalid;
     EXPECT_EQ(filter.getBreakFrequency(), 2.0);
   }
   EXPECT_TRUE(BreakFrequencyAlphaFilter::validateBreakFrequency(0.0).ok());
 }
 
 /******************************************************************************************************/
-/*                 The reference file's field ProceduralMpcMotionManager is configured from                 */
+/*                 The reference file's field ProceduralMpcMotionManager is
+ * configured from                 */
 /******************************************************************************************************/
 
 std::string runfilePath(absl::string_view relativePath) {
   std::vector<std::filesystem::path> roots;
-  if (const char* absl_nullable srcDir = std::getenv("TEST_SRCDIR")) roots.emplace_back(std::filesystem::path(srcDir) / "_main");
+  if (const char* absl_nullable srcDir = std::getenv("TEST_SRCDIR"))
+    roots.emplace_back(std::filesystem::path(srcDir) / "_main");
   roots.emplace_back(std::filesystem::current_path());
   for (const std::filesystem::path& root : roots) {
     const std::filesystem::path candidate = root / std::string(relativePath);
@@ -205,34 +248,45 @@ std::string runfilePath(absl::string_view relativePath) {
   return std::string();
 }
 
-/** The reference settings of the reference file at `path`, as the MPC reads them. */
-absl::StatusOr<ReferenceSettings> referenceSettingsOfFile(const std::string& path) {
+/** The reference settings of the reference file at `path`, as the MPC reads
+ * them. */
+absl::StatusOr<ReferenceSettings> referenceSettingsOfFile(
+    const std::string& path) {
   absl::StatusOr<mpc_config::ReferenceFile> file = loadReferenceFile(path);
   if (!file.ok()) return file.status();
   return referenceSettingsFromConfig(*file);
 }
 
-TEST(VelocityCommandFilterField, everyShippedRobotConfiguresTheFilterAndShipsItOff) {
+TEST(VelocityCommandFilterField,
+     everyShippedRobotConfiguresTheFilterAndShipsItOff) {
   // LINT.IfChange(shipped_reference_files)
   const std::vector<std::string> referenceFiles = {
-      "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.textproto",
-      "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/command/reference.textproto",
-      "robot_models/unitree_g1/g1_centroidal_mpc/config/command/reference.textproto",
+      "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/"
+      "reference.textproto",
+      "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/command/"
+      "reference.textproto",
+      "robot_models/unitree_g1/g1_centroidal_mpc/config/command/"
+      "reference.textproto",
       "robot_models/unitree_g1/g1_wb_mpc/config/command/reference.textproto",
-      "robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/command/reference.textproto",
+      "robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/command/"
+      "reference.textproto",
   };
   // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/BUILD.bazel:filter_test_data)
   for (const std::string& relativePath : referenceFiles) {
     SCOPED_TRACE(relativePath);
     const std::string file = runfilePath(relativePath);
     ASSERT_FALSE(file.empty()) << "not in the runfiles";
-    const absl::StatusOr<humanoid_mpc_config::ReferenceFile> parsed = nproto::ParseTextprotoFile<humanoid_mpc_config::ReferenceFile>(file);
+    const absl::StatusOr<humanoid_mpc_config::ReferenceFile> parsed =
+        nproto::ParseTextprotoFile<humanoid_mpc_config::ReferenceFile>(file);
     ASSERT_TRUE(parsed.ok()) << parsed.status();
-    EXPECT_TRUE(parsed->has_velocity_command_filter_break_frequency()) << "the field is set explicitly, next to its documentation";
-    const absl::StatusOr<ReferenceSettings> settings = referenceSettingsOfFile(file);
+    EXPECT_TRUE(parsed->has_velocity_command_filter_break_frequency())
+        << "the field is set explicitly, next to its documentation";
+    const absl::StatusOr<ReferenceSettings> settings =
+        referenceSettingsOfFile(file);
     ASSERT_TRUE(settings.ok()) << settings.status();
     EXPECT_EQ(settings->velocityCommandFilterBreakFrequency, 0.0)
-        << "a robot ships the command filter off until it has been tried in simulation";
+        << "a robot ships the command filter off until it has been tried in "
+           "simulation";
   }
 }
 
@@ -245,16 +299,19 @@ class VelocityCommandFilterFieldFileTest : public ::testing::Test {
   /** A reference file with the limits the MPC requires and `line`. */
   std::string referenceFileWith(absl::string_view line) {
     const std::string file =
-        (std::filesystem::path(::testing::TempDir()) / absl::StrCat("reference_", files_.size(), ".textproto")).string();
-    std::ofstream(file) << "# proto-message: humanoid_mpc_config.ReferenceFile\n"
-                        << "target_displacement_velocity: 0.5\n"
-                        << "target_rotation_velocity: 0.5\n"
-                        << "max_displacement_velocity_x: 1.0\n"
-                        << "max_displacement_velocity_y: 0.5\n"
-                        << "max_delta_pelvis_height: 0.1\n"
-                        << "max_rotation_velocity: 1.0\n"
-                        << "default_base_height: 0.9\n"
-                        << line << "\n";
+        (std::filesystem::path(::testing::TempDir()) /
+         absl::StrCat("reference_", files_.size(), ".textproto"))
+            .string();
+    std::ofstream(file)
+        << "# proto-message: humanoid_mpc_config.ReferenceFile\n"
+        << "target_displacement_velocity: 0.5\n"
+        << "target_rotation_velocity: 0.5\n"
+        << "max_displacement_velocity_x: 1.0\n"
+        << "max_displacement_velocity_y: 0.5\n"
+        << "max_delta_pelvis_height: 0.1\n"
+        << "max_rotation_velocity: 1.0\n"
+        << "default_base_height: 0.9\n"
+        << line << "\n";
     files_.push_back(file);
     return file;
   }
@@ -262,30 +319,43 @@ class VelocityCommandFilterFieldFileTest : public ::testing::Test {
   std::vector<std::string> files_;
 };
 
-TEST_F(VelocityCommandFilterFieldFileTest, anAbsentFieldIsOffAndAValidOneIsRead) {
-  const absl::StatusOr<ReferenceSettings> absent = referenceSettingsOfFile(referenceFileWith(""));
+TEST_F(VelocityCommandFilterFieldFileTest,
+       anAbsentFieldIsOffAndAValidOneIsRead) {
+  const absl::StatusOr<ReferenceSettings> absent =
+      referenceSettingsOfFile(referenceFileWith(""));
   ASSERT_TRUE(absent.ok()) << absent.status();
   EXPECT_EQ(absent->velocityCommandFilterBreakFrequency, 0.0);
-  const absl::StatusOr<ReferenceSettings> set = referenceSettingsOfFile(referenceFileWith("velocity_command_filter_break_frequency: 2.5"));
+  const absl::StatusOr<ReferenceSettings> set = referenceSettingsOfFile(
+      referenceFileWith("velocity_command_filter_break_frequency: 2.5"));
   ASSERT_TRUE(set.ok()) << set.status();
   EXPECT_EQ(set->velocityCommandFilterBreakFrequency, 2.5);
 }
 
-TEST_F(VelocityCommandFilterFieldFileTest, anInvalidValueIsRejectedWithAMessageThatNamesTheField) {
+TEST_F(VelocityCommandFilterFieldFileTest,
+       anInvalidValueIsRejectedWithAMessageThatNamesTheField) {
   for (const absl::string_view value : {"-1.0", "inf"}) {
     SCOPED_TRACE(value);
     const absl::StatusOr<ReferenceSettings> loaded =
-        referenceSettingsOfFile(referenceFileWith(absl::StrCat("velocity_command_filter_break_frequency: ", value)));
+        referenceSettingsOfFile(referenceFileWith(
+            absl::StrCat("velocity_command_filter_break_frequency: ", value)));
     ASSERT_FALSE(loaded.ok());
     EXPECT_EQ(loaded.status().code(), absl::StatusCode::kInvalidArgument);
-    EXPECT_TRUE(absl::StrContains(loaded.status().message(), "velocity_command_filter_break_frequency")) << loaded.status();
+    EXPECT_TRUE(absl::StrContains(loaded.status().message(),
+                                  "velocity_command_filter_break_frequency"))
+        << loaded.status();
   }
-  // A value that is not a number is the parser's to refuse, naming the file and the line.
-  const std::string notANumber = referenceFileWith("velocity_command_filter_break_frequency: fast");
-  const absl::StatusOr<ReferenceSettings> loaded = referenceSettingsOfFile(notANumber);
+  // A value that is not a number is the parser's to refuse, naming the file and
+  // the line.
+  const std::string notANumber =
+      referenceFileWith("velocity_command_filter_break_frequency: fast");
+  const absl::StatusOr<ReferenceSettings> loaded =
+      referenceSettingsOfFile(notANumber);
   EXPECT_EQ(loaded.status().code(), absl::StatusCode::kInvalidArgument);
-  // The line referenceFileWith() writes last: after the header and the seven required fields.
-  EXPECT_TRUE(absl::StrContains(loaded.status().message(), absl::StrCat(notANumber, ":9:"))) << loaded.status();
+  // The line referenceFileWith() writes last: after the header and the seven
+  // required fields.
+  EXPECT_TRUE(absl::StrContains(loaded.status().message(),
+                                absl::StrCat(notANumber, ":9:")))
+      << loaded.status();
 }
 
 }  // namespace

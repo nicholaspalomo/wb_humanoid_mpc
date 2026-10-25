@@ -58,13 +58,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_wb_mpc/cost/EndEffectorDynamicsFootCost.h"
 
 /**
- * The whole-body MPC as it ships for the G1, built end to end: every CppAD library of its dynamics, costs and
- * constraints is taped and compiled, and the assembled problem is then evaluated once at the initial state.
+ * The whole-body MPC as it ships for the G1, built end to end: every CppAD
+ * library of its dynamics, costs and constraints is taped and compiled, and the
+ * assembled problem is then evaluated once at the initial state.
  *
- * Nothing else constructs this MPC. It stopped being constructible without any test noticing: the base acceleration of
- * the floating-base dynamics was solved with a pivoting 6x6 inverse, whose comparisons between CppAD variables the code
- * generator cannot evaluate, and WBMpcInterface::Create threw "GreaterThanZero cannot be called for non-parameters"
- * while taping the dynamics (testFloatingBaseDynamics pins the solve itself).
+ * Nothing else constructs this MPC. It stopped being constructible without any
+ * test noticing: the base acceleration of the floating-base dynamics was solved
+ * with a pivoting 6x6 inverse, whose comparisons between CppAD variables the
+ * code generator cannot evaluate, and WBMpcInterface::Create threw
+ * "GreaterThanZero cannot be called for non-parameters" while taping the
+ * dynamics (testFloatingBaseDynamics pins the solve itself).
  */
 namespace ocs2::humanoid {
 namespace {
@@ -83,23 +86,35 @@ std::string runfilePath(absl::string_view relativePath) {
 }
 
 std::unique_ptr<WBMpcInterface> createShippedG1WholeBodyMpc() {
-  const std::string taskFile = runfilePath("robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto");
-  const std::string referenceFile = runfilePath("robot_models/unitree_g1/g1_wb_mpc/config/command/reference.textproto");
-  const std::string urdfFile = runfilePath("robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf");
-  EXPECT_FALSE(taskFile.empty() || referenceFile.empty() || urdfFile.empty()) << "the G1 whole-body files are not in the runfiles";
-  if (taskFile.empty() || referenceFile.empty() || urdfFile.empty()) return nullptr;
-  // The CppAD libraries go to a folder relative to the working directory (ModelSettings::modelFolderCppAd), and the
-  // shipped file does not force a recompile, so a library left there by an earlier run would be loaded instead of
-  // taped: an unsandboxed run (--spawn_strategy=local, the binary run by hand) would then pass on libraries built from
-  // older code. A directory made for this run is empty, so everything is taped and compiled here.
-  std::string freshDirectory = (std::filesystem::path(testing::TempDir()) / "testWBMpcConstruction_XXXXXX").string();
+  const std::string taskFile = runfilePath(
+      "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto");
+  const std::string referenceFile = runfilePath(
+      "robot_models/unitree_g1/g1_wb_mpc/config/command/reference.textproto");
+  const std::string urdfFile =
+      runfilePath("robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf");
+  EXPECT_FALSE(taskFile.empty() || referenceFile.empty() || urdfFile.empty())
+      << "the G1 whole-body files are not in the runfiles";
+  if (taskFile.empty() || referenceFile.empty() || urdfFile.empty())
+    return nullptr;
+  // The CppAD libraries go to a folder relative to the working directory
+  // (ModelSettings::modelFolderCppAd), and the shipped file does not force a
+  // recompile, so a library left there by an earlier run would be loaded
+  // instead of taped: an unsandboxed run (--spawn_strategy=local, the binary
+  // run by hand) would then pass on libraries built from older code. A
+  // directory made for this run is empty, so everything is taped and compiled
+  // here.
+  std::string freshDirectory = (std::filesystem::path(testing::TempDir()) /
+                                "testWBMpcConstruction_XXXXXX")
+                                   .string();
   if (mkdtemp(freshDirectory.data()) == nullptr) {
-    ADD_FAILURE() << "cannot make a fresh working directory from " << freshDirectory;
+    ADD_FAILURE() << "cannot make a fresh working directory from "
+                  << freshDirectory;
     return nullptr;
   }
   std::filesystem::current_path(freshDirectory);
   try {
-    absl::StatusOr<std::unique_ptr<WBMpcInterface>> created = WBMpcInterface::Create(taskFile, urdfFile, referenceFile);
+    absl::StatusOr<std::unique_ptr<WBMpcInterface>> created =
+        WBMpcInterface::Create(taskFile, urdfFile, referenceFile);
     EXPECT_TRUE(created.ok()) << created.status();
     return created.ok() ? *std::move(created) : nullptr;
   } catch (const std::exception& e) {
@@ -109,50 +124,70 @@ std::unique_ptr<WBMpcInterface> createShippedG1WholeBodyMpc() {
 }
 
 /**
- * The MPC of createShippedG1WholeBodyMpc(), built once for the whole test program, since building it compiles every
- * library. Each test sets the references it needs. Never destroyed.
+ * The MPC of createShippedG1WholeBodyMpc(), built once for the whole test
+ * program, since building it compiles every library. Each test sets the
+ * references it needs. Never destroyed.
  */
 WBMpcInterface* absl_nullable shippedG1WholeBodyMpc() {
-  static WBMpcInterface* absl_nullable const kInterface = createShippedG1WholeBodyMpc().release();
+  static WBMpcInterface* absl_nullable const kInterface =
+      createShippedG1WholeBodyMpc().release();
   return kInterface;
 }
 
 }  // namespace
 
-TEST(WBMpcConstructionTest, theShippedG1WholeBodyMpcIsConstructedAndItsProblemEvaluates) {
+TEST(WBMpcConstructionTest,
+     theShippedG1WholeBodyMpcIsConstructedAndItsProblemEvaluates) {
   WBMpcInterface* absl_nullable const interface = shippedG1WholeBodyMpc();
   ASSERT_NE(interface, nullptr);
-  // The dynamics were taped and compiled by this run, into the directory made for it.
-  EXPECT_TRUE(std::filesystem::exists(std::filesystem::path(interface->modelSettings().modelFolderCppAd) / "dynamics_flow_map"))
-      << "no dynamics library under " << std::filesystem::current_path() / interface->modelSettings().modelFolderCppAd;
+  // The dynamics were taped and compiled by this run, into the directory made
+  // for it.
+  EXPECT_TRUE(std::filesystem::exists(
+      std::filesystem::path(interface->modelSettings().modelFolderCppAd) /
+      "dynamics_flow_map"))
+      << "no dynamics library under "
+      << std::filesystem::current_path() /
+             interface->modelSettings().modelFolderCppAd;
 
   const scalar_t initTime = 0.0;
   const scalar_t finalTime = initTime + interface->mpcSettings().timeHorizon_;
   const vector_t& initState = interface->getInitialState();
-  ASSERT_EQ(initState.size(), static_cast<Eigen::Index>(interface->getMpcRobotModel().getStateDim()));
+  ASSERT_EQ(initState.size(), static_cast<Eigen::Index>(
+                                  interface->getMpcRobotModel().getStateDim()));
   ASSERT_TRUE(initState.allFinite());
 
-  // What the MPC node does on its reset - a target at the initial state - and the solver before every solve: the
-  // references of this horizon, then the problem pointed at them.
-  ReferenceManagerInterface& referenceManager = *interface->getReferenceManagerPtr();
-  const vector_t zeroInput = vector_t::Zero(interface->getMpcRobotModel().getInputDim());
-  referenceManager.setTargetTrajectories(TargetTrajectories({initTime}, {initState}, {zeroInput}));
-  referenceManager.preSolverRun(initTime, finalTime, initState, ModeNumber::kStance);
+  // What the MPC node does on its reset - a target at the initial state - and
+  // the solver before every solve: the references of this horizon, then the
+  // problem pointed at them.
+  ReferenceManagerInterface& referenceManager =
+      *interface->getReferenceManagerPtr();
+  const vector_t zeroInput =
+      vector_t::Zero(interface->getMpcRobotModel().getInputDim());
+  referenceManager.setTargetTrajectories(
+      TargetTrajectories({initTime}, {initState}, {zeroInput}));
+  referenceManager.preSolverRun(initTime, finalTime, initState,
+                                ModeNumber::kStance);
   OptimalControlProblem problem(interface->getOptimalControlProblem());
   problem.targetTrajectoriesPtr = &referenceManager.getTargetTrajectories();
 
   vector_t input;
   vector_t nextState;
-  // Initializer::compute() is not const, so a copy computes the input, as each solver does with its own.
-  const std::unique_ptr<Initializer> initializer(interface->getInitializer().clone());
+  // Initializer::compute() is not const, so a copy computes the input, as each
+  // solver does with its own.
+  const std::unique_ptr<Initializer> initializer(
+      interface->getInitializer().clone());
   initializer->compute(initTime, initState, initTime + 0.01, input, nextState);
-  ASSERT_EQ(input.size(), static_cast<Eigen::Index>(interface->getMpcRobotModel().getInputDim()));
+  ASSERT_EQ(input.size(), static_cast<Eigen::Index>(
+                              interface->getMpcRobotModel().getInputDim()));
 
-  // One evaluation of everything the solver asks for at an intermediate node - the dynamics, every cost and soft
-  // constraint, the equality constraints - and of the inequality constraints and the final cost beside it.
-  const ModelData intermediate = approximateIntermediateLQ(problem, initTime, initState, input);
+  // One evaluation of everything the solver asks for at an intermediate node -
+  // the dynamics, every cost and soft constraint, the equality constraints -
+  // and of the inequality constraints and the final cost beside it.
+  const ModelData intermediate =
+      approximateIntermediateLQ(problem, initTime, initState, input);
   EXPECT_EQ(intermediate.dynamics.f.size(), initState.size());
-  EXPECT_TRUE(intermediate.dynamics.f.allFinite()) << intermediate.dynamics.f.transpose();
+  EXPECT_TRUE(intermediate.dynamics.f.allFinite())
+      << intermediate.dynamics.f.transpose();
   EXPECT_TRUE(intermediate.dynamics.dfdx.allFinite());
   EXPECT_TRUE(intermediate.dynamics.dfdu.allFinite());
   EXPECT_TRUE(std::isfinite(intermediate.cost.f));
@@ -161,7 +196,8 @@ TEST(WBMpcConstructionTest, theShippedG1WholeBodyMpcIsConstructedAndItsProblemEv
   EXPECT_TRUE(intermediate.stateInputEqConstraint.f.allFinite());
   EXPECT_TRUE(intermediate.stateInputEqConstraint.dfdu.allFinite());
   const VectorFunctionLinearApproximation inequalities =
-      problem.inequalityConstraintPtr->getLinearApproximation(initTime, initState, input, *problem.preComputationPtr);
+      problem.inequalityConstraintPtr->getLinearApproximation(
+          initTime, initState, input, *problem.preComputationPtr);
   EXPECT_TRUE(inequalities.f.allFinite());
 
   const ModelData terminal = approximateFinalLQ(problem, finalTime, initState);
@@ -169,43 +205,61 @@ TEST(WBMpcConstructionTest, theShippedG1WholeBodyMpcIsConstructedAndItsProblemEv
   EXPECT_TRUE(terminal.cost.dfdx.allFinite());
 }
 
-TEST(WBMpcConstructionTest, theSwingFootCostsReadTheReferenceManagerAndTheShippedWeights) {
+TEST(WBMpcConstructionTest,
+     theSwingFootCostsReadTheReferenceManagerAndTheShippedWeights) {
   WBMpcInterface* absl_nullable const interface = shippedG1WholeBodyMpc();
   ASSERT_NE(interface, nullptr);
   const scalar_t initTime = 0.0;
   const scalar_t finalTime = initTime + interface->mpcSettings().timeHorizon_;
   const vector_t& initState = interface->getInitialState();
-  const vector_t zeroInput = vector_t::Zero(interface->getMpcRobotModel().getInputDim());
-  ReferenceManagerInterface& referenceManager = *interface->getReferenceManagerPtr();
+  const vector_t zeroInput =
+      vector_t::Zero(interface->getMpcRobotModel().getInputDim());
+  ReferenceManagerInterface& referenceManager =
+      *interface->getReferenceManagerPtr();
   const TargetTrajectories target({initTime}, {initState}, {zeroInput});
   referenceManager.setTargetTrajectories(target);
-  referenceManager.preSolverRun(initTime, finalTime, initState, ModeNumber::kStance);
+  referenceManager.preSolverRun(initTime, finalTime, initState,
+                                ModeNumber::kStance);
   OptimalControlProblem problem(interface->getOptimalControlProblem());
 
-  // The weights the shipped file gives the foot cost (task_space_foot_cost), which the cost carries as square roots among
-  // its parameters.
-  const std::string taskFile = runfilePath("robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto");
+  // The weights the shipped file gives the foot cost (task_space_foot_cost),
+  // which the cost carries as square roots among its parameters.
+  const std::string taskFile = runfilePath(
+      "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto");
   ASSERT_FALSE(taskFile.empty());
   const absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(taskFile);
   ASSERT_TRUE(task.ok()) << task.status();
-  const absl::StatusOr<EndEffectorDynamicsWeights> footWeights = wholeBodyFootCostWeightsFromConfig(task->task_space_foot_cost);
+  const absl::StatusOr<EndEffectorDynamicsWeights> footWeights =
+      wholeBodyFootCostWeightsFromConfig(task->task_space_foot_cost);
   ASSERT_TRUE(footWeights.ok()) << footWeights.status();
   const VECTOR18_T<scalar_t> weights = footWeights->toVector();
 
   vector_t movedState = initState;
   movedState.head(3).setConstant(0.3);
-  const TargetTrajectories moved({initTime - 1.0, initTime + 1.0}, {movedState, 2.0 * movedState}, {zeroInput, zeroInput});
+  const TargetTrajectories moved({initTime - 1.0, initTime + 1.0},
+                                 {movedState, 2.0 * movedState},
+                                 {zeroInput, zeroInput});
   for (const std::string& footName : interface->modelSettings().contactNames) {
     const EndEffectorDynamicsFootCost& cost =
-        problem.costPtr->get<EndEffectorDynamicsFootCost>(absl::StrCat(footName, "_TaskSpaceTrackingCost"));
-    const vector_t parameters = cost.getParameters(initTime, target, *problem.preComputationPtr);
+        problem.costPtr->get<EndEffectorDynamicsFootCost>(
+            absl::StrCat(footName, "_TaskSpaceTrackingCost"));
+    const vector_t parameters =
+        cost.getParameters(initTime, target, *problem.preComputationPtr);
     ASSERT_EQ(parameters.size(), 37) << footName;
     const vector_t sqrtWeights = parameters.segment(18, 18);
-    EXPECT_TRUE(sqrtWeights.cwiseProduct(sqrtWeights).isApprox(weights, /*prec=*/1.0e-14)) << footName;
-    // The solver's target is not read: another target, or none at all, gives the same parameters.
-    EXPECT_TRUE(cost.getParameters(initTime, moved, *problem.preComputationPtr) == parameters) << footName;
+    EXPECT_TRUE(sqrtWeights.cwiseProduct(sqrtWeights)
+                    .isApprox(weights, /*prec=*/1.0e-14))
+        << footName;
+    // The solver's target is not read: another target, or none at all, gives
+    // the same parameters.
+    EXPECT_TRUE(cost.getParameters(initTime, moved,
+                                   *problem.preComputationPtr) == parameters)
+        << footName;
     vector_t emptyTargetParameters;
-    ASSERT_NO_THROW(emptyTargetParameters = cost.getParameters(initTime, TargetTrajectories(), *problem.preComputationPtr)) << footName;
+    ASSERT_NO_THROW(emptyTargetParameters =
+                        cost.getParameters(initTime, TargetTrajectories(),
+                                           *problem.preComputationPtr))
+        << footName;
     EXPECT_TRUE(emptyTargetParameters == parameters) << footName;
   }
 }

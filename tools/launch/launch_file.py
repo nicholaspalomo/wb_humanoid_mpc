@@ -127,7 +127,8 @@ def parse_overrides(assignments: Iterable[str]) -> dict[str, str]:
         name, separator, value = assignment.partition("=")
         if not separator or not name.isidentifier():
             raise LaunchFileError(
-                f"--set {assignment!r}: expected name=value with an identifier as name"
+                f"--set {assignment!r}: expected name=value with an identifier"
+                " as name"
             )
         overrides[name] = value
     return overrides
@@ -139,7 +140,8 @@ def _template_fields(template: str, context: str) -> list[str]:
         parsed = list(string.Formatter().parse(template))
     except ValueError as error:
         raise LaunchFileError(
-            f"{context}: {error} in {template!r} (write {{{{ and }}}} for literal braces)"
+            f"{context}: {error} in {template!r} (write {{{{ and }}}} for"
+            " literal braces)"
         ) from error
     names = []
     for _, field_name, format_spec, conversion in parsed:
@@ -149,20 +151,25 @@ def _template_fields(template: str, context: str) -> list[str]:
             conversion_text = f"!{conversion}" if conversion else ""
             format_spec_text = f":{format_spec}" if format_spec else ""
             raise LaunchFileError(
-                f"{context}: '{{{field_name}{conversion_text}{format_spec_text}}}' in {template!r} is not a variable "
-                "reference; write {name}, or {{ and }} for literal braces"
+                f"{context}:"
+                f" '{{{field_name}{conversion_text}{format_spec_text}}}' in"
+                f" {template!r} is not a variable reference; write {{name}}, or"
+                " {{ and }} for literal braces"
             )
         names.append(field_name)
     return names
 
 
-def substitute(template: str, variables: Mapping[str, str], context: str) -> str:
+def substitute(
+    template: str, variables: Mapping[str, str], context: str
+) -> str:
     """Replaces every `{name}` of a template by its variable."""
     for name in _template_fields(template, context):
         if name not in variables:
             known = ", ".join(sorted(variables)) or "none"
             raise LaunchFileError(
-                f"{context}: undefined variable '{{{name}}}' in {template!r}; the variables are: {known}"
+                f"{context}: undefined variable '{{{name}}}' in {template!r};"
+                f" the variables are: {known}"
             )
     return template.format_map(variables)
 
@@ -177,13 +184,15 @@ def resolve_variables(
     for name in builtins:
         if name in declared or name in overrides:
             raise LaunchFileError(
-                f"{source}: '{name}' is a built-in variable and cannot be redefined"
+                f"{source}: '{name}' is a built-in variable and cannot be"
+                " redefined"
             )
     unknown = sorted(set(overrides) - set(declared))
     if unknown:
         known = ", ".join(sorted(declared)) or "none"
         raise LaunchFileError(
-            f"{source}: --set of undeclared variable(s) {', '.join(unknown)}; the launch file declares: {known}"
+            f"{source}: --set of undeclared variable(s) {', '.join(unknown)};"
+            f" the launch file declares: {known}"
         )
     raw = {**declared, **overrides}
     resolved: dict[str, str] = dict(builtins)
@@ -199,8 +208,8 @@ def resolve_variables(
         if name not in raw:
             known = ", ".join(sorted(set(raw) | set(builtins)))
             raise LaunchFileError(
-                f"{source}: variable '{chain[-1]}' refers to undefined variable '{{{name}}}'; the variables are: "
-                f"{known}"
+                f"{source}: variable '{chain[-1]}' refers to undefined variable"
+                f" '{{{name}}}'; the variables are: {known}"
             )
         context = f"{source}: variable '{name}'"
         values = {
@@ -266,21 +275,23 @@ def _parse_process(
     context = f"{source}: processes[{index}]"
     if not _NAME_PATTERN.match(entry.name):
         raise LaunchFileError(
-            f"{context}: 'name' must be letters, digits, '_', '.' or '-', got {entry.name!r}"
+            f"{context}: 'name' must be letters, digits, '_', '.' or '-', got"
+            f" {entry.name!r}"
         )
     context = f"{source}: process '{entry.name}'"
     machine = _machine(entry, context)
 
     if not entry.command:
         raise LaunchFileError(
-            f"{context}: 'command' must list the program and its arguments, one entry each (no shell parsing is "
-            "done)"
+            f"{context}: 'command' must list the program and its arguments, one"
+            " entry each (no shell parsing is done)"
         )
     # Checked before substitution, so that a {repo_root} with a space in it is still a valid program.
     if any(character.isspace() for character in entry.command[0]):
         raise LaunchFileError(
-            f"{context}: the program, command[0], is {entry.command[0]!r}; give the program and each argument an "
-            'entry of their own, command: ["prog", "--flag"] (no shell parsing is done)'
+            f"{context}: the program, command[0], is {entry.command[0]!r}; give"
+            " the program and each argument an entry of their own, command:"
+            ' ["prog", "--flag"] (no shell parsing is done)'
         )
     arguments = tuple(
         substitute(argument, variables, f"{context}: command[{i}]")
@@ -293,14 +304,17 @@ def _parse_process(
     for variable in entry.env:
         if not _ENV_NAME_PATTERN.match(variable.name):
             raise LaunchFileError(
-                f"{context}: {variable.name!r} is not an environment variable name"
+                f"{context}: {variable.name!r} is not an environment variable"
+                " name"
             )
         if any(name == variable.name for name, _ in env):
             raise LaunchFileError(
                 f"{context}: environment variable {variable.name} is set twice"
             )
         env_context = f"{context}: env {variable.name}"
-        env.append((variable.name, substitute(variable.value, variables, env_context)))
+        env.append(
+            (variable.name, substitute(variable.value, variables, env_context))
+        )
 
     return ProcessSpec(
         name=entry.name,
@@ -357,7 +371,8 @@ def parse_launch_file(
     for index, variable in enumerate(document.variables):
         if not variable.name.isidentifier():
             raise LaunchFileError(
-                f"{source}: variables[{index}]: name {variable.name!r} is not an identifier"
+                f"{source}: variables[{index}]: name {variable.name!r} is not"
+                " an identifier"
             )
         if variable.name in declared:
             raise LaunchFileError(
@@ -368,7 +383,8 @@ def parse_launch_file(
 
     if not document.processes:
         raise LaunchFileError(
-            f"{source}: the launch file has no processes; add at least one 'processes {{ ... }}' entry"
+            f"{source}: the launch file has no processes; add at least one"
+            " 'processes { ... }' entry"
         )
     processes = tuple(
         _parse_process(entry, index, variables, source)
@@ -450,7 +466,8 @@ def select_machine(
     """The processes of one machine, in file order; all of them when `machine` is None."""
     if machine is not None and machine not in MACHINES:
         raise LaunchFileError(
-            f"unknown machine {machine!r}; the machines are: {', '.join(MACHINES)}"
+            f"unknown machine {machine!r}; the machines are:"
+            f" {', '.join(MACHINES)}"
         )
     return tuple(
         process

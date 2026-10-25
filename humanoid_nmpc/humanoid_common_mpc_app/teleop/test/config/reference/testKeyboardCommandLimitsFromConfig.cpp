@@ -27,8 +27,9 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// The keyboard teleoperation's command limits from a typed reference file: the four limits and the base height are
-// required, finite, and the limits positive, since the command is normalized by them.
+// The keyboard teleoperation's command limits from a typed reference file: the
+// four limits and the base height are required, finite, and the limits
+// positive, since the command is normalized by them.
 
 #include <cstddef>
 #include <iterator>
@@ -53,10 +54,14 @@ namespace {
 using Field = std::optional<double> mpc_config::ReferenceFile::*absl_nonnull;
 
 constexpr std::pair<absl::string_view, Field> kFields[] = {
-    {"max_displacement_velocity_x", &mpc_config::ReferenceFile::max_displacement_velocity_x},
-    {"max_displacement_velocity_y", &mpc_config::ReferenceFile::max_displacement_velocity_y},
-    {"max_delta_pelvis_height", &mpc_config::ReferenceFile::max_delta_pelvis_height},
-    {"max_rotation_velocity", &mpc_config::ReferenceFile::max_rotation_velocity},
+    {"max_displacement_velocity_x",
+     &mpc_config::ReferenceFile::max_displacement_velocity_x},
+    {"max_displacement_velocity_y",
+     &mpc_config::ReferenceFile::max_displacement_velocity_y},
+    {"max_delta_pelvis_height",
+     &mpc_config::ReferenceFile::max_delta_pelvis_height},
+    {"max_rotation_velocity",
+     &mpc_config::ReferenceFile::max_rotation_velocity},
     {"default_base_height", &mpc_config::ReferenceFile::default_base_height},
 };
 
@@ -71,7 +76,8 @@ mpc_config::ReferenceFile limitsFile() {
 }
 
 TEST(KeyboardCommandLimitsFromConfigTest, EachFieldReachesItsLimit) {
-  const absl::StatusOr<KeyboardCommandLimits> limits = keyboardCommandLimitsFromConfig(limitsFile());
+  const absl::StatusOr<KeyboardCommandLimits> limits =
+      keyboardCommandLimitsFromConfig(limitsFile());
   ASSERT_TRUE(limits.ok()) << limits.status();
   EXPECT_EQ(limits->limits(0), 1.25);
   EXPECT_EQ(limits->limits(1), 0.25);
@@ -82,13 +88,18 @@ TEST(KeyboardCommandLimitsFromConfigTest, EachFieldReachesItsLimit) {
 
 TEST(KeyboardCommandLimitsFromConfigTest, EachFieldIsRequiredAndFinite) {
   for (const std::pair<absl::string_view, Field>& field : kFields) {
-    for (const std::optional<double> bad : {std::optional<double>(), std::optional<double>(std::numeric_limits<double>::quiet_NaN()),
-                                            std::optional<double>(std::numeric_limits<double>::infinity())}) {
+    for (const std::optional<double> bad :
+         {std::optional<double>(),
+          std::optional<double>(std::numeric_limits<double>::quiet_NaN()),
+          std::optional<double>(std::numeric_limits<double>::infinity())}) {
       mpc_config::ReferenceFile file = limitsFile();
       file.*field.second = bad;
-      const absl::StatusOr<KeyboardCommandLimits> limits = keyboardCommandLimitsFromConfig(file);
-      EXPECT_EQ(limits.status().code(), absl::StatusCode::kInvalidArgument) << field.first;
-      EXPECT_TRUE(absl::StrContains(limits.status().message(), field.first)) << limits.status();
+      const absl::StatusOr<KeyboardCommandLimits> limits =
+          keyboardCommandLimitsFromConfig(file);
+      EXPECT_EQ(limits.status().code(), absl::StatusCode::kInvalidArgument)
+          << field.first;
+      EXPECT_TRUE(absl::StrContains(limits.status().message(), field.first))
+          << limits.status();
     }
   }
 }
@@ -98,8 +109,11 @@ TEST(KeyboardCommandLimitsFromConfigTest, ALimitThatIsNotPositiveIsRefused) {
     for (const double bad : {0.0, -0.5}) {
       mpc_config::ReferenceFile file = limitsFile();
       file.*kFields[i].second = bad;
-      const absl::StatusOr<KeyboardCommandLimits> limits = keyboardCommandLimitsFromConfig(file);
-      EXPECT_TRUE(absl::StrContains(limits.status().message(), "must be positive")) << limits.status();
+      const absl::StatusOr<KeyboardCommandLimits> limits =
+          keyboardCommandLimitsFromConfig(file);
+      EXPECT_TRUE(
+          absl::StrContains(limits.status().message(), "must be positive"))
+          << limits.status();
     }
   }
   // The base height is a height, not a limit.

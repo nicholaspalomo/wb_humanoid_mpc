@@ -35,8 +35,9 @@ namespace ocs2::humanoid::validation {
 
 double firstPeriodicTimeAfter(double scheduled, double period, double time) {
   if (scheduled > time) return scheduled;
-  // floor((time - scheduled) / period) periods reach at most `time`; one more passes it. Rounding of the quotient can
-  // leave the result a period short or long of that, which the two corrections below undo.
+  // floor((time - scheduled) / period) periods reach at most `time`; one more
+  // passes it. Rounding of the quotient can leave the result a period short or
+  // long of that, which the two corrections below undo.
   const double periods = std::floor((time - scheduled) / period) + 1.0;
   double next = scheduled + periods * period;
   if (next <= time) next += period;
@@ -44,11 +45,17 @@ double firstPeriodicTimeAfter(double scheduled, double period, double time) {
   return next;
 }
 
-LockstepSolveSchedule::LockstepSolveSchedule(double firstSolveTime, double period, double timeTolerance)
-    : period_(period), timeTolerance_(timeTolerance), nextSolveTime_(firstSolveTime) {}
+LockstepSolveSchedule::LockstepSolveSchedule(double firstSolveTime,
+                                             double period,
+                                             double timeTolerance)
+    : period_(period),
+      timeTolerance_(timeTolerance),
+      nextSolveTime_(firstSolveTime) {}
 
-bool LockstepSolveSchedule::isDue(double time, bool resetRequestedSinceFailure) const {
-  if (retryUntil_.has_value()) return resetRequestedSinceFailure || time + timeTolerance_ >= *retryUntil_;
+bool LockstepSolveSchedule::isDue(double time,
+                                  bool resetRequestedSinceFailure) const {
+  if (retryUntil_.has_value())
+    return resetRequestedSinceFailure || time + timeTolerance_ >= *retryUntil_;
   return time + timeTolerance_ >= nextSolveTime_;
 }
 
@@ -58,8 +65,11 @@ void LockstepSolveSchedule::onSolve(double time, double retryDelay) {
     retryUntil_.reset();
     nextSolveTime_ = time;
   }
-  // Without a period every cycle solves, as the solver thread runs back to back without a frequency.
-  if (period_ > 0.0) nextSolveTime_ = firstPeriodicTimeAfter(nextSolveTime_, period_, time + timeTolerance_);
+  // Without a period every cycle solves, as the solver thread runs back to back
+  // without a frequency.
+  if (period_ > 0.0)
+    nextSolveTime_ =
+        firstPeriodicTimeAfter(nextSolveTime_, period_, time + timeTolerance_);
   if (retryDelay > 0.0) retryUntil_ = time + retryDelay;
 }
 

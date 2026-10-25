@@ -44,9 +44,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_model/RobotState.h"
 
 /*
- * The telemetry of the realtime loop: one sample every decimation-th cycle, carrying the robot state, the joint action,
- * the measured contacts and forces and every joint's name, which survives the conversion to robot/state and back; a
- * ring that the communication thread does not drain drops and counts.
+ * The telemetry of the realtime loop: one sample every decimation-th cycle,
+ * carrying the robot state, the joint action, the measured contacts and forces
+ * and every joint's name, which survives the conversion to robot/state and
+ * back; a ring that the communication thread does not drain drops and counts.
  */
 
 namespace ocs2::humanoid {
@@ -54,10 +55,14 @@ namespace {
 
 class TelemetrySamplerTest : public ::testing::Test {
  protected:
-  TelemetrySamplerTest() : description_(robot_test::atlasDescription()), state_(description_), action_(description_) {
+  TelemetrySamplerTest()
+      : description_(robot_test::atlasDescription()),
+        state_(description_),
+        action_(description_) {
     state_.setTime(1.25);
     state_.setRootPositionInWorldFrame(vector3_t(0.1, -0.2, 0.9));
-    state_.setRootRotationLocalToWorldFrame(quaternion_t(Eigen::AngleAxis<scalar_t>(0.3, vector3_t::UnitZ())));
+    state_.setRootRotationLocalToWorldFrame(
+        quaternion_t(Eigen::AngleAxis<scalar_t>(0.3, vector3_t::UnitZ())));
     state_.setRootLinearVelocityInLocalFrame(vector3_t(0.5, 0.0, -0.1));
     state_.setRootAngularVelocityInLocalFrame(vector3_t(0.0, 0.2, 0.0));
     for (size_t joint = 0; joint < description_.getNumJoints(); ++joint) {
@@ -72,7 +77,8 @@ class TelemetrySamplerTest : public ::testing::Test {
     }
   }
 
-  TelemetrySampler::Config config(size_t decimation, size_t capacity = 16) const {
+  TelemetrySampler::Config config(size_t decimation,
+                                  size_t capacity = 16) const {
     TelemetrySampler::Config config;
     config.jointNames = jointNamesByIndex(description_);
     config.decimation = decimation;
@@ -84,7 +90,8 @@ class TelemetrySamplerTest : public ::testing::Test {
   robot::model::RobotState state_;
   robot::model::RobotJointAction action_;
   const contact_flag_t flags_{true, false};
-  const std::array<vector3_t, kNumContacts> forces_{vector3_t(1.0, 2.0, 300.0), vector3_t(0.0, 0.0, 0.5)};
+  const std::array<vector3_t, kNumContacts> forces_{vector3_t(1.0, 2.0, 300.0),
+                                                    vector3_t(0.0, 0.0, 0.5)};
 };
 
 TEST_F(TelemetrySamplerTest, TakesOneSampleEveryDecimationCycles) {
@@ -99,11 +106,14 @@ TEST_F(TelemetrySamplerTest, TakesOneSampleEveryDecimationCycles) {
   EXPECT_EQ(sampler.dropped(), 0u);
 }
 
-TEST_F(TelemetrySamplerTest, TheSampleIsTheCycleAndRoundTripsThroughItsMessage) {
+TEST_F(TelemetrySamplerTest,
+       TheSampleIsTheCycleAndRoundTripsThroughItsMessage) {
   TelemetrySampler sampler(config(/*decimation=*/1));
   ASSERT_TRUE(sampler.sample(state_, action_, "GRAVITY_COMP", flags_, forces_));
   msgs::RobotStateSample sample;
-  ASSERT_EQ(sampler.drain([&](const msgs::RobotStateSample& taken) { sample = taken; }), 1u);
+  ASSERT_EQ(sampler.drain(
+                [&](const msgs::RobotStateSample& taken) { sample = taken; }),
+            1u);
 
   EXPECT_DOUBLE_EQ(sample.time, 1.25);
   EXPECT_EQ(sample.control_mode, "GRAVITY_COMP");
@@ -113,25 +123,36 @@ TEST_F(TelemetrySamplerTest, TheSampleIsTheCycleAndRoundTripsThroughItsMessage) 
   EXPECT_DOUBLE_EQ(sample.base_orientation_world.z, orientation.z());
   EXPECT_DOUBLE_EQ(sample.base_linear_velocity_local.x, 0.5);
   EXPECT_DOUBLE_EQ(sample.base_angular_velocity_local.y, 0.2);
-  ASSERT_EQ(sample.joint_names, jointNamesByIndex(description_)) << "every joint, by name, in the order of the arrays";
-  const Eigen::Index numJoints = static_cast<Eigen::Index>(description_.getNumJoints());
+  ASSERT_EQ(sample.joint_names, jointNamesByIndex(description_))
+      << "every joint, by name, in the order of the arrays";
+  const Eigen::Index numJoints =
+      static_cast<Eigen::Index>(description_.getNumJoints());
   ASSERT_EQ(sample.joint_positions.size(), numJoints);
   for (Eigen::Index joint = 0; joint < numJoints; ++joint) {
     const size_t index = static_cast<size_t>(joint);
-    EXPECT_DOUBLE_EQ(sample.joint_positions[joint], state_.getJointPosition(index));
-    EXPECT_DOUBLE_EQ(sample.joint_velocities[joint], state_.getJointVelocity(index));
-    EXPECT_DOUBLE_EQ(sample.joint_position_targets[joint], robot_test::valueOrFail(action_.at(index)).q_des);
-    EXPECT_DOUBLE_EQ(sample.joint_velocity_targets[joint], robot_test::valueOrFail(action_.at(index)).qd_des);
-    EXPECT_DOUBLE_EQ(sample.joint_kp[joint], robot_test::valueOrFail(action_.at(index)).kp);
-    EXPECT_DOUBLE_EQ(sample.joint_kd[joint], robot_test::valueOrFail(action_.at(index)).kd);
-    EXPECT_DOUBLE_EQ(sample.joint_feed_forward_efforts[joint], robot_test::valueOrFail(action_.at(index)).feed_forward_effort);
+    EXPECT_DOUBLE_EQ(sample.joint_positions[joint],
+                     state_.getJointPosition(index));
+    EXPECT_DOUBLE_EQ(sample.joint_velocities[joint],
+                     state_.getJointVelocity(index));
+    EXPECT_DOUBLE_EQ(sample.joint_position_targets[joint],
+                     robot_test::valueOrFail(action_.at(index)).q_des);
+    EXPECT_DOUBLE_EQ(sample.joint_velocity_targets[joint],
+                     robot_test::valueOrFail(action_.at(index)).qd_des);
+    EXPECT_DOUBLE_EQ(sample.joint_kp[joint],
+                     robot_test::valueOrFail(action_.at(index)).kp);
+    EXPECT_DOUBLE_EQ(sample.joint_kd[joint],
+                     robot_test::valueOrFail(action_.at(index)).kd);
+    EXPECT_DOUBLE_EQ(
+        sample.joint_feed_forward_efforts[joint],
+        robot_test::valueOrFail(action_.at(index)).feed_forward_effort);
   }
   EXPECT_EQ(sample.contact_flags, (std::vector<bool>{true, false}));
   ASSERT_EQ(sample.measured_contact_wrenches.size(), kNumContacts);
   EXPECT_DOUBLE_EQ(sample.measured_contact_wrenches[0].force.z, 300.0);
   EXPECT_DOUBLE_EQ(sample.measured_contact_wrenches[1].force.z, 0.5);
 
-  // What the communication thread publishes on robot/state, and what a subscriber reads back.
+  // What the communication thread publishes on robot/state, and what a
+  // subscriber reads back.
   humanoid_mpc_msgs::RobotStateSample message;
   ToProto(sample, &message);
   EXPECT_EQ(message.joint_names_size(), static_cast<int>(numJoints));
@@ -142,27 +163,35 @@ TEST_F(TelemetrySamplerTest, TheSampleIsTheCycleAndRoundTripsThroughItsMessage) 
 }
 
 TEST_F(TelemetrySamplerTest, AJointWithoutAnActionHasANanPositionTarget) {
-  // robot_state_sample.proto's contract, which the visualization reads: NaN, not a target of 0 rad.
+  // robot_state_sample.proto's contract, which the visualization reads: NaN,
+  // not a target of 0 rad.
   const size_t idle = description_.getNumJoints() / 2;
   action_.at(idle).reset();
   TelemetrySampler sampler(config(/*decimation=*/1));
   ASSERT_TRUE(sampler.sample(state_, action_, "JOINT_PD", flags_, forces_));
   msgs::RobotStateSample sample;
-  ASSERT_EQ(sampler.drain([&](const msgs::RobotStateSample& taken) { sample = taken; }), 1u);
+  ASSERT_EQ(sampler.drain(
+                [&](const msgs::RobotStateSample& taken) { sample = taken; }),
+            1u);
   const Eigen::Index row = static_cast<Eigen::Index>(idle);
   EXPECT_TRUE(std::isnan(sample.joint_position_targets[row]));
   EXPECT_DOUBLE_EQ(sample.joint_kp[row], 0.0);
   EXPECT_DOUBLE_EQ(sample.joint_feed_forward_efforts[row], 0.0);
-  EXPECT_DOUBLE_EQ(sample.joint_position_targets[row + 1], robot_test::valueOrFail(action_.at(idle + 1)).q_des)
+  EXPECT_DOUBLE_EQ(sample.joint_position_targets[row + 1],
+                   robot_test::valueOrFail(action_.at(idle + 1)).q_des)
       << "the other joints keep theirs";
 }
 
 TEST_F(TelemetrySamplerTest, AFullRingDropsAndCountsTheSamples) {
   TelemetrySampler sampler(config(/*decimation=*/1, /*capacity=*/3));
-  for (int cycle = 0; cycle < 5; ++cycle) sampler.sample(state_, action_, "WB_MPC", flags_, forces_);
+  for (int cycle = 0; cycle < 5; ++cycle)
+    sampler.sample(state_, action_, "WB_MPC", flags_, forces_);
   EXPECT_EQ(sampler.dropped(), 2u);
   std::vector<double> times;
-  EXPECT_EQ(sampler.drain([&](const msgs::RobotStateSample& sample) { times.push_back(sample.time); }), 3u);
+  EXPECT_EQ(sampler.drain([&](const msgs::RobotStateSample& sample) {
+    times.push_back(sample.time);
+  }),
+            3u);
   // Room again, and the counter keeps the drops of before.
   EXPECT_TRUE(sampler.sample(state_, action_, "WB_MPC", flags_, forces_));
   EXPECT_EQ(sampler.drain([](const msgs::RobotStateSample&) {}), 1u);

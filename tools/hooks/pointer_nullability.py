@@ -69,7 +69,9 @@ from tools.hooks import lint_files
 NAME = "pointer-nullability"
 
 # LINT.IfChange(rules)
-ANNOTATIONS = frozenset({"absl_nonnull", "absl_nullable", "absl_nullability_unknown"})
+ANNOTATIONS = frozenset(
+    {"absl_nonnull", "absl_nullable", "absl_nullability_unknown"}
+)
 BANNED = frozenset(
     {
         "absl_nullability_unknown",
@@ -144,9 +146,10 @@ _FUNCTION_SPECIFIERS = frozenset(
     {"const", "volatile", "noexcept", "override", "final", "&", "&&", "mutable"}
 )
 _CAST_ANNOTATION = (
-    "in a cast, a type expression, a type-trait argument or a new-expression the pointer stays unannotated: an "
-    "annotated cast is an assertion that silences the analyzer, not documentation (AGENTS.md, 'Raw pointers carry "
-    "nullability')"
+    "in a cast, a type expression, a type-trait argument or a new-expression"
+    " the pointer stays unannotated: an annotated cast is an assertion that"
+    " silences the analyzer, not documentation (AGENTS.md, 'Raw pointers carry"
+    " nullability')"
 )
 _C_CAST_CONTEXT = frozenset(
     {"=", "(", ",", "return", "+", "-", "?", ":", "{", "<<", "&&", "||", "!"}
@@ -154,7 +157,10 @@ _C_CAST_CONTEXT = frozenset(
 _INCLUDE_LINE = re.compile(
     r'^[ \t]*#[ \t]*include[ \t]*"absl/base/nullability\.h"', re.MULTILINE
 )
-_ADVICE = "write `T* absl_nonnull` or `T* absl_nullable` (AGENTS.md, 'Raw pointers carry nullability')"
+_ADVICE = (
+    "write `T* absl_nonnull` or `T* absl_nullable` (AGENTS.md, 'Raw pointers"
+    " carry nullability')"
+)
 
 
 def _is_typeish(token: cpp_source.Token) -> bool:
@@ -163,7 +169,9 @@ def _is_typeish(token: cpp_source.Token) -> bool:
     return token.text in (">", ">>")
 
 
-def _enclosing_owner(code: tuple[cpp_source.Token, ...], index: int) -> str | None:
+def _enclosing_owner(
+    code: tuple[cpp_source.Token, ...], index: int
+) -> str | None:
     """The name before the innermost unclosed `<` around code[index], or `(` + a type-expression keyword."""
     angle = 0
     paren = 0
@@ -245,27 +253,37 @@ def _is_c_style_cast(code: tuple[cpp_source.Token, ...], star: int) -> bool:
         before.text in _C_CAST_CONTEXT
         or (code[k].ws_before and before.kind == cpp_source.PUNCTUATOR)
     ) and (
-        following.kind in (cpp_source.IDENTIFIER, cpp_source.NUMBER, cpp_source.STRING)
+        following.kind
+        in (cpp_source.IDENTIFIER, cpp_source.NUMBER, cpp_source.STRING)
         or following.text in ("(", "&", "*")
     )
 
 
-def _is_conversion_operator(code: tuple[cpp_source.Token, ...], star: int) -> bool:
+def _is_conversion_operator(
+    code: tuple[cpp_source.Token, ...], star: int
+) -> bool:
     """True for the `*` of `operator const char*()`."""
     k = star - 1
-    while k >= 0 and (code[k].kind == cpp_source.IDENTIFIER or code[k].text == "::"):
+    while k >= 0 and (
+        code[k].kind == cpp_source.IDENTIFIER or code[k].text == "::"
+    ):
         if code[k].text == "operator":
             return True
         k -= 1
     return False
 
 
-def _declaration_context(code: tuple[cpp_source.Token, ...], index: int) -> bool:
+def _declaration_context(
+    code: tuple[cpp_source.Token, ...], index: int
+) -> bool:
     """True when the type-ish run ending at code[index] starts a declaration, not an expression (`a *b`)."""
     k = index
     while k >= 0:
         token = code[k]
-        if token.kind == cpp_source.IDENTIFIER and token.text not in _NOT_TYPE_WORDS:
+        if (
+            token.kind == cpp_source.IDENTIFIER
+            and token.text not in _NOT_TYPE_WORDS
+        ):
             k -= 1
         elif token.text == "::":
             k -= 1
@@ -309,7 +327,10 @@ class _Finder:
         )
 
     def _annotation_after(self, index: int) -> bool:
-        return index + 1 < len(self.code) and self.code[index + 1].text in ANNOTATIONS
+        return (
+            index + 1 < len(self.code)
+            and self.code[index + 1].text in ANNOTATIONS
+        )
 
     def _stars(self, index: int) -> tuple[list[int], int]:
         """The glued run of `*` from code[index] (`**`, `* absl_nonnull*`, `* const*`), and its last index."""
@@ -319,7 +340,8 @@ class _Finder:
         while True:
             k = last + 1
             while k < len(code) and (
-                code[k].text in ANNOTATIONS or code[k].text in ("const", "volatile")
+                code[k].text in ANNOTATIONS
+                or code[k].text in ("const", "volatile")
             ):
                 k += 1
             if k < len(code) and code[k].text == "*" and not code[k].ws_before:
@@ -331,7 +353,9 @@ class _Finder:
     def _missing(self, stars: list[int], what: str) -> None:
         for star in stars:
             if not self._annotation_after(star):
-                self.add(self.code[star], f"{what} without nullability: {_ADVICE}.")
+                self.add(
+                    self.code[star], f"{what} without nullability: {_ADVICE}."
+                )
 
     def run(self) -> list[check_types.Finding]:
         """Finds every finding of the file."""
@@ -358,7 +382,9 @@ class _Finder:
                 and code[i + 1].text == "<"
             ):
                 self.add(
-                    token, f"`absl::{token.text}<>` was removed from Abseil: {_ADVICE}."
+                    token,
+                    f"`absl::{token.text}<>` was removed from Abseil:"
+                    f" {_ADVICE}.",
                 )
             i += 1
         self._null_member_assignments()
@@ -407,7 +433,11 @@ class _Finder:
                     k += 1
                 if k < n and code[k].kind == cpp_source.IDENTIFIER:
                     k += 1
-                if k + 1 < n and code[k].text == ")" and code[k + 1].text in ("(", "["):
+                if (
+                    k + 1 < n
+                    and code[k].text == ")"
+                    and code[k + 1].text in ("(", "[")
+                ):
                     self._missing(stars, "function or array pointer")
             return last
         if (
@@ -422,8 +452,10 @@ class _Finder:
         ):
             self.add(
                 token,
-                f"right-aligned pointer declarator `{previous.text} *{code[i + 1].text}`: declare one variable per "
-                f"declaration as `{previous.text}* absl_nonnull {code[i + 1].text}` (or absl_nullable).",
+                "right-aligned pointer declarator"
+                f" `{previous.text} *{code[i + 1].text}`: declare one variable"
+                f" per declaration as `{previous.text}* absl_nonnull"
+                f" {code[i + 1].text}` (or absl_nullable).",
             )
         return last
 
@@ -471,7 +503,9 @@ class _Finder:
         if has_name and name_end == k + 1 and self._text(name_end) != "(":
             if annotation == "absl_nullable":
                 self.nullable_names.add(code[k].text)
-            elif cpp_source.scopes(self.source)[k][-1:] == (cpp_source.CLASS_SCOPE,):
+            elif cpp_source.scopes(self.source)[k][-1:] == (
+                cpp_source.CLASS_SCOPE,
+            ):
                 self.nonnull_members.add(code[k].text)
         body = None
         if self._text(name_end) == "(" and has_name:
@@ -487,8 +521,9 @@ class _Finder:
         ):
             self.add(
                 code[k],
-                f"`{code[k].text}` is declared with another declarator after it: declare one variable per "
-                f"declaration (`T* {annotation} a; T* {annotation} b;`).",
+                f"`{code[k].text}` is declared with another declarator after"
+                " it: declare one variable per declaration (`T*"
+                f" {annotation} a; T* {annotation} b;`).",
             )
         if annotation != "absl_nonnull":
             return
@@ -496,8 +531,8 @@ class _Finder:
         if null is not None:
             self.add(
                 code[last + 1],
-                f"`absl_nonnull` pointer initialized with `{null.text}`: it is nullable (`absl_nullable`), or it needs "
-                "a non-null value.",
+                f"`absl_nonnull` pointer initialized with `{null.text}`: it is"
+                " nullable (`absl_nullable`), or it needs a non-null value.",
             )
         if body is not None:
             self._null_returns(body)
@@ -675,8 +710,9 @@ class _Finder:
             ):
                 self.add(
                     code[j + 1],
-                    f"`return {code[j + 1].text};` from a function that returns `absl_nonnull`: the return type is "
-                    "`absl_nullable`, or the function needs a non-null value.",
+                    f"`return {code[j + 1].text};` from a function that returns"
+                    " `absl_nonnull`: the return type is `absl_nullable`, or"
+                    " the function needs a non-null value.",
                 )
             j += 1
 
@@ -742,15 +778,19 @@ class _Finder:
                 and self._in_member_initializer_list(j)
             ):
                 if following == "(":
-                    if self._text(j + 2) in _NULL_VALUES and self._text(j + 3) == ")":
+                    if (
+                        self._text(j + 2) in _NULL_VALUES
+                        and self._text(j + 3) == ")"
+                    ):
                         null = code[j + 2]
                 else:
                     null = self._null_braces(j + 1)
             if null is not None:
                 self.add(
                     null,
-                    f"`{token.text}` is an `absl_nonnull` member and is set to `{null.text}`: it is nullable "
-                    "(`absl_nullable`), or it needs a non-null value.",
+                    f"`{token.text}` is an `absl_nonnull` member and is set to"
+                    f" `{null.text}`: it is nullable (`absl_nullable`), or it"
+                    " needs a non-null value.",
                 )
 
     def _array_parameter(self, i: int) -> None:
@@ -795,8 +835,9 @@ class _Finder:
             return
         self.add(
             code[i],
-            f"array parameter `{name.text}[]` without nullability: write `{name.text}[absl_nonnull N]` or "
-            f"`{name.text}[absl_nullable N]` (AGENTS.md, 'Raw pointers carry nullability').",
+            f"array parameter `{name.text}[]` without nullability: write"
+            f" `{name.text}[absl_nonnull N]` or `{name.text}[absl_nullable N]`"
+            " (AGENTS.md, 'Raw pointers carry nullability').",
         )
 
     def _annotation(self, i: int) -> None:
@@ -810,7 +851,9 @@ class _Finder:
                 _is_typeish(code[star - 1])
                 or code[star - 1].text in ("const", "volatile")
             )
-            if _is_exempt(code, star) or (typed and _is_c_style_cast(code, star)):
+            if _is_exempt(code, star) or (
+                typed and _is_c_style_cast(code, star)
+            ):
                 self.add(code[i], f"`{code[i].text}` {_CAST_ANNOTATION}.")
             return
         if previous is not None and previous.text == "[":
@@ -833,8 +876,9 @@ class _Finder:
             return
         self.add(
             code[i],
-            f"misplaced `{code[i].text}`: it qualifies the pointer when it directly follows the `*` "
-            f"(`Foo* {code[i].text} const p`), not elsewhere.",
+            f"misplaced `{code[i].text}`: it qualifies the pointer when it"
+            f" directly follows the `*` (`Foo* {code[i].text} const p`), not"
+            " elsewhere.",
         )
 
     def _include(self) -> None:
@@ -846,11 +890,14 @@ class _Finder:
             return
         self.add(
             used[0],
-            f'`{used[0].text}` without `#include "{INCLUDE}"` (and a dependency on @abseil-cpp//absl/base:nullability).',
+            f'`{used[0].text}` without `#include "{INCLUDE}"` (and a dependency'
+            " on @abseil-cpp//absl/base:nullability).",
         )
 
 
-def check_source(source: str, path: str = "<source>") -> list[check_types.Finding]:
+def check_source(
+    source: str, path: str = "<source>"
+) -> list[check_types.Finding]:
     """The findings of `pointer-nullability` in C++ `source`, the file at `path`."""
     return _Finder(source, path).run()
 
@@ -861,9 +908,14 @@ CHECKS = [
         languages=frozenset({check_types.Language.CPP}),
         scope=lint_files.Scope.FIRST_PARTY_AND_OCS2,
         check_source=check_source,
-        description="every raw pointer carries absl_nonnull or absl_nullable after its `*` (AGENTS.md, 'Raw "
-        "pointers carry nullability').",
-        hint="Annotate each `*` from the implementation and every caller: absl_nonnull when it is dereferenced "
-        "unchecked, absl_nullable when any path compares it with nullptr (AGENTS.md).",
+        description=(
+            "every raw pointer carries absl_nonnull or absl_nullable after its"
+            " `*` (AGENTS.md, 'Raw pointers carry nullability')."
+        ),
+        hint=(
+            "Annotate each `*` from the implementation and every caller:"
+            " absl_nonnull when it is dereferenced unchecked, absl_nullable"
+            " when any path compares it with nullptr (AGENTS.md)."
+        ),
     )
 ]

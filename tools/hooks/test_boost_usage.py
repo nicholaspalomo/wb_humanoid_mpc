@@ -61,7 +61,9 @@ class Use(NamedTuple):
 
 def uses(source, kind):
     """Every Boost use in `source`, a file of the given kind, before any NOLINT marker, in order."""
-    return [Use(*use) for use in sorted(boost_usage._raw_findings(source, kind))]
+    return [
+        Use(*use) for use in sorted(boost_usage._raw_findings(source, kind))
+    ]
 
 
 def cpp(source):
@@ -84,19 +86,28 @@ def registry(source, path, name="boost"):
 
     The engine applies the file's NOLINT markers (tools/hooks/checks.py).
     """
-    return [(f.line, f.check) for f in check_test_support.findings(name, source, path)]
+    return [
+        (f.line, f.check)
+        for f in check_test_support.findings(name, source, path)
+    ]
 
 
 class CppIncludesTest(unittest.TestCase):
     def test_a_boost_header_is_flagged_in_either_form(self):
         for source, expected in [
             ("#include <boost/variant.hpp>\n", "#include <boost/variant.hpp>"),
-            ('#include "boost/optional.hpp"\n', '#include "boost/optional.hpp"'),
+            (
+                '#include "boost/optional.hpp"\n',
+                '#include "boost/optional.hpp"',
+            ),
             (
                 "  #  include <boost/fusion/invoke.hpp>\n",
                 "#include <boost/fusion/invoke.hpp>",
             ),
-            ("#include_next <boost/any.hpp>\n", "#include_next <boost/any.hpp>"),
+            (
+                "#include_next <boost/any.hpp>\n",
+                "#include_next <boost/any.hpp>",
+            ),
         ]:
             with self.subTest(source=source):
                 self.assertEqual(cpp(source), [("include", expected)])
@@ -113,8 +124,14 @@ class CppIncludesTest(unittest.TestCase):
     def test_a_boost_header_named_in_another_directive_is_flagged(self):
         # A macro an #include expands, and __has_include, whose header an #include would otherwise read unchecked.
         for source, expected in [
-            ("#define INC <boost/variant.hpp>\n#include INC\n", "<boost/variant.hpp>"),
-            ('#define INC "boost/variant.hpp"\n#include INC\n', '"boost/variant.hpp"'),
+            (
+                "#define INC <boost/variant.hpp>\n#include INC\n",
+                "<boost/variant.hpp>",
+            ),
+            (
+                '#define INC "boost/variant.hpp"\n#include INC\n',
+                '"boost/variant.hpp"',
+            ),
             (
                 "#if __has_include(<boost/optional.hpp>)\n#endif\n",
                 "<boost/optional.hpp>",
@@ -126,7 +143,8 @@ class CppIncludesTest(unittest.TestCase):
 
     def test_a_continued_directive_is_read_to_its_end(self):
         violations = uses(
-            "#if defined(X) && \\\n    __has_include(<boost/optional.hpp>)\n#endif\nint y = a < b;\n",
+            "#if defined(X) && \\\n   "
+            " __has_include(<boost/optional.hpp>)\n#endif\nint y = a < b;\n",
             boost_usage.CPP,
         )
         self.assertEqual(
@@ -147,7 +165,9 @@ class CppIncludesTest(unittest.TestCase):
         found = boost_usage._findings(
             "#include <vector>\n#include <boost/variant.hpp>\n", "a.h"
         )
-        self.assertEqual([(f.path, f.line, f.column) for f in found], [("a.h", 2, 10)])
+        self.assertEqual(
+            [(f.path, f.line, f.column) for f in found], [("a.h", 2, 10)]
+        )
 
 
 class CppCodeTest(unittest.TestCase):
@@ -155,7 +175,10 @@ class CppCodeTest(unittest.TestCase):
         for source, expected in [
             ("boost::optional<int> value;", "boost::"),
             (
-                "const auto& joint = ::boost::get<JointModelFreeFlyer>(model.joints[1]);",
+                (
+                    "const auto& joint ="
+                    " ::boost::get<JointModelFreeFlyer>(model.joints[1]);"
+                ),
                 "boost::",
             ),
             ("namespace boost {\n}", "namespace boost"),
@@ -169,7 +192,10 @@ class CppCodeTest(unittest.TestCase):
     def test_an_alias_of_the_namespace_is_flagged(self):
         # Every use through the alias would otherwise pass: Pinocchio's headers bring Boost in without an #include.
         for source, expected in [
-            ("namespace bst = boost;\nbst::optional<int> x;", "namespace bst = boost"),
+            (
+                "namespace bst = boost;\nbst::optional<int> x;",
+                "namespace bst = boost",
+            ),
             ("namespace bst = ::boost;", "namespace bst = ::boost"),
             ("namespace  bst=boost ;", "namespace bst=boost"),
         ]:
@@ -179,7 +205,8 @@ class CppCodeTest(unittest.TestCase):
     def test_other_namespace_aliases_are_fine(self):
         self.assertEqual(
             cpp(
-                "namespace fs = std::filesystem;\nnamespace boosted = mylib;\nnamespace b = boost_like;\n"
+                "namespace fs = std::filesystem;\nnamespace boosted ="
+                " mylib;\nnamespace b = boost_like;\n"
             ),
             [],
         )
@@ -187,7 +214,10 @@ class CppCodeTest(unittest.TestCase):
     def test_boost_macros_are_flagged(self):
         for source, expected in [
             ("BOOST_FOREACH(int x, values) {}", "BOOST_FOREACH"),
-            ("#define BOOST_VARIANT_LIMIT_TYPES 50\n", "BOOST_VARIANT_LIMIT_TYPES"),
+            (
+                "#define BOOST_VARIANT_LIMIT_TYPES 50\n",
+                "BOOST_VARIANT_LIMIT_TYPES",
+            ),
             ("#ifdef BOOST_VERSION\n#endif\n", "BOOST_VERSION"),
         ]:
             with self.subTest(source=source):
@@ -217,13 +247,12 @@ class CppCodeTest(unittest.TestCase):
 class CppCommentsAndLiteralsTest(unittest.TestCase):
     def test_comments_are_prose(self):
         source = (
-            "// Replaces boost::property_tree::ptree; see #include <boost/property_tree/ptree.hpp>.\n"
-            "/* Distributed under the Boost Software License, Version 1.0. BOOST_FOREACH */\n"
-            "/**\n"
-            " * Splits off the first key, as boost::property_tree::string_path::reduce does.\n"
-            "#include <boost/variant.hpp>\n"
-            " */\n"
-            "int x;  // namespace boost\n"
+            "// Replaces boost::property_tree::ptree; see #include"
+            " <boost/property_tree/ptree.hpp>.\n/* Distributed under the Boost"
+            " Software License, Version 1.0. BOOST_FOREACH */\n/**\n * Splits"
+            " off the first key, as boost::property_tree::string_path::reduce"
+            " does.\n#include <boost/variant.hpp>\n */\nint x;  // namespace"
+            " boost\n"
         )
         self.assertEqual(cpp(source), [])
 
@@ -250,9 +279,10 @@ class CppCommentsAndLiteralsTest(unittest.TestCase):
 
     def test_raw_strings_are_not_code(self):
         source = (
-            'const char* generated = R"(\n#include <boost/variant.hpp>\nboost::get<int>(v);\n)";\n'
-            'const char* delimited = R"cpp( )" boost:: )cpp";\n'
-            'const char* wide = LR"(BOOST_FOREACH)";\n'
+            'const char* generated = R"(\n#include'
+            ' <boost/variant.hpp>\nboost::get<int>(v);\n)";\nconst char*'
+            ' delimited = R"cpp( )" boost:: )cpp";\nconst char* wide ='
+            ' LR"(BOOST_FOREACH)";\n'
         )
         self.assertEqual(cpp(source), [])
         # Positive control: code after the raw string is code again.
@@ -327,7 +357,10 @@ class StarlarkTest(unittest.TestCase):
                 [("link", "-l:libboost_system.so.1.83.0")],
             ),
             (
-                'srcs = ["/usr/lib/x86_64-linux-gnu/libboost_serialization.so"]',
+                (
+                    "srcs ="
+                    ' ["/usr/lib/x86_64-linux-gnu/libboost_serialization.so"]'
+                ),
                 [("link", "libboost_serialization.so")],
             ),
         ]:
@@ -336,22 +369,25 @@ class StarlarkTest(unittest.TestCase):
 
     def test_other_libraries_are_fine(self):
         source = (
-            'linkopts = ["-lpinocchio_parsers", "-lmyboost_x", "-lboosted", "-L/usr/lib/boost"]\n'
-            'srcs = ["lib/libmyboost_x.so", "include/boost/**"]\n'
+            'linkopts = ["-lpinocchio_parsers", "-lmyboost_x", "-lboosted",'
+            ' "-L/usr/lib/boost"]\nsrcs = ["lib/libmyboost_x.so",'
+            ' "include/boost/**"]\n'
         )
         self.assertEqual(starlark(source), [])
 
     def test_other_defines_are_fine(self):
         source = (
-            'defines = ["PINOCCHIO_URDFDOM_USE_STD_SHARED_PTR", "PINOCCHIO_WITH_BOOST"]\n'
-            'copts = ["-DMY_BOOST_X", "-DPINOCCHIO_URDFDOM_TYPEDEF_SHARED_PTR"]\n'
+            'defines = ["PINOCCHIO_URDFDOM_USE_STD_SHARED_PTR",'
+            ' "PINOCCHIO_WITH_BOOST"]\ncopts = ["-DMY_BOOST_X",'
+            ' "-DPINOCCHIO_URDFDOM_TYPEDEF_SHARED_PTR"]\n'
         )
         self.assertEqual(starlark(source), [])
 
     def test_comments_are_prose_but_strings_are_code(self):
         self.assertEqual(
             starlark(
-                "# Only @pinocchio depends on @boost; it carries -DBOOST_X.\nx = 1  # @boost\n"
+                "# Only @pinocchio depends on @boost; it carries -DBOOST_X.\nx"
+                " = 1  # @boost\n"
             ),
             [],
         )
@@ -394,9 +430,9 @@ class BazelrcTest(unittest.TestCase):
 
     def test_comments_and_other_flags_are_fine(self):
         source = (
-            "# Pinocchio's Boost defines are not set here (no --copt=-DBOOST_X): @pinocchio carries them.\n"
-            "build --copt=-DPINOCCHIO_X\n"
-            "build --cxxopt=-std=c++20\n"
+            "# Pinocchio's Boost defines are not set here (no"
+            " --copt=-DBOOST_X): @pinocchio carries them.\nbuild"
+            " --copt=-DPINOCCHIO_X\nbuild --cxxopt=-std=c++20\n"
         )
         self.assertEqual(bazelrc(source), [])
 
@@ -407,14 +443,16 @@ class NolintTest(unittest.TestCase):
     def test_a_marker_with_a_reason_exempts_its_line(self):
         self.assertEqual(
             registry(
-                "x = boost::get<J>(joint);  // NOLINT(boost): Pinocchio's joint model is a boost::variant.\n",
+                "x = boost::get<J>(joint);  // NOLINT(boost): Pinocchio's joint"
+                " model is a boost::variant.\n",
                 "src/a.cpp",
             ),
             [],
         )
         self.assertEqual(
             registry(
-                'deps = ["@boost"],  # NOLINT(boost): Pinocchio\'s headers include it.\n',
+                'deps = ["@boost"],  # NOLINT(boost): Pinocchio\'s headers'
+                " include it.\n",
                 "src/BUILD.bazel",
             ),
             [],
@@ -422,7 +460,8 @@ class NolintTest(unittest.TestCase):
         # Only its own line.
         self.assertEqual(
             registry(
-                "a = boost::x;  // NOLINT(boost): reason\nb = boost::y;\n", "src/a.cpp"
+                "a = boost::x;  // NOLINT(boost): reason\nb = boost::y;\n",
+                "src/a.cpp",
             ),
             [(2, "boost")],
         )
@@ -431,20 +470,32 @@ class NolintTest(unittest.TestCase):
         # The text of a literal is not a comment, so it is not a justification either.
         for source in [
             'const char* s = "NOLINT(boost): reason"; boost::get<int>(v);\n',
-            'const char* s = R"(// NOLINT(boost): reason)"; boost::get<int>(v);\n',
+            (
+                'const char* s = R"(// NOLINT(boost): reason)";'
+                " boost::get<int>(v);\n"
+            ),
         ]:
             with self.subTest(source=source):
                 self.assertEqual(registry(source, "src/a.cpp"), [(1, "boost")])
         self.assertEqual(
-            registry('deps = ["@boost", "NOLINT(boost): reason"]\n', "src/BUILD.bazel"),
+            registry(
+                'deps = ["@boost", "NOLINT(boost): reason"]\n',
+                "src/BUILD.bazel",
+            ),
             [(1, "boost")],
         )
 
     def test_a_marker_without_a_reason_exempts_nothing(self):
-        for marker in ["// NOLINT(boost)", "/* NOLINT(boost) */", "// NOLINT(boost):"]:
+        for marker in [
+            "// NOLINT(boost)",
+            "/* NOLINT(boost) */",
+            "// NOLINT(boost):",
+        ]:
             with self.subTest(marker=marker):
                 self.assertEqual(
-                    registry(f"x = boost::get<J>(joint);  {marker}\n", "src/a.cpp"),
+                    registry(
+                        f"x = boost::get<J>(joint);  {marker}\n", "src/a.cpp"
+                    ),
                     [(1, "boost")],
                 )
 
@@ -456,15 +507,16 @@ class NolintTest(unittest.TestCase):
         ]:
             with self.subTest(marker=marker):
                 self.assertEqual(
-                    registry(f"x = boost::get<J>(joint);  {marker}\n", "src/a.cpp"),
+                    registry(
+                        f"x = boost::get<J>(joint);  {marker}\n", "src/a.cpp"
+                    ),
                     [(1, "boost")],
                 )
 
     def test_nextline_exempts_the_line_after_it_only(self):
         source = (
-            "// NOLINTNEXTLINE(boost): the URDF parser takes a boost::optional.\n"
-            "a = boost::x;\n"
-            "b = boost::y;\n"
+            "// NOLINTNEXTLINE(boost): the URDF parser takes a"
+            " boost::optional.\na = boost::x;\nb = boost::y;\n"
         )
         self.assertEqual(registry(source, "src/a.cpp"), [(3, "boost")])
 
@@ -492,13 +544,19 @@ class NolintTest(unittest.TestCase):
             [(1, "nolint-unbalanced")],
         )
         self.assertEqual(
-            registry("int x;\n// NOLINTEND(boost)\n", "src/a.cpp", "nolint-unbalanced"),
+            registry(
+                "int x;\n// NOLINTEND(boost)\n",
+                "src/a.cpp",
+                "nolint-unbalanced",
+            ),
             [(2, "nolint-unbalanced")],
         )
 
 
 class MessageTest(unittest.TestCase):
-    def test_a_cpp_finding_says_what_to_use_and_how_to_justify_an_exception(self):
+    def test_a_cpp_finding_says_what_to_use_and_how_to_justify_an_exception(
+        self,
+    ):
         message = str(boost_usage._findings("boost::any x;", "a.cpp")[0])
         self.assertTrue(
             message.startswith("a.cpp:1:1: `boost::` uses the boost namespace.")
@@ -517,8 +575,14 @@ class ScopeTest(unittest.TestCase):
     def test_kinds_of_file(self):
         for path, kind in [
             ("humanoid_nmpc/x/src/A.cpp", boost_usage.CPP),
-            ("lib/ocs2/core/include/ocs2_core/integration/steppers.h", boost_usage.CPP),
-            ("lib/ocs2/core/include/ocs2_core/x/implementation/A.hpp", boost_usage.CPP),
+            (
+                "lib/ocs2/core/include/ocs2_core/integration/steppers.h",
+                boost_usage.CPP,
+            ),
+            (
+                "lib/ocs2/core/include/ocs2_core/x/implementation/A.hpp",
+                boost_usage.CPP,
+            ),
             ("lib/ocs2/thirdparty/include/cppad/core/testvector.hpp", None),
             ("BUILD.bazel", boost_usage.STARLARK),
             ("lib/ocs2/BUILD", boost_usage.STARLARK),
@@ -540,7 +604,9 @@ class ShippedConfigurationTest(unittest.TestCase):
     """The Bazel configuration as shipped: Boost is reached through the @pinocchio target alone."""
 
     def test_the_pinocchio_target_is_the_only_exemption(self):
-        with open(_repository_file("bazel/system_libs.bzl"), encoding="utf-8") as f:
+        with open(
+            _repository_file("bazel/system_libs.bzl"), encoding="utf-8"
+        ) as f:
             source = f.read()
         self.assertEqual(registry(source, "bazel/system_libs.bzl"), [])
         # Before its markers, everything the file exempts must lie in the Pinocchio repository rule, and be its
@@ -559,11 +625,16 @@ class ShippedConfigurationTest(unittest.TestCase):
         )
         self.assertTrue(
             exempted,
-            "the @pinocchio target no longer depends on Boost: drop its exemptions",
+            "the @pinocchio target no longer depends on Boost: drop its"
+            " exemptions",
         )
         self.assertEqual({v.kind for v in exempted}, {"label", "define"})
-        self.assertEqual({v.text for v in exempted if v.kind == "label"}, {"@boost"})
-        self.assertEqual([v.line for v in exempted if not begin < v.line < end], [])
+        self.assertEqual(
+            {v.text for v in exempted if v.kind == "label"}, {"@boost"}
+        )
+        self.assertEqual(
+            [v.line for v in exempted if not begin < v.line < end], []
+        )
 
 
 class WiringTest(unittest.TestCase):
@@ -572,7 +643,9 @@ class WiringTest(unittest.TestCase):
         # lib/ocs2 is Boost-free and checked; only the vendored CppAD copies are not.
         self.assertTrue(check.applies_to("lib/ocs2/core/src/a.cpp"))
         self.assertTrue(check.applies_to("lib/ocs2/BUILD.bazel"))
-        self.assertFalse(check.applies_to("lib/ocs2/thirdparty/include/cppad/x.hpp"))
+        self.assertFalse(
+            check.applies_to("lib/ocs2/thirdparty/include/cppad/x.hpp")
+        )
         check_test_support.assert_check_behaves(
             self, "boost", "#include <boost/variant.hpp>\n", "src/a.cpp"
         )
@@ -583,7 +656,9 @@ class WiringTest(unittest.TestCase):
             "src/BUILD.bazel",
         )
 
-    def test_the_hook_runs_the_staged_check_after_formatting_and_fails_on_it(self):
+    def test_the_hook_runs_the_staged_check_after_formatting_and_fails_on_it(
+        self,
+    ):
         check_test_support.assert_hook_runs_the_linter(self)
 
 

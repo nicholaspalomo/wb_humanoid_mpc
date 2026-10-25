@@ -78,7 +78,9 @@ def _names_an_input(argument: tuple[cpp_source.Token, ...]) -> bool:
     )
 
 
-def _finding(path: str, token: cpp_source.Token, message: str) -> check_types.Finding:
+def _finding(
+    path: str, token: cpp_source.Token, message: str
+) -> check_types.Finding:
     return check_types.Finding(path, token.line, token.col, NAME, message)
 
 
@@ -90,7 +92,9 @@ def _statement_end(tokens: tuple[cpp_source.Token, ...], k: int) -> int:
     return len(tokens)
 
 
-def _hides_the_qualified_call(tokens: tuple[cpp_source.Token, ...], k: int) -> bool:
+def _hides_the_qualified_call(
+    tokens: tuple[cpp_source.Token, ...], k: int
+) -> bool:
     """Tells whether the statement at tokens[k] hides the qualified `LinearInterpolation::interpolate` call.
 
     Args:
@@ -125,8 +129,9 @@ def _findings(source: str, path: str) -> list[check_types.Finding]:
                 _finding(
                     path,
                     token,
-                    "a using-declaration or alias of LinearInterpolation hides which calls interpolate states; write "
-                    "the qualified `LinearInterpolation::interpolate` call.",
+                    "a using-declaration or alias of LinearInterpolation hides"
+                    " which calls interpolate states; write the qualified"
+                    " `LinearInterpolation::interpolate` call.",
                 )
             )
             continue
@@ -143,8 +148,10 @@ def _findings(source: str, path: str) -> list[check_types.Finding]:
                     _finding(
                         path,
                         token,
-                        "`getDesiredState(t)` interpolates the state trajectory linearly, off the unit quaternion; use "
-                        "the robot model's getDesiredState(targets, t), which slerps the orientation.",
+                        "`getDesiredState(t)` interpolates the state trajectory"
+                        " linearly, off the unit quaternion; use the robot"
+                        " model's getDesiredState(targets, t), which slerps the"
+                        " orientation.",
                     )
                 )
         elif (
@@ -161,8 +168,10 @@ def _findings(source: str, path: str) -> list[check_types.Finding]:
                     _finding(
                         path,
                         tokens[k - 2],
-                        "`LinearInterpolation::interpolate` of a state takes the quaternion off the unit sphere; use "
-                        "the robot model's interpolateStateTrajectory() or the problem's StateManifold.",
+                        "`LinearInterpolation::interpolate` of a state takes"
+                        " the quaternion off the unit sphere; use the robot"
+                        " model's interpolateStateTrajectory() or the problem's"
+                        " StateManifold.",
                     )
                 )
     return findings
@@ -174,11 +183,20 @@ CHECKS = [
         languages=frozenset({check_types.Language.CPP}),
         scope=lint_files.Scope.FIRST_PARTY,
         check_source=_findings,
-        description="no linear interpolation of a state trajectory under humanoid_nmpc/ outside the robot models: no "
-        "one-argument getDesiredState(t), no LinearInterpolation::interpolate of anything but inputs, and no "
-        "using-declaration or alias that hides that call "
-        "(humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 2.9).",
-        hint="Interpolate states with MpcRobotModelBase::getDesiredState(targets, t) / interpolateStateTrajectory(), or "
-        "oc_data/StateTrajectoryInterpolation.h with the problem's StateManifold.",
+        description=(
+            "no linear interpolation of a state trajectory under humanoid_nmpc/"
+            " outside the robot models: no one-argument getDesiredState(t), no"
+            " LinearInterpolation::interpolate of anything but inputs, and no"
+            " using-declaration or alias that hides that call"
+            " (humanoid_nmpc/docs/quaternion_base_orientation/README.md,"
+            " section 2.9)."
+        ),
+        hint=(
+            "Interpolate states with"
+            " MpcRobotModelBase::getDesiredState(targets, t) /"
+            " interpolateStateTrajectory(), or"
+            " oc_data/StateTrajectoryInterpolation.h with the problem's"
+            " StateManifold."
+        ),
     ),
 ]

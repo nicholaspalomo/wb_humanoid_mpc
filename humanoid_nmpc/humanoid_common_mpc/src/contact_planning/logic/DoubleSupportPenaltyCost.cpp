@@ -36,23 +36,30 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 std::string DoubleSupportPenaltyCost::describe() const {
-  return absl::StrCat(cost_, " per decided node with every foot in contact (prices standing as well as the weight transfer)");
+  return absl::StrCat(cost_,
+                      " per decided node with every foot in contact (prices "
+                      "standing as well as the weight transfer)");
 }
 
 void DoubleSupportPenaltyCost::configure(const ContactPlanningConfig& config) {
   cost_ = config.doubleSupportPenalty.cost;
 }
 
-scalar_t DoubleSupportPenaltyCost::cost(const ContactLogicState& s, const MiqpAssignment& a) const {
+scalar_t DoubleSupportPenaltyCost::cost(const ContactLogicState& s,
+                                        const MiqpAssignment& a) const {
   using S = ContactLogicState;
   int numDoubleSupportNodes = 0;
   for (int k = 0; k < s.numNodes; ++k) {
-    // Only nodes whose feet are both decided are charged. A node that is still free may or may not become a double
-    // support, and the branch-and-bound prunes on this value: counting it would overestimate the partial assignment
-    // and could discard the optimum. Skipping it keeps the cost a lower bound, exact once the assignment is complete.
+    // Only nodes whose feet are both decided are charged. A node that is still
+    // free may or may not become a double support, and the branch-and-bound
+    // prunes on this value: counting it would overestimate the partial
+    // assignment and could discard the optimum. Skipping it keeps the cost a
+    // lower bound, exact once the assignment is complete.
     bool allInContact = true;
     for (size_t foot = 0; foot < kNumContacts; ++foot) {
-      allInContact = allInContact && a[static_cast<size_t>(S::contactBinaryIndex(k, foot))] == 1;
+      allInContact =
+          allInContact &&
+          a[static_cast<size_t>(S::contactBinaryIndex(k, foot))] == 1;
     }
     if (allInContact) ++numDoubleSupportNodes;
   }

@@ -38,10 +38,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Applies com_weights and acom_weights to the CoM + ACoM tracking cost the running problem carries
- * (ComAndAcomTrackingCost::kRunningTermName), and the same times terminal_cost_scaling to its terminal instance
- * (kTerminalTermName), as at start-up (HumanoidCostConstraintFactory::makeTerminalComAndAcomTrackingCost()). A problem
- * without the cost is left alone. Not thread-safe (HotFieldApplier).
+ * Applies com_weights and acom_weights to the CoM + ACoM tracking cost the
+ * running problem carries (ComAndAcomTrackingCost::kRunningTermName), and the
+ * same times terminal_cost_scaling to its terminal instance
+ * (kTerminalTermName), as at start-up
+ * (HumanoidCostConstraintFactory::makeTerminalComAndAcomTrackingCost()). A
+ * problem without the cost is left alone. Not thread-safe (HotFieldApplier).
  */
 class ComAndAcomWeightsApplier final : public HotFieldApplier {
  public:
@@ -51,7 +53,9 @@ class ComAndAcomWeightsApplier final : public HotFieldApplier {
   ComAndAcomWeightsApplier() = default;
 
   absl::string_view name() const override { return "ComAndAcomWeightsApplier"; }
-  absl::Span<const absl::string_view> fields() const final { return staticFields(); }
+  absl::Span<const absl::string_view> fields() const final {
+    return staticFields();
+  }
   void apply(HotUpdateTarget& target) override;
 };
 

@@ -62,7 +62,8 @@ TEST(ValueDumpTest, EqualBitsAreEqualLinesAndOneBitIsADifferentLine) {
   ValueDump negativeZero;
   zero.addDouble("x", /*value=*/0.0);
   negativeZero.addDouble("x", /*value=*/-0.0);
-  EXPECT_NE(zero.text(), negativeZero.text()) << "-0.0 and 0.0 are different bits";
+  EXPECT_NE(zero.text(), negativeZero.text())
+      << "-0.0 and 0.0 are different bits";
 }
 
 TEST(ValueDumpTest, ScalarsListsAndSectionsAreOneLineEach) {
@@ -74,7 +75,8 @@ TEST(ValueDumpTest, ScalarsListsAndSectionsAreOneLineEach) {
   dump.addStrings("names", {"x", "y"});
   dump.addSizes("indices", {4, 2});
   EXPECT_EQ(dump.text(),
-            "[model]\ncount = -3\nflag = true\nname = \"a\\\"b\"\nnames.size = 2\nnames[0] = \"x\"\nnames[1] = \"y\"\n"
+            "[model]\ncount = -3\nflag = true\nname = \"a\\\"b\"\nnames.size = "
+            "2\nnames[0] = \"x\"\nnames[1] = \"y\"\n"
             "indices.size = 2\nindices[0] = 4\nindices[1] = 2\n");
 }
 
@@ -83,12 +85,15 @@ TEST(ValueDumpTest, AMatrixIsDumpedElementByElementAfterItsSize) {
   Eigen::MatrixXd matrix(2, 2);
   matrix << 1.0, 2.0, 3.0, 4.0;
   dump.addMatrix("m", matrix);
-  EXPECT_TRUE(absl::StartsWith(dump.text(), "m.size = 2x2\nm(0,0) = ")) << dump.text();
-  EXPECT_TRUE(absl::StrContains(dump.text(), "m(1,0) = 0x1.8p+1 (3)")) << dump.text();
+  EXPECT_TRUE(absl::StartsWith(dump.text(), "m.size = 2x2\nm(0,0) = "))
+      << dump.text();
+  EXPECT_TRUE(absl::StrContains(dump.text(), "m(1,0) = 0x1.8p+1 (3)"))
+      << dump.text();
 
   ValueDump diagonal;
   diagonal.addDiagonal("d", matrix);
-  EXPECT_EQ(diagonal.text(), "d.size = 2x2\nd[0] = 0x1p+0 (1)\nd[1] = 0x1p+2 (4)\n");
+  EXPECT_EQ(diagonal.text(),
+            "d.size = 2x2\nd[0] = 0x1p+0 (1)\nd[1] = 0x1p+2 (4)\n");
 }
 
 TEST(ValueDumpTest, AFingerprintChangesWithAnyBitAndWithTheShape) {
@@ -99,7 +104,8 @@ TEST(ValueDumpTest, AFingerprintChangesWithAnyBitAndWithTheShape) {
     for (Eigen::Index col = 0; col < matrix.cols(); ++col) {
       Eigen::MatrixXd changed = matrix;
       changed(row, col) = nextUp(changed(row, col));
-      EXPECT_NE(matrixHash(changed), hash) << "element (" << row << "," << col << ")";
+      EXPECT_NE(matrixHash(changed), hash)
+          << "element (" << row << "," << col << ")";
     }
   }
   const Eigen::MatrixXd reshaped = Eigen::MatrixXd::Constant(4, 3, 0.25);
@@ -107,14 +113,17 @@ TEST(ValueDumpTest, AFingerprintChangesWithAnyBitAndWithTheShape) {
 
   ValueDump dump;
   dump.addFingerprint("m", matrix);
-  EXPECT_TRUE(absl::StartsWith(dump.text(), "m = 3x4 nonzeros 12 sum 0x1.8p+1 hash ")) << dump.text();
+  EXPECT_TRUE(
+      absl::StartsWith(dump.text(), "m = 3x4 nonzeros 12 sum 0x1.8p+1 hash "))
+      << dump.text();
 }
 
 TEST(ValueDumpTest, AFingerprintHashesEqualValuesEqually) {
   std::mt19937_64 generator(/*seed=*/5);
   std::uniform_real_distribution<double> uniform(/*a=*/-1.0, /*b=*/1.0);
   Eigen::MatrixXd matrix(6, 5);
-  for (Eigen::Index i = 0; i < matrix.size(); ++i) matrix(i) = (i % 3 == 0) ? 0.0 : uniform(generator);
+  for (Eigen::Index i = 0; i < matrix.size(); ++i)
+    matrix(i) = (i % 3 == 0) ? 0.0 : uniform(generator);
   matrix(1, 1) = std::numeric_limits<double>::quiet_NaN();
   const uint64_t hash = matrixHash(matrix);
 

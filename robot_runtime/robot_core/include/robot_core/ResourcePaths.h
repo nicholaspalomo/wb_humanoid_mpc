@@ -37,30 +37,38 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot {
 
 /**
- * The absolute path of a file or directory of this repository, given by its path relative to the repository root, for
- * example "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf".
+ * The absolute path of a file or directory of this repository, given by its
+ * path relative to the repository root, for example
+ * "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf".
  *
- * Tests and tools read robot descriptions and configuration files from the Bazel runfiles of the running binary. The
- * runfiles hold exactly the files the binary's `data` attribute lists, as symlinks into the checkout, so they are
- * always current, never a copy of the source tree that could be out of date. The function looks in these places, in
- * order:
+ * Tests and tools read robot descriptions and configuration files from the
+ * Bazel runfiles of the running binary. The runfiles hold exactly the files the
+ * binary's `data` attribute lists, as symlinks into the checkout, so they are
+ * always current, never a copy of the source tree that could be out of date.
+ * The function looks in these places, in order:
  *
- *   1. the runfiles the environment names: TEST_SRCDIR under `bazel test`, or RUNFILES_DIR / RUNFILES_MANIFEST_FILE
- *      when another Bazel binary started this one;
- *   2. the runfiles tree next to the executable, `<binary>.runfiles`. This covers `bazel run` and a binary started
- *      from `.bazel/bin`, directly or through a symlink.
+ *   1. the runfiles the environment names: TEST_SRCDIR under `bazel test`, or
+ * RUNFILES_DIR / RUNFILES_MANIFEST_FILE when another Bazel binary started this
+ * one;
+ *   2. the runfiles tree next to the executable, `<binary>.runfiles`. This
+ * covers `bazel run` and a binary started from `.bazel/bin`, directly or
+ * through a symlink.
  *
- * The checkout itself is never searched, not even under `bazel run`, which names it in BUILD_WORKSPACE_DIRECTORY: a
- * binary that found a file there would work on the developer's machine and fail on the robot computer it is deployed
- * to, and under `bazel test`. A file missing from `data` fails the same way everywhere.
+ * The checkout itself is never searched, not even under `bazel run`, which
+ * names it in BUILD_WORKSPACE_DIRECTORY: a binary that found a file there would
+ * work on the developer's machine and fail on the robot computer it is deployed
+ * to, and under `bazel test`. A file missing from `data` fails the same way
+ * everywhere.
  *
- * Returns NotFound when neither has the path. The message names the path, every place searched and the Bazel
- * package whose target has to go into the binary's `data`. Returns InvalidArgument for a path that is empty, absolute
- * or leaves the repository through "..".
+ * Returns NotFound when neither has the path. The message names the path, every
+ * place searched and the Bazel package whose target has to go into the binary's
+ * `data`. Returns InvalidArgument for a path that is empty, absolute or leaves
+ * the repository through "..".
  *
- * Not for a realtime thread: it reads the environment and the runfiles manifest and touches the file system. Resolve
- * paths at start-up.
+ * Not for a realtime thread: it reads the environment and the runfiles manifest
+ * and touches the file system. Resolve paths at start-up.
  */
-absl::StatusOr<std::string> resolveResourcePath(absl::string_view repositoryRelativePath);
+absl::StatusOr<std::string> resolveResourcePath(
+    absl::string_view repositoryRelativePath);
 
 }  // namespace robot

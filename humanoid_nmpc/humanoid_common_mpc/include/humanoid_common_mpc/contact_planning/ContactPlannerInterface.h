@@ -39,16 +39,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * What ContactPlannerModule needs of a contact planner, so that the implementation can be chosen by name in the
- * configuration (ContactPlannerFactory, `planner.type`).
+ * What ContactPlannerModule needs of a contact planner, so that the
+ * implementation can be chosen by name in the configuration
+ * (ContactPlannerFactory, `planner.type`).
  *
- * Two implementations exist: HlipContactPlanner, the closed-form reduced-order stepper of arXiv:2502.15630, and
- * LipContactPlanner, the mixed-integer program. Everything downstream of a plan - the reference manager, the merge
- * with the executed schedule, the swing trajectories, the target contact poses - reads a ContactPlan and does not
- * care which of the two produced it.
+ * Two implementations exist: HlipContactPlanner, the closed-form reduced-order
+ * stepper of arXiv:2502.15630, and LipContactPlanner, the mixed-integer
+ * program. Everything downstream of a plan - the reference manager, the merge
+ * with the executed schedule, the swing trajectories, the target contact poses
+ * - reads a ContactPlan and does not care which of the two produced it.
  *
- * A planner is used from one thread at a time (the module's worker, or the solver thread in synchronous mode) but not
- * from both at once; implementations need no locking of their own. Planners are held through a pointer to this
+ * A planner is used from one thread at a time (the module's worker, or the
+ * solver thread in synchronous mode) but not from both at once; implementations
+ * need no locking of their own. Planners are held through a pointer to this
  * interface and are neither copyable nor movable, which rules out slicing.
  */
 class ContactPlannerInterface {
@@ -58,21 +61,26 @@ class ContactPlannerInterface {
   ContactPlannerInterface& operator=(const ContactPlannerInterface&) = delete;
 
   /**
-   * Plans from the given input. Must not throw on a failure to plan: an invalid ContactPlan is returned instead, and
-   * the reference manager then keeps the schedule it is executing.
+   * Plans from the given input. Must not throw on a failure to plan: an invalid
+   * ContactPlan is returned instead, and the reference manager then keeps the
+   * schedule it is executing.
    */
   virtual ContactPlan plan(const ContactPlannerInput& input) = 0;
 
   /**
-   * Replaces the configuration. Called between plans, never during one. A configuration the planner cannot run is
-   * refused with an InvalidArgument naming the key (ContactPlanningConfig::validateStatus()), and the running one kept.
+   * Replaces the configuration. Called between plans, never during one. A
+   * configuration the planner cannot run is refused with an InvalidArgument
+   * naming the key (ContactPlanningConfig::validateStatus()), and the running
+   * one kept.
    */
   virtual absl::Status setConfig(const ContactPlanningConfig& config) = 0;
 
-  /** Drops whatever the planner carries over between plans (a warm start, the previous plan). */
+  /** Drops whatever the planner carries over between plans (a warm start, the
+   * previous plan). */
   virtual void reset() = 0;
 
-  /** The assembled formulation, for the start-up print: what this planner is and what it was configured with. */
+  /** The assembled formulation, for the start-up print: what this planner is
+   * and what it was configured with. */
   virtual std::string getFormulationSummary() const = 0;
 
  protected:

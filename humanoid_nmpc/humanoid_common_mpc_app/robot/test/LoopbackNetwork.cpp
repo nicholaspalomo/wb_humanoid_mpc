@@ -47,14 +47,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::test_support {
 
-absl::StatusOr<robot::ipc::NetworkConfig> writeLoopbackNetworkFile(const std::string& path, const std::vector<std::string>& nodes) {
+absl::StatusOr<robot::ipc::NetworkConfig> writeLoopbackNetworkFile(
+    const std::string& path, const std::vector<std::string>& nodes) {
   robot::ipc::NetworkConfig network = robot::ipc::isolatedTestNetwork(nodes);
-  // The shipped topics and their QoS, with the publishers among `nodes`, so that the writers of one-off messages exist
-  // from start-up as in production.
-  for (robot::ipc::TopicQos topic : robot::ipc::localhostNetworkConfig().topics) {
+  // The shipped topics and their QoS, with the publishers among `nodes`, so
+  // that the writers of one-off messages exist from start-up as in production.
+  for (robot::ipc::TopicQos topic :
+       robot::ipc::localhostNetworkConfig().topics) {
     std::vector<std::string> publishers;
     for (const std::string& publisher : topic.publishers) {
-      if (std::find(nodes.begin(), nodes.end(), publisher) != nodes.end()) publishers.push_back(publisher);
+      if (std::find(nodes.begin(), nodes.end(), publisher) != nodes.end())
+        publishers.push_back(publisher);
     }
     topic.publishers = std::move(publishers);
     network.topics.push_back(std::move(topic));
@@ -66,12 +69,14 @@ absl::StatusOr<robot::ipc::NetworkConfig> writeLoopbackNetworkFile(const std::st
   return robot::ipc::loadNetworkConfig(path);
 }
 
-std::unique_ptr<robot::ipc::Bus> createBus(const robot::ipc::NetworkConfig& network, const std::string& node) {
+std::unique_ptr<robot::ipc::Bus> createBus(
+    const robot::ipc::NetworkConfig& network, const std::string& node) {
   robot::ipc::BusOptions options;
   options.nodeName = node;
   options.network = network;
   options.ioPollPeriod = absl::Milliseconds(5);
-  absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus = robot::ipc::Bus::Create(std::move(options));
+  absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus =
+      robot::ipc::Bus::Create(std::move(options));
   CHECK_OK(bus.status());
   return *std::move(bus);
 }

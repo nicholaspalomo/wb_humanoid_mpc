@@ -27,9 +27,11 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// The status macros of robot_ipc's own sources. robot_runtime does not depend on humanoid_nmpc, whose
-// humanoid_common_mpc/common/StatusMacros.h defines the unprefixed RETURN_IF_ERROR, so these carry a prefix that cannot
-// clash with it in a translation unit that includes both. Private to the library: not in include/.
+// The status macros of robot_ipc's own sources. robot_runtime does not depend
+// on humanoid_nmpc, whose humanoid_common_mpc/common/StatusMacros.h defines the
+// unprefixed RETURN_IF_ERROR, so these carry a prefix that cannot clash with it
+// in a translation unit that includes both. Private to the library: not in
+// include/.
 
 #pragma once
 
@@ -41,7 +43,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define ROBOT_IPC_CONCAT_INNER(x, y) x##y
 #define ROBOT_IPC_CONCAT(x, y) ROBOT_IPC_CONCAT_INNER(x, y)
 
-// Not const, so that the returned status is moved rather than copied (ToTW #166).
+// Not const, so that the returned status is moved rather than copied (ToTW
+// #166).
 #define ROBOT_IPC_RETURN_IF_ERROR(expr) \
   do {                                  \
     absl::Status _status = (expr);      \
@@ -50,12 +53,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     }                                   \
   } while (0)
 
-// `status_or` is a variable name and `decl` a declaration: the two lines that declare them cannot parenthesize them.
-#define ROBOT_IPC_ASSIGN_OR_RETURN_IMPL(status_or, decl, rexpr)                     \
-  auto status_or = (rexpr); /* NOLINT(bugprone-macro-parentheses): a declaration */ \
-  if (!(status_or).ok()) {                                                          \
-    return (status_or).status();                                                    \
-  }                                                                                 \
-  decl = std::move(*(status_or)) /* NOLINT(bugprone-macro-parentheses): a declaration */
+// `status_or` is a variable name and `decl` a declaration: the two lines that
+// declare them cannot parenthesize them.
+#define ROBOT_IPC_ASSIGN_OR_RETURN_IMPL(status_or, decl, rexpr)        \
+  auto status_or =                                                     \
+      (rexpr); /* NOLINT(bugprone-macro-parentheses): a declaration */ \
+  if (!(status_or).ok()) {                                             \
+    return (status_or).status();                                       \
+  }                                                                    \
+  decl = std::move(                                                    \
+      *(status_or)) /* NOLINT(bugprone-macro-parentheses): a declaration */
 
-#define ROBOT_IPC_ASSIGN_OR_RETURN(decl, rexpr) ROBOT_IPC_ASSIGN_OR_RETURN_IMPL(ROBOT_IPC_CONCAT(_status_or_, __COUNTER__), decl, rexpr)
+#define ROBOT_IPC_ASSIGN_OR_RETURN(decl, rexpr)                               \
+  ROBOT_IPC_ASSIGN_OR_RETURN_IMPL(ROBOT_IPC_CONCAT(_status_or_, __COUNTER__), \
+                                  decl, rexpr)

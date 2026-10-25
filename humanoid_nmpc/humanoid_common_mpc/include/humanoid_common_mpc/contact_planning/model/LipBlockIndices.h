@@ -32,8 +32,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Fixed indices of the LIP and foothold blocks: they are always the first two blocks, so these are the layout's 0..7.
- * Plain constants rather than an enum: they index Eigen vectors and matrices and are compared with Layout indices.
+ * Fixed indices of the LIP and foothold blocks: they are always the first two
+ * blocks, so these are the layout's 0..7. Plain constants rather than an enum:
+ * they index Eigen vectors and matrices and are compared with Layout indices.
  */
 // States: CoM position and velocity, then the left and right foot positions.
 inline constexpr int kLipCx = 0;
@@ -45,7 +46,8 @@ inline constexpr int kLipPly = 5;
 inline constexpr int kLipPrx = 6;
 inline constexpr int kLipPry = 7;
 inline constexpr int kLipStateDim = 8;
-// Inputs: ZMP, the left and right foot displacements, then the contact binaries.
+// Inputs: ZMP, the left and right foot displacements, then the contact
+// binaries.
 inline constexpr int kLipZx = 0;
 inline constexpr int kLipZy = 1;
 inline constexpr int kLipDlx = 2;

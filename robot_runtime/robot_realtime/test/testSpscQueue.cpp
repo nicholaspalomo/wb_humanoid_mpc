@@ -44,7 +44,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::realtime {
 namespace {
 
-// The indices sit on cache lines of their own, and the queue occupies whole lines.
+// The indices sit on cache lines of their own, and the queue occupies whole
+// lines.
 static_assert(alignof(SpscQueue<int>) == kCacheLineSize);
 static_assert(sizeof(SpscQueue<int>) % kCacheLineSize == 0);
 static_assert(sizeof(SpscQueue<int>) >= 3 * kCacheLineSize);
@@ -85,7 +86,8 @@ TEST(SpscQueueTest, aFullQueueRejectsAndCountsEveryFurtherPush) {
   EXPECT_EQ(queue.droppedCount(), 12u);
   EXPECT_EQ(queue.sizeApprox(), 8u);
 
-  // The values that fit are intact and in order; the rejected ones never entered.
+  // The values that fit are intact and in order; the rejected ones never
+  // entered.
   for (int expected = 0; expected < 8; ++expected) {
     int value = -1;
     ASSERT_TRUE(queue.tryPop(value));
@@ -104,7 +106,8 @@ TEST(SpscQueueTest, keepsOrderAcrossManyWrapArounds) {
   int nextPush = 0;
   int nextPop = 0;
   for (int round = 0; round < 1000; ++round) {
-    // Alternate between filling the queue and leaving it partly full, so that the indices meet in every position.
+    // Alternate between filling the queue and leaving it partly full, so that
+    // the indices meet in every position.
     const int pushes = round % 2 == 0 ? 3 : 2;
     for (int i = 0; i < pushes; ++i) {
       ASSERT_TRUE(queue.tryPush(nextPush++));
@@ -125,10 +128,11 @@ TEST(SpscQueueTest, everySlotStartsAsACopyOfThePrototype) {
   for (int i = 0; i < 2; ++i) {
     size_t slotSize = 0;
     double slotValue = 0.0;
-    ASSERT_TRUE(queue.tryPushInPlace([&slotSize, &slotValue](std::vector<double>& slot) {
-      slotSize = slot.size();
-      slotValue = slot.front();
-    }));
+    ASSERT_TRUE(queue.tryPushInPlace(
+        [&slotSize, &slotValue](std::vector<double>& slot) {
+          slotSize = slot.size();
+          slotValue = slot.front();
+        }));
     EXPECT_EQ(slotSize, prototype.size());
     EXPECT_EQ(slotValue, 1.5);
   }
@@ -139,19 +143,22 @@ TEST(SpscQueueTest, inPlaceAccessCallsBackOnlyWhenThereIsASlot) {
   int writes = 0;
   int reads = 0;
 
-  EXPECT_FALSE(queue.tryPopInPlace([&reads](const std::array<int, 4>&) { ++reads; }));
+  EXPECT_FALSE(
+      queue.tryPopInPlace([&reads](const std::array<int, 4>&) { ++reads; }));
   EXPECT_TRUE(queue.tryPushInPlace([&writes](std::array<int, 4>& slot) {
     slot = {1, 2, 3, 4};
     ++writes;
   }));
-  EXPECT_FALSE(queue.tryPushInPlace([&writes](std::array<int, 4>&) { ++writes; }));
+  EXPECT_FALSE(
+      queue.tryPushInPlace([&writes](std::array<int, 4>&) { ++writes; }));
   EXPECT_EQ(queue.droppedCount(), 1u);
 
   std::array<int, 4> seen{};
-  EXPECT_TRUE(queue.tryPopInPlace([&reads, &seen](const std::array<int, 4>& slot) {
-    seen = slot;
-    ++reads;
-  }));
+  EXPECT_TRUE(
+      queue.tryPopInPlace([&reads, &seen](const std::array<int, 4>& slot) {
+        seen = slot;
+        ++reads;
+      }));
   EXPECT_EQ(writes, 1);
   EXPECT_EQ(reads, 1);
   EXPECT_EQ(seen, (std::array<int, 4>{1, 2, 3, 4}));
@@ -174,8 +181,9 @@ TEST(SpscQueueDeathTest, refusesAZeroCapacity) {
 // Two threads
 // ---------------------------------------------------------------------------------------------------------------------
 
-// A payload of two cache lines whose words all repeat the sequence number, so that a slot read while it is being
-// written (a missing acquire or release) shows up as words that disagree.
+// A payload of two cache lines whose words all repeat the sequence number, so
+// that a slot read while it is being written (a missing acquire or release)
+// shows up as words that disagree.
 struct SequencedPayload {
   uint64_t sequence = 0;
   std::array<uint64_t, 15> copies{};
@@ -202,27 +210,31 @@ struct StressResult {
 };
 
 /**
- * Pushes `messages` sequence numbers from a producer thread and pops them on this one. With `retryWhenFull` the
- * producer retries a push until it succeeds, as a non-realtime producer may; without, it drops the value and moves on,
- * as the realtime thread does.
+ * Pushes `messages` sequence numbers from a producer thread and pops them on
+ * this one. With `retryWhenFull` the producer retries a push until it succeeds,
+ * as a non-realtime producer may; without, it drops the value and moves on, as
+ * the realtime thread does.
  */
-StressResult runStress(SpscQueue<SequencedPayload>& queue, uint64_t messages, bool retryWhenFull) {
+StressResult runStress(SpscQueue<SequencedPayload>& queue,
+                       uint64_t messages,
+                       bool retryWhenFull) {
   StressResult result;
   std::atomic<bool> producerDone{false};
-  std::thread producer([&queue, &result, &producerDone, messages, retryWhenFull]() {
-    SequencedPayload payload;
-    for (uint64_t sequence = 0; sequence < messages; ++sequence) {
-      payload.set(sequence);
-      while (!queue.tryPush(payload)) {
-        ++result.producerFailures;
-        if (!retryWhenFull) {
-          break;
+  std::thread producer(
+      [&queue, &result, &producerDone, messages, retryWhenFull]() {
+        SequencedPayload payload;
+        for (uint64_t sequence = 0; sequence < messages; ++sequence) {
+          payload.set(sequence);
+          while (!queue.tryPush(payload)) {
+            ++result.producerFailures;
+            if (!retryWhenFull) {
+              break;
+            }
+            std::this_thread::yield();
+          }
         }
-        std::this_thread::yield();
-      }
-    }
-    producerDone.store(/*desired=*/true, std::memory_order_release);
-  });
+        producerDone.store(/*desired=*/true, std::memory_order_release);
+      });
 
   SequencedPayload popped;
   bool first = true;
@@ -231,9 +243,12 @@ StressResult runStress(SpscQueue<SequencedPayload>& queue, uint64_t messages, bo
     if (queue.tryPop(popped)) {
       ++result.received;
       result.torn += popped.consistent() ? 0 : 1;
-      // Retrying keeps every value, so each must follow the previous one; dropping may leave gaps, never reorder.
+      // Retrying keeps every value, so each must follow the previous one;
+      // dropping may leave gaps, never reorder.
       const bool inOrder =
-          first ? (!retryWhenFull || popped.sequence == 0) : (retryWhenFull ? popped.sequence == previous + 1 : popped.sequence > previous);
+          first ? (!retryWhenFull || popped.sequence == 0)
+                : (retryWhenFull ? popped.sequence == previous + 1
+                                 : popped.sequence > previous);
       result.outOfOrder += inOrder ? 0 : 1;
       previous = popped.sequence;
       first = false;
@@ -251,18 +266,21 @@ StressResult runStress(SpscQueue<SequencedPayload>& queue, uint64_t messages, bo
 TEST(SpscQueueStressTest, aProducerThatRetriesLosesNothingAndKeepsOrder) {
   constexpr uint64_t kMessages = 1'000'000;
   auto queue = std::make_unique<SpscQueue<SequencedPayload>>(/*capacity=*/256);
-  const StressResult result = runStress(*queue, kMessages, /*retryWhenFull=*/true);
+  const StressResult result =
+      runStress(*queue, kMessages, /*retryWhenFull=*/true);
 
   EXPECT_EQ(result.received, kMessages);
   EXPECT_EQ(result.outOfOrder, 0u);
   EXPECT_EQ(result.torn, 0u);
-  EXPECT_EQ(queue->droppedCount(), result.producerFailures) << "every rejected push is counted";
+  EXPECT_EQ(queue->droppedCount(), result.producerFailures)
+      << "every rejected push is counted";
 }
 
 TEST(SpscQueueStressTest, aSingleSlotQueueStillHandsOverEveryValue) {
   constexpr uint64_t kMessages = 100'000;
   auto queue = std::make_unique<SpscQueue<SequencedPayload>>(/*capacity=*/1);
-  const StressResult result = runStress(*queue, kMessages, /*retryWhenFull=*/true);
+  const StressResult result =
+      runStress(*queue, kMessages, /*retryWhenFull=*/true);
 
   EXPECT_EQ(result.received, kMessages);
   EXPECT_EQ(result.outOfOrder, 0u);
@@ -270,10 +288,12 @@ TEST(SpscQueueStressTest, aSingleSlotQueueStillHandsOverEveryValue) {
   EXPECT_EQ(queue->droppedCount(), result.producerFailures);
 }
 
-TEST(SpscQueueStressTest, aProducerThatNeverWaitsLosesExactlyWhatItWasToldWasDropped) {
+TEST(SpscQueueStressTest,
+     aProducerThatNeverWaitsLosesExactlyWhatItWasToldWasDropped) {
   constexpr uint64_t kMessages = 1'000'000;
   auto queue = std::make_unique<SpscQueue<SequencedPayload>>(/*capacity=*/16);
-  const StressResult result = runStress(*queue, kMessages, /*retryWhenFull=*/false);
+  const StressResult result =
+      runStress(*queue, kMessages, /*retryWhenFull=*/false);
 
   EXPECT_EQ(result.received + queue->droppedCount(), kMessages);
   EXPECT_EQ(queue->droppedCount(), result.producerFailures);
@@ -281,9 +301,11 @@ TEST(SpscQueueStressTest, aProducerThatNeverWaitsLosesExactlyWhatItWasToldWasDro
   EXPECT_EQ(result.torn, 0u);
 }
 
-// A queue that never holds more than one value - the producer pushes the next one only once the consumer has taken the
-// last - watched by a third thread: sizeApprox() must never report a size the queue did not hold. Loading the write
-// index before the read index, as it once did, reported a full queue whenever a push and a pop fell between the loads.
+// A queue that never holds more than one value - the producer pushes the next
+// one only once the consumer has taken the last - watched by a third thread:
+// sizeApprox() must never report a size the queue did not hold. Loading the
+// write index before the read index, as it once did, reported a full queue
+// whenever a push and a pop fell between the loads.
 TEST(SpscQueueStressTest, sizeApproxNeverReportsASizeTheQueueDidNotHold) {
   constexpr uint64_t kMessages = 100'000;
   auto queue = std::make_unique<SpscQueue<uint64_t>>(/*capacity=*/64);
@@ -301,7 +323,8 @@ TEST(SpscQueueStressTest, sizeApproxNeverReportsASizeTheQueueDidNotHold) {
     while (consumed.load(std::memory_order_relaxed) < kMessages) {
       if (queue->tryPop(value)) {
         // Only this thread writes the counter.
-        consumed.store(consumed.load(std::memory_order_relaxed) + 1, std::memory_order_release);
+        consumed.store(consumed.load(std::memory_order_relaxed) + 1,
+                       std::memory_order_release);
       } else {
         std::this_thread::yield();
       }

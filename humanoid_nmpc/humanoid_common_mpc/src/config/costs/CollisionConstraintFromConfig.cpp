@@ -46,27 +46,40 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/ConfigValueChecks.h"
+#include "humanoid_common_mpc/constraint/FootCollisionCbfConstraint.h"
 #include "humanoid_common_mpc/constraint/FootCollisionConstraint.h"
+#include "humanoid_mpc_config/collision_cbf_constraint_config.nproto.h"
 #include "humanoid_mpc_config/collision_constraint_config.nproto.h"
 
 namespace ocs2::humanoid {
 namespace {
 
-/** InvalidArgument naming `collision_constraint.<field>` when the frame name `frame` is empty. */
+/** InvalidArgument naming `collision_constraint.<field>` when the frame name
+ * `frame` is empty. */
 absl::Status checkNamed(absl::string_view field, const std::string& frame) {
   if (!frame.empty()) return absl::OkStatus();
-  return absl::InvalidArgumentError(absl::StrCat("collision_constraint.", field, " is empty: the constraint needs the frame"));
+  return absl::InvalidArgumentError(
+      absl::StrCat("collision_constraint.", field,
+                   " is empty: the constraint needs the frame"));
 }
 
 }  // namespace
 
-absl::StatusOr<FootCollisionConstraint::Config> footCollisionConstraintConfigFromConfig(
+absl::StatusOr<FootCollisionConstraint::Config>
+footCollisionConstraintConfigFromConfig(
     const mpc_config::CollisionConstraintConfig& collisionConstraint) {
-  const mpc_config::CollisionConstraintConfig::Foot& foot = collisionConstraint.foot;
-  const mpc_config::CollisionConstraintConfig::Knee& knee = collisionConstraint.knee;
-  // A sphere of radius 0 or less keeps nothing apart (and a negative one lets the spheres overlap).
-  RETURN_IF_ERROR(requirePositive("collision_constraint.foot.foot_collision_sphere_radius", foot.foot_collision_sphere_radius));
-  RETURN_IF_ERROR(requirePositive("collision_constraint.knee.knee_collision_sphere_radius", knee.knee_collision_sphere_radius));
+  const mpc_config::CollisionConstraintConfig::Foot& foot =
+      collisionConstraint.foot;
+  const mpc_config::CollisionConstraintConfig::Knee& knee =
+      collisionConstraint.knee;
+  // A sphere of radius 0 or less keeps nothing apart (and a negative one lets
+  // the spheres overlap).
+  RETURN_IF_ERROR(
+      requirePositive("collision_constraint.foot.foot_collision_sphere_radius",
+                      foot.foot_collision_sphere_radius));
+  RETURN_IF_ERROR(
+      requirePositive("collision_constraint.knee.knee_collision_sphere_radius",
+                      knee.knee_collision_sphere_radius));
   RETURN_IF_ERROR(checkNamed("foot.left_ankle_frame", foot.left_ankle_frame));
   RETURN_IF_ERROR(checkNamed("foot.right_ankle_frame", foot.right_ankle_frame));
   RETURN_IF_ERROR(checkNamed("knee.left_knee_frame", knee.left_knee_frame));
@@ -81,28 +94,69 @@ absl::StatusOr<FootCollisionConstraint::Config> footCollisionConstraintConfigFro
   return config;
 }
 
-absl::Status checkFootCollisionFramesExist(const FootCollisionConstraint::Config& config, const PinocchioInterface::Model& model) {
+absl::Status checkFootCollisionFramesExist(
+    const FootCollisionConstraint::Config& config,
+    const PinocchioInterface::Model& model) {
   constexpr size_t kFrames = 10;
   const std::array<const std::string* absl_nonnull, kFrames> frames = {
-      &config.leftAnkleFrame,  &config.rightAnkleFrame, &config.leftFootCenterFrame, &config.rightFootCenterFrame, &config.leftFootFrame1,
-      &config.rightFootFrame1, &config.leftFootFrame2,  &config.rightFootFrame2,     &config.leftKneeFrame,        &config.rightKneeFrame,
+      &config.leftAnkleFrame,      &config.rightAnkleFrame,
+      &config.leftFootCenterFrame, &config.rightFootCenterFrame,
+      &config.leftFootFrame1,      &config.rightFootFrame1,
+      &config.leftFootFrame2,      &config.rightFootFrame2,
+      &config.leftKneeFrame,       &config.rightKneeFrame,
   };
   for (const std::string* absl_nonnull frame : frames) {
-    // getFrameId() of a name the model lacks is nframes, one past the last frame, which the constraint would read.
+    // getFrameId() of a name the model lacks is nframes, one past the last
+    // frame, which the constraint would read.
     if (!model.existFrame(*frame)) {
       return absl::InvalidArgumentError(
-          absl::StrCat("collision_constraint: the frame '", *frame, "' is not a frame of the robot model (foot_collision)"));
+          absl::StrCat("collision_constraint: the frame '", *frame,
+                       "' is not a frame of the robot model (foot_collision)"));
     }
   }
   return absl::OkStatus();
 }
 
-absl::StatusOr<PieceWisePolynomialBarrierPenalty::Config> footCollisionBarrierFromConfig(
+absl::StatusOr<PieceWisePolynomialBarrierPenalty::Config>
+footCollisionBarrierFromConfig(
     const mpc_config::CollisionConstraintConfig& collisionConstraint) {
-  // A non-positive mu rewards a violation, and the polynomial barrier is discontinuous for a non-positive delta.
-  RETURN_IF_ERROR(requirePositive("collision_constraint.mu", collisionConstraint.mu));
-  RETURN_IF_ERROR(requirePositive("collision_constraint.delta", collisionConstraint.delta));
-  return PieceWisePolynomialBarrierPenalty::Config(collisionConstraint.mu, collisionConstraint.delta);
+  // A non-positive mu rewards a violation, and the polynomial barrier is
+  // discontinuous for a non-positive delta.
+  RETURN_IF_ERROR(
+      requirePositive("collision_constraint.mu", collisionConstraint.mu));
+  RETURN_IF_ERROR(
+      requirePositive("collision_constraint.delta", collisionConstraint.delta));
+  return PieceWisePolynomialBarrierPenalty::Config(collisionConstraint.mu,
+                                                   collisionConstraint.delta);
+}
+
+absl::StatusOr<FootCollisionCbfConstraint::Config>
+footCollisionCbfConstraintConfigFromConfig(
+    const mpc_config::CollisionConstraintConfig& collisionConstraint,
+    const mpc_config::CollisionCbfConstraintConfig& collisionCbf) {
+  FootCollisionCbfConstraint::Config config;
+  ASSIGN_OR_RETURN(config.spheres, footCollisionConstraintConfigFromConfig(
+                                       collisionConstraint));
+  ASSIGN_OR_RETURN(config.gamma, footCollisionCbfRateFromConfig(collisionCbf));
+  return config;
+}
+
+absl::StatusOr<PieceWisePolynomialBarrierPenalty::Config>
+footCollisionCbfBarrierFromConfig(
+    const mpc_config::CollisionCbfConstraintConfig& collisionCbf) {
+  RETURN_IF_ERROR(
+      requirePositive("collision_cbf_constraint.mu", collisionCbf.mu));
+  RETURN_IF_ERROR(
+      requirePositive("collision_cbf_constraint.delta", collisionCbf.delta));
+  return PieceWisePolynomialBarrierPenalty::Config(collisionCbf.mu,
+                                                   collisionCbf.delta);
+}
+
+absl::StatusOr<scalar_t> footCollisionCbfRateFromConfig(
+    const mpc_config::CollisionCbfConstraintConfig& collisionCbf) {
+  RETURN_IF_ERROR(
+      requirePositive("collision_cbf_constraint.gamma", collisionCbf.gamma));
+  return collisionCbf.gamma;
 }
 
 }  // namespace ocs2::humanoid

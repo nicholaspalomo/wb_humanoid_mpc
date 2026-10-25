@@ -40,10 +40,12 @@ JointPdGainsMailbox::JointPdGainsMailbox(const JointPdGains& initial)
       numOtherJoints_(static_cast<size_t>(initial.otherJointKp.size())),
       buffer_(initial) {}
 
-absl::Status JointPdGainsMailbox::post(const JointPdGains& gains, uint64_t ticket) {
+absl::Status JointPdGainsMailbox::post(const JointPdGains& gains,
+                                       uint64_t ticket) {
   if (!gains.hasDimensions(numMpcJoints_, numOtherJoints_)) {
-    return absl::InvalidArgumentError(absl::StrCat("[JointPdGainsMailbox] the gains are not sized for ", numMpcJoints_, " MPC joints and ",
-                                                   numOtherJoints_, " other joints."));
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[JointPdGainsMailbox] the gains are not sized for ", numMpcJoints_,
+        " MPC joints and ", numOtherJoints_, " other joints."));
   }
   absl::MutexLock lock(&producerMutex_);
   if (ticket <= lastPostedTicket_) {

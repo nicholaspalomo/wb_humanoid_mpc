@@ -27,9 +27,11 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// The checks of an operator payload before it is converted (OperatorPayloadChecks.h): a field of another schema version
-// is refused by its path, an MpcParameterUpdate of another schema fingerprint, of another robot or of another
-// configuration is refused, and one of this build, this robot and this configuration passes.
+// The checks of an operator payload before it is converted
+// (OperatorPayloadChecks.h): a field of another schema version is refused by
+// its path, an MpcParameterUpdate of another schema fingerprint, of another
+// robot or of another configuration is refused, and one of this build, this
+// robot and this configuration passes.
 
 #include <string>
 
@@ -61,51 +63,76 @@ humanoid_mpc_config::MpcParameterUpdate updateOf(const std::string& robotName) {
 }
 
 TEST(OperatorPayloadChecks, AnUpdateOfThisBuildAndThisRobotPasses) {
-  EXPECT_TRUE(checkMpcParameterUpdate(updateOf("atlas"), "atlas", /*taskFileIdentity=*/"").ok());
+  EXPECT_TRUE(checkMpcParameterUpdate(updateOf("atlas"), "atlas",
+                                      /*taskFileIdentity=*/"")
+                  .ok());
   // Without a robot to compare with, the robot is not checked.
-  EXPECT_TRUE(checkMpcParameterUpdate(updateOf("r1"), /*robotName=*/"", /*taskFileIdentity=*/"").ok());
+  EXPECT_TRUE(checkMpcParameterUpdate(updateOf("r1"), /*robotName=*/"",
+                                      /*taskFileIdentity=*/"")
+                  .ok());
   EXPECT_EQ(mpcParameterUpdateSchemaFingerprint().size(), 16U);
 }
 
 TEST(OperatorPayloadChecks, AFieldOfAnotherSchemaVersionIsRefusedByItsPath) {
   humanoid_mpc_config::MpcParameterUpdate sent = updateOf("atlas");
-  // A gate with a field this build does not have, as a GUI built from a newer schema would send it.
-  std::string gate = sent.task().contact_wrench_gate().SerializeAsString() + std::string(kUnknownField103, sizeof(kUnknownField103) - 1);
+  // A gate with a field this build does not have, as a GUI built from a newer
+  // schema would send it.
+  std::string gate =
+      sent.task().contact_wrench_gate().SerializeAsString() +
+      std::string(kUnknownField103, sizeof(kUnknownField103) - 1);
   humanoid_mpc_config::MpcParameterUpdate received = sent;
-  ASSERT_TRUE(received.mutable_task()->mutable_contact_wrench_gate()->ParseFromString(gate));
-  const absl::Status refused = checkMpcParameterUpdate(received, "atlas", /*taskFileIdentity=*/"");
+  ASSERT_TRUE(
+      received.mutable_task()->mutable_contact_wrench_gate()->ParseFromString(
+          gate));
+  const absl::Status refused =
+      checkMpcParameterUpdate(received, "atlas", /*taskFileIdentity=*/"");
   EXPECT_EQ(refused.code(), absl::StatusCode::kFailedPrecondition);
-  EXPECT_THAT(refused.message(), AllOf(HasSubstr("task.contact_wrench_gate: field 103"), HasSubstr("another schema version")));
+  EXPECT_THAT(refused.message(),
+              AllOf(HasSubstr("task.contact_wrench_gate: field 103"),
+                    HasSubstr("another schema version")));
 
   humanoid_mpc_config::JointPdGainsFile gains;
   gains.mutable_default_gains()->set_kp(100.0);
   humanoid_mpc_config::JointPdGainsFile newer;
-  ASSERT_TRUE(newer.ParseFromString(gains.SerializeAsString() + std::string(kUnknownField103, sizeof(kUnknownField103) - 1)));
+  ASSERT_TRUE(newer.ParseFromString(
+      gains.SerializeAsString() +
+      std::string(kUnknownField103, sizeof(kUnknownField103) - 1)));
   EXPECT_THAT(checkPayloadSchema(newer).message(), HasSubstr(": field 103"));
   EXPECT_TRUE(checkPayloadSchema(gains).ok());
 }
 
 TEST(OperatorPayloadChecks, AnUpdateOfAnotherSchemaFingerprintIsRefused) {
-  // A sender whose schema lacks fields this build has carries none of them, and no unknown field either: only the
-  // fingerprint tells. One without a fingerprint was built before the payload carried one.
-  for (const std::string& fingerprint : {std::string(), std::string("0123456789abcdef")}) {
+  // A sender whose schema lacks fields this build has carries none of them, and
+  // no unknown field either: only the fingerprint tells. One without a
+  // fingerprint was built before the payload carried one.
+  for (const std::string& fingerprint :
+       {std::string(), std::string("0123456789abcdef")}) {
     humanoid_mpc_config::MpcParameterUpdate update = updateOf("atlas");
     update.set_schema_fingerprint(fingerprint);
-    const absl::Status refused = checkMpcParameterUpdate(update, "atlas", /*taskFileIdentity=*/"");
-    EXPECT_EQ(refused.code(), absl::StatusCode::kFailedPrecondition) << fingerprint;
-    EXPECT_THAT(refused.message(), HasSubstr(mpcParameterUpdateSchemaFingerprint())) << fingerprint;
+    const absl::Status refused =
+        checkMpcParameterUpdate(update, "atlas", /*taskFileIdentity=*/"");
+    EXPECT_EQ(refused.code(), absl::StatusCode::kFailedPrecondition)
+        << fingerprint;
+    EXPECT_THAT(refused.message(),
+                HasSubstr(mpcParameterUpdateSchemaFingerprint()))
+        << fingerprint;
   }
 }
 
 TEST(OperatorPayloadChecks, AnUpdateOfAnotherRobotIsRefused) {
-  const absl::Status refused = checkMpcParameterUpdate(updateOf("drc_atlas"), "unitree_r1", /*taskFileIdentity=*/"");
+  const absl::Status refused = checkMpcParameterUpdate(
+      updateOf("drc_atlas"), "unitree_r1", /*taskFileIdentity=*/"");
   EXPECT_EQ(refused.code(), absl::StatusCode::kFailedPrecondition);
-  EXPECT_THAT(refused.message(), AllOf(HasSubstr("drc_atlas"), HasSubstr("unitree_r1")));
+  EXPECT_THAT(refused.message(),
+              AllOf(HasSubstr("drc_atlas"), HasSubstr("unitree_r1")));
 }
 
-// The configuration on the live path: two configurations of one robot share its robot_name.
-constexpr char kWholeBodyG1[] = "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto";
-constexpr char kCentroidalG1[] = "robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto";
+// The configuration on the live path: two configurations of one robot share its
+// robot_name.
+constexpr char kWholeBodyG1[] =
+    "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto";
+constexpr char kCentroidalG1[] =
+    "robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto";
 
 TEST(OperatorPayloadChecks, AnUpdateOfTheRunningConfigurationPasses) {
   humanoid_mpc_config::MpcParameterUpdate update = updateOf("g1");
@@ -113,33 +140,49 @@ TEST(OperatorPayloadChecks, AnUpdateOfTheRunningConfigurationPasses) {
   EXPECT_TRUE(checkMpcParameterUpdate(update, "g1", kWholeBodyG1).ok());
 }
 
-TEST(OperatorPayloadChecks, AnUpdateOfAnotherConfigurationOfTheSameRobotIsRefusedWithBothPaths) {
+TEST(OperatorPayloadChecks,
+     AnUpdateOfAnotherConfigurationOfTheSameRobotIsRefusedWithBothPaths) {
   humanoid_mpc_config::MpcParameterUpdate update = updateOf("g1");
   update.set_config_path(kCentroidalG1);
-  const absl::Status refused = checkMpcParameterUpdate(update, "g1", kWholeBodyG1);
+  const absl::Status refused =
+      checkMpcParameterUpdate(update, "g1", kWholeBodyG1);
   EXPECT_EQ(refused.code(), absl::StatusCode::kFailedPrecondition);
-  EXPECT_THAT(refused.message(), AllOf(HasSubstr(kCentroidalG1), HasSubstr(kWholeBodyG1)));
+  EXPECT_THAT(refused.message(),
+              AllOf(HasSubstr(kCentroidalG1), HasSubstr(kWholeBodyG1)));
 }
 
 TEST(OperatorPayloadChecks, WithoutANodeIdentityTheConfigurationIsNotChecked) {
   humanoid_mpc_config::MpcParameterUpdate update = updateOf("g1");
   update.set_config_path(kCentroidalG1);
-  EXPECT_TRUE(checkMpcParameterUpdate(update, "g1", /*taskFileIdentity=*/"").ok());
-  // Nor is a message without a path: the receiver has nothing to compare it with.
-  EXPECT_TRUE(checkMpcParameterUpdate(updateOf("g1"), "g1", /*taskFileIdentity=*/"").ok());
+  EXPECT_TRUE(
+      checkMpcParameterUpdate(update, "g1", /*taskFileIdentity=*/"").ok());
+  // Nor is a message without a path: the receiver has nothing to compare it
+  // with.
+  EXPECT_TRUE(
+      checkMpcParameterUpdate(updateOf("g1"), "g1", /*taskFileIdentity=*/"")
+          .ok());
 }
 
-TEST(OperatorPayloadChecks, AnUpdateWithoutAConfigPathIsRefusedByAReceiverWithAnIdentity) {
-  // A sender of this build always fills config_path; one that does not cannot be told from another configuration.
-  const absl::Status refused = checkMpcParameterUpdate(updateOf("g1"), "g1", kWholeBodyG1);
+TEST(OperatorPayloadChecks,
+     AnUpdateWithoutAConfigPathIsRefusedByAReceiverWithAnIdentity) {
+  // A sender of this build always fills config_path; one that does not cannot
+  // be told from another configuration.
+  const absl::Status refused =
+      checkMpcParameterUpdate(updateOf("g1"), "g1", kWholeBodyG1);
   EXPECT_EQ(refused.code(), absl::StatusCode::kFailedPrecondition);
-  EXPECT_THAT(refused.message(), AllOf(HasSubstr("<no config_path>"), HasSubstr(kWholeBodyG1)));
+  EXPECT_THAT(refused.message(),
+              AllOf(HasSubstr("<no config_path>"), HasSubstr(kWholeBodyG1)));
 }
 
-constexpr char kWholeBodyG1PdGains[] = "robot_models/unitree_g1/g1_wb_mpc/config/controller/joint_pd_gains.textproto";
-constexpr char kCentroidalG1PdGains[] = "robot_models/unitree_g1/g1_centroidal_mpc/config/controller/joint_pd_gains.textproto";
+constexpr char kWholeBodyG1PdGains[] =
+    "robot_models/unitree_g1/g1_wb_mpc/config/controller/"
+    "joint_pd_gains.textproto";
+constexpr char kCentroidalG1PdGains[] =
+    "robot_models/unitree_g1/g1_centroidal_mpc/config/controller/"
+    "joint_pd_gains.textproto";
 
-humanoid_mpc_config::JointPdGainsUpdate pdGainsUpdateOf(const std::string& path) {
+humanoid_mpc_config::JointPdGainsUpdate pdGainsUpdateOf(
+    const std::string& path) {
   humanoid_mpc_config::JointPdGainsUpdate update;
   update.mutable_gains()->mutable_default_gains()->set_kp(100.0);
   update.set_config_path(path);
@@ -147,49 +190,75 @@ humanoid_mpc_config::JointPdGainsUpdate pdGainsUpdateOf(const std::string& path)
   return update;
 }
 
-TEST(OperatorPayloadChecks, AJointPdGainsUpdateOfThisBuildAndConfigurationPasses) {
-  EXPECT_TRUE(checkJointPdGainsUpdate(pdGainsUpdateOf(kWholeBodyG1PdGains), kWholeBodyG1PdGains).ok());
+TEST(OperatorPayloadChecks,
+     AJointPdGainsUpdateOfThisBuildAndConfigurationPasses) {
+  EXPECT_TRUE(checkJointPdGainsUpdate(pdGainsUpdateOf(kWholeBodyG1PdGains),
+                                      kWholeBodyG1PdGains)
+                  .ok());
   EXPECT_EQ(jointPdGainsFileSchemaFingerprint().size(), 16U);
 }
 
 TEST(OperatorPayloadChecks, AJointPdGainsUpdateWithUnknownFieldIsRefused) {
-  humanoid_mpc_config::JointPdGainsUpdate sent = pdGainsUpdateOf(kWholeBodyG1PdGains);
-  std::string gainsWithUnknown = sent.gains().SerializeAsString() + std::string(kUnknownField103, sizeof(kUnknownField103) - 1);
+  humanoid_mpc_config::JointPdGainsUpdate sent =
+      pdGainsUpdateOf(kWholeBodyG1PdGains);
+  std::string gainsWithUnknown =
+      sent.gains().SerializeAsString() +
+      std::string(kUnknownField103, sizeof(kUnknownField103) - 1);
   humanoid_mpc_config::JointPdGainsUpdate received = sent;
   ASSERT_TRUE(received.mutable_gains()->ParseFromString(gainsWithUnknown));
-  const absl::Status refused = checkJointPdGainsUpdate(received, kWholeBodyG1PdGains);
+  const absl::Status refused =
+      checkJointPdGainsUpdate(received, kWholeBodyG1PdGains);
   EXPECT_EQ(refused.code(), absl::StatusCode::kFailedPrecondition);
-  EXPECT_THAT(refused.message(), AllOf(HasSubstr(": field 103"), HasSubstr("another schema version")));
+  EXPECT_THAT(refused.message(), AllOf(HasSubstr(": field 103"),
+                                       HasSubstr("another schema version")));
 }
 
-TEST(OperatorPayloadChecks, AJointPdGainsUpdateOfAnotherSchemaFingerprintIsRefused) {
-  for (const std::string& fingerprint : {std::string(), std::string("0123456789abcdef")}) {
-    humanoid_mpc_config::JointPdGainsUpdate update = pdGainsUpdateOf(kWholeBodyG1PdGains);
+TEST(OperatorPayloadChecks,
+     AJointPdGainsUpdateOfAnotherSchemaFingerprintIsRefused) {
+  for (const std::string& fingerprint :
+       {std::string(), std::string("0123456789abcdef")}) {
+    humanoid_mpc_config::JointPdGainsUpdate update =
+        pdGainsUpdateOf(kWholeBodyG1PdGains);
     update.set_schema_fingerprint(fingerprint);
-    const absl::Status refused = checkJointPdGainsUpdate(update, kWholeBodyG1PdGains);
-    EXPECT_EQ(refused.code(), absl::StatusCode::kFailedPrecondition) << fingerprint;
-    EXPECT_THAT(refused.message(), HasSubstr(jointPdGainsFileSchemaFingerprint())) << fingerprint;
+    const absl::Status refused =
+        checkJointPdGainsUpdate(update, kWholeBodyG1PdGains);
+    EXPECT_EQ(refused.code(), absl::StatusCode::kFailedPrecondition)
+        << fingerprint;
+    EXPECT_THAT(refused.message(),
+                HasSubstr(jointPdGainsFileSchemaFingerprint()))
+        << fingerprint;
   }
 }
 
-TEST(OperatorPayloadChecks, AJointPdGainsUpdateOfAnotherConfigurationIsRefusedWithBothPaths) {
-  humanoid_mpc_config::JointPdGainsUpdate update = pdGainsUpdateOf(kCentroidalG1PdGains);
-  const absl::Status refused = checkJointPdGainsUpdate(update, kWholeBodyG1PdGains);
+TEST(OperatorPayloadChecks,
+     AJointPdGainsUpdateOfAnotherConfigurationIsRefusedWithBothPaths) {
+  humanoid_mpc_config::JointPdGainsUpdate update =
+      pdGainsUpdateOf(kCentroidalG1PdGains);
+  const absl::Status refused =
+      checkJointPdGainsUpdate(update, kWholeBodyG1PdGains);
   EXPECT_EQ(refused.code(), absl::StatusCode::kFailedPrecondition);
-  EXPECT_THAT(refused.message(), AllOf(HasSubstr(kCentroidalG1PdGains), HasSubstr(kWholeBodyG1PdGains)));
+  EXPECT_THAT(refused.message(), AllOf(HasSubstr(kCentroidalG1PdGains),
+                                       HasSubstr(kWholeBodyG1PdGains)));
 }
 
-TEST(OperatorPayloadChecks, WithoutAReceiverIdentityThePdGainsConfigurationIsNotChecked) {
-  humanoid_mpc_config::JointPdGainsUpdate update = pdGainsUpdateOf(kCentroidalG1PdGains);
+TEST(OperatorPayloadChecks,
+     WithoutAReceiverIdentityThePdGainsConfigurationIsNotChecked) {
+  humanoid_mpc_config::JointPdGainsUpdate update =
+      pdGainsUpdateOf(kCentroidalG1PdGains);
   EXPECT_TRUE(checkJointPdGainsUpdate(update, /*pdGainsFileIdentity=*/"").ok());
-  EXPECT_TRUE(checkJointPdGainsUpdate(pdGainsUpdateOf(""), /*pdGainsFileIdentity=*/"").ok());
+  EXPECT_TRUE(
+      checkJointPdGainsUpdate(pdGainsUpdateOf(""), /*pdGainsFileIdentity=*/"")
+          .ok());
 }
 
-TEST(OperatorPayloadChecks, AJointPdGainsUpdateWithoutAConfigPathIsRefusedByAReceiverWithAnIdentity) {
+TEST(OperatorPayloadChecks,
+     AJointPdGainsUpdateWithoutAConfigPathIsRefusedByAReceiverWithAnIdentity) {
   humanoid_mpc_config::JointPdGainsUpdate update = pdGainsUpdateOf("");
-  const absl::Status refused = checkJointPdGainsUpdate(update, kWholeBodyG1PdGains);
+  const absl::Status refused =
+      checkJointPdGainsUpdate(update, kWholeBodyG1PdGains);
   EXPECT_EQ(refused.code(), absl::StatusCode::kFailedPrecondition);
-  EXPECT_THAT(refused.message(), AllOf(HasSubstr("<no config_path>"), HasSubstr(kWholeBodyG1PdGains)));
+  EXPECT_THAT(refused.message(), AllOf(HasSubstr("<no config_path>"),
+                                       HasSubstr(kWholeBodyG1PdGains)));
 }
 
 }  // namespace

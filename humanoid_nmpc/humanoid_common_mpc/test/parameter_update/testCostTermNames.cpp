@@ -36,11 +36,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/CostTermNames.h"
 
 /**
- * The collection names the MPC interfaces register their terms under and the parameter updater's appliers find them by
- * (CostTermNames.h, ContactTermNames.h), pinned with the strings the shipped problems use. A term's name is also what
- * the solver's metrics and the visualization label it with, so a rename is a change a reviewer must see: it fails here.
- * The CppAD library names that used to be derived from these are defined apart, beside their classes, and pinned by the
- * formulations' own tests (humanoid_centroidal_mpc:testCostTermAndLibraryNames, humanoid_wb_mpc's
+ * The collection names the MPC interfaces register their terms under and the
+ * parameter updater's appliers find them by (CostTermNames.h,
+ * ContactTermNames.h), pinned with the strings the shipped problems use. A
+ * term's name is also what the solver's metrics and the visualization label it
+ * with, so a rename is a change a reviewer must see: it fails here. The CppAD
+ * library names that used to be derived from these are defined apart, beside
+ * their classes, and pinned by the formulations' own tests
+ * (humanoid_centroidal_mpc:testCostTermAndLibraryNames, humanoid_wb_mpc's
  * testJointTorqueCostLibraryName).
  */
 namespace ocs2::humanoid {
@@ -48,32 +51,55 @@ namespace {
 
 // LINT.IfChange(pinned_cost_term_names)
 TEST(CostTermNames, TheQuadraticAndStateSoftConstraintTermsKeepTheirNames) {
-  EXPECT_EQ(absl::string_view(kStateInputQuadraticCostTerm), "stateInputQuadraticCost");
+  EXPECT_EQ(absl::string_view(kStateInputQuadraticCostTerm),
+            "stateInputQuadraticCost");
   EXPECT_EQ(absl::string_view(kStateQuadraticCostTerm), "stateQuadraticCost");
   EXPECT_EQ(absl::string_view(kInputQuadraticCostTerm), "inputQuadraticCost");
   EXPECT_EQ(absl::string_view(kTerminalCostTerm), "terminalCost");
   EXPECT_EQ(absl::string_view(kJointLimitsTerm), "jointLimits");
-  EXPECT_EQ(absl::string_view(kFootCollisionTerm), "FootCollisionSoftConstraint");
+  EXPECT_EQ(absl::string_view(kFootCollisionTerm),
+            "FootCollisionSoftConstraint");
+  EXPECT_EQ(absl::string_view(kFootCollisionCbfTerm),
+            "FootCollisionCbfSoftConstraint");
 }
 
 TEST(CostTermNames, ThePerLinkAndPerFootTermsAreTheNameAndTheirSuffix) {
-  EXPECT_EQ(taskSpaceKinematicsCostName("foot_l_contact"), "foot_l_contact_TaskSpaceKinematicsCost");
-  EXPECT_EQ(taskSpaceKinematicsCostName("torso"), "torso_TaskSpaceKinematicsCost");
-  EXPECT_EQ(externalTorqueCostName("foot_r_contact"), "foot_r_contact_ExternalTorqueQuadraticCost");
+  EXPECT_EQ(taskSpaceKinematicsCostName("foot_l_contact"),
+            "foot_l_contact_TaskSpaceKinematicsCost");
+  EXPECT_EQ(taskSpaceKinematicsCostName("torso"),
+            "torso_TaskSpaceKinematicsCost");
+  EXPECT_EQ(externalTorqueCostName("foot_r_contact"),
+            "foot_r_contact_ExternalTorqueQuadraticCost");
   EXPECT_EQ(absl::string_view(kZeroVelocityTermSuffix), "_zeroVelocity");
-  EXPECT_EQ(zeroVelocityTermName("foot_l_contact"), "foot_l_contact_zeroVelocity");
-  EXPECT_EQ(basisNonNegativityTermName("foot_l_contact"), "foot_l_contact_basisNonNegativity");
+  EXPECT_EQ(zeroVelocityTermName("foot_l_contact"),
+            "foot_l_contact_zeroVelocity");
+  EXPECT_EQ(basisNonNegativityTermName("foot_l_contact"),
+            "foot_l_contact_basisNonNegativity");
 }
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/CostTermNames.h:cost_term_names)
 
 TEST(CostTermNames, TheContactTermsKeepTheirSuffixes) {
-  EXPECT_EQ(contact_term::name("foot_l_contact", contact_term::kContactWrenchCone), "foot_l_contact_contactWrenchCone");
-  EXPECT_EQ(contact_term::name("foot_l_contact", contact_term::kFrictionForceCone), "foot_l_contact_frictionForceCone");
-  EXPECT_EQ(contact_term::name("foot_l_contact", contact_term::kContactMomentXY), "foot_l_contact_contactMomentXY");
-  EXPECT_EQ(contact_term::name("foot_l_contact", contact_term::kContactComplementarity), "foot_l_contact_contactComplementarity");
-  EXPECT_EQ(contact_term::name("foot_l_contact", contact_term::kForceWeightedSlip), "foot_l_contact_forceWeightedSlip");
-  EXPECT_EQ(contact_term::name("foot_l_contact", contact_term::kGroundPenetration), "foot_l_contact_groundPenetration");
-  EXPECT_EQ(contact_term::name("foot_l_contact", contact_term::kNormalVelocitySoft), "foot_l_contact_normalVelocitySoft");
+  EXPECT_EQ(
+      contact_term::name("foot_l_contact", contact_term::kContactWrenchCone),
+      "foot_l_contact_contactWrenchCone");
+  EXPECT_EQ(
+      contact_term::name("foot_l_contact", contact_term::kFrictionForceCone),
+      "foot_l_contact_frictionForceCone");
+  EXPECT_EQ(
+      contact_term::name("foot_l_contact", contact_term::kContactMomentXY),
+      "foot_l_contact_contactMomentXY");
+  EXPECT_EQ(contact_term::name("foot_l_contact",
+                               contact_term::kContactComplementarity),
+            "foot_l_contact_contactComplementarity");
+  EXPECT_EQ(
+      contact_term::name("foot_l_contact", contact_term::kForceWeightedSlip),
+      "foot_l_contact_forceWeightedSlip");
+  EXPECT_EQ(
+      contact_term::name("foot_l_contact", contact_term::kGroundPenetration),
+      "foot_l_contact_groundPenetration");
+  EXPECT_EQ(
+      contact_term::name("foot_l_contact", contact_term::kNormalVelocitySoft),
+      "foot_l_contact_normalVelocitySoft");
 }
 
 }  // namespace

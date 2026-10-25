@@ -27,8 +27,9 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// nproto/Schema.h: the unknown fields of a received message, by their paths, and the schema fingerprint, which the Python
-// twin (nproto_schema.py, test_nproto_schema.py) must compute alike.
+// nproto/Schema.h: the unknown fields of a received message, by their paths,
+// and the schema fingerprint, which the Python twin (nproto_schema.py,
+// test_nproto_schema.py) must compute alike.
 
 #include <string>
 #include <vector>
@@ -46,7 +47,8 @@ namespace {
 using ::testing::ElementsAre;
 using ::testing::IsEmpty;
 
-// The bytes of a varint field 103 of value 1 and of a varint field 40 of value 1: fields no test message has.
+// The bytes of a varint field 103 of value 1 and of a varint field 40 of value
+// 1: fields no test message has.
 constexpr char kUnknownField103[] = "\xb8\x06\x01";
 constexpr char kUnknownField40[] = "\xc0\x02\x01";
 
@@ -60,8 +62,10 @@ TEST(UnknownFieldPaths, AMessageOfThisSchemaHasNone) {
 }
 
 TEST(UnknownFieldPaths, AFieldOfAnotherSchemaIsNamedByItsPathAndNumber) {
-  // Outer { inner { <40> } inners { } inners { <40> } <103> }, as a sender with two more fields would encode it.
-  const std::string inner = std::string(kUnknownField40, sizeof(kUnknownField40) - 1);
+  // Outer { inner { <40> } inners { } inners { <40> } <103> }, as a sender with
+  // two more fields would encode it.
+  const std::string inner =
+      std::string(kUnknownField40, sizeof(kUnknownField40) - 1);
   std::string bytes;
   bytes += '\x0a';  // inner, length-delimited
   bytes += static_cast<char>(inner.size());
@@ -72,11 +76,15 @@ TEST(UnknownFieldPaths, AFieldOfAnotherSchemaIsNamedByItsPathAndNumber) {
   bytes += inner;
   bytes += std::string(kUnknownField103, sizeof(kUnknownField103) - 1);
   nproto_test::Outer parsed;
-  ASSERT_TRUE(parsed.ParseFromString(bytes)) << "unknown fields parse: the receiver keeps them";
-  EXPECT_THAT(UnknownFieldPaths(parsed), ElementsAre(": field 103", "inner: field 40", "inners[1]: field 40"));
+  ASSERT_TRUE(parsed.ParseFromString(bytes))
+      << "unknown fields parse: the receiver keeps them";
+  EXPECT_THAT(
+      UnknownFieldPaths(parsed),
+      ElementsAre(": field 103", "inner: field 40", "inners[1]: field 40"));
 }
 
-// The fingerprint of nproto_test.Outer, which test_nproto_schema.py pins alike: Python and C++ walk a schema the same way.
+// The fingerprint of nproto_test.Outer, which test_nproto_schema.py pins alike:
+// Python and C++ walk a schema the same way.
 // LINT.IfChange(outer_fingerprint)
 constexpr char kOuterFingerprintText[] =
     "message nproto_test.Outer\n"
@@ -84,7 +92,8 @@ constexpr char kOuterFingerprintText[] =
     "field 2 inners 11 repeated no_presence nproto_test.Outer.Inner\n"
     "field 3 kind 14 singular no_presence nproto_test.Outer.Kind\n"
     "field 4 leaf 11 singular presence nproto_test.Outer.Inner.Leaf\n"
-    "field 5 inner_by_name 11 repeated no_presence nproto_test.Outer.InnerByNameEntry\n"
+    "field 5 inner_by_name 11 repeated no_presence "
+    "nproto_test.Outer.InnerByNameEntry\n"
     "message nproto_test.Outer.Inner\n"
     "field 1 kind 14 singular no_presence nproto_test.Outer.Kind\n"
     "field 2 leaf 11 singular presence nproto_test.Outer.Inner.Leaf\n"
@@ -106,13 +115,17 @@ constexpr char kOuterFingerprint[] = "f97c11d0be6d2bfc";
 // LINT.ThenChange(//tools/nproto/test/test_nproto_schema.py:outer_fingerprint)
 
 TEST(SchemaFingerprint, IsTheHashOfEveryReachableMessageAndEnum) {
-  EXPECT_EQ(SchemaFingerprintText(*nproto_test::Outer::descriptor()), kOuterFingerprintText);
-  EXPECT_EQ(SchemaFingerprint(*nproto_test::Outer::descriptor()), kOuterFingerprint);
+  EXPECT_EQ(SchemaFingerprintText(*nproto_test::Outer::descriptor()),
+            kOuterFingerprintText);
+  EXPECT_EQ(SchemaFingerprint(*nproto_test::Outer::descriptor()),
+            kOuterFingerprint);
 }
 
 TEST(SchemaFingerprint, DiffersBetweenSchemas) {
-  EXPECT_NE(SchemaFingerprint(*nproto_test::Outer::descriptor()), SchemaFingerprint(*nproto_test::Scalars::descriptor()));
-  EXPECT_NE(SchemaFingerprint(*nproto_test::Outer::descriptor()), SchemaFingerprint(*nproto_test::Outer::Inner::descriptor()));
+  EXPECT_NE(SchemaFingerprint(*nproto_test::Outer::descriptor()),
+            SchemaFingerprint(*nproto_test::Scalars::descriptor()));
+  EXPECT_NE(SchemaFingerprint(*nproto_test::Outer::descriptor()),
+            SchemaFingerprint(*nproto_test::Outer::Inner::descriptor()));
 }
 
 }  // namespace

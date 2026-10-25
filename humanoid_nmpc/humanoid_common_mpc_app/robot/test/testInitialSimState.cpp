@@ -53,17 +53,22 @@ using visualization::test::Formulation;
 using visualization::test::RobotFiles;
 using visualization::test::TestRobot;
 
-// The simulator starts in the MPC's initial state, in every formulation: the base's position and orientation read
-// through the robot model's layout-agnostic accessors, the MPC joints by name, every other joint at zero.
+// The simulator starts in the MPC's initial state, in every formulation: the
+// base's position and orientation read through the robot model's
+// layout-agnostic accessors, the MPC joints by name, every other joint at zero.
 TEST(InitialSimStateTest, TheSimulatorStartsInTheMpcState) {
-  for (const std::pair<RobotFiles, Formulation>& configuration : visualization::test::shippedConfigurations()) {
+  for (const std::pair<RobotFiles, Formulation>& configuration :
+       visualization::test::shippedConfigurations()) {
     SCOPED_TRACE(configuration.first.taskFile);
-    const std::unique_ptr<TestRobot> robot = TestRobot::load(configuration.first, configuration.second);
+    const std::unique_ptr<TestRobot> robot =
+        TestRobot::load(configuration.first, configuration.second);
     const MpcRobotModelBase<scalar_t>& model = robot->robotModel();
-    // A tilted base turned past +pi, its yaw unwrapped as a reference knot may hold it.
+    // A tilted base turned past +pi, its yaw unwrapped as a reference knot may
+    // hold it.
     const vector3_t eulerZyx(3.5, 0.2, -0.1);
     vector_t state = robot->nominalState();
-    const vector3_t position = model.getBasePosition(state) + vector3_t(0.3, -0.2, 0.05);
+    const vector3_t position =
+        model.getBasePosition(state) + vector3_t(0.3, -0.2, 0.05);
     model.setBasePosition(state, position);
     model.setBaseOrientationEulerZyx(state, eulerZyx);
     vector_t joints = model.getJointAngles(state);
@@ -72,28 +77,40 @@ TEST(InitialSimStateTest, TheSimulatorStartsInTheMpcState) {
     }
     model.setJointAngles(state, joints);
 
-    const absl::StatusOr<robot::model::RobotDescription> description = robot::model::RobotDescription::Create(robot->urdfFile());
+    const absl::StatusOr<robot::model::RobotDescription> description =
+        robot::model::RobotDescription::Create(robot->urdfFile());
     ASSERT_TRUE(description.ok()) << description.status();
-    const robot::model::RobotState simState = createInitialSimState(*description, robot->modelSettings(), model, state);
+    const robot::model::RobotState simState = createInitialSimState(
+        *description, robot->modelSettings(), model, state);
 
     EXPECT_EQ(simState.getRootPositionInWorldFrame(), position);
-    // The orientation is the model's stored quaternion (getBaseOrientation), bit for bit, which is the rotation of the
-    // Euler angles it was set from up to round-off: the quaternion layout stores the coefficients, not the angles.
-    const quaternion_t rootOrientation = simState.getRootRotationLocalToWorldFrame();
+    // The orientation is the model's stored quaternion (getBaseOrientation),
+    // bit for bit, which is the rotation of the Euler angles it was set from up
+    // to round-off: the quaternion layout stores the coefficients, not the
+    // angles.
+    const quaternion_t rootOrientation =
+        simState.getRootRotationLocalToWorldFrame();
     EXPECT_EQ(rootOrientation.coeffs(), model.getBaseOrientation(state));
     EXPECT_NEAR(rootOrientation.norm(), 1.0, 1.0e-15);
-    EXPECT_TRUE(rootOrientation.toRotationMatrix().isApprox(getRotationMatrixFromZyxEulerAngles<scalar_t>(eulerZyx), 1.0e-14))
+    EXPECT_TRUE(rootOrientation.toRotationMatrix().isApprox(
+        getRotationMatrixFromZyxEulerAngles<scalar_t>(eulerZyx), 1.0e-14))
         << rootOrientation.toRotationMatrix() << "\n"
         << getRotationMatrixFromZyxEulerAngles<scalar_t>(eulerZyx);
 
-    const std::vector<std::string>& mpcJoints = robot->modelSettings().mpcModelJointNames;
+    const std::vector<std::string>& mpcJoints =
+        robot->modelSettings().mpcModelJointNames;
     for (size_t joint = 0; joint < mpcJoints.size(); ++joint) {
-      EXPECT_EQ(simState.getCheckedJointPosition(description->getJointIndex(mpcJoints[joint])), joints[static_cast<Eigen::Index>(joint)])
+      EXPECT_EQ(simState.getCheckedJointPosition(
+                    description->getJointIndex(mpcJoints[joint])),
+                joints[static_cast<Eigen::Index>(joint)])
           << mpcJoints[joint];
     }
     for (const std::string& name : description->getJointNames()) {
       if (!absl::c_linear_search(mpcJoints, name)) {
-        EXPECT_EQ(simState.getCheckedJointPosition(description->getJointIndex(name)), 0.0) << name;
+        EXPECT_EQ(
+            simState.getCheckedJointPosition(description->getJointIndex(name)),
+            0.0)
+            << name;
       }
     }
   }

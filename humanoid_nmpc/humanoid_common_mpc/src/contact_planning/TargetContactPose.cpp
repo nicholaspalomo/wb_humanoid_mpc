@@ -36,7 +36,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 namespace {
-TargetContactPose stancePose(size_t foot, const TargetContactPoseInputs& inputs) {
+TargetContactPose stancePose(size_t foot,
+                             const TargetContactPoseInputs& inputs) {
   TargetContactPose pose;
   pose.valid = true;
   pose.kind = TargetContactPose::Kind::kStance;
@@ -49,22 +50,29 @@ TargetContactPose stancePose(size_t foot, const TargetContactPoseInputs& inputs)
 }
 }  // namespace
 
-feet_array_t<TargetContactPose> computeTargetContactPoses(const ContactPlan& plan,
-                                                          const ModeSchedule& schedule,
-                                                          const TargetContactPoseInputs& inputs) {
+feet_array_t<TargetContactPose> computeTargetContactPoses(
+    const ContactPlan& plan,
+    const ModeSchedule& schedule,
+    const TargetContactPoseInputs& inputs) {
   feet_array_t<TargetContactPose> poses = makeFeetArray(TargetContactPose{});
   if (!plan.valid) return poses;
 
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
-    // The swing in flight, or else the foot's next swing: an event at the query time counts as passed in the schedule
-    // queries, so the phase lookup at the next lift-off returns that swing.
-    std::optional<SwingWindow> swing = swingPhaseAtTime(schedule, foot, inputs.time);
+    // The swing in flight, or else the foot's next swing: an event at the query
+    // time counts as passed in the schedule queries, so the phase lookup at the
+    // next lift-off returns that swing.
+    std::optional<SwingWindow> swing =
+        swingPhaseAtTime(schedule, foot, inputs.time);
     const bool inFlight = swing.has_value();
     if (!inFlight) {
-      const std::optional<scalar_t> liftOff = currentOrNextLiftOffTime(schedule, foot, inputs.time);
-      if (liftOff.has_value()) swing = swingPhaseAtTime(schedule, foot, *liftOff);
+      const std::optional<scalar_t> liftOff =
+          currentOrNextLiftOffTime(schedule, foot, inputs.time);
+      if (liftOff.has_value())
+        swing = swingPhaseAtTime(schedule, foot, *liftOff);
     }
-    const std::optional<vector2_t> landing = swing.has_value() ? plan.footholdAtTime(foot, swing->touchDown) : std::nullopt;
+    const std::optional<vector2_t> landing =
+        swing.has_value() ? plan.footholdAtTime(foot, swing->touchDown)
+                          : std::nullopt;
     if (!swing.has_value() || !landing.has_value()) {
       poses[foot] = stancePose(foot, inputs);
       continue;
@@ -72,11 +80,13 @@ feet_array_t<TargetContactPose> computeTargetContactPoses(const ContactPlan& pla
 
     TargetContactPose& pose = poses[foot];
     pose.valid = true;
-    pose.kind = inFlight ? TargetContactPose::Kind::kSwingInFlight : TargetContactPose::Kind::kNextSwing;
+    pose.kind = inFlight ? TargetContactPose::Kind::kSwingInFlight
+                         : TargetContactPose::Kind::kNextSwing;
     pose.position = *landing + inputs.dcmStepAdjustment[foot];
     pose.height = inputs.terrainHeight;
     pose.touchDownTime = swing->touchDown;
-    const std::optional<scalar_t> plannedYaw = plan.footYawAtTime(foot, swing->touchDown);
+    const std::optional<scalar_t> plannedYaw =
+        plan.footYawAtTime(foot, swing->touchDown);
     pose.yawPlanned = plannedYaw.has_value();
     pose.yaw = plannedYaw.value_or(inputs.footYaws[foot]);
   }

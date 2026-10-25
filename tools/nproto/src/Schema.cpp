@@ -55,10 +55,14 @@ using google::protobuf::FieldDescriptor;
 using google::protobuf::Message;
 using google::protobuf::Reflection;
 
-/** Appends the unknown fields of `message` and of the messages below it, under `path`, to `paths`. */
-void collectUnknownFields(const Message& message, const std::string& path, std::vector<std::string>& paths) {
+/** Appends the unknown fields of `message` and of the messages below it, under
+ * `path`, to `paths`. */
+void collectUnknownFields(const Message& message,
+                          const std::string& path,
+                          std::vector<std::string>& paths) {
   const Reflection* absl_nonnull const reflection = message.GetReflection();
-  const google::protobuf::UnknownFieldSet& unknown = reflection->GetUnknownFields(message);
+  const google::protobuf::UnknownFieldSet& unknown =
+      reflection->GetUnknownFields(message);
   for (int i = 0; i < unknown.field_count(); ++i) {
     paths.push_back(absl::StrCat(path, ": field ", unknown.field(i).number()));
   }
@@ -66,32 +70,43 @@ void collectUnknownFields(const Message& message, const std::string& path, std::
   reflection->ListFields(message, &fields);
   for (const FieldDescriptor* absl_nonnull const field : fields) {
     if (field->cpp_type() != FieldDescriptor::CPPTYPE_MESSAGE) continue;
-    const std::string fieldPath = path.empty() ? std::string(field->name()) : absl::StrCat(path, ".", field->name());
+    const std::string fieldPath = path.empty()
+                                      ? std::string(field->name())
+                                      : absl::StrCat(path, ".", field->name());
     if (!field->is_repeated()) {
-      collectUnknownFields(reflection->GetMessage(message, field), fieldPath, paths);
+      collectUnknownFields(reflection->GetMessage(message, field), fieldPath,
+                           paths);
       continue;
     }
     const int size = reflection->FieldSize(message, field);
     for (int index = 0; index < size; ++index) {
-      collectUnknownFields(reflection->GetRepeatedMessage(message, field, index), absl::StrCat(fieldPath, "[", index, "]"), paths);
+      collectUnknownFields(
+          reflection->GetRepeatedMessage(message, field, index),
+          absl::StrCat(fieldPath, "[", index, "]"), paths);
     }
   }
 }
 
-/** Every message and enum reachable from `root` through the fields, by full name. */
+/** Every message and enum reachable from `root` through the fields, by full
+ * name. */
 struct Reachable {
   std::map<std::string, const Descriptor* absl_nonnull> messages;
   std::map<std::string, const EnumDescriptor* absl_nonnull> enums;
 };
 
 void collectReachable(const Descriptor& descriptor, Reachable& reachable) {
-  if (!reachable.messages.emplace(std::string(descriptor.full_name()), &descriptor).second) return;
+  if (!reachable.messages
+           .emplace(std::string(descriptor.full_name()), &descriptor)
+           .second)
+    return;
   for (int i = 0; i < descriptor.field_count(); ++i) {
     const FieldDescriptor* absl_nonnull const field = descriptor.field(i);
-    if (const Descriptor* absl_nullable const type = field->message_type(); type != nullptr) {
+    if (const Descriptor* absl_nullable const type = field->message_type();
+        type != nullptr) {
       collectReachable(*type, reachable);
     }
-    if (const EnumDescriptor* absl_nullable const type = field->enum_type(); type != nullptr) {
+    if (const EnumDescriptor* absl_nullable const type = field->enum_type();
+        type != nullptr) {
       reachable.enums.emplace(std::string(type->full_name()), type);
     }
   }
@@ -99,8 +114,10 @@ void collectReachable(const Descriptor& descriptor, Reachable& reachable) {
 
 /** The full name of the message or enum type of `field`; "-" for a scalar. */
 std::string typeName(const FieldDescriptor& field) {
-  if (field.message_type() != nullptr) return std::string(field.message_type()->full_name());
-  if (field.enum_type() != nullptr) return std::string(field.enum_type()->full_name());
+  if (field.message_type() != nullptr)
+    return std::string(field.message_type()->full_name());
+  if (field.enum_type() != nullptr)
+    return std::string(field.enum_type()->full_name());
   return "-";
 }
 
@@ -116,27 +133,36 @@ std::string SchemaFingerprintText(const Descriptor& descriptor) {
   Reachable reachable;
   collectReachable(descriptor, reachable);
   std::string text;
-  for (const std::pair<const std::string, const Descriptor* absl_nonnull>& entry : reachable.messages) {
+  for (const std::pair<const std::string, const Descriptor* absl_nonnull>&
+           entry : reachable.messages) {
     absl::StrAppend(&text, "message ", entry.first, "\n");
     std::vector<const FieldDescriptor* absl_nonnull> fields;
-    for (int i = 0; i < entry.second->field_count(); ++i) fields.push_back(entry.second->field(i));
-    std::sort(fields.begin(), fields.end(), [](const FieldDescriptor* absl_nonnull lhs, const FieldDescriptor* absl_nonnull rhs) {
-      return lhs->number() < rhs->number();
-    });
+    for (int i = 0; i < entry.second->field_count(); ++i)
+      fields.push_back(entry.second->field(i));
+    std::sort(fields.begin(), fields.end(),
+              [](const FieldDescriptor* absl_nonnull lhs,
+                 const FieldDescriptor* absl_nonnull rhs) {
+                return lhs->number() < rhs->number();
+              });
     for (const FieldDescriptor* absl_nonnull const field : fields) {
-      absl::StrAppend(&text, "field ", field->number(), " ", field->name(), " ", static_cast<int>(field->type()), " ",
-                      field->is_repeated() ? "repeated" : "singular", " ", field->has_presence() ? "presence" : "no_presence", " ",
+      absl::StrAppend(&text, "field ", field->number(), " ", field->name(), " ",
+                      static_cast<int>(field->type()), " ",
+                      field->is_repeated() ? "repeated" : "singular", " ",
+                      field->has_presence() ? "presence" : "no_presence", " ",
                       typeName(*field), "\n");
     }
   }
-  for (const std::pair<const std::string, const EnumDescriptor* absl_nonnull>& entry : reachable.enums) {
+  for (const std::pair<const std::string, const EnumDescriptor* absl_nonnull>&
+           entry : reachable.enums) {
     absl::StrAppend(&text, "enum ", entry.first, "\n");
     std::vector<std::pair<int, std::string>> values;
     for (int i = 0; i < entry.second->value_count(); ++i) {
-      values.emplace_back(entry.second->value(i)->number(), std::string(entry.second->value(i)->name()));
+      values.emplace_back(entry.second->value(i)->number(),
+                          std::string(entry.second->value(i)->name()));
     }
     std::sort(values.begin(), values.end());
-    for (const std::pair<int, std::string>& value : values) absl::StrAppend(&text, "value ", value.first, " ", value.second, "\n");
+    for (const std::pair<int, std::string>& value : values)
+      absl::StrAppend(&text, "value ", value.first, " ", value.second, "\n");
   }
   return text;
 }

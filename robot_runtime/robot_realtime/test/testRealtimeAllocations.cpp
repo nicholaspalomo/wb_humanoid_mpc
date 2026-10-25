@@ -27,8 +27,9 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// The realtime property of this package: once constructed, the SPSC queue, the periodic timer and the loop timing
-// statistics make no heap allocation. The allocation counter interposes malloc for this whole binary, which is why
+// The realtime property of this package: once constructed, the SPSC queue, the
+// periodic timer and the loop timing statistics make no heap allocation. The
+// allocation counter interposes malloc for this whole binary, which is why
 // these tests have a target of their own.
 
 #include <chrono>
@@ -55,8 +56,8 @@ using std::chrono::microseconds;
 using std::chrono::milliseconds;
 using std::chrono::nanoseconds;
 
-// A telemetry sample as the realtime thread would hand it to the communication thread: storage on the heap, of a size
-// fixed when the queue is built.
+// A telemetry sample as the realtime thread would hand it to the communication
+// thread: storage on the heap, of a size fixed when the queue is built.
 struct TelemetrySample {
   double time = 0.0;
   Eigen::VectorXd jointPositions;
@@ -74,35 +75,41 @@ TelemetrySample makePrototype() {
 TEST(RealtimeAllocationTest, theCounterSeesTheQueueAllocateItsSlots) {
   const TelemetrySample prototype = makePrototype();
   const size_t before = heapAllocationCount();
-  auto queue = std::make_unique<SpscQueue<TelemetrySample>>(/*capacity=*/8, prototype);
+  auto queue =
+      std::make_unique<SpscQueue<TelemetrySample>>(/*capacity=*/8, prototype);
   const size_t allocations = heapAllocationCount() - before;
   ASSERT_NE(queue, nullptr);
   // The over-aligned queue itself, its slot array, and two buffers per slot.
   EXPECT_GE(allocations, 2u + 2u * 9u);
 }
 
-// The per-thread count sees this thread's allocations and none of another thread's.
+// The per-thread count sees this thread's allocations and none of another
+// thread's.
 TEST(RealtimeAllocationTest, thePerThreadCounterCountsTheCallingThreadOnly) {
   const size_t before = heapAllocationCountOnThisThread();
   size_t otherThreadAllocations = 0;
   std::thread other([&otherThreadAllocations]() {
     const size_t otherBefore = heapAllocationCountOnThisThread();
     std::vector<std::unique_ptr<int>> values;
-    for (int value = 0; value < 100; ++value) values.push_back(std::make_unique<int>(value));
+    for (int value = 0; value < 100; ++value)
+      values.push_back(std::make_unique<int>(value));
     otherThreadAllocations = heapAllocationCountOnThisThread() - otherBefore;
   });
   other.join();
   EXPECT_GE(otherThreadAllocations, 100u);
-  // std::thread allocates its state on the creating thread; none of the 100 values may show up here.
+  // std::thread allocates its state on the creating thread; none of the 100
+  // values may show up here.
   const size_t afterThread = heapAllocationCountOnThisThread();
   EXPECT_LT(afterThread - before, 100u);
   const std::unique_ptr<int> mine = std::make_unique<int>(1);
   EXPECT_EQ(heapAllocationCountOnThisThread() - afterThread, 1u);
 }
 
-TEST(RealtimeAllocationTest, pushingAndPoppingPayloadsOfThePrototypesSizeDoesNotAllocate) {
+TEST(RealtimeAllocationTest,
+     pushingAndPoppingPayloadsOfThePrototypesSizeDoesNotAllocate) {
   const TelemetrySample prototype = makePrototype();
-  auto queue = std::make_unique<SpscQueue<TelemetrySample>>(/*capacity=*/16, prototype);
+  auto queue =
+      std::make_unique<SpscQueue<TelemetrySample>>(/*capacity=*/16, prototype);
   TelemetrySample sample = prototype;
   TelemetrySample received = prototype;
   uint64_t pushed = 0;
@@ -110,20 +117,25 @@ TEST(RealtimeAllocationTest, pushingAndPoppingPayloadsOfThePrototypesSizeDoesNot
 
   const size_t before = heapAllocationCount();
   for (int round = 0; round < 1000; ++round) {
-    // Three pushes per two pops: the queue fills up, so the full (dropping) path runs as well as the normal one.
+    // Three pushes per two pops: the queue fills up, so the full (dropping)
+    // path runs as well as the normal one.
     for (int i = 0; i < 3; ++i) {
       sample.time = round;
       sample.jointPositions.setConstant(round);
       sample.jointTorques.assign(30, static_cast<double>(round));
       pushed += queue->tryPush(sample) ? 1 : 0;
     }
-    const bool pushedInPlace = queue->tryPushInPlace([round](TelemetrySample& slot) {
-      slot.time = round;
-      slot.jointPositions.setConstant(round);
-    });
+    const bool pushedInPlace =
+        queue->tryPushInPlace([round](TelemetrySample& slot) {
+          slot.time = round;
+          slot.jointPositions.setConstant(round);
+        });
     pushed += pushedInPlace ? 1 : 0;
     popped += queue->tryPop(received) ? 1 : 0;
-    const bool poppedInPlace = queue->tryPopInPlace([&received](const TelemetrySample& slot) { received.time = slot.time; });
+    const bool poppedInPlace =
+        queue->tryPopInPlace([&received](const TelemetrySample& slot) {
+          received.time = slot.time;
+        });
     popped += poppedInPlace ? 1 : 0;
   }
   while (queue->tryPop(received)) {
@@ -150,7 +162,8 @@ TEST(RealtimeAllocationTest, waitingForTheNextPeriodDoesNotAllocate) {
   EXPECT_GE(totalLateness, nanoseconds(0));
 }
 
-TEST(RealtimeAllocationTest, accumulatingAndPublishingLoopTimingDoesNotAllocate) {
+TEST(RealtimeAllocationTest,
+     accumulatingAndPublishingLoopTimingDoesNotAllocate) {
   LoopTimingStats stats(milliseconds(2), milliseconds(100));
   TripleBuffer<LoopTimingSnapshot> buffer;
   uint64_t windows = 0;
@@ -158,7 +171,9 @@ TEST(RealtimeAllocationTest, accumulatingAndPublishingLoopTimingDoesNotAllocate)
   const size_t before = heapAllocationCount();
   nanoseconds start = std::chrono::seconds(1);
   for (int cycle = 0; cycle < 10'000; ++cycle) {
-    if (stats.addCycle(CycleTiming{.start = start, .end = start + microseconds(300 + cycle % 7), .lateness = microseconds(cycle % 11)})) {
+    if (stats.addCycle(CycleTiming{.start = start,
+                                   .end = start + microseconds(300 + cycle % 7),
+                                   .lateness = microseconds(cycle % 11)})) {
       buffer.writeSlot() = stats.lastSnapshot();
       buffer.publishWrite();
     }
@@ -173,16 +188,19 @@ TEST(RealtimeAllocationTest, accumulatingAndPublishingLoopTimingDoesNotAllocate)
   EXPECT_GT(windows, 100u);
 }
 
-// The pieces together, as the robot process's realtime thread uses them: pace, compute, hand a telemetry sample to the
-// communication thread, account for the cycle and publish the timing once per window.
+// The pieces together, as the robot process's realtime thread uses them: pace,
+// compute, hand a telemetry sample to the communication thread, account for the
+// cycle and publish the timing once per window.
 TEST(RealtimeAllocationTest, aWholeRealtimeCycleDoesNotAllocate) {
   const TelemetrySample prototype = makePrototype();
-  auto telemetry = std::make_unique<SpscQueue<TelemetrySample>>(/*capacity=*/64, prototype);
+  auto telemetry =
+      std::make_unique<SpscQueue<TelemetrySample>>(/*capacity=*/64, prototype);
   auto timing = std::make_unique<TripleBuffer<LoopTimingSnapshot>>();
   size_t allocations = 1;
   uint64_t windows = 0;
 
-  // On a thread of its own, as in the robot process; the test's main thread only waits in join() meanwhile.
+  // On a thread of its own, as in the robot process; the test's main thread
+  // only waits in join() meanwhile.
   std::thread realtime([&telemetry, &timing, &allocations, &windows]() {
     PeriodicTimer timer(milliseconds(1), OverrunPolicy::kSkipMissedPeriods);
     LoopTimingStats stats(milliseconds(1), milliseconds(10));

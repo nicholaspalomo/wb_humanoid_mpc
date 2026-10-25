@@ -191,7 +191,9 @@ class EndToEndTest(unittest.TestCase):
 
     def test_every_marker_of_the_contract_is_drawn(self) -> None:
         for marker in scene_contract.MARKERS:
-            path = scene_contract.entity_path(scene_contract.WORLD_ROOT, marker.path)
+            path = scene_contract.entity_path(
+                scene_contract.WORLD_ROOT, marker.path
+            )
             self.assertIn(path, self.contents.entities, path)
         drawn = {
             "world/markers/contact_forces": "Arrows3D:vectors",
@@ -203,7 +205,9 @@ class EndToEndTest(unittest.TestCase):
             "world/plan/com": "LineStrips3D:strips",
         }
         for path, component in drawn.items():
-            self.assertTrue(self.contents.has(path, component), f"{path} {component}")
+            self.assertTrue(
+                self.contents.has(path, component), f"{path} {component}"
+            )
         self.assertTrue(
             any(
                 len(vectors) > 0
@@ -220,7 +224,9 @@ class EndToEndTest(unittest.TestCase):
             if path.startswith(scene_contract.TELEMETRY_ROOT + "/")
             and self.contents.has(path, "Scalars:scalars")
         }
-        expected = {group.path for group in telemetry_contract.all_groups(FRAMES)}
+        expected = {
+            group.path for group in telemetry_contract.all_groups(FRAMES)
+        }
         self.assertEqual(plotted, expected)
         for group in telemetry_contract.all_groups(FRAMES):
             path = f"{scene_contract.TELEMETRY_ROOT}/{group.path}"
@@ -249,7 +255,9 @@ class EndToEndTest(unittest.TestCase):
                     contract_group.path,
                 )
                 if not contract_group.robot_dependent:
-                    self.assertEqual(tuple(message_group.names), contract_group.names)
+                    self.assertEqual(
+                        tuple(message_group.names), contract_group.names
+                    )
         times = [series.time for series in self.series]
         self.assertEqual(times, sorted(times))
 

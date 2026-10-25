@@ -34,21 +34,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace robot::ipc {
 
-/** What a subscription is handed of a topic each time the bus's IO thread drains its socket. */
+/** What a subscription is handed of a topic each time the bus's IO thread
+ * drains its socket. */
 enum class Delivery {
   /**
-   * Only the newest message of the topic; the older ones of the same drain are dropped unparsed (counted as
-   * superseded). For streams: observations, policies, commands, parameter documents.
+   * Only the newest message of the topic; the older ones of the same drain are
+   * dropped unparsed (counted as superseded). For streams: observations,
+   * policies, commands, parameter documents.
    */
   kLatest,
-  /** Every message, in the order it arrived. For discrete events (FSM commands) and for plots. */
+  /** Every message, in the order it arrived. For discrete events (FSM commands)
+     and for plots. */
   kAll,
 };
 
-/** The name of a delivery, as configurations and the Python bus write it: "latest" or "all". */
+/** The name of a delivery, as configurations and the Python bus write it:
+ * "latest" or "all". */
 absl::string_view deliveryName(Delivery delivery);
 
-/** The delivery of that name; an unknown name is an InvalidArgument error that lists the valid ones. */
+/** The delivery of that name; an unknown name is an InvalidArgument error that
+ * lists the valid ones. */
 absl::StatusOr<Delivery> parseDelivery(absl::string_view name);
 
 }  // namespace robot::ipc

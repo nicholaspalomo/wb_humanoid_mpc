@@ -46,24 +46,31 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::estimation {
 
 /**
- * The `kalman` state estimator: the backend's state with the base position and linear velocity replaced by
- * KalmanBaseEstimator's, from the IMU (the state's root orientation, angular velocity and
- * getImuLinearAccelerationInLocalFrame()), the joint positions and velocities and the state's contact flags. Everything
- * else - the orientation, the angular velocity, the joints, the flags, the time - is the backend's.
+ * The `kalman` state estimator: the backend's state with the base position and
+ * linear velocity replaced by KalmanBaseEstimator's, from the IMU (the state's
+ * root orientation, angular velocity and
+ * getImuLinearAccelerationInLocalFrame()), the joint positions and velocities
+ * and the state's contact flags. Everything else - the orientation, the angular
+ * velocity, the joints, the flags, the time - is the backend's.
  *
- * The time step is the difference of the states' times; a state whose time did not advance (the backend has not
- * published a new one) or is not finite is handed on with the previous estimate, without an update. An update that
- * fails (a non-finite reading, flags of another number than the contact points) is counted and the estimate of the
- * prediction, or the previous one, is handed on.
+ * The time step is the difference of the states' times; a state whose time did
+ * not advance (the backend has not published a new one) or is not finite is
+ * handed on with the previous estimate, without an update. An update that fails
+ * (a non-finite reading, flags of another number than the contact points) is
+ * counted and the estimate of the prediction, or the previous one, is handed
+ * on.
  *
- * THREADS. As StateEstimator: estimate() and reset() allocate nothing, and the first estimate() resets from its state
- * when reset() was never called. A reset that fails (a non-finite state) counts in failedUpdates().
+ * THREADS. As StateEstimator: estimate() and reset() allocate nothing, and the
+ * first estimate() resets from its state when reset() was never called. A reset
+ * that fails (a non-finite state) counts in failedUpdates().
  */
 class KalmanStateEstimator final : public StateEstimator {
  public:
-  /** The estimator over the joints of `description` (the RobotState's), which must outlive it; `estimator` not null. */
-  static absl::StatusOr<std::unique_ptr<KalmanStateEstimator>> Create(const robot::model::RobotDescription& description,
-                                                                      std::unique_ptr<KalmanBaseEstimator> estimator);
+  /** The estimator over the joints of `description` (the RobotState's), which
+   * must outlive it; `estimator` not null. */
+  static absl::StatusOr<std::unique_ptr<KalmanStateEstimator>> Create(
+      const robot::model::RobotDescription& description,
+      std::unique_ptr<KalmanBaseEstimator> estimator);
 
   KalmanStateEstimator(const KalmanStateEstimator&) = delete;
   KalmanStateEstimator& operator=(const KalmanStateEstimator&) = delete;
@@ -71,15 +78,20 @@ class KalmanStateEstimator final : public StateEstimator {
 
   absl::string_view name() const override { return kKalmanStateEstimatorName; }
   void reset(const robot::model::RobotState& measured) override;
-  const robot::model::RobotState& estimate(const robot::model::RobotState& measured) override;
-  uint64_t failedUpdates() const override { return failedUpdates_.load(std::memory_order_relaxed); }
+  const robot::model::RobotState& estimate(
+      const robot::model::RobotState& measured) override;
+  uint64_t failedUpdates() const override {
+    return failedUpdates_.load(std::memory_order_relaxed);
+  }
 
   const KalmanBaseEstimator& baseEstimator() const { return *estimator_; }
 
  private:
-  KalmanStateEstimator(const robot::model::RobotDescription& description, std::unique_ptr<KalmanBaseEstimator> estimator);
+  KalmanStateEstimator(const robot::model::RobotDescription& description,
+                       std::unique_ptr<KalmanBaseEstimator> estimator);
 
-  /** The joint positions and velocities of `state` into jointPositions_ and jointVelocities_, by joint index. */
+  /** The joint positions and velocities of `state` into jointPositions_ and
+   * jointVelocities_, by joint index. */
   void readJoints(const robot::model::RobotState& state);
   /** Writes the base estimate into estimated_. */
   void writeEstimate();
@@ -88,7 +100,8 @@ class KalmanStateEstimator final : public StateEstimator {
   robot::model::RobotState estimated_;
   vector_t jointPositions_;
   vector_t jointVelocities_;
-  /** The time of the last state reset() or an update took; meaningful once initialized_. */
+  /** The time of the last state reset() or an update took; meaningful once
+   * initialized_. */
   scalar_t previousTime_ = 0.0;
   bool initialized_ = false;
   std::atomic<uint64_t> failedUpdates_{0};

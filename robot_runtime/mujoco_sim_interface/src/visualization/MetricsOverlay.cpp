@@ -36,7 +36,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace robot::mujoco_sim_interface {
 
-std::string MetricsOverlay::text(const Metrics& metrics, double renderFps, double elapsedRealTime, double simTime) {
+std::string MetricsOverlay::text(const Metrics& metrics,
+                                 double renderFps,
+                                 double elapsedRealTime,
+                                 double simTime) {
   return absl::StrFormat(
       "Render FPS: %d\n"
       "Sim FPS: %d\n"
@@ -47,15 +50,21 @@ std::string MetricsOverlay::text(const Metrics& metrics, double renderFps, doubl
       "RTF: %.3f\n"
       "Drift[ms]: %.3f\n"
       "Cumulative Drift[ms]: %.3f",
-      static_cast<int>(renderFps), static_cast<int>(metrics.fpsSim), elapsedRealTime, simTime, metrics.rtfSmoothed,
-      metrics.driftTick * ::ocs2::kMillisecondsPerSecond, metrics.driftCumulative * ::ocs2::kMillisecondsPerSecond);
+      static_cast<int>(renderFps), static_cast<int>(metrics.fpsSim),
+      elapsedRealTime, simTime, metrics.rtfSmoothed,
+      metrics.driftTick * ::ocs2::kMillisecondsPerSecond,
+      metrics.driftCumulative * ::ocs2::kMillisecondsPerSecond);
 }
 
 void MetricsOverlay::renderOverlay(const VisualizationFrame& frame) {
-  if (frame.state == nullptr || frame.state->data == nullptr || frame.context == nullptr) return;
+  if (frame.state == nullptr || frame.state->data == nullptr ||
+      frame.context == nullptr)
+    return;
   const MjState& state = *frame.state;
-  const std::string metrics = text(state.metrics, frame.renderFps, frame.elapsedRealTime, state.data->time);
-  mjr_overlay(mjFONT_NORMAL, mjGRID_TOPLEFT, frame.viewport, metrics.c_str(), /*overlay2=*/nullptr, frame.context);
+  const std::string metrics = text(state.metrics, frame.renderFps,
+                                   frame.elapsedRealTime, state.data->time);
+  mjr_overlay(mjFONT_NORMAL, mjGRID_TOPLEFT, frame.viewport, metrics.c_str(),
+              /*overlay2=*/nullptr, frame.context);
 }
 
 }  // namespace robot::mujoco_sim_interface

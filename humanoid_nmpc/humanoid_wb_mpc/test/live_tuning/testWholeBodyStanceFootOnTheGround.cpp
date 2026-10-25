@@ -47,47 +47,61 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_nmpc/humanoid_wb_mpc/test/live_tuning/WholeBodySolverStack.h"
 
 /*
- * The whole-body MPC's stance foot stands on the ground the task file puts it on (terrain_height), as its swing foot
- * lands there: the stance constraint of a robot raised with its ground is the one of the robot on flat ground, from a
- * fresh start on the raised file and one solve after a live update to it alike. The constraint used to hold every stance
- * foot at z = 0 whatever the ground.
+ * The whole-body MPC's stance foot stands on the ground the task file puts it
+ * on (terrain_height), as its swing foot lands there: the stance constraint of
+ * a robot raised with its ground is the one of the robot on flat ground, from a
+ * fresh start on the raised file and one solve after a live update to it alike.
+ * The constraint used to hold every stance foot at z = 0 whatever the ground.
  */
 namespace ocs2::humanoid::live_tuning_test {
 namespace {
 
 // [m] How far the raised ground is above the flat one.
 constexpr scalar_t kGround = 0.05;
-// [s] A time at which both feet stand (WholeBodySolverStack's schedule stands until 0.1 s).
+// [s] A time at which both feet stand (WholeBodySolverStack's schedule stands
+// until 0.1 s).
 constexpr scalar_t kStanceTime = 0.05;
 
 /**
- * The stance constraint of `foot` of the first worker's problem of `stack`, at `state` and `input`; a test failure and
- * an empty vector when it is not a hard constraint there.
+ * The stance constraint of `foot` of the first worker's problem of `stack`, at
+ * `state` and `input`; a test failure and an empty vector when it is not a hard
+ * constraint there.
  */
-vector_t stanceResidual(WholeBodySolverStack& stack, const std::string& foot, const vector_t& state, const vector_t& input) {
-  OptimalControlProblem& problem = stack.mpc().getSolverPtr()->getOcpDefinitions().front();
+vector_t stanceResidual(WholeBodySolverStack& stack,
+                        const std::string& foot,
+                        const vector_t& state,
+                        const vector_t& input) {
+  OptimalControlProblem& problem =
+      stack.mpc().getSolverPtr()->getOcpDefinitions().front();
   const std::string term = zeroVelocityTermName(foot);
   if (!carriesTerm(*problem.equalityConstraintPtr, term)) {
     ADD_FAILURE() << "the problem has no hard " << term;
     return vector_t();
   }
-  problem.preComputationPtr->request(Request::Constraint, kStanceTime, state, input);
-  return problem.equalityConstraintPtr->get(term).getValue(kStanceTime, state, input, *problem.preComputationPtr);
+  problem.preComputationPtr->request(Request::Constraint, kStanceTime, state,
+                                     input);
+  return problem.equalityConstraintPtr->get(term).getValue(
+      kStanceTime, state, input, *problem.preComputationPtr);
 }
 
-/** The largest difference of `a` and `b`, relative to max(1, |a_i|, |b_i|); infinite for vectors of different sizes. */
+/** The largest difference of `a` and `b`, relative to max(1, |a_i|, |b_i|);
+ * infinite for vectors of different sizes. */
 scalar_t relativeDifference(const vector_t& a, const vector_t& b) {
   if (a.size() != b.size()) return std::numeric_limits<scalar_t>::infinity();
   scalar_t largest = 0.0;
   for (Eigen::Index i = 0; i < a.size(); ++i) {
-    largest = std::max(largest, std::abs(a(i) - b(i)) / std::max({1.0, std::abs(a(i)), std::abs(b(i))}));
+    largest =
+        std::max(largest, std::abs(a(i) - b(i)) /
+                              std::max({1.0, std::abs(a(i)), std::abs(b(i))}));
   }
   return largest;
 }
 
-TEST(WholeBodyStanceFoot, AStanceFootIsHeldOnTheGroundFromAFreshStartAndAfterALiveUpdate) {
+TEST(WholeBodyStanceFoot,
+     AStanceFootIsHeldOnTheGroundFromAFreshStartAndAfterALiveUpdate) {
   const mpc_config::TaskFile flatFile = shippedTaskFile();
-  ASSERT_EQ(flatFile.terrain_height, 0.0) << "the shipped file raises the ground; this test sets it";
+  ASSERT_EQ(flatFile.terrain_height, 0.0)
+      << "the shipped file raises the ground; this test sets it";
   mpc_config::TaskFile raisedFile = flatFile;
   raisedFile.terrain_height = kGround;
 
@@ -98,30 +112,44 @@ TEST(WholeBodyStanceFoot, AStanceFootIsHeldOnTheGroundFromAFreshStartAndAfterALi
   flat.expectQuaternionLayout();
   fresh.expectQuaternionLayout();
   live.expectQuaternionLayout();
-  // A solve plans the swing trajectories, whose stance height the constraint follows; the live update reaches the
-  // reference manager at the solve after it (humanoid_mpc_config/README.md, "One solve late").
+  // A solve plans the swing trajectories, whose stance height the constraint
+  // follows; the live update reaches the reference manager at the solve after
+  // it (humanoid_mpc_config/README.md, "One solve late").
   flat.solve(/*count=*/1);
   fresh.solve(/*count=*/1);
   live.applyNow(raisedFile);
   live.solve(/*count=*/1);
 
-  const scalar_t heightGain = flatFile.model_settings.foot_constraint.position_error_gain_z;
-  ASSERT_GT(heightGain, 0.0) << "without a position gain the constraint does not see the height";
-  for (const EvaluationPoint& point : evaluationPoints(flat.interface(), /*count=*/3)) {
+  const scalar_t heightGain =
+      flatFile.model_settings.foot_constraint.position_error_gain_z;
+  ASSERT_GT(heightGain, 0.0)
+      << "without a position gain the constraint does not see the height";
+  for (const EvaluationPoint& point :
+       evaluationPoints(flat.interface(), /*count=*/3)) {
     vector_t raisedState = point.state;
-    flat.interface().getMpcRobotModel().adaptBasePoseHeight(raisedState, kGround);
-    for (const std::string& foot : flat.interface().modelSettings().contactNames) {
+    flat.interface().getMpcRobotModel().adaptBasePoseHeight(raisedState,
+                                                            kGround);
+    for (const std::string& foot :
+         flat.interface().modelSettings().contactNames) {
       SCOPED_TRACE(foot);
-      const vector_t onFlatGround = stanceResidual(flat, foot, point.state, point.input);
+      const vector_t onFlatGround =
+          stanceResidual(flat, foot, point.state, point.input);
       ASSERT_EQ(onFlatGround.size(), 6);
-      const vector_t onRaisedGround = stanceResidual(fresh, foot, raisedState, point.input);
-      EXPECT_LE(relativeDifference(onFlatGround, onRaisedGround), 1.0e-9) << "a robot raised with its ground is held otherwise";
-      EXPECT_EQ(stanceResidual(live, foot, raisedState, point.input), onRaisedGround)
+      const vector_t onRaisedGround =
+          stanceResidual(fresh, foot, raisedState, point.input);
+      EXPECT_LE(relativeDifference(onFlatGround, onRaisedGround), 1.0e-9)
+          << "a robot raised with its ground is held otherwise";
+      EXPECT_EQ(stanceResidual(live, foot, raisedState, point.input),
+                onRaisedGround)
           << "a live update holds the foot elsewhere than a fresh start";
-      // Positive control: the robot left where it was is the ground's height below the raised ground.
+      // Positive control: the robot left where it was is the ground's height
+      // below the raised ground.
       vector_t expected = onFlatGround;
       expected(2) -= heightGain * kGround;
-      EXPECT_LE(relativeDifference(stanceResidual(fresh, foot, point.state, point.input), expected), 1.0e-9);
+      EXPECT_LE(
+          relativeDifference(
+              stanceResidual(fresh, foot, point.state, point.input), expected),
+          1.0e-9);
     }
   }
 }

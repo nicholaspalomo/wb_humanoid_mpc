@@ -37,12 +37,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-absl::StatusOr<std::unique_ptr<RemoteMpcLinkAdapter>> RemoteMpcLinkAdapter::Create(robot::ipc::Bus* absl_nonnull bus,
-                                                                                   ipc::RemoteMpcLink::Config config,
-                                                                                   MpcResetSupervisor::Config supervisorConfig) {
-  std::unique_ptr<RemoteMpcLinkAdapter> adapter = absl::WrapUnique(new RemoteMpcLinkAdapter(supervisorConfig));
+absl::StatusOr<std::unique_ptr<RemoteMpcLinkAdapter>>
+RemoteMpcLinkAdapter::Create(robot::ipc::Bus* absl_nonnull bus,
+                             ipc::RemoteMpcLink::Config config,
+                             MpcResetSupervisor::Config supervisorConfig) {
+  std::unique_ptr<RemoteMpcLinkAdapter> adapter =
+      absl::WrapUnique(new RemoteMpcLinkAdapter(supervisorConfig));
   absl::StatusOr<std::unique_ptr<ipc::RemoteMpcLink>> link =
-      ipc::RemoteMpcLink::Create(bus, &adapter->resetSupervisor(), std::move(config));
+      ipc::RemoteMpcLink::Create(bus, &adapter->resetSupervisor(),
+                                 std::move(config));
   if (!link.ok()) {
     return link.status();
   }
@@ -50,10 +53,13 @@ absl::StatusOr<std::unique_ptr<RemoteMpcLinkAdapter>> RemoteMpcLinkAdapter::Crea
   return adapter;
 }
 
-RemoteMpcLinkAdapter::RemoteMpcLinkAdapter(MpcResetSupervisor::Config supervisorConfig) : MpcLink(supervisorConfig) {}
+RemoteMpcLinkAdapter::RemoteMpcLinkAdapter(
+    MpcResetSupervisor::Config supervisorConfig)
+    : MpcLink(supervisorConfig) {}
 
-// The remote link goes first (members are destroyed before the base class): its destructor detaches the bus's
-// callbacks, which reach the supervisor the base class owns.
+// The remote link goes first (members are destroyed before the base class): its
+// destructor detaches the bus's callbacks, which reach the supervisor the base
+// class owns.
 RemoteMpcLinkAdapter::~RemoteMpcLinkAdapter() {
   link_.reset();
 }
@@ -63,9 +69,12 @@ void RemoteMpcLinkAdapter::start(const SystemObservation& initialObservation) {
 }
 
 MpcLinkFactory handOverMpcLink(std::unique_ptr<MpcLink> link) {
-  // std::function needs a copyable callable, and the link is handed over once: a shared slot holds it until then.
-  std::shared_ptr<std::unique_ptr<MpcLink>> slot = std::make_shared<std::unique_ptr<MpcLink>>(std::move(link));
-  return [slot](const MpcLink::ResetTargetFunction& /*resetTarget*/) -> std::unique_ptr<MpcLink> { return std::move(*slot); };
+  // std::function needs a copyable callable, and the link is handed over once:
+  // a shared slot holds it until then.
+  std::shared_ptr<std::unique_ptr<MpcLink>> slot =
+      std::make_shared<std::unique_ptr<MpcLink>>(std::move(link));
+  return [slot](const MpcLink::ResetTargetFunction& /*resetTarget*/)
+             -> std::unique_ptr<MpcLink> { return std::move(*slot); };
 }
 
 }  // namespace ocs2::humanoid

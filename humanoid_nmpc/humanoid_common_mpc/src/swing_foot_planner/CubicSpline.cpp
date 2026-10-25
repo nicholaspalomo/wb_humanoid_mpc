@@ -34,8 +34,9 @@ namespace ocs2::humanoid {
 namespace {
 
 /**
- * The degree of the spline, the factor its cubic term's derivative brings in (d(t^3)/dt = 3 t^2), and with it the
- * Hermite coefficients that the end velocity condition p'(1) = c1 + 2 c2 + 3 c3 gives.
+ * The degree of the spline, the factor its cubic term's derivative brings in
+ * (d(t^3)/dt = 3 t^2), and with it the Hermite coefficients that the end
+ * velocity condition p'(1) = c1 + 2 c2 + 3 c3 gives.
  */
 constexpr scalar_t kCubicDegree = 3.0;
 /** The factor of the cubic term's second derivative, d^2(t^3)/dt^2 = 6 t. */

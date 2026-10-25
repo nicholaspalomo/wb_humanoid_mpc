@@ -27,9 +27,10 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// The conversions of the whole-body MPC's task-space weights (EndEffectorDynamicsWeightsFromConfig.h): every one of
-// the eighteen weights lands in its own entry, an absent weight is 0, and what the whole-body foot cost cannot use is
-// refused by its path.
+// The conversions of the whole-body MPC's task-space weights
+// (EndEffectorDynamicsWeightsFromConfig.h): every one of the eighteen weights
+// lands in its own entry, an absent weight is 0, and what the whole-body foot
+// cost cannot use is refused by its path.
 
 #include <limits>
 #include <vector>
@@ -51,7 +52,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-/** Eighteen distinct weights, in the order of EndEffectorDynamicsWeights::toVector(). */
+/** Eighteen distinct weights, in the order of
+ * EndEffectorDynamicsWeights::toVector(). */
 mpc_config::TaskSpaceWeights distinctWeights() {
   mpc_config::TaskSpaceWeights weights;
   weights.pos_x = 1.0;
@@ -77,43 +79,64 @@ mpc_config::TaskSpaceWeights distinctWeights() {
 
 TEST(EndEffectorDynamicsWeightsFromConfigTest, AnEmptyBlockIsZeroEverywhere) {
   const absl::StatusOr<EndEffectorDynamicsWeights> weights =
-      endEffectorDynamicsWeightsFromConfig(mpc_config::TaskSpaceWeights{}, "task_space_foot_cost.weights");
+      endEffectorDynamicsWeightsFromConfig(mpc_config::TaskSpaceWeights{},
+                                           "task_space_foot_cost.weights");
   ASSERT_TRUE(weights.ok()) << weights.status();
   EXPECT_TRUE(weights->toVector().isZero()) << weights->toVector().transpose();
 }
 
 TEST(EndEffectorDynamicsWeightsFromConfigTest, EachWeightLandsInItsOwnEntry) {
-  const absl::StatusOr<EndEffectorDynamicsWeights> weights = endEffectorDynamicsWeightsFromConfig(distinctWeights(), "weights");
+  const absl::StatusOr<EndEffectorDynamicsWeights> weights =
+      endEffectorDynamicsWeightsFromConfig(distinctWeights(), "weights");
   ASSERT_TRUE(weights.ok()) << weights.status();
   for (Eigen::Index index = 0; index < 18; ++index) {
-    EXPECT_EQ(weights->toVector()(index), static_cast<scalar_t>(index + 1)) << index;
+    EXPECT_EQ(weights->toVector()(index), static_cast<scalar_t>(index + 1))
+        << index;
   }
 }
 
-TEST(EndEffectorDynamicsWeightsFromConfigTest, ANonFiniteWeightIsRefusedByItsPath) {
+TEST(EndEffectorDynamicsWeightsFromConfigTest,
+     ANonFiniteWeightIsRefusedByItsPath) {
   mpc_config::TaskSpaceWeights weights = distinctWeights();
   weights.lin_acceleration_z = std::numeric_limits<double>::infinity();
-  const absl::StatusOr<EndEffectorDynamicsWeights> refused = endEffectorDynamicsWeightsFromConfig(weights, "task_space_foot_cost.weights");
+  const absl::StatusOr<EndEffectorDynamicsWeights> refused =
+      endEffectorDynamicsWeightsFromConfig(weights,
+                                           "task_space_foot_cost.weights");
   EXPECT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(absl::StrContains(refused.status().message(), "task_space_foot_cost.weights.lin_acceleration_z")) << refused.status();
+  EXPECT_TRUE(
+      absl::StrContains(refused.status().message(),
+                        "task_space_foot_cost.weights.lin_acceleration_z"))
+      << refused.status();
 }
 
-TEST(EndEffectorDynamicsWeightsFromConfigTest, ANegativeOrNanWeightIsRefusedByItsPath) {
-  // The foot cost weighs each error by the square root of its weight: a negative one is a NaN in the cost.
+TEST(EndEffectorDynamicsWeightsFromConfigTest,
+     ANegativeOrNanWeightIsRefusedByItsPath) {
+  // The foot cost weighs each error by the square root of its weight: a
+  // negative one is a NaN in the cost.
   mpc_config::TaskSpaceWeights negative = distinctWeights();
   negative.orientation_y = -5.0;
-  const absl::StatusOr<EndEffectorDynamicsWeights> refused = endEffectorDynamicsWeightsFromConfig(negative, "task_space_foot_cost.weights");
+  const absl::StatusOr<EndEffectorDynamicsWeights> refused =
+      endEffectorDynamicsWeightsFromConfig(negative,
+                                           "task_space_foot_cost.weights");
   EXPECT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(absl::StrContains(refused.status().message(), "task_space_foot_cost.weights.orientation_y is -5")) << refused.status();
-  EXPECT_TRUE(absl::StrContains(refused.status().message(), "non-negative")) << refused.status();
+  EXPECT_TRUE(
+      absl::StrContains(refused.status().message(),
+                        "task_space_foot_cost.weights.orientation_y is -5"))
+      << refused.status();
+  EXPECT_TRUE(absl::StrContains(refused.status().message(), "non-negative"))
+      << refused.status();
   mpc_config::TaskSpaceWeights nan = distinctWeights();
   nan.ang_velocity_x = std::numeric_limits<double>::quiet_NaN();
-  const absl::StatusOr<EndEffectorDynamicsWeights> nanRefused = endEffectorDynamicsWeightsFromConfig(nan, "task_space_foot_cost.weights");
+  const absl::StatusOr<EndEffectorDynamicsWeights> nanRefused =
+      endEffectorDynamicsWeightsFromConfig(nan, "task_space_foot_cost.weights");
   EXPECT_EQ(nanRefused.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(absl::StrContains(nanRefused.status().message(), "task_space_foot_cost.weights.ang_velocity_x")) << nanRefused.status();
+  EXPECT_TRUE(absl::StrContains(nanRefused.status().message(),
+                                "task_space_foot_cost.weights.ang_velocity_x"))
+      << nanRefused.status();
 }
 
-/** distinctWeights() with the weights the whole-body foot cost multiplies by a zero error at 0. */
+/** distinctWeights() with the weights the whole-body foot cost multiplies by a
+ * zero error at 0. */
 mpc_config::TaskSpaceWeights distinctLiveWeights() {
   mpc_config::TaskSpaceWeights weights = distinctWeights();
   weights.pos_x = 0.0;
@@ -122,44 +145,61 @@ mpc_config::TaskSpaceWeights distinctLiveWeights() {
   return weights;
 }
 
-TEST(WholeBodyFootCostWeightsFromConfigTest, AWeightOfAnErrorThatIsZeroByConstructionIsRefusedByItsPath) {
+TEST(WholeBodyFootCostWeightsFromConfigTest,
+     AWeightOfAnErrorThatIsZeroByConstructionIsRefusedByItsPath) {
   struct Inert {
     const char* absl_nonnull name;
     double mpc_config::TaskSpaceWeights::*absl_nonnull field;
   };
-  const std::vector<Inert> inert = {{.name = "pos_x", .field = &mpc_config::TaskSpaceWeights::pos_x},
-                                    {.name = "pos_y", .field = &mpc_config::TaskSpaceWeights::pos_y},
-                                    {.name = "pos_z", .field = &mpc_config::TaskSpaceWeights::pos_z}};
+  const std::vector<Inert> inert = {
+      {.name = "pos_x", .field = &mpc_config::TaskSpaceWeights::pos_x},
+      {.name = "pos_y", .field = &mpc_config::TaskSpaceWeights::pos_y},
+      {.name = "pos_z", .field = &mpc_config::TaskSpaceWeights::pos_z}};
   mpc_config::TaskSpaceCostConfig footCost;
   footCost.weights = distinctLiveWeights();
-  ASSERT_TRUE(wholeBodyFootCostWeightsFromConfig(footCost).ok()) << "every other weight is live";
+  ASSERT_TRUE(wholeBodyFootCostWeightsFromConfig(footCost).ok())
+      << "every other weight is live";
   for (const Inert& weight : inert) {
     mpc_config::TaskSpaceCostConfig edited = footCost;
     edited.weights.*weight.field = 1.0;
-    const absl::Status refused = wholeBodyFootCostWeightsFromConfig(edited).status();
-    EXPECT_EQ(refused.code(), absl::StatusCode::kInvalidArgument) << weight.name;
-    EXPECT_TRUE(absl::StrContains(refused.message(), absl::StrCat("task_space_foot_cost.weights.", weight.name, " is 1"))) << refused;
-    // The weights' own conversion, which the other task-space costs use, keeps it.
-    EXPECT_TRUE(endEffectorDynamicsWeightsFromConfig(edited.weights, "weights").ok()) << weight.name;
+    const absl::Status refused =
+        wholeBodyFootCostWeightsFromConfig(edited).status();
+    EXPECT_EQ(refused.code(), absl::StatusCode::kInvalidArgument)
+        << weight.name;
+    EXPECT_TRUE(absl::StrContains(
+        refused.message(),
+        absl::StrCat("task_space_foot_cost.weights.", weight.name, " is 1")))
+        << refused;
+    // The weights' own conversion, which the other task-space costs use, keeps
+    // it.
+    EXPECT_TRUE(
+        endEffectorDynamicsWeightsFromConfig(edited.weights, "weights").ok())
+        << weight.name;
   }
 }
 
-TEST(WholeBodyFootCostWeightsFromConfigTest, RefusesWhatTheWholeBodyFootCostDoesNotHave) {
+TEST(WholeBodyFootCostWeightsFromConfigTest,
+     RefusesWhatTheWholeBodyFootCostDoesNotHave) {
   mpc_config::TaskSpaceCostConfig footCost;
   footCost.weights = distinctLiveWeights();
-  const absl::StatusOr<EndEffectorDynamicsWeights> weights = wholeBodyFootCostWeightsFromConfig(footCost);
+  const absl::StatusOr<EndEffectorDynamicsWeights> weights =
+      wholeBodyFootCostWeightsFromConfig(footCost);
   ASSERT_TRUE(weights.ok()) << weights.status();
   EXPECT_EQ(weights->contactAngularAccelerationErrorWeight.z(), 18.0);
 
   footCost.active_phases = "swing_and_stance";
-  EXPECT_TRUE(absl::StrContains(wholeBodyFootCostWeightsFromConfig(footCost).status().message(), "task_space_foot_cost.active_phases"));
+  EXPECT_TRUE(absl::StrContains(
+      wholeBodyFootCostWeightsFromConfig(footCost).status().message(),
+      "task_space_foot_cost.active_phases"));
   footCost.active_phases = "stance";
-  EXPECT_TRUE(
-      absl::StrContains(wholeBodyFootCostWeightsFromConfig(footCost).status().message(), "valid names are: swing, swing_and_stance"));
+  EXPECT_TRUE(absl::StrContains(
+      wholeBodyFootCostWeightsFromConfig(footCost).status().message(),
+      "valid names are: swing, swing_and_stance"));
   footCost.active_phases = "swing";
   EXPECT_TRUE(wholeBodyFootCostWeightsFromConfig(footCost).ok());
   footCost.name = "torso";
-  EXPECT_EQ(wholeBodyFootCostWeightsFromConfig(footCost).status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(wholeBodyFootCostWeightsFromConfig(footCost).status().code(),
+            absl::StatusCode::kInvalidArgument);
 }
 
 }  // namespace

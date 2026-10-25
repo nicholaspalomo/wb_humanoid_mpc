@@ -122,8 +122,12 @@ class Kind(enum.Enum):
     NUMBER = "number"  # a double or a float: a slider
     INTEGER = "integer"  # an integer: a slider in steps of one
     BOOL = "bool"  # a checkbox
-    CHOICE = "choice"  # an enum, or a string naming a registry entry: a drop-down
-    NAME_LIST = "name_list"  # a repeated string, such as a term list: shown, read-only
+    CHOICE = (  # an enum, or a string naming a registry entry: a drop-down
+        "choice"
+    )
+    NAME_LIST = (  # a repeated string, such as a term list: shown, read-only
+        "name_list"
+    )
     TEXT = "text"  # a string without a registry, or bytes: not edited
 
 
@@ -131,8 +135,12 @@ class ValueSource(enum.Enum):
     """Where a parameter's value comes from."""
 
     FILE = "file"  # the file sets it
-    DEFAULT = "default"  # the file leaves it out, and the schema default applies
-    UNSET = "unset"  # the file leaves it out, and the schema has no default: absence has its own meaning
+    DEFAULT = (  # the file leaves it out, and the schema default applies
+        "default"
+    )
+    UNSET = (  # the file leaves it out, and the schema has no default: absence has its own meaning
+        "unset"
+    )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -345,7 +353,9 @@ def inherit(parent: Tuning, field: FieldDescriptor) -> Tuning:
     """
     own = own_tuning(field)
     if own is None:
-        return dataclasses.replace(parent, registry="", base_controller_label="")
+        return dataclasses.replace(
+            parent, registry="", base_controller_label=""
+        )
     conditions = tuple(
         Condition(str(c.field_path), tuple(str(v) for v in c.values))
         for c in own.active_when
@@ -353,13 +363,19 @@ def inherit(parent: Tuning, field: FieldDescriptor) -> Tuning:
     formulations = tuple(str(name) for name in own.formulations)
     return Tuning(
         slider_min=(
-            float(own.slider_min) if own.HasField("slider_min") else parent.slider_min
+            float(own.slider_min)
+            if own.HasField("slider_min")
+            else parent.slider_min
         ),
         slider_max=(
-            float(own.slider_max) if own.HasField("slider_max") else parent.slider_max
+            float(own.slider_max)
+            if own.HasField("slider_max")
+            else parent.slider_max
         ),
         log_scale=(
-            bool(own.log_scale) if own.HasField("log_scale") else parent.log_scale
+            bool(own.log_scale)
+            if own.HasField("log_scale")
+            else parent.log_scale
         ),
         unit=str(own.unit) if own.HasField("unit") else parent.unit,
         exclude_reason=(
@@ -370,9 +386,13 @@ def inherit(parent: Tuning, field: FieldDescriptor) -> Tuning:
         reload=int(own.reload) if own.HasField("reload") else parent.reload,
         registry=str(own.registry),
         active_when=parent.active_when + conditions,
-        consumer=str(own.consumer) if own.HasField("consumer") else parent.consumer,
+        consumer=(
+            str(own.consumer) if own.HasField("consumer") else parent.consumer
+        ),
         formulations=formulations or parent.formulations,
-        minimum=(float(own.minimum) if own.HasField("minimum") else parent.minimum),
+        minimum=(
+            float(own.minimum) if own.HasField("minimum") else parent.minimum
+        ),
         base_controller_label=str(own.base_controller_label),
     )
 
@@ -424,15 +444,19 @@ def _condition_field(root: Descriptor, field_path: str) -> FieldDescriptor:
     descriptor: Descriptor | None = root
     field: FieldDescriptor | None = None
     for name in field_path.split("."):
-        field = None if descriptor is None else descriptor.fields_by_name.get(name)
+        field = (
+            None if descriptor is None else descriptor.fields_by_name.get(name)
+        )
         if field is None or field.is_repeated:
             raise SchemaError(
-                f"a condition names {field_path}, which is not a singular field of {root.full_name}"
+                f"a condition names {field_path}, which is not a singular field"
+                f" of {root.full_name}"
             )
         descriptor = field.message_type
     if field is None or field.message_type is not None:
         raise SchemaError(
-            f"a condition names {field_path}, which is a block of {root.full_name}, not a value"
+            f"a condition names {field_path}, which is a block of"
+            f" {root.full_name}, not a value"
         )
     return field
 
@@ -514,7 +538,9 @@ def schema_fields(descriptor: Descriptor) -> list[SchemaField]:
       SchemaError: A condition names no singular scalar of the file message.
     """
     found: list[SchemaField] = []
-    _walk_schema(descriptor, descriptor, "", Tuning(), (), (("", descriptor),), found)
+    _walk_schema(
+        descriptor, descriptor, "", Tuning(), (), (("", descriptor),), found
+    )
     return found
 
 
@@ -555,7 +581,11 @@ def _resolved_condition(condition: Condition, scopes: Scopes) -> Condition:
             _condition_field(descriptor, condition.field_path)
         except SchemaError:
             continue
-        path = f"{prefix}.{condition.field_path}" if prefix else condition.field_path
+        path = (
+            f"{prefix}.{condition.field_path}"
+            if prefix
+            else condition.field_path
+        )
         return Condition(path, condition.values)
     # The error of the message walked, which names the condition.
     _condition_field(scopes[0][1], condition.field_path)
@@ -598,7 +628,9 @@ def _walk_schema(
         path = f"{prefix}.{field.name}" if prefix else field.name
         if field.message_type is None:
             found.append(
-                SchemaField(path, field, kind_of(field, field_tuning), field_tuning)
+                SchemaField(
+                    path, field, kind_of(field, field_tuning), field_tuning
+                )
             )
             continue
         if field.message_type.full_name in stack:
@@ -693,19 +725,28 @@ class _Walker:
     def message(self, message: Any, place: _Place) -> None:
         """Walks the fields of `message`, which is at `place`."""
         for field in _fields(message.DESCRIPTOR):
-            tuning = _resolved(place.tuning, inherit(place.tuning, field), place.scopes)
+            tuning = _resolved(
+                place.tuning, inherit(place.tuning, field), place.scopes
+            )
             for condition in tuning.active_when:
                 _condition_field(self._root.DESCRIPTOR, condition.field_path)
             if field.message_type is None:
-                self._scalar(message, field, dataclasses.replace(place, tuning=tuning))
+                self._scalar(
+                    message, field, dataclasses.replace(place, tuning=tuning)
+                )
             elif field.is_repeated:
                 self._elements(
                     message, field, dataclasses.replace(place, tuning=tuning)
                 )
             else:
-                self._block(message, field, dataclasses.replace(place, tuning=tuning))
+                self._block(
+                    message, field, dataclasses.replace(place, tuning=tuning)
+                )
 
-    def _block(self, message: Any, field: FieldDescriptor, place: _Place) -> None:
+    def _block(
+        self, message: Any, field: FieldDescriptor, place: _Place
+    ) -> None:
+        """Walks the singular message field `field`, unless it is an optional message the file leaves out."""
         present = place.present and message.HasField(field.name)
         if not present and is_optional_message(field):
             return
@@ -721,7 +762,9 @@ class _Walker:
             dataclasses.replace(child, present=present, scopes=scopes),
         )
 
-    def _elements(self, message: Any, field: FieldDescriptor, place: _Place) -> None:
+    def _elements(
+        self, message: Any, field: FieldDescriptor, place: _Place
+    ) -> None:
         """Walks every element of the repeated message field `field`, by key where its elements have one."""
         container = getattr(message, field.name)
         key_field = _key_field(field.message_type, container)
@@ -734,7 +777,9 @@ class _Walker:
                 )
                 row = key
             else:
-                segment = textproto_document.PathSegment(field.name, index=index)
+                segment = textproto_document.PathSegment(
+                    field.name, index=index
+                )
                 row = f"{field.name}[{index}]"
             name = row if not place.segments else f"{field.name}[{row}]"
             child = _descend(place, field, segment, name)
@@ -745,13 +790,17 @@ class _Walker:
                 ),
             )
 
-    def _scalar(self, message: Any, field: FieldDescriptor, place: _Place) -> None:
+    def _scalar(
+        self, message: Any, field: FieldDescriptor, place: _Place
+    ) -> None:
         """Adds the spec of a scalar field: one per element of a repeated one, one for a name list."""
         kind = kind_of(field, place.tuning)
         segment = textproto_document.PathSegment(field.name)
         if field.is_repeated and kind != Kind.NAME_LIST:
             for index, value in enumerate(getattr(message, field.name)):
-                element = textproto_document.PathSegment(field.name, index=index)
+                element = textproto_document.PathSegment(
+                    field.name, index=index
+                )
                 self._add(
                     field,
                     kind,
@@ -956,7 +1005,8 @@ def _formulation_note(spec: ParameterSpec, message: Any) -> str | None:
     """The "not applicable" note of a task file's field that the file's formulation does not read; None otherwise."""
     if (
         not spec.tuning.formulations
-        or message.DESCRIPTOR.full_name != task_file_pb2.TaskFile.DESCRIPTOR.full_name
+        or message.DESCRIPTOR.full_name
+        != task_file_pb2.TaskFile.DESCRIPTOR.full_name
     ):
         return None
     formulation = formulation_of(message)
@@ -988,7 +1038,8 @@ def annotations(spec: ParameterSpec, message: Any) -> list[str]:
     unmet = unmet_conditions(spec.tuning, message)
     if unmet:
         shown = ", ".join(
-            f"{c.field_path} is {condition_value(message, c.field_path)}" for c in unmet
+            f"{c.field_path} is {condition_value(message, c.field_path)}"
+            for c in unmet
         )
         notes.append(f"not applicable: {shown}")
     if spec.source == ValueSource.DEFAULT:

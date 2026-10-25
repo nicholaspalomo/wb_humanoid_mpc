@@ -59,8 +59,9 @@ namespace ocs2::humanoid::live_tuning_test {
 namespace {
 
 /**
- * Standing until 0.1 s, the right foot in swing over [0.1, 0.45], standing again until 0.55 s, then the left foot in
- * swing until 0.9 s. The brackets far outside keep the gait schedule from tiling its template over it.
+ * Standing until 0.1 s, the right foot in swing over [0.1, 0.45], standing
+ * again until 0.55 s, then the left foot in swing until 0.9 s. The brackets far
+ * outside keep the gait schedule from tiling its template over it.
  */
 // LINT.IfChange(walking_schedule)
 ModeSchedule walkingSchedule() {
@@ -70,52 +71,70 @@ ModeSchedule walkingSchedule() {
   leftSwing[0] = false;
   return ModeSchedule(
       /*eventTimesInput=*/{-10.0, 0.1, 0.45, 0.55, 0.9, 10.0},
-      /*modeSequenceInput=*/{ModeNumber::kStance, ModeNumber::kStance, stanceLeg2ModeNumber(rightSwing), ModeNumber::kStance,
-                             stanceLeg2ModeNumber(leftSwing), ModeNumber::kStance, ModeNumber::kStance});
+      /*modeSequenceInput=*/{ModeNumber::kStance, ModeNumber::kStance,
+                             stanceLeg2ModeNumber(rightSwing),
+                             ModeNumber::kStance,
+                             stanceLeg2ModeNumber(leftSwing),
+                             ModeNumber::kStance, ModeNumber::kStance});
 }
 // LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/test/live_tuning/RunningProblemFingerprint.cpp:early_swing_times)
 
-void appendDifference(const vector_t& expected, const vector_t& actual, scalar_t& largest) {
+void appendDifference(const vector_t& expected,
+                      const vector_t& actual,
+                      scalar_t& largest) {
   if (expected.size() != actual.size()) {
     largest = std::numeric_limits<scalar_t>::infinity();
     return;
   }
   for (Eigen::Index i = 0; i < expected.size(); ++i) {
-    const scalar_t scale = std::max({1.0, std::abs(expected(i)), std::abs(actual(i))});
+    const scalar_t scale =
+        std::max({1.0, std::abs(expected(i)), std::abs(actual(i))});
     largest = std::max(largest, std::abs(expected(i) - actual(i)) / scale);
   }
 }
 
 }  // namespace
 
-WholeBodySolverStack::WholeBodySolverStack(const mpc_config::TaskFile& task, Updater updater) : interface_(createWholeBodyMpc(task)) {
+WholeBodySolverStack::WholeBodySolverStack(const mpc_config::TaskFile& task,
+                                           Updater updater)
+    : interface_(createWholeBodyMpc(task)) {
   if (interface_ == nullptr) return;
   WBMpcInterface& interface = *interface_;
-  mpc_ = std::make_unique<SqpMpc>(interface.mpcSettings(), interface.sqpSettings(), interface.getOptimalControlProblem(),
-                                  interface.getInitializer());
+  mpc_ = std::make_unique<SqpMpc>(
+      interface.mpcSettings(), interface.sqpSettings(),
+      interface.getOptimalControlProblem(), interface.getInitializer());
   mpc_->getSolverPtr()->setReferenceManager(interface.getReferenceManagerPtr());
   if (updater == Updater::kRegistered) {
     // No file is watched: the tests hand the updater typed files.
     absl::StatusOr<std::shared_ptr<MpcParameterUpdaterModule>> created =
-        makeWholeBodyMpcParameterUpdater(mpc_.get(), interface, /*taskFile=*/"", /*referenceFile=*/"", /*referenceFileReloaders=*/{});
+        makeWholeBodyMpcParameterUpdater(mpc_.get(), interface, /*taskFile=*/"",
+                                         /*referenceFile=*/"",
+                                         /*referenceFileReloaders=*/{});
     EXPECT_TRUE(created.ok()) << created.status();
     if (!created.ok()) return;
     updater_ = *std::move(created);
     mpc_->getSolverPtr()->addSynchronizedModule(updater_);
   }
   mrt_ = std::make_unique<MPC_MRT_Interface>(*mpc_);
-  // As the MPC's links set it (InProcessMpcLink, RemoteMpcLink): the robot moves along the plan on the state manifold, so
-  // that the state it is observed at keeps a unit quaternion between the plan's nodes.
+  // As the MPC's links set it (InProcessMpcLink, RemoteMpcLink): the robot
+  // moves along the plan on the state manifold, so that the state it is
+  // observed at keeps a unit quaternion between the plan's nodes.
   mrt_->setStateManifold(interface.getStateManifold());
   observation_.time = 0.0;
   observation_.state = interface.getInitialState();
-  observation_.input = vector_t::Zero(static_cast<Eigen::Index>(interface.getMpcRobotModel().getInputDim()));
+  observation_.input = vector_t::Zero(
+      static_cast<Eigen::Index>(interface.getMpcRobotModel().getInputDim()));
   observation_.mode = ModeNumber::kStance;
   mrt_->setCurrentObservation(observation_);
-  mrt_->resetMpcNode(wbMpcResetTargetTrajectories(observation_, interface.getMpcRobotModel(), interface.getPinocchioInterface()));
-  // After the reset, which puts the gait schedule back to the file's (a schedule installed before it was lost, and the
-  // stack stood still throughout).
-  interface.getSwitchedModelReferenceManagerPtr()->getGaitSchedule()->updateModeSchedule(walkingSchedule());
+  mrt_->resetMpcNode(
+      wbMpcResetTargetTrajectories(observation_, interface.getMpcRobotModel(),
+                                   interface.getPinocchioInterface()));
+  // After the reset, which puts the gait schedule back to the file's (a
+  // schedule installed before it was lost, and the stack stood still
+  // throughout).
+  interface.getSwitchedModelReferenceManagerPtr()
+      ->getGaitSchedule()
+      ->updateModeSchedule(walkingSchedule());
 }
 
 void WholeBodySolverStack::applyNow(const mpc_config::TaskFile& task) {
@@ -123,22 +142,28 @@ void WholeBodySolverStack::applyNow(const mpc_config::TaskFile& task) {
   mpc_config::MpcParameterUpdate update;
   update.task = task;
   updater_->enqueueParameterUpdate(update);
-  updater_->preSolverRun(observation_.time, observation_.time + interface_->mpcSettings().timeHorizon_, observation_.state,
-                         *interface_->getReferenceManagerPtr());
+  updater_->preSolverRun(
+      observation_.time,
+      observation_.time + interface_->mpcSettings().timeHorizon_,
+      observation_.state, *interface_->getReferenceManagerPtr());
 }
 
 void WholeBodySolverStack::replanReferences() {
-  interface_->getReferenceManagerPtr()->preSolverRun(observation_.time, observation_.time + interface_->mpcSettings().timeHorizon_,
-                                                     observation_.state, observation_.mode);
+  interface_->getReferenceManagerPtr()->preSolverRun(
+      observation_.time,
+      observation_.time + interface_->mpcSettings().timeHorizon_,
+      observation_.state, observation_.mode);
 }
 
 void WholeBodySolverStack::expectQuaternionLayout() {
   ASSERT_TRUE(ok());
   live_tuning_test::expectQuaternionLayout(*interface_);
-  const std::vector<OptimalControlProblem>& workers = mpc_->getSolverPtr()->getOcpDefinitions();
+  const std::vector<OptimalControlProblem>& workers =
+      mpc_->getSolverPtr()->getOcpDefinitions();
   ASSERT_FALSE(workers.empty());
   for (size_t worker = 0; worker < workers.size(); ++worker) {
-    EXPECT_EQ(workers[worker].stateManifoldPtr, interface_->getStateManifold()) << "worker " << worker;
+    EXPECT_EQ(workers[worker].stateManifoldPtr, interface_->getStateManifold())
+        << "worker " << worker;
   }
 }
 
@@ -147,14 +172,16 @@ std::vector<PrimalSolution> WholeBodySolverStack::solve(size_t count) {
   for (size_t i = 0; i < count; ++i) {
     mrt_->setCurrentObservation(observation_);
     const absl::Status status = mrt_->advanceMpc();
-    EXPECT_TRUE(status.ok()) << "the solve at t = " << observation_.time << ": " << status;
+    EXPECT_TRUE(status.ok())
+        << "the solve at t = " << observation_.time << ": " << status;
     mrt_->updatePolicy();
     policies.push_back(mrt_->getPolicy());
     if (status.ok() && mrt_->initialPolicyReceived()) {
       vector_t state;
       vector_t input;
       size_t mode = 0;
-      mrt_->evaluatePolicy(observation_.time + kSolvePeriod, observation_.state, state, input, mode);
+      mrt_->evaluatePolicy(observation_.time + kSolvePeriod, observation_.state,
+                           state, input, mode);
       observation_.state = state;
       observation_.mode = mode;
     }
@@ -163,19 +190,25 @@ std::vector<PrimalSolution> WholeBodySolverStack::solve(size_t count) {
   return policies;
 }
 
-scalar_t policyDifference(const std::vector<PrimalSolution>& expected, const std::vector<PrimalSolution>& actual) {
-  if (expected.size() != actual.size()) return std::numeric_limits<scalar_t>::infinity();
+scalar_t policyDifference(const std::vector<PrimalSolution>& expected,
+                          const std::vector<PrimalSolution>& actual) {
+  if (expected.size() != actual.size())
+    return std::numeric_limits<scalar_t>::infinity();
   scalar_t largest = 0.0;
   for (size_t i = 0; i < expected.size(); ++i) {
     const PrimalSolution& a = expected[i];
     const PrimalSolution& b = actual[i];
-    if (a.timeTrajectory_ != b.timeTrajectory_ || a.stateTrajectory_.size() != b.stateTrajectory_.size() ||
-        a.inputTrajectory_.size() != b.inputTrajectory_.size() || a.modeSchedule_.eventTimes != b.modeSchedule_.eventTimes ||
+    if (a.timeTrajectory_ != b.timeTrajectory_ ||
+        a.stateTrajectory_.size() != b.stateTrajectory_.size() ||
+        a.inputTrajectory_.size() != b.inputTrajectory_.size() ||
+        a.modeSchedule_.eventTimes != b.modeSchedule_.eventTimes ||
         a.modeSchedule_.modeSequence != b.modeSchedule_.modeSequence) {
       return std::numeric_limits<scalar_t>::infinity();
     }
-    for (size_t k = 0; k < a.stateTrajectory_.size(); ++k) appendDifference(a.stateTrajectory_[k], b.stateTrajectory_[k], largest);
-    for (size_t k = 0; k < a.inputTrajectory_.size(); ++k) appendDifference(a.inputTrajectory_[k], b.inputTrajectory_[k], largest);
+    for (size_t k = 0; k < a.stateTrajectory_.size(); ++k)
+      appendDifference(a.stateTrajectory_[k], b.stateTrajectory_[k], largest);
+    for (size_t k = 0; k < a.inputTrajectory_.size(); ++k)
+      appendDifference(a.inputTrajectory_[k], b.inputTrajectory_[k], largest);
   }
   return largest;
 }

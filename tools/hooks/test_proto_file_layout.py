@@ -37,11 +37,15 @@ IMPORT = 'import "nproto/options.proto";\n'
 
 def struct(name):
     """The first statement of a message's body: its nproto option."""
-    return f'  option (nproto.generate_struct) = "ocs2::humanoid::msgs::{name}";\n'
+    return (
+        f'  option (nproto.generate_struct) = "ocs2::humanoid::msgs::{name}";\n'
+    )
 
 
 def enum(name):
-    return f'  option (nproto.generate_enum) = "ocs2::humanoid::msgs::{name}";\n'
+    return (
+        f'  option (nproto.generate_enum) = "ocs2::humanoid::msgs::{name}";\n'
+    )
 
 
 def message(name, body=""):
@@ -92,7 +96,9 @@ message MpcPolicy {{
   Nested nested = 1;
 }}
 """
-        self.assertEqual(lines(source, "humanoid_mpc_msgs/mpc_policy.proto"), [])
+        self.assertEqual(
+            lines(source, "humanoid_mpc_msgs/mpc_policy.proto"), []
+        )
 
     def test_an_enum_or_a_service_counts_as_the_one_definition(self):
         source = (
@@ -105,7 +111,8 @@ message MpcPolicy {{
         # A service generates no struct, so it carries no nproto option.
         self.assertEqual(
             lines(
-                "service Solver {\n  rpc Solve(A) returns (A) {}\n}\n", "solver.proto"
+                "service Solver {\n  rpc Solve(A) returns (A) {}\n}\n",
+                "solver.proto",
             ),
             [],
         )
@@ -113,7 +120,9 @@ message MpcPolicy {{
     def test_a_second_message_is_flagged_where_it_is(self):
         source = IMPORT + message("Vector") + message("Vector3")
         found = proto_file_layout.check_source(source, "vector.proto")
-        self.assertEqual([v.line for v in found if "further top-level" in v.text], [5])
+        self.assertEqual(
+            [v.line for v in found if "further top-level" in v.text], [5]
+        )
         self.assertIn("vector3.proto", found[0].text)
 
     def test_a_top_level_enum_next_to_a_message_is_flagged(self):
@@ -125,7 +134,9 @@ message MpcPolicy {{
             + message("MpcPolicy")
         )
         found = proto_file_layout.check_source(source, "controller_type.proto")
-        self.assertIn(6, [v.line for v in found if "further top-level" in v.text])
+        self.assertIn(
+            6, [v.line for v in found if "further top-level" in v.text]
+        )
 
     def test_a_file_not_named_after_its_definition(self):
         found = texts(IMPORT + message("MpcPolicy"), "mpc.proto")
@@ -163,7 +174,8 @@ extend google.protobuf.EnumOptions {
         source = (
             IMPORT
             + message("Point")
-            + "extend google.protobuf.MessageOptions {\n  string x = 50000;\n}\n"
+            + "extend google.protobuf.MessageOptions {\n  string x ="
+            " 50000;\n}\n"
         )
         found = texts(source, "point.proto")
         self.assertEqual(len(found), 1)
@@ -172,7 +184,9 @@ extend google.protobuf.EnumOptions {
 
 class NprotoOptionTest(unittest.TestCase):
     def test_a_message_without_the_option(self):
-        found = texts(f"{IMPORT}message Point {{\n  double x = 1;\n}}\n", "point.proto")
+        found = texts(
+            f"{IMPORT}message Point {{\n  double x = 1;\n}}\n", "point.proto"
+        )
         self.assertEqual(len(found), 1)
         self.assertIn("option (nproto.generate_struct)", found[0])
         self.assertIn("first statement of its body", found[0])
@@ -184,16 +198,19 @@ class NprotoOptionTest(unittest.TestCase):
 
     def test_the_option_at_file_scope_is_moved_into_the_message(self):
         source = (
-            IMPORT
-            + 'option (nproto.generate_struct) = "ocs2::humanoid::msgs::Point";\n'
-            + "message Point {}\n"
+            IMPORT + "option (nproto.generate_struct) ="
+            ' "ocs2::humanoid::msgs::Point";\n' + "message Point {}\n"
         )
         found = texts(source, "point.proto")
         self.assertEqual(len(found), 1)
-        self.assertIn("declared at file scope; move it into message Point", found[0])
+        self.assertIn(
+            "declared at file scope; move it into message Point", found[0]
+        )
 
     def test_the_option_must_be_the_first_statement(self):
-        source = f'{IMPORT}message Point {{\n  double x = 1;\n{struct("Point")}}}\n'
+        source = (
+            f'{IMPORT}message Point {{\n  double x = 1;\n{struct("Point")}}}\n'
+        )
         found = texts(source, "point.proto")
         self.assertEqual(len(found), 1)
         self.assertIn("must be the first statement", found[0])
@@ -206,7 +223,9 @@ class NprotoOptionTest(unittest.TestCase):
         self.assertEqual(len(texts(source, "kind.proto")), 1)
 
     def test_a_message_takes_generate_struct_and_an_enum_generate_enum(self):
-        found = texts(f'{IMPORT}message Point {{\n{enum("Point")}}}\n', "point.proto")
+        found = texts(
+            f'{IMPORT}message Point {{\n{enum("Point")}}}\n', "point.proto"
+        )
         self.assertEqual(len(found), 1)
         self.assertIn("takes (nproto.generate_struct)", found[0])
         found = texts(
@@ -230,23 +249,30 @@ class NprotoOptionTest(unittest.TestCase):
         self.assertIn("nested type Outer.Inner", found[0])
 
     def test_the_struct_must_be_named_after_the_definition(self):
-        found = texts(f'{IMPORT}message Point {{\n{struct("Other")}}}\n', "point.proto")
+        found = texts(
+            f'{IMPORT}message Point {{\n{struct("Other")}}}\n', "point.proto"
+        )
         self.assertEqual(len(found), 1)
         self.assertIn("ending in ::Point", found[0])
 
     def test_the_value_must_be_a_cpp_qualified_name(self):
-        for value in ("ocs2.humanoid.Point", "ocs2::::Point", "1ocs2::Point", ""):
+        for value in (
+            "ocs2.humanoid.Point",
+            "ocs2::::Point",
+            "1ocs2::Point",
+            "",
+        ):
             source = (
-                IMPORT
-                + f'message Point {{\n  option (nproto.generate_struct) = "{value}";\n}}\n'
+                IMPORT + "message Point {\n  option (nproto.generate_struct) ="
+                f' "{value}";\n}}\n'
             )
             self.assertEqual(len(texts(source, "point.proto")), 1, value)
 
     def test_unqualified_and_globally_qualified_names_are_accepted(self):
         for value in ("Point", "::ocs2::Point"):
             source = (
-                IMPORT
-                + f'message Point {{\n  option (nproto.generate_struct) = "{value}";\n}}\n'
+                IMPORT + "message Point {\n  option (nproto.generate_struct) ="
+                f' "{value}";\n}}\n'
             )
             self.assertEqual(texts(source, "point.proto"), [], value)
 
@@ -256,7 +282,9 @@ class NprotoOptionTest(unittest.TestCase):
         self.assertIn("nproto/options.proto", found[0])
 
     def test_a_second_option_in_the_message(self):
-        source = f'{IMPORT}message Point {{\n{struct("Point")}{struct("Point")}}}\n'
+        source = (
+            f'{IMPORT}message Point {{\n{struct("Point")}{struct("Point")}}}\n'
+        )
         found = texts(source, "point.proto")
         self.assertEqual(len(found), 1)
         self.assertIn("a second nproto option", found[0])
@@ -265,13 +293,15 @@ class NprotoOptionTest(unittest.TestCase):
 class ReservedNamesTest(unittest.TestCase):
     def test_reserved_numbers_are_fine(self):
         source = IMPORT + message(
-            "Point", "  reserved 2, 4 to 6;\n  reserved 9 to max;\n  double x = 1;\n"
+            "Point",
+            "  reserved 2, 4 to 6;\n  reserved 9 to max;\n  double x = 1;\n",
         )
         self.assertEqual(texts(source, "point.proto"), [])
 
     def test_a_quoted_reserved_name_is_refused(self):
         source = IMPORT + message(
-            "Point", '  reserved 2;\n  reserved "old_x", "old_y";\n  double x = 1;\n'
+            "Point",
+            '  reserved 2;\n  reserved "old_x", "old_y";\n  double x = 1;\n',
         )
         found = proto_file_layout.check_source(source, "point.proto")
         self.assertEqual([v.line for v in found], [5, 5])
@@ -286,7 +316,8 @@ class ReservedNamesTest(unittest.TestCase):
             + message("Point", "  reserved old_x;\n  double x = 1;\n")
         )
         self.assertEqual(
-            [name for _, name in proto_file_layout.reserved_names(source)], ["old_x"]
+            [name for _, name in proto_file_layout.reserved_names(source)],
+            ["old_x"],
         )
         self.assertEqual(len(texts(source, "point.proto")), 1)
 
@@ -296,14 +327,18 @@ class ReservedNamesTest(unittest.TestCase):
             + "message Outer {\n"
             + struct("Outer")
             + '  message Inner {\n    reserved "gone";\n  }\n'
-            + '  enum Kind {\n    reserved "KIND_OLD";\n    KIND_A = 0;\n  }\n}\n'
+            + '  enum Kind {\n    reserved "KIND_OLD";\n    KIND_A = 0;\n '
+            " }\n}\n"
         )
-        self.assertEqual(proto_file_layout.reserved_names(source), [(5, "gone")])
+        self.assertEqual(
+            proto_file_layout.reserved_names(source), [(5, "gone")]
+        )
 
     def test_strings_elsewhere_are_not_reserved_names(self):
         source = IMPORT + message(
             "Point",
-            '  option (x) = "reserved y";\n  string doc = 1 [json_name = "reserved"];\n',
+            '  option (x) = "reserved y";\n  string doc = 1 [json_name ='
+            ' "reserved"];\n',
         )
         self.assertEqual(proto_file_layout.reserved_names(source), [])
 

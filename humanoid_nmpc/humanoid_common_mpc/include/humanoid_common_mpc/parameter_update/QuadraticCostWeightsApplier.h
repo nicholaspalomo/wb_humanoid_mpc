@@ -38,18 +38,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Applies the weights of the quadratic costs: Q of state_weights to the running quadratic state cost
- * (stateInputQuadraticCost or stateQuadraticCost, TuningQuadraticStateInputCost), R of input_weights to the running
- * quadratic input cost (stateInputQuadraticCost or inputQuadraticCost, InputQuadraticCost), and terminal_cost_scaling
- * times final_state_weights to the quadratic terminal cost (terminalCost, TuningQuadraticStateCost). The weights are
- * converted by the helpers the start-up factory converts with (trackingStateWeightsFromConfig(),
- * terminalStateWeightsFromConfig()) and handed to the same setters, so that each cost's TuningLayoutDeviation is the one
- * map from their Euler-written rows to the state in both paths. Under the CoM + ACoM tracking cost the base-pose blocks
- * of Q and Q_final are zeroed first, as the factory does, because that cost regulates the base pose; whether the
- * problem carries it is read off the running problem, never the reloaded file. A Q that does not have the rows of the
- * tuning layout, and an R that does not have the problem's input dimension, are refused by field; a weight matrix a
- * cost's setter refuses (its size against the running term's, symmetry, finiteness) is reported as a failed update of
- * that term, and the term keeps its running weights.
+ * Applies the weights of the quadratic costs: Q of state_weights to the running
+ * quadratic state cost (stateInputQuadraticCost or stateQuadraticCost,
+ * TuningQuadraticStateInputCost), R of input_weights to the running quadratic
+ * input cost (stateInputQuadraticCost or inputQuadraticCost,
+ * InputQuadraticCost), and terminal_cost_scaling times final_state_weights to
+ * the quadratic terminal cost (terminalCost, TuningQuadraticStateCost). The
+ * weights are converted by the helpers the start-up factory converts with
+ * (trackingStateWeightsFromConfig(), terminalStateWeightsFromConfig()) and
+ * handed to the same setters, so that each cost's TuningLayoutDeviation is the
+ * one map from their Euler-written rows to the state in both paths. Under the
+ * CoM + ACoM tracking cost the base-pose blocks of Q and Q_final are zeroed
+ * first, as the factory does, because that cost regulates the base pose;
+ * whether the problem carries it is read off the running problem, never the
+ * reloaded file. A Q that does not have the rows of the tuning layout, and an R
+ * that does not have the problem's input dimension, are refused by field; a
+ * weight matrix a cost's setter refuses (its size against the running term's,
+ * symmetry, finiteness) is reported as a failed update of that term, and the
+ * term keeps its running weights.
  *
  * Shared by both formulations. Not thread-safe (HotFieldApplier).
  */
@@ -57,21 +63,30 @@ class QuadraticCostWeightsApplier final : public HotFieldApplier {
  public:
   /** What the problem's inputs are, which decides who writes R. */
   enum class InputCost {
-    // The inputs are what input_weights is indexed on (contact wrenches, then joint velocities or accelerations): R is
+    // The inputs are what input_weights is indexed on (contact wrenches, then
+    // joint velocities or accelerations): R is
     // input_weights, written here.
     kInputWeights,
-    // The inputs are basis-vector scalings of the contact wrenches: R is the basis-space image of input_weights, which
-    // the centroidal BasisInputsCostApplier writes with its regularization; this applier leaves it alone.
+    // The inputs are basis-vector scalings of the contact wrenches: R is the
+    // basis-space image of input_weights, which
+    // the centroidal BasisInputsCostApplier writes with its regularization;
+    // this applier leaves it alone.
     kBasisVectorInputs,
   };
 
-  /** The fields it applies: state_weights, input_weights, final_state_weights and terminal_cost_scaling. */
+  /** The fields it applies: state_weights, input_weights, final_state_weights
+   * and terminal_cost_scaling. */
   static absl::Span<const absl::string_view> staticFields();
 
-  explicit QuadraticCostWeightsApplier(InputCost inputCost) : inputCost_(inputCost) {}
+  explicit QuadraticCostWeightsApplier(InputCost inputCost)
+      : inputCost_(inputCost) {}
 
-  absl::string_view name() const override { return "QuadraticCostWeightsApplier"; }
-  absl::Span<const absl::string_view> fields() const final { return staticFields(); }
+  absl::string_view name() const override {
+    return "QuadraticCostWeightsApplier";
+  }
+  absl::Span<const absl::string_view> fields() const final {
+    return staticFields();
+  }
   void apply(HotUpdateTarget& target) override;
 
  private:

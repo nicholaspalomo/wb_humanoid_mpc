@@ -42,36 +42,48 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-TuningQuadraticStateCost::TuningQuadraticStateCost(const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModel)
-    : mpcRobotModelPtr_(ABSL_DIE_IF_NULL(mpcRobotModel)), deviation_(mpcRobotModel) {}
+TuningQuadraticStateCost::TuningQuadraticStateCost(
+    const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModel)
+    : mpcRobotModelPtr_(ABSL_DIE_IF_NULL(mpcRobotModel)),
+      deviation_(mpcRobotModel) {}
 
-scalar_t TuningQuadraticStateCost::getValue(scalar_t time,
-                                            const vector_t& state,
-                                            const TargetTrajectories& targetTrajectories,
-                                            const PreComputation& preComputation) const {
-  const vector_t residual = deviation_.evaluate(state, getReference(time, state, targetTrajectories, preComputation));
+scalar_t TuningQuadraticStateCost::getValue(
+    scalar_t time,
+    const vector_t& state,
+    const TargetTrajectories& targetTrajectories,
+    const PreComputation& preComputation) const {
+  const vector_t residual = deviation_.evaluate(
+      state, getReference(time, state, targetTrajectories, preComputation));
   // OCS2's QuadraticStateCost::getValue.
   return 0.5 * residual.dot(stateWeights_ * residual);
 }
 
-ScalarFunctionQuadraticApproximation TuningQuadraticStateCost::getQuadraticApproximation(scalar_t time,
-                                                                                         const vector_t& state,
-                                                                                         const TargetTrajectories& targetTrajectories,
-                                                                                         const PreComputation& preComputation) const {
-  const TuningDeviationApproximation deviation = deviation_.linearize(state, getReference(time, state, targetTrajectories, preComputation));
+ScalarFunctionQuadraticApproximation
+TuningQuadraticStateCost::getQuadraticApproximation(
+    scalar_t time,
+    const vector_t& state,
+    const TargetTrajectories& targetTrajectories,
+    const PreComputation& preComputation) const {
+  const TuningDeviationApproximation deviation = deviation_.linearize(
+      state, getReference(time, state, targetTrajectories, preComputation));
   const size_t stateDim = static_cast<size_t>(state.size());
 
   ScalarFunctionQuadraticApproximation approximation;
   approximation.dfdxx = tuningHessian(deviation, stateWeights_, stateDim);
   approximation.dfdx = tuningGradient(deviation, stateWeights_, stateDim);
-  // On the identity Jacobian dfdx is Q r, and the value is taken from it as OCS2's QuadraticStateCost takes it.
-  approximation.f = isIdentityTuningJacobian(deviation, stateDim) ? 0.5 * deviation.residual.dot(approximation.dfdx)
-                                                                  : 0.5 * deviation.residual.dot(stateWeights_ * deviation.residual);
+  // On the identity Jacobian dfdx is Q r, and the value is taken from it as
+  // OCS2's QuadraticStateCost takes it.
+  approximation.f =
+      isIdentityTuningJacobian(deviation, stateDim)
+          ? 0.5 * deviation.residual.dot(approximation.dfdx)
+          : 0.5 * deviation.residual.dot(stateWeights_ * deviation.residual);
   return approximation;
 }
 
 absl::Status TuningQuadraticStateCost::setStateWeights(matrix_t stateWeights) {
-  RETURN_IF_ERROR(validateQuadraticWeights(stateWeights, deviation_.getTuningDim(), "[TuningQuadraticStateCost] the state weights Q"));
+  RETURN_IF_ERROR(validateQuadraticWeights(
+      stateWeights, deviation_.getTuningDim(),
+      "[TuningQuadraticStateCost] the state weights Q"));
   stateWeights_ = std::move(stateWeights);
   return absl::OkStatus();
 }

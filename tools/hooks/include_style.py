@@ -79,14 +79,17 @@ C_SYSTEM_HEADERS = frozenset(
     """.split()
 )
 C_SYSTEM_DIRECTORIES = frozenset(
-    "sys arpa asm asm-generic bits gnu net netinet protocols rpc rpcsvc scsi drm linux misc mtd rdma sound video xen".split()
+    "sys arpa asm asm-generic bits gnu net netinet protocols rpc rpcsvc scsi"
+    " drm linux misc mtd rdma sound video xen".split()
 )
 # Third-party headers that have no directory of their own: cpp-httplib's single header and libjpeg-turbo's TurboJPEG
 # API (MODULE.bazel), and HPIPM and BLASFEO, which install their headers flat (bazel/system_libs.bzl). .clang-format's
 # include categories sort them with the other libraries.
 # LINT.IfChange(directoryless_third_party)
 DIRECTORYLESS_THIRD_PARTY = frozenset({"httplib.h", "turbojpeg.h"})
-_DIRECTORYLESS_THIRD_PARTY_PATTERN = re.compile(r"^(hpipm|blasfeo)_[a-z0-9_]+\.h$")
+_DIRECTORYLESS_THIRD_PARTY_PATTERN = re.compile(
+    r"^(hpipm|blasfeo)_[a-z0-9_]+\.h$"
+)
 # LINT.ThenChange(//.clang-format:include_categories)
 
 
@@ -98,7 +101,8 @@ def is_directoryless_third_party(header: str) -> bool:
 
 
 _INCLUDE = re.compile(
-    r'^(?P<lead>[ \t]*#[ \t]*include[ \t]*)(?P<open>[<"])(?P<header>[^>"\n]+)(?P<close>[>"])',
+    r"^(?P<lead>[ \t]*#[ \t]*include["
+    r' \t]*)(?P<open>[<"])(?P<header>[^>"\n]+)(?P<close>[>"])',
     re.MULTILINE,
 )
 
@@ -129,11 +133,14 @@ def _without_comments(source: str) -> str:
     return cpp_source.mask(source)[0]
 
 
-_BRACKETS_REASON = "Angle brackets are for the C, C++ and POSIX system headers only (Google C++ style, Names and order of includes)."
+_BRACKETS_REASON = (
+    "Angle brackets are for the C, C++ and POSIX system headers only (Google"
+    " C++ style, Names and order of includes)."
+)
 # Why an angle Abseil include is worse than a style slip (the module docstring).
 _ABSEIL_REASON = (
-    "Bazel exposes @abseil-cpp to quoted includes only, and an angle include finds a system Abseil or none "
-    "(tools/hooks/include_style.py)."
+    "Bazel exposes @abseil-cpp to quoted includes only, and an angle include"
+    " finds a system Abseil or none (tools/hooks/include_style.py)."
 )
 
 
@@ -152,7 +159,8 @@ def _style_findings(source: str, path: str) -> list[check_types.Finding]:
                     line,
                     column,
                     NAME,
-                    f'`#include <{header}>`: write `#include "{header}"`. {reason}',
+                    f'`#include <{header}>`: write `#include "{header}"`.'
+                    f" {reason}",
                 )
             )
         elif (
@@ -166,8 +174,9 @@ def _style_findings(source: str, path: str) -> list[check_types.Finding]:
                     line,
                     column,
                     NAME,
-                    f'`#include "{header}"` names no directory: include a project header by its full path below its '
-                    "include root (Google C++ style, Names and order of includes).",
+                    f'`#include "{header}"` names no directory: include a'
+                    " project header by its full path below its include root"
+                    " (Google C++ style, Names and order of includes).",
                 )
             )
     return findings
@@ -178,9 +187,15 @@ def fix_include_style(source: str, path: str) -> str:
     del path  # Unused.
     edits = []
     for _, _, match in _includes(source):
-        if match.group("open") == "<" and not is_system_header(match.group("header")):
+        if match.group("open") == "<" and not is_system_header(
+            match.group("header")
+        ):
             edits.append(
-                (match.start("open"), match.end("close"), f'"{match.group("header")}"')
+                (
+                    match.start("open"),
+                    match.end("close"),
+                    f'"{match.group("header")}"',
+                )
             )
     for start, end, text in sorted(edits, reverse=True):
         source = source[:start] + text + source[end:]
@@ -195,9 +210,14 @@ CHECKS = [
         check_source=_style_findings,
         fix_source=fix_include_style,
         fixed_by_format=True,
-        description="angle brackets only for C, C++ and POSIX system headers; every other include is quoted with its "
-        "full path (G: Names and order of includes).",
-        hint="`make format` (or lint_code --fix --only include-style) rewrites the brackets; a bare file name needs its "
-        "full path by hand.",
+        description=(
+            "angle brackets only for C, C++ and POSIX system headers; every"
+            " other include is quoted with its full path (G: Names and order of"
+            " includes)."
+        ),
+        hint=(
+            "`make format` (or lint_code --fix --only include-style) rewrites"
+            " the brackets; a bare file name needs its full path by hand."
+        ),
     ),
 ]

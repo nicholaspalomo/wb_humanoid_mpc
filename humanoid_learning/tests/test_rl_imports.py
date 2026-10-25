@@ -70,7 +70,8 @@ class TestRLImportsAndBasics(unittest.TestCase):
         devices = jax.devices()
         self.assertGreater(len(devices), 0)
         print(
-            f"JAX active backend platform: {jax.default_backend()} | Devices: {devices}"
+            f"JAX active backend platform: {jax.default_backend()} | Devices:"
+            f" {devices}"
         )
 
     def test_jax_and_jit(self):

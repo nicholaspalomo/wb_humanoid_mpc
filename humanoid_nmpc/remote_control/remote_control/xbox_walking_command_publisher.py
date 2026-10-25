@@ -91,7 +91,9 @@ class XBoxWalkingCommandPublisher:
             self._stop_ticks_left = self._stop_ticks
         elif self._last_command is not None and self._stop_ticks_left > 0:
             self._stop_ticks_left -= 1
-            command = teleop.stop_command(self._last_command.desired_pelvis_height)
+            command = teleop.stop_command(
+                self._last_command.desired_pelvis_height
+            )
         if command is not None:
             self._publisher.publish(command)
 
@@ -109,7 +111,9 @@ class XBoxWalkingCommandPublisher:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Publishes the Xbox controller's walking commands on the IPC bus."
+        description=(
+            "Publishes the Xbox controller's walking commands on the IPC bus."
+        )
     )
     teleop.add_bus_flags(parser, default_node=operator_bus.TELEOP_NODE)
     teleop.add_reference_file_flag(parser)
@@ -131,7 +135,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         controller = xbox_controller_interface.XBoxControllerInterface(
             teleop.WALKING_COMMAND_RATE_HZ,
-            initial_pelvis_height=teleop.initial_pelvis_height(args.reference_file),
+            initial_pelvis_height=teleop.initial_pelvis_height(
+                args.reference_file
+            ),
         )
     except BaseException:
         publisher.bus.close()
@@ -142,5 +148,7 @@ def main(argv: list[str] | None = None) -> int:
             controller, teleop.WALKING_COMMAND_RATE_HZ
         ),
     )
-    teleop.publish_until_stopped(publisher, node.tick, stop, node.stop_pelvis_height)
+    teleop.publish_until_stopped(
+        publisher, node.tick, stop, node.stop_pelvis_height
+    )
     return 0

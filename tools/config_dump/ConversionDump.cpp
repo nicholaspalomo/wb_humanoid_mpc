@@ -103,11 +103,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::config_dump {
 namespace {
 
-void addError(ValueDump& dump, absl::string_view path, const absl::Status& status) {
+void addError(ValueDump& dump,
+              absl::string_view path,
+              const absl::Status& status) {
   dump.addString(joinPath(path, "error"), status.ToString());
 }
 
-void addBarrier(ValueDump& dump, absl::string_view path, const absl::StatusOr<RelaxedBarrierPenalty::Config>& barrier) {
+void addBarrier(ValueDump& dump,
+                absl::string_view path,
+                const absl::StatusOr<RelaxedBarrierPenalty::Config>& barrier) {
   if (!barrier.ok()) {
     addError(dump, path, barrier.status());
     return;
@@ -116,7 +120,10 @@ void addBarrier(ValueDump& dump, absl::string_view path, const absl::StatusOr<Re
   dump.addDouble(joinPath(path, "delta"), barrier->delta);
 }
 
-void addBarrier(ValueDump& dump, absl::string_view path, const absl::StatusOr<PieceWisePolynomialBarrierPenalty::Config>& barrier) {
+void addBarrier(
+    ValueDump& dump,
+    absl::string_view path,
+    const absl::StatusOr<PieceWisePolynomialBarrierPenalty::Config>& barrier) {
   if (!barrier.ok()) {
     addError(dump, path, barrier.status());
     return;
@@ -125,7 +132,9 @@ void addBarrier(ValueDump& dump, absl::string_view path, const absl::StatusOr<Pi
   dump.addDouble(joinPath(path, "delta"), barrier->delta);
 }
 
-void addMatrixDiagonal(ValueDump& dump, absl::string_view path, const absl::StatusOr<matrix_t>& matrix) {
+void addMatrixDiagonal(ValueDump& dump,
+                       absl::string_view path,
+                       const absl::StatusOr<matrix_t>& matrix) {
   if (!matrix.ok()) {
     addError(dump, path, matrix.status());
     return;
@@ -133,7 +142,9 @@ void addMatrixDiagonal(ValueDump& dump, absl::string_view path, const absl::Stat
   dump.addDiagonal(path, *matrix);
 }
 
-void addVector(ValueDump& dump, absl::string_view path, const absl::StatusOr<vector_t>& vector) {
+void addVector(ValueDump& dump,
+               absl::string_view path,
+               const absl::StatusOr<vector_t>& vector) {
   if (!vector.ok()) {
     addError(dump, path, vector.status());
     return;
@@ -141,11 +152,16 @@ void addVector(ValueDump& dump, absl::string_view path, const absl::StatusOr<vec
   dump.addMatrix(path, *vector);
 }
 
-void addKinematicsWeights(ValueDump& dump, absl::string_view path, const EndEffectorKinematicsWeights& weights) {
+void addKinematicsWeights(ValueDump& dump,
+                          absl::string_view path,
+                          const EndEffectorKinematicsWeights& weights) {
   dump.addMatrix(path, weights.toVector());
 }
 
-void addDynamicsWeights(ValueDump& dump, absl::string_view path, const absl::StatusOr<EndEffectorDynamicsWeights>& weights) {
+void addDynamicsWeights(
+    ValueDump& dump,
+    absl::string_view path,
+    const absl::StatusOr<EndEffectorDynamicsWeights>& weights) {
   if (!weights.ok()) {
     addError(dump, path, weights.status());
     return;
@@ -153,10 +169,14 @@ void addDynamicsWeights(ValueDump& dump, absl::string_view path, const absl::Sta
   dump.addMatrix(path, weights->toVector());
 }
 
-/** Every double of a heuristic's parameter struct, which holds nothing else, in declaration order. */
+/** Every double of a heuristic's parameter struct, which holds nothing else, in
+ * declaration order. */
 template <typename Parameters>
-void addParameters(ValueDump& dump, absl::string_view path, const Parameters& parameters) {
-  static_assert(std::is_trivially_copyable_v<Parameters> && sizeof(Parameters) % sizeof(double) == 0);
+void addParameters(ValueDump& dump,
+                   absl::string_view path,
+                   const Parameters& parameters) {
+  static_assert(std::is_trivially_copyable_v<Parameters> &&
+                sizeof(Parameters) % sizeof(double) == 0);
   std::array<double, sizeof(Parameters) / sizeof(double)> members{};
   std::memcpy(members.data(), &parameters, sizeof(Parameters));
   dump.addDoubles(path, std::vector<double>(members.begin(), members.end()));
@@ -178,13 +198,18 @@ void dumpSolver(ValueDump& dump, const mpc_config::TaskFile& task) {
     addError(dump, "solver.node", node.status());
     return;
   }
-  dump.addInteger("solver.node.solverThreadPriority", static_cast<int64_t>(node->solverThreadPriority));
-  dump.addDouble("solver.node.walkingCommandTimeout", absl::ToDoubleSeconds(node->walkingCommandTimeout));
+  dump.addInteger("solver.node.solverThreadPriority",
+                  static_cast<int64_t>(node->solverThreadPriority));
+  dump.addDouble("solver.node.walkingCommandTimeout",
+                 absl::ToDoubleSeconds(node->walkingCommandTimeout));
 }
 
-/** The canonical names of the members of `set` that `toString` names, sorted: the set's own order is a hash order. */
+/** The canonical names of the members of `set` that `toString` names, sorted:
+ * the set's own order is a hash order. */
 template <typename Type>
-std::vector<std::string> sortedNames(const absl::flat_hash_set<Type>& set, absl::StatusOr<std::string> (*absl_nonnull toString)(Type)) {
+std::vector<std::string> sortedNames(
+    const absl::flat_hash_set<Type>& set,
+    absl::StatusOr<std::string> (*absl_nonnull toString)(Type)) {
   std::vector<std::string> names;
   for (const Type type : set) {
     const absl::StatusOr<std::string> name = toString(type);
@@ -194,40 +219,59 @@ std::vector<std::string> sortedNames(const absl::flat_hash_set<Type>& set, absl:
   return names;
 }
 
-void dumpFormulation(ValueDump& dump, const mpc_config::TaskFile& task, StateInputLayout::Mpc mpc) {
+void dumpFormulation(ValueDump& dump,
+                     const mpc_config::TaskFile& task,
+                     StateInputLayout::Mpc mpc) {
   dump.addSection("formulation");
-  const absl::StatusOr<MpcFormulationTasks> tasks = mpcFormulationTasksFromConfig(task, FormulationLogging::kQuiet);
+  const absl::StatusOr<MpcFormulationTasks> tasks =
+      mpcFormulationTasksFromConfig(task, FormulationLogging::kQuiet);
   if (tasks.ok()) {
-    dump.addStrings("formulation.costs", sortedNames(tasks->costs, &mpcCostTypeToString));
-    dump.addStrings("formulation.softConstraints", sortedNames(tasks->softConstraints, &mpcSoftConstraintTypeToString));
-    dump.addStrings("formulation.hardConstraints", sortedNames(tasks->hardConstraints, &mpcHardConstraintTypeToString));
+    dump.addStrings("formulation.costs",
+                    sortedNames(tasks->costs, &mpcCostTypeToString));
+    dump.addStrings(
+        "formulation.softConstraints",
+        sortedNames(tasks->softConstraints, &mpcSoftConstraintTypeToString));
+    dump.addStrings(
+        "formulation.hardConstraints",
+        sortedNames(tasks->hardConstraints, &mpcHardConstraintTypeToString));
   } else {
     addError(dump, "formulation", tasks.status());
   }
-  const absl::StatusOr<ContactScheduleSource> source = contactScheduleSourceFromConfig(task);
+  const absl::StatusOr<ContactScheduleSource> source =
+      contactScheduleSourceFromConfig(task);
   if (source.ok()) {
-    dump.addString("formulation.contactScheduleSource", contactScheduleSourceName(*source));
+    dump.addString("formulation.contactScheduleSource",
+                   contactScheduleSourceName(*source));
   } else {
     addError(dump, "formulation.contactScheduleSource", source.status());
   }
-  const absl::StatusOr<ContactInputParameterization> parameterization = contactInputParameterizationFromConfig(task);
+  const absl::StatusOr<ContactInputParameterization> parameterization =
+      contactInputParameterizationFromConfig(task);
   if (parameterization.ok()) {
-    dump.addString("formulation.contactInputParameterization", contactInputParameterizationName(*parameterization));
+    dump.addString("formulation.contactInputParameterization",
+                   contactInputParameterizationName(*parameterization));
   } else {
-    addError(dump, "formulation.contactInputParameterization", parameterization.status());
+    addError(dump, "formulation.contactInputParameterization",
+             parameterization.status());
   }
   if (mpc == StateInputLayout::Mpc::kCentroidal) {
-    const absl::StatusOr<CentroidalModelType> modelType = centroidalModelTypeFromConfig(task);
+    const absl::StatusOr<CentroidalModelType> modelType =
+        centroidalModelTypeFromConfig(task);
     if (modelType.ok()) {
-      dump.addInteger("formulation.centroidalModelType", static_cast<int64_t>(*modelType));
+      dump.addInteger("formulation.centroidalModelType",
+                      static_cast<int64_t>(*modelType));
     } else {
       addError(dump, "formulation.centroidalModelType", modelType.status());
     }
   }
 }
 
-void dumpLegTorqueCost(ValueDump& dump, absl::string_view path, const mpc_config::JointWeights& weights, const StateInputLayout& layout) {
-  const absl::StatusOr<ExternalTorqueQuadraticCostAD::Config> cost = legTorqueCostFromConfig(weights, layout, path);
+void dumpLegTorqueCost(ValueDump& dump,
+                       absl::string_view path,
+                       const mpc_config::JointWeights& weights,
+                       const StateInputLayout& layout) {
+  const absl::StatusOr<ExternalTorqueQuadraticCostAD::Config> cost =
+      legTorqueCostFromConfig(weights, layout, path);
   if (!cost.ok()) {
     addError(dump, path, cost.status());
     return;
@@ -236,33 +280,52 @@ void dumpLegTorqueCost(ValueDump& dump, absl::string_view path, const mpc_config
   dump.addMatrix(joinPath(path, "weights"), cost->weights);
 }
 
-void dumpWeights(ValueDump& dump, const mpc_config::TaskFile& task, const StateInputLayout& layout) {
+void dumpWeights(ValueDump& dump,
+                 const mpc_config::TaskFile& task,
+                 const StateInputLayout& layout) {
   dump.addSection("weights");
-  addMatrixDiagonal(dump, "state_weights", stateWeightsFromConfig(task.state_weights, layout, "state_weights"));
-  addMatrixDiagonal(dump, "final_state_weights", stateWeightsFromConfig(task.final_state_weights, layout, "final_state_weights"));
-  addMatrixDiagonal(dump, "input_weights", inputWeightsFromConfig(task.input_weights, layout, "input_weights"));
-  addVector(dump, "initial_state", stateValuesFromConfig(task.initial_state, layout, "initial_state"));
-  addMatrixDiagonal(dump, "com_weights", comWeightsFromConfig(task.com_weights, "com_weights"));
-  addMatrixDiagonal(dump, "acom_weights", acomWeightsFromConfig(task.acom_weights, "acom_weights"));
-  const absl::StatusOr<scalar_t> terminalCostScaling = terminalCostScalingFromConfig(task);
+  addMatrixDiagonal(
+      dump, "state_weights",
+      stateWeightsFromConfig(task.state_weights, layout, "state_weights"));
+  addMatrixDiagonal(dump, "final_state_weights",
+                    stateWeightsFromConfig(task.final_state_weights, layout,
+                                           "final_state_weights"));
+  addMatrixDiagonal(
+      dump, "input_weights",
+      inputWeightsFromConfig(task.input_weights, layout, "input_weights"));
+  addVector(dump, "initial_state",
+            stateValuesFromConfig(task.initial_state, layout, "initial_state"));
+  addMatrixDiagonal(dump, "com_weights",
+                    comWeightsFromConfig(task.com_weights, "com_weights"));
+  addMatrixDiagonal(dump, "acom_weights",
+                    acomWeightsFromConfig(task.acom_weights, "acom_weights"));
+  const absl::StatusOr<scalar_t> terminalCostScaling =
+      terminalCostScalingFromConfig(task);
   if (terminalCostScaling.ok()) {
     dump.addDouble("terminal_cost_scaling", *terminalCostScaling);
   } else {
     addError(dump, "terminal_cost_scaling", terminalCostScaling.status());
   }
   if (layout.mpc == StateInputLayout::Mpc::kCentroidal) {
-    dumpLegTorqueCost(dump, "left_leg_torque_cost", task.left_leg_torque_cost, layout);
-    dumpLegTorqueCost(dump, "right_leg_torque_cost", task.right_leg_torque_cost, layout);
+    dumpLegTorqueCost(dump, "left_leg_torque_cost", task.left_leg_torque_cost,
+                      layout);
+    dumpLegTorqueCost(dump, "right_leg_torque_cost", task.right_leg_torque_cost,
+                      layout);
   } else {
-    addVector(dump, "joint_torque_weights", jointTorqueWeightsFromConfig(task.joint_torque_weights, layout, "joint_torque_weights"));
+    addVector(dump, "joint_torque_weights",
+              jointTorqueWeightsFromConfig(task.joint_torque_weights, layout,
+                                           "joint_torque_weights"));
   }
 }
 
-void dumpContacts(ValueDump& dump, const mpc_config::ContactsConfig& contacts, const ModelSettings& model) {
+void dumpContacts(ValueDump& dump,
+                  const mpc_config::ContactsConfig& contacts,
+                  const ModelSettings& model) {
   dump.addSection("contacts");
   for (size_t i = 0; i < model.contactNames.size(); ++i) {
     const std::string path = absl::StrCat("contacts[", i, "]");
-    const absl::StatusOr<ContactRectangle> rectangle = contactRectangleFromConfig(contacts, model, static_cast<int>(i));
+    const absl::StatusOr<ContactRectangle> rectangle =
+        contactRectangleFromConfig(contacts, model, static_cast<int>(i));
     if (!rectangle.ok()) {
       addError(dump, path, rectangle.status());
       continue;
@@ -270,54 +333,76 @@ void dumpContacts(ValueDump& dump, const mpc_config::ContactsConfig& contacts, c
     const ContactCenterPoint& center = rectangle->getContactCenterPoint();
     dump.addString(joinPath(path, "frameName"), center.frameName);
     dump.addString(joinPath(path, "parentJointName"), center.parentJointName);
-    dump.addMatrix(joinPath(path, "translationFromParent"), center.translationFromParent);
+    dump.addMatrix(joinPath(path, "translationFromParent"),
+                   center.translationFromParent);
     const PolygonBounds& bounds = rectangle->getBounds();
-    dump.addDoubles(joinPath(path, "bounds"), {bounds.x_min, bounds.x_max, bounds.y_min, bounds.y_max});
+    dump.addDoubles(joinPath(path, "bounds"),
+                    {bounds.x_min, bounds.x_max, bounds.y_min, bounds.y_max});
   }
-  const absl::StatusOr<ContactWrenchConeConstraint::Config> cone = contactWrenchConeConfigFromConfig(contacts);
+  const absl::StatusOr<ContactWrenchConeConstraint::Config> cone =
+      contactWrenchConeConfigFromConfig(contacts);
   if (cone.ok()) {
-    dump.addInteger("contact_wrench_cone.numBasisVectors", static_cast<int64_t>(cone->numBasisVectors));
-    dump.addDouble("contact_wrench_cone.frictionCoefficient", cone->frictionCoefficient);
-    dump.addDouble("contact_wrench_cone.torsionalFrictionCoefficient", cone->torsionalFrictionCoefficient);
+    dump.addInteger("contact_wrench_cone.numBasisVectors",
+                    static_cast<int64_t>(cone->numBasisVectors));
+    dump.addDouble("contact_wrench_cone.frictionCoefficient",
+                   cone->frictionCoefficient);
+    dump.addDouble("contact_wrench_cone.torsionalFrictionCoefficient",
+                   cone->torsionalFrictionCoefficient);
     dump.addDouble("contact_wrench_cone.minNormalForce", cone->minNormalForce);
     dump.addDouble("contact_wrench_cone.gripperForce", cone->gripperForce);
     dump.addMatrix("contact_wrench_cone.patchOffset", cone->patchOffset);
   } else {
     addError(dump, "contact_wrench_cone", cone.status());
   }
-  addBarrier(dump, "contact_wrench_cone.barrier", contactWrenchConeBarrierFromConfig(contacts));
-  const absl::StatusOr<feet_array_t<ContactWrenchConeBasisMatrix>> bases = contactWrenchConeBasesFromConfig(contacts, model);
+  addBarrier(dump, "contact_wrench_cone.barrier",
+             contactWrenchConeBarrierFromConfig(contacts));
+  const absl::StatusOr<feet_array_t<ContactWrenchConeBasisMatrix>> bases =
+      contactWrenchConeBasesFromConfig(contacts, model);
   if (bases.ok()) {
     for (size_t i = 0; i < bases->size(); ++i) {
       const ContactWrenchConeBasisMatrix& basis = (*bases)[i];
-      dump.addString(absl::StrCat("basis[", i, "].generatorSet"), basis.generatorSet());
-      dump.addFingerprint(absl::StrCat("basis[", i, "].matrix"), basis.getBasisMatrix());
+      dump.addString(absl::StrCat("basis[", i, "].generatorSet"),
+                     basis.generatorSet());
+      dump.addFingerprint(absl::StrCat("basis[", i, "].matrix"),
+                          basis.getBasisMatrix());
     }
   } else {
     addError(dump, "basis", bases.status());
   }
-  addBarrier(dump, "basis.nonNegativityBarrier", basisNonNegativityBarrierFromConfig(contacts));
-  const absl::StatusOr<BasisRegularizationSettings> regularization = basisRegularizationFromConfig(contacts);
+  addBarrier(dump, "basis.nonNegativityBarrier",
+             basisNonNegativityBarrierFromConfig(contacts));
+  const absl::StatusOr<BasisRegularizationSettings> regularization =
+      basisRegularizationFromConfig(contacts);
   if (regularization.ok()) {
-    dump.addDouble("basis.regularization.weight", regularization->basisScalingRegularization);
-    dump.addString("basis.regularization.name", regularization->basisRegularization);
+    dump.addDouble("basis.regularization.weight",
+                   regularization->basisScalingRegularization);
+    dump.addString("basis.regularization.name",
+                   regularization->basisRegularization);
   } else {
     addError(dump, "basis.regularization", regularization.status());
   }
-  const absl::StatusOr<FrictionForceConeConstraint::Config> friction = frictionForceConeConfigFromConfig(contacts);
+  const absl::StatusOr<FrictionForceConeConstraint::Config> friction =
+      frictionForceConeConfigFromConfig(contacts);
   if (friction.ok()) {
-    dump.addDouble("friction_force_cone.frictionCoefficient", friction->frictionCoefficient);
-    dump.addDouble("friction_force_cone.regularization", friction->regularization);
+    dump.addDouble("friction_force_cone.frictionCoefficient",
+                   friction->frictionCoefficient);
+    dump.addDouble("friction_force_cone.regularization",
+                   friction->regularization);
     dump.addDouble("friction_force_cone.gripperForce", friction->gripperForce);
-    dump.addDouble("friction_force_cone.hessianDiagonalShift", friction->hessianDiagonalShift);
+    dump.addDouble("friction_force_cone.hessianDiagonalShift",
+                   friction->hessianDiagonalShift);
   } else {
     addError(dump, "friction_force_cone", friction.status());
   }
-  addBarrier(dump, "friction_force_cone.barrier", frictionForceConeBarrierFromConfig(contacts));
-  addBarrier(dump, "contact_moment_xy.barrier", contactMomentXyBarrierFromConfig(contacts));
+  addBarrier(dump, "friction_force_cone.barrier",
+             frictionForceConeBarrierFromConfig(contacts));
+  addBarrier(dump, "contact_moment_xy.barrier",
+             contactMomentXyBarrierFromConfig(contacts));
 }
 
-void dumpMimicJoints(ValueDump& dump, const absl::StatusOr<feet_array_t<JointMimicSettings>>& mimic) {
+void dumpMimicJoints(
+    ValueDump& dump,
+    const absl::StatusOr<feet_array_t<JointMimicSettings>>& mimic) {
   if (!mimic.ok()) {
     addError(dump, "mimic_joints", mimic.status());
     return;
@@ -327,44 +412,73 @@ void dumpMimicJoints(ValueDump& dump, const absl::StatusOr<feet_array_t<JointMim
     const std::string path = absl::StrCat("mimic_joints[", i, "]");
     dump.addString(joinPath(path, "parentJointName"), leg.parentJointName);
     dump.addString(joinPath(path, "childJointName"), leg.childJointName);
-    dump.addDoubles(joinPath(path, "multiplierAndGains"), {leg.multiplier, leg.positionGain, leg.velocityGain});
+    dump.addDoubles(joinPath(path, "multiplierAndGains"),
+                    {leg.multiplier, leg.positionGain, leg.velocityGain});
   }
 }
 
-void dumpConstraints(ValueDump& dump, const mpc_config::TaskFile& task, StateInputLayout::Mpc mpc) {
+void dumpConstraints(ValueDump& dump,
+                     const mpc_config::TaskFile& task,
+                     StateInputLayout::Mpc mpc) {
   dump.addSection("constraints");
-  addBarrier(dump, "joint_limits.barrier", jointLimitsBarrierFromConfig(task.joint_limits));
-  const absl::StatusOr<FootCollisionConstraint::Config> collision = footCollisionConstraintConfigFromConfig(task.collision_constraint);
+  addBarrier(dump, "joint_limits.barrier",
+             jointLimitsBarrierFromConfig(task.joint_limits));
+  const absl::StatusOr<FootCollisionConstraint::Config> collision =
+      footCollisionConstraintConfigFromConfig(task.collision_constraint);
   if (collision.ok()) {
-    dump.addStrings("collision_constraint.frames",
-                    {collision->leftAnkleFrame, collision->rightAnkleFrame, collision->leftFootCenterFrame, collision->rightFootCenterFrame,
-                     collision->leftFootFrame1, collision->rightFootFrame1, collision->leftFootFrame2, collision->rightFootFrame2,
-                     collision->leftKneeFrame, collision->rightKneeFrame});
-    dump.addDouble("collision_constraint.footCollisionSphereRadius", collision->footCollisionSphereRadius);
-    dump.addDouble("collision_constraint.kneeCollisionSphereRadius", collision->kneeCollisionSphereRadius);
+    dump.addStrings(
+        "collision_constraint.frames",
+        {collision->leftAnkleFrame, collision->rightAnkleFrame,
+         collision->leftFootCenterFrame, collision->rightFootCenterFrame,
+         collision->leftFootFrame1, collision->rightFootFrame1,
+         collision->leftFootFrame2, collision->rightFootFrame2,
+         collision->leftKneeFrame, collision->rightKneeFrame});
+    dump.addDouble("collision_constraint.footCollisionSphereRadius",
+                   collision->footCollisionSphereRadius);
+    dump.addDouble("collision_constraint.kneeCollisionSphereRadius",
+                   collision->kneeCollisionSphereRadius);
   } else {
     addError(dump, "collision_constraint", collision.status());
   }
-  addBarrier(dump, "collision_constraint.barrier", footCollisionBarrierFromConfig(task.collision_constraint));
-  dumpMimicJoints(dump, mpc == StateInputLayout::Mpc::kCentroidal ? kneeMimicKinematicJointsFromConfig(task.mimic_joints)
-                                                                  : kneeMimicJointsFromConfig(task.mimic_joints));
+  addBarrier(dump, "collision_constraint.barrier",
+             footCollisionBarrierFromConfig(task.collision_constraint));
+  const absl::StatusOr<scalar_t> collisionCbfRate =
+      footCollisionCbfRateFromConfig(task.collision_cbf_constraint);
+  if (collisionCbfRate.ok()) {
+    dump.addDouble("collision_cbf_constraint.gamma", *collisionCbfRate);
+  } else {
+    addError(dump, "collision_cbf_constraint.gamma", collisionCbfRate.status());
+  }
+  addBarrier(dump, "collision_cbf_constraint.barrier",
+             footCollisionCbfBarrierFromConfig(task.collision_cbf_constraint));
+  dumpMimicJoints(dump,
+                  mpc == StateInputLayout::Mpc::kCentroidal
+                      ? kneeMimicKinematicJointsFromConfig(task.mimic_joints)
+                      : kneeMimicJointsFromConfig(task.mimic_joints));
 }
 
-void dumpTaskSpaceCosts(ValueDump& dump, const mpc_config::TaskFile& task, StateInputLayout::Mpc mpc) {
+void dumpTaskSpaceCosts(ValueDump& dump,
+                        const mpc_config::TaskFile& task,
+                        StateInputLayout::Mpc mpc) {
   dump.addSection("task_space");
   if (mpc == StateInputLayout::Mpc::kWholeBody) {
-    addDynamicsWeights(dump, "task_space_foot_cost", wholeBodyFootCostWeightsFromConfig(task.task_space_foot_cost));
+    addDynamicsWeights(
+        dump, "task_space_foot_cost",
+        wholeBodyFootCostWeightsFromConfig(task.task_space_foot_cost));
     return;
   }
-  const absl::StatusOr<TaskSpaceFootCostSettings> foot = taskSpaceFootCostFromConfig(task.task_space_foot_cost);
+  const absl::StatusOr<TaskSpaceFootCostSettings> foot =
+      taskSpaceFootCostFromConfig(task.task_space_foot_cost);
   if (foot.ok()) {
     addKinematicsWeights(dump, "task_space_foot_cost.weights", foot->weights);
     dump.addBool("task_space_foot_cost.activeInStance", foot->activeInStance);
-    dump.addDouble("task_space_foot_cost.swingVelocityReferenceWeight", foot->swingVelocityReferenceWeight);
+    dump.addDouble("task_space_foot_cost.swingVelocityReferenceWeight",
+                   foot->swingVelocityReferenceWeight);
   } else {
     addError(dump, "task_space_foot_cost", foot.status());
   }
-  const absl::StatusOr<std::vector<TaskSpaceLinkCostSettings>> links = taskSpaceLinkCostsFromConfig(task.task_space_costs);
+  const absl::StatusOr<std::vector<TaskSpaceLinkCostSettings>> links =
+      taskSpaceLinkCostsFromConfig(task.task_space_costs);
   if (!links.ok()) {
     addError(dump, "task_space_costs", links.status());
     return;
@@ -380,80 +494,108 @@ void dumpTaskSpaceCosts(ValueDump& dump, const mpc_config::TaskFile& task, State
 
 void dumpCentroidalCosts(ValueDump& dump, const mpc_config::TaskFile& task) {
   dump.addSection("centroidal_costs");
-  const absl::StatusOr<DcmTerminalCost::Config> dcm = dcmTerminalCostConfigFromConfig(task.dcm_terminal_cost);
+  const absl::StatusOr<DcmTerminalCost::Config> dcm =
+      dcmTerminalCostConfigFromConfig(task.dcm_terminal_cost);
   if (dcm.ok()) {
-    // An unset height (the model's pendulum) is dumped as the 0 that used to stand for it.
-    dump.addDoubles("dcm_terminal_cost", {dcm->comHeight.value_or(0.0), dcm->gravity, dcm->weights.x(), dcm->weights.y(),
-                                          dcm->velocityOffsetFactor, dcm->supportBlendTime});
+    // An unset height (the model's pendulum) is dumped as the 0 that used to
+    // stand for it.
+    dump.addDoubles(
+        "dcm_terminal_cost",
+        {dcm->comHeight.value_or(0.0), dcm->gravity, dcm->weights.x(),
+         dcm->weights.y(), dcm->velocityOffsetFactor, dcm->supportBlendTime});
   } else {
     addError(dump, "dcm_terminal_cost", dcm.status());
   }
 }
 
-void dumpHeuristics(ValueDump& dump, const mpc_config::LocomotionHeuristicsConfig& config) {
+void dumpHeuristics(ValueDump& dump,
+                    const mpc_config::LocomotionHeuristicsConfig& config) {
   dump.addSection("locomotion_heuristics");
-  const absl::StatusOr<LocomotionHeuristicConfig> heuristics = locomotionHeuristicConfigFromConfig(config);
+  const absl::StatusOr<LocomotionHeuristicConfig> heuristics =
+      locomotionHeuristicConfigFromConfig(config);
   if (!heuristics.ok()) {
     addError(dump, "locomotion_heuristics", heuristics.status());
     return;
   }
   for (const HeuristicKind kind : allHeuristicKinds()) {
-    dump.addStrings(joinPath("locomotion_heuristics", heuristicKindName(kind)), heuristics->formulation.list(kind));
+    dump.addStrings(joinPath("locomotion_heuristics", heuristicKindName(kind)),
+                    heuristics->formulation.list(kind));
   }
-  addParameters(dump, "orientation_compensation", heuristics->orientationCompensation);
+  addParameters(dump, "orientation_compensation",
+                heuristics->orientationCompensation);
   addParameters(dump, "periodic_orientation", heuristics->periodicOrientation);
   addParameters(dump, "height_compensation", heuristics->heightCompensation);
   addParameters(dump, "hip_centered_stepping", heuristics->hipCenteredStepping);
   addParameters(dump, "capture_point", heuristics->capturePoint);
-  addParameters(dump, "translational_stepping", heuristics->translationalStepping);
+  addParameters(dump, "translational_stepping",
+                heuristics->translationalStepping);
   addParameters(dump, "in_place_turning", heuristics->inPlaceTurning);
   addParameters(dump, "high_speed_turning", heuristics->highSpeedTurning);
   addParameters(dump, "impulse_scaling", heuristics->impulseScaling);
-  addParameters(dump, "centripetal_acceleration", heuristics->centripetalAcceleration);
+  addParameters(dump, "centripetal_acceleration",
+                heuristics->centripetalAcceleration);
 }
 
-void dumpReference(ValueDump& dump, const ConversionInputs& inputs, const ModelSettings* absl_nullable model) {
+void dumpReference(ValueDump& dump,
+                   const ConversionInputs& inputs,
+                   const ModelSettings* absl_nullable model) {
   dump.addSection("reference");
-  const absl::StatusOr<ReferenceSettings> reference = referenceSettingsFromConfig(inputs.reference);
+  const absl::StatusOr<ReferenceSettings> reference =
+      referenceSettingsFromConfig(inputs.reference);
   if (reference.ok()) {
-    dump.addDoubles("reference.settings",
-                    {reference->targetDisplacementVelocity, reference->targetRotationVelocity, reference->maxDisplacementVelocityX,
-                     reference->maxDisplacementVelocityY, reference->maxDeltaPelvisHeight, reference->maxRotationVelocity,
-                     reference->maxLinearAcceleration, reference->maxAngularAcceleration, reference->velocityCommandFilterBreakFrequency,
-                     reference->defaultBaseHeight});
-    dump.addBool("reference.targetJointStateInterpolationTimeConstant.has_value",
-                 reference->targetJointStateInterpolationTimeConstant.has_value());
+    dump.addDoubles(
+        "reference.settings",
+        {reference->targetDisplacementVelocity,
+         reference->targetRotationVelocity, reference->maxDisplacementVelocityX,
+         reference->maxDisplacementVelocityY, reference->maxDeltaPelvisHeight,
+         reference->maxRotationVelocity, reference->maxLinearAcceleration,
+         reference->maxAngularAcceleration,
+         reference->velocityCommandFilterBreakFrequency,
+         reference->defaultBaseHeight});
+    dump.addBool(
+        "reference.targetJointStateInterpolationTimeConstant.has_value",
+        reference->targetJointStateInterpolationTimeConstant.has_value());
     if (reference->targetJointStateInterpolationTimeConstant.has_value()) {
-      dump.addDouble("reference.targetJointStateInterpolationTimeConstant", *reference->targetJointStateInterpolationTimeConstant);
+      dump.addDouble("reference.targetJointStateInterpolationTimeConstant",
+                     *reference->targetJointStateInterpolationTimeConstant);
     }
   } else {
     addError(dump, "reference.settings", reference.status());
   }
   if (model != nullptr) {
-    addVector(dump, "reference.default_joint_state",
-              defaultJointStateFromConfig(inputs.reference, model->mpcModelJointNames, model->fixedJointNames));
+    addVector(
+        dump, "reference.default_joint_state",
+        defaultJointStateFromConfig(inputs.reference, model->mpcModelJointNames,
+                                    model->fixedJointNames));
   }
-  const absl::StatusOr<ModeSchedule> schedule = initialModeScheduleFromConfig(inputs.reference);
+  const absl::StatusOr<ModeSchedule> schedule =
+      initialModeScheduleFromConfig(inputs.reference);
   if (schedule.ok()) {
     dumpModeSchedule(dump, "reference.initial_mode_schedule", *schedule);
   } else {
     addError(dump, "reference.initial_mode_schedule", schedule.status());
   }
-  const absl::StatusOr<ModeSequenceTemplate> pattern = defaultModeSequenceTemplateFromConfig(inputs.reference);
+  const absl::StatusOr<ModeSequenceTemplate> pattern =
+      defaultModeSequenceTemplateFromConfig(inputs.reference);
   if (pattern.ok()) {
-    dump.addDoubles("reference.default_mode_sequence_template.switchingTimes", pattern->switchingTimes);
-    dump.addSizes("reference.default_mode_sequence_template.modeSequence", pattern->modeSequence);
+    dump.addDoubles("reference.default_mode_sequence_template.switchingTimes",
+                    pattern->switchingTimes);
+    dump.addSizes("reference.default_mode_sequence_template.modeSequence",
+                  pattern->modeSequence);
   } else {
-    addError(dump, "reference.default_mode_sequence_template", pattern.status());
+    addError(dump, "reference.default_mode_sequence_template",
+             pattern.status());
   }
-  const absl::StatusOr<teleop::KeyboardCommandLimits> keyboard = teleop::keyboardCommandLimitsFromConfig(inputs.reference);
+  const absl::StatusOr<teleop::KeyboardCommandLimits> keyboard =
+      teleop::keyboardCommandLimitsFromConfig(inputs.reference);
   if (keyboard.ok()) {
     dumpKeyboardCommandLimits(dump, "reference.keyboard", *keyboard);
   } else {
     addError(dump, "reference.keyboard", keyboard.status());
   }
   dump.addSection("gaits");
-  const absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaits = gaitMapFromConfig(inputs.gait);
+  const absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaits =
+      gaitMapFromConfig(inputs.gait);
   if (gaits.ok()) {
     dumpGaitMap(dump, "gaits", *gaits);
   } else {
@@ -461,46 +603,59 @@ void dumpReference(ValueDump& dump, const ConversionInputs& inputs, const ModelS
   }
 }
 
-void dumpRobot(ValueDump& dump, const ConversionInputs& inputs, const ModelSettings* absl_nullable model) {
+void dumpRobot(ValueDump& dump,
+               const ConversionInputs& inputs,
+               const ModelSettings* absl_nullable model) {
   dump.addSection("robot");
   if (model != nullptr) {
-    const absl::StatusOr<JointPdGains> gains = jointPdGainsFromConfig(inputs.pdGains, model->mpcModelJointNames, model->fixedJointNames);
+    const absl::StatusOr<JointPdGains> gains = jointPdGainsFromConfig(
+        inputs.pdGains, model->mpcModelJointNames, model->fixedJointNames);
     if (gains.ok()) {
       dumpJointPdGains(dump, "pd_gains", *gains);
     } else {
       addError(dump, "pd_gains", gains.status());
     }
     const absl::StatusOr<visualization::VisualizationConfig> visualization =
-        visualization::visualizationConfigFromConfig(inputs.task, model->contactNames);
+        visualization::visualizationConfigFromConfig(inputs.task,
+                                                     model->contactNames);
     if (visualization.ok()) {
       dumpVisualizationConfig(dump, "visualization", *visualization);
     } else {
       addError(dump, "visualization", visualization.status());
     }
   }
-  const absl::StatusOr<RobotProcessSettings> robot = robotProcessSettingsFromConfig(inputs.task);
+  const absl::StatusOr<RobotProcessSettings> robot =
+      robotProcessSettingsFromConfig(inputs.task);
   if (robot.ok()) {
     dumpRobotProcessSettings(dump, "robot_process", *robot);
   } else {
     addError(dump, "robot_process", robot.status());
   }
-  const ControllerSideConfig controllerSide = controllerSideSettingsFromConfig(inputs.task);
-  dump.addString("controller_side.contactEstimator", controllerSide.contactEstimator);
-  dump.addBool("controller_side.contactWrenchGate.has_value", controllerSide.contactWrenchGate.has_value());
+  const ControllerSideConfig controllerSide =
+      controllerSideSettingsFromConfig(inputs.task);
+  dump.addString("controller_side.contactEstimator",
+                 controllerSide.contactEstimator);
+  dump.addBool("controller_side.contactWrenchGate.has_value",
+               controllerSide.contactWrenchGate.has_value());
   if (controllerSide.contactWrenchGate.has_value()) {
     dump.addDoubles("controller_side.contactWrenchGate",
-                    {controllerSide.contactWrenchGate->debounceTime, controllerSide.contactWrenchGate->rampTime});
+                    {controllerSide.contactWrenchGate->debounceTime,
+                     controllerSide.contactWrenchGate->rampTime});
   }
   dump.addStrings("controller_side.problems", controllerSide.problems);
 }
 
 }  // namespace
 
-std::string dumpConversions(const ConversionInputs& inputs, const std::string& urdfFile, StateInputLayout::Mpc mpc) {
+std::string dumpConversions(const ConversionInputs& inputs,
+                            const std::string& urdfFile,
+                            StateInputLayout::Mpc mpc) {
   ValueDump dump;
   dump.addSection("model_settings");
-  const char* absl_nonnull mpcName = mpc == StateInputLayout::Mpc::kCentroidal ? "centroidal_mpc_" : "wb_mpc_";
-  const absl::StatusOr<ModelSettings> model = ModelSettings::Create(inputs.task, urdfFile, mpcName, /*verbose=*/false);
+  const char* absl_nonnull mpcName =
+      mpc == StateInputLayout::Mpc::kCentroidal ? "centroidal_mpc_" : "wb_mpc_";
+  const absl::StatusOr<ModelSettings> model =
+      ModelSettings::Create(inputs.task, urdfFile, mpcName, /*verbose=*/false);
   if (model.ok()) {
     dumpModelSettings(dump, "model_settings", *model);
   } else {
@@ -519,21 +674,26 @@ std::string dumpConversions(const ConversionInputs& inputs, const std::string& u
     dumpHeuristics(dump, inputs.task.locomotion_heuristics);
   }
   dump.addSection("swing");
-  const absl::StatusOr<SwingTrajectoryPlanner::Config> swing = swingTrajectorySettingsFromConfig(inputs.task.swing_trajectory_config);
+  const absl::StatusOr<SwingTrajectoryPlanner::Config> swing =
+      swingTrajectorySettingsFromConfig(inputs.task.swing_trajectory_config);
   if (swing.ok()) {
     dumpSwingSettings(dump, "swing", *swing);
   } else {
     addError(dump, "swing", swing.status());
   }
   dump.addSection("arm_swing");
-  const absl::StatusOr<ArmSwingSettings> armSwing = armSwingSettingsFromConfig(inputs.task.arm_swing);
+  const absl::StatusOr<ArmSwingSettings> armSwing =
+      armSwingSettingsFromConfig(inputs.task.arm_swing);
   if (armSwing.ok()) {
-    dump.addInteger("arm_swing.generator", static_cast<int64_t>(armSwing->generator));
-    dump.addDoubles("arm_swing", {armSwing->shoulderGain, armSwing->elbowGain, armSwing->phaseOffset});
+    dump.addInteger("arm_swing.generator",
+                    static_cast<int64_t>(armSwing->generator));
+    dump.addDoubles("arm_swing", {armSwing->shoulderGain, armSwing->elbowGain,
+                                  armSwing->phaseOffset});
   } else {
     addError(dump, "arm_swing", armSwing.status());
   }
-  const ModelSettings* absl_nullable modelOrNull = model.ok() ? &*model : nullptr;
+  const ModelSettings* absl_nullable modelOrNull =
+      model.ok() ? &*model : nullptr;
   dumpReference(dump, inputs, modelOrNull);
   dumpRobot(dump, inputs, modelOrNull);
   return dump.text();

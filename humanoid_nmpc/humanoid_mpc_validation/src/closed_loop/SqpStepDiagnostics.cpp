@@ -42,17 +42,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::validation {
 
-std::vector<size_t> normalVelocityTermIndices(const StateInputConstraintCollection& constraints,
-                                              absl::Span<const std::string> contactNames) {
+std::vector<size_t> normalVelocityTermIndices(
+    const StateInputConstraintCollection& constraints,
+    absl::Span<const std::string> contactNames) {
   std::vector<size_t> indices;
   for (const std::string& contactName : contactNames) {
     size_t index = 0;
-    if (constraints.getTermIndex(contact_term::name(contactName, contact_term::kNormalVelocity), index)) indices.push_back(index);
+    if (constraints.getTermIndex(
+            contact_term::name(contactName, contact_term::kNormalVelocity),
+            index))
+      indices.push_back(index);
   }
   return indices;
 }
 
-std::optional<double> largestEqualityConstraintResidual(const ProblemMetrics& metrics, absl::Span<const size_t> termIndices) {
+std::optional<double> largestEqualityConstraintResidual(
+    const ProblemMetrics& metrics, absl::Span<const size_t> termIndices) {
   std::optional<double> largest;
   for (const Metrics& node : metrics.intermediates) {
     for (const size_t term : termIndices) {
@@ -86,12 +91,14 @@ SqpStepSample sqpStepSampleOf(const sqp::IterationRecord& iteration,
                               const ProblemMetrics& metrics,
                               absl::Span<const size_t> normalVelocityTerms) {
   const sqp::StepInfo& step = iteration.stepInfo;
-  return SqpStepSample{.stepSize = step.stepSize,
-                       .stepKind = sqpStepKindOf(step.stepType),
-                       .fullStepKind = sqpStepKindOf(step.fullStepType),
-                       .fullStepConstraintViolation = step.fullStepConstraintViolation,
-                       .constraintViolation = step.totalConstraintViolationAfterStep,
-                       .swingNormalVelocityResidual = largestEqualityConstraintResidual(metrics, normalVelocityTerms)};
+  return SqpStepSample{
+      .stepSize = step.stepSize,
+      .stepKind = sqpStepKindOf(step.stepType),
+      .fullStepKind = sqpStepKindOf(step.fullStepType),
+      .fullStepConstraintViolation = step.fullStepConstraintViolation,
+      .constraintViolation = step.totalConstraintViolationAfterStep,
+      .swingNormalVelocityResidual =
+          largestEqualityConstraintResidual(metrics, normalVelocityTerms)};
 }
 
 }  // namespace ocs2::humanoid::validation

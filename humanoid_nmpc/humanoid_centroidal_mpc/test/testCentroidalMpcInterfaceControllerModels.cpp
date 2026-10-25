@@ -38,9 +38,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 
 /*
- * CentroidalMpcInterface::CreateControllerModels(): what the robot process of a remote MPC builds, the models of the MRT
- * joint controller and nothing else. No reference manager and no optimal control problem (nothing taped or loaded with
- * CppAD); the effective model follows the contact input parameterization exactly as Create()'s does.
+ * CentroidalMpcInterface::CreateControllerModels(): what the robot process of a
+ * remote MPC builds, the models of the MRT joint controller and nothing else.
+ * No reference manager and no optimal control problem (nothing taped or loaded
+ * with CppAD); the effective model follows the contact input parameterization
+ * exactly as Create()'s does.
  */
 
 namespace ocs2::humanoid {
@@ -52,41 +54,57 @@ struct RobotFiles {
   std::string reference;
 };
 
-const RobotFiles kAtlas{.task = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto",
-                        .urdf = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf",
-                        .reference = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.textproto"};
+const RobotFiles kAtlas{
+    .task =
+        "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/"
+        "task.textproto",
+    .urdf = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf",
+    .reference =
+        "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/"
+        "reference.textproto"};
 
-TEST(CentroidalMpcInterfaceControllerModels, BuildsTheControllersModelsAndNoProblem) {
+TEST(CentroidalMpcInterfaceControllerModels,
+     BuildsTheControllersModelsAndNoProblem) {
   absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> created =
-      CentroidalMpcInterface::CreateControllerModels(kAtlas.task, kAtlas.urdf, kAtlas.reference);
+      CentroidalMpcInterface::CreateControllerModels(kAtlas.task, kAtlas.urdf,
+                                                     kAtlas.reference);
   ASSERT_TRUE(created.ok()) << created.status();
   const CentroidalMpcInterface& interface = **created;
   EXPECT_FALSE(interface.hasOptimalControlProblem());
-  EXPECT_EQ(interface.getReferenceManagerPtr(), nullptr) << "the reference manager is the MPC's";
+  EXPECT_EQ(interface.getReferenceManagerPtr(), nullptr)
+      << "the reference manager is the MPC's";
   EXPECT_EQ(interface.getContactPlannerModulePtr(), nullptr);
 
   const CentroidalMpcRobotModel<scalar_t>& model = interface.getMpcRobotModel();
-  const MpcRobotModelBase<scalar_t>& effective = interface.getEffectiveMpcRobotModel();
-  EXPECT_EQ(interface.getInitialState().size(), static_cast<Eigen::Index>(model.getStateDim()));
+  const MpcRobotModelBase<scalar_t>& effective =
+      interface.getEffectiveMpcRobotModel();
+  EXPECT_EQ(interface.getInitialState().size(),
+            static_cast<Eigen::Index>(model.getStateDim()));
   EXPECT_EQ(effective.getStateDim(), model.getStateDim());
-  EXPECT_EQ(model.getJointDim(), interface.modelSettings().mpcModelJointNames.size());
-  // The input layout of the problem the MPC node builds from the same file: [lambda, joint velocities] under basis
-  // vectors, [six-dimensional wrenches, joint velocities] otherwise.
+  EXPECT_EQ(model.getJointDim(),
+            interface.modelSettings().mpcModelJointNames.size());
+  // The input layout of the problem the MPC node builds from the same file:
+  // [lambda, joint velocities] under basis vectors, [six-dimensional wrenches,
+  // joint velocities] otherwise.
   if (interface.usesContactBasisVectorInputs()) {
-    EXPECT_EQ(effective.getInputDim(), interface.getNumBasisInputs() + model.getJointDim());
+    EXPECT_EQ(effective.getInputDim(),
+              interface.getNumBasisInputs() + model.getJointDim());
     EXPECT_NE(interface.getBasisDecoratorPtr(), nullptr);
   } else {
     EXPECT_EQ(effective.getInputDim(), model.getInputDim());
   }
-  EXPECT_GT(interface.mpcSettings().mrtDesiredFrequency_, 0.0) << "the solver settings are read: the control rate";
+  EXPECT_GT(interface.mpcSettings().mrtDesiredFrequency_, 0.0)
+      << "the solver settings are read: the control rate";
   EXPECT_GT(interface.getNominalComHeight(), 0.0);
 }
 
 TEST(CentroidalMpcInterfaceControllerModels, RefusesAMissingFileByName) {
   const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> created =
-      CentroidalMpcInterface::CreateControllerModels(kAtlas.task, "no/such/robot.urdf", kAtlas.reference);
+      CentroidalMpcInterface::CreateControllerModels(
+          kAtlas.task, "no/such/robot.urdf", kAtlas.reference);
   EXPECT_EQ(created.status().code(), absl::StatusCode::kNotFound);
-  EXPECT_NE(created.status().message().find("no/such/robot.urdf"), std::string::npos);
+  EXPECT_NE(created.status().message().find("no/such/robot.urdf"),
+            std::string::npos);
 }
 
 }  // namespace

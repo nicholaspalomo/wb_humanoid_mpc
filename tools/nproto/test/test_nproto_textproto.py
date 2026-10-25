@@ -59,14 +59,20 @@ class ParserTestCase(unittest.TestCase):
     """The assertion the tests share."""
 
     def assert_invalid(
-        self, text: str, message: message_module.Message, source: str, expected: str
+        self,
+        text: str,
+        message: message_module.Message,
+        source: str,
+        expected: str,
     ) -> None:
         """Parsing `text` into `message` fails with an error containing `expected`."""
         with self.assertRaises(nproto_textproto.TextprotoError) as caught:
             nproto_textproto.parse_textproto(text, message, source)
         self.assertIn(expected, str(caught.exception))
 
-    def error(self, text: str, message: message_module.Message, source: str) -> str:
+    def error(
+        self, text: str, message: message_module.Message, source: str
+    ) -> str:
         """The error of parsing `text` into `message`."""
         with self.assertRaises(nproto_textproto.TextprotoError) as caught:
             nproto_textproto.parse_textproto(text, message, source)
@@ -75,7 +81,9 @@ class ParserTestCase(unittest.TestCase):
 
 class TextprotoTest(ParserTestCase):
     def test_a_file_that_matches_the_schema_parses(self):
-        scalars = nproto_textproto.load_textproto(SCALARS_FILE, scalars_pb2.Scalars)
+        scalars = nproto_textproto.load_textproto(
+            SCALARS_FILE, scalars_pb2.Scalars
+        )
         self.assertEqual(scalars.double_value, 1.5)
         self.assertEqual(scalars.uint64_value, 18000000000)
         self.assertEqual(scalars.string_value, "a configuration value")
@@ -92,7 +100,8 @@ class TextprotoTest(ParserTestCase):
             "# A comment.\nscalars { int32_value: 1 bogus: 2 }\n",
             oneofs_pb2.Oneofs(),
             "nested.textproto",
-            'nested.textproto:2:26: Message type "nproto_test.Scalars" has no field named "bogus".',
+            'nested.textproto:2:26: Message type "nproto_test.Scalars" has no'
+            ' field named "bogus".',
         )
         self.assert_invalid(
             "int32_value: 1\nbogus",
@@ -120,7 +129,9 @@ class TextprotoTest(ParserTestCase):
             "utf8.textproto:1:19: ",
         )
 
-    def test_a_value_of_the_wrong_type_is_an_error_with_its_line_and_column(self):
+    def test_a_value_of_the_wrong_type_is_an_error_with_its_line_and_column(
+        self,
+    ):
         self.assert_invalid(
             'int32_value: "seven"\n',
             scalars_pb2.Scalars(),
@@ -169,22 +180,30 @@ class TextprotoTest(ParserTestCase):
             "syntax.textproto:1:",
         )
         # A missing proto2 required field has no position.
-        error = self.error("count: 1\n", defaults_pb2.Defaults(), "required.textproto")
+        error = self.error(
+            "count: 1\n", defaults_pb2.Defaults(), "required.textproto"
+        )
         self.assertTrue(error.startswith("required.textproto: "), error)
         self.assertIn("required_count", error)
         # A field number instead of a name.
         self.assert_invalid(
-            "3: 1\n", scalars_pb2.Scalars(), "number.textproto", "number.textproto:1:"
+            "3: 1\n",
+            scalars_pb2.Scalars(),
+            "number.textproto",
+            "number.textproto:1:",
         )
 
     def test_a_deprecated_field_is_an_error_at_its_name(self):
         # The C++ parser treats text_format's deprecation warning as an error; text_format has no such warning, so the
         # Python parser looks for the field itself.
         file_proto = text_format.Parse(
-            'name: "deprecated_test.proto" package: "deprecated_test" syntax: "proto3" '
-            'message_type { name: "Gains" field { name: "kp" number: 1 type: TYPE_DOUBLE label: LABEL_OPTIONAL } '
-            'field { name: "old_kp" number: 2 type: TYPE_DOUBLE label: LABEL_OPTIONAL options { deprecated: true } } '
-            'field { name: "inner" number: 3 type: TYPE_MESSAGE label: LABEL_OPTIONAL type_name: ".deprecated_test.Gains" } }',
+            'name: "deprecated_test.proto" package: "deprecated_test" syntax:'
+            ' "proto3" message_type { name: "Gains" field { name: "kp" number:'
+            " 1 type: TYPE_DOUBLE label: LABEL_OPTIONAL } field { name:"
+            ' "old_kp" number: 2 type: TYPE_DOUBLE label: LABEL_OPTIONAL'
+            ' options { deprecated: true } } field { name: "inner" number: 3'
+            " type: TYPE_MESSAGE label: LABEL_OPTIONAL type_name:"
+            ' ".deprecated_test.Gains" } }',
             descriptor_pb2.FileDescriptorProto(),
         )
         pool = descriptor_pool.DescriptorPool()
@@ -198,7 +217,8 @@ class TextprotoTest(ParserTestCase):
                 gains_class(),
                 "gains.textproto",
             ),
-            'gains.textproto:3:9: text format contains deprecated field "old_kp"',
+            "gains.textproto:3:9: text format contains deprecated field"
+            ' "old_kp"',
         )
         nproto_textproto.parse_textproto(
             "kp: 1 inner { kp: 2 }", gains_class(), "gains.textproto"
@@ -225,13 +245,17 @@ class RetiredFieldTest(ParserTestCase):
                 retired_pb2.Retired(),
                 "retired.textproto",
             ),
-            "retired.textproto:2:1: 'use_old_switch' is retired: list old_switch under switches",
+            "retired.textproto:2:1: 'use_old_switch' is retired: list"
+            " old_switch under switches",
         )
 
     def test_every_spelling_of_the_name_hits_and_the_position_is_kept(self):
         self.assertEqual(
-            self.error("  useOldSwitch: 1\n", retired_pb2.Retired(), "camel.textproto"),
-            "camel.textproto:1:3: 'useOldSwitch' is retired: list old_switch under switches",
+            self.error(
+                "  useOldSwitch: 1\n", retired_pb2.Retired(), "camel.textproto"
+            ),
+            "camel.textproto:1:3: 'useOldSwitch' is retired: list old_switch"
+            " under switches",
         )
         self.assertEqual(
             self.error(
@@ -239,19 +263,24 @@ class RetiredFieldTest(ParserTestCase):
                 retired_pb2.Retired(),
                 "snake.textproto",
             ),
-            "snake.textproto:1:17: 'legacy_gain' is retired: set block.gain instead",
+            "snake.textproto:1:17: 'legacy_gain' is retired: set block.gain"
+            " instead",
         )
 
     def test_an_unknown_name_keeps_the_plain_error(self):
         self.assertEqual(
             self.error("bogus: 1\n", retired_pb2.Retired(), "plain.textproto"),
-            'plain.textproto:1:1: Message type "nproto_test.Retired" has no field named "bogus".',
+            'plain.textproto:1:1: Message type "nproto_test.Retired" has no'
+            ' field named "bogus".',
         )
 
     def test_a_snake_cased_field_is_suggested(self):
         self.assertEqual(
-            self.error("stepWidth: 0.2\n", retired_pb2.Retired(), "suggest.textproto"),
-            'suggest.textproto:1:1: Message type "nproto_test.Retired" has no field named "stepWidth". Did you mean "step_width"?',
+            self.error(
+                "stepWidth: 0.2\n", retired_pb2.Retired(), "suggest.textproto"
+            ),
+            'suggest.textproto:1:1: Message type "nproto_test.Retired" has no'
+            ' field named "stepWidth". Did you mean "step_width"?',
         )
 
     def test_the_layout_hint_ends_every_unknown_field_of_its_message(self):
@@ -261,8 +290,9 @@ class RetiredFieldTest(ParserTestCase):
                 retired_pb2.Retired(),
                 "layout.textproto",
             ),
-            'layout.textproto:2:3: Message type "nproto_test.Retired.Block" has no field named "flat_gain". '
-            "(the flat keys moved into block, tools/nproto/README.md)",
+            'layout.textproto:2:3: Message type "nproto_test.Retired.Block" has'
+            ' no field named "flat_gain". (the flat keys moved into block,'
+            " tools/nproto/README.md)",
         )
 
     def test_the_options_are_readable(self):
@@ -277,19 +307,25 @@ class RetiredFieldTest(ParserTestCase):
             nproto_textproto.layout_hint(retired_pb2.Retired.DESCRIPTOR), ""
         )
         self.assertEqual(
-            nproto_textproto.snake_case("useDcmTerminalCost"), "use_dcm_terminal_cost"
+            nproto_textproto.snake_case("useDcmTerminalCost"),
+            "use_dcm_terminal_cost",
         )
-        self.assertEqual(nproto_textproto.snake_case("HTTPRequest"), "http_request")
+        self.assertEqual(
+            nproto_textproto.snake_case("HTTPRequest"), "http_request"
+        )
 
 
 class HeaderTest(ParserTestCase):
-    TEXT = "# proto-file: tools/nproto/test/scalars.proto\n# proto-message: nproto_test.Scalars\n\nint32_value: 1\n"
+    TEXT = (
+        "# proto-file: tools/nproto/test/scalars.proto\n# proto-message:"
+        " nproto_test.Scalars\n\nint32_value: 1\n"
+    )
 
     def test_a_file_of_another_message_is_refused(self):
         self.assertEqual(
             self.error(self.TEXT, oneofs_pb2.Oneofs(), "scalars.textproto"),
-            "scalars.textproto:2:1: scalars.textproto is a nproto_test.Scalars (its '# proto-message:' header), not a "
-            "nproto_test.Oneofs",
+            "scalars.textproto:2:1: scalars.textproto is a nproto_test.Scalars"
+            " (its '# proto-message:' header), not a nproto_test.Oneofs",
         )
         # The message the header names parses, and so does a file without a header.
         nproto_textproto.parse_textproto(
@@ -306,7 +342,8 @@ class HeaderTest(ParserTestCase):
             "later.textproto",
         )
         self.assertEqual(
-            nproto_textproto.header_message(self.TEXT), (2, "nproto_test.Scalars")
+            nproto_textproto.header_message(self.TEXT),
+            (2, "nproto_test.Scalars"),
         )
         self.assertIsNone(
             nproto_textproto.header_message("x: 1\n# proto-message: a.B\n")
@@ -315,7 +352,8 @@ class HeaderTest(ParserTestCase):
     def test_the_shipped_test_file_names_its_message(self):
         with open(SCALARS_FILE, encoding="utf-8") as file:
             self.assertEqual(
-                nproto_textproto.header_message(file.read()), (2, "nproto_test.Scalars")
+                nproto_textproto.header_message(file.read()),
+                (2, "nproto_test.Scalars"),
             )
         self.assertTrue(os.path.isfile(SCALARS_FILE))
 
@@ -333,14 +371,17 @@ class FileHeaderTest(unittest.TestCase):
         # The C++ parser's words (tools/nproto/test/testTextproto.cpp, AFileThatNamesNoMessageIsRefused).
         self.assertEqual(
             str(caught.exception),
-            f"{path}:1:1: {path} names no schema: a configuration file opens with "
-            "'# proto-message: nproto_test.Scalars' in its leading comment block",
+            f"{path}:1:1: {path} names no schema: a configuration file opens"
+            " with '# proto-message: nproto_test.Scalars' in its leading"
+            " comment block",
         )
 
     def test_a_written_file_names_its_schema_and_loads_back(self):
         scalars = scalars_pb2.Scalars(int32_value=7, string_value="seven")
         text = nproto_textproto.file_text(scalars)
-        self.assertTrue(text.startswith("# proto-message: nproto_test.Scalars\n"), text)
+        self.assertTrue(
+            text.startswith("# proto-message: nproto_test.Scalars\n"), text
+        )
         with tempfile.NamedTemporaryFile(
             "w", suffix=".textproto", delete=False, encoding="utf-8"
         ) as handle:
@@ -364,7 +405,8 @@ class FileHeaderTest(unittest.TestCase):
                 "text",
             )
         check(
-            "\n# A comment.\n  # proto-message: nproto_test.Scalars\nint32_value: 1\n",
+            "\n# A comment.\n  # proto-message:"
+            " nproto_test.Scalars\nint32_value: 1\n",
             scalars_pb2.Scalars(),
             "text",
         )
@@ -375,7 +417,9 @@ class FileHeaderTest(unittest.TestCase):
 
 
 class ReadTextprotoFileTest(unittest.TestCase):
-    def test_non_utf8_file_raises_textproto_error_with_position_and_description(self):
+    def test_non_utf8_file_raises_textproto_error_with_position_and_description(
+        self,
+    ):
         with tempfile.NamedTemporaryFile(delete=False) as handle:
             handle.write(b"double_value: 1.0\n\xff\xfe")
             path = handle.name
@@ -383,11 +427,15 @@ class ReadTextprotoFileTest(unittest.TestCase):
 
         with self.assertRaises(nproto_textproto.TextprotoError) as error:
             nproto_textproto.read_textproto_file(path)
-        self.assertIn(f"{path}:1:1: cannot decode as UTF-8:", str(error.exception))
+        self.assertIn(
+            f"{path}:1:1: cannot decode as UTF-8:", str(error.exception)
+        )
 
         with self.assertRaises(nproto_textproto.TextprotoError) as error:
             nproto_textproto.load_textproto(path, scalars_pb2.Scalars)
-        self.assertIn(f"{path}:1:1: cannot decode as UTF-8:", str(error.exception))
+        self.assertIn(
+            f"{path}:1:1: cannot decode as UTF-8:", str(error.exception)
+        )
 
 
 if __name__ == "__main__":

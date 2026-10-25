@@ -79,11 +79,13 @@ def cpu_seconds_per_call(
 def box_robot(links: int) -> urdf_model.RobotModel:
     """A model of `links` links with one box each: link poses cost the same as with meshes, the meshes are not timed."""
     text = '<robot name="boxes">' + "".join(
-        f'<link name="link_{index}"><visual><geometry><box size="0.1 0.1 0.1"/></geometry></visual></link>'
+        f'<link name="link_{index}"><visual><geometry><box size="0.1 0.1'
+        ' 0.1"/></geometry></visual></link>'
         for index in range(links)
     )
     text += "".join(
-        f'<joint name="joint_{index}" type="fixed"><parent link="link_0"/><child link="link_{index}"/></joint>'
+        f'<joint name="joint_{index}" type="fixed"><parent'
+        f' link="link_0"/><child link="link_{index}"/></joint>'
         for index in range(1, links)
     )
     return urdf_model.parse_urdf(f"{text}</robot>", "boxes.urdf")
@@ -100,7 +102,9 @@ class BridgeCostTest(unittest.TestCase):
     def test_telemetry(self) -> None:
         the_bridge = bridge.RerunBridge(self.recording, None)
         messages = [
-            synthetic_messages.full_telemetry(index / TELEMETRY_RATE_HZ, JOINTS, FRAMES)
+            synthetic_messages.full_telemetry(
+                index / TELEMETRY_RATE_HZ, JOINTS, FRAMES
+            )
             for index in range(TELEMETRY_MESSAGES)
         ]
         groups = len(messages[0].groups)
@@ -128,10 +132,13 @@ class BridgeCostTest(unittest.TestCase):
         drain = (time.process_time() - flush_start) / TELEMETRY_MESSAGES
         total = parse_cpu + cpu + drain
         print(
-            f"\nviz/telemetry: {groups} groups, {len(payloads[0])} bytes; per message: parse {parse_cpu * 1e6:.0f} us, "
-            f"bridge {cpu * 1e6:.0f} us CPU ({wall * 1e6:.0f} us wall on its thread), SDK drain {drain * 1e6:.0f} us; "
-            f"total {total * 1e6:.0f} us CPU = {100.0 * total * TELEMETRY_RATE_HZ:.1f} % of a core at "
-            f"{TELEMETRY_RATE_HZ:.0f} Hz, flushed every {FLUSH_PERIOD_S * 1000:.0f} ms"
+            f"\nviz/telemetry: {groups} groups, {len(payloads[0])} bytes; per"
+            f" message: parse {parse_cpu * 1e6:.0f} us, bridge"
+            f" {cpu * 1e6:.0f} us CPU ({wall * 1e6:.0f} us wall on its thread),"
+            f" SDK drain {drain * 1e6:.0f} us; total {total * 1e6:.0f} us CPU ="
+            f" {100.0 * total * TELEMETRY_RATE_HZ:.1f} % of a core at"
+            f" {TELEMETRY_RATE_HZ:.0f} Hz, flushed every"
+            f" {FLUSH_PERIOD_S * 1000:.0f} ms"
         )
         self.assertEqual(groups, len(telemetry_contract.all_groups(FRAMES)))
         self.assertEqual(the_bridge.statistics.malformed_count(), 0)
@@ -147,7 +154,9 @@ class BridgeCostTest(unittest.TestCase):
         ]
         payload = scenes[0].SerializeToString()
         # Warm up at an earlier time, so that every measured scene moves every link.
-        the_bridge.handle_scene(synthetic_messages.full_scene(-0.03, model.links))
+        the_bridge.handle_scene(
+            synthetic_messages.full_scene(-0.03, model.links)
+        )
         self.recording.flush()
 
         cpu, wall = cpu_seconds_per_call(
@@ -158,9 +167,11 @@ class BridgeCostTest(unittest.TestCase):
         drain = (time.process_time() - flush_start) / SCENES
         total = cpu + drain
         print(
-            f"\nviz/scene: {len(scene_contract.ROBOT_INSTANCES)} instances x {LINK_COUNT} links and every marker, "
-            f"{len(payload)} bytes; per scene: bridge {cpu * 1e3:.2f} ms CPU ({wall * 1e3:.2f} ms wall), SDK drain "
-            f"{drain * 1e3:.2f} ms; total {total * 1e3:.2f} ms CPU = {100.0 * total * 30.0:.1f} % of a core at 30 Hz"
+            f"\nviz/scene: {len(scene_contract.ROBOT_INSTANCES)} instances x"
+            f" {LINK_COUNT} links and every marker, {len(payload)} bytes; per"
+            f" scene: bridge {cpu * 1e3:.2f} ms CPU ({wall * 1e3:.2f} ms wall),"
+            f" SDK drain {drain * 1e3:.2f} ms; total {total * 1e3:.2f} ms CPU ="
+            f" {100.0 * total * 30.0:.1f} % of a core at 30 Hz"
         )
         self.assertEqual(
             the_bridge.statistics.link_poses_logged,

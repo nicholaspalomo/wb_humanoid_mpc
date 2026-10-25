@@ -49,18 +49,25 @@ namespace ocs2::humanoid {
 
 namespace {
 
-/** "base_orientation 3 (yaw, pitch, roll)" in the tuning layout, "base_orientation 4 (quaternion x, y, z, w)" in the state. */
+/** "base_orientation 3 (yaw, pitch, roll)" in the tuning layout,
+ * "base_orientation 4 (quaternion x, y, z, w)" in the state. */
 std::string describeSegment(const TuningSegment& segment, bool inState) {
   switch (segment.kind) {
     case TuningSegmentKind::kEuclidean:
-      return absl::StrCat(segment.name, " ", inState ? segment.stateDim : segment.tuningDim);
+      return absl::StrCat(segment.name, " ",
+                          inState ? segment.stateDim : segment.tuningDim);
     case TuningSegmentKind::kEulerZyxOrientation:
       return inState && segment.stateDim == kQuaternionOrientationStateDim
-                 ? absl::StrCat(segment.name, " ", segment.stateDim, " (quaternion x, y, z, w)")
-                 : absl::StrCat(segment.name, " ", inState ? segment.stateDim : segment.tuningDim, " (yaw, pitch, roll)");
+                 ? absl::StrCat(segment.name, " ", segment.stateDim,
+                                " (quaternion x, y, z, w)")
+                 : absl::StrCat(segment.name, " ",
+                                inState ? segment.stateDim : segment.tuningDim,
+                                " (yaw, pitch, roll)");
     case TuningSegmentKind::kZyxOrderedAngularVelocity:
-      return inState ? absl::StrCat(segment.name, " ", segment.stateDim, " (body w_x, w_y, w_z)")
-                     : absl::StrCat(segment.name, " ", segment.tuningDim, " (body w_z, w_y, w_x)");
+      return inState ? absl::StrCat(segment.name, " ", segment.stateDim,
+                                    " (body w_x, w_y, w_z)")
+                     : absl::StrCat(segment.name, " ", segment.tuningDim,
+                                    " (body w_z, w_y, w_x)");
   }
   return segment.name;
 }
@@ -71,34 +78,48 @@ std::string describeLayout(const TuningLayout& layout, bool inState) {
   for (const TuningSegment& segment : layout.segments) {
     segments.push_back(describeSegment(segment, inState));
   }
-  const size_t rows = inState ? getTuningLayoutStateDim(layout) : getTuningLayoutDim(layout);
-  return absl::StrCat(layout.name, layout.name.empty() ? "" : " ", inState ? "state layout" : "tuning layout", " (", rows,
+  const size_t rows =
+      inState ? getTuningLayoutStateDim(layout) : getTuningLayoutDim(layout);
+  return absl::StrCat(layout.name, layout.name.empty() ? "" : " ",
+                      inState ? "state layout" : "tuning layout", " (", rows,
                       " rows: ", absl::StrJoin(segments, ", "), ")");
 }
 
-/** A rotation block has exactly the 3 rows of its Euler angles or angular velocity. */
-absl::Status checkRotationSegments(const TuningLayout& layout, absl::string_view caller) {
+/** A rotation block has exactly the 3 rows of its Euler angles or angular
+ * velocity. */
+absl::Status checkRotationSegments(const TuningLayout& layout,
+                                   absl::string_view caller) {
   for (const TuningSegment& segment : layout.segments) {
-    if (segment.kind != TuningSegmentKind::kEuclidean && segment.tuningDim != kRotationTuningDim) {
-      return absl::InvalidArgumentError(absl::StrCat("[", caller, "] the block '", segment.name, "' of the ",
-                                                     describeLayout(layout, /*inState=*/false), " is a rotation with ", segment.tuningDim,
-                                                     " rows; a rotation block has ", static_cast<Eigen::Index>(kRotationTuningDim), "."));
+    if (segment.kind != TuningSegmentKind::kEuclidean &&
+        segment.tuningDim != kRotationTuningDim) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[", caller, "] the block '", segment.name, "' of the ",
+          describeLayout(layout, /*inState=*/false), " is a rotation with ",
+          segment.tuningDim, " rows; a rotation block has ",
+          static_cast<Eigen::Index>(kRotationTuningDim), "."));
     }
   }
   return absl::OkStatus();
 }
 
-/** The layout is where placeTuningLayout() puts it: the only placement the state conversions convert. */
-absl::Status checkQuaternionPlacement(const TuningLayout& layout, absl::string_view caller) {
+/** The layout is where placeTuningLayout() puts it: the only placement the
+ * state conversions convert. */
+absl::Status checkQuaternionPlacement(const TuningLayout& layout,
+                                      absl::string_view caller) {
   size_t stateStart = 0;
   for (const TuningSegment& segment : layout.segments) {
-    const bool orientation = segment.kind == TuningSegmentKind::kEulerZyxOrientation;
-    const size_t expectedStateDim = orientation ? kQuaternionOrientationStateDim : segment.tuningDim;
-    if (segment.stateStart != stateStart || segment.stateDim != expectedStateDim) {
-      return absl::InvalidArgumentError(absl::StrCat("[", caller, "] the block '", segment.name, "' of the ",
-                                                     describeLayout(layout, /*inState=*/false), " is at state row ", segment.stateStart,
-                                                     " with ", segment.stateDim, " rows; placeTuningLayout() puts it at row ", stateStart,
-                                                     " with ", expectedStateDim, "."));
+    const bool orientation =
+        segment.kind == TuningSegmentKind::kEulerZyxOrientation;
+    const size_t expectedStateDim =
+        orientation ? kQuaternionOrientationStateDim : segment.tuningDim;
+    if (segment.stateStart != stateStart ||
+        segment.stateDim != expectedStateDim) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[", caller, "] the block '", segment.name, "' of the ",
+          describeLayout(layout, /*inState=*/false), " is at state row ",
+          segment.stateStart, " with ", segment.stateDim,
+          " rows; placeTuningLayout() puts it at row ", stateStart, " with ",
+          expectedStateDim, "."));
     }
     stateStart += segment.stateDim;
   }
@@ -116,18 +137,22 @@ vector3_t eulerZyxFromQuaternion(const vector4_t& xi) {
   const scalar_t y = xi(kQuaternionYIndex);
   const scalar_t z = xi(kQuaternionZIndex);
   const scalar_t w = xi(kQuaternionWIndex);
-  // R(0, 0) and R(1, 0) = cos(theta) (cos(psi), sin(psi)). The expressions are those of the conversion of before the
-  // switch, so that its output is reproduced bit for bit.
+  // R(0, 0) and R(1, 0) = cos(theta) (cos(psi), sin(psi)). The expressions are
+  // those of the conversion of before the switch, so that its output is
+  // reproduced bit for bit.
   const scalar_t r00 = 1.0 - 2.0 * (y * y + z * z);
   const scalar_t r10 = 2.0 * (w * z + x * y);
   const scalar_t yaw = std::atan2(r10, r00);
   if (r00 * r00 + r10 * r10 >= kGimbalLockCosPitch * kGimbalLockCosPitch) {
-    const scalar_t pitch = std::asin(std::clamp(2.0 * (w * y - z * x), -1.0, 1.0));
-    const scalar_t roll = std::atan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x * x + y * y));
+    const scalar_t pitch =
+        std::asin(std::clamp(2.0 * (w * y - z * x), -1.0, 1.0));
+    const scalar_t roll =
+        std::atan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x * x + y * y));
     return vector3_t(yaw, pitch, roll);
   }
-  // Gimbal lock: yaw is split from roll by round-off, but any yaw is exact once pitch and roll are read from
-  // R_z(psi)^T R = R_y(theta) R_x(phi), whose (1, 0) entry -sin(psi) R(0, 0) + cos(psi) R(1, 0) is zero for this yaw.
+  // Gimbal lock: yaw is split from roll by round-off, but any yaw is exact once
+  // pitch and roll are read from R_z(psi)^T R = R_y(theta) R_x(phi), whose (1,
+  // 0) entry -sin(psi) R(0, 0) + cos(psi) R(1, 0) is zero for this yaw.
   const scalar_t cosYaw = std::cos(yaw);
   const scalar_t sinYaw = std::sin(yaw);
   const scalar_t r01 = 2.0 * (x * y - w * z);
@@ -135,25 +160,34 @@ vector3_t eulerZyxFromQuaternion(const vector4_t& xi) {
   const scalar_t r02 = 2.0 * (x * z + w * y);
   const scalar_t r12 = 2.0 * (y * z - w * x);
   const scalar_t r20 = 2.0 * (x * z - w * y);
-  const scalar_t pitch = std::clamp(std::atan2(-r20, cosYaw * r00 + sinYaw * r10), -M_PI_2, M_PI_2);
-  const scalar_t roll = std::atan2(sinYaw * r02 - cosYaw * r12, cosYaw * r11 - sinYaw * r01);
+  const scalar_t pitch = std::clamp(
+      std::atan2(-r20, cosYaw * r00 + sinYaw * r10), -M_PI_2, M_PI_2);
+  const scalar_t roll =
+      std::atan2(sinYaw * r02 - cosYaw * r12, cosYaw * r11 - sinYaw * r01);
   return vector3_t(yaw, pitch, roll);
 }
 
 matrix3_t eulerZyxRateToLocalAngularVelocityMatrix(const vector3_t& eulerZyx) {
-  return getMappingFromEulerAnglesZyxDerivativeToLocalAngularVelocity<scalar_t>(eulerZyx);
+  return getMappingFromEulerAnglesZyxDerivativeToLocalAngularVelocity<scalar_t>(
+      eulerZyx);
 }
 
-vector3_t localAngularVelocityFromEulerZyxRates(const vector3_t& eulerZyx, const vector3_t& eulerZyxRates) {
-  return getLocalAngularVelocityFromEulerAnglesZyxDerivatives<scalar_t>(eulerZyx, eulerZyxRates);
+vector3_t localAngularVelocityFromEulerZyxRates(
+    const vector3_t& eulerZyx, const vector3_t& eulerZyxRates) {
+  return getLocalAngularVelocityFromEulerAnglesZyxDerivatives<scalar_t>(
+      eulerZyx, eulerZyxRates);
 }
 
-vector3_t eulerZyxRatesFromLocalAngularVelocity(const vector3_t& eulerZyx, const vector3_t& localAngularVelocity) {
-  return getEulerAnglesZyxDerivativesFromLocalAngularVelocity<scalar_t>(eulerZyx, localAngularVelocity);
+vector3_t eulerZyxRatesFromLocalAngularVelocity(
+    const vector3_t& eulerZyx, const vector3_t& localAngularVelocity) {
+  return getEulerAnglesZyxDerivativesFromLocalAngularVelocity<scalar_t>(
+      eulerZyx, localAngularVelocity);
 }
 
-matrix3_t localAngularVelocityEulerZyxJacobian(const vector3_t& eulerZyx, const vector3_t& eulerZyxRates) {
-  // w_B = (-sin(theta) dpsi + dphi, cos(theta) sin(phi) dpsi + cos(phi) dtheta, cos(theta) cos(phi) dpsi - sin(phi) dtheta).
+matrix3_t localAngularVelocityEulerZyxJacobian(const vector3_t& eulerZyx,
+                                               const vector3_t& eulerZyxRates) {
+  // w_B = (-sin(theta) dpsi + dphi, cos(theta) sin(phi) dpsi + cos(phi) dtheta,
+  // cos(theta) cos(phi) dpsi - sin(phi) dtheta).
   const scalar_t sinPitch = std::sin(eulerZyx(kEulerAnglesZyxYIndex));
   const scalar_t cosPitch = std::cos(eulerZyx(kEulerAnglesZyxYIndex));
   const scalar_t sinRoll = std::sin(eulerZyx(kEulerAnglesZyxXIndex));
@@ -173,7 +207,9 @@ TuningLayout placeTuningLayout(TuningLayout layout) {
   size_t stateStart = 0;
   for (TuningSegment& segment : layout.segments) {
     segment.stateStart = stateStart;
-    segment.stateDim = segment.kind == TuningSegmentKind::kEulerZyxOrientation ? kQuaternionOrientationStateDim : segment.tuningDim;
+    segment.stateDim = segment.kind == TuningSegmentKind::kEulerZyxOrientation
+                           ? kQuaternionOrientationStateDim
+                           : segment.tuningDim;
     stateStart += segment.stateDim;
   }
   return layout;
@@ -195,29 +231,34 @@ size_t getTuningLayoutStateDim(const TuningLayout& layout) {
   return rows;
 }
 
-absl::StatusOr<size_t> tuningSegmentStart(const TuningLayout& layout, absl::string_view name) {
+absl::StatusOr<size_t> tuningSegmentStart(const TuningLayout& layout,
+                                          absl::string_view name) {
   size_t start = 0;
   for (const TuningSegment& segment : layout.segments) {
     if (segment.name == name) return start;
     start += segment.tuningDim;
   }
-  return absl::NotFoundError(
-      absl::StrCat("[tuningSegmentStart] the ", describeLayout(layout, /*inState=*/false), " has no block named '", name, "'."));
+  return absl::NotFoundError(absl::StrCat(
+      "[tuningSegmentStart] the ", describeLayout(layout, /*inState=*/false),
+      " has no block named '", name, "'."));
 }
 
 std::string describeTuningLayout(const TuningLayout& layout) {
   return describeLayout(layout, /*inState=*/false);
 }
 
-absl::StatusOr<vector_t> stateFromTuningLayout(const vector_t& tuningVector, const TuningLayout& layout) {
+absl::StatusOr<vector_t> stateFromTuningLayout(const vector_t& tuningVector,
+                                               const TuningLayout& layout) {
   RETURN_IF_ERROR(checkRotationSegments(layout, "stateFromTuningLayout"));
   RETURN_IF_ERROR(checkQuaternionPlacement(layout, "stateFromTuningLayout"));
   const size_t tuningDim = getTuningLayoutDim(layout);
   if (static_cast<size_t>(tuningVector.size()) != tuningDim) {
     return absl::InvalidArgumentError(absl::StrCat(
-        "[stateFromTuningLayout] the vector has ", tuningVector.size(), " entries, but the ", describeLayout(layout, /*inState=*/false),
+        "[stateFromTuningLayout] the vector has ", tuningVector.size(),
+        " entries, but the ", describeLayout(layout, /*inState=*/false),
         " has ", tuningDim,
-        ". Each coordinate of the task file's initial_state, state_weights and final_state_weights is one row of this layout."));
+        ". Each coordinate of the task file's initial_state, state_weights and "
+        "final_state_weights is one row of this layout."));
   }
   vector_t state(static_cast<Eigen::Index>(getTuningLayoutStateDim(layout)));
   Eigen::Index tuningRow = 0;
@@ -230,10 +271,12 @@ absl::StatusOr<vector_t> stateFromTuningLayout(const vector_t& tuningVector, con
         break;
       case TuningSegmentKind::kEulerZyxOrientation:
         state.segment<kQuaternionCoefficients>(stateRow) =
-            quaternionFromEulerZyx(vector3_t(tuningVector.segment<kEulerAnglesZyxDim>(tuningRow)));
+            quaternionFromEulerZyx(
+                vector3_t(tuningVector.segment<kEulerAnglesZyxDim>(tuningRow)));
         break;
       case TuningSegmentKind::kZyxOrderedAngularVelocity:
-        state.segment<kRotationTangentDim>(stateRow) = tuningVector.segment<kRotationTangentDim>(tuningRow).reverse();
+        state.segment<kRotationTangentDim>(stateRow) =
+            tuningVector.segment<kRotationTangentDim>(tuningRow).reverse();
         break;
     }
     tuningRow += rows;
@@ -241,14 +284,16 @@ absl::StatusOr<vector_t> stateFromTuningLayout(const vector_t& tuningVector, con
   return state;
 }
 
-absl::StatusOr<vector_t> tuningLayoutFromState(const vector_t& state, const TuningLayout& layout) {
+absl::StatusOr<vector_t> tuningLayoutFromState(const vector_t& state,
+                                               const TuningLayout& layout) {
   RETURN_IF_ERROR(checkRotationSegments(layout, "tuningLayoutFromState"));
   RETURN_IF_ERROR(checkQuaternionPlacement(layout, "tuningLayoutFromState"));
   const size_t expectedStateDim = getTuningLayoutStateDim(layout);
   if (static_cast<size_t>(state.size()) != expectedStateDim) {
-    return absl::InvalidArgumentError(absl::StrCat("[tuningLayoutFromState] the state has ", state.size(), " entries, but the ",
-                                                   describeLayout(layout, /*inState=*/false), " maps to the ",
-                                                   describeLayout(layout, /*inState=*/true), "."));
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[tuningLayoutFromState] the state has ", state.size(),
+        " entries, but the ", describeLayout(layout, /*inState=*/false),
+        " maps to the ", describeLayout(layout, /*inState=*/true), "."));
   }
   vector_t tuningVector(static_cast<Eigen::Index>(getTuningLayoutDim(layout)));
   Eigen::Index tuningRow = 0;
@@ -261,10 +306,12 @@ absl::StatusOr<vector_t> tuningLayoutFromState(const vector_t& state, const Tuni
         break;
       case TuningSegmentKind::kEulerZyxOrientation:
         tuningVector.segment<kEulerAnglesZyxDim>(tuningRow) =
-            eulerZyxFromQuaternion(safelyNormalizedQuaternion(vector4_t(state.segment<kQuaternionCoefficients>(stateRow))));
+            eulerZyxFromQuaternion(safelyNormalizedQuaternion(
+                vector4_t(state.segment<kQuaternionCoefficients>(stateRow))));
         break;
       case TuningSegmentKind::kZyxOrderedAngularVelocity:
-        tuningVector.segment<kRotationTangentDim>(tuningRow) = state.segment<kRotationTangentDim>(stateRow).reverse();
+        tuningVector.segment<kRotationTangentDim>(tuningRow) =
+            state.segment<kRotationTangentDim>(stateRow).reverse();
         break;
     }
     tuningRow += rows;

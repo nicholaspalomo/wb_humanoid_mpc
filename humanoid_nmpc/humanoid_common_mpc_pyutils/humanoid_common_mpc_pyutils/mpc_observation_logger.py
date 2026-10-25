@@ -106,7 +106,10 @@ class ObservationCsvWriter:
 
     def write(self, message: mpc_observation_pb2.MpcObservation) -> bool:
         """Writes the row of `message`; False when its dimensions differ from the first observation's."""
-        dimensions = (len(message.observation.state), len(message.observation.input))
+        dimensions = (
+            len(message.observation.state),
+            len(message.observation.input),
+        )
         with self._lock:
             if self._dimensions is None:
                 self._dimensions = dimensions
@@ -172,7 +175,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--duration",
         type=float,
         default=0.0,
-        help="seconds to record; 0 records until Ctrl-C or SIGTERM (default: %(default)s)",
+        help=(
+            "seconds to record; 0 records until Ctrl-C or SIGTERM (default:"
+            " %(default)s)"
+        ),
     )
     return parser.parse_args(argv)
 
@@ -198,7 +204,11 @@ def run(args: argparse.Namespace, stop: threading.Event | None = None) -> str:
                 ", ".join(bus.discovery_peers),
                 path,
             )
-            deadline = time.monotonic() + args.duration if args.duration > 0.0 else None
+            deadline = (
+                time.monotonic() + args.duration
+                if args.duration > 0.0
+                else None
+            )
             while not stop.wait(_POLL_PERIOD_S):
                 writer.flush()
                 if deadline is not None and time.monotonic() >= deadline:

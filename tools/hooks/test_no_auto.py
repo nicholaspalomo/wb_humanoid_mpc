@@ -64,17 +64,29 @@ class NoAutoTest(unittest.TestCase):
 
     def test_the_factory_initializers_are_allowed(self):
         for source in [
-            "void g() { auto term = std::make_unique<Term>(model, /*weight=*/0.5); }",
+            (
+                "void g() { auto term = std::make_unique<Term>(model,"
+                " /*weight=*/0.5); }"
+            ),
             "void g() { const auto shared = std::make_shared<Model>(); }",
-            "void g() { auto map = std::make_unique<std::map<int, std::vector<int>>>(f(a, b)); }",
-            "void g() { auto queue = std::make_unique<SpscQueue<Sample>>(/*capacity=*/8); }",
+            (
+                "void g() { auto map = std::make_unique<std::map<int,"
+                " std::vector<int>>>(f(a, b)); }"
+            ),
+            (
+                "void g() { auto queue ="
+                " std::make_unique<SpscQueue<Sample>>(/*capacity=*/8); }"
+            ),
         ]:
             with self.subTest(source=source):
                 self.assertEqual(_count(source), 0)
 
     def test_comments_strings_and_identifiers(self):
         self.assertEqual(
-            _count('// auto x\nconst char kText[] = "auto";\nint automatic = 0;\n'), 0
+            _count(
+                '// auto x\nconst char kText[] = "auto";\nint automatic = 0;\n'
+            ),
+            0,
         )
 
     def test_the_registry_runs_it(self):

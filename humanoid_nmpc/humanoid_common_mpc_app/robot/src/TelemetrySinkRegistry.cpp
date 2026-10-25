@@ -42,17 +42,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 TelemetrySinkRegistry::TelemetrySinkRegistry() {
-  add(std::string(kBusTelemetrySinkName), "publishes robot/state on the IPC bus",
-      [](const TelemetrySinkContext& context) -> absl::StatusOr<std::unique_ptr<TelemetrySink>> {
+  add(std::string(kBusTelemetrySinkName),
+      "publishes robot/state on the IPC bus",
+      [](const TelemetrySinkContext& context)
+          -> absl::StatusOr<std::unique_ptr<TelemetrySink>> {
         if (context.bus == nullptr) {
-          return absl::FailedPreconditionError("the bus telemetry sink needs the robot process's bus");
+          return absl::FailedPreconditionError(
+              "the bus telemetry sink needs the robot process's bus");
         }
         return std::make_unique<BusTelemetrySink>(context.bus);
       });
 }
 
-void TelemetrySinkRegistry::add(std::string name, std::string description, Factory factory) {
-  entries_.push_back(Entry{.name = std::move(name), .description = std::move(description), .factory = std::move(factory)});
+void TelemetrySinkRegistry::add(std::string name,
+                                std::string description,
+                                Factory factory) {
+  entries_.push_back(Entry{.name = std::move(name),
+                           .description = std::move(description),
+                           .factory = std::move(factory)});
 }
 
 bool TelemetrySinkRegistry::has(absl::string_view name) const {
@@ -62,19 +69,21 @@ bool TelemetrySinkRegistry::has(absl::string_view name) const {
   return false;
 }
 
-absl::StatusOr<std::unique_ptr<TelemetrySink>> TelemetrySinkRegistry::create(absl::string_view name,
-                                                                             const TelemetrySinkContext& context) const {
+absl::StatusOr<std::unique_ptr<TelemetrySink>> TelemetrySinkRegistry::create(
+    absl::string_view name, const TelemetrySinkContext& context) const {
   for (const Entry& entry : entries_) {
     if (entry.name == name) return entry.factory(context);
   }
   return absl::InvalidArgumentError(
-      absl::StrCat("There is no telemetry sink '", name, "' (telemetry_sinks). Available: ", availableNames(), "."));
+      absl::StrCat("There is no telemetry sink '", name,
+                   "' (telemetry_sinks). Available: ", availableNames(), "."));
 }
 
 std::string TelemetrySinkRegistry::availableNames() const {
   std::string names;
   for (const Entry& entry : entries_) {
-    absl::StrAppend(&names, names.empty() ? "" : ", ", entry.name, " (", entry.description, ")");
+    absl::StrAppend(&names, names.empty() ? "" : ", ", entry.name, " (",
+                    entry.description, ")");
   }
   return names;
 }

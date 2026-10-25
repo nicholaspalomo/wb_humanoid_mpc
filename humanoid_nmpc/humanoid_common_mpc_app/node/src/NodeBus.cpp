@@ -37,22 +37,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::node {
 
-absl::StatusOr<robot::ipc::NetworkConfig> loadNodeNetwork(const std::string& networkConfigPath) {
+absl::StatusOr<robot::ipc::NetworkConfig> loadNodeNetwork(
+    const std::string& networkConfigPath) {
   if (networkConfigPath.empty()) {
     return robot::ipc::localhostNetworkConfig();
   }
   return robot::ipc::loadNetworkConfig(networkConfigPath);
 }
 
-absl::StatusOr<robot::ipc::BusOptions> nodeBusOptions(const std::string& networkConfigPath, const std::string& nodeName) {
+absl::StatusOr<robot::ipc::BusOptions> nodeBusOptions(
+    const std::string& networkConfigPath, const std::string& nodeName) {
   robot::ipc::BusOptions options;
   options.nodeName = nodeName;
   ASSIGN_OR_RETURN(options.network, loadNodeNetwork(networkConfigPath));
   return options;
 }
 
-absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> createNodeBus(const std::string& networkConfigPath, const std::string& nodeName) {
-  ASSIGN_OR_RETURN(robot::ipc::BusOptions options, nodeBusOptions(networkConfigPath, nodeName));
+absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> createNodeBus(
+    const std::string& networkConfigPath, const std::string& nodeName) {
+  ASSIGN_OR_RETURN(robot::ipc::BusOptions options,
+                   nodeBusOptions(networkConfigPath, nodeName));
   return robot::ipc::Bus::Create(std::move(options));
 }
 

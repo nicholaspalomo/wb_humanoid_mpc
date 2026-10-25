@@ -47,14 +47,16 @@ namespace {
 
 // GL_VERSION's number has a major and a minor version, and maybe a release.
 constexpr int kMinVersionNumberParts = 2;
-// The oldest OpenGL MuJoCo's offscreen rendering runs on, given GL_ARB_framebuffer_object.
+// The oldest OpenGL MuJoCo's offscreen rendering runs on, given
+// GL_ARB_framebuffer_object.
 constexpr int kMinGlMajorVersion = 1;
 constexpr int kMinGlMinorVersion = 5;
 // The first OpenGL with framebuffer objects in its core.
 constexpr int kFramebufferObjectGlMajorVersion = 3;
 constexpr int kFramebufferObjectGlMinorVersion = 0;
 
-/** An OpenGL version as GL_VERSION begins with it: "major.minor[.release] [vendor information]". */
+/** An OpenGL version as GL_VERSION begins with it: "major.minor[.release]
+ * [vendor information]". */
 struct GlVersionNumber {
   int major = 0;
   int minor = 0;
@@ -66,69 +68,96 @@ GlVersionNumber parseGlVersionNumber(absl::string_view version) {
   const absl::string_view number = stripped.substr(0, stripped.find(' '));
   const std::vector<absl::string_view> parts = absl::StrSplit(number, '.');
   GlVersionNumber parsed;
-  if (parts.size() < kMinVersionNumberParts || !absl::SimpleAtoi(parts[0], &parsed.major) || !absl::SimpleAtoi(parts[1], &parsed.minor)) {
+  if (parts.size() < kMinVersionNumberParts ||
+      !absl::SimpleAtoi(parts[0], &parsed.major) ||
+      !absl::SimpleAtoi(parts[1], &parsed.minor)) {
     return {};
   }
   return parsed;
 }
 
 bool atLeast(const GlVersionNumber& version, int major, int minor) {
-  return version.major > major || (version.major == major && version.minor >= minor);
+  return version.major > major ||
+         (version.major == major && version.minor >= minor);
 }
 
 bool hasExtension(absl::string_view extensions, absl::string_view name) {
-  for (const absl::string_view extension : absl::StrSplit(extensions, ' ', absl::SkipEmpty())) {
+  for (const absl::string_view extension :
+       absl::StrSplit(extensions, ' ', absl::SkipEmpty())) {
     if (extension == name) return true;
   }
   return false;
 }
 
-/** The end of every refusal: the context it is about and how to run without the web viewer. */
+/** The end of every refusal: the context it is about and how to run without the
+ * web viewer. */
 std::string refusalSuffix(const GlCapabilities& capabilities) {
-  return absl::StrCat(" (OpenGL '", capabilities.version, "' of '", capabilities.renderer, "'); choose --viewer=", kNoViewerName,
-                      ", or list ", kNoViewerName, " after ", kWebViewerName, " (--viewer=", kWebViewerName, ",", kNoViewerName,
-                      ") to fall back");
+  return absl::StrCat(
+      " (OpenGL '", capabilities.version, "' of '", capabilities.renderer,
+      "'); choose --viewer=", kNoViewerName, ", or list ", kNoViewerName,
+      " after ", kWebViewerName, " (--viewer=", kWebViewerName, ",",
+      kNoViewerName, ") to fall back");
 }
 
-/** OK when the offscreen buffer's side `pixels`, set by the option `option`, fits GL_MAX_RENDERBUFFER_SIZE. */
-absl::Status checkRenderbufferSide(absl::string_view option, int pixels, const GlCapabilities& capabilities) {
+/** OK when the offscreen buffer's side `pixels`, set by the option `option`,
+ * fits GL_MAX_RENDERBUFFER_SIZE. */
+absl::Status checkRenderbufferSide(absl::string_view option,
+                                   int pixels,
+                                   const GlCapabilities& capabilities) {
   if (pixels <= capabilities.maxRenderbufferSize) return absl::OkStatus();
-  return absl::FailedPreconditionError(absl::StrCat("the web viewer's ", option, " of ", pixels,
-                                                    " px exceeds the context's GL_MAX_RENDERBUFFER_SIZE of ",
-                                                    capabilities.maxRenderbufferSize, " px; lower it", refusalSuffix(capabilities)));
+  return absl::FailedPreconditionError(
+      absl::StrCat("the web viewer's ", option, " of ", pixels,
+                   " px exceeds the context's GL_MAX_RENDERBUFFER_SIZE of ",
+                   capabilities.maxRenderbufferSize, " px; lower it",
+                   refusalSuffix(capabilities)));
 }
 
 }  // namespace
 
-absl::Status checkGlCapabilities(const GlCapabilities& capabilities, const WebViewerOptions& options) {
+absl::Status checkGlCapabilities(const GlCapabilities& capabilities,
+                                 const WebViewerOptions& options) {
   const GlVersionNumber version = parseGlVersionNumber(capabilities.version);
   if (!atLeast(version, kMinGlMajorVersion, kMinGlMinorVersion)) {
-    return absl::FailedPreconditionError(absl::StrCat("MuJoCo's offscreen rendering needs OpenGL 1.5 or newer, and the context offers ",
-                                                      version.major, ".", version.minor, refusalSuffix(capabilities)));
+    return absl::FailedPreconditionError(absl::StrCat(
+        "MuJoCo's offscreen rendering needs OpenGL 1.5 or newer, and the "
+        "context offers ",
+        version.major, ".", version.minor, refusalSuffix(capabilities)));
   }
-  if (!atLeast(version, kFramebufferObjectGlMajorVersion, kFramebufferObjectGlMinorVersion) &&
+  if (!atLeast(version, kFramebufferObjectGlMajorVersion,
+               kFramebufferObjectGlMinorVersion) &&
       !hasExtension(capabilities.extensions, "GL_ARB_framebuffer_object")) {
     return absl::FailedPreconditionError(
-        absl::StrCat("MuJoCo's offscreen rendering needs framebuffer objects (OpenGL 3.0, or GL_ARB_framebuffer_object), and the "
+        absl::StrCat("MuJoCo's offscreen rendering needs framebuffer objects "
+                     "(OpenGL 3.0, or GL_ARB_framebuffer_object), and the "
                      "context has neither",
                      refusalSuffix(capabilities)));
   }
-  if (absl::Status width = checkRenderbufferSide("maxWidth", options.maxWidth, capabilities); !width.ok()) {
+  if (absl::Status width =
+          checkRenderbufferSide("maxWidth", options.maxWidth, capabilities);
+      !width.ok()) {
     return width;
   }
-  if (absl::Status height = checkRenderbufferSide("maxHeight", options.maxHeight, capabilities); !height.ok()) {
+  if (absl::Status height =
+          checkRenderbufferSide("maxHeight", options.maxHeight, capabilities);
+      !height.ok()) {
     return height;
   }
-  if (options.msaaSamples > 0 && options.msaaSamples > capabilities.maxSamples) {
-    return absl::FailedPreconditionError(absl::StrCat("the web viewer's msaaSamples of ", options.msaaSamples,
-                                                      " exceeds the context's GL_MAX_SAMPLES of ", capabilities.maxSamples, "; lower it",
-                                                      refusalSuffix(capabilities)));
+  if (options.msaaSamples > 0 &&
+      options.msaaSamples > capabilities.maxSamples) {
+    return absl::FailedPreconditionError(absl::StrCat(
+        "the web viewer's msaaSamples of ", options.msaaSamples,
+        " exceeds the context's GL_MAX_SAMPLES of ", capabilities.maxSamples,
+        "; lower it", refusalSuffix(capabilities)));
   }
   // MuJoCo skips the shadow map for a size of 0.
-  if (options.shadowSize > 0 && options.shadowSize > capabilities.maxTextureSize) {
-    return absl::FailedPreconditionError(absl::StrCat("the web viewer's shadowSize of ", options.shadowSize,
-                                                      " px exceeds the context's GL_MAX_TEXTURE_SIZE of ", capabilities.maxTextureSize,
-                                                      " px; lower it or set it to 0 to turn shadows off", refusalSuffix(capabilities)));
+  if (options.shadowSize > 0 &&
+      options.shadowSize > capabilities.maxTextureSize) {
+    return absl::FailedPreconditionError(
+        absl::StrCat("the web viewer's shadowSize of ", options.shadowSize,
+                     " px exceeds the context's GL_MAX_TEXTURE_SIZE of ",
+                     capabilities.maxTextureSize,
+                     " px; lower it or set it to 0 to turn shadows off",
+                     refusalSuffix(capabilities)));
   }
   return absl::OkStatus();
 }

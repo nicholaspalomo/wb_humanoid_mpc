@@ -45,9 +45,11 @@ constexpr size_t kReadChunkSize = 256;
 
 }  // namespace
 
-LineReader::LineReader(int fileDescriptor, absl::Duration pollPeriod) : fileDescriptor_(fileDescriptor), pollPeriod_(pollPeriod) {}
+LineReader::LineReader(int fileDescriptor, absl::Duration pollPeriod)
+    : fileDescriptor_(fileDescriptor), pollPeriod_(pollPeriod) {}
 
-std::optional<std::string> LineReader::readLine(absl::FunctionRef<bool()> shouldStop) {
+std::optional<std::string> LineReader::readLine(
+    absl::FunctionRef<bool()> shouldStop) {
   while (true) {
     const size_t lineBreak = buffer_.find('\n');
     if (lineBreak != std::string::npos) {
@@ -66,9 +68,12 @@ std::optional<std::string> LineReader::readLine(absl::FunctionRef<bool()> should
     pollfd descriptor{};
     descriptor.fd = fileDescriptor_;
     descriptor.events = POLLIN;
-    const int ready = ::poll(&descriptor, /*nfds=*/1, static_cast<int>(absl::ToInt64Milliseconds(pollPeriod_)));
+    const int ready =
+        ::poll(&descriptor, /*nfds=*/1,
+               static_cast<int>(absl::ToInt64Milliseconds(pollPeriod_)));
     if (ready < 0) {
-      if (errno == EINTR) continue;  // a signal: look at the stop predicate again
+      if (errno == EINTR)
+        continue;  // a signal: look at the stop predicate again
       return std::nullopt;
     }
     if (ready == 0) continue;

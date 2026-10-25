@@ -39,10 +39,13 @@ from humanoid_mpc_ipc import topics
 
 # The header is data of this test, next to its directory in the runfiles tree.
 PACKAGE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TOPICS_HEADER = os.path.join(PACKAGE_DIR, "include", "humanoid_mpc_ipc", "Topics.h")
+TOPICS_HEADER = os.path.join(
+    PACKAGE_DIR, "include", "humanoid_mpc_ipc", "Topics.h"
+)
 
+# clang-format may break a long definition after its `=`.
 CPP_CONSTANT = re.compile(
-    r'inline constexpr absl::string_view (k[A-Za-z0-9]+) = "([^"]*)";'
+    r'inline constexpr absl::string_view (k[A-Za-z0-9]+) =\s+"([^"]*)";'
 )
 TOPIC = re.compile(r"^(robot|mpc|viz|operator)/[a-z0-9_]+$")
 
@@ -75,17 +78,26 @@ class TopicsTest(unittest.TestCase):
         self.assertEqual(python_topics(), expected)
 
     def test_all_topics_lists_every_constant_once(self) -> None:
-        self.assertEqual(sorted(topics.ALL_TOPICS), sorted(python_topics().values()))
+        self.assertEqual(
+            sorted(topics.ALL_TOPICS), sorted(python_topics().values())
+        )
         self.assertEqual(len(set(topics.ALL_TOPICS)), len(topics.ALL_TOPICS))
 
-    def test_every_topic_is_a_publisher_prefix_and_a_snake_case_name(self) -> None:
+    def test_every_topic_is_a_publisher_prefix_and_a_snake_case_name(
+        self,
+    ) -> None:
         for topic in topics.ALL_TOPICS:
             self.assertRegex(topic, TOPIC)
 
     def test_the_save_and_its_status_are_listed_once_each(self) -> None:
         self.assertEqual(topics.OPERATOR_CONFIG_SAVE, "operator/config_save")
-        self.assertEqual(topics.ROBOT_CONFIG_SAVE_STATUS, "robot/config_save_status")
-        for topic in (topics.OPERATOR_CONFIG_SAVE, topics.ROBOT_CONFIG_SAVE_STATUS):
+        self.assertEqual(
+            topics.ROBOT_CONFIG_SAVE_STATUS, "robot/config_save_status"
+        )
+        for topic in (
+            topics.OPERATOR_CONFIG_SAVE,
+            topics.ROBOT_CONFIG_SAVE_STATUS,
+        ):
             self.assertEqual(topics.ALL_TOPICS.count(topic), 1)
 
     def test_every_topic_is_a_dds_topic_name(self) -> None:

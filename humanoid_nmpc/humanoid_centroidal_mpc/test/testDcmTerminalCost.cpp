@@ -68,11 +68,14 @@ namespace ocs2::humanoid {
 
 namespace {
 
-/** A reference manager with a planned DCM of its own choosing, so that the cost can be shown what it does under a plan. */
+/** A reference manager with a planned DCM of its own choosing, so that the cost
+ * can be shown what it does under a plan. */
 class PlannedDcmReferenceManager final : public SwitchedModelReferenceManager {
  public:
   using SwitchedModelReferenceManager::SwitchedModelReferenceManager;
-  std::optional<PlannedDcm> getPlannedDcm(scalar_t /*time*/) const override { return planned; }
+  std::optional<PlannedDcm> getPlannedDcm(scalar_t /*time*/) const override {
+    return planned;
+  }
   std::optional<PlannedDcm> planned;
 };
 
@@ -87,30 +90,48 @@ class DcmTerminalCostTest : public ::testing::Test {
     ASSERT_TRUE(config.ok()) << config.status();
     atlas_ = *std::move(config);
 
-    modelSettings_ = std::make_unique<ModelSettings>(
-        checkedValue(ModelSettings::Create(atlas_.task, urdfFile_, "testDcmTerminalCost_", /*verbose=*/false)));
-    pinocchioInterface_ = std::make_unique<PinocchioInterface>(
-        checkedValue(loadCustomPinocchioInterface(atlas_.task, urdfFile_, *modelSettings_, /*scaleTotalMass=*/false)));
-    HUMANOID_ASSERT_OK_AND_ASSIGN(info_, centroidalModelInfoOf(atlas_, *pinocchioInterface_, *modelSettings_));
-    robotModel_ = std::make_unique<CentroidalMpcRobotModel<scalar_t>>(*modelSettings_, *pinocchioInterface_, info_);
-    robotModelAd_ =
-        std::make_unique<CentroidalMpcRobotModel<ad_scalar_t>>(*modelSettings_, pinocchioInterface_->toCppAd(), info_.toCppAd());
+    modelSettings_ = std::make_unique<ModelSettings>(checkedValue(
+        ModelSettings::Create(atlas_.task, urdfFile_, "testDcmTerminalCost_",
+                              /*verbose=*/false)));
+    pinocchioInterface_ = std::make_unique<PinocchioInterface>(checkedValue(
+        loadCustomPinocchioInterface(atlas_.task, urdfFile_, *modelSettings_,
+                                     /*scaleTotalMass=*/false)));
+    HUMANOID_ASSERT_OK_AND_ASSIGN(
+        info_,
+        centroidalModelInfoOf(atlas_, *pinocchioInterface_, *modelSettings_));
+    robotModel_ = std::make_unique<CentroidalMpcRobotModel<scalar_t>>(
+        *modelSettings_, *pinocchioInterface_, info_);
+    robotModelAd_ = std::make_unique<CentroidalMpcRobotModel<ad_scalar_t>>(
+        *modelSettings_, pinocchioInterface_->toCppAd(), info_.toCppAd());
 
     std::unique_ptr<SwingTrajectoryPlanner> swingPlanner(
-        new SwingTrajectoryPlanner(checkedValue(swingTrajectorySettingsFromConfig(atlas_.task.swing_trajectory_config)), kNumContacts));
-    HUMANOID_ASSERT_OK_AND_ASSIGN(std::shared_ptr<GaitSchedule> gaitSchedule,
-                                  GaitSchedule::Create(atlas_.reference, *modelSettings_, /*verbose=*/false));
-    referenceManager_ = std::make_shared<SwitchedModelReferenceManager>(std::move(gaitSchedule), std::move(swingPlanner),
-                                                                        *pinocchioInterface_, *robotModel_);
-    // Right-foot single support on [1.0, 1.5) (and [2.0, 2.5)): the reference manager rebuilds its schedule from the gait
-    // schedule on every preSolverRun, so the phase has to be inserted there.
+        new SwingTrajectoryPlanner(
+            checkedValue(swingTrajectorySettingsFromConfig(
+                atlas_.task.swing_trajectory_config)),
+            kNumContacts));
+    HUMANOID_ASSERT_OK_AND_ASSIGN(
+        std::shared_ptr<GaitSchedule> gaitSchedule,
+        GaitSchedule::Create(atlas_.reference, *modelSettings_,
+                             /*verbose=*/false));
+    referenceManager_ = std::make_shared<SwitchedModelReferenceManager>(
+        std::move(gaitSchedule), std::move(swingPlanner), *pinocchioInterface_,
+        *robotModel_);
+    // Right-foot single support on [1.0, 1.5) (and [2.0, 2.5)): the reference
+    // manager rebuilds its schedule from the gait schedule on every
+    // preSolverRun, so the phase has to be inserted there.
     referenceManager_->getGaitSchedule()->insertModeSequenceTemplate(
-        ModeSequenceTemplate({0.0, 0.5, 1.0}, {ModeNumber::kRf, ModeNumber::kStance}), /*startTime=*/1.0, /*finalTime=*/3.0);
-    HUMANOID_ASSERT_OK_AND_ASSIGN(initialState_, initialStateOnModel(atlas_.task, *robotModel_));
-    // The reference manager needs one preSolverRun to swap in the buffered mode schedule.
-    referenceManager_->preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0, initialState_, ModeNumber::kStance);
+        ModeSequenceTemplate({0.0, 0.5, 1.0},
+                             {ModeNumber::kRf, ModeNumber::kStance}),
+        /*startTime=*/1.0, /*finalTime=*/3.0);
+    HUMANOID_ASSERT_OK_AND_ASSIGN(
+        initialState_, initialStateOnModel(atlas_.task, *robotModel_));
+    // The reference manager needs one preSolverRun to swap in the buffered mode
+    // schedule.
+    referenceManager_->preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0,
+                                    initialState_, ModeNumber::kStance);
 
-    // An explicit height: the tests below are about the cost's arithmetic, on a pendulum they choose.
+    // An explicit height: the tests below are about the cost's arithmetic, on a
+    // pendulum they choose.
     config_.comHeight = 0.85;
     config_.weights = vector2_t(400.0, 100.0);
     config_.velocityOffsetFactor = 1.0;
@@ -121,17 +142,21 @@ class DcmTerminalCostTest : public ::testing::Test {
     ASSERT_NE(cost_, nullptr);
   }
 
-  std::unique_ptr<DcmTerminalCost> createCost(const SwitchedModelReferenceManager& referenceManager,
-                                              const DcmTerminalCost::Config& config) {
-    absl::StatusOr<std::unique_ptr<DcmTerminalCost>> created = DcmTerminalCost::Create(
-        referenceManager, config, modelComHeight_, *pinocchioInterface_, *robotModelAd_, "testDcmTerminalCost", *modelSettings_);
+  std::unique_ptr<DcmTerminalCost> createCost(
+      const SwitchedModelReferenceManager& referenceManager,
+      const DcmTerminalCost::Config& config) {
+    absl::StatusOr<std::unique_ptr<DcmTerminalCost>> created =
+        DcmTerminalCost::Create(referenceManager, config, modelComHeight_,
+                                *pinocchioInterface_, *robotModelAd_,
+                                "testDcmTerminalCost", *modelSettings_);
     EXPECT_TRUE(created.ok()) << created.status();
     return created.ok() ? *std::move(created) : nullptr;
   }
 
   /**
-   * The model's center of mass above the mean height of its contact frames at `state`, computed here from Pinocchio
-   * directly - forward kinematics and the frames looked up by name - rather than through computeComHeightAboveFeet().
+   * The model's center of mass above the mean height of its contact frames at
+   * `state`, computed here from Pinocchio directly - forward kinematics and the
+   * frames looked up by name - rather than through computeComHeightAboveFeet().
    */
   scalar_t independentComHeight(const vector_t& state) const {
     PinocchioInterface pinocchio(*pinocchioInterface_);
@@ -143,15 +168,18 @@ class DcmTerminalCostTest : public ::testing::Test {
     const scalar_t comZ = pinocchio::centerOfMass(model, data, q)(2);
     scalar_t footZ = 0.0;
     for (const std::string& frame : modelSettings_->contactNames) {
-      footZ += data.oMf[model.getFrameId(frame)].translation()(2) / static_cast<scalar_t>(modelSettings_->contactNames.size());
+      footZ += data.oMf[model.getFrameId(frame)].translation()(2) /
+               static_cast<scalar_t>(modelSettings_->contactNames.size());
     }
     return comZ - footZ;
   }
 
-  vector2_t supportCenter(const vector_t& state, const contact_flag_t& contacts) const {
+  vector2_t supportCenter(const vector_t& state,
+                          const contact_flag_t& contacts) const {
     const vector_t q = robotModel_->getGeneralizedCoordinates(state);
     PinocchioInterface pinocchio(*pinocchioInterface_);
-    const std::vector<vector3_t> feet = computeContactPositions<scalar_t>(q, pinocchio, *robotModel_);
+    const std::vector<vector3_t> feet =
+        computeContactPositions<scalar_t>(q, pinocchio, *robotModel_);
     vector2_t center = vector2_t::Zero();
     int count = 0;
     for (size_t i = 0; i < kNumContacts; ++i) {
@@ -166,7 +194,8 @@ class DcmTerminalCostTest : public ::testing::Test {
   vector2_t comXy(const vector_t& state) const {
     PinocchioInterface pinocchio(*pinocchioInterface_);
     const vector_t q = robotModel_->getGeneralizedCoordinates(state);
-    pinocchio::centerOfMass(pinocchio.getModel(), pinocchio.getData(), q, /*computeSubtreeComs=*/false);
+    pinocchio::centerOfMass(pinocchio.getModel(), pinocchio.getData(), q,
+                            /*computeSubtreeComs=*/false);
     return pinocchio.getData().com[0].head<2>();
   }
 
@@ -196,34 +225,45 @@ TEST_F(DcmTerminalCostTest, DcmErrorMatchesAnalyticDefinition) {
   EXPECT_DOUBLE_EQ(params(1), 1.0);
   const scalar_t omega = std::sqrt(9.81 / 0.85);
   EXPECT_NEAR(params(2), omega, 1.0e-12);
-  const vector2_t expected = comXy(state) + state.head<2>() / omega - supportCenter(state, {true, true});
+  const vector2_t expected = comXy(state) + state.head<2>() / omega -
+                             supportCenter(state, {true, true});
   const vector2_t error = cost_->computeDcmError(state, params);
-  EXPECT_LT((error - expected).norm(), 1.0e-6) << "error " << error.transpose() << " expected " << expected.transpose();
+  EXPECT_LT((error - expected).norm(), 1.0e-6)
+      << "error " << error.transpose() << " expected " << expected.transpose();
 
   // Value consistent with the weights.
-  const scalar_t value = cost_->getValue(/*time=*/0.5, state, emptyTargets, PreComputation());
-  EXPECT_NEAR(value, 0.5 * (400.0 * expected(0) * expected(0) + 100.0 * expected(1) * expected(1)), 1.0e-6);
+  const scalar_t value =
+      cost_->getValue(/*time=*/0.5, state, emptyTargets, PreComputation());
+  EXPECT_NEAR(value,
+              0.5 * (400.0 * expected(0) * expected(0) +
+                     100.0 * expected(1) * expected(1)),
+              1.0e-6);
 }
 
 TEST_F(DcmTerminalCostTest, SingleSupportUsesStanceFoot) {
   const TargetTrajectories emptyTargets;
   const vector_t& state = initialState_;
   // Right foot single support on [1.0, 1.5).
-  ASSERT_EQ(referenceManager_->getModeSchedule().modeAtTime(1.25), static_cast<size_t>(ModeNumber::kRf));
+  ASSERT_EQ(referenceManager_->getModeSchedule().modeAtTime(1.25),
+            static_cast<size_t>(ModeNumber::kRf));
   const vector_t paramsRf = cost_->getParameters(/*time=*/1.25, emptyTargets);
   EXPECT_DOUBLE_EQ(paramsRf(0), 0.0);
   EXPECT_DOUBLE_EQ(paramsRf(1), 1.0);
   const vector2_t errorRf = cost_->computeDcmError(state, paramsRf);
-  const vector2_t expectedRf = comXy(state) - supportCenter(state, {false, true});
+  const vector2_t expectedRf =
+      comXy(state) - supportCenter(state, {false, true});
   EXPECT_LT((errorRf - expectedRf).norm(), 1.0e-6);
-  // Versus double support: the two references differ by half the foot separation (laterally ~0.1 m for Atlas).
-  const vector2_t errorDs = cost_->computeDcmError(state, cost_->getParameters(/*time=*/0.5, emptyTargets));
+  // Versus double support: the two references differ by half the foot
+  // separation (laterally ~0.1 m for Atlas).
+  const vector2_t errorDs = cost_->computeDcmError(
+      state, cost_->getParameters(/*time=*/0.5, emptyTargets));
   EXPECT_GT(std::abs(errorRf(1) - errorDs(1)), 0.05);
 }
 
 TEST_F(DcmTerminalCostTest, SupportWeightsBlendThroughTransitions) {
-  // Right-foot single support on [1.0, 1.5): the left foot's weight ramps out before 1.0 and back in after 1.5, the
-  // right foot keeps weight 1 (its contact phase spans the whole interval).
+  // Right-foot single support on [1.0, 1.5): the left foot's weight ramps out
+  // before 1.0 and back in after 1.5, the right foot keeps weight 1 (its
+  // contact phase spans the whole interval).
   EXPECT_NEAR(cost_->computeSupportWeights(0.5)(0), 1.0, 1.0e-12);
   EXPECT_NEAR(cost_->computeSupportWeights(0.95)(0), 0.5, 1.0e-9);
   EXPECT_NEAR(cost_->computeSupportWeights(1.25)(0), 0.0, 1.0e-12);
@@ -232,10 +272,13 @@ TEST_F(DcmTerminalCostTest, SupportWeightsBlendThroughTransitions) {
   for (const scalar_t t : {0.5, 0.95, 1.25, 1.55, 1.7}) {
     EXPECT_NEAR(cost_->computeSupportWeights(t)(1), 1.0, 1.0e-12) << "t=" << t;
   }
-  // The reference is continuous across the transition: parameters at 0.999 and 1.001 are close.
+  // The reference is continuous across the transition: parameters at 0.999
+  // and 1.001 are close.
   const TargetTrajectories emptyTargets;
-  const vector2_t before = cost_->computeDcmError(initialState_, cost_->getParameters(/*time=*/0.999, emptyTargets));
-  const vector2_t after = cost_->computeDcmError(initialState_, cost_->getParameters(/*time=*/1.001, emptyTargets));
+  const vector2_t before = cost_->computeDcmError(
+      initialState_, cost_->getParameters(/*time=*/0.999, emptyTargets));
+  const vector2_t after = cost_->computeDcmError(
+      initialState_, cost_->getParameters(/*time=*/1.001, emptyTargets));
   EXPECT_LT((before - after).norm(), 5.0e-3);
   // Blending off reproduces the hard switch.
   DcmTerminalCost::Config hard = config_;
@@ -250,16 +293,20 @@ TEST_F(DcmTerminalCostTest, VelocityCommandShiftsReference) {
   const scalar_t omega = cost_->omega();
   vector_t targetState = vector_t::Zero(info_.stateDim);
   targetState(0) = 0.4;
-  const TargetTrajectories targets({0.0}, {targetState}, {vector_t::Zero(info_.inputDim)});
-  const vector2_t withCommand = cost_->computeDcmError(initialState_, cost_->getParameters(/*time=*/0.5, targets));
-  const vector2_t without = cost_->computeDcmError(initialState_, cost_->getParameters(/*time=*/0.5, TargetTrajectories()));
+  const TargetTrajectories targets({0.0}, {targetState},
+                                   {vector_t::Zero(info_.inputDim)});
+  const vector2_t withCommand = cost_->computeDcmError(
+      initialState_, cost_->getParameters(/*time=*/0.5, targets));
+  const vector2_t without = cost_->computeDcmError(
+      initialState_, cost_->getParameters(/*time=*/0.5, TargetTrajectories()));
   EXPECT_NEAR(withCommand(0) - without(0), -0.4 / omega, 1.0e-9);
   EXPECT_NEAR(withCommand(1) - without(1), 0.0, 1.0e-9);
 
   DcmTerminalCost::Config noOffset = config_;
   noOffset.velocityOffsetFactor = 0.0;
   ASSERT_EQ(cost_->setConfig(noOffset), absl::OkStatus());
-  const vector2_t pureCapturability = cost_->computeDcmError(initialState_, cost_->getParameters(/*time=*/0.5, targets));
+  const vector2_t pureCapturability = cost_->computeDcmError(
+      initialState_, cost_->getParameters(/*time=*/0.5, targets));
   EXPECT_LT((pureCapturability - without).norm(), 1.0e-9);
 }
 
@@ -274,10 +321,14 @@ TEST_F(DcmTerminalCostTest, GaussNewtonApproximationMatchesFiniteDifferences) {
   state(13) = 0.3;  // a torso joint
   const TargetTrajectories emptyTargets;
   const ScalarFunctionQuadraticApproximation approximation =
-      cost_->getQuadraticApproximation(/*time=*/0.5, state, emptyTargets, PreComputation());
+      cost_->getQuadraticApproximation(/*time=*/0.5, state, emptyTargets,
+                                       PreComputation());
   ASSERT_EQ(approximation.dfdx.size(), state.size());
   ASSERT_EQ(approximation.dfdxx.rows(), state.size());
-  EXPECT_NEAR(approximation.f, cost_->getValue(/*time=*/0.5, state, emptyTargets, PreComputation()), 1.0e-9);
+  EXPECT_NEAR(
+      approximation.f,
+      cost_->getValue(/*time=*/0.5, state, emptyTargets, PreComputation()),
+      1.0e-9);
 
   const scalar_t h = 1.0e-6;
   for (Eigen::Index i = 0; i < state.size(); ++i) {
@@ -285,39 +336,55 @@ TEST_F(DcmTerminalCostTest, GaussNewtonApproximationMatchesFiniteDifferences) {
     vector_t minus = state;
     plus(i) += h;
     minus(i) -= h;
-    const scalar_t fd = (cost_->getValue(/*time=*/0.5, plus, emptyTargets, PreComputation()) -
-                         cost_->getValue(/*time=*/0.5, minus, emptyTargets, PreComputation())) /
-                        (2.0 * h);
-    EXPECT_NEAR(approximation.dfdx(i), fd, 1.0e-4 * std::max(1.0, std::abs(fd))) << "gradient entry " << i;
+    const scalar_t fd =
+        (cost_->getValue(/*time=*/0.5, plus, emptyTargets, PreComputation()) -
+         cost_->getValue(/*time=*/0.5, minus, emptyTargets, PreComputation())) /
+        (2.0 * h);
+    EXPECT_NEAR(approximation.dfdx(i), fd, 1.0e-4 * std::max(1.0, std::abs(fd)))
+        << "gradient entry " << i;
   }
   const Eigen::SelfAdjointEigenSolver<matrix_t> eigen(approximation.dfdxx);
   EXPECT_GE(eigen.eigenvalues().minCoeff(), -1.0e-9);
 }
 
-TEST_F(DcmTerminalCostTest, AnUnsetComHeightIsTheModelsPendulumAndAPositiveOneIsAnOverride) {
-  // The model's pendulum, computed in this test independently of computeComHeightAboveFeet(); a humanoid's center of
-  // mass stands somewhere between half a meter and a meter and a half above its soles.
+TEST_F(DcmTerminalCostTest,
+       AnUnsetComHeightIsTheModelsPendulumAndAPositiveOneIsAnOverride) {
+  // The model's pendulum, computed in this test independently of
+  // computeComHeightAboveFeet(); a humanoid's center of mass stands somewhere
+  // between half a meter and a meter and a half above its soles.
   ASSERT_GT(modelComHeight_, 0.5);
   ASSERT_LT(modelComHeight_, 1.5);
   DcmTerminalCost::Config derived = config_;
   derived.comHeight.reset();
-  absl::StatusOr<std::unique_ptr<DcmTerminalCost>> created = DcmTerminalCost::Create(
-      *referenceManager_, derived, modelComHeight_, *pinocchioInterface_, *robotModelAd_, "testDcmTerminalCost", *modelSettings_);
+  absl::StatusOr<std::unique_ptr<DcmTerminalCost>> created =
+      DcmTerminalCost::Create(*referenceManager_, derived, modelComHeight_,
+                              *pinocchioInterface_, *robotModelAd_,
+                              "testDcmTerminalCost", *modelSettings_);
   ASSERT_TRUE(created.ok()) << created.status();
   const std::unique_ptr<DcmTerminalCost> cost = *std::move(created);
-  EXPECT_THAT(cost->getConfig().comHeight, ::testing::Optional(::testing::DoubleNear(modelComHeight_, /*max_abs_error=*/1.0e-12)))
+  EXPECT_THAT(cost->getConfig().comHeight,
+              ::testing::Optional(::testing::DoubleNear(
+                  modelComHeight_, /*max_abs_error=*/1.0e-12)))
       << "unset means the model's center of mass above its feet";
-  EXPECT_NEAR(cost->getParameters(/*time=*/0.5, TargetTrajectories())(2), std::sqrt(9.81 / modelComHeight_), 1.0e-12);
+  EXPECT_NEAR(cost->getParameters(/*time=*/0.5, TargetTrajectories())(2),
+              std::sqrt(9.81 / modelComHeight_), 1.0e-12);
 
-  // Positive control: an explicit height is used as given, and the model's is still what a later unset one means - a hot reload
-  // (MpcParameterUpdaterModule) hands the block to setConfig() exactly as the file writes it.
+  // Positive control: an explicit height is used as given, and the model's is
+  // still what a later unset one means - a hot reload
+  // (MpcParameterUpdaterModule) hands the block to setConfig() exactly as the
+  // file writes it.
   DcmTerminalCost::Config explicitHeight = derived;
   explicitHeight.comHeight = 0.9;
   ASSERT_EQ(cost->setConfig(explicitHeight), absl::OkStatus());
-  EXPECT_NEAR(cost->getParameters(/*time=*/0.5, TargetTrajectories())(2), std::sqrt(9.81 / 0.9), 1.0e-12);
-  ASSERT_GT(std::abs(0.9 - modelComHeight_), 0.05) << "the override must differ from the model, or the checks above prove nothing";
+  EXPECT_NEAR(cost->getParameters(/*time=*/0.5, TargetTrajectories())(2),
+              std::sqrt(9.81 / 0.9), 1.0e-12);
+  ASSERT_GT(std::abs(0.9 - modelComHeight_), 0.05)
+      << "the override must differ from the model, or the checks above prove "
+         "nothing";
   ASSERT_EQ(cost->setConfig(derived), absl::OkStatus());
-  EXPECT_THAT(cost->getConfig().comHeight, ::testing::Optional(::testing::DoubleNear(modelComHeight_, /*max_abs_error=*/1.0e-12)));
+  EXPECT_THAT(cost->getConfig().comHeight,
+              ::testing::Optional(::testing::DoubleNear(
+                  modelComHeight_, /*max_abs_error=*/1.0e-12)));
   EXPECT_NEAR(cost->getModelComHeight(), modelComHeight_, 1.0e-12);
 }
 
@@ -326,8 +393,8 @@ TEST_F(DcmTerminalCostTest, ThePendulumRunsOnTheGravityOfTheModel) {
   EXPECT_EQ(cost_->getModelGravity(), kGravitationalAcceleration);
   EXPECT_EQ(cost_->getConfig().gravity, kGravitationalAcceleration);
 
-  // A model under another gravity: omega follows the model, whatever gravity the configuration carries, at creation and
-  // on every setConfig().
+  // A model under another gravity: omega follows the model, whatever gravity
+  // the configuration carries, at creation and on every setConfig().
   constexpr scalar_t kMarsGravity = 3.71;  // [m/s^2]
   if (!config_.comHeight.has_value()) {
     FAIL() << "the fixture's configuration sets com_height";
@@ -339,77 +406,109 @@ TEST_F(DcmTerminalCostTest, ThePendulumRunsOnTheGravityOfTheModel) {
   DcmTerminalCost::Config earthly = config_;
   earthly.gravity = kGravitationalAcceleration;
   absl::StatusOr<std::unique_ptr<DcmTerminalCost>> created =
-      DcmTerminalCost::Create(*referenceManager_, earthly, modelComHeight_, mars, *robotModelAd_, "testDcmTerminalCost", *modelSettings_);
+      DcmTerminalCost::Create(*referenceManager_, earthly, modelComHeight_,
+                              mars, *robotModelAd_, "testDcmTerminalCost",
+                              *modelSettings_);
   ASSERT_TRUE(created.ok()) << created.status();
   const std::unique_ptr<DcmTerminalCost> cost = *std::move(created);
   EXPECT_EQ(cost->getConfig().gravity, kMarsGravity);
-  EXPECT_NEAR(cost->getParameters(/*time=*/0.5, TargetTrajectories())(2), std::sqrt(kMarsGravity / comHeight), 1.0e-12);
+  EXPECT_NEAR(cost->getParameters(/*time=*/0.5, TargetTrajectories())(2),
+              std::sqrt(kMarsGravity / comHeight), 1.0e-12);
   ASSERT_EQ(cost->setConfig(earthly), absl::OkStatus());
-  EXPECT_NEAR(cost->getParameters(/*time=*/0.5, TargetTrajectories())(2), std::sqrt(kMarsGravity / comHeight), 1.0e-12)
+  EXPECT_NEAR(cost->getParameters(/*time=*/0.5, TargetTrajectories())(2),
+              std::sqrt(kMarsGravity / comHeight), 1.0e-12)
       << "a reload must not bring a gravity of its own";
 
   // A gravity that does not point down gives no pendulum.
   pinocchio::ModelTpl<scalar_t> sidewaysModel = pinocchioInterface_->getModel();
   sidewaysModel.gravity.linear(vector3_t(kGravitationalAcceleration, 0.0, 0.0));
   const PinocchioInterface sideways(sidewaysModel);
-  EXPECT_EQ(DcmTerminalCost::Create(*referenceManager_, config_, modelComHeight_, sideways, *robotModelAd_, "testDcmTerminalCost",
-                                    *modelSettings_)
+  EXPECT_EQ(DcmTerminalCost::Create(*referenceManager_, config_,
+                                    modelComHeight_, sideways, *robotModelAd_,
+                                    "testDcmTerminalCost", *modelSettings_)
                 .status()
                 .code(),
             absl::StatusCode::kInvalidArgument);
 }
 
-TEST_F(DcmTerminalCostTest, ARejectedConfigurationNamesItsKeyAndKeepsTheRunningOne) {
+TEST_F(DcmTerminalCostTest,
+       ARejectedConfigurationNamesItsKeyAndKeepsTheRunningOne) {
   DcmTerminalCost::Config negativeWeight = config_;
   negativeWeight.weights(1) = -1.0;
   const absl::Status weight = cost_->setConfig(negativeWeight);
   EXPECT_EQ(weight.code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(absl::StrContains(weight.message(), "dcm_terminal_cost.weight_y")) << weight;
-  EXPECT_DOUBLE_EQ(cost_->getConfig().weights(1), config_.weights(1)) << "a refused configuration must leave the running one in force";
+  EXPECT_TRUE(absl::StrContains(weight.message(), "dcm_terminal_cost.weight_y"))
+      << weight;
+  EXPECT_DOUBLE_EQ(cost_->getConfig().weights(1), config_.weights(1))
+      << "a refused configuration must leave the running one in force";
 
   DcmTerminalCost::Config negativeHeight = config_;
   negativeHeight.comHeight = -0.9;
   const absl::Status height = cost_->setConfig(negativeHeight);
   EXPECT_EQ(height.code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(absl::StrContains(height.message(), "dcm_terminal_cost.com_height")) << height;
+  EXPECT_TRUE(
+      absl::StrContains(height.message(), "dcm_terminal_cost.com_height"))
+      << height;
   EXPECT_EQ(cost_->getConfig().comHeight, config_.comHeight);
 
-  // A model that gives no pendulum cannot stand in for the unset comHeight of a block without com_height.
+  // A model that gives no pendulum cannot stand in for the unset comHeight of a
+  // block without com_height.
   DcmTerminalCost::Config derived = config_;
   derived.comHeight.reset();
   const absl::StatusOr<DcmTerminalCost::Config> noModel =
-      DcmTerminalCost::resolveConfig(derived, /*modelComHeight=*/0.0, /*modelGravity=*/kGravitationalAcceleration);
+      DcmTerminalCost::resolveConfig(
+          derived, /*modelComHeight=*/0.0,
+          /*modelGravity=*/kGravitationalAcceleration);
   EXPECT_EQ(noModel.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(absl::StrContains(noModel.status().message(), "dcm_terminal_cost.com_height")) << noModel.status();
-  EXPECT_TRUE(DcmTerminalCost::resolveConfig(derived, /*modelComHeight=*/1.0, /*modelGravity=*/kGravitationalAcceleration).ok())
+  EXPECT_TRUE(absl::StrContains(noModel.status().message(),
+                                "dcm_terminal_cost.com_height"))
+      << noModel.status();
+  EXPECT_TRUE(DcmTerminalCost::resolveConfig(
+                  derived, /*modelComHeight=*/1.0,
+                  /*modelGravity=*/kGravitationalAcceleration)
+                  .ok())
       << "the control: the same configuration with a model";
 }
 
-TEST_F(DcmTerminalCostTest, TheConversionReadsTheBlockAsWrittenAndNamesAFieldItRefuses) {
-  const absl::StatusOr<DcmTerminalCost::Config> shipped = dcmTerminalCostConfigFromConfig(atlas_.task.dcm_terminal_cost);
+TEST_F(DcmTerminalCostTest,
+       TheConversionReadsTheBlockAsWrittenAndNamesAFieldItRefuses) {
+  const absl::StatusOr<DcmTerminalCost::Config> shipped =
+      dcmTerminalCostConfigFromConfig(atlas_.task.dcm_terminal_cost);
   ASSERT_TRUE(shipped.ok()) << shipped.status();
   EXPECT_GT(shipped->weights(0), 0.0);
-  EXPECT_TRUE(!shipped->comHeight.has_value() || *shipped->comHeight > 0.0) << "unset (the model's) or an explicit height";
+  EXPECT_TRUE(!shipped->comHeight.has_value() || *shipped->comHeight > 0.0)
+      << "unset (the model's) or an explicit height";
 
   mpc_config::DcmTerminalCostConfig notANumber;
   notANumber.com_height = std::numeric_limits<scalar_t>::quiet_NaN();
   notANumber.weight_x = 10.0;
-  const absl::StatusOr<DcmTerminalCost::Config> refusedHeight = dcmTerminalCostConfigFromConfig(notANumber);
+  const absl::StatusOr<DcmTerminalCost::Config> refusedHeight =
+      dcmTerminalCostConfigFromConfig(notANumber);
   EXPECT_EQ(refusedHeight.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(absl::StrContains(refusedHeight.status().message(), "dcm_terminal_cost.com_height")) << refusedHeight.status();
+  EXPECT_TRUE(absl::StrContains(refusedHeight.status().message(),
+                                "dcm_terminal_cost.com_height"))
+      << refusedHeight.status();
 
-  const absl::StatusOr<DcmTerminalCost::Config> derived = dcmTerminalCostConfigFromConfig(mpc_config::DcmTerminalCostConfig{});
+  const absl::StatusOr<DcmTerminalCost::Config> derived =
+      dcmTerminalCostConfigFromConfig(mpc_config::DcmTerminalCostConfig{});
   ASSERT_TRUE(derived.ok()) << derived.status();
-  EXPECT_FALSE(derived->comHeight.has_value()) << "the conversion leaves it unset for the cost to resolve against the model";
+  EXPECT_FALSE(derived->comHeight.has_value())
+      << "the conversion leaves it unset for the cost to resolve against the "
+         "model";
 }
 
 TEST_F(DcmTerminalCostTest, UnderAPlanTheRobotsDcmIsTakenOnThePlansPendulum) {
-  std::shared_ptr<PlannedDcmReferenceManager> planning = std::make_shared<PlannedDcmReferenceManager>(
-      checkedValue(GaitSchedule::Create(atlas_.reference, *modelSettings_, /*verbose=*/false)),
-      std::make_unique<SwingTrajectoryPlanner>(checkedValue(swingTrajectorySettingsFromConfig(atlas_.task.swing_trajectory_config)),
-                                               kNumContacts),
-      *pinocchioInterface_, *robotModel_);
-  planning->preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0, initialState_, ModeNumber::kStance);
+  std::shared_ptr<PlannedDcmReferenceManager> planning =
+      std::make_shared<PlannedDcmReferenceManager>(
+          checkedValue(GaitSchedule::Create(atlas_.reference, *modelSettings_,
+                                            /*verbose=*/false)),
+          std::make_unique<SwingTrajectoryPlanner>(
+              checkedValue(swingTrajectorySettingsFromConfig(
+                  atlas_.task.swing_trajectory_config)),
+              kNumContacts),
+          *pinocchioInterface_, *robotModel_);
+  planning->preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0, initialState_,
+                         ModeNumber::kStance);
   const std::unique_ptr<DcmTerminalCost> cost = createCost(*planning, config_);
   ASSERT_NE(cost, nullptr);
 
@@ -419,37 +518,46 @@ TEST_F(DcmTerminalCostTest, UnderAPlanTheRobotsDcmIsTakenOnThePlansPendulum) {
   EXPECT_NEAR(parameters(2), ownOmega, 1.0e-12);
   EXPECT_EQ(parameters(8), 0.0);
 
-  // A plan made on another pendulum: its DCM is only its DCM with its own omega, so the robot's is taken with that one
-  // too, and the residual compares two points of one pendulum.
+  // A plan made on another pendulum: its DCM is only its DCM with its own
+  // omega, so the robot's is taken with that one too, and the residual compares
+  // two points of one pendulum.
   SwitchedModelReferenceManager::PlannedDcm plan;
   plan.dcm = vector2_t(0.12, -0.04);
   plan.omega = 2.5;
   ASSERT_GT(std::abs(plan.omega - ownOmega), 0.5);
   planning->planned = plan;
   parameters = cost->getParameters(/*time=*/0.5, TargetTrajectories());
-  EXPECT_NEAR(parameters(2), plan.omega, 1.0e-12) << "the robot's DCM must be taken on the plan's pendulum, not the cost's";
+  EXPECT_NEAR(parameters(2), plan.omega, 1.0e-12)
+      << "the robot's DCM must be taken on the plan's pendulum, not the cost's";
   EXPECT_EQ(parameters(8), 1.0);
   EXPECT_NEAR(parameters(9), plan.dcm(0), 1.0e-12);
   EXPECT_NEAR(parameters(10), plan.dcm(1), 1.0e-12);
   vector_t state = initialState_;
   state(0) = 0.3;
   state(1) = -0.2;
-  const vector2_t expected = comXy(state) + state.head<2>() / plan.omega - plan.dcm;
-  EXPECT_LT((cost->computeDcmError(state, parameters) - expected).norm(), 1.0e-6);
+  const vector2_t expected =
+      comXy(state) + state.head<2>() / plan.omega - plan.dcm;
+  EXPECT_LT((cost->computeDcmError(state, parameters) - expected).norm(),
+            1.0e-6);
 }
 
 namespace {
 
 /**
- * Records the tape operation count of every library made ready while it is alive, each count a fresh taping of the
- * library's function. Installs the process-wide library observer: one at a time, on the test's thread.
+ * Records the tape operation count of every library made ready while it is
+ * alive, each count a fresh taping of the library's function. Installs the
+ * process-wide library observer: one at a time, on the test's thread.
  */
 class TapeOperationRecorder {
  public:
   TapeOperationRecorder() {
-    CppAdInterface::setLibraryObserver([this](const CppAdInterface& library) { counts_.push_back(library.getTapeOperationCount()); });
+    CppAdInterface::setLibraryObserver([this](const CppAdInterface& library) {
+      counts_.push_back(library.getTapeOperationCount());
+    });
   }
-  ~TapeOperationRecorder() { CppAdInterface::setLibraryObserver(CppAdInterface::LibraryObserver()); }
+  ~TapeOperationRecorder() {
+    CppAdInterface::setLibraryObserver(CppAdInterface::LibraryObserver());
+  }
   TapeOperationRecorder(const TapeOperationRecorder&) = delete;
   TapeOperationRecorder& operator=(const TapeOperationRecorder&) = delete;
 
@@ -461,13 +569,16 @@ class TapeOperationRecorder {
 
 }  // namespace
 
-// The library's function holds what the residual reads, not the cost: a copy of a copy re-tapes it after the cost they
-// were made of is gone, and tapes what that cost taped.
-TEST_F(DcmTerminalCostTest, ACopyRetapesTheResidualAfterTheCostItWasCopiedFromIsGone) {
+// The library's function holds what the residual reads, not the cost: a copy of
+// a copy re-tapes it after the cost they were made of is gone, and tapes what
+// that cost taped.
+TEST_F(DcmTerminalCostTest,
+       ACopyRetapesTheResidualAfterTheCostItWasCopiedFromIsGone) {
   vector_t state = initialState_;
   state(0) = 0.3;
   state(1) = -0.2;
-  const vector_t parameters = cost_->getParameters(/*time=*/0.5, TargetTrajectories());
+  const vector_t parameters =
+      cost_->getParameters(/*time=*/0.5, TargetTrajectories());
   const vector2_t error = cost_->computeDcmError(state, parameters);
 
   const TapeOperationRecorder recorder;
@@ -475,7 +586,8 @@ TEST_F(DcmTerminalCostTest, ACopyRetapesTheResidualAfterTheCostItWasCopiedFromIs
   cost_.reset();
   const std::unique_ptr<DcmTerminalCost> copyOfCopy(copy->clone());
   copy.reset();
-  ASSERT_EQ(recorder.counts().size(), 2u) << "the library reloaded by each copy";
+  ASSERT_EQ(recorder.counts().size(), 2u)
+      << "the library reloaded by each copy";
   EXPECT_GT(recorder.counts()[0], 0u);
   EXPECT_EQ(recorder.counts()[1], recorder.counts()[0]);
   EXPECT_EQ(copyOfCopy->computeDcmError(state, parameters), error);

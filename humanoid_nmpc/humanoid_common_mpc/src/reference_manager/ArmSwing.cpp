@@ -56,72 +56,99 @@ constexpr char kNoGeneratorName[] = "none";
 // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/arm_swing_config.proto:arm_swing_generator)
 
 /**
- * The smallest share of a derived direction's own scale - a shoulder's lever, the part of an elbow's axis across the
- * arm's plane - that is taken as a direction rather than as numerical noise.
+ * The smallest share of a derived direction's own scale - a shoulder's lever,
+ * the part of an elbow's axis across the arm's plane - that is taken as a
+ * direction rather than as numerical noise.
  */
 constexpr scalar_t kMinimumDirectionShare = 0.1;
 
-/** One driven joint, as the derivation sees it at the nominal posture. Passive data. */
+/** One driven joint, as the derivation sees it at the nominal posture. Passive
+ * data. */
 struct ArmJoint {
-  vector3_t position = vector3_t::Zero();    // [m] the joint's origin, in the world
-  vector3_t axis = vector3_t::Zero();        // the unit rotation axis, in the world
-  vector3_t carriedCom = vector3_t::Zero();  // [m] the center of mass of everything the joint carries, in the world
+  vector3_t position =
+      vector3_t::Zero();               // [m] the joint's origin, in the world
+  vector3_t axis = vector3_t::Zero();  // the unit rotation axis, in the world
+  vector3_t carriedCom =
+      vector3_t::Zero();  // [m] the center of mass of everything the joint
+                          // carries, in the world
 };
 
-/** `jointName` of the MPC model at the posture the kinematics of `data` were computed at. */
-absl::StatusOr<ArmJoint> armJointAt(const pinocchio::Model& model, const pinocchio::Data& data, const std::string& jointName) {
+/** `jointName` of the MPC model at the posture the kinematics of `data` were
+ * computed at. */
+absl::StatusOr<ArmJoint> armJointAt(const pinocchio::Model& model,
+                                    const pinocchio::Data& data,
+                                    const std::string& jointName) {
   if (!model.existJointName(jointName)) {
     return absl::InvalidArgumentError(
-        absl::StrCat("[deriveArmSwingDirections] the arm joint '", jointName, "' is not in the robot model."));
+        absl::StrCat("[deriveArmSwingDirections] the arm joint '", jointName,
+                     "' is not in the robot model."));
   }
   const pinocchio::JointIndex joint = model.getJointId(jointName);
   if (model.joints[joint].nv() != 1) {
-    return absl::InvalidArgumentError(absl::StrCat("[deriveArmSwingDirections] the arm joint '", jointName, "' has ",
-                                                   model.joints[joint].nv(), " degrees of freedom, not 1."));
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[deriveArmSwingDirections] the arm joint '", jointName, "' has ",
+        model.joints[joint].nv(), " degrees of freedom, not 1."));
   }
   ArmJoint result;
   result.position = data.oMi[joint].translation();
-  // The angular rows of the world-frame joint Jacobian (computeJointJacobians()): the joint's axis in the world.
-  result.axis = data.J.block<kRotationTangentDim, 1>(kPositionDim, model.joints[joint].idx_v()).normalized();
+  // The angular rows of the world-frame joint Jacobian
+  // (computeJointJacobians()): the joint's axis in the world.
+  result.axis = data.J
+                    .block<kRotationTangentDim, 1>(kPositionDim,
+                                                   model.joints[joint].idx_v())
+                    .normalized();
   scalar_t mass = 0.0;
   for (const pinocchio::JointIndex carried : model.subtrees[joint]) {
     const pinocchio::Inertia& inertia = model.inertias[carried];
     mass += inertia.mass();
-    result.carriedCom += inertia.mass() * data.oMi[carried].act(inertia.lever());
+    result.carriedCom +=
+        inertia.mass() * data.oMi[carried].act(inertia.lever());
   }
   if (!(mass > 0.0)) {
-    return absl::InvalidArgumentError(absl::StrCat("[deriveArmSwingDirections] the arm joint '", jointName, "' carries no mass."));
+    return absl::InvalidArgumentError(
+        absl::StrCat("[deriveArmSwingDirections] the arm joint '", jointName,
+                     "' carries no mass."));
   }
   result.carriedCom /= mass;
   return result;
 }
 
-/** +1 when a positive rate of `shoulder` swings what it carries forward along the base's x axis `forward`, else -1. */
-absl::StatusOr<scalar_t> shoulderDirection(const ArmJoint& shoulder, const vector3_t& forward, absl::string_view jointName) {
+/** +1 when a positive rate of `shoulder` swings what it carries forward along
+ * the base's x axis `forward`, else -1. */
+absl::StatusOr<scalar_t> shoulderDirection(const ArmJoint& shoulder,
+                                           const vector3_t& forward,
+                                           absl::string_view jointName) {
   const vector3_t lever = shoulder.carriedCom - shoulder.position;
   const scalar_t forwardSpeed = forward.dot(shoulder.axis.cross(lever));
   if (!(std::abs(forwardSpeed) >= kMinimumDirectionShare * lever.norm())) {
-    return absl::InvalidArgumentError(absl::StrCat("[deriveArmSwingDirections] the shoulder joint '", jointName,
-                                                   "' hardly swings the arm forward at the nominal posture (", forwardSpeed,
-                                                   " m/s per rad/s on a ", lever.norm(), " m lever)."));
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[deriveArmSwingDirections] the shoulder joint '", jointName,
+        "' hardly swings the arm forward at the nominal posture (",
+        forwardSpeed, " m/s per rad/s on a ", lever.norm(), " m lever)."));
   }
   return forwardSpeed > 0.0 ? 1.0 : -1.0;
 }
 
 /**
- * +1 when a positive rate of `elbow` closes the angle between the upper arm, towards `shoulder`, and what the elbow
- * carries, else -1. With w the forearm and u the upper arm from the elbow, the angle changes at -a . (w x u) / |w x u|.
+ * +1 when a positive rate of `elbow` closes the angle between the upper arm,
+ * towards `shoulder`, and what the elbow carries, else -1. With w the forearm
+ * and u the upper arm from the elbow, the angle changes at -a . (w x u) / |w x
+ * u|.
  */
-absl::StatusOr<scalar_t> elbowDirection(const ArmJoint& elbow, const ArmJoint& shoulder, absl::string_view jointName) {
+absl::StatusOr<scalar_t> elbowDirection(const ArmJoint& elbow,
+                                        const ArmJoint& shoulder,
+                                        absl::string_view jointName) {
   const vector3_t forearm = elbow.carriedCom - elbow.position;
   const vector3_t upperArm = shoulder.position - elbow.position;
   const vector3_t normal = forearm.cross(upperArm);
   const scalar_t normalNorm = normal.norm();
-  const scalar_t across = (normalNorm > 0.0) ? elbow.axis.dot(normal) / normalNorm : 0.0;
+  const scalar_t across =
+      (normalNorm > 0.0) ? elbow.axis.dot(normal) / normalNorm : 0.0;
   if (!(std::abs(across) >= kMinimumDirectionShare)) {
-    return absl::InvalidArgumentError(absl::StrCat("[deriveArmSwingDirections] the elbow joint '", jointName,
-                                                   "' hardly flexes the arm at the nominal posture (its axis is ", across,
-                                                   " across the plane of the upper arm and the forearm)."));
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[deriveArmSwingDirections] the elbow joint '", jointName,
+        "' hardly flexes the arm at the nominal posture (its axis is ", across,
+        " across the plane of the upper arm and the forearm)."));
   }
   return across > 0.0 ? 1.0 : -1.0;
 }
@@ -132,26 +159,35 @@ std::vector<std::string> armSwingGeneratorNames() {
   return {kProceduralGeneratorName, kNoGeneratorName};
 }
 
-absl::StatusOr<ArmSwingGenerator> armSwingGeneratorFromName(absl::string_view name) {
+absl::StatusOr<ArmSwingGenerator> armSwingGeneratorFromName(
+    absl::string_view name) {
   if (name == kProceduralGeneratorName) return ArmSwingGenerator::kProcedural;
   if (name == kNoGeneratorName) return ArmSwingGenerator::kNone;
   return absl::InvalidArgumentError(
-      absl::StrCat("arm_swing.generator is '", name, "'; the generators are ", absl::StrJoin(armSwingGeneratorNames(), ", "), "."));
+      absl::StrCat("arm_swing.generator is '", name, "'; the generators are ",
+                   absl::StrJoin(armSwingGeneratorNames(), ", "), "."));
 }
 
-absl::StatusOr<ArmSwingSettings> armSwingSettingsFromConfig(const mpc_config::ArmSwingConfig& config) {
+absl::StatusOr<ArmSwingSettings> armSwingSettingsFromConfig(
+    const mpc_config::ArmSwingConfig& config) {
   ArmSwingSettings settings;
-  ASSIGN_OR_RETURN(settings.generator, armSwingGeneratorFromName(config.generator));
+  ASSIGN_OR_RETURN(settings.generator,
+                   armSwingGeneratorFromName(config.generator));
   // Negated comparisons, so that a NaN is refused rather than accepted.
   if (!(config.shoulder_gain >= 0.0) || !std::isfinite(config.shoulder_gain)) {
     return absl::InvalidArgumentError(
-        absl::StrCat("arm_swing.shoulder_gain is ", config.shoulder_gain, "; it must be finite and not negative."));
+        absl::StrCat("arm_swing.shoulder_gain is ", config.shoulder_gain,
+                     "; it must be finite and not negative."));
   }
   if (!(config.elbow_gain >= 0.0) || !std::isfinite(config.elbow_gain)) {
-    return absl::InvalidArgumentError(absl::StrCat("arm_swing.elbow_gain is ", config.elbow_gain, "; it must be finite and not negative."));
+    return absl::InvalidArgumentError(
+        absl::StrCat("arm_swing.elbow_gain is ", config.elbow_gain,
+                     "; it must be finite and not negative."));
   }
   if (!std::isfinite(config.phase_offset)) {
-    return absl::InvalidArgumentError(absl::StrCat("arm_swing.phase_offset is ", config.phase_offset, "; it must be finite."));
+    return absl::InvalidArgumentError(absl::StrCat("arm_swing.phase_offset is ",
+                                                   config.phase_offset,
+                                                   "; it must be finite."));
   }
   settings.shoulderGain = config.shoulder_gain;
   settings.elbowGain = config.elbow_gain;
@@ -159,12 +195,15 @@ absl::StatusOr<ArmSwingSettings> armSwingSettingsFromConfig(const mpc_config::Ar
   return settings;
 }
 
-absl::StatusOr<ArmSwingDirections> deriveArmSwingDirections(PinocchioInterface& pinocchioInterface,
-                                                            const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                                            const vector_t& nominalState) {
+absl::StatusOr<ArmSwingDirections> deriveArmSwingDirections(
+    PinocchioInterface& pinocchioInterface,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    const vector_t& nominalState) {
   const ModelSettings& settings = mpcRobotModel.modelSettings;
   if (!settings.hasArmSwingJoints) {
-    return absl::FailedPreconditionError("[deriveArmSwingDirections] the robot names no arm joints (model_settings.arm_joint_names).");
+    return absl::FailedPreconditionError(
+        "[deriveArmSwingDirections] the robot names no arm joints "
+        "(model_settings.arm_joint_names).");
   }
   const pinocchio::Model& model = pinocchioInterface.getModel();
   pinocchio::Data& data = pinocchioInterface.getData();
@@ -172,9 +211,12 @@ absl::StatusOr<ArmSwingDirections> deriveArmSwingDirections(PinocchioInterface& 
   pinocchio::forwardKinematics(model, data, q);
   pinocchio::computeJointJacobians(model, data, q);
   // The base's forward axis at the nominal posture, in the world.
-  const vector3_t forward = quaternionRotationMatrix<scalar_t>(mpcRobotModel.getBaseOrientation(nominalState)).col(0);
+  const vector3_t forward = quaternionRotationMatrix<scalar_t>(
+                                mpcRobotModel.getBaseOrientation(nominalState))
+                                .col(0);
 
-  /** One arm's two joints, by MPC joint index, and where their directions go. Passive data. */
+  /** One arm's two joints, by MPC joint index, and where their directions go.
+   * Passive data. */
   struct Arm {
     size_t shoulderIndex;
     size_t elbowIndex;
@@ -193,12 +235,16 @@ absl::StatusOr<ArmSwingDirections> deriveArmSwingDirections(PinocchioInterface& 
        .elbowDirectionOut = &directions.rightElbow},
   };
   for (const Arm& arm : arms) {
-    const std::string& shoulderName = settings.mpcModelJointNames[arm.shoulderIndex];
+    const std::string& shoulderName =
+        settings.mpcModelJointNames[arm.shoulderIndex];
     const std::string& elbowName = settings.mpcModelJointNames[arm.elbowIndex];
-    ASSIGN_OR_RETURN(const ArmJoint shoulder, armJointAt(model, data, shoulderName));
+    ASSIGN_OR_RETURN(const ArmJoint shoulder,
+                     armJointAt(model, data, shoulderName));
     ASSIGN_OR_RETURN(const ArmJoint elbow, armJointAt(model, data, elbowName));
-    ASSIGN_OR_RETURN(*arm.shoulderDirectionOut, shoulderDirection(shoulder, forward, shoulderName));
-    ASSIGN_OR_RETURN(*arm.elbowDirectionOut, elbowDirection(elbow, shoulder, elbowName));
+    ASSIGN_OR_RETURN(*arm.shoulderDirectionOut,
+                     shoulderDirection(shoulder, forward, shoulderName));
+    ASSIGN_OR_RETURN(*arm.elbowDirectionOut,
+                     elbowDirection(elbow, shoulder, elbowName));
   }
   return directions;
 }

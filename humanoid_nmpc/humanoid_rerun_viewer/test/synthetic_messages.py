@@ -49,7 +49,14 @@ from humanoid_rerun_viewer import telemetry_contract
 JOINTS = ("left_hip_pitch_joint", "left_knee_joint", "right_hip_pitch_joint")
 # The display coordinates (the base's Euler angles), and the velocity's entries (the world linear and the body angular
 # velocity), as getBaseDofNames() and getBaseVelocityDofNames() name the base's.
-DOFS = ("base_x", "base_y", "base_z", "base_yaw", "base_pitch", "base_roll") + JOINTS
+DOFS = (
+    "base_x",
+    "base_y",
+    "base_z",
+    "base_yaw",
+    "base_pitch",
+    "base_roll",
+) + JOINTS
 VELOCITY_DOFS = (
     "base_vx",
     "base_vy",
@@ -158,7 +165,11 @@ def full_scene(
                 strip = line_strips.strips.add()
                 for index in range(4):
                     point = strip.points.add()
-                    point.x, point.y, point.z = 0.1 * index, 0.1 * strip_index, 0.0
+                    point.x, point.y, point.z = (
+                        0.1 * index,
+                        0.1 * strip_index,
+                        0.0,
+                    )
             scene.line_strips.append(line_strips)
     return scene
 
@@ -173,7 +184,12 @@ SAMPLE_LINKS = ("base_link", "thigh", "shin", "foot", "sensor_mount")
 
 def write_binary_stl(path: str) -> None:
     """A tetrahedron as a binary STL."""
-    vertices = [(0.0, 0.0, 0.0), (0.1, 0.0, 0.0), (0.0, 0.1, 0.0), (0.0, 0.0, 0.1)]
+    vertices = [
+        (0.0, 0.0, 0.0),
+        (0.1, 0.0, 0.0),
+        (0.0, 0.1, 0.0),
+        (0.0, 0.0, 0.1),
+    ]
     faces = [(0, 2, 1), (0, 1, 3), (0, 3, 2), (1, 2, 3)]
     with open(path, "wb") as stl:
         stl.write(b"test tetrahedron".ljust(80, b" "))
@@ -246,7 +262,9 @@ def write_sample_package(directory: str, package: str = SAMPLE_PACKAGE) -> str:
     os.makedirs(os.path.join(root, "meshes"), exist_ok=True)
     write_binary_stl(os.path.join(root, "meshes", "base.STL"))
     write_binary_stl(os.path.join(root, "meshes", "foot.stl"))
-    with open(os.path.join(root, "meshes", "foot.dae"), "w", encoding="utf-8") as dae:
+    with open(
+        os.path.join(root, "meshes", "foot.dae"), "w", encoding="utf-8"
+    ) as dae:
         dae.write("<COLLADA/>\n")
     urdf_path = os.path.join(root, "urdf", "test.urdf")
     with open(urdf_path, "w", encoding="utf-8") as urdf:

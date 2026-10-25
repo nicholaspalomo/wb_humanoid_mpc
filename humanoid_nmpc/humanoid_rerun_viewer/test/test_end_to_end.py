@@ -142,7 +142,9 @@ class Publisher:
         self.bus.publish(topics.MPC_STATUS, status)
         self.bus.publish(
             topics.ROBOT_LOOP_TIMING,
-            loop_timing_pb2.LoopTiming(target_period_s=0.002, policy_age_s=0.01),
+            loop_timing_pb2.LoopTiming(
+                target_period_s=0.002, policy_age_s=0.01
+            ),
         )
 
 
@@ -199,7 +201,9 @@ class LoopbackBusTest(unittest.TestCase):
         def enough() -> bool:
             publisher.step()
             # A FsmState on viz/telemetry, which delivers every message: the bus rejects it, the bridge never sees it.
-            self.publisher_bus.publish(topics.VIZ_TELEMETRY, fsm_state_pb2.FsmState())
+            self.publisher_bus.publish(
+                topics.VIZ_TELEMETRY, fsm_state_pb2.FsmState()
+            )
             return (
                 handled.get(topics.VIZ_SCENE, 0) >= 3
                 and handled.get(topics.VIZ_TELEMETRY, 0) >= 20
@@ -237,7 +241,9 @@ class LoopbackBusTest(unittest.TestCase):
             )
         for marker in scene_contract.MARKERS:
             self.assertIn(
-                scene_contract.entity_path(scene_contract.WORLD_ROOT, marker.path),
+                scene_contract.entity_path(
+                    scene_contract.WORLD_ROOT, marker.path
+                ),
                 contents.entities,
             )
         for group in telemetry_contract.all_groups(synthetic_messages.FRAMES):
@@ -279,7 +285,9 @@ class LoopbackBusTest(unittest.TestCase):
             before = handled.get(topics.VIZ_TELEMETRY, 0)
             self.assertTrue(
                 wait_for(
-                    telemetry_beyond(Publisher(publisher_bus), handled, before + 5)
+                    telemetry_beyond(
+                        Publisher(publisher_bus), handled, before + 5
+                    )
                 ),
                 f"restart {restart}: {dict(handled)}",
             )
@@ -302,7 +310,9 @@ class BinaryTest(unittest.TestCase):
         """The network file of this test process's own DDS domain, for the binary."""
         path = os.path.join(self.directory, "network.textproto")
         with open(path, "w", encoding="utf-8") as network_file:
-            network_file.write(robot_ipc.format_network_config(isolated_network()))
+            network_file.write(
+                robot_ipc.format_network_config(isolated_network())
+            )
         return path
 
     def launch(
@@ -380,7 +390,9 @@ class BinaryTest(unittest.TestCase):
 
         self.assertTrue(wait_for(logged, timeout), log_text())
 
-    def publish_heavily(self, publisher_bus: robot_ipc.Bus, seconds: float) -> None:
+    def publish_heavily(
+        self, publisher_bus: robot_ipc.Bus, seconds: float
+    ) -> None:
         """Publishes heavy scenes and the other topics as fast as it can for `seconds`."""
         scene = heavy_scene()
         publisher = Publisher(publisher_bus)
@@ -405,7 +417,8 @@ class BinaryTest(unittest.TestCase):
             status = process.wait(timeout=bound)
         except subprocess.TimeoutExpired:
             self.fail(
-                f"the bridge did not stop within {bound} s of SIGTERM:\n{log_text()}"
+                f"the bridge did not stop within {bound} s of"
+                f" SIGTERM:\n{log_text()}"
             )
         self.assertEqual(status, 0, log_text())
         self.assertIn("stopped:", log_text())
@@ -426,7 +439,8 @@ class BinaryTest(unittest.TestCase):
         self.assertIn("is not up", log_text())
         self.publish_heavily(publisher_bus, HEAVY_FEED_S)
         self.assertIn(
-            "dropping the bus's messages", self.stop_with_sigterm(process, log_text)
+            "dropping the bus's messages",
+            self.stop_with_sigterm(process, log_text),
         )
 
     def test_a_viewer_that_comes_back_is_reconnected(self) -> None:
@@ -469,7 +483,8 @@ class BinaryTest(unittest.TestCase):
         with open(viewer, "w", encoding="utf-8") as script:
             # spawn passes the viewer --port and its options, which the gRPC server takes too.
             script.write(
-                f'#!/bin/sh\necho $$ > "{pid_file}"\nexec "{executable}" --serve-grpc "$@"\n'
+                f'#!/bin/sh\necho $$ > "{pid_file}"\nexec "{executable}"'
+                ' --serve-grpc "$@"\n'
             )
         os.chmod(viewer, 0o755)
         publisher_bus = self.start_publisher()
@@ -494,7 +509,9 @@ class BinaryTest(unittest.TestCase):
         self.assertEqual(status, 0, log_text())
         self.assertIn("is gone", log_text())
 
-    def test_a_robot_clock_that_goes_back_is_saved_as_a_second_run(self) -> None:
+    def test_a_robot_clock_that_goes_back_is_saved_as_a_second_run(
+        self,
+    ) -> None:
         publisher_bus = self.start_publisher()
         rrd_path = os.path.join(self.directory, "runs.rrd")
         process, log_text = self.launch(
@@ -519,13 +536,17 @@ class BinaryTest(unittest.TestCase):
         link = scene_contract.link_path(scene_contract.MEASURED, "base_link")
         first = rrd_contents.RrdContents(rrd_path)
         second = rrd_contents.RrdContents(rerun_sinks.run_path(rrd_path, 2))
-        self.assertGreaterEqual(max(first.entities[link].times(ROBOT_TIMELINE)), 1.9)
+        self.assertGreaterEqual(
+            max(first.entities[link].times(ROBOT_TIMELINE)), 1.9
+        )
         times = second.entities[link].times(ROBOT_TIMELINE)
         self.assertTrue(times, log_text())
         self.assertTrue(all(0.5 < time_s < 0.85 for time_s in times), times)
         self.assertTrue(
             second.has(
-                scene_contract.visual_path(scene_contract.MEASURED, "base_link", 0),
+                scene_contract.visual_path(
+                    scene_contract.MEASURED, "base_link", 0
+                ),
                 "Asset3D:blob",
             )
         )
@@ -565,12 +586,11 @@ class BinaryTest(unittest.TestCase):
                 return log_file.read()
 
         publisher = Publisher(publisher_bus)
-        self.assertTrue(
-            wait_for(
-                lambda: "subscribed to" in log_text() or process.poll() is not None
-            ),
-            log_text(),
-        )
+
+        def subscribed_or_exited() -> bool:
+            return "subscribed to" in log_text() or process.poll() is not None
+
+        self.assertTrue(wait_for(subscribed_or_exited), log_text())
         # Long enough for the subscriber to connect and take a few messages.
         for _ in range(100):
             publisher.step()
@@ -581,7 +601,9 @@ class BinaryTest(unittest.TestCase):
         contents = rrd_contents.RrdContents(rrd_path)
         self.assertTrue(
             contents.has(
-                scene_contract.visual_path(scene_contract.MEASURED, "base_link", 0),
+                scene_contract.visual_path(
+                    scene_contract.MEASURED, "base_link", 0
+                ),
                 "Asset3D:blob",
             )
         )
@@ -615,7 +637,10 @@ class BinaryTest(unittest.TestCase):
         network = self.write_network_file()
         save = ["--rerun_sink=save", f"--rrd_path={self.directory}/x.rrd"]
         for arguments, expected in (
-            (["--rerun_sink=save", f"--network_config={network}"], "--rrd_path"),
+            (
+                ["--rerun_sink=save", f"--network_config={network}"],
+                "--rrd_path",
+            ),
             (["--rerun_sink=no_such_sink"], "invalid choice"),
             (
                 [f"--network_config={self.directory}/missing.textproto", *save],

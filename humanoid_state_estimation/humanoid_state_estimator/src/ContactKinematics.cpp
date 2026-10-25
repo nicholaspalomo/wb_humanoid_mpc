@@ -67,7 +67,8 @@ struct ContactKinematics::Model {
     bool continuous = false;
   };
 
-  // pinocchio::Model has no move constructor, so the model is copied once, from a reference.
+  // pinocchio::Model has no move constructor, so the model is copied once, from
+  // a reference.
   Model(const pinocchio::Model& pinocchioModel,
         std::vector<pinocchio::FrameIndex> frames,
         std::vector<vector3_t> frameOffsets,
@@ -92,14 +93,16 @@ struct ContactKinematics::Model {
 
 namespace {
 
-/** The coordinates of a continuous joint in Pinocchio's configuration vector: (cos theta, sin theta). */
+/** The coordinates of a continuous joint in Pinocchio's configuration vector:
+ * (cos theta, sin theta). */
 constexpr int kContinuousJointCoordinates = 2;
 
 /** The names of the frames of `model`, for an error message. */
 std::string frameNames(const pinocchio::Model& model) {
   std::vector<std::string> names;
   names.reserve(model.frames.size());
-  for (const pinocchio::Frame& frame : model.frames) names.push_back(frame.name);
+  for (const pinocchio::Frame& frame : model.frames)
+    names.push_back(frame.name);
   return absl::StrJoin(names, ", ");
 }
 
@@ -107,17 +110,21 @@ absl::StatusOr<pinocchio::Model> fixedBaseModel(const std::string& urdfFile) {
   pinocchio::Model model;
   try {  // NOLINT(exceptions): Pinocchio's URDF parser throws; converted at once
     pinocchio::urdf::buildModel(urdfFile, model);
-  } catch (const std::exception& error) {  // NOLINT(exceptions): Pinocchio's URDF parser throws; converted at once
-    return absl::InvalidArgumentError(absl::StrCat("ContactKinematics: the URDF '", urdfFile, "' does not load: ", error.what()));
+    // NOLINTNEXTLINE(exceptions): Pinocchio's URDF parser throws; converted at once
+  } catch (const std::exception& error) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("ContactKinematics: the URDF '", urdfFile,
+                     "' does not load: ", error.what()));
   }
   return model;
 }
 
 }  // namespace
 
-absl::StatusOr<std::unique_ptr<ContactKinematics>> ContactKinematics::Create(const std::string& urdfFile,
-                                                                             const std::vector<ContactPointSpec>& contacts,
-                                                                             const std::vector<std::string>& jointNames) {
+absl::StatusOr<std::unique_ptr<ContactKinematics>> ContactKinematics::Create(
+    const std::string& urdfFile,
+    const std::vector<ContactPointSpec>& contacts,
+    const std::vector<std::string>& jointNames) {
   if (contacts.empty()) {
     return absl::InvalidArgumentError("ContactKinematics: no contact point");
   }
@@ -129,11 +136,13 @@ absl::StatusOr<std::unique_ptr<ContactKinematics>> ContactKinematics::Create(con
   std::vector<std::string> names;
   for (const ContactPointSpec& contact : contacts) {
     const std::vector<std::string>::const_iterator found = std::find_if(
-        contact.frameNames.begin(), contact.frameNames.end(), [&model](const std::string& name) { return model->existFrame(name); });
+        contact.frameNames.begin(), contact.frameNames.end(),
+        [&model](const std::string& name) { return model->existFrame(name); });
     if (found == contact.frameNames.end()) {
-      return absl::InvalidArgumentError(absl::StrCat("ContactKinematics: the URDF '", urdfFile, "' has none of the frames ",
-                                                     absl::StrJoin(contact.frameNames, ", "),
-                                                     " of a contact point; its frames: ", frameNames(*model)));
+      return absl::InvalidArgumentError(absl::StrCat(
+          "ContactKinematics: the URDF '", urdfFile,
+          "' has none of the frames ", absl::StrJoin(contact.frameNames, ", "),
+          " of a contact point; its frames: ", frameNames(*model)));
     }
     frames.push_back(model->getFrameId(*found));
     names.push_back(*found);
@@ -141,28 +150,40 @@ absl::StatusOr<std::unique_ptr<ContactKinematics>> ContactKinematics::Create(con
   }
 
   absl::flat_hash_map<std::string, size_t> robotJointByName;
-  for (size_t joint = 0; joint < jointNames.size(); ++joint) robotJointByName.emplace(jointNames[joint], joint);
+  for (size_t joint = 0; joint < jointNames.size(); ++joint)
+    robotJointByName.emplace(jointNames[joint], joint);
   std::vector<Model::Joint> modelJoints;
   // Joint 0 is the universe: the base link of the fixed-base model.
-  for (pinocchio::JointIndex joint = 1; joint < static_cast<pinocchio::JointIndex>(model->njoints); ++joint) {
+  for (pinocchio::JointIndex joint = 1;
+       joint < static_cast<pinocchio::JointIndex>(model->njoints); ++joint) {
     const int nq = model->nqs[joint];
     const int nv = model->nvs[joint];
     const bool continuous = nv == 1 && nq == kContinuousJointCoordinates;
     if (nv != 1 || (nq != 1 && !continuous)) {
-      return absl::InvalidArgumentError(absl::StrCat("ContactKinematics: the joint '", model->names[joint], "' of '", urdfFile, "' has ",
-                                                     nq, " coordinates and ", nv,
-                                                     " velocities; only revolute, prismatic and continuous joints are supported"));
+      return absl::InvalidArgumentError(absl::StrCat(
+          "ContactKinematics: the joint '", model->names[joint], "' of '",
+          urdfFile, "' has ", nq, " coordinates and ", nv,
+          " velocities; only revolute, prismatic and continuous joints are "
+          "supported"));
     }
-    const absl::flat_hash_map<std::string, size_t>::const_iterator robotJoint = robotJointByName.find(model->names[joint]);
-    if (robotJoint == robotJointByName.end()) continue;  // not the robot's: stays neutral
-    modelJoints.push_back(Model::Joint{
-        .robotJoint = robotJoint->second, .qIndex = model->idx_qs[joint], .vIndex = model->idx_vs[joint], .continuous = continuous});
+    const absl::flat_hash_map<std::string, size_t>::const_iterator robotJoint =
+        robotJointByName.find(model->names[joint]);
+    if (robotJoint == robotJointByName.end())
+      continue;  // not the robot's: stays neutral
+    modelJoints.push_back(Model::Joint{.robotJoint = robotJoint->second,
+                                       .qIndex = model->idx_qs[joint],
+                                       .vIndex = model->idx_vs[joint],
+                                       .continuous = continuous});
   }
-  std::unique_ptr<Model> kinematics = std::make_unique<Model>(*model, std::move(frames), std::move(offsets), std::move(modelJoints));
-  return absl::WrapUnique(new ContactKinematics(std::move(kinematics), std::move(names), jointNames.size()));
+  std::unique_ptr<Model> kinematics = std::make_unique<Model>(
+      *model, std::move(frames), std::move(offsets), std::move(modelJoints));
+  return absl::WrapUnique(new ContactKinematics(
+      std::move(kinematics), std::move(names), jointNames.size()));
 }
 
-ContactKinematics::ContactKinematics(std::unique_ptr<Model> model, std::vector<std::string> contactFrameNames, size_t numRobotJoints)
+ContactKinematics::ContactKinematics(std::unique_ptr<Model> model,
+                                     std::vector<std::string> contactFrameNames,
+                                     size_t numRobotJoints)
     : model_(std::move(model)),
       contactFrameNames_(std::move(contactFrameNames)),
       numRobotJoints_(numRobotJoints),
@@ -172,28 +193,38 @@ ContactKinematics::ContactKinematics(std::unique_ptr<Model> model, std::vector<s
 
 ContactKinematics::~ContactKinematics() = default;
 
-void ContactKinematics::update(const vector_t& jointPositions, const vector_t& jointVelocities) {
+void ContactKinematics::update(const vector_t& jointPositions,
+                               const vector_t& jointVelocities) {
   Model& kinematics = *model_;
   for (const Model::Joint& joint : kinematics.joints) {
-    const scalar_t position = jointPositions[static_cast<Eigen::Index>(joint.robotJoint)];
+    const scalar_t position =
+        jointPositions[static_cast<Eigen::Index>(joint.robotJoint)];
     if (joint.continuous) {
       kinematics.q[joint.qIndex] = std::cos(position);
       kinematics.q[joint.qIndex + 1] = std::sin(position);
     } else {
       kinematics.q[joint.qIndex] = position;
     }
-    kinematics.v[joint.vIndex] = jointVelocities[static_cast<Eigen::Index>(joint.robotJoint)];
+    kinematics.v[joint.vIndex] =
+        jointVelocities[static_cast<Eigen::Index>(joint.robotJoint)];
   }
-  pinocchio::forwardKinematics(kinematics.model, kinematics.data, kinematics.q, kinematics.v);
-  for (size_t contact = 0; contact < kinematics.contactFrames.size(); ++contact) {
+  pinocchio::forwardKinematics(kinematics.model, kinematics.data, kinematics.q,
+                               kinematics.v);
+  for (size_t contact = 0; contact < kinematics.contactFrames.size();
+       ++contact) {
     const pinocchio::FrameIndex frame = kinematics.contactFrames[contact];
-    const pinocchio::SE3& placement = pinocchio::updateFramePlacement(kinematics.model, kinematics.data, frame);
-    const vector3_t offsetInBase = placement.rotation() * kinematics.offsets[contact];
+    const pinocchio::SE3& placement = pinocchio::updateFramePlacement(
+        kinematics.model, kinematics.data, frame);
+    const vector3_t offsetInBase =
+        placement.rotation() * kinematics.offsets[contact];
     contactPositions_[contact] = placement.translation() + offsetInBase;
-    // The frame origin's velocity in the base axes, then the offset point's on the same rigid body.
+    // The frame origin's velocity in the base axes, then the offset point's on
+    // the same rigid body.
     const pinocchio::Motion velocity =
-        pinocchio::getFrameVelocity(kinematics.model, kinematics.data, frame, pinocchio::LOCAL_WORLD_ALIGNED);
-    contactVelocities_[contact] = velocity.linear() + velocity.angular().cross(offsetInBase);
+        pinocchio::getFrameVelocity(kinematics.model, kinematics.data, frame,
+                                    pinocchio::LOCAL_WORLD_ALIGNED);
+    contactVelocities_[contact] =
+        velocity.linear() + velocity.angular().cross(offsetInBase);
   }
 }
 

@@ -49,7 +49,9 @@ class FakeJoystick:
     """A pygame joystick whose axes the test sets."""
 
     def __init__(
-        self, name: str = "Xbox 360 Controller", axes: dict[int, float] | None = None
+        self,
+        name: str = "Xbox 360 Controller",
+        axes: dict[int, float] | None = None,
     ) -> None:
         self.name = name
         # Released triggers read -1; everything else rests at 0.
@@ -96,11 +98,15 @@ class TestStickShaping(unittest.TestCase):
     def test_the_ends_and_the_center_are_kept(self):
         self.assertEqual(xbox_controller_interface.shape_stick(0.0), 0.0)
         self.assertAlmostEqual(xbox_controller_interface.shape_stick(1.0), 1.0)
-        self.assertAlmostEqual(xbox_controller_interface.shape_stick(-1.0), -1.0)
+        self.assertAlmostEqual(
+            xbox_controller_interface.shape_stick(-1.0), -1.0
+        )
 
     def test_it_is_odd_and_monotonic(self):
         samples = [i / 50.0 for i in range(-50, 51)]
-        shaped = [xbox_controller_interface.shape_stick(value) for value in samples]
+        shaped = [
+            xbox_controller_interface.shape_stick(value) for value in samples
+        ]
         for value in samples:
             self.assertAlmostEqual(
                 xbox_controller_interface.shape_stick(-value),
@@ -112,7 +118,8 @@ class TestStickShaping(unittest.TestCase):
     def test_a_drift_inside_the_deadband_reads_as_zero(self):
         self.assertEqual(xbox_controller_interface.shape_stick(0.05), 0.0)
         self.assertLess(
-            abs(0.2 * 0.05 + 0.8 * 0.05**3), xbox_controller_interface.STICK_DEADBAND
+            abs(0.2 * 0.05 + 0.8 * 0.05**3),
+            xbox_controller_interface.STICK_DEADBAND,
         )
         self.assertNotEqual(xbox_controller_interface.shape_stick(0.2), 0.0)
 
@@ -135,8 +142,10 @@ class TestAxisLayouts(unittest.TestCase):
                         layout.y_right: -1.0,
                     }
                 )
-                controller_input = xbox_controller_interface.read_controller_input(
-                    joystick, layout
+                controller_input = (
+                    xbox_controller_interface.read_controller_input(
+                        joystick, layout
+                    )
                 )
                 self.assertAlmostEqual(controller_input.x_left, 1.0)
                 self.assertAlmostEqual(controller_input.y_left, 1.0)
@@ -222,24 +231,32 @@ class TestXBoxControllerInterface(unittest.TestCase):
     def test_the_triggers_move_the_height_at_one_meter_per_second_within_its_range(
         self,
     ):
-        joystick = FakeJoystick(axes={xbox_controller_interface.USB_LAYOUT.rt: 1.0})
+        joystick = FakeJoystick(
+            axes={xbox_controller_interface.USB_LAYOUT.rt: 1.0}
+        )
         controller = xbox_controller_interface.XBoxControllerInterface(
             RATE_HZ, backend=FakeBackend(joystick)
         )
         start = controller.current_pelvis_height_target
         _, command = controller.get_walking_command_msg()
         assert command is not None
-        self.assertAlmostEqual(command.desired_pelvis_height - start, 1.0 / RATE_HZ)
+        self.assertAlmostEqual(
+            command.desired_pelvis_height - start, 1.0 / RATE_HZ
+        )
         for _ in range(int(RATE_HZ) * 2):
             _, command = controller.get_walking_command_msg()
         assert command is not None
-        self.assertEqual(command.desired_pelvis_height, controller.max_pelvis_height)
+        self.assertEqual(
+            command.desired_pelvis_height, controller.max_pelvis_height
+        )
         joystick.axes[xbox_controller_interface.USB_LAYOUT.rt] = -1.0
         joystick.axes[xbox_controller_interface.USB_LAYOUT.lt] = 1.0
         for _ in range(int(RATE_HZ) * 2):
             _, command = controller.get_walking_command_msg()
         assert command is not None
-        self.assertEqual(command.desired_pelvis_height, controller.min_pelvis_height)
+        self.assertEqual(
+            command.desired_pelvis_height, controller.min_pelvis_height
+        )
 
     def test_initial_pelvis_height_sets_the_starting_target(self):
         controller = xbox_controller_interface.XBoxControllerInterface(
@@ -323,7 +340,9 @@ class TestGamepadPoller(unittest.TestCase):
 class TestXBoxWalkingCommandPublisher(unittest.TestCase):
     def test_it_publishes_the_controllers_command_and_stops_when_lost(self):
         backend = FakeBackend(
-            FakeJoystick(axes={xbox_controller_interface.USB_LAYOUT.y_left: -1.0})
+            FakeJoystick(
+                axes={xbox_controller_interface.USB_LAYOUT.y_left: -1.0}
+            )
         )
         controller = xbox_controller_interface.XBoxControllerInterface(
             RATE_HZ, backend=backend
@@ -332,7 +351,8 @@ class TestXBoxWalkingCommandPublisher(unittest.TestCase):
             topics.OPERATOR_WALKING_VELOCITY_COMMAND
         )
         node = xbox_walking_command_publisher.XBoxWalkingCommandPublisher(
-            publisher, xbox_controller_interface.GamepadPoller(controller, RATE_HZ)
+            publisher,
+            xbox_controller_interface.GamepadPoller(controller, RATE_HZ),
         )
         node.tick()
         self.assertEqual(publisher.publish_count, 1)

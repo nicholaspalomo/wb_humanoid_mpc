@@ -57,69 +57,94 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_ipc/Bus.h"
 
 // LINT.IfChange(node_flags)
-ABSL_FLAG(std::string, ipc_node, "mpc", "The bus node this process publishes as (a node of the network file).");
-// The solver threads' priority and the walking command timeout are the task file's (multiple_shooting.thread_priority,
-// interface.walking_command_timeout; mpcNodeSettingsFromConfig()).
+ABSL_FLAG(
+    std::string,
+    ipc_node,
+    "mpc",
+    "The bus node this process publishes as (a node of the network file).");
+// The solver threads' priority and the walking command timeout are the task
+// file's (multiple_shooting.thread_priority, interface.walking_command_timeout;
+// mpcNodeSettingsFromConfig()).
 // clang-format off
 // LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc_app/README.md:node_flags, //humanoid_nmpc/humanoid_centroidal_mpc_app/src/CentroidalMpcNodeMain.cpp:node_flags)
 // clang-format on
 
 /*
- * humanoid_wb_mpc_node: the whole-body MPC of a robot, served on the bus to the robot process (or to the dummy
- * simulator) until SIGINT or SIGTERM. See humanoid_nmpc/humanoid_wb_mpc_app/README.md.
+ * humanoid_wb_mpc_node: the whole-body MPC of a robot, served on the bus to the
+ * robot process (or to the dummy simulator) until SIGINT or SIGTERM. See
+ * humanoid_nmpc/humanoid_wb_mpc_app/README.md.
  */
 int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   absl::SetProgramUsageMessage(
-      "The whole-body MPC node: solves the robot's observations (robot/mpc_observation) and publishes the policies "
-      "(mpc/policy, mpc/status) on the bus.\n  humanoid_wb_mpc_node --robot_name=g1 --task_file=... "
-      "--reference_file=... --urdf_file=... --gait_file=... [--network_config=...] [--ipc_node=mpc]");
+      "The whole-body MPC node: solves the robot's observations "
+      "(robot/mpc_observation) and publishes the policies "
+      "(mpc/policy, mpc/status) on the bus.\n  humanoid_wb_mpc_node "
+      "--robot_name=g1 --task_file=... "
+      "--reference_file=... --urdf_file=... --gait_file=... "
+      "[--network_config=...] [--ipc_node=mpc]");
   absl::ParseCommandLine(argc, argv);
-  // Without InitializeLog() Abseil warns once and writes everything to stderr anyway; with it the default stderr
-  // threshold is ERROR, so the INFO records have to be asked for.
+  // Without InitializeLog() Abseil warns once and writes everything to stderr
+  // anyway; with it the default stderr threshold is ERROR, so the INFO records
+  // have to be asked for.
   absl::InitializeLog();
   absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
-  // Before any thread starts, so that every thread inherits the signal handling.
+  // Before any thread starts, so that every thread inherits the signal
+  // handling.
   ocs2::humanoid::node::installShutdownSignalHandlers();
 
-  const ocs2::humanoid::node::MpcFiles files = ocs2::humanoid::node::mpcFilesFromFlags();
-  if (const absl::Status valid = ocs2::humanoid::node::validateMpcFiles(files); !valid.ok()) {
+  const ocs2::humanoid::node::MpcFiles files =
+      ocs2::humanoid::node::mpcFilesFromFlags();
+  if (const absl::Status valid = ocs2::humanoid::node::validateMpcFiles(files);
+      !valid.ok()) {
     LOG(ERROR) << valid.message();
     return ocs2::humanoid::node::kUsageErrorExitCode;
   }
   const std::string robotName = absl::GetFlag(FLAGS_robot_name);
-  LOG(INFO) << "[humanoid_wb_mpc_node] " << (robotName.empty() ? std::string("robot") : robotName) << ": task file " << files.taskFile;
+  LOG(INFO) << "[humanoid_wb_mpc_node] "
+            << (robotName.empty() ? std::string("robot") : robotName)
+            << ": task file " << files.taskFile;
 
-  // Every thread this process starts from here on (the SQP solver's worker threads, the bus's IO thread) inherits the MPC
-  // cores, so that none of them competes with the realtime loop of a robot process on the same machine.
-  const ocs2::humanoid::SystemCoreAllocation cores = ocs2::humanoid::getDefaultCoreAllocation();
-  ocs2::humanoid::setThreadCpuAffinity(cores.mpcCores, pthread_self(), "MPC node");
+  // Every thread this process starts from here on (the SQP solver's worker
+  // threads, the bus's IO thread) inherits the MPC cores, so that none of them
+  // competes with the realtime loop of a robot process on the same machine.
+  const ocs2::humanoid::SystemCoreAllocation cores =
+      ocs2::humanoid::getDefaultCoreAllocation();
+  ocs2::humanoid::setThreadCpuAffinity(cores.mpcCores, pthread_self(),
+                                       "MPC node");
 
   absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus =
-      ocs2::humanoid::node::createNodeBus(absl::GetFlag(FLAGS_network_config), absl::GetFlag(FLAGS_ipc_node));
+      ocs2::humanoid::node::createNodeBus(absl::GetFlag(FLAGS_network_config),
+                                          absl::GetFlag(FLAGS_ipc_node));
   if (!bus.ok()) {
     LOG(ERROR) << "The bus: " << bus.status();
     return ocs2::humanoid::node::kUsageErrorExitCode;
   }
 
   ocs2::humanoid::WBMpcNode::Options options;
-  // One priority for every solver thread, and the walking command timeout, from the task file.
-  const absl::StatusOr<ocs2::humanoid::mpc_config::TaskFile> task = ocs2::humanoid::loadTaskFile(files.taskFile);
+  // One priority for every solver thread, and the walking command timeout, from
+  // the task file.
+  const absl::StatusOr<ocs2::humanoid::mpc_config::TaskFile> task =
+      ocs2::humanoid::loadTaskFile(files.taskFile);
   if (!task.ok()) {
     LOG(ERROR) << "The task file: " << task.status();
     return ocs2::humanoid::node::kUsageErrorExitCode;
   }
-  const absl::StatusOr<ocs2::humanoid::MpcNodeSettings> settings = ocs2::humanoid::mpcNodeSettingsFromConfig(*task);
+  const absl::StatusOr<ocs2::humanoid::MpcNodeSettings> settings =
+      ocs2::humanoid::mpcNodeSettingsFromConfig(*task);
   if (!settings.ok()) {
     LOG(ERROR) << files.taskFile << ": " << settings.status();
     return ocs2::humanoid::node::kUsageErrorExitCode;
   }
-  options.solverThread = ocs2::humanoid::node::defaultSolverThreadConfig(settings->solverThreadPriority);
+  options.solverThread = ocs2::humanoid::node::defaultSolverThreadConfig(
+      settings->solverThreadPriority);
   options.walkingCommandTimeout = settings->walkingCommandTimeout;
-  // The node also publishes viz/scene and viz/telemetry for the Rerun bridge (humanoid_common_mpc_app/visualization), from
-  // a thread of its own under SCHED_IDLE, on the MPC cores it inherits from this thread: a solver thread that wakes
-  // there takes the core at once.
+  // The node also publishes viz/scene and viz/telemetry for the Rerun bridge
+  // (humanoid_common_mpc_app/visualization), from a thread of its own under
+  // SCHED_IDLE, on the MPC cores it inherits from this thread: a solver thread
+  // that wakes there takes the core at once.
   absl::StatusOr<std::unique_ptr<ocs2::humanoid::WBMpcNode>> node =
-      ocs2::humanoid::WBMpcNode::Create(files, *std::move(bus), std::move(options));
+      ocs2::humanoid::WBMpcNode::Create(files, *std::move(bus),
+                                        std::move(options));
   if (!node.ok()) {
     LOG(ERROR) << "The whole-body MPC: " << node.status();
     return 1;
@@ -128,7 +153,8 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
     LOG(ERROR) << "Starting the MPC node: " << started;
     return 1;
   }
-  LOG(INFO) << "[humanoid_wb_mpc_node] Serving the MPC as bus node \"" << absl::GetFlag(FLAGS_ipc_node)
+  LOG(INFO) << "[humanoid_wb_mpc_node] Serving the MPC as bus node \""
+            << absl::GetFlag(FLAGS_ipc_node)
             << "\"; waiting for the robot's observations.";
   ocs2::humanoid::node::waitForShutdown();
   LOG(INFO) << "[humanoid_wb_mpc_node] Shutting down.";

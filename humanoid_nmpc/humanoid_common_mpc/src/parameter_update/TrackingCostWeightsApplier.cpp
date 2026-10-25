@@ -63,24 +63,30 @@ constexpr std::array<absl::string_view, 3> kFields = {
 };
 // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/task_file.proto)
 
-/** The weights of a named term: a task-space link cost or a leg's torque cost. */
+/** The weights of a named term: a task-space link cost or a leg's torque cost.
+ */
 struct TermWeights {
   std::string term;
   vector_t weights;
 };
 
 /**
- * The terms of the link costs the running problem carries, sorted: its task-space kinematics terms that are not a foot's
- * (the centroidal foot cost shares the name pattern).
+ * The terms of the link costs the running problem carries, sorted: its
+ * task-space kinematics terms that are not a foot's (the centroidal foot cost
+ * shares the name pattern).
  */
 std::vector<std::string> carriedLinkCostTerms(const HotUpdateTarget& target) {
   std::vector<std::string> footTerms;
-  for (const std::string& footName : target.contactNames()) footTerms.push_back(taskSpaceKinematicsCostName(footName));
+  for (const std::string& footName : target.contactNames())
+    footTerms.push_back(taskSpaceKinematicsCostName(footName));
   const std::string suffix = taskSpaceKinematicsCostName(/*name=*/"");
   std::vector<std::string> terms;
-  for (const std::pair<const std::string, size_t>& term : target.runningProblem().costPtr->getTermNameMap()) {
+  for (const std::pair<const std::string, size_t>& term :
+       target.runningProblem().costPtr->getTermNameMap()) {
     if (!absl::EndsWith(term.first, suffix)) continue;
-    if (std::find(footTerms.begin(), footTerms.end(), term.first) != footTerms.end()) continue;
+    if (std::find(footTerms.begin(), footTerms.end(), term.first) !=
+        footTerms.end())
+      continue;
     terms.push_back(term.first);
   }
   // The collection's map is unordered; the reports follow the names.
@@ -88,37 +94,50 @@ std::vector<std::string> carriedLinkCostTerms(const HotUpdateTarget& target) {
   return terms;
 }
 
-bool namesTerm(const std::vector<TermWeights>& entries, absl::string_view term) {
-  return std::any_of(entries.begin(), entries.end(), [term](const TermWeights& entry) { return entry.term == term; });
+bool namesTerm(const std::vector<TermWeights>& entries,
+               absl::string_view term) {
+  return std::any_of(
+      entries.begin(), entries.end(),
+      [term](const TermWeights& entry) { return entry.term == term; });
 }
 
 /**
- * Reports what of the reloaded task_space_costs `reloaded` a reload cannot apply, because it would assemble another
- * problem: an entry whose link cost the running problem does not carry (added or renamed), and a link cost the running
- * problem carries that no entry names any more (removed or renamed). Both take effect at the next start, as the start-up
- * report says too (task_space_costs[i].name). A problem assembled without link costs (its costs do not list
- * task_space_torso_cost) has nothing to compare: the entries are read by no term either way.
+ * Reports what of the reloaded task_space_costs `reloaded` a reload cannot
+ * apply, because it would assemble another problem: an entry whose link cost
+ * the running problem does not carry (added or renamed), and a link cost the
+ * running problem carries that no entry names any more (removed or renamed).
+ * Both take effect at the next start, as the start-up report says too
+ * (task_space_costs[i].name). A problem assembled without link costs (its costs
+ * do not list task_space_torso_cost) has nothing to compare: the entries are
+ * read by no term either way.
  */
-void reportStructuralChanges(const HotUpdateTarget& target, const std::vector<TermWeights>& reloaded) {
+void reportStructuralChanges(const HotUpdateTarget& target,
+                             const std::vector<TermWeights>& reloaded) {
   const std::vector<std::string> carried = carriedLinkCostTerms(target);
   if (carried.empty()) return;
   for (const TermWeights& entry : reloaded) {
-    if (std::find(carried.begin(), carried.end(), entry.term) != carried.end()) continue;
-    target.reportNotApplied(absl::StrCat("the task_space_costs entry of ", entry.term),
-                            absl::FailedPreconditionError("the running problem carries no such link cost; an added or renamed entry "
-                                                          "takes effect at the next start"));
+    if (std::find(carried.begin(), carried.end(), entry.term) != carried.end())
+      continue;
+    target.reportNotApplied(
+        absl::StrCat("the task_space_costs entry of ", entry.term),
+        absl::FailedPreconditionError("the running problem carries no such "
+                                      "link cost; an added or renamed entry "
+                                      "takes effect at the next start"));
   }
   for (const std::string& term : carried) {
     if (namesTerm(reloaded, term)) continue;
-    target.reportNotApplied(absl::StrCat("the removal of the link cost ", term),
-                            absl::FailedPreconditionError("the reloaded task_space_costs names it no more; a removed or renamed entry "
-                                                          "takes effect at the next start"));
+    target.reportNotApplied(
+        absl::StrCat("the removal of the link cost ", term),
+        absl::FailedPreconditionError("the reloaded task_space_costs names it "
+                                      "no more; a removed or renamed entry "
+                                      "takes effect at the next start"));
   }
 }
 
 /**
- * The weights of task_space_costs, by term, with what of them a reload cannot apply reported (reportStructuralChanges());
- * empty for an empty block, and for a refused one, whose refusal is reported.
+ * The weights of task_space_costs, by term, with what of them a reload cannot
+ * apply reported (reportStructuralChanges()); empty for an empty block, and for
+ * a refused one, whose refusal is reported.
  */
 std::vector<TermWeights> linkCostWeights(const HotUpdateTarget& target) {
   std::vector<TermWeights> weights;
@@ -127,16 +146,21 @@ std::vector<TermWeights> linkCostWeights(const HotUpdateTarget& target) {
     return weights;
   }
   const std::optional<std::vector<TaskSpaceLinkCostSettings>> linkCosts =
-      convertedOrReported(taskSpaceLinkCostsFromConfig(target.task().task_space_costs), target.source(), "task_space_costs");
+      convertedOrReported(
+          taskSpaceLinkCostsFromConfig(target.task().task_space_costs),
+          target.source(), "task_space_costs");
   if (!linkCosts.has_value()) return weights;
   for (const TaskSpaceLinkCostSettings& linkCost : *linkCosts) {
-    weights.push_back(TermWeights{.term = taskSpaceKinematicsCostName(linkCost.name), .weights = linkCost.weights.toVector()});
+    weights.push_back(
+        TermWeights{.term = taskSpaceKinematicsCostName(linkCost.name),
+                    .weights = linkCost.weights.toVector()});
   }
   reportStructuralChanges(target, weights);
   return weights;
 }
 
-/** The weights of the leg torque costs the running problem carries: the left leg's for the first contact, the right's for the second. */
+/** The weights of the leg torque costs the running problem carries: the left
+ * leg's for the first contact, the right's for the second. */
 std::vector<TermWeights> legTorqueWeights(const HotUpdateTarget& target) {
   std::vector<TermWeights> weights;
   const std::vector<std::string>& contactNames = target.contactNames();
@@ -144,28 +168,40 @@ std::vector<TermWeights> legTorqueWeights(const HotUpdateTarget& target) {
     const std::string term = externalTorqueCostName(contactNames[i]);
     if (!carriesTerm(*target.runningProblem().costPtr, term)) continue;
     const bool left = i == 0;
-    const absl::string_view field = left ? "left_leg_torque_cost" : "right_leg_torque_cost";
-    const std::optional<ExternalTorqueQuadraticCostAD::Config> config = convertedOrReported(
-        legTorqueCostFromConfig(left ? target.task().left_leg_torque_cost : target.task().right_leg_torque_cost, target.layout(), field),
-        target.source(), field);
+    const absl::string_view field =
+        left ? "left_leg_torque_cost" : "right_leg_torque_cost";
+    const std::optional<ExternalTorqueQuadraticCostAD::Config> config =
+        convertedOrReported(
+            legTorqueCostFromConfig(left ? target.task().left_leg_torque_cost
+                                         : target.task().right_leg_torque_cost,
+                                    target.layout(), field),
+            target.source(), field);
     if (!config.has_value()) continue;
 
-    const ExternalTorqueQuadraticCostAD& runningCost = target.runningProblem().costPtr->get<ExternalTorqueQuadraticCostAD>(term);
-    const std::vector<std::string>& runningJoints = runningCost.activeJointNames();
+    const ExternalTorqueQuadraticCostAD& runningCost =
+        target.runningProblem().costPtr->get<ExternalTorqueQuadraticCostAD>(
+            term);
+    const std::vector<std::string>& runningJoints =
+        runningCost.activeJointNames();
     if (config->activeJointNames.size() != runningJoints.size()) {
-      target.reportNotApplied(absl::StrCat(field, ".joints"),
-                              absl::FailedPreconditionError("the joints of a leg's torque cost are taped into its CppAD library; an added, "
-                                                            "removed or renamed joint takes effect at the next start"));
+      target.reportNotApplied(
+          absl::StrCat(field, ".joints"),
+          absl::FailedPreconditionError(
+              "the joints of a leg's torque cost are taped into its CppAD "
+              "library; an added, "
+              "removed or renamed joint takes effect at the next start"));
       continue;
     }
     absl::flat_hash_map<std::string, scalar_t> weightByJoint;
     for (size_t j = 0; j < config->activeJointNames.size(); ++j) {
-      weightByJoint[config->activeJointNames[j]] = config->weights[static_cast<Eigen::Index>(j)];
+      weightByJoint[config->activeJointNames[j]] =
+          config->weights[static_cast<Eigen::Index>(j)];
     }
     bool jointsMatch = true;
     vector_t mappedWeights(runningJoints.size());
     for (size_t j = 0; j < runningJoints.size(); ++j) {
-      const absl::flat_hash_map<std::string, scalar_t>::const_iterator it = weightByJoint.find(runningJoints[j]);
+      const absl::flat_hash_map<std::string, scalar_t>::const_iterator it =
+          weightByJoint.find(runningJoints[j]);
       if (it == weightByJoint.end()) {
         jointsMatch = false;
         break;
@@ -173,12 +209,16 @@ std::vector<TermWeights> legTorqueWeights(const HotUpdateTarget& target) {
       mappedWeights[static_cast<Eigen::Index>(j)] = it->second;
     }
     if (!jointsMatch) {
-      target.reportNotApplied(absl::StrCat(field, ".joints"),
-                              absl::FailedPreconditionError("the joints of a leg's torque cost are taped into its CppAD library; an added, "
-                                                            "removed or renamed joint takes effect at the next start"));
+      target.reportNotApplied(
+          absl::StrCat(field, ".joints"),
+          absl::FailedPreconditionError(
+              "the joints of a leg's torque cost are taped into its CppAD "
+              "library; an added, "
+              "removed or renamed joint takes effect at the next start"));
       continue;
     }
-    weights.push_back(TermWeights{.term = term, .weights = std::move(mappedWeights)});
+    weights.push_back(
+        TermWeights{.term = term, .weights = std::move(mappedWeights)});
   }
   return weights;
 }
@@ -195,14 +235,19 @@ void TrackingCostWeightsApplier::apply(HotUpdateTarget& target) {
   for (OptimalControlProblem& ocp : target.problems()) {
     for (const TermWeights& update : linkCosts) {
       updateTermIfPresent<EndEffectorKinematicsQuadraticCost>(
-          *ocp.costPtr, update.term, [&](EndEffectorKinematicsQuadraticCost& cost) { cost.setWeights(vector12_t(update.weights)); });
+          *ocp.costPtr, update.term,
+          [&](EndEffectorKinematicsQuadraticCost& cost) {
+            cost.setWeights(vector12_t(update.weights));
+          });
     }
     for (const TermWeights& update : legTorques) {
-      updateTermIfPresent<ExternalTorqueQuadraticCostAD>(*ocp.costPtr, update.term, [&](ExternalTorqueQuadraticCostAD& cost) {
-        if (const absl::Status status = cost.setWeights(update.weights); !status.ok()) {
-          reportFailedTermUpdate(update.term, status);
-        }
-      });
+      updateTermIfPresent<ExternalTorqueQuadraticCostAD>(
+          *ocp.costPtr, update.term, [&](ExternalTorqueQuadraticCostAD& cost) {
+            if (const absl::Status status = cost.setWeights(update.weights);
+                !status.ok()) {
+              reportFailedTermUpdate(update.term, status);
+            }
+          });
     }
   }
 }

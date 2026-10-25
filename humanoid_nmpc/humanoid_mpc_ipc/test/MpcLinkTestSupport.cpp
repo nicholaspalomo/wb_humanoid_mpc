@@ -57,7 +57,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::ipc::test_support {
 
 ModelDimensions modelDimensions() {
-  return ModelDimensions{.stateDim = kStateDim, .inputDim = kInputDim, .numModes = kNumModes};
+  return ModelDimensions{
+      .stateDim = kStateDim, .inputDim = kInputDim, .numModes = kNumModes};
 }
 
 SystemObservation observationAt(scalar_t time, scalar_t value) {
@@ -69,7 +70,8 @@ SystemObservation observationAt(scalar_t time, scalar_t value) {
 }
 
 TargetTrajectories resetTargetsFor(const SystemObservation& observation) {
-  return TargetTrajectories({observation.time}, {observation.state}, {observation.input});
+  return TargetTrajectories({observation.time}, {observation.state},
+                            {observation.input});
 }
 
 mpc::Settings mpcSettings(scalar_t solutionTimeWindow) {
@@ -79,23 +81,31 @@ mpc::Settings mpcSettings(scalar_t solutionTimeWindow) {
   return settings;
 }
 
-std::unique_ptr<mpc_test::ScriptedMpc> makeScriptedMpc(const mpc::Settings& settings) {
-  std::unique_ptr<mpc_test::ScriptedMpc> mpc = std::make_unique<mpc_test::ScriptedMpc>(settings, kInputDim);
-  mpc->solver().setPlan([](scalar_t time, scalar_t initTime, const vector_t& initState) {
-    return vector_t(initState + vector_t::Constant(initState.size(), time - initTime));
-  });
+std::unique_ptr<mpc_test::ScriptedMpc> makeScriptedMpc(
+    const mpc::Settings& settings) {
+  std::unique_ptr<mpc_test::ScriptedMpc> mpc =
+      std::make_unique<mpc_test::ScriptedMpc>(settings, kInputDim);
+  mpc->solver().setPlan(
+      [](scalar_t time, scalar_t initTime, const vector_t& initState) {
+        return vector_t(initState +
+                        vector_t::Constant(initState.size(), time - initTime));
+      });
   return mpc;
 }
 
 ModelDimensions manifoldModelDimensions() {
-  return ModelDimensions{.stateDim = test_data::toyStateManifold()->getAmbientDim(), .inputDim = kInputDim, .numModes = kNumModes};
+  return ModelDimensions{
+      .stateDim = test_data::toyStateManifold()->getAmbientDim(),
+      .inputDim = kInputDim,
+      .numModes = kNumModes};
 }
 
 SystemObservation manifoldObservationAt(scalar_t time, scalar_t value) {
   // [E(3), Q, E(5)]: the quaternion (x, y, z, w) at offset 3.
   SystemObservation observation;
   observation.time = time;
-  observation.state = vector_t::Constant(static_cast<Eigen::Index>(manifoldModelDimensions().stateDim), value);
+  observation.state = vector_t::Constant(
+      static_cast<Eigen::Index>(manifoldModelDimensions().stateDim), value);
   rotation_vector_t<scalar_t> rotation;
   rotation << 0.6 * value, -0.48 * value, 0.64 * value;
   observation.state.segment<4>(3) = quaternionExp(rotation);
@@ -103,7 +113,8 @@ SystemObservation manifoldObservationAt(scalar_t time, scalar_t value) {
   return observation;
 }
 
-ManifoldScriptedSolver::ManifoldScriptedSolver(std::shared_ptr<const StateManifold> stateManifold, size_t inputDim)
+ManifoldScriptedSolver::ManifoldScriptedSolver(
+    std::shared_ptr<const StateManifold> stateManifold, size_t inputDim)
     : stateManifold_(std::move(stateManifold)), inputDim_(inputDim) {}
 
 void ManifoldScriptedSolver::reset() {
@@ -111,8 +122,10 @@ void ManifoldScriptedSolver::reset() {
   finalTime_ = 0.0;
 }
 
-void ManifoldScriptedSolver::getPrimalSolution(scalar_t finalTime, PrimalSolution* absl_nonnull primalSolutionPtr) const {
-  // Ten intervals, the pre- and post-event nodes of the event halfway sharing its time, as SqpSolver discretizes.
+void ManifoldScriptedSolver::getPrimalSolution(
+    scalar_t finalTime, PrimalSolution* absl_nonnull primalSolutionPtr) const {
+  // Ten intervals, the pre- and post-event nodes of the event halfway sharing
+  // its time, as SqpSolver discretizes.
   constexpr size_t kIntervals = 10;
   const scalar_t endTime = std::max(finalTime, initTime_);
   const scalar_t eventTime = initTime_ + 0.5 * (endTime - initTime_);
@@ -122,12 +135,16 @@ void ManifoldScriptedSolver::getPrimalSolution(scalar_t finalTime, PrimalSolutio
       times.emplace_back(eventTime, AnnotatedTime::Event::PreEvent);
       times.emplace_back(eventTime, AnnotatedTime::Event::PostEvent);
     } else {
-      times.emplace_back(initTime_ + (endTime - initTime_) * static_cast<scalar_t>(k) / static_cast<scalar_t>(kIntervals));
+      times.emplace_back(initTime_ + (endTime - initTime_) *
+                                         static_cast<scalar_t>(k) /
+                                         static_cast<scalar_t>(kIntervals));
     }
   }
 
-  const Eigen::Index tangentDim = static_cast<Eigen::Index>(stateManifold_->getTangentDim());
-  const vector_t velocity = vector_t::LinSpaced(tangentDim, /*low=*/-0.5, /*high=*/0.5);
+  const Eigen::Index tangentDim =
+      static_cast<Eigen::Index>(stateManifold_->getTangentDim());
+  const vector_t velocity =
+      vector_t::LinSpaced(tangentDim, /*low=*/-0.5, /*high=*/0.5);
   const vector_t jump = vector_t::Constant(tangentDim, 0.05);
   vector_array_t states;
   bool afterEvent = false;
@@ -144,31 +161,38 @@ void ManifoldScriptedSolver::getPrimalSolution(scalar_t finalTime, PrimalSolutio
   matrix_array_t gains;
   for (size_t k = 0; k + 1 < times.size(); ++k) {
     const scalar_t node = static_cast<scalar_t>(k);
-    inputs.push_back(vector_t::LinSpaced(static_cast<Eigen::Index>(inputDim_), initState_(0), initState_(0) + node));
+    inputs.push_back(vector_t::LinSpaced(static_cast<Eigen::Index>(inputDim_),
+                                         initState_(0), initState_(0) + node));
     matrix_t gain(static_cast<Eigen::Index>(inputDim_), tangentDim);
     for (Eigen::Index column = 0; column < gain.cols(); ++column) {
       for (Eigen::Index row = 0; row < gain.rows(); ++row) {
-        gain(row, column) =
-            0.01 * static_cast<scalar_t>(row + 1) - 0.02 * static_cast<scalar_t>(column) + 0.1 * initState_(0) + 0.003 * node;
+        gain(row, column) = 0.01 * static_cast<scalar_t>(row + 1) -
+                            0.02 * static_cast<scalar_t>(column) +
+                            0.1 * initState_(0) + 0.003 * node;
       }
     }
     gains.push_back(std::move(gain));
   }
-  ModeSchedule modeSchedule(/*eventTimesInput=*/{eventTime}, /*modeSequenceInput=*/{0, 1});
-  *primalSolutionPtr = multiple_shooting::toPrimalSolution(times, std::move(modeSchedule), std::move(states), std::move(inputs),
-                                                           std::move(gains), stateManifold_);
+  ModeSchedule modeSchedule(/*eventTimesInput=*/{eventTime},
+                            /*modeSequenceInput=*/{0, 1});
+  *primalSolutionPtr = multiple_shooting::toPrimalSolution(
+      times, std::move(modeSchedule), std::move(states), std::move(inputs),
+      std::move(gains), stateManifold_);
 }
 
-void ManifoldScriptedSolver::runImpl(scalar_t initTime, const vector_t& initState, scalar_t finalTime) {
+void ManifoldScriptedSolver::runImpl(scalar_t initTime,
+                                     const vector_t& initState,
+                                     scalar_t finalTime) {
   initTime_ = initTime;
   initState_ = initState;
   finalTime_ = finalTime;
 }
 
-void ManifoldScriptedSolver::runImpl(scalar_t initTime,
-                                     const vector_t& initState,
-                                     scalar_t finalTime,
-                                     const ControllerBase* absl_nullable /*externalControllerPtr*/) {
+void ManifoldScriptedSolver::runImpl(
+    scalar_t initTime,
+    const vector_t& initState,
+    scalar_t finalTime,
+    const ControllerBase* absl_nullable /*externalControllerPtr*/) {
   runImpl(initTime, initState, finalTime);
 }
 
@@ -179,8 +203,10 @@ void ManifoldScriptedSolver::runImpl(scalar_t initTime,
   runImpl(initTime, initState, finalTime);
 }
 
-std::unique_ptr<ManifoldScriptedMpc> makeManifoldScriptedMpc(std::shared_ptr<const StateManifold> stateManifold) {
-  return std::make_unique<ManifoldScriptedMpc>(mpcSettings(), std::move(stateManifold), kInputDim);
+std::unique_ptr<ManifoldScriptedMpc> makeManifoldScriptedMpc(
+    std::shared_ptr<const StateManifold> stateManifold) {
+  return std::make_unique<ManifoldScriptedMpc>(
+      mpcSettings(), std::move(stateManifold), kInputDim);
 }
 
 bool waitFor(const std::function<bool()>& condition, absl::Duration timeout) {
@@ -194,19 +220,23 @@ bool waitFor(const std::function<bool()>& condition, absl::Duration timeout) {
   return condition();
 }
 
-std::unique_ptr<robot::ipc::Bus> createNodeBus(const std::string& name, int domainIndex) {
+std::unique_ptr<robot::ipc::Bus> createNodeBus(const std::string& name,
+                                               int domainIndex) {
   robot::ipc::BusOptions options;
   options.nodeName = name;
   options.network = robot::ipc::isolatedTestNetwork({name}, domainIndex);
-  absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus = robot::ipc::Bus::Create(std::move(options));
+  absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus =
+      robot::ipc::Bus::Create(std::move(options));
   CHECK_OK(bus.status());
   return std::move(*bus);
 }
 
 std::unique_ptr<robot::ipc::Bus> createSubscriberBus(int domainIndex) {
   robot::ipc::BusOptions options;
-  options.network = robot::ipc::isolatedTestNetwork({"subscriber"}, domainIndex);
-  absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus = robot::ipc::Bus::Create(std::move(options));
+  options.network =
+      robot::ipc::isolatedTestNetwork({"subscriber"}, domainIndex);
+  absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus =
+      robot::ipc::Bus::Create(std::move(options));
   CHECK_OK(bus.status());
   return std::move(*bus);
 }
@@ -223,13 +253,17 @@ humanoid_mpc_msgs::MpcPolicy makePolicyMessage(scalar_t initTime,
   command.mpcTargetTrajectories_ = resetTargetsFor(command.mpcInitObservation_);
   PrimalSolution solution;
   for (size_t node = 0; node < nodes; ++node) {
-    const scalar_t fraction = nodes > 1 ? static_cast<scalar_t>(node) / static_cast<scalar_t>(nodes - 1) : 0.0;
+    const scalar_t fraction = nodes > 1 ? static_cast<scalar_t>(node) /
+                                              static_cast<scalar_t>(nodes - 1)
+                                        : 0.0;
     const scalar_t time = initTime + fraction * (finalTime - initTime);
     solution.timeTrajectory_.push_back(time);
-    solution.stateTrajectory_.push_back(vector_t::Constant(kStateDim, value + time - initTime));
+    solution.stateTrajectory_.push_back(
+        vector_t::Constant(kStateDim, value + time - initTime));
     solution.inputTrajectory_.push_back(vector_t::Zero(kInputDim));
   }
-  solution.controllerPtr_ = std::make_unique<FeedforwardController>(solution.timeTrajectory_, solution.inputTrajectory_);
+  solution.controllerPtr_ = std::make_unique<FeedforwardController>(
+      solution.timeTrajectory_, solution.inputTrajectory_);
   humanoid_mpc_msgs::MpcPolicy message;
   CHECK_OK(policyToProto(command, solution, PerformanceIndex(), &message));
   message.set_resets_served(resetsServed);

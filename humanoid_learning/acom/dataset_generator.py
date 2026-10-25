@@ -100,7 +100,8 @@ def _joint_link(joint: ElementTree.Element, tag: str, urdf_path: str) -> str:
     element = joint.find(tag)
     if element is None:
         raise ValueError(
-            f"URDF {urdf_path}: joint '{joint.attrib.get('name')}' has no <{tag}> element."
+            f"URDF {urdf_path}: joint '{joint.attrib.get('name')}' has no"
+            f" <{tag}> element."
         )
     return element.attrib["link"]
 
@@ -135,9 +136,9 @@ def _parse_pinocchio_joint_order(urdf_path: str) -> list[str]:
     root = ElementTree.parse(urdf_path).getroot()
     link_names = {link.attrib["name"] for link in root.findall("link")}
 
-    children: collections.defaultdict[str, list[tuple[str, str | None, str]]] = (
-        collections.defaultdict(list)
-    )
+    children: collections.defaultdict[
+        str, list[tuple[str, str | None, str]]
+    ] = collections.defaultdict(list)
     child_links = set()
     for joint in root.findall("joint"):
         parent_link = _joint_link(joint, "parent", urdf_path)
@@ -150,7 +151,8 @@ def _parse_pinocchio_joint_order(urdf_path: str) -> list[str]:
     root_links = sorted(link_names - child_links)
     if len(root_links) != 1:
         raise ValueError(
-            f"Expected exactly one root link in {urdf_path}, found {root_links}."
+            f"Expected exactly one root link in {urdf_path}, found"
+            f" {root_links}."
         )
 
     # Pre-order depth-first walk: a joint is emitted when it is reached, and its
@@ -158,12 +160,16 @@ def _parse_pinocchio_joint_order(urdf_path: str) -> list[str]:
     # sorted by joint name, as urdfdom's std::map of joints orders them; they are
     # pushed in reverse so that they come off the stack in that order.
     joint_order: list[str] = []
-    stack: list[tuple[tuple[str, str | None] | None, str]] = [(None, root_links[0])]
+    stack: list[tuple[tuple[str, str | None] | None, str]] = [
+        (None, root_links[0])
+    ]
     visited = set()
     while stack:
         joint_type_and_name, link = stack.pop()
         if link in visited:
-            raise ValueError(f"URDF {urdf_path} contains a kinematic loop at '{link}'.")
+            raise ValueError(
+                f"URDF {urdf_path} contains a kinematic loop at '{link}'."
+            )
         visited.add(link)
         if joint_type_and_name is not None:
             name, joint_type = joint_type_and_name
@@ -220,16 +226,17 @@ class AcomDatasetGenerator:
         ]
         if free_joints != [0]:
             raise ValueError(
-                "The aCOM dataset generator requires a floating-base model whose "
-                f"first joint is the free joint; found free joints at {free_joints}."
+                "The aCOM dataset generator requires a floating-base model"
+                " whose first joint is the free joint; found free joints at"
+                f" {free_joints}."
             )
         # The momentum readout below uses the root link's subtree, which is the
         # whole robot only if the free joint really does attach body _ROOT_BODY_ID
         # directly to the world.
         if self.model.jnt_bodyid[0] != _ROOT_BODY_ID:
             raise ValueError(
-                f"Expected the free joint to belong to body {_ROOT_BODY_ID}, but it "
-                f"belongs to body {self.model.jnt_bodyid[0]}."
+                f"Expected the free joint to belong to body {_ROOT_BODY_ID},"
+                f" but it belongs to body {self.model.jnt_bodyid[0]}."
             )
         # A MuJoCo free joint spans 7 qpos entries (position and quaternion) and 6
         # qvel entries.
@@ -238,9 +245,10 @@ class AcomDatasetGenerator:
         self.num_mj_joints = self.nv - self.base_qvel_dim
         if self.nq - self.base_qpos_dim != self.num_mj_joints:
             raise ValueError(
-                f"Model has {self.nq - self.base_qpos_dim} internal qpos entries "
-                f"but {self.num_mj_joints} internal velocity DoFs. The aCOM dataset "
-                "generator only supports single-DoF internal joints."
+                f"Model has {self.nq - self.base_qpos_dim} internal qpos"
+                f" entries but {self.num_mj_joints} internal velocity DoFs. The"
+                " aCOM dataset generator only supports single-DoF internal"
+                " joints."
             )
 
         # Collect MuJoCo internal joint names, skipping the free base joint.
@@ -254,9 +262,9 @@ class AcomDatasetGenerator:
         # and free joints would silently shift every column of the dataset.
         if len(self.mj_joint_names) != self.num_mj_joints:
             raise ValueError(
-                f"Model has {len(self.mj_joint_names)} internal joints but "
-                f"{self.num_mj_joints} internal velocity DoFs. The aCOM dataset "
-                "generator only supports single-DoF internal joints."
+                f"Model has {len(self.mj_joint_names)} internal joints but"
+                f" {self.num_mj_joints} internal velocity DoFs. The aCOM"
+                " dataset generator only supports single-DoF internal joints."
             )
 
         self.fixed_joints = set(fixed_joints or [])
@@ -266,8 +274,8 @@ class AcomDatasetGenerator:
         unknown_fixed = sorted(self.fixed_joints - set(self.mj_joint_names))
         if unknown_fixed:
             raise ValueError(
-                f"fixed_joints names joints the model does not have: {unknown_fixed}. "
-                f"Its joints are: {self.mj_joint_names}."
+                "fixed_joints names joints the model does not have:"
+                f" {unknown_fixed}. Its joints are: {self.mj_joint_names}."
             )
         self.mj_fixed_indices = sorted(
             self.mj_joint_names.index(name) for name in self.fixed_joints
@@ -304,7 +312,9 @@ class AcomDatasetGenerator:
             self.joint_perm = None
 
         self.active_joint_names = [
-            name for name in self.pinocchio_joint_names if name not in self.fixed_joints
+            name
+            for name in self.pinocchio_joint_names
+            if name not in self.fixed_joints
         ]
         self.num_active_joints = len(self.active_joint_names)
         # LINT.ThenChange(//humanoid_learning/acom/tests/test_acom.py:joint_permutation_test)
@@ -374,7 +384,9 @@ class AcomDatasetGenerator:
         missing_in_mj = urdf_set - mj_set
         missing_in_urdf = mj_set - urdf_set
         if missing_in_mj:
-            raise ValueError(f"URDF joints not found in MuJoCo model: {missing_in_mj}")
+            raise ValueError(
+                f"URDF joints not found in MuJoCo model: {missing_in_mj}"
+            )
         if missing_in_urdf:
             raise ValueError(
                 f"MuJoCo joints not found in URDF model: {missing_in_urdf}"
@@ -461,10 +473,14 @@ class AcomDatasetGenerator:
         # humanoid, so a direct solve is both faster and safer than a pseudo-inverse,
         # which would silently discard a rotational axis if the model degenerated.
         condition_number = np.linalg.cond(I_G)
-        if not np.isfinite(condition_number) or condition_number > _MAX_INERTIA_COND:
+        if (
+            not np.isfinite(condition_number)
+            or condition_number > _MAX_INERTIA_COND
+        ):
             raise ValueError(
-                f"Locked inertia is ill-conditioned (cond = {condition_number:.3e}); "
-                "the normalized centroidal momentum matrix would be unreliable."
+                "Locked inertia is ill-conditioned (cond ="
+                f" {condition_number:.3e}); the normalized centroidal momentum"
+                " matrix would be unreliable."
             )
         A_bar_omega = np.linalg.solve(I_G, A_omega_j)
 
@@ -507,7 +523,9 @@ class AcomDatasetGenerator:
         if self.mj_fixed_indices:
             q_samples_mj[:, self.mj_fixed_indices] = 0.0
 
-        A_bar_samples = np.zeros((num_samples, 3, self.num_mj_joints), dtype=np.float32)
+        A_bar_samples = np.zeros(
+            (num_samples, 3, self.num_mj_joints), dtype=np.float32
+        )
         I_G_samples = np.zeros((num_samples, 3, 3), dtype=np.float32)
         for i in range(num_samples):
             I_G, _, A_bar_mj = self.compute_centroidal_matrices(q_samples_mj[i])

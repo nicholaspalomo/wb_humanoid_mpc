@@ -37,28 +37,35 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::validation {
 
 /**
- * What the base-controller GUI scales its velocity command with: the sticks it sends are the physical command over the
- * limits of a full deflection, and its pelvis height slider starts at the height of the default posture. The closed-loop
- * driver reads it from the reference file whose limits the MPC node's motion manager scales a received message back by
+ * What the base-controller GUI scales its velocity command with: the sticks it
+ * sends are the physical command over the limits of a full deflection, and its
+ * pelvis height slider starts at the height of the default posture. The
+ * closed-loop driver reads it from the reference file whose limits the MPC
+ * node's motion manager scales a received message back by
  * (guiCommandScalingFromConfig()). A value type.
  */
 struct GuiCommandScaling {
   /**
-   * [m/s, m/s, rad/s] max_displacement_velocity_x, max_displacement_velocity_y and max_rotation_velocity of the
-   * reference file: the forward, sideways and yaw velocity of a full stick deflection. Positive.
+   * [m/s, m/s, rad/s] max_displacement_velocity_x, max_displacement_velocity_y
+   * and max_rotation_velocity of the reference file: the forward, sideways and
+   * yaw velocity of a full stick deflection. Positive.
    */
   Eigen::Vector3d commandLimits = Eigen::Vector3d::Ones();
-  /** [m] default_base_height of the reference file: the pelvis height the GUI's slider sends. */
+  /** [m] default_base_height of the reference file: the pelvis height the GUI's
+   * slider sends. */
   double defaultPelvisHeight = 0.0;
 };
 
 /**
- * The GUI's command scaling of a robot's reference file, through referenceSettingsFromConfig(), which refuses a file
- * that leaves out a limit or the default base height or gives a value that is not finite.
+ * The GUI's command scaling of a robot's reference file, through
+ * referenceSettingsFromConfig(), which refuses a file that leaves out a limit
+ * or the default base height or gives a value that is not finite.
  *
  * @param file The reference file (loadReferenceFile()).
- * @return The scaling; InvalidArgument naming the field that is absent, not finite or, for a command limit, not positive.
+ * @return The scaling; InvalidArgument naming the field that is absent, not
+ * finite or, for a command limit, not positive.
  */
-absl::StatusOr<GuiCommandScaling> guiCommandScalingFromConfig(const mpc_config::ReferenceFile& file);
+absl::StatusOr<GuiCommandScaling> guiCommandScalingFromConfig(
+    const mpc_config::ReferenceFile& file);
 
 }  // namespace ocs2::humanoid::validation

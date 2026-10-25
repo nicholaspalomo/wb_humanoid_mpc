@@ -35,7 +35,9 @@ from tools.hooks import proto_next_id
 
 def violations(source):
     """(message name, line) of every violation in `source`."""
-    return [(v.message_name, v.line) for v in proto_next_id.check_source(source)]
+    return [
+        (v.message_name, v.line) for v in proto_next_id.check_source(source)
+    ]
 
 
 def texts(source):
@@ -70,7 +72,9 @@ message Point {
 
     def test_an_empty_message_takes_one(self):
         self.assertEqual(
-            violations("// Next ID: 1\nmessage Empty {\n  reserved 1 to max;\n}\n"),
+            violations(
+                "// Next ID: 1\nmessage Empty {\n  reserved 1 to max;\n}\n"
+            ),
             [],
         )
 
@@ -78,7 +82,9 @@ message Point {
 class FlagsMissingAndStaleCommentsTest(unittest.TestCase):
     def test_a_missing_comment(self):
         self.assertEqual(
-            violations("message Point {\n  reserved 2 to max;\n  double x = 1;\n}\n"),
+            violations(
+                "message Point {\n  reserved 2 to max;\n  double x = 1;\n}\n"
+            ),
             [("Point", 1)],
         )
 
@@ -92,7 +98,9 @@ message Point {
 """
         self.assertEqual(violations(source), [("Point", 3)])
 
-    def test_a_field_added_with_the_announced_number_and_the_comment_left_behind(self):
+    def test_a_field_added_with_the_announced_number_and_the_comment_left_behind(
+        self,
+    ):
         # The slip the comment exists to prevent (protoc would also refuse field z here, its number is reserved).
         source = """// Next ID: 3
 message Point {
@@ -103,21 +111,27 @@ message Point {
 }
 """
         found = proto_next_id.check_source(source, "point.proto")
-        self.assertEqual([(v.message_name, v.line) for v in found], [("Point", 2)])
+        self.assertEqual(
+            [(v.message_name, v.line) for v in found], [("Point", 2)]
+        )
         self.assertIn("field z = 3", found[0].text)
         self.assertIn("next free number is 4", found[0].text)
-        self.assertTrue(str(found[0]).startswith("point.proto:2: message Point:"))
+        self.assertTrue(
+            str(found[0]).startswith("point.proto:2: message Point:")
+        )
 
     def test_a_malformed_comment_is_reported_as_such(self):
         found = texts(
-            "// next id 2\nmessage Point {\n  reserved 2 to max;\n  double x = 1;\n}\n"
+            "// next id 2\nmessage Point {\n  reserved 2 to max;\n  double x ="
+            " 1;\n}\n"
         )
         self.assertEqual(len(found), 1)
         self.assertIn("malformed", found[0])
         self.assertEqual(
             len(
                 texts(
-                    "// Next ID: two\nmessage Point {\n  reserved 2 to max;\n  double x = 1;\n}\n"
+                    "// Next ID: two\nmessage Point {\n  reserved 2 to max;\n "
+                    " double x = 1;\n}\n"
                 )
             ),
             1,
@@ -138,10 +152,14 @@ message Point {
 }
 """
         found = proto_next_id.check_source(source)
-        self.assertEqual([(v.message_name, v.line) for v in found], [("Point", 3)])
+        self.assertEqual(
+            [(v.message_name, v.line) for v in found], [("Point", 3)]
+        )
         self.assertIn("write 'reserved 4 to max;'", found[0].text)
 
-    def test_the_reservation_must_be_the_first_statement_after_the_options(self):
+    def test_the_reservation_must_be_the_first_statement_after_the_options(
+        self,
+    ):
         source = """// Next ID: 2
 message Point {
   double x = 1;
@@ -350,11 +368,13 @@ message Point {
 """
         fixed = proto_next_id.fix_source(source)
         self.assertIn(
-            "// A point.\n// Next ID: 2\nmessage Point {\n  reserved 2 to max;\n\n  double x = 1;",
+            "// A point.\n// Next ID: 2\nmessage Point {\n  reserved 2 to"
+            " max;\n\n  double x = 1;",
             fixed,
         )
         self.assertIn(
-            "  // An offset.\n  // Next ID: 3\n  message Offset {\n    reserved 3 to max;\n\n    double dx = 1;",
+            "  // An offset.\n  // Next ID: 3\n  message Offset {\n    reserved"
+            " 3 to max;\n\n    double dx = 1;",
             fixed,
         )
         self.assertEqual(proto_next_id.check_source(fixed), [])
@@ -408,12 +428,18 @@ message Kept {
 }
 """
         fixed = proto_next_id.fix_source(source)
-        self.assertIn("// Next ID: 3\nmessage Point {\n  reserved 3 to max;\n", fixed)
-        self.assertIn("// Next ID: 9\nmessage Kept {\n  reserved 9 to max;\n", fixed)
+        self.assertIn(
+            "// Next ID: 3\nmessage Point {\n  reserved 3 to max;\n", fixed
+        )
+        self.assertIn(
+            "// Next ID: 9\nmessage Kept {\n  reserved 9 to max;\n", fixed
+        )
         self.assertEqual(proto_next_id.check_source(fixed), [])
         self.assertEqual(proto_next_id.fix_source(fixed), fixed)
 
-    def test_a_reservation_that_disagrees_with_the_comment_follows_the_comment(self):
+    def test_a_reservation_that_disagrees_with_the_comment_follows_the_comment(
+        self,
+    ):
         source = """// Next ID: 5
 message Point {
   reserved 2 to max;

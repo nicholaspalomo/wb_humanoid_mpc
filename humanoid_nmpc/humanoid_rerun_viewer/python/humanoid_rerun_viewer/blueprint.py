@@ -58,7 +58,11 @@ EVENTS_VIEW_NAME = "Events"
 STATUS_TAB_NAME = "Status"
 
 # The initial orbit camera: focal point, distance, pitch and yaw.
-_CAMERA_FOCAL_POINT = (0.608772337436676, 0.09100822359323502, 0.0074924081563949585)
+_CAMERA_FOCAL_POINT = (
+    0.608772337436676,
+    0.09100822359323502,
+    0.0074924081563949585,
+)
 _CAMERA_DISTANCE = 2.4502856731414795
 _CAMERA_PITCH = 0.36879807710647583
 _CAMERA_YAW = 6.122678756713867
@@ -84,11 +88,11 @@ def scene_view(
     allowed_instances: Sequence[str] | None = None,
 ) -> rrb.Spatial3DView:
     """The 3D view of the world; `tracked_link`, when given, is the measured robot's link the eye follows."""
-    tracking_entity = (
-        _absolute(scene_contract.link_path(scene_contract.MEASURED, tracked_link))
-        if tracked_link
-        else None
-    )
+    tracking_entity: str | None = None
+    if tracked_link:
+        tracking_entity = _absolute(
+            scene_contract.link_path(scene_contract.MEASURED, tracked_link)
+        )
     hidden_paths = list(scene_contract.hidden_by_default())
     if allowed_instances is not None:
         for style in scene_contract.ROBOT_INSTANCES:
@@ -114,7 +118,8 @@ def scene_view(
             tracking_entity=tracking_entity,
         ),
         overrides={
-            _absolute(path): rrb.EntityBehavior(visible=False) for path in hidden_paths
+            _absolute(path): rrb.EntityBehavior(visible=False)
+            for path in hidden_paths
         },
     )
 
@@ -144,7 +149,10 @@ def plot_view(panel: telemetry_contract.Panel) -> rrb.TimeSeriesView:
 
 def plot_tab(tab: telemetry_contract.Tab) -> rrb.Vertical:
     return rrb.Vertical(
-        *[rrb.Horizontal(*[plot_view(panel) for panel in row]) for row in tab.rows],
+        *[
+            rrb.Horizontal(*[plot_view(panel) for panel in row])
+            for row in tab.rows
+        ],
         name=tab.title,
     )
 
@@ -277,7 +285,9 @@ def build_blueprint(
         if config is not None:
             tabs = build_configured_tabs(config)
         else:
-            tabs = [plot_tab(tab) for tab in telemetry_contract.TABS] + [status_tab()]
+            tabs = [plot_tab(tab) for tab in telemetry_contract.TABS] + [
+                status_tab()
+            ]
         if tabs:
             content = rrb.Horizontal(
                 rrb.Vertical(

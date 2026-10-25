@@ -36,7 +36,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Collects the variables the model blocks declare, in order, and resolves the well-known indices.
+ * Collects the variables the model blocks declare, in order, and resolves the
+ * well-known indices.
  *
  * Not thread-safe: one thread fills a builder.
  */
@@ -50,9 +51,10 @@ class LayoutBuilder {
   ~LayoutBuilder() = default;
 
   /**
-   * Declares a state / input and returns its index. Each block declares its own names once and the formulation lists a
-   * block at most once (ContactPlanningFormulation::validateStatus()), so a name declared twice is a programming error
-   * and CHECK-fails with the name.
+   * Declares a state / input and returns its index. Each block declares its own
+   * names once and the formulation lists a block at most once
+   * (ContactPlanningFormulation::validateStatus()), so a name declared twice is
+   * a programming error and CHECK-fails with the name.
    */
   int addState(const std::string& name);
   int addInput(const std::string& name);

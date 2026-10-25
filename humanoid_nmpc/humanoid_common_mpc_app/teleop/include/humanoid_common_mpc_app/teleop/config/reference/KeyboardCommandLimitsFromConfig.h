@@ -37,13 +37,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::teleop {
 
 /**
- * The keyboard command's limits from a robot's reference file, the numbers the MPC scales the command back by:
- * max_displacement_velocity_x, max_displacement_velocity_y, max_delta_pelvis_height and max_rotation_velocity, which
- * the command is clamped to and normalized by, and default_base_height. Each is required and a finite number, and the
- * four limits are positive (a limit of 0 would normalize the command by 0).
+ * The keyboard command's limits from a robot's reference file, the numbers the
+ * MPC scales the command back by: max_displacement_velocity_x,
+ * max_displacement_velocity_y, max_delta_pelvis_height and
+ * max_rotation_velocity, which the command is clamped to and normalized by, and
+ * default_base_height. Each is required and a finite number, and the four
+ * limits are positive (a limit of 0 would normalize the command by 0).
  *
- * @return The limits; InvalidArgument naming the field that is absent or out of range.
+ * @return The limits; InvalidArgument naming the field that is absent or out of
+ * range.
  */
-absl::StatusOr<KeyboardCommandLimits> keyboardCommandLimitsFromConfig(const mpc_config::ReferenceFile& file);
+absl::StatusOr<KeyboardCommandLimits> keyboardCommandLimitsFromConfig(
+    const mpc_config::ReferenceFile& file);
 
 }  // namespace ocs2::humanoid::teleop

@@ -215,6 +215,14 @@ py_test(
     ],
 )
 
+# The port of clang-format's line breaking (//tools/nproto:nproto_layout) on lines whose layout clang-format decided.
+py_test(
+    name = "test_nproto_layout",
+    size = "small",
+    srcs = ["test_nproto_layout.py"],
+    deps = ["//tools/nproto:nproto_layout"],
+)
+
 # The generated code of the test protos, of humanoid_mpc_msgs and of humanoid_mpc_config is clang-format clean and
 # follows the repository's rules: every C++ lint check of the registry finds nothing, and the struct headers include no
 # protobuf.

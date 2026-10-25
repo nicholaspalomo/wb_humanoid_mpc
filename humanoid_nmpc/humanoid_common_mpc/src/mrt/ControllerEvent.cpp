@@ -38,8 +38,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-ControllerEvent makeControllerEvent(
-    ControllerEventCode code, const char* absl_nonnull controller, double value0, double value1, absl::string_view text) {
+ControllerEvent makeControllerEvent(ControllerEventCode code,
+                                    const char* absl_nonnull controller,
+                                    double value0,
+                                    double value1,
+                                    absl::string_view text) {
   ControllerEvent event;
   event.code = code;
   event.controller = controller;
@@ -59,44 +62,69 @@ std::string formatControllerEvent(const ControllerEvent& event) {
   const std::string prefix = absl::StrCat("[", event.controller, "] ");
   switch (event.code) {
     case ControllerEventCode::kPolicyDiverged:
-      return absl::StrCat(prefix, "MPC policy diverged from actual state (max joint error=", event.values[0],
-                          " rad). Resetting the MPC solver and clamping joint targets until a new policy is in use.");
+      return absl::StrCat(
+          prefix, "MPC policy diverged from actual state (max joint error=",
+          event.values[0],
+          " rad). Resetting the MPC solver and clamping joint targets until a "
+          "new policy is in use.");
     case ControllerEventCode::kClockRewind:
-      return absl::StrCat(prefix, "The observation time went backwards by ", event.values[0], " s, to ", event.values[1],
-                          " s. The MPC is reset, and WB_MPC holds the robot with the JOINT_PD action until a policy planned on "
+      return absl::StrCat(prefix, "The observation time went backwards by ",
+                          event.values[0], " s, to ", event.values[1],
+                          " s. The MPC is reset, and WB_MPC holds the robot "
+                          "with the JOINT_PD action until a policy planned on "
                           "the new clock is in use.");
     case ControllerEventCode::kSafetyEntered:
-      return absl::StrCat(prefix, "SAFETY mode entered: holding the measured posture and decaying the joint PD gains to zero with a ",
-                          event.values[0], " s time constant (safety_decay_time_constant).");
+      return absl::StrCat(prefix,
+                          "SAFETY mode entered: holding the measured posture "
+                          "and decaying the joint PD gains to zero with a ",
+                          event.values[0],
+                          " s time constant (safety_decay_time_constant).");
     case ControllerEventCode::kSafetyDecayComplete:
-      return absl::StrCat(prefix, "SAFETY decay complete: commanding zero torque on all joints.");
+      return absl::StrCat(
+          prefix,
+          "SAFETY decay complete: commanding zero torque on all joints.");
     case ControllerEventCode::kContactWrenchGateChanged:
-      return absl::StrCat(prefix, "contact wrench gate: debounce_time=", event.values[0], " s, ramp_time=", event.values[1], " s.");
+      return absl::StrCat(
+          prefix, "contact wrench gate: debounce_time=", event.values[0],
+          " s, ramp_time=", event.values[1], " s.");
     case ControllerEventCode::kContactEstimatorChanged:
-      return absl::StrCat(prefix, "measured contact state from ", controllerEventText(event), ".");
+      return absl::StrCat(prefix, "measured contact state from ",
+                          controllerEventText(event), ".");
     case ControllerEventCode::kNoPolicyWeightCompensation:
       return absl::StrCat(prefix,
-                          "WB_MPC without an MPC policy yet: applying the weight-compensating torques until the first one "
+                          "WB_MPC without an MPC policy yet: applying the "
+                          "weight-compensating torques until the first one "
                           "arrives.");
     case ControllerEventCode::kContactEstimateRefused:
-      return absl::StrCat(prefix, "the contact estimator '", controllerEventText(event), "' reported ", event.values[0],
-                          " contact flags, expected ", event.values[1],
-                          ": its estimates are refused and the measured contact state stays the last one taken.");
+      return absl::StrCat(prefix, "the contact estimator '",
+                          controllerEventText(event), "' reported ",
+                          event.values[0], " contact flags, expected ",
+                          event.values[1],
+                          ": its estimates are refused and the measured "
+                          "contact state stays the last one taken.");
     case ControllerEventCode::kContactWrenchGateRefused:
-      return absl::StrCat(prefix, "contact wrench gate refused (debounce_time=", event.values[0], " s, ramp_time=", event.values[1],
+      return absl::StrCat(prefix, "contact wrench gate refused (debounce_time=",
+                          event.values[0], " s, ramp_time=", event.values[1],
                           " s must be non-negative); the gate in use is kept.");
     case ControllerEventCode::kPolicyRefused:
-      return absl::StrCat(prefix, "the realtime policy evaluator refused the MPC policy in use (",
-                          event.values[0] == static_cast<double>(PolicyRefusal::kMismatchedPolicy)
-                              ? "not of the model's dimensions, or inconsistent"
-                              : "a controller it does not evaluate on the state",
-                          "): holding the robot with the JOINT_PD action until a policy it evaluates is in use.");
+      return absl::StrCat(
+          prefix,
+          "the realtime policy evaluator refused the MPC policy in use (",
+          event.values[0] ==
+                  static_cast<double>(PolicyRefusal::kMismatchedPolicy)
+              ? "not of the model's dimensions, or inconsistent"
+              : "a controller it does not evaluate on the state",
+          "): holding the robot with the JOINT_PD action until a policy it "
+          "evaluates is in use.");
     case ControllerEventCode::kPolicyUpdateLockContended:
-      return absl::StrCat(prefix, "the MRT's policy buffer was locked by the solver side for ", event.values[0],
-                          " consecutive control cycles (", event.values[1],
-                          " failed try-locks in all): no newer policy could be taken into use meanwhile.");
+      return absl::StrCat(
+          prefix, "the MRT's policy buffer was locked by the solver side for ",
+          event.values[0], " consecutive control cycles (", event.values[1],
+          " failed try-locks in all): no newer policy could be taken into use "
+          "meanwhile.");
   }
-  return absl::StrCat(prefix, "controller event ", static_cast<int>(event.code));
+  return absl::StrCat(prefix, "controller event ",
+                      static_cast<int>(event.code));
 }
 
 bool isWarningControllerEvent(const ControllerEvent& event) {

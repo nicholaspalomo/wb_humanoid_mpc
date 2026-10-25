@@ -45,11 +45,15 @@ bool withinOneDrag(double motion) {
   return std::abs(motion) <= ViewerInput::kMaxDragFraction;
 }
 
-// A drag merges into the drag before it while the sum stays within the range of one drag: beyond it the motion would
-// be cut off, so it starts an entry of its own.
+// A drag merges into the drag before it while the sum stays within the range of
+// one drag: beyond it the motion would be cut off, so it starts an entry of its
+// own.
 bool mergesInto(const ViewerInput& previous, const ViewerInput& next) {
-  return previous.type == ViewerInputType::kDrag && next.type == ViewerInputType::kDrag && previous.button == next.button &&
-         previous.shift == next.shift && withinOneDrag(previous.dx + next.dx) && withinOneDrag(previous.dy + next.dy);
+  return previous.type == ViewerInputType::kDrag &&
+         next.type == ViewerInputType::kDrag &&
+         previous.button == next.button && previous.shift == next.shift &&
+         withinOneDrag(previous.dx + next.dx) &&
+         withinOneDrag(previous.dy + next.dy);
 }
 
 }  // namespace

@@ -90,8 +90,9 @@ def choose_delimiter(page: str) -> str:
         if f'){delimiter}"' not in page:
             return delimiter
     raise EmbedError(
-        "the page contains the raw string terminator of every delimiter in DELIMITERS "
-        f"({', '.join(DELIMITERS)}): add another one to tools/embed_page.py"
+        "the page contains the raw string terminator of every delimiter in"
+        f" DELIMITERS ({', '.join(DELIMITERS)}): add another one to"
+        " tools/embed_page.py"
     )
 
 
@@ -111,8 +112,8 @@ def render_source(page: str, page_path: str) -> str:
     size = len(page.encode("utf-8"))
     if size > MAX_PAGE_BYTES:
         raise EmbedError(
-            f"{page_path} has {size} bytes, more than the {MAX_PAGE_BYTES} a C++ string literal may hold: "
-            "make it smaller"
+            f"{page_path} has {size} bytes, more than the {MAX_PAGE_BYTES} a"
+            " C++ string literal may hold: make it smaller"
         )
     if "\0" in page:
         raise EmbedError(f"{page_path} contains a NUL character")
@@ -124,8 +125,12 @@ def render_source(page: str, page_path: str) -> str:
 def main(argv: Sequence[str] | None = None) -> int:
     """Reads the page and writes the C++ source; returns the exit status."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--input", required=True, help="the page, page/index.html")
-    parser.add_argument("--output", required=True, help="the C++ source to write")
+    parser.add_argument(
+        "--input", required=True, help="the page, page/index.html"
+    )
+    parser.add_argument(
+        "--output", required=True, help="the C++ source to write"
+    )
     parser.add_argument(
         "--page_path",
         default="robot_runtime/web_viewer/page/index.html",

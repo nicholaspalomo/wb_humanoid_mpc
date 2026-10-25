@@ -43,17 +43,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_model/RobotState.h"
 
 /*
- * The joint torques a control cycle of the lockstep closed loop records: the PD torque plus the feedforward of each MPC
- * joint, in the order of the MPC's joints, and an error rather than an exception for a joint the action leaves out.
+ * The joint torques a control cycle of the lockstep closed loop records: the PD
+ * torque plus the feedforward of each MPC joint, in the order of the MPC's
+ * joints, and an error rather than an exception for a joint the action leaves
+ * out.
  */
 
 namespace ocs2::humanoid::validation {
 namespace {
 
-constexpr char kG1Urdf[] = "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf";
+constexpr char kG1Urdf[] =
+    "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf";
 
 TEST(JointFeedbackTorques, AreTheCommandedTorquesOfTheJointsInTheirOrder) {
-  absl::StatusOr<robot::model::RobotDescription> descriptionOrStatus = robot::model::RobotDescription::Create(kG1Urdf);
+  absl::StatusOr<robot::model::RobotDescription> descriptionOrStatus =
+      robot::model::RobotDescription::Create(kG1Urdf);
   ASSERT_TRUE(descriptionOrStatus.ok()) << descriptionOrStatus.status();
   const robot::model::RobotDescription& description = *descriptionOrStatus;
   robot::model::RobotJointAction action(description);
@@ -69,32 +73,38 @@ TEST(JointFeedbackTorques, AreTheCommandedTorquesOfTheJointsInTheirOrder) {
     state.setJointVelocity(joint, /*jointVelocity=*/0.3);
   }
   const std::vector<robot::joint_index_t> joints = {4, 0, 2};
-  const absl::StatusOr<Eigen::VectorXd> torques = jointFeedbackTorques(action, state, joints);
+  const absl::StatusOr<Eigen::VectorXd> torques =
+      jointFeedbackTorques(action, state, joints);
   ASSERT_TRUE(torques.ok()) << torques.status();
   ASSERT_EQ(torques->size(), 3);
   for (Eigen::Index i = 0; i < torques->size(); ++i) {
     const robot::joint_index_t joint = joints[static_cast<size_t>(i)];
     // kp (q_des - q) + kd (qd_des - qd) + feedforward.
-    const double expected = 10.0 * (0.05 * static_cast<double>(joint)) + 2.0 * (-0.2 - 0.3) + 0.5;
+    const double expected =
+        10.0 * (0.05 * static_cast<double>(joint)) + 2.0 * (-0.2 - 0.3) + 0.5;
     EXPECT_DOUBLE_EQ((*torques)(i), expected) << "joint " << joint;
   }
-  const absl::StatusOr<Eigen::VectorXd> none = jointFeedbackTorques(action, state, /*joints=*/{});
+  const absl::StatusOr<Eigen::VectorXd> none =
+      jointFeedbackTorques(action, state, /*joints=*/{});
   ASSERT_TRUE(none.ok()) << none.status();
   EXPECT_EQ(none->size(), 0);
 }
 
 TEST(JointFeedbackTorques, AJointWithoutAnActionIsAnInternalErrorNamingIt) {
-  absl::StatusOr<robot::model::RobotDescription> descriptionOrStatus = robot::model::RobotDescription::Create(kG1Urdf);
+  absl::StatusOr<robot::model::RobotDescription> descriptionOrStatus =
+      robot::model::RobotDescription::Create(kG1Urdf);
   ASSERT_TRUE(descriptionOrStatus.ok()) << descriptionOrStatus.status();
   const robot::model::RobotDescription& description = *descriptionOrStatus;
   robot::model::RobotJointAction action(description);
   const robot::model::RobotState state(description, /*contactSize=*/2);
   action[3].reset();
   const std::vector<robot::joint_index_t> joints = {0, 3};
-  const absl::StatusOr<Eigen::VectorXd> torques = jointFeedbackTorques(action, state, joints);
+  const absl::StatusOr<Eigen::VectorXd> torques =
+      jointFeedbackTorques(action, state, joints);
   ASSERT_FALSE(torques.ok());
   EXPECT_EQ(torques.status().code(), absl::StatusCode::kInternal);
-  EXPECT_TRUE(absl::StrContains(torques.status().message(), "joint 3")) << torques.status();
+  EXPECT_TRUE(absl::StrContains(torques.status().message(), "joint 3"))
+      << torques.status();
 }
 
 }  // namespace

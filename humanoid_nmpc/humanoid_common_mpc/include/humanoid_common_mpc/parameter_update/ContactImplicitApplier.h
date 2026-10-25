@@ -48,16 +48,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Applies contact_implicit to the terms of the contact-implicit formulation (humanoid_nmpc/docs/contact_implicit_mpc/
- * README.md): the weights and references of the complementarity, slip and penetration terms of every foot, checked as
- * at start-up and refused as a whole, so that the terms never run on half of an edit. They are absent unless the
- * formulation is listed, which is the normal case.
+ * Applies contact_implicit to the terms of the contact-implicit formulation
+ * (humanoid_nmpc/docs/contact_implicit_mpc/ README.md): the weights and
+ * references of the complementarity, slip and penetration terms of every foot,
+ * checked as at start-up and refused as a whole, so that the terms never run on
+ * half of an edit. They are absent unless the formulation is listed, which is
+ * the normal case.
  *
- * It also keeps the complementarity and penetration terms on the ground the reference manager applied: before every
- * solve (beforeEverySolve(), which runs right after the reference manager's own preSolverRun()), the terms move onto
- * getAppliedTerrainHeight() when it has moved, so a reloaded terrain_height (ReferenceManagerApplier) reaches them in
- * the very solve whose swing trajectories and landing targets were built on it. Without a reference manager there are
- * no references to agree with, and ReferenceManagerApplier sets the terms at once (setContactImplicitTermsTerrainHeight()).
+ * It also keeps the complementarity and penetration terms on the ground the
+ * reference manager applied: before every solve (beforeEverySolve(), which runs
+ * right after the reference manager's own preSolverRun()), the terms move onto
+ * getAppliedTerrainHeight() when it has moved, so a reloaded terrain_height
+ * (ReferenceManagerApplier) reaches them in the very solve whose swing
+ * trajectories and landing targets were built on it. Without a reference
+ * manager there are no references to agree with, and ReferenceManagerApplier
+ * sets the terms at once (setContactImplicitTermsTerrainHeight()).
  *
  * Not thread-safe (HotFieldApplier).
  */
@@ -66,32 +71,43 @@ class ContactImplicitApplier final : public HotFieldApplier {
   /** The fields it applies: contact_implicit. */
   static absl::Span<const absl::string_view> staticFields();
 
-  /** The applier of a problem whose contacts are `contactNames`, in input order. */
-  explicit ContactImplicitApplier(std::vector<std::string> contactNames) : contactNames_(std::move(contactNames)) {}
+  /** The applier of a problem whose contacts are `contactNames`, in input
+   * order. */
+  explicit ContactImplicitApplier(std::vector<std::string> contactNames)
+      : contactNames_(std::move(contactNames)) {}
 
   absl::string_view name() const override { return "ContactImplicitApplier"; }
-  absl::Span<const absl::string_view> fields() const final { return staticFields(); }
+  absl::Span<const absl::string_view> fields() const final {
+    return staticFields();
+  }
   void apply(HotUpdateTarget& target) override;
 
   /**
-   * Moves the complementarity and penetration terms of every worker's problem of `solver` onto the ground
-   * `referenceManager` applied (nothing without one), when it differs from the ground they were last set to.
+   * Moves the complementarity and penetration terms of every worker's problem
+   * of `solver` onto the ground `referenceManager` applied (nothing without
+   * one), when it differs from the ground they were last set to.
    */
-  void beforeEverySolve(SqpSolver& solver, const SwitchedModelReferenceManager* absl_nullable referenceManager) override;
+  void beforeEverySolve(SqpSolver& solver,
+                        const SwitchedModelReferenceManager* absl_nullable
+                        referenceManager) override;
 
  private:
   std::vector<std::string> contactNames_;
-  /// [m] The ground the terms were last set to by beforeEverySolve(); empty until the first one with a reference manager.
+  /// [m] The ground the terms were last set to by beforeEverySolve(); empty
+  /// until the first one with a reference manager.
   std::optional<scalar_t> termsTerrainHeight_;
 };
 
 /**
- * Sets the terrain height of the complementarity and penetration terms of every foot of `contactNames` in every problem
- * of `problems` to `terrainHeight`: the two terms are a pair - one says a foot may not carry load above the ground, the
- * other that it may not go below it - so they always move together. A problem without them is left alone.
+ * Sets the terrain height of the complementarity and penetration terms of every
+ * foot of `contactNames` in every problem of `problems` to `terrainHeight`: the
+ * two terms are a pair - one says a foot may not carry load above the ground,
+ * the other that it may not go below it - so they always move together. A
+ * problem without them is left alone.
  */
-void setContactImplicitTermsTerrainHeight(std::vector<OptimalControlProblem>& problems,
-                                          const std::vector<std::string>& contactNames,
-                                          scalar_t terrainHeight);
+void setContactImplicitTermsTerrainHeight(
+    std::vector<OptimalControlProblem>& problems,
+    const std::vector<std::string>& contactNames,
+    scalar_t terrainHeight);
 
 }  // namespace ocs2::humanoid

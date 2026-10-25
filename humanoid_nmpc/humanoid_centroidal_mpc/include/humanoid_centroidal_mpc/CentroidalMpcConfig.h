@@ -42,30 +42,37 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The configuration files a centroidal MPC is built from, as the typed structs of humanoid_nmpc/humanoid_mpc_config:
- * what CentroidalMpcInterface::Create() and its parameter updater read. Passive data; loadCentroidalMpcConfig() reads it
- * from a robot's files.
+ * The configuration files a centroidal MPC is built from, as the typed structs
+ * of humanoid_nmpc/humanoid_mpc_config: what CentroidalMpcInterface::Create()
+ * and its parameter updater read. Passive data; loadCentroidalMpcConfig() reads
+ * it from a robot's files.
  */
 struct CentroidalMpcConfig {
-  // The task file, config/mpc/task.textproto: the model, the formulation, the weights and the solver.
+  // The task file, config/mpc/task.textproto: the model, the formulation, the
+  // weights and the solver.
   mpc_config::TaskFile task;
-  // The reference file, config/command/reference.textproto: the default posture, the gait schedule's start and the
-  // command limits.
+  // The reference file, config/command/reference.textproto: the default
+  // posture, the gait schedule's start and the command limits.
   mpc_config::ReferenceFile reference;
-  // The contact planner's file, config/mpc/contact_planning.textproto beside the task file. Absent for a robot that ships
-  // none: it runs the planner's library defaults (ContactPlanningConfig{}) where its contact_schedule_source names the
-  // planner, never the conversion of an empty file.
+  // The contact planner's file, config/mpc/contact_planning.textproto beside
+  // the task file. Absent for a robot that ships none: it runs the planner's
+  // library defaults (ContactPlanningConfig{}) where its
+  // contact_schedule_source names the planner, never the conversion of an empty
+  // file.
   std::optional<mpc_config::ContactPlanningFile> contactPlanning;
 };
 
 /**
- * The configuration of the robot whose task file is at `taskFile` and whose reference file is at `referenceFile`
- * (loadTaskFile(), loadReferenceFile()), with the contact planner's file beside the task file when there is one
+ * The configuration of the robot whose task file is at `taskFile` and whose
+ * reference file is at `referenceFile` (loadTaskFile(), loadReferenceFile()),
+ * with the contact planner's file beside the task file when there is one
  * (loadContactPlanningFileBeside()).
  *
- * @return The loaders' errors: NotFound naming a file that does not exist, and InvalidArgument naming the file, the line
- *         and the column of a file that does not parse strictly (a file in another format, such as YAML, among them).
+ * @return The loaders' errors: NotFound naming a file that does not exist, and
+ * InvalidArgument naming the file, the line and the column of a file that does
+ * not parse strictly (a file in another format, such as YAML, among them).
  */
-absl::StatusOr<CentroidalMpcConfig> loadCentroidalMpcConfig(absl::string_view taskFile, absl::string_view referenceFile);
+absl::StatusOr<CentroidalMpcConfig> loadCentroidalMpcConfig(
+    absl::string_view taskFile, absl::string_view referenceFile);
 
 }  // namespace ocs2::humanoid

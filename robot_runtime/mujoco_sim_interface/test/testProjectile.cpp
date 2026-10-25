@@ -46,9 +46,10 @@ namespace robot::mujoco_sim_interface {
 namespace {
 
 /**
- * A scene shaped like the robot ones: a floor, a free-jointed "robot" with a foot, and nothing else. Small enough to
- * reason about, and enough to catch what breaks when a projectile is appended - the robot stopping being the first
- * free-joint body, and a ball being mistaken for the ground.
+ * A scene shaped like the robot ones: a floor, a free-jointed "robot" with a
+ * foot, and nothing else. Small enough to reason about, and enough to catch
+ * what breaks when a projectile is appended - the robot stopping being the
+ * first free-joint body, and a ball being mistaken for the ground.
  */
 constexpr char kScene[] = R"(
 <mujoco>
@@ -67,8 +68,9 @@ constexpr char kScene[] = R"(
 )";
 
 /**
- * The same, but with the contact parameters and <statistic> override the shipped robot scenes all use. The floor's
- * solref is what MuJoCo would average the ball's with if the ball did not take priority, and the statistic override
+ * The same, but with the contact parameters and <statistic> override the
+ * shipped robot scenes all use. The floor's solref is what MuJoCo would average
+ * the ball's with if the ball did not take priority, and the statistic override
  * is what a runtime mj_setConst would silently throw away.
  */
 constexpr char kShippedScene[] = R"(
@@ -97,12 +99,14 @@ std::string writeTempFile(const std::string& name, const std::string& content) {
 
 /** RAII around a compiled model, with or without a projectile appended. */
 struct Scene {
-  explicit Scene(const std::string& path, const Projectile* absl_nullable projectile = nullptr) {
+  explicit Scene(const std::string& path,
+                 const Projectile* absl_nullable projectile = nullptr) {
     char error[1000] = {0};
     if (projectile == nullptr) {
       model = mj_loadXML(path.c_str(), /*vfs=*/nullptr, error, sizeof(error));
     } else {
-      mjSpec* absl_nullable spec = mj_parseXML(path.c_str(), /*vfs=*/nullptr, error, sizeof(error));
+      mjSpec* absl_nullable spec =
+          mj_parseXML(path.c_str(), /*vfs=*/nullptr, error, sizeof(error));
       if (spec != nullptr) {
         addStatus = addProjectileToSpec(spec, *projectile, "sim_projectile");
         if (addStatus.ok()) model = mj_compile(spec, /*vfs=*/nullptr);
@@ -118,19 +122,31 @@ struct Scene {
   Scene(const Scene&) = delete;
   Scene& operator=(const Scene&) = delete;
 
-  int body(const char* absl_nonnull name) const { return mj_name2id(model, mjOBJ_BODY, name); }
-  int geom(const char* absl_nonnull name) const { return mj_name2id(model, mjOBJ_GEOM, name); }
-  int ballQpos() const { return model->jnt_qposadr[model->body_jntadr[body("sim_projectile")]]; }
-  int ballDof() const { return model->jnt_dofadr[model->body_jntadr[body("sim_projectile")]]; }
+  int body(const char* absl_nonnull name) const {
+    return mj_name2id(model, mjOBJ_BODY, name);
+  }
+  int geom(const char* absl_nonnull name) const {
+    return mj_name2id(model, mjOBJ_GEOM, name);
+  }
+  int ballQpos() const {
+    return model->jnt_qposadr[model->body_jntadr[body("sim_projectile")]];
+  }
+  int ballDof() const {
+    return model->jnt_dofadr[model->body_jntadr[body("sim_projectile")]];
+  }
 
-  /** Arms the ball the way MujocoSimInterface::setProjectileArmed does: collisions on, gravity compensation off. */
+  /** Arms the ball the way MujocoSimInterface::setProjectileArmed does:
+   * collisions on, gravity compensation off. */
   void arm() const {
-    setProjectileCollisionEnabled(model, body("sim_projectile"), /*enabled=*/true);
+    setProjectileCollisionEnabled(model, body("sim_projectile"),
+                                  /*enabled=*/true);
     model->body_gravcomp[body("sim_projectile")] = 0.0;
   }
 
-  /** Puts the ball at `position` with linear velocity `velocity`, unrotated and not spinning. */
-  void place(const std::array<double, 3>& position, const std::array<double, 3>& velocity) const {
+  /** Puts the ball at `position` with linear velocity `velocity`, unrotated and
+   * not spinning. */
+  void place(const std::array<double, 3>& position,
+             const std::array<double, 3>& velocity) const {
     for (int axis = 0; axis < 3; ++axis) {
       data->qpos[ballQpos() + axis] = position[axis];
       data->qvel[ballDof() + axis] = velocity[axis];
@@ -145,7 +161,9 @@ struct Scene {
   bool ballTouchesAnything() const {
     const int ballGeom = geom("sim_projectile_geom");
     for (int c = 0; c < data->ncon; ++c) {
-      if (data->contact[c].geom[0] == ballGeom || data->contact[c].geom[1] == ballGeom) return true;
+      if (data->contact[c].geom[0] == ballGeom ||
+          data->contact[c].geom[1] == ballGeom)
+        return true;
     }
     return false;
   }
@@ -160,20 +178,24 @@ Projectile dodgeball() {
 }
 
 /**
- * Puts the ball against the top of the foot's sole and still traveling downwards, which is what a ball in the middle
- * of an impact looks like and what makes the normal force large rather than marginal, then runs the solver.
+ * Puts the ball against the top of the foot's sole and still traveling
+ * downwards, which is what a ball in the middle of an impact looks like and
+ * what makes the normal force large rather than marginal, then runs the solver.
  */
 void strikeTheFoot(const Scene& scene, const Projectile& ball) {
-  const int baseQpos = scene.model->jnt_qposadr[scene.model->body_jntadr[scene.body("base")]];
+  const int baseQpos =
+      scene.model->jnt_qposadr[scene.model->body_jntadr[scene.body("base")]];
   scene.data->qpos[baseQpos + 2] = 1.0;
   // The sole's top face sits at base z - 0.3 + 0.02.
-  scene.place({{0.0, 0.0, 1.0 - 0.3 + 0.02 + ball.radius - 0.002}}, {{0.0, 0.0, -12.0}});
+  scene.place({{0.0, 0.0, 1.0 - 0.3 + 0.02 + ball.radius - 0.002}},
+              {{0.0, 0.0, -12.0}});
   mj_forward(scene.model, scene.data);
 }
 
 /**
- * Coefficient of restitution of one bounce on the floor, measured as rebound speed over impact speed: drops the ball
- * from `height` well away from the robot and returns v_out / v_in for its first floor contact.
+ * Coefficient of restitution of one bounce on the floor, measured as rebound
+ * speed over impact speed: drops the ball from `height` well away from the
+ * robot and returns v_out / v_in for its first floor contact.
  */
 double measuredRestitution(const Scene& scene, double height) {
   scene.arm();
@@ -186,8 +208,10 @@ double measuredRestitution(const Scene& scene, double height) {
     mj_step(scene.model, scene.data);
     const double verticalSpeed = scene.data->qvel[dof];
     const bool touching = scene.ballTouchesAnything();
-    if (impactSpeed < 0.0 && touching && previous < 0.0) impactSpeed = -previous;
-    if (impactSpeed > 0.0 && !touching && verticalSpeed > 0.0) return verticalSpeed / impactSpeed;
+    if (impactSpeed < 0.0 && touching && previous < 0.0)
+      impactSpeed = -previous;
+    if (impactSpeed > 0.0 && !touching && verticalSpeed > 0.0)
+      return verticalSpeed / impactSpeed;
     previous = verticalSpeed;
   }
   return std::numeric_limits<double>::quiet_NaN();
@@ -195,7 +219,8 @@ double measuredRestitution(const Scene& scene, double height) {
 
 }  // namespace
 
-/*========================================== the registry ==============================================*/
+/*========================================== the registry
+ * ==============================================*/
 
 TEST(ProjectileRegistry, DodgeballIsARegulationBall) {
   const absl::StatusOr<Projectile> projectile = projectileFromName("dodgeball");
@@ -205,20 +230,27 @@ TEST(ProjectileRegistry, DodgeballIsARegulationBall) {
   EXPECT_GT(projectile->mass, 0.2);
   EXPECT_LT(projectile->mass, 1.0) << "a dodgeball, not a medicine ball";
   EXPECT_GT(projectile->restitution, 0.0);
-  EXPECT_LT(projectile->restitution, 1.0) << "a restitution of 1 is a contact that never settles";
-  EXPECT_GT(projectile->rollingFriction, 0.0) << "without rolling resistance a ball on the floor rolls forever";
-  // The slider's default has to be reachable, or it would be clamped away on the first throw.
+  EXPECT_LT(projectile->restitution, 1.0)
+      << "a restitution of 1 is a contact that never settles";
+  EXPECT_GT(projectile->rollingFriction, 0.0)
+      << "without rolling resistance a ball on the floor rolls forever";
+  // The slider's default has to be reachable, or it would be clamped away on
+  // the first throw.
   EXPECT_GE(projectile->mass, kMinProjectileMass);
   EXPECT_LE(projectile->mass, kMaxProjectileMass);
 }
 
 TEST(ProjectileRegistry, AnUnknownNameListsTheValidOnes) {
-  const absl::StatusOr<Projectile> projectile = projectileFromName("cannonball");
+  const absl::StatusOr<Projectile> projectile =
+      projectileFromName("cannonball");
   ASSERT_FALSE(projectile.ok());
   EXPECT_EQ(projectile.status().code(), absl::StatusCode::kInvalidArgument);
-  // Every valid name must appear, and "dodgeball" is not a substring of "cannonball", so this cannot pass by echo.
+  // Every valid name must appear, and "dodgeball" is not a substring of
+  // "cannonball", so this cannot pass by echo.
   for (const std::string& name : availableProjectiles()) {
-    EXPECT_NE(std::string(projectile.status().message()).find(name), std::string::npos) << projectile.status().message();
+    EXPECT_NE(std::string(projectile.status().message()).find(name),
+              std::string::npos)
+        << projectile.status().message();
   }
 }
 
@@ -228,20 +260,24 @@ TEST(ProjectileRegistry, EveryAdvertisedNameResolves) {
   }
 }
 
-/*======================================= restitution -> solref =========================================*/
+/*======================================= restitution -> solref
+ * =========================================*/
 
 namespace {
 
-/** The acceleration of a linear spring-damper of unit natural frequency and damping ratio `zeta` at penetration `x`. */
+/** The acceleration of a linear spring-damper of unit natural frequency and
+ * damping ratio `zeta` at penetration `x`. */
 double springDamperAcceleration(double zeta, double x, double v) {
   return -x - 2.0 * zeta * v;
 }
 
 /**
- * The restitution of a one-sided linear spring-damper of damping ratio `zeta`, by integration rather than the closed
- * form: x'' = -x - 2 zeta x' (e does not depend on omega, so time is in units of 1 / omega) from an impact x = 0 at unit
- * speed, with classical Runge-Kutta steps of 1e-4, until the spring-damper force reaches zero (the ball leaves); the
- * speed there, interpolated linearly in the force between the two steps around it.
+ * The restitution of a one-sided linear spring-damper of damping ratio `zeta`,
+ * by integration rather than the closed form: x'' = -x - 2 zeta x' (e does not
+ * depend on omega, so time is in units of 1 / omega) from an impact x = 0 at
+ * unit speed, with classical Runge-Kutta steps of 1e-4, until the spring-damper
+ * force reaches zero (the ball leaves); the speed there, interpolated linearly
+ * in the force between the two steps around it.
  */
 double integratedRestitution(double zeta) {
   constexpr double kStep = 1.0e-4;
@@ -252,11 +288,14 @@ double integratedRestitution(double zeta) {
     const double k1x = v;
     const double k1v = springDamperAcceleration(zeta, x, v);
     const double k2x = v + 0.5 * kStep * k1v;
-    const double k2v = springDamperAcceleration(zeta, x + 0.5 * kStep * k1x, v + 0.5 * kStep * k1v);
+    const double k2v = springDamperAcceleration(zeta, x + 0.5 * kStep * k1x,
+                                                v + 0.5 * kStep * k1v);
     const double k3x = v + 0.5 * kStep * k2v;
-    const double k3v = springDamperAcceleration(zeta, x + 0.5 * kStep * k2x, v + 0.5 * kStep * k2v);
+    const double k3v = springDamperAcceleration(zeta, x + 0.5 * kStep * k2x,
+                                                v + 0.5 * kStep * k2v);
     const double k4x = v + kStep * k3v;
-    const double k4v = springDamperAcceleration(zeta, x + kStep * k3x, v + kStep * k3v);
+    const double k4v =
+        springDamperAcceleration(zeta, x + kStep * k3x, v + kStep * k3v);
     const double nextX = x + kStep / 6.0 * (k1x + 2.0 * k2x + 2.0 * k3x + k4x);
     const double nextV = v + kStep / 6.0 * (k1v + 2.0 * k2v + 2.0 * k3v + k4v);
     const double nextForce = springDamperAcceleration(zeta, nextX, nextV);
@@ -271,57 +310,77 @@ double integratedRestitution(double zeta) {
 }  // namespace
 
 TEST(ContactRestitution, TheClosedFormIsTheIntegratedOneSidedContact) {
-  // Under-damped, critically damped and over-damped. The ball leaves where the force vanishes, at the largest rebound
-  // speed, not where x returns to zero: the logarithmic decrement exp(-pi zeta / sqrt(1 - zeta^2)) would be 0.137 at
-  // zeta = 0.535, where the contact gives 0.280, and 0 at zeta = 1, where it gives exp(-2).
-  for (const double zeta : {0.01, 0.0744, 0.3, 0.535, 0.9, 0.999999, 1.0, 1.000001, 1.5, 4.0, 10.0}) {
-    EXPECT_NEAR(contactRestitutionForDampRatio(zeta), integratedRestitution(zeta), 1.0e-6) << "zeta = " << zeta;
+  // Under-damped, critically damped and over-damped. The ball leaves where the
+  // force vanishes, at the largest rebound speed, not where x returns to zero:
+  // the logarithmic decrement exp(-pi zeta / sqrt(1 - zeta^2)) would be 0.137
+  // at zeta = 0.535, where the contact gives 0.280, and 0 at zeta = 1, where it
+  // gives exp(-2).
+  for (const double zeta : {0.01, 0.0744, 0.3, 0.535, 0.9, 0.999999, 1.0,
+                            1.000001, 1.5, 4.0, 10.0}) {
+    EXPECT_NEAR(contactRestitutionForDampRatio(zeta),
+                integratedRestitution(zeta), 1.0e-6)
+        << "zeta = " << zeta;
   }
   EXPECT_NEAR(contactRestitutionForDampRatio(0.535), 0.2796, 1.0e-4);
   EXPECT_DOUBLE_EQ(contactRestitutionForDampRatio(1.0), std::exp(-2.0));
-  EXPECT_EQ(contactRestitutionForDampRatio(0.0), 1.0) << "an undamped contact gives the speed back";
+  EXPECT_EQ(contactRestitutionForDampRatio(0.0), 1.0)
+      << "an undamped contact gives the speed back";
 }
 
-TEST(ContactRestitution, FallsMonotonicallyAndContinuouslyThroughCriticalDamping) {
+TEST(ContactRestitution,
+     FallsMonotonicallyAndContinuouslyThroughCriticalDamping) {
   double previous = contactRestitutionForDampRatio(0.0);
   for (double zeta = 0.001; zeta < kMaxContactDampRatio; zeta += 0.001) {
     const double restitution = contactRestitutionForDampRatio(zeta);
     EXPECT_LT(restitution, previous) << "zeta = " << zeta;
-    EXPECT_LT(previous - restitution, 4.0e-3) << "a jump at zeta = " << zeta;  // |de/dzeta| <= pi
+    EXPECT_LT(previous - restitution, 4.0e-3)
+        << "a jump at zeta = " << zeta;  // |de/dzeta| <= pi
     previous = restitution;
   }
 }
 
 TEST(ContactDampRatio, InvertsTheRestitutionOfTheOneSidedContact) {
-  for (const double restitution : {0.003, 0.05, 0.135, 0.136, 0.3, 0.5, 0.8, 0.95, 0.999}) {
+  for (const double restitution :
+       {0.003, 0.05, 0.135, 0.136, 0.3, 0.5, 0.8, 0.95, 0.999}) {
     const double zeta = contactDampRatioForRestitution(restitution);
-    EXPECT_NEAR(contactRestitutionForDampRatio(zeta), restitution, 1.0e-12) << "at e = " << restitution;
+    EXPECT_NEAR(contactRestitutionForDampRatio(zeta), restitution, 1.0e-12)
+        << "at e = " << restitution;
   }
   EXPECT_NEAR(contactDampRatioForRestitution(0.8), 0.0744, 1.0e-4);
 }
 
 TEST(ContactDampRatio, MoreBounceMeansLessDamping) {
-  EXPECT_LT(contactDampRatioForRestitution(0.9), contactDampRatioForRestitution(0.5));
-  EXPECT_LT(contactDampRatioForRestitution(0.5), contactDampRatioForRestitution(0.1));
+  EXPECT_LT(contactDampRatioForRestitution(0.9),
+            contactDampRatioForRestitution(0.5));
+  EXPECT_LT(contactDampRatioForRestitution(0.5),
+            contactDampRatioForRestitution(0.1));
 }
 
 TEST(ContactDampRatio, TheDegenerateEndsAreClampedRatherThanInfinite) {
-  // No finite damping stops a one-sided spring-damper dead, and e = 1 would never settle: both ends are clamped.
+  // No finite damping stops a one-sided spring-damper dead, and e = 1 would
+  // never settle: both ends are clamped.
   EXPECT_EQ(contactDampRatioForRestitution(0.0), kMaxContactDampRatio);
   EXPECT_EQ(contactDampRatioForRestitution(-1.0), kMaxContactDampRatio);
-  EXPECT_EQ(contactDampRatioForRestitution(std::numeric_limits<double>::quiet_NaN()), kMaxContactDampRatio);
-  EXPECT_EQ(contactDampRatioForRestitution(1.0), contactDampRatioForRestitution(kMaxContactRestitution));
+  EXPECT_EQ(
+      contactDampRatioForRestitution(std::numeric_limits<double>::quiet_NaN()),
+      kMaxContactDampRatio);
+  EXPECT_EQ(contactDampRatioForRestitution(1.0),
+            contactDampRatioForRestitution(kMaxContactRestitution));
   EXPECT_GT(contactDampRatioForRestitution(1.0), 0.0);
 }
 
 TEST(ProjectileContact, TheTimeConstantKeepsTheStiffnessAtEveryRestitution) {
-  // omega = 1 / (timeconst dampratio) is the same at every damping ratio, so a lively ball does not ring faster.
+  // omega = 1 / (timeconst dampratio) is the same at every damping ratio, so a
+  // lively ball does not ring faster.
   for (const double zeta : {0.001, 0.0744, 0.5, 1.0, 10.0}) {
-    EXPECT_NEAR(1.0 / (projectileContactTimeConstant(zeta) * zeta), kProjectileContactNaturalFrequency, 1.0e-9) << zeta;
+    EXPECT_NEAR(1.0 / (projectileContactTimeConstant(zeta) * zeta),
+                kProjectileContactNaturalFrequency, 1.0e-9)
+        << zeta;
   }
 }
 
-/*========================================= injecting the ball ==========================================*/
+/*========================================= injecting the ball
+ * ==========================================*/
 
 TEST(AddProjectileToSpec, AppendsAFreeSphereWithTheRightMassSizeAndContact) {
   const std::string path = writeTempFile("projectile_scene.xml", kScene);
@@ -339,28 +398,39 @@ TEST(AddProjectileToSpec, AppendsAFreeSphereWithTheRightMassSizeAndContact) {
   const int ballBody = withBall.body("sim_projectile");
   ASSERT_GE(ballBody, 0);
   EXPECT_NEAR(withBall.model->body_mass[ballBody], ball.mass, 1.0e-9)
-      << "the geom's mass must be set explicitly, or MuJoCo's 1000 kg/m^3 default makes this a 5 kg medicine ball";
+      << "the geom's mass must be set explicitly, or MuJoCo's 1000 kg/m^3 "
+         "default makes this a 5 kg medicine ball";
 
   const int ballGeom = withBall.geom("sim_projectile_geom");
   ASSERT_GE(ballGeom, 0);
   EXPECT_EQ(withBall.model->geom_type[ballGeom], mjGEOM_SPHERE);
   EXPECT_NEAR(withBall.model->geom_size[3 * ballGeom], ball.radius, 1.0e-9);
   EXPECT_NEAR(withBall.model->geom_solref[mjNREF * ballGeom + 0],
-              projectileContactTimeConstant(contactDampRatioForRestitution(ball.restitution)), 1.0e-12);
-  EXPECT_NEAR(withBall.model->geom_solref[mjNREF * ballGeom + 1], contactDampRatioForRestitution(ball.restitution), 1.0e-9);
-  // Priority, so that it is the BALL's solref that every contact uses rather than an average with the floor's.
-  EXPECT_GT(withBall.model->geom_priority[ballGeom], withBall.model->geom_priority[withBall.geom("floor")]);
-  // condim 6 and the (slide, spin, roll) friction that makes a rolling ball stop.
+              projectileContactTimeConstant(
+                  contactDampRatioForRestitution(ball.restitution)),
+              1.0e-12);
+  EXPECT_NEAR(withBall.model->geom_solref[mjNREF * ballGeom + 1],
+              contactDampRatioForRestitution(ball.restitution), 1.0e-9);
+  // Priority, so that it is the BALL's solref that every contact uses rather
+  // than an average with the floor's.
+  EXPECT_GT(withBall.model->geom_priority[ballGeom],
+            withBall.model->geom_priority[withBall.geom("floor")]);
+  // condim 6 and the (slide, spin, roll) friction that makes a rolling ball
+  // stop.
   EXPECT_EQ(withBall.model->geom_condim[ballGeom], 6);
-  EXPECT_NEAR(withBall.model->geom_friction[3 * ballGeom + 0], ball.friction, 1.0e-12);
-  EXPECT_NEAR(withBall.model->geom_friction[3 * ballGeom + 1], ball.rollingFriction, 1.0e-12);
-  EXPECT_NEAR(withBall.model->geom_friction[3 * ballGeom + 2], ball.rollingFriction, 1.0e-12);
+  EXPECT_NEAR(withBall.model->geom_friction[3 * ballGeom + 0], ball.friction,
+              1.0e-12);
+  EXPECT_NEAR(withBall.model->geom_friction[3 * ballGeom + 1],
+              ball.rollingFriction, 1.0e-12);
+  EXPECT_NEAR(withBall.model->geom_friction[3 * ballGeom + 2],
+              ball.rollingFriction, 1.0e-12);
 }
 
 TEST(AddProjectileToSpec, TheBallIsLastAndTheRobotIsStillTheFirstFreeBody) {
-  // The hazard that would be silent: robotCentroidalState, the viewer's tracking camera and every read of
-  // qpos[3..6] as the base quaternion all take the FIRST free-joint body to be the robot. A ball inserted ahead of
-  // it would quietly become the robot.
+  // The hazard that would be silent: robotCentroidalState, the viewer's
+  // tracking camera and every read of qpos[3..6] as the base quaternion all
+  // take the FIRST free-joint body to be the robot. A ball inserted ahead of it
+  // would quietly become the robot.
   const std::string path = writeTempFile("projectile_order.xml", kScene);
   const Projectile ball = dodgeball();
   const Scene scene(path, &ball);
@@ -368,43 +438,55 @@ TEST(AddProjectileToSpec, TheBallIsLastAndTheRobotIsStillTheFirstFreeBody) {
 
   int firstFreeBody = -1;
   for (int body = 1; body < scene.model->nbody && firstFreeBody < 0; ++body) {
-    if (scene.model->body_jntnum[body] > 0 && scene.model->jnt_type[scene.model->body_jntadr[body]] == mjJNT_FREE) {
+    if (scene.model->body_jntnum[body] > 0 &&
+        scene.model->jnt_type[scene.model->body_jntadr[body]] == mjJNT_FREE) {
       firstFreeBody = body;
     }
   }
   EXPECT_EQ(firstFreeBody, scene.body("base"));
-  EXPECT_EQ(scene.body("sim_projectile"), scene.model->nbody - 1) << "the ball must be the LAST body";
-  // And the robot's own addresses are unchanged, so nothing that indexes qpos by offset moves under it.
+  EXPECT_EQ(scene.body("sim_projectile"), scene.model->nbody - 1)
+      << "the ball must be the LAST body";
+  // And the robot's own addresses are unchanged, so nothing that indexes qpos
+  // by offset moves under it.
   const Scene plain(path);
-  EXPECT_EQ(scene.model->jnt_qposadr[scene.model->body_jntadr[scene.body("base")]],
-            plain.model->jnt_qposadr[plain.model->body_jntadr[plain.body("base")]]);
+  EXPECT_EQ(
+      scene.model->jnt_qposadr[scene.model->body_jntadr[scene.body("base")]],
+      plain.model->jnt_qposadr[plain.model->body_jntadr[plain.body("base")]]);
 }
 
-TEST(AddProjectileToSpec, TheBallIsCompiledCollidingParkedAboveTheSceneAndGravityCompensated) {
+TEST(AddProjectileToSpec,
+     TheBallIsCompiledCollidingParkedAboveTheSceneAndGravityCompensated) {
   const std::string path = writeTempFile("projectile_parked.xml", kScene);
   const Projectile ball = dodgeball();
   const Scene scene(path, &ball);
   ASSERT_NE(scene.model, nullptr);
   const int ballBody = scene.body("sim_projectile");
   const int ballGeom = scene.geom("sim_projectile_geom");
-  // Compiled COLLIDING - see setProjectileCollisionEnabled - and taken out of play at runtime instead.
+  // Compiled COLLIDING - see setProjectileCollisionEnabled - and taken out of
+  // play at runtime instead.
   EXPECT_EQ(scene.model->geom_contype[ballGeom], 1);
   EXPECT_EQ(scene.model->geom_conaffinity[ballGeom], 1);
-  EXPECT_NE(scene.model->body_contype[ballBody], 0) << "the compiler folds the geom flags into the body aggregates here, and only here";
-  // Gravity compensation compiled in, so that the compiler COUNTS the body: MuJoCo skips the whole gravity
-  // compensation pass when ngravcomp is zero, and a runtime body_gravcomp write then does nothing.
+  EXPECT_NE(scene.model->body_contype[ballBody], 0)
+      << "the compiler folds the geom flags into the body aggregates here, and "
+         "only here";
+  // Gravity compensation compiled in, so that the compiler COUNTS the body:
+  // MuJoCo skips the whole gravity compensation pass when ngravcomp is zero,
+  // and a runtime body_gravcomp write then does nothing.
   EXPECT_GE(scene.model->ngravcomp, 1);
   EXPECT_NEAR(scene.model->body_gravcomp[ballBody], 1.0, 1.0e-12);
-  // Parked ABOVE the scene: every floor is a plane, and a plane collides as a half-space.
+  // Parked ABOVE the scene: every floor is a plane, and a plane collides as a
+  // half-space.
   for (int axis = 0; axis < 3; ++axis) {
-    EXPECT_NEAR(scene.model->body_pos[3 * ballBody + axis], kProjectileParkPosition[axis], 1.0e-12);
+    EXPECT_NEAR(scene.model->body_pos[3 * ballBody + axis],
+                kProjectileParkPosition[axis], 1.0e-12);
   }
   EXPECT_GT(kProjectileParkPosition[2], 10.0);
 }
 
 TEST(AddProjectileToSpec, AParkedBallStaysWhereItWasParked) {
-  // The regression: a ball compiled without gravcomp free-falls from its parking spot for the whole session, and after
-  // about twelve hours its position overflows and MuJoCo resets the entire simulation.
+  // The regression: a ball compiled without gravcomp free-falls from its
+  // parking spot for the whole session, and after about twelve hours its
+  // position overflows and MuJoCo resets the entire simulation.
   const std::string path = writeTempFile("projectile_stays.xml", kScene);
   const Projectile ball = dodgeball();
   const Scene scene(path, &ball);
@@ -412,60 +494,82 @@ TEST(AddProjectileToSpec, AParkedBallStaysWhereItWasParked) {
   const int ballBody = scene.body("sim_projectile");
   setProjectileCollisionEnabled(scene.model, ballBody, /*enabled=*/false);
   for (int step = 0; step < 2000; ++step) mj_step(scene.model, scene.data);
-  EXPECT_NEAR(scene.data->qpos[scene.ballQpos() + 2], kProjectileParkPosition[2], 1.0e-6) << "the parked ball is falling";
+  EXPECT_NEAR(scene.data->qpos[scene.ballQpos() + 2],
+              kProjectileParkPosition[2], 1.0e-6)
+      << "the parked ball is falling";
 
-  // And switching the compensation off at runtime - which is what a throw does - does let it fall.
+  // And switching the compensation off at runtime - which is what a throw does
+  // - does let it fall.
   scene.model->body_gravcomp[ballBody] = 0.0;
   const int steps = 1000;
   const double dt = scene.model->opt.timestep;
   for (int step = 0; step < steps; ++step) mj_step(scene.model, scene.data);
-  // MuJoCo's semi-implicit Euler drops g dt^2 N (N + 1) / 2 in N steps, a little more than the continuous g t^2 / 2.
-  EXPECT_NEAR(scene.data->qpos[scene.ballQpos() + 2], kProjectileParkPosition[2] - 9.81 * dt * dt * steps * (steps + 1) / 2.0, 1.0e-6);
+  // MuJoCo's semi-implicit Euler drops g dt^2 N (N + 1) / 2 in N steps, a
+  // little more than the continuous g t^2 / 2.
+  EXPECT_NEAR(
+      scene.data->qpos[scene.ballQpos() + 2],
+      kProjectileParkPosition[2] - 9.81 * dt * dt * steps * (steps + 1) / 2.0,
+      1.0e-6);
 }
 
-TEST(AddProjectileToSpec, RejectsANonsensicalBallANeverLookedUpBallAndANullSpec) {
+TEST(AddProjectileToSpec,
+     RejectsANonsensicalBallANeverLookedUpBallAndANullSpec) {
   const std::string path = writeTempFile("projectile_broken.xml", kScene);
   char error[1000] = {0};
-  mjSpec* absl_nullable spec = mj_parseXML(path.c_str(), /*vfs=*/nullptr, error, sizeof(error));
+  mjSpec* absl_nullable spec =
+      mj_parseXML(path.c_str(), /*vfs=*/nullptr, error, sizeof(error));
   ASSERT_NE(spec, nullptr);
   Projectile broken = dodgeball();
   broken.radius = 0.0;
   EXPECT_FALSE(addProjectileToSpec(spec, broken, "sim_projectile").ok());
   broken = dodgeball();
   broken.restitution = 1.0;
-  EXPECT_FALSE(addProjectileToSpec(spec, broken, "sim_projectile").ok()) << "a restitution of 1 never settles";
+  EXPECT_FALSE(addProjectileToSpec(spec, broken, "sim_projectile").ok())
+      << "a restitution of 1 never settles";
   broken = dodgeball();
   broken.rollingFriction = -0.1;
   EXPECT_FALSE(addProjectileToSpec(spec, broken, "sim_projectile").ok());
-  EXPECT_FALSE(addProjectileToSpec(spec, Projectile{}, "sim_projectile").ok()) << "a default Projectile is not a ball";
+  EXPECT_FALSE(addProjectileToSpec(spec, Projectile{}, "sim_projectile").ok())
+      << "a default Projectile is not a ball";
   mj_deleteSpec(spec);
-  EXPECT_FALSE(addProjectileToSpec(/*spec=*/nullptr, dodgeball(), "sim_projectile").ok());
+  EXPECT_FALSE(
+      addProjectileToSpec(/*spec=*/nullptr, dodgeball(), "sim_projectile")
+          .ok());
 }
 
-/*=================================== the bounce the ball actually gets =================================*/
+/*=================================== the bounce the ball actually gets
+ * =================================*/
 
-TEST(ProjectileContact, RestitutionIsTheConfiguredOneAgainstAFloorWithItsOwnContactParameters) {
-  // The regression: the ball's solref used to be averaged with the floor's (0.004, 1.0), giving a bounce of about 0.25
-  // whatever the ball was configured with. The shipped scenes' floor parameters are in kShippedScene.
-  const std::string path = writeTempFile("projectile_restitution.xml", kShippedScene);
+TEST(ProjectileContact,
+     RestitutionIsTheConfiguredOneAgainstAFloorWithItsOwnContactParameters) {
+  // The regression: the ball's solref used to be averaged with the floor's
+  // (0.004, 1.0), giving a bounce of about 0.25 whatever the ball was
+  // configured with. The shipped scenes' floor parameters are in kShippedScene.
+  const std::string path =
+      writeTempFile("projectile_restitution.xml", kShippedScene);
   const Projectile ball = dodgeball();
   for (const double timestep : {0.0005, 0.001}) {
     const Scene scene(path, &ball);
     ASSERT_NE(scene.model, nullptr);
     scene.model->opt.timestep = timestep;
     const double restitution = measuredRestitution(scene, /*height=*/1.0);
-    ASSERT_TRUE(std::isfinite(restitution)) << "the ball never bounced at dt = " << timestep;
-    // The discrete contact is not exactly the continuous one, so a band: 0.797 and 0.782 measured.
+    ASSERT_TRUE(std::isfinite(restitution))
+        << "the ball never bounced at dt = " << timestep;
+    // The discrete contact is not exactly the continuous one, so a band: 0.797
+    // and 0.782 measured.
     EXPECT_NEAR(restitution, ball.restitution, 0.06) << "at dt = " << timestep;
   }
 }
 
-// One bounce keeps the fraction e^2 of the ball's kinetic energy, across the range of restitutions a ball can be given,
-// at the simulator's 0.5 ms step and a finer one. The band, 0.02 of e: gravity acts through the ~10 ms contact (g T / v_in
-// = 2% from a 1 m drop) and the step is not infinitely fine; a contact that ADDS energy, as the fixed 20 ms time
-// constant did at e = 0.9 and 0.95, is off by more than the speed itself.
+// One bounce keeps the fraction e^2 of the ball's kinetic energy, across the
+// range of restitutions a ball can be given, at the simulator's 0.5 ms step and
+// a finer one. The band, 0.02 of e: gravity acts through the ~10 ms contact (g
+// T / v_in = 2% from a 1 m drop) and the step is not infinitely fine; a contact
+// that ADDS energy, as the fixed 20 ms time constant did at e = 0.9 and 0.95,
+// is off by more than the speed itself.
 TEST(ProjectileContact, OneBounceKeepsTheFractionESquaredOfTheEnergy) {
-  const std::string path = writeTempFile("projectile_energy_ratio.xml", kShippedScene);
+  const std::string path =
+      writeTempFile("projectile_energy_ratio.xml", kShippedScene);
   for (const double timestep : {0.00025, 0.0005}) {
     for (const double restitution : {0.3, 0.6, 0.8, 0.9, 0.95}) {
       Projectile ball = dodgeball();
@@ -474,30 +578,38 @@ TEST(ProjectileContact, OneBounceKeepsTheFractionESquaredOfTheEnergy) {
       ASSERT_NE(scene.model, nullptr);
       scene.model->opt.timestep = timestep;
       const double speedRatio = measuredRestitution(scene, /*height=*/1.0);
-      ASSERT_TRUE(std::isfinite(speedRatio)) << "the ball never bounced at e = " << restitution;
+      ASSERT_TRUE(std::isfinite(speedRatio))
+          << "the ball never bounced at e = " << restitution;
       const double energyRatio = speedRatio * speedRatio;
-      EXPECT_NEAR(std::sqrt(energyRatio), restitution, 0.02) << "e = " << restitution << ", dt = " << timestep << ": energy ratio "
-                                                             << energyRatio << " against e^2 = " << restitution * restitution;
+      EXPECT_NEAR(std::sqrt(energyRatio), restitution, 0.02)
+          << "e = " << restitution << ", dt = " << timestep << ": energy ratio "
+          << energyRatio << " against e^2 = " << restitution * restitution;
     }
   }
 }
 
 TEST(ProjectileContact, TheContactDoesNotAddEnergyAtTheSimulatorsTimesteps) {
-  // A contact time constant the integrator cannot resolve rings and ADDS energy - rebounds of 4 to 50 times the
-  // arrival speed were measured at 2 ms. Whatever else changes, a bounce must never come back faster than it went in.
-  const std::string path = writeTempFile("projectile_energy.xml", kShippedScene);
+  // A contact time constant the integrator cannot resolve rings and ADDS energy
+  // - rebounds of 4 to 50 times the arrival speed were measured at 2 ms.
+  // Whatever else changes, a bounce must never come back faster than it went
+  // in.
+  const std::string path =
+      writeTempFile("projectile_energy.xml", kShippedScene);
   const Projectile ball = dodgeball();
   for (const double timestep : {0.00025, 0.0005, 0.001}) {
     const Scene scene(path, &ball);
     ASSERT_NE(scene.model, nullptr);
     scene.model->opt.timestep = timestep;
-    EXPECT_LT(measuredRestitution(scene, /*height=*/2.0), 1.0) << "at dt = " << timestep;
+    EXPECT_LT(measuredRestitution(scene, /*height=*/2.0), 1.0)
+        << "at dt = " << timestep;
   }
 }
 
-TEST(ProjectileContact, ARollingBallComesToRestAndIsParkedBeforeItsLifetimeRunsOut) {
-  // With condim 3 a sphere rolling on a plane keeps 5/7 of its speed forever, and a ball that is never slow is never
-  // parked. The rolling friction has to bring it to rest, so that it is the at-rest rule that parks it.
+TEST(ProjectileContact,
+     ARollingBallComesToRestAndIsParkedBeforeItsLifetimeRunsOut) {
+  // With condim 3 a sphere rolling on a plane keeps 5/7 of its speed forever,
+  // and a ball that is never slow is never parked. The rolling friction has to
+  // bring it to rest, so that it is the at-rest rule that parks it.
   const std::string path = writeTempFile("projectile_roll.xml", kShippedScene);
   const Projectile ball = dodgeball();
   const Scene scene(path, &ball);
@@ -508,19 +620,26 @@ TEST(ProjectileContact, ARollingBallComesToRestAndIsParkedBeforeItsLifetimeRunsO
   monitor.start();
   const double timestep = scene.model->opt.timestep;
   double parkedAt = -1.0;
-  for (int step = 0; step * timestep < ProjectileRestMonitor::kLifetime && parkedAt < 0.0; ++step) {
+  for (int step = 0;
+       step * timestep < ProjectileRestMonitor::kLifetime && parkedAt < 0.0;
+       ++step) {
     mj_step(scene.model, scene.data);
-    const double speed =
-        std::hypot(scene.data->qvel[scene.ballDof()], scene.data->qvel[scene.ballDof() + 1], scene.data->qvel[scene.ballDof() + 2]);
+    const double speed = std::hypot(scene.data->qvel[scene.ballDof()],
+                                    scene.data->qvel[scene.ballDof() + 1],
+                                    scene.data->qvel[scene.ballDof() + 2]);
     if (monitor.update(speed, timestep)) parkedAt = scene.data->time;
   }
-  ASSERT_GT(parkedAt, 0.0) << "the ball was still rolling when its lifetime ran out";
-  EXPECT_LT(parkedAt, ProjectileRestMonitor::kLifetime - 1.0) << "it was the lifetime, not the ball coming to rest, that parked it";
+  ASSERT_GT(parkedAt, 0.0)
+      << "the ball was still rolling when its lifetime ran out";
+  EXPECT_LT(parkedAt, ProjectileRestMonitor::kLifetime - 1.0)
+      << "it was the lifetime, not the ball coming to rest, that parked it";
 }
 
-/*======================================= parking and arming ============================================*/
+/*======================================= parking and arming
+ * ============================================*/
 
-TEST(SetProjectileCollisionEnabled, ClearsAndRestoresTheGeomFlagsAndTheBodyAggregates) {
+TEST(SetProjectileCollisionEnabled,
+     ClearsAndRestoresTheGeomFlagsAndTheBodyAggregates) {
   const std::string path = writeTempFile("projectile_arming.xml", kScene);
   const Projectile ball = dodgeball();
   const Scene scene(path, &ball);
@@ -548,38 +667,51 @@ TEST(SetProjectileCollisionEnabled, ToleratesAModelWithNoProjectileInIt) {
   const std::string path = writeTempFile("projectile_absent.xml", kScene);
   const Scene scene(path);
   ASSERT_NE(scene.model, nullptr);
-  setProjectileCollisionEnabled(scene.model, /*bodyId=*/-1, /*enabled=*/true);       // no projectile in this scene
-  setProjectileCollisionEnabled(/*model=*/nullptr, /*bodyId=*/0, /*enabled=*/true);  // no model at all
-  setProjectileCollisionEnabled(scene.model, /*bodyId=*/10'000, /*enabled=*/true);   // out of range
+  setProjectileCollisionEnabled(
+      scene.model, /*bodyId=*/-1,
+      /*enabled=*/true);  // no projectile in this scene
+  setProjectileCollisionEnabled(/*model=*/nullptr, /*bodyId=*/0,
+                                /*enabled=*/true);  // no model at all
+  setProjectileCollisionEnabled(scene.model, /*bodyId=*/10'000,
+                                /*enabled=*/true);  // out of range
   SUCCEED();
 }
 
 TEST(SetProjectileCollisionEnabled, ABallParkedAndThenThrownStillCollides) {
-  // MuJoCo's broadphase prunes whole bodies by body_contype / body_conaffinity, so clearing ONLY the geom flags while
-  // parked and restoring them on the throw leaves the body pruned for the rest of the session: the ball flies through
-  // the robot and nothing anywhere reports an error.
+  // MuJoCo's broadphase prunes whole bodies by body_contype / body_conaffinity,
+  // so clearing ONLY the geom flags while parked and restoring them on the
+  // throw leaves the body pruned for the rest of the session: the ball flies
+  // through the robot and nothing anywhere reports an error.
   const std::string path = writeTempFile("projectile_broadphase.xml", kScene);
   const Projectile ball = dodgeball();
   const Scene scene(path, &ball);
   ASSERT_NE(scene.model, nullptr);
   const int ballBody = scene.body("sim_projectile");
 
-  setProjectileCollisionEnabled(scene.model, ballBody, /*enabled=*/false);  // parked, as at startup and after every reset
-  scene.arm();                                                              // and thrown
+  setProjectileCollisionEnabled(
+      scene.model, ballBody,
+      /*enabled=*/false);  // parked, as at startup and after every reset
+  scene.arm();             // and thrown
   strikeTheFoot(scene, ball);
-  EXPECT_TRUE(scene.ballTouchesAnything()) << "the ball generated no contact at all after a park-then-throw cycle";
+  EXPECT_TRUE(scene.ballTouchesAnything())
+      << "the ball generated no contact at all after a park-then-throw cycle";
 }
 
-/*======================================== retuning the mass ============================================*/
+/*======================================== retuning the mass
+ * ============================================*/
 
 TEST(ClampProjectileMass, HoldsTheSliderRangeAndMapsNanToTheMinimum) {
   EXPECT_DOUBLE_EQ(clampProjectileMass(2.0), 2.0);
   EXPECT_DOUBLE_EQ(clampProjectileMass(0.0), kMinProjectileMass);
   EXPECT_DOUBLE_EQ(clampProjectileMass(-3.0), kMinProjectileMass);
   EXPECT_DOUBLE_EQ(clampProjectileMass(1.0e6), kMaxProjectileMass);
-  EXPECT_DOUBLE_EQ(clampProjectileMass(std::numeric_limits<double>::infinity()), kMaxProjectileMass);
-  EXPECT_DOUBLE_EQ(clampProjectileMass(std::numeric_limits<double>::quiet_NaN()), kMinProjectileMass)
-      << "NaN fails every comparison, so std::clamp alone would pass it through";
+  EXPECT_DOUBLE_EQ(clampProjectileMass(std::numeric_limits<double>::infinity()),
+                   kMaxProjectileMass);
+  EXPECT_DOUBLE_EQ(
+      clampProjectileMass(std::numeric_limits<double>::quiet_NaN()),
+      kMinProjectileMass)
+      << "NaN fails every comparison, so std::clamp alone would pass it "
+         "through";
 }
 
 TEST(SetProjectileMass, SetsTheMassAndTheInertiaOfASolidSphere) {
@@ -594,13 +726,16 @@ TEST(SetProjectileMass, SetsTheMassAndTheInertiaOfASolidSphere) {
   // I = 2/5 m r^2, isotropic, because a solid sphere has no preferred axis.
   const double expected = 0.4 * 2.5 * ball.radius * ball.radius;
   for (int axis = 0; axis < 3; ++axis) {
-    EXPECT_NEAR(scene.model->body_inertia[3 * ballBody + axis], expected, 1.0e-12) << "axis " << axis;
+    EXPECT_NEAR(scene.model->body_inertia[3 * ballBody + axis], expected,
+                1.0e-12)
+        << "axis " << axis;
   }
 }
 
 TEST(SetProjectileMass, LeavesTheModelExactlyAsAFreshCompileAtThatMassWould) {
-  // The closed-form constants are only a valid replacement for mj_setConst if they are what the compiler produces.
-  // Compare every mass-derived field against a scene compiled from scratch with the ball at the new mass.
+  // The closed-form constants are only a valid replacement for mj_setConst if
+  // they are what the compiler produces. Compare every mass-derived field
+  // against a scene compiled from scratch with the ball at the new mass.
   const std::string path = writeTempFile("projectile_fresh.xml", kScene);
   const Projectile ball = dodgeball();
   Projectile heavy = dodgeball();
@@ -609,58 +744,80 @@ TEST(SetProjectileMass, LeavesTheModelExactlyAsAFreshCompileAtThatMassWould) {
   const Scene fresh(path, &heavy);
   ASSERT_NE(retuned.model, nullptr);
   ASSERT_NE(fresh.model, nullptr);
-  ASSERT_TRUE(setProjectileMass(retuned.model, retuned.body("sim_projectile"), heavy.mass).ok());
+  ASSERT_TRUE(setProjectileMass(retuned.model, retuned.body("sim_projectile"),
+                                heavy.mass)
+                  .ok());
 
   const mjModel* absl_nonnull a = retuned.model;
   const mjModel* absl_nonnull b = fresh.model;
   for (int body = 0; body < a->nbody; ++body) {
-    EXPECT_NEAR(a->body_mass[body], b->body_mass[body], 1.0e-9) << "body " << body;
-    EXPECT_NEAR(a->body_subtreemass[body], b->body_subtreemass[body], 1.0e-9) << "body " << body;
+    EXPECT_NEAR(a->body_mass[body], b->body_mass[body], 1.0e-9)
+        << "body " << body;
+    EXPECT_NEAR(a->body_subtreemass[body], b->body_subtreemass[body], 1.0e-9)
+        << "body " << body;
     for (int k = 0; k < 2; ++k) {
-      EXPECT_NEAR(a->body_invweight0[2 * body + k], b->body_invweight0[2 * body + k],
+      EXPECT_NEAR(a->body_invweight0[2 * body + k],
+                  b->body_invweight0[2 * body + k],
                   1.0e-6 * std::max(1.0, b->body_invweight0[2 * body + k]))
           << "body " << body << " component " << k;
     }
     for (int axis = 0; axis < 3; ++axis) {
-      EXPECT_NEAR(a->body_inertia[3 * body + axis], b->body_inertia[3 * body + axis], 1.0e-9) << "body " << body;
+      EXPECT_NEAR(a->body_inertia[3 * body + axis],
+                  b->body_inertia[3 * body + axis], 1.0e-9)
+          << "body " << body;
     }
   }
   for (int dof = 0; dof < a->nv; ++dof) {
-    EXPECT_NEAR(a->dof_invweight0[dof], b->dof_invweight0[dof], 1.0e-6 * std::max(1.0, b->dof_invweight0[dof])) << "dof " << dof;
+    EXPECT_NEAR(a->dof_invweight0[dof], b->dof_invweight0[dof],
+                1.0e-6 * std::max(1.0, b->dof_invweight0[dof]))
+        << "dof " << dof;
     EXPECT_NEAR(a->dof_M0[dof], b->dof_M0[dof], 1.0e-9) << "dof " << dof;
   }
 }
 
 TEST(SetProjectileMass, LeavesTheScenesStatisticOverrideAlone) {
-  // mj_setConst would recompute stat from the qpos0 bounding box - which includes the parked ball - and discard the
-  // scene's own <statistic extent center>, moving the viewer's near clip plane from 1.5 cm to half a meter.
-  const std::string path = writeTempFile("projectile_statistic.xml", kShippedScene);
+  // mj_setConst would recompute stat from the qpos0 bounding box - which
+  // includes the parked ball - and discard the scene's own <statistic extent
+  // center>, moving the viewer's near clip plane from 1.5 cm to half a meter.
+  const std::string path =
+      writeTempFile("projectile_statistic.xml", kShippedScene);
   const Projectile ball = dodgeball();
   const Scene scene(path, &ball);
   ASSERT_NE(scene.model, nullptr);
-  ASSERT_NEAR(scene.model->stat.extent, 1.5, 1.0e-12) << "the fixture's override did not take";
-  ASSERT_TRUE(setProjectileMass(scene.model, scene.body("sim_projectile"), /*mass=*/4.0).ok());
+  ASSERT_NEAR(scene.model->stat.extent, 1.5, 1.0e-12)
+      << "the fixture's override did not take";
+  ASSERT_TRUE(
+      setProjectileMass(scene.model, scene.body("sim_projectile"), /*mass=*/4.0)
+          .ok());
   EXPECT_NEAR(scene.model->stat.extent, 1.5, 1.0e-12);
   EXPECT_NEAR(scene.model->stat.center[2], 1.0, 1.0e-12);
 }
 
 TEST(SetProjectileMass, RestitutionDoesNotChangeWithTheMass) {
-  // The physical invariant the derived constants exist for: restitution belongs to the CONTACT, so a heavy ball and a
-  // light one dropped from the same height rebound alike. This fails if body_invweight0 is left stale.
-  const std::string path = writeTempFile("projectile_restitution_mass.xml", kShippedScene);
+  // The physical invariant the derived constants exist for: restitution belongs
+  // to the CONTACT, so a heavy ball and a light one dropped from the same
+  // height rebound alike. This fails if body_invweight0 is left stale.
+  const std::string path =
+      writeTempFile("projectile_restitution_mass.xml", kShippedScene);
   const Projectile ball = dodgeball();
   std::vector<double> restitutions;
-  for (const double mass : {kMinProjectileMass, ball.mass, kMaxProjectileMass}) {
+  for (const double mass :
+       {kMinProjectileMass, ball.mass, kMaxProjectileMass}) {
     const Scene scene(path, &ball);
     ASSERT_NE(scene.model, nullptr);
-    ASSERT_TRUE(setProjectileMass(scene.model, scene.body("sim_projectile"), mass).ok());
+    ASSERT_TRUE(
+        setProjectileMass(scene.model, scene.body("sim_projectile"), mass)
+            .ok());
     const double restitution = measuredRestitution(scene, /*height=*/1.0);
-    ASSERT_TRUE(std::isfinite(restitution)) << "the " << mass << " kg ball never bounced";
+    ASSERT_TRUE(std::isfinite(restitution))
+        << "the " << mass << " kg ball never bounced";
     restitutions.push_back(restitution);
   }
   const double spread =
-      *std::max_element(restitutions.begin(), restitutions.end()) - *std::min_element(restitutions.begin(), restitutions.end());
-  EXPECT_LT(spread, 1.0e-3) << "the restitution moved by " << spread << " across the mass range";
+      *std::max_element(restitutions.begin(), restitutions.end()) -
+      *std::min_element(restitutions.begin(), restitutions.end());
+  EXPECT_LT(spread, 1.0e-3)
+      << "the restitution moved by " << spread << " across the mass range";
 }
 
 TEST(SetProjectileMass, ClampsToTheSliderRangeInTheMassAndTheInertia) {
@@ -669,17 +826,25 @@ TEST(SetProjectileMass, ClampsToTheSliderRangeInTheMassAndTheInertia) {
   const Scene scene(path, &ball);
   ASSERT_NE(scene.model, nullptr);
   const int ballBody = scene.body("sim_projectile");
-  // A topic can be published by hand, and a zero or negative mass is a body MuJoCo cannot integrate. The inertia and
-  // the derived constants have to come from the CLAMPED mass too, not only body_mass.
-  for (const double requested : {0.0, -3.0, std::numeric_limits<double>::quiet_NaN()}) {
+  // A topic can be published by hand, and a zero or negative mass is a body
+  // MuJoCo cannot integrate. The inertia and the derived constants have to come
+  // from the CLAMPED mass too, not only body_mass.
+  for (const double requested :
+       {0.0, -3.0, std::numeric_limits<double>::quiet_NaN()}) {
     ASSERT_TRUE(setProjectileMass(scene.model, ballBody, requested).ok());
-    EXPECT_NEAR(scene.model->body_mass[ballBody], kMinProjectileMass, 1.0e-12) << requested;
-    EXPECT_NEAR(scene.model->body_inertia[3 * ballBody], 0.4 * kMinProjectileMass * ball.radius * ball.radius, 1.0e-12) << requested;
-    EXPECT_NEAR(scene.model->body_invweight0[2 * ballBody], 1.0 / kMinProjectileMass, 1.0e-9) << requested;
+    EXPECT_NEAR(scene.model->body_mass[ballBody], kMinProjectileMass, 1.0e-12)
+        << requested;
+    EXPECT_NEAR(scene.model->body_inertia[3 * ballBody],
+                0.4 * kMinProjectileMass * ball.radius * ball.radius, 1.0e-12)
+        << requested;
+    EXPECT_NEAR(scene.model->body_invweight0[2 * ballBody],
+                1.0 / kMinProjectileMass, 1.0e-9)
+        << requested;
   }
   ASSERT_TRUE(setProjectileMass(scene.model, ballBody, /*mass=*/1.0e6).ok());
   EXPECT_NEAR(scene.model->body_mass[ballBody], kMaxProjectileMass, 1.0e-12);
-  EXPECT_NEAR(scene.model->body_inertia[3 * ballBody], 0.4 * kMaxProjectileMass * ball.radius * ball.radius, 1.0e-12);
+  EXPECT_NEAR(scene.model->body_inertia[3 * ballBody],
+              0.4 * kMaxProjectileMass * ball.radius * ball.radius, 1.0e-12);
 }
 
 TEST(SetProjectileMass, RejectsAnythingThatIsNotAProjectileWithoutTouchingIt) {
@@ -691,21 +856,31 @@ TEST(SetProjectileMass, RejectsAnythingThatIsNotAProjectileWithoutTouchingIt) {
   const double ballMass = scene.model->body_mass[ballBody];
   const double baseMass = scene.model->body_mass[scene.body("base")];
 
-  EXPECT_FALSE(setProjectileMass(/*model=*/nullptr, ballBody, /*mass=*/2.0).ok());
-  EXPECT_FALSE(setProjectileMass(scene.model, /*bodyId=*/-1, /*mass=*/2.0).ok());
-  EXPECT_FALSE(setProjectileMass(scene.model, scene.model->nbody, /*mass=*/2.0).ok());
-  // Retuning the wrong body would quietly change the ROBOT's mass, which nothing downstream would report.
-  EXPECT_FALSE(setProjectileMass(scene.model, /*bodyId=*/0, /*mass=*/2.0).ok()) << "the world body, which holds the floor";
-  EXPECT_FALSE(setProjectileMass(scene.model, scene.body("base"), /*mass=*/2.0).ok())
+  EXPECT_FALSE(
+      setProjectileMass(/*model=*/nullptr, ballBody, /*mass=*/2.0).ok());
+  EXPECT_FALSE(
+      setProjectileMass(scene.model, /*bodyId=*/-1, /*mass=*/2.0).ok());
+  EXPECT_FALSE(
+      setProjectileMass(scene.model, scene.model->nbody, /*mass=*/2.0).ok());
+  // Retuning the wrong body would quietly change the ROBOT's mass, which
+  // nothing downstream would report.
+  EXPECT_FALSE(setProjectileMass(scene.model, /*bodyId=*/0, /*mass=*/2.0).ok())
+      << "the world body, which holds the floor";
+  EXPECT_FALSE(
+      setProjectileMass(scene.model, scene.body("base"), /*mass=*/2.0).ok())
       << "the robot's own free-jointed base, whose geom is a box";
-  EXPECT_FALSE(setProjectileMass(scene.model, scene.body("foot"), /*mass=*/2.0).ok()) << "a hinge-jointed link";
+  EXPECT_FALSE(
+      setProjectileMass(scene.model, scene.body("foot"), /*mass=*/2.0).ok())
+      << "a hinge-jointed link";
   EXPECT_NEAR(scene.model->body_mass[ballBody], ballMass, 1.0e-12);
-  EXPECT_NEAR(scene.model->body_mass[scene.body("base")], baseMass, 1.0e-12) << "a rejected call must not have touched the robot";
+  EXPECT_NEAR(scene.model->body_mass[scene.body("base")], baseMass, 1.0e-12)
+      << "a rejected call must not have touched the robot";
 }
 
 TEST(SetProjectileMass, RejectsASphereThatIsNotCenteredOrNotItsOwnTree) {
-  // The closed-form constants hold only for a centered sphere on its own free joint under the world; anything else
-  // has cross terms. Build both counterexamples and require a refusal.
+  // The closed-form constants hold only for a centered sphere on its own free
+  // joint under the world; anything else has cross terms. Build both
+  // counterexamples and require a refusal.
   const std::string path = writeTempFile("projectile_not_centered.xml", R"(
 <mujoco>
   <worldbody>
@@ -725,10 +900,17 @@ TEST(SetProjectileMass, RejectsASphereThatIsNotCenteredOrNotItsOwnTree) {
 </mujoco>
 )");
   char error[1000] = {0};
-  mjModel* absl_nullable model = mj_loadXML(path.c_str(), /*vfs=*/nullptr, error, sizeof(error));
-  if (model == nullptr) GTEST_SKIP() << "MuJoCo rejected the nested free joint fixture: " << error;
-  EXPECT_FALSE(setProjectileMass(model, mj_name2id(model, mjOBJ_BODY, "offcenter"), /*mass=*/2.0).ok());
-  EXPECT_FALSE(setProjectileMass(model, mj_name2id(model, mjOBJ_BODY, "nested"), /*mass=*/2.0).ok());
+  mjModel* absl_nullable model =
+      mj_loadXML(path.c_str(), /*vfs=*/nullptr, error, sizeof(error));
+  if (model == nullptr)
+    GTEST_SKIP() << "MuJoCo rejected the nested free joint fixture: " << error;
+  EXPECT_FALSE(setProjectileMass(model,
+                                 mj_name2id(model, mjOBJ_BODY, "offcenter"),
+                                 /*mass=*/2.0)
+                   .ok());
+  EXPECT_FALSE(setProjectileMass(model, mj_name2id(model, mjOBJ_BODY, "nested"),
+                                 /*mass=*/2.0)
+                   .ok());
   mj_deleteModel(model);
 }
 
@@ -738,20 +920,27 @@ TEST(SetProjectileMass, TheBallStillCollidesAndStillIsNotTheGroundAfterwards) {
   const Scene scene(path, &ball);
   ASSERT_NE(scene.model, nullptr);
   const int ballBody = scene.body("sim_projectile");
-  ASSERT_TRUE(setProjectileMass(scene.model, ballBody, kMaxProjectileMass).ok());
+  ASSERT_TRUE(
+      setProjectileMass(scene.model, ballBody, kMaxProjectileMass).ok());
   scene.arm();
   strikeTheFoot(scene, ball);
 
   const std::vector<int> feet{scene.body("foot")};
-  ASSERT_EQ(groundTruthContactMask(scene.model, scene.data, feet, /*forceThreshold=*/1.0, /*ignoreBodyId=*/-1), 1u)
+  ASSERT_EQ(groundTruthContactMask(scene.model, scene.data, feet,
+                                   /*forceThreshold=*/1.0, /*ignoreBodyId=*/-1),
+            1u)
       << "the heavy ball is not touching";
-  EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet, /*forceThreshold=*/1.0, ballBody), 0u);
+  EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet,
+                                   /*forceThreshold=*/1.0, ballBody),
+            0u);
 }
 
-/*===================================== joint damping skips the ball ====================================*/
+/*===================================== joint damping skips the ball
+ * ====================================*/
 
 TEST(RobotJointDamping, SetsTheRobotsJointsAndLeavesTheRootAndTheBallAlone) {
-  // 20 N s/m on the ball's free joint brings a throw to a 0.2 m/s terminal speed within centimeters of its start.
+  // 20 N s/m on the ball's free joint brings a throw to a 0.2 m/s terminal
+  // speed within centimeters of its start.
   const std::string path = writeTempFile("projectile_damping.xml", kScene);
   const Projectile ball = dodgeball();
   const Scene scene(path, &ball);
@@ -761,20 +950,27 @@ TEST(RobotJointDamping, SetsTheRobotsJointsAndLeavesTheRootAndTheBallAlone) {
   for (int dof = 0; dof < scene.model->nv; ++dof) {
     const bool root = dof < 6;
     const bool isBall = isProjectileDof(scene.model, ballBody, dof);
-    EXPECT_NEAR(scene.model->dof_damping[dof], (root || isBall) ? 0.0 : 20.0, 1.0e-12) << "dof " << dof;
+    EXPECT_NEAR(scene.model->dof_damping[dof], (root || isBall) ? 0.0 : 20.0,
+                1.0e-12)
+        << "dof " << dof;
   }
   // The ankle is the robot's only joint, and the ball's six dofs follow it.
   EXPECT_NEAR(scene.model->dof_damping[6], 20.0, 1.0e-12);
-  for (int dof = 7; dof < 13; ++dof) EXPECT_TRUE(isProjectileDof(scene.model, ballBody, dof)) << dof;
+  for (int dof = 7; dof < 13; ++dof)
+    EXPECT_TRUE(isProjectileDof(scene.model, ballBody, dof)) << dof;
   EXPECT_FALSE(isProjectileDof(scene.model, ballBody, /*dof=*/6));
-  EXPECT_FALSE(isProjectileDof(scene.model, /*projectileBodyId=*/-1, /*dof=*/7)) << "no projectile, no projectile dofs";
+  EXPECT_FALSE(isProjectileDof(scene.model, /*projectileBodyId=*/-1, /*dof=*/7))
+      << "no projectile, no projectile dofs";
 }
 
-/*===================================== a spawn point that is not clear =================================*/
+/*===================================== a spawn point that is not clear
+ * =================================*/
 
 namespace {
 
-ProjectileLaunch launch(const std::array<double, 3>& position, const std::array<double, 3>& velocity, double flightTime) {
+ProjectileLaunch launch(const std::array<double, 3>& position,
+                        const std::array<double, 3>& velocity,
+                        double flightTime) {
   ProjectileLaunch requested;
   requested.position = position;
   requested.velocity = velocity;
@@ -782,13 +978,23 @@ ProjectileLaunch launch(const std::array<double, 3>& position, const std::array<
   return requested;
 }
 
-/** The moved launch must lie on the requested one's ballistic path, `tau` seconds along it. */
-void expectOnThePath(const ProjectileLaunch& requested, const ProjectileLaunch& moved, double gravity) {
+/** The moved launch must lie on the requested one's ballistic path, `tau`
+ * seconds along it. */
+void expectOnThePath(const ProjectileLaunch& requested,
+                     const ProjectileLaunch& moved,
+                     double gravity) {
   const double tau = requested.flightTime - moved.flightTime;
   for (int axis = 0; axis < 3; ++axis) {
     const double drop = axis == 2 ? 0.5 * gravity * tau * tau : 0.0;
-    EXPECT_NEAR(moved.position[axis], requested.position[axis] + requested.velocity[axis] * tau - drop, 1.0e-9) << "axis " << axis;
-    EXPECT_NEAR(moved.velocity[axis], requested.velocity[axis] - (axis == 2 ? gravity * tau : 0.0), 1.0e-9) << "axis " << axis;
+    EXPECT_NEAR(
+        moved.position[axis],
+        requested.position[axis] + requested.velocity[axis] * tau - drop,
+        1.0e-9)
+        << "axis " << axis;
+    EXPECT_NEAR(moved.velocity[axis],
+                requested.velocity[axis] - (axis == 2 ? gravity * tau : 0.0),
+                1.0e-9)
+        << "axis " << axis;
   }
 }
 
@@ -800,9 +1006,11 @@ TEST(ClearProjectileLaunch, AClearSpawnIsLeftExactlyAsRequested) {
   const Scene scene(path, &ball);
   ASSERT_NE(scene.model, nullptr);
   mj_forward(scene.model, scene.data);
-  const ProjectileLaunch requested = launch({{3.0, 0.0, 1.0}}, {{-8.0, 0.0, 1.8}}, /*flightTime=*/0.375);
-  const absl::StatusOr<ProjectileLaunch> result =
-      clearProjectileLaunch(scene.model, scene.data, scene.body("sim_projectile"), requested, /*gravity=*/9.81);
+  const ProjectileLaunch requested =
+      launch({{3.0, 0.0, 1.0}}, {{-8.0, 0.0, 1.8}}, /*flightTime=*/0.375);
+  const absl::StatusOr<ProjectileLaunch> result = clearProjectileLaunch(
+      scene.model, scene.data, scene.body("sim_projectile"), requested,
+      /*gravity=*/9.81);
   ASSERT_TRUE(result.ok()) << result.status().message();
   EXPECT_EQ(result->position, requested.position);
   EXPECT_EQ(result->velocity, requested.velocity);
@@ -810,74 +1018,105 @@ TEST(ClearProjectileLaunch, AClearSpawnIsLeftExactlyAsRequested) {
 }
 
 TEST(ClearProjectileLaunch, ASpawnInsideTheRobotIsMovedBackAlongItsApproach) {
-  // A short throw from the side that starts inside the torso: MuJoCo would fire it out at tens of m/s.
+  // A short throw from the side that starts inside the torso: MuJoCo would fire
+  // it out at tens of m/s.
   const std::string path = writeTempFile("projectile_inside.xml", kScene);
   const Projectile ball = dodgeball();
   const Scene scene(path, &ball);
   ASSERT_NE(scene.model, nullptr);
   mj_forward(scene.model, scene.data);
-  const ProjectileLaunch requested = launch({{0.15, 0.0, 1.0}}, {{-4.0, 0.0, 0.5}}, /*flightTime=*/0.04);
-  const absl::StatusOr<ProjectileLaunch> result =
-      clearProjectileLaunch(scene.model, scene.data, scene.body("sim_projectile"), requested, /*gravity=*/9.81);
+  const ProjectileLaunch requested =
+      launch({{0.15, 0.0, 1.0}}, {{-4.0, 0.0, 0.5}}, /*flightTime=*/0.04);
+  const absl::StatusOr<ProjectileLaunch> result = clearProjectileLaunch(
+      scene.model, scene.data, scene.body("sim_projectile"), requested,
+      /*gravity=*/9.81);
   ASSERT_TRUE(result.ok()) << result.status().message();
-  EXPECT_GT(result->flightTime, requested.flightTime) << "it should start EARLIER on its approach, so fly for longer";
+  EXPECT_GT(result->flightTime, requested.flightTime)
+      << "it should start EARLIER on its approach, so fly for longer";
   expectOnThePath(requested, *result, /*gravity=*/9.81);
   // And it is now clear of the torso's +x face at x = 0.1, by the clearance.
-  EXPECT_GE(result->position[0] - ball.radius - 0.1, kProjectileSpawnClearance - 1.0e-9);
+  EXPECT_GE(result->position[0] - ball.radius - 0.1,
+            kProjectileSpawnClearance - 1.0e-9);
 }
 
 TEST(ClearProjectileLaunch, ASpawnUnderTheFloorIsMovedForwardAlongItsClimb) {
-  // A negative elevation from far away starts below the floor plane, which collides as a half-space.
+  // A negative elevation from far away starts below the floor plane, which
+  // collides as a half-space.
   const std::string path = writeTempFile("projectile_under.xml", kScene);
   const Projectile ball = dodgeball();
   const Scene scene(path, &ball);
   ASSERT_NE(scene.model, nullptr);
   mj_forward(scene.model, scene.data);
-  const ProjectileLaunch requested = launch({{2.0, 0.0, -0.5}}, {{-3.0, 0.0, 6.0}}, /*flightTime=*/0.6);
-  const absl::StatusOr<ProjectileLaunch> result =
-      clearProjectileLaunch(scene.model, scene.data, scene.body("sim_projectile"), requested, /*gravity=*/9.81);
+  const ProjectileLaunch requested =
+      launch({{2.0, 0.0, -0.5}}, {{-3.0, 0.0, 6.0}}, /*flightTime=*/0.6);
+  const absl::StatusOr<ProjectileLaunch> result = clearProjectileLaunch(
+      scene.model, scene.data, scene.body("sim_projectile"), requested,
+      /*gravity=*/9.81);
   ASSERT_TRUE(result.ok()) << result.status().message();
-  EXPECT_LT(result->flightTime, requested.flightTime) << "it should start LATER on its climb";
+  EXPECT_LT(result->flightTime, requested.flightTime)
+      << "it should start LATER on its climb";
   expectOnThePath(requested, *result, /*gravity=*/9.81);
-  EXPECT_GE(result->position[2], ball.radius + kProjectileSpawnClearance - 1.0e-9);
+  EXPECT_GE(result->position[2],
+            ball.radius + kProjectileSpawnClearance - 1.0e-9);
 }
 
-TEST(ClearProjectileLaunch, ReportsAThrowThatCannotBeClearedAndRejectsNonsense) {
+TEST(ClearProjectileLaunch,
+     ReportsAThrowThatCannotBeClearedAndRejectsNonsense) {
   const std::string path = writeTempFile("projectile_hopeless.xml", kScene);
   const Projectile ball = dodgeball();
   const Scene scene(path, &ball);
   ASSERT_NE(scene.model, nullptr);
   mj_forward(scene.model, scene.data);
   const int ballBody = scene.body("sim_projectile");
-  // Five meters under the floor and heading further down: no point on its path is above ground.
+  // Five meters under the floor and heading further down: no point on its path
+  // is above ground.
   const absl::StatusOr<ProjectileLaunch> hopeless = clearProjectileLaunch(
-      scene.model, scene.data, ballBody, launch({{2.0, 0.0, -5.0}}, {{0.0, 0.0, -1.0}}, /*flightTime=*/0.5), /*gravity=*/9.81);
+      scene.model, scene.data, ballBody,
+      launch({{2.0, 0.0, -5.0}}, {{0.0, 0.0, -1.0}}, /*flightTime=*/0.5),
+      /*gravity=*/9.81);
   ASSERT_FALSE(hopeless.ok());
   EXPECT_EQ(hopeless.status().code(), absl::StatusCode::kFailedPrecondition);
-  EXPECT_NE(std::string(hopeless.status().message()).find("spawn distance"), std::string::npos) << "it should name the slider to change";
+  EXPECT_NE(std::string(hopeless.status().message()).find("spawn distance"),
+            std::string::npos)
+      << "it should name the slider to change";
 
-  const ProjectileLaunch fine = launch({{3.0, 0.0, 1.0}}, {{-8.0, 0.0, 1.8}}, /*flightTime=*/0.375);
-  EXPECT_EQ(clearProjectileLaunch(scene.model, scene.data, scene.body("base"), fine, /*gravity=*/9.81).status().code(),
+  const ProjectileLaunch fine =
+      launch({{3.0, 0.0, 1.0}}, {{-8.0, 0.0, 1.8}}, /*flightTime=*/0.375);
+  EXPECT_EQ(clearProjectileLaunch(scene.model, scene.data, scene.body("base"),
+                                  fine, /*gravity=*/9.81)
+                .status()
+                .code(),
             absl::StatusCode::kInvalidArgument);
-  EXPECT_EQ(clearProjectileLaunch(scene.model, /*data=*/nullptr, ballBody, fine, /*gravity=*/9.81).status().code(),
+  EXPECT_EQ(clearProjectileLaunch(scene.model, /*data=*/nullptr, ballBody, fine,
+                                  /*gravity=*/9.81)
+                .status()
+                .code(),
             absl::StatusCode::kInvalidArgument);
   const ProjectileLaunch notFinite =
-      launch({{std::numeric_limits<double>::quiet_NaN(), 0.0, 1.0}}, {{-8.0, 0.0, 1.8}}, /*flightTime=*/0.375);
-  EXPECT_EQ(clearProjectileLaunch(scene.model, scene.data, ballBody, notFinite, /*gravity=*/9.81).status().code(),
+      launch({{std::numeric_limits<double>::quiet_NaN(), 0.0, 1.0}},
+             {{-8.0, 0.0, 1.8}}, /*flightTime=*/0.375);
+  EXPECT_EQ(clearProjectileLaunch(scene.model, scene.data, ballBody, notFinite,
+                                  /*gravity=*/9.81)
+                .status()
+                .code(),
             absl::StatusCode::kInvalidArgument);
 }
 
-/*=========================================== the fallback impulse ======================================*/
+/*=========================================== the fallback impulse
+ * ======================================*/
 
 TEST(ProjectileArrivalVelocity, IsTheLaunchVelocityLessGravityOverTheFlight) {
   const std::array<double, 3> launchVelocity{{-8.0, 1.0, 2.0}};
-  const std::array<double, 3> velocity = projectileArrivalVelocity(launchVelocity, /*flightTime=*/0.4, /*gravity=*/9.81);
+  const std::array<double, 3> velocity = projectileArrivalVelocity(
+      launchVelocity, /*flightTime=*/0.4, /*gravity=*/9.81);
   EXPECT_EQ(velocity[0], -8.0);
   EXPECT_EQ(velocity[1], 1.0);
-  EXPECT_NEAR(velocity[2], 2.0 - 9.81 * 0.4, 1.0e-12) << "gravity takes g t off the vertical on the way";
+  EXPECT_NEAR(velocity[2], 2.0 - 9.81 * 0.4, 1.0e-12)
+      << "gravity takes g t off the vertical on the way";
 }
 
-/*=========================================== when to park it ===========================================*/
+/*=========================================== when to park it
+ * ===========================================*/
 
 TEST(ProjectileRestMonitor, ParksABallThatHasBeenSlowForTheRestDuration) {
   ProjectileRestMonitor monitor;
@@ -889,16 +1128,20 @@ TEST(ProjectileRestMonitor, ParksABallThatHasBeenSlowForTheRestDuration) {
 }
 
 TEST(ProjectileRestMonitor, ABurstOfSpeedRestartsTheRestClock) {
-  // A ball balanced on a foot for an instant on its way past must not be parked out from under the robot.
+  // A ball balanced on a foot for an instant on its way past must not be parked
+  // out from under the robot.
   ProjectileRestMonitor monitor;
   monitor.start();
   const double dt = 0.001;
-  for (int step = 0; step < 200; ++step) EXPECT_FALSE(monitor.update(/*speed=*/0.0, dt));
+  for (int step = 0; step < 200; ++step)
+    EXPECT_FALSE(monitor.update(/*speed=*/0.0, dt));
   EXPECT_FALSE(monitor.update(/*speed=*/1.0, dt));
-  for (int step = 0; step < 200; ++step) EXPECT_FALSE(monitor.update(/*speed=*/0.0, dt)) << step;
+  for (int step = 0; step < 200; ++step)
+    EXPECT_FALSE(monitor.update(/*speed=*/0.0, dt)) << step;
 }
 
-TEST(ProjectileRestMonitor, ParksABallThatNeverSlowsDownWhenItsLifetimeRunsOut) {
+TEST(ProjectileRestMonitor,
+     ParksABallThatNeverSlowsDownWhenItsLifetimeRunsOut) {
   ProjectileRestMonitor monitor;
   monitor.start();
   const double dt = 0.01;
@@ -910,11 +1153,13 @@ TEST(ProjectileRestMonitor, ParksABallThatNeverSlowsDownWhenItsLifetimeRunsOut) 
   EXPECT_FALSE(monitor.update(/*speed=*/3.0, dt));
 }
 
-/*==================================== the ball is not the ground =======================================*/
+/*==================================== the ball is not the ground
+ * =======================================*/
 
 TEST(GroundTruthContactMask, ABallStrikingAFootIsNotThatFootBeingPlanted) {
-  // The mask feeds the RobotState's contact flags and the cheater_sim estimator, so a ball against a SWING foot would
-  // tell the MPC that foot is planted.
+  // The mask feeds the RobotState's contact flags and the cheater_sim
+  // estimator, so a ball against a SWING foot would tell the MPC that foot is
+  // planted.
   const std::string path = writeTempFile("projectile_contact.xml", kScene);
   const Projectile ball = dodgeball();
   const Scene scene(path, &ball);
@@ -924,42 +1169,61 @@ TEST(GroundTruthContactMask, ABallStrikingAFootIsNotThatFootBeingPlanted) {
   strikeTheFoot(scene, ball);
 
   const std::vector<int> feet{scene.body("foot")};
-  // The positive control first: without the exclusion the ball DOES read as ground contact. Without this assertion a
-  // mask of zero would prove nothing, because a test in which the ball never touched the foot would also pass.
-  ASSERT_EQ(groundTruthContactMask(scene.model, scene.data, feet, /*forceThreshold=*/1.0, /*ignoreBodyId=*/-1), 1u)
+  // The positive control first: without the exclusion the ball DOES read as
+  // ground contact. Without this assertion a mask of zero would prove nothing,
+  // because a test in which the ball never touched the foot would also pass.
+  ASSERT_EQ(groundTruthContactMask(scene.model, scene.data, feet,
+                                   /*forceThreshold=*/1.0, /*ignoreBodyId=*/-1),
+            1u)
       << "the ball is not actually striking the foot";
-  EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet, /*forceThreshold=*/1.0, ballBody), 0u)
+  EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet,
+                                   /*forceThreshold=*/1.0, ballBody),
+            0u)
       << "a contact with the thrown ball must not set a contact bit";
 }
 
 TEST(GroundTruthContactMask, ExcludingTheBallLeavesRealGroundContactAlone) {
-  // The exclusion must be narrow: a foot on the floor still reads as planted while a ball is in the scene.
+  // The exclusion must be narrow: a foot on the floor still reads as planted
+  // while a ball is in the scene.
   const std::string path = writeTempFile("projectile_ground.xml", kScene);
   const Projectile ball = dodgeball();
   const Scene scene(path, &ball);
   ASSERT_NE(scene.model, nullptr);
-  const int baseQpos = scene.model->jnt_qposadr[scene.model->body_jntadr[scene.body("base")]];
-  // The sole's underside sits at base z - 0.3 - 0.02; drop it just through the floor so the solver pushes back.
+  const int baseQpos =
+      scene.model->jnt_qposadr[scene.model->body_jntadr[scene.body("base")]];
+  // The sole's underside sits at base z - 0.3 - 0.02; drop it just through the
+  // floor so the solver pushes back.
   scene.data->qpos[baseQpos + 2] = 0.3 + 0.02 - 0.002;
   mj_forward(scene.model, scene.data);
   const std::vector<int> feet{scene.body("foot")};
-  EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet, /*forceThreshold=*/1.0, scene.body("sim_projectile")), 1u);
+  EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet,
+                                   /*forceThreshold=*/1.0,
+                                   scene.body("sim_projectile")),
+            1u);
 }
 
 TEST(GroundReaction, ABallStrikingTheRobotIsNotAGroundReaction) {
-  // The ZMP marker is "the zero moment point of the physical ground reaction"; at 25 m/s a ball's contact force alone
-  // exceeds the robot's weight and would throw the marker meters from the feet.
+  // The ZMP marker is "the zero moment point of the physical ground reaction";
+  // at 25 m/s a ball's contact force alone exceeds the robot's weight and would
+  // throw the marker meters from the feet.
   const std::string path = writeTempFile("projectile_zmp.xml", kScene);
   const Projectile ball = dodgeball();
   const Scene scene(path, &ball);
   ASSERT_NE(scene.model, nullptr);
   const int ballBody = scene.body("sim_projectile");
   scene.arm();
-  strikeTheFoot(scene, ball);  // the robot is held in the air, so the ball is the only contact
+  strikeTheFoot(
+      scene,
+      ball);  // the robot is held in the air, so the ball is the only contact
 
-  const GroundReaction counted = groundReaction(scene.model, scene.data, scene.body("base"), /*minNormalForce=*/0.0, /*ignoreBodyId=*/-1);
-  ASSERT_GT(std::abs(counted.force[2]), 1.0) << "the ball is not actually pressing on the foot";
-  const GroundReaction excluded = groundReaction(scene.model, scene.data, scene.body("base"), /*minNormalForce=*/0.0, ballBody);
+  const GroundReaction counted =
+      groundReaction(scene.model, scene.data, scene.body("base"),
+                     /*minNormalForce=*/0.0, /*ignoreBodyId=*/-1);
+  ASSERT_GT(std::abs(counted.force[2]), 1.0)
+      << "the ball is not actually pressing on the foot";
+  const GroundReaction excluded =
+      groundReaction(scene.model, scene.data, scene.body("base"),
+                     /*minNormalForce=*/0.0, ballBody);
   EXPECT_NEAR(excluded.force[0], 0.0, 1.0e-12);
   EXPECT_NEAR(excluded.force[1], 0.0, 1.0e-12);
   EXPECT_NEAR(excluded.force[2], 0.0, 1.0e-12);

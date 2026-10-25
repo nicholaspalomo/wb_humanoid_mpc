@@ -37,14 +37,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 std::string FootYawPinnedInContactConstraint::describe() const {
-  return "+-dpsi_i + 2 pi c_i <= 2 pi on the running nodes (a foot's yaw only changes in the air)";
+  return "+-dpsi_i + 2 pi c_i <= 2 pi on the running nodes (a foot's yaw only "
+         "changes in the air)";
 }
 
-void FootYawPinnedInContactConstraint::addRows(const ContactPlanningContext& /*ctx*/, int /*node*/, RowBuilder& rows) const {
+void FootYawPinnedInContactConstraint::addRows(
+    const ContactPlanningContext& /*ctx*/,
+    int /*node*/,
+    RowBuilder& rows) const {
   constexpr scalar_t kYawBigM = HeadingDoubleIntegrator::kYawBigM;
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
     for (const scalar_t sign : {1.0, -1.0}) {
-      rows.addHard(/*xCoefficients=*/{}, {{idx_.footYawDelta[foot], sign}, {idx_.contact[foot], kYawBigM}}, -kLipLooseBound, kYawBigM);
+      rows.addHard(
+          /*xCoefficients=*/{},
+          {{idx_.footYawDelta[foot], sign}, {idx_.contact[foot], kYawBigM}},
+          -kLipLooseBound, kYawBigM);
     }
   }
 }

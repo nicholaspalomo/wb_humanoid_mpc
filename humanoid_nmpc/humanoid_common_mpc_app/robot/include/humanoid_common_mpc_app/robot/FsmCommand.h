@@ -38,7 +38,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** What an operator/fsm_command asks the robot process to do, parsed off the realtime thread (parseFsmCommand()). */
+/** What an operator/fsm_command asks the robot process to do, parsed off the
+ * realtime thread (parseFsmCommand()). */
 enum class FsmCommandKind : uint8_t {
   kZeroTorque,    ///< ZERO_TORQUE, DISABLE_TORQUES: the torques off
   kJointPd,       ///< JOINT_PD
@@ -49,28 +50,34 @@ enum class FsmCommandKind : uint8_t {
   kUnlockGantry,  ///< UNLOCK_GANTRY
 };
 
-/** One FSM command as the realtime thread receives it: plain data, for an SPSC queue. */
+/** One FSM command as the realtime thread receives it: plain data, for an SPSC
+ * queue. */
 struct FsmCommandEvent {
   /** The characters `name` holds, its NUL terminator included. */
   static constexpr size_t kNameCapacity = 24;
 
   FsmCommandKind kind = FsmCommandKind::kZeroTorque;
-  /** The command as the operator sent it, NUL-terminated (for the log line of the realtime thread's report). */
+  /** The command as the operator sent it, NUL-terminated (for the log line of
+   * the realtime thread's report). */
   std::array<char, kNameCapacity> name{};
 };
 
 /**
- * The command `command` names, or nullopt for a string that names none (the robot ignores it). The names are the
- * remote control's control modes (remote_control/humanoid_finite_state_machine.py) and gantry commands, and the aliases
- * fsm_command.proto lists: ENABLE_TORQUES and MPC_ACTIVE enter WB_MPC, DISABLE_TORQUES is ZERO_TORQUE.
+ * The command `command` names, or nullopt for a string that names none (the
+ * robot ignores it). The names are the remote control's control modes
+ * (remote_control/humanoid_finite_state_machine.py) and gantry commands, and
+ * the aliases fsm_command.proto lists: ENABLE_TORQUES and MPC_ACTIVE enter
+ * WB_MPC, DISABLE_TORQUES is ZERO_TORQUE.
  */
 std::optional<FsmCommandKind> parseFsmCommand(absl::string_view command);
 
-/** The control mode a mode command enters ("WB_MPC" for kWbMpc); empty for the gantry commands. */
+/** The control mode a mode command enters ("WB_MPC" for kWbMpc); empty for the
+ * gantry commands. */
 absl::string_view fsmCommandModeName(FsmCommandKind kind);
 
 /** The event for `kind`, with `command` as its name (cut to fit). */
-FsmCommandEvent makeFsmCommandEvent(FsmCommandKind kind, absl::string_view command);
+FsmCommandEvent makeFsmCommandEvent(FsmCommandKind kind,
+                                    absl::string_view command);
 
 /** The name of `event`, as a view of its NUL-terminated buffer. */
 absl::string_view fsmCommandEventName(const FsmCommandEvent& event);

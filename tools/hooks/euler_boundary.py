@@ -136,15 +136,18 @@ def _findings(source: str, path: str) -> list[check_types.Finding]:
         return []
     findings = []
     for token in cpp_source.code_tokens(source):
-        if token.kind == cpp_source.IDENTIFIER and _EULER_IDENTIFIER.search(token.text):
+        if token.kind == cpp_source.IDENTIFIER and _EULER_IDENTIFIER.search(
+            token.text
+        ):
             findings.append(
                 check_types.Finding(
                     path,
                     token.line,
                     token.col,
                     NAME,
-                    f"`{token.text}` is the Euler API, which the formulation does not read: the base orientation is "
-                    "a unit quaternion.",
+                    f"`{token.text}` is the Euler API, which the formulation"
+                    " does not read: the base orientation is a unit"
+                    " quaternion.",
                 )
             )
     without_comments, _ = cpp_source.mask(source)
@@ -156,7 +159,8 @@ def _findings(source: str, path: str) -> list[check_types.Finding]:
                 line,
                 column,
                 NAME,
-                f"`{match.group(1)}` is the Euler API, which the formulation does not include.",
+                f"`{match.group(1)}` is the Euler API, which the formulation"
+                " does not include.",
             )
         )
     return sorted(findings)
@@ -169,11 +173,19 @@ CHECKS = [
         # lib/ocs2 included: the centroidal model's tree (FORMULATION_TREES) is taped by the centroidal MPC.
         scope=lint_files.Scope.FIRST_PARTY_AND_OCS2,
         check_source=_findings,
-        description="no Euler API (`EulerZyx`, `EulerAnglesZyx`, `ZyxEulerAngles`, RotationDerivativesTransforms.h, "
-        "orientation/EulerBoundary.h) in the formulation directories and files of humanoid_nmpc/, the taped trees of "
-        "lib/ocs2 or the robot-model headers but at their marked boundary accessors "
-        "(humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 4.2).",
-        hint="Read the quaternion (getBaseOrientation), the heading (getBaseHeading) or the body angular velocity; "
-        "convert to Euler angles only at a conversion point of the design's section 4.2.",
+        description=(
+            "no Euler API (`EulerZyx`, `EulerAnglesZyx`, `ZyxEulerAngles`,"
+            " RotationDerivativesTransforms.h, orientation/EulerBoundary.h) in"
+            " the formulation directories and files of humanoid_nmpc/, the"
+            " taped trees of lib/ocs2 or the robot-model headers but at their"
+            " marked boundary accessors"
+            " (humanoid_nmpc/docs/quaternion_base_orientation/README.md,"
+            " section 4.2)."
+        ),
+        hint=(
+            "Read the quaternion (getBaseOrientation), the heading"
+            " (getBaseHeading) or the body angular velocity; convert to Euler"
+            " angles only at a conversion point of the design's section 4.2."
+        ),
     ),
 ]

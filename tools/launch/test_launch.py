@@ -121,7 +121,9 @@ class LauncherProcess:
     def matched_line(self, pattern: str) -> re.Match[str]:
         """The match of the first output line matching `pattern`; fails the test when none comes within TIMEOUT_S."""
         match = self.wait_for_line(pattern)
-        assert match is not None, f"no output line matches {pattern!r}: {self.lines}"
+        assert (
+            match is not None
+        ), f"no output line matches {pattern!r}: {self.lines}"
         return match
 
     def finish(self) -> tuple[int, str]:
@@ -180,22 +182,31 @@ class DryRunTest(LaunchTestCase):
 
     def test_prints_every_resolved_command_and_its_settings(self) -> None:
         code, out, err = self.run_main(
-            EXAMPLE, "--dry_run", "--set", "cycles=7", "--repo_root", self.repo_root
+            EXAMPLE,
+            "--dry_run",
+            "--set",
+            "cycles=7",
+            "--repo_root",
+            self.repo_root,
         )
         self.assertEqual(code, 0, err)
         lines = out.splitlines()
         self.assertIn(
-            f"# repository root (every command runs here): {self.repo_root}", lines
+            f"# repository root (every command runs here): {self.repo_root}",
+            lines,
         )
         self.assertIn("# teardown: SIGINT, 2 s, SIGTERM, 1 s, SIGKILL", lines)
         self.assertIn(
-            "# robot_loop: machine=robot required=true terminal=false delay=0s", lines
+            "# robot_loop: machine=robot required=true terminal=false delay=0s",
+            lines,
         )
         self.assertIn(
-            "# mpc: machine=laptop required=false terminal=false delay=0.1s", lines
+            "# mpc: machine=laptop required=false terminal=false delay=0.1s",
+            lines,
         )
         self.assertIn(
-            "GREETING=hello sh -c 'echo \"$GREETING from the laptop\"; exec sleep 60'",
+            'GREETING=hello sh -c \'echo "$GREETING from the laptop"; exec'
+            " sleep 60'",
             lines,
         )
         self.assertTrue(any("-lt 7 ]" in line for line in lines), out)
@@ -205,7 +216,12 @@ class DryRunTest(LaunchTestCase):
 
     def test_machine_filters_the_processes(self) -> None:
         code, out, _ = self.run_main(
-            EXAMPLE, "--dry_run", "--machine", "robot", "--repo_root", self.repo_root
+            EXAMPLE,
+            "--dry_run",
+            "--machine",
+            "robot",
+            "--repo_root",
+            self.repo_root,
         )
         self.assertEqual(code, 0)
         self.assertIn("# robot_loop:", out)
@@ -226,7 +242,8 @@ class DryRunTest(LaunchTestCase):
 
     def test_terminal_processes_show_the_terminal_command(self) -> None:
         path = self.write_launch_file(
-            'processes { name: "teleop" machine: MACHINE_LAPTOP command: "teleop" terminal: true }'
+            'processes { name: "teleop" machine: MACHINE_LAPTOP command:'
+            ' "teleop" terminal: true }'
         )
         code, out, _ = self.run_main(
             path,
@@ -238,7 +255,9 @@ class DryRunTest(LaunchTestCase):
         )
         self.assertEqual(code, 0)
         self.assertIn("xterm -hold -e teleop", out.splitlines())
-        code, out, _ = self.run_main(path, "--dry_run", "--repo_root", self.repo_root)
+        code, out, _ = self.run_main(
+            path, "--dry_run", "--repo_root", self.repo_root
+        )
         self.assertEqual(code, 0)
         self.assertIn("x-terminal-emulator -e teleop", out.splitlines())
 
@@ -248,7 +267,10 @@ class ErrorTest(LaunchTestCase):
     def test_invalid_input_exits_with_status_two_and_says_why(self) -> None:
         invalid = self.write_launch_file('processes { name: "a" command: "p" }')
         cases = {
-            "invalid file": ([invalid], "process 'a': 'machine' must be one of"),
+            "invalid file": (
+                [invalid],
+                "process 'a': 'machine' must be one of",
+            ),
             "unparsable file": (
                 [
                     self.write_launch_file(
@@ -267,13 +289,20 @@ class ErrorTest(LaunchTestCase):
                 [EXAMPLE, "--set", "cylces=2"],
                 "undeclared variable(s) cylces",
             ),
-            "malformed --set": ([EXAMPLE, "--set", "cycles"], "expected name=value"),
+            "malformed --set": (
+                [EXAMPLE, "--set", "cycles"],
+                "expected name=value",
+            ),
             "empty terminal command": (
                 [EXAMPLE, "--terminal_command", ""],
                 "must not be empty",
             ),
             "bad repository root": (
-                [EXAMPLE, "--repo_root", os.path.join(self._directory.name, "no")],
+                [
+                    EXAMPLE,
+                    "--repo_root",
+                    os.path.join(self._directory.name, "no"),
+                ],
                 "not a dir",
             ),
         }
@@ -295,8 +324,12 @@ class ErrorTest(LaunchTestCase):
                     with contextlib.redirect_stderr(stderr), self.assertRaises(
                         SystemExit
                     ) as raised:
-                        launch_cli.build_parser().parse_args([EXAMPLE, flag, value])
-                    self.assertEqual(raised.exception.code, launch_cli.EXIT_USAGE)
+                        launch_cli.build_parser().parse_args(
+                            [EXAMPLE, flag, value]
+                        )
+                    self.assertEqual(
+                        raised.exception.code, launch_cli.EXIT_USAGE
+                    )
                     self.assertIn(
                         f"non-negative number of seconds, got {value}",
                         stderr.getvalue(),
@@ -331,7 +364,8 @@ class RepoRootTest(LaunchTestCase):
         no_bazel = {"BUILD_WORKING_DIRECTORY": elsewhere}
 
         self.assertEqual(
-            launch_cli.find_repo_root(elsewhere, launch_path, no_bazel), elsewhere
+            launch_cli.find_repo_root(elsewhere, launch_path, no_bazel),
+            elsewhere,
         )
         self.assertEqual(
             launch_cli.find_repo_root(
@@ -340,7 +374,8 @@ class RepoRootTest(LaunchTestCase):
             "/workspace",
         )
         self.assertEqual(
-            launch_cli.find_repo_root(None, launch_path, no_bazel), self.repo_root
+            launch_cli.find_repo_root(None, launch_path, no_bazel),
+            self.repo_root,
         )
         # A launch file outside the checkout, started from inside it.
         self.assertEqual(
@@ -390,7 +425,8 @@ class RunTest(LaunchTestCase):
 
     def test_the_launcher_runs_processes_in_the_repository_root(self) -> None:
         path = self.write_launch_file(
-            'processes { name: "where" machine: MACHINE_ROBOT command: ["sh", "-c", "pwd -P"] required: true }'
+            'processes { name: "where" machine: MACHINE_ROBOT command: ["sh",'
+            ' "-c", "pwd -P"] required: true }'
         )
         code, output = self.launcher(path).finish()
         self.assertEqual(code, 0, output)
@@ -398,36 +434,45 @@ class RunTest(LaunchTestCase):
             f"[where] {os.path.realpath(self.repo_root)}", output.splitlines()
         )
 
-    def test_sigint_and_sigterm_are_forwarded_and_end_with_status_zero(self) -> None:
+    def test_sigint_and_sigterm_are_forwarded_and_end_with_status_zero(
+        self,
+    ) -> None:
         for signum in (signal.SIGINT, signal.SIGTERM):
             with self.subTest(signal=signum.name):
                 launcher = self.launcher(EXAMPLE, "--machine", "laptop")
                 self.assertIsNotNone(
                     launcher.wait_for_line(r"^\[mpc\] hello from the laptop$")
                 )
-                self.assertIsNotNone(launcher.wait_for_line(r"^\[viewer\] hello from"))
+                self.assertIsNotNone(
+                    launcher.wait_for_line(r"^\[viewer\] hello from")
+                )
                 pids = [
                     int(
-                        launcher.matched_line(rf"started {name} \(pid (\d+)\)").group(1)
+                        launcher.matched_line(
+                            rf"started {name} \(pid (\d+)\)"
+                        ).group(1)
                     )
                     for name in ("mpc", "viewer")
                 ]
                 launcher.popen.send_signal(signum)
                 code, output = launcher.finish()
                 self.assertEqual(code, 0, output)
-                self.assertIn(f"[launch] received {signum.name}; stopping", output)
-                self.assertIn(f"[launch] mpc was killed by {signum.name}", output)
-                self.assertTrue(all(process_is_gone(pid) for pid in pids), output)
+                self.assertIn(
+                    f"[launch] received {signum.name}; stopping", output
+                )
+                self.assertIn(
+                    f"[launch] mpc was killed by {signum.name}", output
+                )
+                self.assertTrue(
+                    all(process_is_gone(pid) for pid in pids), output
+                )
 
     def test_a_failing_required_process_sets_the_exit_status(self) -> None:
         path = self.write_launch_file(
-            'processes { name: "sleeper" machine: MACHINE_LAPTOP command: ["sh", "-c", "exec sleep 60"] }\n'
-            "processes {\n"
-            '  name: "failing"\n'
-            "  machine: MACHINE_ROBOT\n"
-            '  command: ["sh", "-c", "sleep 0.2; exit 5"]\n'
-            "  required: true\n"
-            "}\n"
+            'processes { name: "sleeper" machine: MACHINE_LAPTOP command:'
+            ' ["sh", "-c", "exec sleep 60"] }\nprocesses {\n  name: "failing"\n'
+            '  machine: MACHINE_ROBOT\n  command: ["sh", "-c", "sleep 0.2; exit'
+            ' 5"]\n  required: true\n}\n'
         )
         code, output = self.launcher(path).finish()
         self.assertEqual(code, 5, output)
@@ -435,18 +480,23 @@ class RunTest(LaunchTestCase):
 
     def test_children_die_with_a_launcher_that_is_killed(self) -> None:
         path = self.write_launch_file(
-            'processes { name: "orphan" machine: MACHINE_ROBOT command: ["sh", "-c", "echo ready; exec sleep 60"] }'
+            'processes { name: "orphan" machine: MACHINE_ROBOT command: ["sh",'
+            ' "-c", "echo ready; exec sleep 60"] }'
         )
         launcher = self.launcher(path)
         self.assertIsNotNone(launcher.wait_for_line(r"^\[orphan\] ready$"))
-        child = int(launcher.matched_line(r"started orphan \(pid (\d+)\)").group(1))
+        child = int(
+            launcher.matched_line(r"started orphan \(pid (\d+)\)").group(1)
+        )
         # SIGKILL leaves the launcher no chance to tear down: only the death signal stops the child.
         launcher.popen.kill()
         launcher.finish()
         deadline = time.monotonic() + TIMEOUT_S
         while not process_is_gone(child) and time.monotonic() < deadline:
             time.sleep(0.02)
-        self.assertTrue(process_is_gone(child), f"child {child} outlived its launcher")
+        self.assertTrue(
+            process_is_gone(child), f"child {child} outlived its launcher"
+        )
 
 
 if __name__ == "__main__":

@@ -29,7 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "robot_runtime/robot_realtime/test/AllocationCounter.h"
 
-// glibc's declarations of the functions this file defines: memalign() is in <malloc.h>, the others in <cstdlib>.
+// glibc's declarations of the functions this file defines: memalign() is in
+// <malloc.h>, the others in <cstdlib>.
 #include <malloc.h>
 
 #include <atomic>
@@ -42,11 +43,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace {
 
-// Constant-initialized, so that it is ready before the first allocation of static initialization.
+// Constant-initialized, so that it is ready before the first allocation of
+// static initialization.
 constinit std::atomic<size_t> allocations_since_start{0};
 
-// Per thread. Constant-initialized and initial-exec, so that counting never calls __tls_get_addr, which may allocate.
-constinit thread_local size_t allocations_on_this_thread ABSL_ATTRIBUTE_INITIAL_EXEC = 0;
+// Per thread. Constant-initialized and initial-exec, so that counting never
+// calls __tls_get_addr, which may allocate.
+constinit thread_local size_t allocations_on_this_thread
+    ABSL_ATTRIBUTE_INITIAL_EXEC = 0;
 
 void countAllocation() {
   ++allocations_since_start;
@@ -55,9 +59,11 @@ void countAllocation() {
 
 }  // namespace
 
-// glibc's own entry points. Defining the allocation functions in the binary interposes them on every caller in the
-// process; free needs no counting and stays glibc's. The parameters carry the C library's names (nmemb, ptr, memptr):
-// glibc declares them as __nmemb, __ptr and __memptr, and a definition must not name them differently
+// glibc's own entry points. Defining the allocation functions in the binary
+// interposes them on every caller in the process; free needs no counting and
+// stays glibc's. The parameters carry the C library's names (nmemb, ptr,
+// memptr): glibc declares them as __nmemb, __ptr and __memptr, and a definition
+// must not name them differently
 // (readability-inconsistent-declaration-parameter-name).
 extern "C" {
 void* absl_nullable __libc_malloc(size_t size);
@@ -80,7 +86,8 @@ void* absl_nullable realloc(void* absl_nullable ptr, size_t size) noexcept {
   return __libc_realloc(ptr, size);
 }
 
-// The aligned entry points, which operator new uses for over-aligned types such as SpscQueue.
+// The aligned entry points, which operator new uses for over-aligned types such
+// as SpscQueue.
 void* absl_nullable aligned_alloc(size_t alignment, size_t size) noexcept {
   countAllocation();
   return __libc_memalign(alignment, size);
@@ -91,7 +98,9 @@ void* absl_nullable memalign(size_t alignment, size_t size) noexcept {
   return __libc_memalign(alignment, size);
 }
 
-int posix_memalign(void* absl_nullable* absl_nonnull memptr, size_t alignment, size_t size) noexcept {
+int posix_memalign(void* absl_nullable* absl_nonnull memptr,
+                   size_t alignment,
+                   size_t size) noexcept {
   countAllocation();
   if (alignment < sizeof(void*) || (alignment & (alignment - 1)) != 0) {
     return EINVAL;

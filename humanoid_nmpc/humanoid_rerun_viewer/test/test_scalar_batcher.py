@@ -77,7 +77,9 @@ class ScalarBatcherTest(unittest.TestCase):
     def test_rows_arrive_in_order_on_both_timelines(self) -> None:
         batcher = scalar_batcher.ScalarBatcher(self.recording)
         for step in range(5):
-            batcher.append("telemetry/a", 0.01 * step, WALL + step, [step, -step])
+            batcher.append(
+                "telemetry/a", 0.01 * step, WALL + step, [step, -step]
+            )
         batcher.append("telemetry/b", 0.0, WALL, [7.0])
         self.assertEqual(batcher.pending_rows, 6)
         self.assertEqual(batcher.flush(), 6)
@@ -94,7 +96,9 @@ class ScalarBatcherTest(unittest.TestCase):
             self.assertAlmostEqual(actual, 0.01 * step)
         for actual, step in zip(a.times(WALL_TIMELINE), range(5)):
             self.assertAlmostEqual(actual, WALL + step, places=3)
-        self.assertEqual(contents.values("telemetry/b", "Scalars:scalars"), [[7.0]])
+        self.assertEqual(
+            contents.values("telemetry/b", "Scalars:scalars"), [[7.0]]
+        )
 
     def test_one_call_per_entity_and_flush(self) -> None:
         spy = RecordingSpy()
@@ -129,7 +133,9 @@ class ScalarBatcherTest(unittest.TestCase):
         batcher.flush()
         contents = self.contents()
         entity = contents.entities["status/x"]
-        self.assertEqual(sorted(entity.values("Scalars:scalars")), [[1.0], [2.0]])
+        self.assertEqual(
+            sorted(entity.values("Scalars:scalars")), [[1.0], [2.0]]
+        )
         self.assertEqual(entity.timelines, {ROBOT_TIMELINE, WALL_TIMELINE})
         self.assertEqual(entity.times(ROBOT_TIMELINE), [2.0])
 
@@ -165,7 +171,10 @@ class FrameBatcherTest(unittest.TestCase):
             batcher.append(
                 0.01 * step,
                 WALL + step,
-                [("telemetry/a", [step, -step]), ("telemetry/b", [10.0 * step])],
+                [
+                    ("telemetry/a", [step, -step]),
+                    ("telemetry/b", [10.0 * step]),
+                ],
             )
         self.assertEqual(batcher.pending_frames, 5)
         self.assertEqual(batcher.flush(), 10)
@@ -205,8 +214,12 @@ class FrameBatcherTest(unittest.TestCase):
             ],
             columns=rr.Scalars.columns(scalars=np.array(rows)),
         )
-        frames = self.contents(frames_recording, frames_path).entities["telemetry/x"]
-        columns = self.contents(columns_recording, columns_path).entities["telemetry/x"]
+        frames = self.contents(frames_recording, frames_path).entities[
+            "telemetry/x"
+        ]
+        columns = self.contents(columns_recording, columns_path).entities[
+            "telemetry/x"
+        ]
         (frames_chunk,) = frames.chunks
         (columns_chunk,) = columns.chunks
         self.assertEqual(
@@ -214,7 +227,9 @@ class FrameBatcherTest(unittest.TestCase):
             columns_chunk.batch.schema.remove_metadata(),
         )
         for name in columns_chunk.batch.schema.names:
-            expected = dict(columns_chunk.batch.schema.field(name).metadata or {})
+            expected = dict(
+                columns_chunk.batch.schema.field(name).metadata or {}
+            )
             actual = dict(frames_chunk.batch.schema.field(name).metadata or {})
             # Sortedness is Rerun's own bookkeeping of what it wrote.
             expected.pop(b"rerun:is_sorted", None)
@@ -224,12 +239,16 @@ class FrameBatcherTest(unittest.TestCase):
             frames.sorted_values("Scalars:scalars", ROBOT_TIMELINE),
             columns.sorted_values("Scalars:scalars", ROBOT_TIMELINE),
         )
-        self.assertEqual(frames.times(WALL_TIMELINE), columns.times(WALL_TIMELINE))
+        self.assertEqual(
+            frames.times(WALL_TIMELINE), columns.times(WALL_TIMELINE)
+        )
 
     def test_missing_rows_and_changing_widths(self) -> None:
         recording, path = self.recording("sparse")
         batcher = scalar_batcher.FrameBatcher(recording)
-        batcher.append(0.0, WALL, [("telemetry/a", [1.0]), ("telemetry/b", [1.0])])
+        batcher.append(
+            0.0, WALL, [("telemetry/a", [1.0]), ("telemetry/b", [1.0])]
+        )
         batcher.append(0.1, WALL, [("telemetry/a", [2.0, 3.0])])
         batcher.append(0.2, WALL, [("telemetry/b", [4.0])])
         self.assertEqual(batcher.flush(), 4)

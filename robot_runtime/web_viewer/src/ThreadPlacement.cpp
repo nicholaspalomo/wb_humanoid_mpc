@@ -44,10 +44,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::web_viewer {
 namespace {
 
-absl::Status checkPlacement(absl::Span<const int> cores, ViewerThreadPriority priority) {
+absl::Status checkPlacement(absl::Span<const int> cores,
+                            ViewerThreadPriority priority) {
   for (const int core : cores) {
     if (core < 0 || core >= CPU_SETSIZE) {
-      return absl::InvalidArgumentError(absl::StrCat("core ", core, " is not a CPU index (0 to ", CPU_SETSIZE - 1, ")"));
+      return absl::InvalidArgumentError(absl::StrCat(
+          "core ", core, " is not a CPU index (0 to ", CPU_SETSIZE - 1, ")"));
     }
   }
   switch (priority) {
@@ -56,7 +58,8 @@ absl::Status checkPlacement(absl::Span<const int> cores, ViewerThreadPriority pr
       return absl::OkStatus();
   }
   return absl::InvalidArgumentError(
-      absl::StrCat("viewer thread priority ", static_cast<int>(priority), " is none of ViewerThreadPriority's (kIdle, kInherited)"));
+      absl::StrCat("viewer thread priority ", static_cast<int>(priority),
+                   " is none of ViewerThreadPriority's (kIdle, kInherited)"));
 }
 
 // Pins the calling thread to `cores`.
@@ -66,25 +69,35 @@ absl::Status pinToCores(absl::Span<const int> cores) {
   for (const int core : cores) CPU_SET(core, &set);
   const int error = pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
   if (error == 0) return absl::OkStatus();
-  return absl::ErrnoToStatus(error, absl::StrCat("pthread_setaffinity_np(cores ", absl::StrJoin(cores, ","), ")"));
+  return absl::ErrnoToStatus(error,
+                             absl::StrCat("pthread_setaffinity_np(cores ",
+                                          absl::StrJoin(cores, ","), ")"));
 }
 
-// Switches the calling thread to SCHED_IDLE, whose only priority is 0. Lowering a thread's policy needs no privilege.
+// Switches the calling thread to SCHED_IDLE, whose only priority is 0. Lowering
+// a thread's policy needs no privilege.
 absl::Status idleScheduling() {
   const sched_param parameters = {.sched_priority = 0};
-  const int error = pthread_setschedparam(pthread_self(), SCHED_IDLE, &parameters);
+  const int error =
+      pthread_setschedparam(pthread_self(), SCHED_IDLE, &parameters);
   if (error == 0) return absl::OkStatus();
-  return absl::ErrnoToStatus(error, "pthread_setschedparam(this thread, SCHED_IDLE)");
+  return absl::ErrnoToStatus(error,
+                             "pthread_setschedparam(this thread, SCHED_IDLE)");
 }
 
 }  // namespace
 
-absl::Status placeCurrentThread(absl::Span<const int> cores, ViewerThreadPriority priority) {
+absl::Status placeCurrentThread(absl::Span<const int> cores,
+                                ViewerThreadPriority priority) {
   absl::Status valid = checkPlacement(cores, priority);
   if (!valid.ok()) return valid;
   absl::Status pinned = cores.empty() ? absl::OkStatus() : pinToCores(cores);
-  absl::Status idled = priority == ViewerThreadPriority::kIdle ? idleScheduling() : absl::OkStatus();
-  if (!pinned.ok() && !idled.ok()) return absl::Status(pinned.code(), absl::StrCat(pinned.message(), "; ", idled.message()));
+  absl::Status idled = priority == ViewerThreadPriority::kIdle
+                           ? idleScheduling()
+                           : absl::OkStatus();
+  if (!pinned.ok() && !idled.ok())
+    return absl::Status(pinned.code(),
+                        absl::StrCat(pinned.message(), "; ", idled.message()));
   if (!pinned.ok()) return pinned;
   return idled;
 }

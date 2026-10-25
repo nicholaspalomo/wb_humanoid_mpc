@@ -120,7 +120,8 @@ def main() -> int:
 
     if "</applications>" not in content:
         print(
-            f"WARNING: {rc_path} has no <applications> section; layout rules not applied.",
+            f"WARNING: {rc_path} has no <applications> section; layout rules"
+            " not applied.",
             file=sys.stderr,
         )
         return 1
@@ -134,14 +135,15 @@ def main() -> int:
     # Say so when the display cannot really hold the tiled layout, rather than letting a window silently overlap.
     if geom["left_w"] < GUI_MIN_W:
         print(
-            f"NOTE: the left pane is {geom['left_w']} px wide but the controller GUI cannot go below its own "
-            f"{GUI_MIN_W} px minimum, so it will overlap the MuJoCo pane at this resolution.",
+            f"NOTE: the left pane is {geom['left_w']} px wide but the"
+            f" controller GUI cannot go below its own {GUI_MIN_W} px minimum,"
+            " so it will overlap the MuJoCo pane at this resolution.",
             file=sys.stderr,
         )
     if geom["viewer_h"] < 300:
         print(
-            f"NOTE: this display is short, so the Rerun viewer gets only {geom['viewer_h']} px of height above the "
-            "controller GUI.",
+            "NOTE: this display is short, so the Rerun viewer gets only"
+            f" {geom['viewer_h']} px of height above the controller GUI.",
             file=sys.stderr,
         )
 

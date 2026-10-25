@@ -42,49 +42,71 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The stance-foot (zero_velocity) constraint of the centroidal MPC: an EndEffectorKinematicsTwistConstraint
- * Ax * pose + Av * twist + b = 0 of one contact frame, active while the reference manager's mode schedule has the foot
- * in contact. Its rows are the 6 of a 6-DoF (surface) contact - the linear velocity and the rate of the orientation error
- * with respect to the ground plane, with the yaw rate about the contact normal - or the first 3, the translation alone
- * (numConstraints). On every evaluation b_z is set to -Ax_zz times the foot's reference height of the
- * HumanoidPreComputation, so that the z position gain pulls the sole to the ground the swing planner was built on.
- * The gains come from footTwistConfig() (ZeroVelocityGainsApplier.h). Not thread-safe; the solver clones it per worker.
+ * The stance-foot (zero_velocity) constraint of the centroidal MPC: an
+ * EndEffectorKinematicsTwistConstraint Ax * pose + Av * twist + b = 0 of one
+ * contact frame, active while the reference manager's mode schedule has the
+ * foot in contact. Its rows are the 6 of a 6-DoF (surface) contact - the linear
+ * velocity and the rate of the orientation error with respect to the ground
+ * plane, with the yaw rate about the contact normal - or the first 3, the
+ * translation alone (numConstraints). On every evaluation b_z is set to -Ax_zz
+ * times the foot's reference height of the HumanoidPreComputation, so that the
+ * z position gain pulls the sole to the ground the swing planner was built on.
+ * The gains come from footTwistConfig() (ZeroVelocityGainsApplier.h). Not
+ * thread-safe; the solver clones it per worker.
  */
 class ZeroVelocityConstraintCppAd final : public StateInputConstraint {
  public:
   /**
    * Constructor
    * @param [in] referenceManager : Switched model ReferenceManager
-   * @param [in] endEffectorKinematics: The kinematic interface to the target end-effector.
-   * @param [in] contactPointIndex : The index of the contact in the reference manager's contact flags.
-   * @param [in] numConstraints : Number of constraint rows (3 = translation-only, 6 = full pose of a 6-DoF contact, the
-   *                              default).
+   * @param [in] endEffectorKinematics: The kinematic interface to the target
+   * end-effector.
+   * @param [in] contactPointIndex : The index of the contact in the reference
+   * manager's contact flags.
+   * @param [in] numConstraints : Number of constraint rows (3 =
+   * translation-only, 6 = full pose of a 6-DoF contact, the default).
    * @param [in] config: The constraint coefficients
    */
-  ZeroVelocityConstraintCppAd(const SwitchedModelReferenceManager& referenceManager,
-                              const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
-                              size_t contactPointIndex,
-                              size_t numConstraints = kPoseTangentDim,
-                              EndEffectorKinematicsTwistConstraint::Config config = EndEffectorKinematicsTwistConstraint::Config());
+  ZeroVelocityConstraintCppAd(
+      const SwitchedModelReferenceManager& referenceManager,
+      const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
+      size_t contactPointIndex,
+      size_t numConstraints = kPoseTangentDim,
+      EndEffectorKinematicsTwistConstraint::Config config =
+          EndEffectorKinematicsTwistConstraint::Config());
 
   ~ZeroVelocityConstraintCppAd() override = default;
-  ZeroVelocityConstraintCppAd* absl_nonnull clone() const override { return new ZeroVelocityConstraintCppAd(*this); }
-  // Copied only by clone(), whose copy constructor is private; never assigned or moved.
-  ZeroVelocityConstraintCppAd& operator=(const ZeroVelocityConstraintCppAd&) = delete;
+  ZeroVelocityConstraintCppAd* absl_nonnull clone() const override {
+    return new ZeroVelocityConstraintCppAd(*this);
+  }
+  // Copied only by clone(), whose copy constructor is private; never assigned
+  // or moved.
+  ZeroVelocityConstraintCppAd& operator=(const ZeroVelocityConstraintCppAd&) =
+      delete;
   ZeroVelocityConstraintCppAd(ZeroVelocityConstraintCppAd&&) = delete;
-  ZeroVelocityConstraintCppAd& operator=(ZeroVelocityConstraintCppAd&&) = delete;
+  ZeroVelocityConstraintCppAd& operator=(ZeroVelocityConstraintCppAd&&) =
+      delete;
 
   bool isActive(scalar_t time) const override;
   void setActive(bool isActive) override { isActive_ = isActive; }
   bool getActive() const override { return isActive_; }
-  /** Access the inner twist constraint to allow runtime config updates (e.g. foot error gains). */
-  EndEffectorKinematicsTwistConstraint& getTwistConstraint() { return *eeTwistConstraintPtr_; }
-  size_t getNumConstraints(scalar_t time) const override { return eeTwistConstraintPtr_->getNumConstraints(time); }
-  vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
-  VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
-                                                           const vector_t& state,
-                                                           const vector_t& input,
-                                                           const PreComputation& preComp) const override;
+  /** Access the inner twist constraint to allow runtime config updates (e.g.
+   * foot error gains). */
+  EndEffectorKinematicsTwistConstraint& getTwistConstraint() {
+    return *eeTwistConstraintPtr_;
+  }
+  size_t getNumConstraints(scalar_t time) const override {
+    return eeTwistConstraintPtr_->getNumConstraints(time);
+  }
+  vector_t getValue(scalar_t time,
+                    const vector_t& state,
+                    const vector_t& input,
+                    const PreComputation& preComp) const override;
+  VectorFunctionLinearApproximation getLinearApproximation(
+      scalar_t time,
+      const vector_t& state,
+      const vector_t& input,
+      const PreComputation& preComp) const override;
 
  private:
   ZeroVelocityConstraintCppAd(const ZeroVelocityConstraintCppAd& rhs);

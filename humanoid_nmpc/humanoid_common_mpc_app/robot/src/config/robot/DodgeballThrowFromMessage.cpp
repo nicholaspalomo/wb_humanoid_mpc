@@ -45,28 +45,37 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-using DodgeballThrow = robot::mujoco_sim_interface::MujocoSimInterface::DodgeballThrow;
+using DodgeballThrow =
+    robot::mujoco_sim_interface::MujocoSimInterface::DodgeballThrow;
 
-absl::StatusOr<double> requiredNumber(std::optional<double> value, absl::string_view field) {
+absl::StatusOr<double> requiredNumber(std::optional<double> value,
+                                      absl::string_view field) {
   if (!value.has_value()) {
-    return absl::InvalidArgumentError(absl::StrCat("Dodgeball throw ignored: the throw has no ", field, "."));
+    return absl::InvalidArgumentError(
+        absl::StrCat("Dodgeball throw ignored: the throw has no ", field, "."));
   }
   if (!std::isfinite(*value)) {
-    return absl::InvalidArgumentError(absl::StrCat("Dodgeball throw ignored: ", field, " is ", *value, ", not a finite number."));
+    return absl::InvalidArgumentError(
+        absl::StrCat("Dodgeball throw ignored: ", field, " is ", *value,
+                     ", not a finite number."));
   }
   return *value;
 }
 
-absl::Status requiredVector(std::optional<msgs::Vector3> value, absl::string_view field, double (&out)[kPositionDim]) {
+absl::Status requiredVector(std::optional<msgs::Vector3> value,
+                            absl::string_view field,
+                            double (&out)[kPositionDim]) {
   if (!value.has_value()) {
-    return absl::InvalidArgumentError(absl::StrCat("Dodgeball throw ignored: the throw has no ", field, "."));
+    return absl::InvalidArgumentError(
+        absl::StrCat("Dodgeball throw ignored: the throw has no ", field, "."));
   }
   const double components[kPositionDim] = {value->x, value->y, value->z};
   constexpr absl::string_view kAxes[kPositionDim] = {"x", "y", "z"};
   for (int axis = 0; axis < kPositionDim; ++axis) {
     if (!std::isfinite(components[axis])) {
       return absl::InvalidArgumentError(
-          absl::StrCat("Dodgeball throw ignored: ", field, ".", kAxes[axis], " is ", components[axis], ", not a finite number."));
+          absl::StrCat("Dodgeball throw ignored: ", field, ".", kAxes[axis],
+                       " is ", components[axis], ", not a finite number."));
     }
     out[axis] = components[axis];
   }
@@ -75,22 +84,30 @@ absl::Status requiredVector(std::optional<msgs::Vector3> value, absl::string_vie
 
 }  // namespace
 
-absl::StatusOr<DodgeballThrow> dodgeballThrowFromMessage(const msgs::DodgeballThrow& message) {
+absl::StatusOr<DodgeballThrow> dodgeballThrowFromMessage(
+    const msgs::DodgeballThrow& message) {
   DodgeballThrow command;
-  absl::Status status = requiredVector(message.spawn_offset, "spawn_offset", command.spawnOffset);
+  absl::Status status =
+      requiredVector(message.spawn_offset, "spawn_offset", command.spawnOffset);
   if (!status.ok()) return status;
-  status = requiredVector(message.launch_velocity, "launch_velocity", command.launchVelocity);
+  status = requiredVector(message.launch_velocity, "launch_velocity",
+                          command.launchVelocity);
   if (!status.ok()) return status;
-  const absl::StatusOr<double> flightTime = requiredNumber(message.flight_time, "flight_time");
+  const absl::StatusOr<double> flightTime =
+      requiredNumber(message.flight_time, "flight_time");
   if (!flightTime.ok()) return flightTime.status();
   const absl::StatusOr<double> mass = requiredNumber(message.mass, "mass");
   if (!mass.ok()) return mass.status();
 
   if (*flightTime < 0.0) {
-    return absl::InvalidArgumentError(absl::StrCat("Dodgeball throw ignored: flight_time is ", *flightTime, " s, before the throw."));
+    return absl::InvalidArgumentError(
+        absl::StrCat("Dodgeball throw ignored: flight_time is ", *flightTime,
+                     " s, before the throw."));
   }
   if (!(*mass > 0.0)) {
-    return absl::InvalidArgumentError(absl::StrCat("Dodgeball throw ignored: mass is ", *mass, " kg; a ball needs a positive mass."));
+    return absl::InvalidArgumentError(
+        absl::StrCat("Dodgeball throw ignored: mass is ", *mass,
+                     " kg; a ball needs a positive mass."));
   }
   command.flightTime = *flightTime;
   command.mass = *mass;

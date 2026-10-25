@@ -42,8 +42,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The centroidal dynamics of the wrench-space contact inputs: OCS2's PinocchioCentroidalDynamicsAD, with its CppAD
- * library in the model settings' folder. Not thread-safe; the solver clones it per worker.
+ * The centroidal dynamics of the wrench-space contact inputs: OCS2's
+ * PinocchioCentroidalDynamicsAD, with its CppAD library in the model settings'
+ * folder. Not thread-safe; the solver clones it per worker.
  */
 class CentroidalDynamicsAD final : public SystemDynamicsBase {
  public:
@@ -53,17 +54,24 @@ class CentroidalDynamicsAD final : public SystemDynamicsBase {
                        const ModelSettings& modelSettings);
 
   ~CentroidalDynamicsAD() override = default;
-  CentroidalDynamicsAD* absl_nonnull clone() const override { return new CentroidalDynamicsAD(*this); }
-  // Copied only by clone(), whose copy constructor is private; never assigned or moved.
+  CentroidalDynamicsAD* absl_nonnull clone() const override {
+    return new CentroidalDynamicsAD(*this);
+  }
+  // Copied only by clone(), whose copy constructor is private; never assigned
+  // or moved.
   CentroidalDynamicsAD& operator=(const CentroidalDynamicsAD&) = delete;
   CentroidalDynamicsAD(CentroidalDynamicsAD&&) = delete;
   CentroidalDynamicsAD& operator=(CentroidalDynamicsAD&&) = delete;
 
-  vector_t computeFlowMap(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) override;
-  VectorFunctionLinearApproximation linearApproximation(scalar_t time,
-                                                        const vector_t& state,
-                                                        const vector_t& input,
-                                                        const PreComputation& preComp) override;
+  vector_t computeFlowMap(scalar_t time,
+                          const vector_t& state,
+                          const vector_t& input,
+                          const PreComputation& preComp) override;
+  VectorFunctionLinearApproximation linearApproximation(
+      scalar_t time,
+      const vector_t& state,
+      const vector_t& input,
+      const PreComputation& preComp) override;
 
  private:
   CentroidalDynamicsAD(const CentroidalDynamicsAD& rhs) = default;

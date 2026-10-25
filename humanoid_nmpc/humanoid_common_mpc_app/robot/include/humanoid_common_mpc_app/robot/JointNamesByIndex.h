@@ -37,10 +37,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The robot's joint names in the order of their joint indices: names[i] is the joint of RobotState and RobotJointAction
- * index i, as RobotDescription::getJointNames() is too. Whatever is indexed by joint index - the JOINT_PD posture, the
- * arrays of robot/state - is named with this.
+ * The robot's joint names in the order of their joint indices: names[i] is the
+ * joint of RobotState and RobotJointAction index i, as
+ * RobotDescription::getJointNames() is too. Whatever is indexed by joint index
+ * - the JOINT_PD posture, the arrays of robot/state - is named with this.
  */
-std::vector<std::string> jointNamesByIndex(const robot::model::RobotDescription& robotDescription);
+std::vector<std::string> jointNamesByIndex(
+    const robot::model::RobotDescription& robotDescription);
 
 }  // namespace ocs2::humanoid

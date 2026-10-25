@@ -38,27 +38,31 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Bound magnitude from which a general constraint bound is treated as absent (masked out in HPIPM) rather than as a
- * finite, very loose bound. Use +-kOcpQpInfiniteBound for one-sided constraints.
+ * Bound magnitude from which a general constraint bound is treated as absent
+ * (masked out in HPIPM) rather than as a finite, very loose bound. Use
+ * +-kOcpQpInfiniteBound for one-sided constraints.
  */
 inline constexpr scalar_t kOcpQpInfiniteBound = 1.0e6;
 
-/** Whether a node of an OcpQpProblem has dynamics to the next node (every node but the last) or is the terminal one. */
+/** Whether a node of an OcpQpProblem has dynamics to the next node (every node
+ * but the last) or is the terminal one. */
 enum class OcpQpStageKind {
   kIntermediate,  // has dynamics A, B, b
   kTerminal,      // no dynamics
 };
 
 /**
- * One node of a discrete-time linear-quadratic optimal control problem with box and general inequality constraints.
+ * One node of a discrete-time linear-quadratic optimal control problem with box
+ * and general inequality constraints.
  *
  * Dynamics (absent at the terminal node):     x_{k+1} = A x_k + B u_k + b
- * Cost:                                       0.5 x'Qx + 0.5 u'Ru + u'S x + q'x + r'u + constant
- * Input box constraints:                      lbu <= u[idxbu] <= ubu
- * State box constraints:                      lbx <= x[idxbx] <= ubx
+ * Cost:                                       0.5 x'Qx + 0.5 u'Ru + u'S x + q'x
+ * + r'u + constant Input box constraints:                      lbu <= u[idxbu]
+ * <= ubu State box constraints:                      lbx <= x[idxbx] <= ubx
  * General constraints:                        lg <= C x + D u <= ug
- * Soft general constraints:                   rows listed in softGeneralIndices get slacks s_l, s_u >= 0 that relax the
- *                                             lower/upper bound and are penalized by 0.5 Z s^2 + z s.
+ * Soft general constraints:                   rows listed in softGeneralIndices
+ * get slacks s_l, s_u >= 0 that relax the lower/upper bound and are penalized
+ * by 0.5 Z s^2 + z s.
  *
  * All matrices are Eigen column-major, which is the layout HPIPM expects.
  */
@@ -66,17 +70,22 @@ struct OcpQpStage {
   matrix_t A, B;
   vector_t b;
 
-  matrix_t Q, R, S;  // S is (nu x nx), i.e. the dfdux block of the OCS2 convention.
+  matrix_t Q, R,
+      S;  // S is (nu x nx), i.e. the dfdux block of the OCS2 convention.
   vector_t q, r;
 
-  // The variable-independent part of the stage cost, i.e. the sum of the squared residual offsets the cost terms of
-  // this node contribute (StageAccumulator::addQuadraticResidual). It is deliberately NOT handed to HPIPM, which has
-  // no place for it and whose own objective value this wrapper does not read back: the solver's argmin, its KKT
-  // residuals and every comparison between two solutions of ONE assembled problem are invariant under a common
-  // constant. It exists because evaluateOcpQpObjective is also used to compare solutions of problems assembled on
-  // DIFFERENT node grids - CadenceStretchStage scores a candidate re-assembled at s * dt against an incumbent
-  // assembled at dt - and there the constant differs between the two problems and must be carried, or the comparison
-  // is between two differently shifted functionals.
+  // The variable-independent part of the stage cost, i.e. the sum of the
+  // squared residual offsets the cost terms of this node contribute
+  // (StageAccumulator::addQuadraticResidual). It is deliberately NOT handed to
+  // HPIPM, which has no place for it and whose own objective value this wrapper
+  // does not read back: the solver's argmin, its KKT residuals and every
+  // comparison between two solutions of ONE assembled problem are invariant
+  // under a common constant. It exists because evaluateOcpQpObjective is also
+  // used to compare solutions of problems assembled on DIFFERENT node grids -
+  // CadenceStretchStage scores a candidate re-assembled at s * dt against an
+  // incumbent assembled at dt - and there the constant differs between the two
+  // problems and must be carried, or the comparison is between two differently
+  // shifted functionals.
   scalar_t constant = 0.0;
 
   std::vector<int> idxbu;
@@ -88,31 +97,43 @@ struct OcpQpStage {
   matrix_t C, D;
   vector_t lg, ug;
 
-  std::vector<int> softGeneralIndices;  // indices into the general constraint rows
-  vector_t Zl, Zu, zl, zu;              // one entry per soft constraint
+  std::vector<int>
+      softGeneralIndices;   // indices into the general constraint rows
+  vector_t Zl, Zu, zl, zu;  // one entry per soft constraint
 
   int numStates() const { return static_cast<int>(Q.rows()); }
   int numInputs() const { return static_cast<int>(R.rows()); }
   int numGeneralConstraints() const { return static_cast<int>(C.rows()); }
 
-  /** Allocates zero-initialized data for the given sizes (no constraints); the dynamics only for an intermediate node. */
+  /** Allocates zero-initialized data for the given sizes (no constraints); the
+   * dynamics only for an intermediate node. */
   static OcpQpStage Zero(int nx, int nu, OcpQpStageKind kind);
 };
 
-/** A full OCP-QP: N stages with dynamics plus a terminal node without inputs. The initial state is fixed to x0. */
+/** A full OCP-QP: N stages with dynamics plus a terminal node without inputs.
+ * The initial state is fixed to x0. */
 struct OcpQpProblem {
   vector_t x0;
-  std::vector<OcpQpStage> stages;  // size N + 1, the last one has no inputs and no dynamics
+  std::vector<OcpQpStage>
+      stages;  // size N + 1, the last one has no inputs and no dynamics
 
   int numStages() const { return static_cast<int>(stages.size()) - 1; }
 };
 
 /**
- * What OcpQpHpipmSolver::solve() returns for a problem it accepted: HPIPM's status, its iteration count, the objective
- * and the trajectories. Passive data; a copy per solve, so it is safe to read from any thread once returned.
+ * What OcpQpHpipmSolver::solve() returns for a problem it accepted: HPIPM's
+ * status, its iteration count, the objective and the trajectories. Passive
+ * data; a copy per solve, so it is safe to read from any thread once returned.
  */
 struct OcpQpSolution {
-  enum class Status { kSuccess, kMaxIter, kMinStep, kNanSol, kInconsEq, kUnknown };
+  enum class Status {
+    kSuccess,
+    kMaxIter,
+    kMinStep,
+    kNanSol,
+    kInconsEq,
+    kUnknown
+  };
 
   Status status = Status::kUnknown;
   int iterations = 0;
@@ -123,19 +144,29 @@ struct OcpQpSolution {
   bool success() const { return status == Status::kSuccess; }
 };
 
-/** Evaluates the objective of the problem (including soft constraint penalties) for the given trajectories. */
-scalar_t evaluateOcpQpObjective(const OcpQpProblem& problem, const std::vector<vector_t>& x, const std::vector<vector_t>& u);
+/** Evaluates the objective of the problem (including soft constraint penalties)
+ * for the given trajectories. */
+scalar_t evaluateOcpQpObjective(const OcpQpProblem& problem,
+                                const std::vector<vector_t>& x,
+                                const std::vector<vector_t>& u);
 
-/** Maximum violation of the hard box / general constraints and of the dynamics for the given trajectories. */
-scalar_t evaluateOcpQpMaxHardViolation(const OcpQpProblem& problem, const std::vector<vector_t>& x, const std::vector<vector_t>& u);
+/** Maximum violation of the hard box / general constraints and of the dynamics
+ * for the given trajectories. */
+scalar_t evaluateOcpQpMaxHardViolation(const OcpQpProblem& problem,
+                                       const std::vector<vector_t>& x,
+                                       const std::vector<vector_t>& u);
 
 /**
- * Thin wrapper around the HPIPM interior point solver for OCP-QPs with box, general and soft inequality constraints.
+ * Thin wrapper around the HPIPM interior point solver for OCP-QPs with box,
+ * general and soft inequality constraints.
  *
- * The OCS2 HpipmInterface only exposes equality constraints, so the contact planner needs its own wrapper. Memory is
- * (re)allocated whenever the problem dimensions change; repeated solves with identical dimensions are allocation free.
+ * The OCS2 HpipmInterface only exposes equality constraints, so the contact
+ * planner needs its own wrapper. Memory is (re)allocated whenever the problem
+ * dimensions change; repeated solves with identical dimensions are allocation
+ * free.
  *
- * Not thread-safe: solve() writes the solver's HPIPM workspace, so one solver serves one thread at a time.
+ * Not thread-safe: solve() writes the solver's HPIPM workspace, so one solver
+ * serves one thread at a time.
  */
 class OcpQpHpipmSolver {
  public:
@@ -161,7 +192,8 @@ class OcpQpHpipmSolver {
     scalar_t regPrim = kDefaultPrimalRegularization;
     int warmStart = 0;
     int predCorr = 1;
-    int hpipmMode = kHpipmModeBalance;  // hpipm_mode: 0 SPEED_ABS, 1 SPEED, 2 BALANCE, 3 ROBUST
+    int hpipmMode = kHpipmModeBalance;  // hpipm_mode: 0 SPEED_ABS, 1 SPEED, 2
+                                        // BALANCE, 3 ROBUST
   };
 
   OcpQpHpipmSolver();
@@ -172,8 +204,10 @@ class OcpQpHpipmSolver {
   OcpQpHpipmSolver& operator=(const OcpQpHpipmSolver&) = delete;
 
   /**
-   * Solves the problem. Inconsistent problem data (sizes, indices) is an InvalidArgument naming the stage, and memory
-   * HPIPM could not be given is a ResourceExhausted; a solve HPIPM did not finish is a solution whose status says why.
+   * Solves the problem. Inconsistent problem data (sizes, indices) is an
+   * InvalidArgument naming the stage, and memory HPIPM could not be given is a
+   * ResourceExhausted; a solve HPIPM did not finish is a solution whose status
+   * says why.
    */
   absl::StatusOr<OcpQpSolution> solve(const OcpQpProblem& problem);
 

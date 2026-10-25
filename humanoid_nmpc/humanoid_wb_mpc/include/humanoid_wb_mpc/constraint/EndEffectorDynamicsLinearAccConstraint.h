@@ -41,13 +41,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Defines a linear constraint on an end-effector position (xee) and linear velocity (vee).
- * g(xee, vee, aee) = Ax * xee + Av * vee + Aa *aee + b
+ * Defines a linear constraint on an end-effector position (xee) and linear
+ * velocity (vee). g(xee, vee, aee) = Ax * xee + Av * vee + Aa *aee + b
  *
- * Not thread-safe: its end-effector dynamics evaluate on the Pinocchio data of one worker's PreComputation, so the
- * solver gives each worker thread its own clone().
+ * Not thread-safe: its end-effector dynamics evaluate on the Pinocchio data of
+ * one worker's PreComputation, so the solver gives each worker thread its own
+ * clone().
  */
-class EndEffectorDynamicsLinearAccConstraint final : public StateInputConstraint {
+class EndEffectorDynamicsLinearAccConstraint final
+    : public StateInputConstraint {
  public:
   /**
    * Coefficients of the linear constraints of the form:
@@ -61,40 +63,62 @@ class EndEffectorDynamicsLinearAccConstraint final : public StateInputConstraint
   };
 
   /**
-   * Makes the constraint on the end effector of `endEffectorDynamics`, which it clones.
-   * @param [in] endEffectorDynamics: The dynamics interface to the target end-effector; it has exactly one end effector.
+   * Makes the constraint on the end effector of `endEffectorDynamics`, which it
+   * clones.
+   * @param [in] endEffectorDynamics: The dynamics interface to the target
+   * end-effector; it has exactly one end effector.
    * @param [in] numConstraints: The number of constraints {1, 2, 3}
-   * @param [in] config: The constraint coefficients, g(xee, vee, aee) = Ax * xee + Av * vee + Aa *aee + b
-   * @return InvalidArgument naming the end effectors when `endEffectorDynamics` has other than one.
+   * @param [in] config: The constraint coefficients, g(xee, vee, aee) = Ax *
+   * xee + Av * vee + Aa *aee + b
+   * @return InvalidArgument naming the end effectors when `endEffectorDynamics`
+   * has other than one.
    */
-  static absl::StatusOr<std::unique_ptr<EndEffectorDynamicsLinearAccConstraint>> Create(
-      const EndEffectorDynamics<scalar_t>& endEffectorDynamics, size_t numConstraints, Config config = Config());
+  static absl::StatusOr<std::unique_ptr<EndEffectorDynamicsLinearAccConstraint>>
+  Create(const EndEffectorDynamics<scalar_t>& endEffectorDynamics,
+         size_t numConstraints,
+         Config config = Config());
 
   ~EndEffectorDynamicsLinearAccConstraint() override = default;
-  EndEffectorDynamicsLinearAccConstraint& operator=(const EndEffectorDynamicsLinearAccConstraint&) = delete;
-  EndEffectorDynamicsLinearAccConstraint(EndEffectorDynamicsLinearAccConstraint&&) = delete;
-  EndEffectorDynamicsLinearAccConstraint& operator=(EndEffectorDynamicsLinearAccConstraint&&) = delete;
-  EndEffectorDynamicsLinearAccConstraint* absl_nonnull clone() const override { return new EndEffectorDynamicsLinearAccConstraint(*this); }
+  EndEffectorDynamicsLinearAccConstraint& operator=(
+      const EndEffectorDynamicsLinearAccConstraint&) = delete;
+  EndEffectorDynamicsLinearAccConstraint(
+      EndEffectorDynamicsLinearAccConstraint&&) = delete;
+  EndEffectorDynamicsLinearAccConstraint& operator=(
+      EndEffectorDynamicsLinearAccConstraint&&) = delete;
+  EndEffectorDynamicsLinearAccConstraint* absl_nonnull clone() const override {
+    return new EndEffectorDynamicsLinearAccConstraint(*this);
+  }
 
   /**
-   * Sets new constraint coefficients, unchecked (the pre-computation sets them on every evaluation): `config.b` has
-   * getNumConstraints() rows, and each of Ax, Av and Aa is empty or getNumConstraints() x 3, at least one of Ax and Av
-   * not empty.
+   * Sets new constraint coefficients, unchecked (the pre-computation sets them
+   * on every evaluation): `config.b` has getNumConstraints() rows, and each of
+   * Ax, Av and Aa is empty or getNumConstraints() x 3, at least one of Ax and
+   * Av not empty.
    */
   void configure(Config&& config);
   /** Sets a new constraint coefficients. */
   void configure(const Config& config) { this->configure(Config(config)); }
 
-  size_t getNumConstraints(scalar_t /*time*/) const override { return numConstraints_; }
-  vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
-  VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
-                                                           const vector_t& state,
-                                                           const vector_t& input,
-                                                           const PreComputation& preComp) const override;
+  size_t getNumConstraints(scalar_t /*time*/) const override {
+    return numConstraints_;
+  }
+  vector_t getValue(scalar_t time,
+                    const vector_t& state,
+                    const vector_t& input,
+                    const PreComputation& preComp) const override;
+  VectorFunctionLinearApproximation getLinearApproximation(
+      scalar_t time,
+      const vector_t& state,
+      const vector_t& input,
+      const PreComputation& preComp) const override;
 
  private:
-  EndEffectorDynamicsLinearAccConstraint(const EndEffectorDynamics<scalar_t>& endEffectorDynamics, size_t numConstraints, Config config);
-  EndEffectorDynamicsLinearAccConstraint(const EndEffectorDynamicsLinearAccConstraint& rhs);
+  EndEffectorDynamicsLinearAccConstraint(
+      const EndEffectorDynamics<scalar_t>& endEffectorDynamics,
+      size_t numConstraints,
+      Config config);
+  EndEffectorDynamicsLinearAccConstraint(
+      const EndEffectorDynamicsLinearAccConstraint& rhs);
 
   std::unique_ptr<EndEffectorDynamics<scalar_t>> endEffectorDynamicsPtr_;
   const size_t numConstraints_;

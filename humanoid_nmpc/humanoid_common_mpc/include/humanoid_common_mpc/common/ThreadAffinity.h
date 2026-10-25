@@ -50,7 +50,9 @@ namespace ocs2::humanoid {
  * @param threadName: Optional human-readable name for logging.
  * @return True if affinity was successfully set.
  */
-inline bool setThreadCpuAffinity(const std::vector<int>& cpuCores, pthread_t thread = pthread_self(), const std::string& threadName = "") {
+inline bool setThreadCpuAffinity(const std::vector<int>& cpuCores,
+                                 pthread_t thread = pthread_self(),
+                                 const std::string& threadName = "") {
   if (cpuCores.empty()) {
     return true;
   }
@@ -62,26 +64,31 @@ inline bool setThreadCpuAffinity(const std::vector<int>& cpuCores, pthread_t thr
   std::vector<int> validCores;
 
   for (int core : cpuCores) {
-    if (core >= 0 && (numHardwareThreads == 0 || static_cast<unsigned int>(core) < numHardwareThreads)) {
+    if (core >= 0 && (numHardwareThreads == 0 ||
+                      static_cast<unsigned int>(core) < numHardwareThreads)) {
       CPU_SET(core, &cpuset);
       validCores.push_back(core);
     }
   }
 
-  const std::string onThread = threadName.empty() ? std::string() : absl::StrCat(" on ", threadName);
+  const std::string onThread =
+      threadName.empty() ? std::string() : absl::StrCat(" on ", threadName);
   if (validCores.empty()) {
-    LOG(WARNING) << "No valid CPU cores specified for thread affinity" << onThread << ".";
+    LOG(WARNING) << "No valid CPU cores specified for thread affinity"
+                 << onThread << ".";
     return false;
   }
 
   int rc = pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
   if (rc != 0) {
-    LOG(WARNING) << "Failed to set thread CPU affinity" << onThread << " (error code: " << rc << ").";
+    LOG(WARNING) << "Failed to set thread CPU affinity" << onThread
+                 << " (error code: " << rc << ").";
     return false;
   }
 
-  LOG(INFO) << "[ThreadAffinity] Successfully pinned " << (threadName.empty() ? "thread" : threadName) << " to CPU core(s): ["
-            << absl::StrJoin(validCores, ",") << "]";
+  LOG(INFO) << "[ThreadAffinity] Successfully pinned "
+            << (threadName.empty() ? "thread" : threadName)
+            << " to CPU core(s): [" << absl::StrJoin(validCores, ",") << "]";
 
   return true;
 }
@@ -93,15 +100,17 @@ struct SystemCoreAllocation {
   std::vector<int> simCores;  ///< Cores for MuJoCo physics
   std::vector<int> mrtCores;  ///< Cores for 500 Hz MRT joint control loop
   std::vector<int> mpcCores;  ///< Cores for MPC solver worker and SQP threads
-  /// Cores for the viewer's rendering (the web viewer's render and server threads, under SCHED_IDLE): the cores outside
-  /// the three partitions above when there are any, otherwise simCores; never an MPC core, unless under 4 cores every
-  /// partition is every core.
+  /// Cores for the viewer's rendering (the web viewer's render and server
+  /// threads, under SCHED_IDLE): the cores outside the three partitions above
+  /// when there are any, otherwise simCores; never an MPC core, unless under 4
+  /// cores every partition is every core.
   std::vector<int> viewerCores;
 };
 
 /**
- * The CPUs this process may run on (sched_getaffinity: a container's cpuset, a taskset), ascending. Falls back to
- * 0 .. hardware_concurrency() - 1 when the affinity cannot be read.
+ * The CPUs this process may run on (sched_getaffinity: a container's cpuset, a
+ * taskset), ascending. Falls back to 0 .. hardware_concurrency() - 1 when the
+ * affinity cannot be read.
  */
 inline std::vector<int> availableCores() {
   std::vector<int> cores;
@@ -113,34 +122,43 @@ inline std::vector<int> availableCores() {
     }
   }
   if (cores.empty()) {
-    for (int core = 0; core < static_cast<int>(std::thread::hardware_concurrency()); ++core) cores.push_back(core);
+    for (int core = 0;
+         core < static_cast<int>(std::thread::hardware_concurrency()); ++core)
+      cores.push_back(core);
   }
   return cores;
 }
 
 /** Appends cores[first, last) to `partition` (as far as `cores` reaches). */
-inline void appendCores(const std::vector<int>& cores, size_t first, size_t last, std::vector<int>& partition) {
-  for (size_t index = first; index < last && index < cores.size(); ++index) partition.push_back(cores[index]);
+inline void appendCores(const std::vector<int>& cores,
+                        size_t first,
+                        size_t last,
+                        std::vector<int>& partition) {
+  for (size_t index = first; index < last && index < cores.size(); ++index)
+    partition.push_back(cores[index]);
 }
 
 /**
- * Recommended core partitions over `cores` (ascending CPU numbers): the n-th entry of a partition is the n-th CPU of
- * `cores`, so that every core it names is one the process may use. With n cores:
- *   16 or more: the first 4 for the simulation, the next 2 for the 500 Hz MRT joint control loop, the next (up to 10)
- *               for the MPC solver and its SQP threads, and any beyond those 16 for the viewer's rendering;
- *   8 to 15:    2 simulation, 1 MRT, the rest MPC;
- *   4 to 7:     1 simulation, 1 MRT, the rest MPC;
- *   fewer:      no restriction, every core in every partition.
- * With 4 to 16 cores none is left over, and the viewer shares the simulation cores, never the MPC's: its threads run
- * under SCHED_IDLE, which the physics thread preempts the moment it wakes (a higher nice value would not: the physics
- * could wait out a viewer thread's 3 ms time slice). test_web_viewer_sim_rate_on_the_physics_cores measures it.
+ * Recommended core partitions over `cores` (ascending CPU numbers): the n-th
+ * entry of a partition is the n-th CPU of `cores`, so that every core it names
+ * is one the process may use. With n cores: 16 or more: the first 4 for the
+ * simulation, the next 2 for the 500 Hz MRT joint control loop, the next (up to
+ * 10) for the MPC solver and its SQP threads, and any beyond those 16 for the
+ * viewer's rendering; 8 to 15:    2 simulation, 1 MRT, the rest MPC; 4 to 7: 1
+ * simulation, 1 MRT, the rest MPC; fewer:      no restriction, every core in
+ * every partition. With 4 to 16 cores none is left over, and the viewer shares
+ * the simulation cores, never the MPC's: its threads run under SCHED_IDLE,
+ * which the physics thread preempts the moment it wakes (a higher nice value
+ * would not: the physics could wait out a viewer thread's 3 ms time slice).
+ * test_web_viewer_sim_rate_on_the_physics_cores measures it.
  */
 inline SystemCoreAllocation coreAllocationFor(const std::vector<int>& cores) {
   const size_t numCores = cores.size();
   SystemCoreAllocation alloc;
   // LINT.IfChange(viewer_cores)
-  // The tiers by the number of cores, and where each partition ends in them: the simulation's cores come first, then
-  // the MRT's, then the MPC's (and on the largest tier the viewer's).
+  // The tiers by the number of cores, and where each partition ends in them:
+  // the simulation's cores come first, then the MRT's, then the MPC's (and on
+  // the largest tier the viewer's).
   constexpr int kLargeTierMinCores = 16;
   constexpr int kLargeTierSimEnd = 4;
   constexpr int kLargeTierMrtEnd = 6;
@@ -177,9 +195,11 @@ inline SystemCoreAllocation coreAllocationFor(const std::vector<int>& cores) {
 }
 
 /**
- * Recommended core partitions over the cores this process may use (availableCores()), not the machine's: in a
- * container started with a cpuset, `default` then names cores of that cpuset instead of cores the realtime thread
- * could not be pinned to. On a machine without a restriction it is what it always was, cores 0, 1, 2, ...
+ * Recommended core partitions over the cores this process may use
+ * (availableCores()), not the machine's: in a container started with a cpuset,
+ * `default` then names cores of that cpuset instead of cores the realtime
+ * thread could not be pinned to. On a machine without a restriction it is what
+ * it always was, cores 0, 1, 2, ...
  */
 inline SystemCoreAllocation getDefaultCoreAllocation() {
   return coreAllocationFor(availableCores());

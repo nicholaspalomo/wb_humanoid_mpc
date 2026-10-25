@@ -48,7 +48,10 @@ NAME = "american-spelling"
 NOLINT = "NOLINT(american-spelling)"
 # The checker's own word list and its tests are British on purpose.
 _OWN_FILES = frozenset(
-    {"tools/hooks/american_spelling.py", "tools/hooks/test_american_spelling.py"}
+    {
+        "tools/hooks/american_spelling.py",
+        "tools/hooks/test_american_spelling.py",
+    }
 )
 
 # -our -> -or. Only these stems: "four", "hour", "your", "tour", "pour", "source" and "course" are not British.
@@ -360,8 +363,9 @@ class Finding(NamedTuple):
 
     def __str__(self) -> str:
         return (
-            f"{self.path}:{self.line}: British spelling `{self.british}` - write `{self.american}` (American English "
-            f"throughout, see AGENTS.md), or mark the line `{NOLINT}` if it must stay."
+            f"{self.path}:{self.line}: British spelling `{self.british}` -"
+            f" write `{self.american}` (American English throughout, see"
+            f" AGENTS.md), or mark the line `{NOLINT}` if it must stay."
         )
 
 
@@ -390,7 +394,9 @@ def _scan_line(line: str) -> list[tuple[re.Match[str], str]]:
     matches = []
     for part in _PART.finditer(line):
         american = _american_spelling(part.group(0).lower())
-        if american is None or any(start <= part.start() < end for start, end in urls):
+        if american is None or any(
+            start <= part.start() < end for start, end in urls
+        ):
             continue
         matches.append((part, _match_case(part.group(0), american)))
     return matches
@@ -423,7 +429,9 @@ def fix_source(source: str) -> tuple[str, int]:
         if NOLINT in line:
             out_lines.append(line)
             continue
-        edits = [(m.start(), m.end(), american) for m, american in _scan_line(line)]
+        edits = [
+            (m.start(), m.end(), american) for m, american in _scan_line(line)
+        ]
         for start, end, american in reversed(edits):
             line = line[:start] + american + line[end:]
         count += len(edits)
@@ -461,8 +469,8 @@ def _findings(source: str, path: str) -> list[check_types.Finding]:
                     number,
                     match.start() + 1,
                     NAME,
-                    f"British spelling `{match.group(0)}`: write `{american}` (American English throughout, "
-                    "AGENTS.md).",
+                    f"British spelling `{match.group(0)}`: write `{american}`"
+                    " (American English throughout, AGENTS.md).",
                 )
             )
     return findings
@@ -479,9 +487,14 @@ CHECKS = [
         scope=lint_files.Scope.TEXT,
         check_source=_findings,
         fix_source=_fix,
-        description="American English throughout: color, behavior, center, initialize (AGENTS.md).",
-        hint="Fix them all with: python3 -m tools.hooks.american_spelling --fix <files> (or lint_code --fix "
-        "--only american-spelling).",
+        description=(
+            "American English throughout: color, behavior, center, initialize"
+            " (AGENTS.md)."
+        ),
+        hint=(
+            "Fix them all with: python3 -m tools.hooks.american_spelling --fix"
+            " <files> (or lint_code --fix --only american-spelling)."
+        ),
     )
 ]
 
@@ -489,7 +502,9 @@ CHECKS = [
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("paths", nargs="+")
-    parser.add_argument("--fix", action="store_true", help="rewrite the files in place")
+    parser.add_argument(
+        "--fix", action="store_true", help="rewrite the files in place"
+    )
     args = parser.parse_args(argv)
     if args.fix:
         total = 0

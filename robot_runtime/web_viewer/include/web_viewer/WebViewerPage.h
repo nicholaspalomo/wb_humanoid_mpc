@@ -34,8 +34,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::web_viewer {
 
 /**
- * Returns the viewer's page, robot_runtime/web_viewer/page/index.html, which tools/embed_page.py compiles into the
- * library (a generated WebViewerPage.cpp). The view refers to static storage and is valid for the whole program.
+ * Returns the viewer's page, robot_runtime/web_viewer/page/index.html, which
+ * tools/embed_page.py compiles into the library (a generated
+ * WebViewerPage.cpp). The view refers to static storage and is valid for the
+ * whole program.
  */
 absl::string_view webViewerPage();
 

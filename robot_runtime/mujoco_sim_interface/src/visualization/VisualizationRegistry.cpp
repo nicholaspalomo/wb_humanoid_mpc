@@ -60,28 +60,35 @@ struct Entry {
   bool enabledByDefault;
 };
 
-/// The registry, in drawing order. A new visualization is added here and nowhere else; the task file refers to the
-/// name it reports. The MuJoCo option flags come last so that they never shift the order of the custom markers.
+/// The registry, in drawing order. A new visualization is added here and
+/// nowhere else; the task file refers to the name it reports. The MuJoCo option
+/// flags come last so that they never shift the order of the custom markers.
 // LINT.IfChange(visualization_names)
 const std::vector<Entry>& registry() {
-  static const absl::NoDestructor<std::vector<Entry>> kEntries(std::vector<Entry>{
-      {[] { return std::make_unique<MetricsOverlay>(); }, true},
-      {[] { return std::make_unique<ExternalForceVisualization>(); }, true},
-      {[] { return std::make_unique<ContactForceVisualization>(); }, true},
-      {[] { return std::make_unique<BaseVelocityVisualization>(); }, true},
-      {[] { return std::make_unique<ContactTimelineVisualization>(); }, true},
-      {[] { return std::make_unique<TargetContactPatchVisualization>(); }, true},
-      // Centroidal markers on the ground: off unless listed, like MuJoCo's own markers.
-      {[] { return std::make_unique<CenterOfMassVisualization>(); }, false},
-      {[] { return std::make_unique<ZmpVisualization>(); }, false},
-      {[] { return std::make_unique<DcmVisualization>(); }, false},
-      {[] { return MujocoOptionFlagVisualization::contactPoints(); }, false},
-      {[] { return MujocoOptionFlagVisualization::contactForces(); }, false},
-      {[] { return MujocoOptionFlagVisualization::centerOfMass(); }, false},
-      {[] { return MujocoOptionFlagVisualization::inertia(); }, false},
-      {[] { return MujocoOptionFlagVisualization::convexHull(); }, false},
-      {[] { return MujocoOptionFlagVisualization::transparency(); }, false},
-  });
+  static const absl::NoDestructor<std::vector<Entry>> kEntries(
+      std::vector<Entry>{
+          {[] { return std::make_unique<MetricsOverlay>(); }, true},
+          {[] { return std::make_unique<ExternalForceVisualization>(); }, true},
+          {[] { return std::make_unique<ContactForceVisualization>(); }, true},
+          {[] { return std::make_unique<BaseVelocityVisualization>(); }, true},
+          {[] { return std::make_unique<ContactTimelineVisualization>(); },
+           true},
+          {[] { return std::make_unique<TargetContactPatchVisualization>(); },
+           true},
+          // Centroidal markers on the ground: off unless listed, like MuJoCo's
+          // own markers.
+          {[] { return std::make_unique<CenterOfMassVisualization>(); }, false},
+          {[] { return std::make_unique<ZmpVisualization>(); }, false},
+          {[] { return std::make_unique<DcmVisualization>(); }, false},
+          {[] { return MujocoOptionFlagVisualization::contactPoints(); },
+           false},
+          {[] { return MujocoOptionFlagVisualization::contactForces(); },
+           false},
+          {[] { return MujocoOptionFlagVisualization::centerOfMass(); }, false},
+          {[] { return MujocoOptionFlagVisualization::inertia(); }, false},
+          {[] { return MujocoOptionFlagVisualization::convexHull(); }, false},
+          {[] { return MujocoOptionFlagVisualization::transparency(); }, false},
+      });
   return *kEntries;
 }
 // clang-format off
@@ -93,7 +100,8 @@ std::vector<VisualizationInfo> availableVisualizations() {
   std::vector<VisualizationInfo> infos;
   for (const Entry& entry : registry()) {
     const std::unique_ptr<MujocoVisualization> visualization = entry.create();
-    infos.push_back({visualization->name(), visualization->description(), visualization->hotkey()});
+    infos.push_back({visualization->name(), visualization->description(),
+                     visualization->hotkey()});
   }
   return infos;
 }
@@ -106,7 +114,8 @@ std::vector<std::string> defaultVisualizationNames() {
   return names;
 }
 
-std::unique_ptr<MujocoVisualization> createVisualization(const std::string& name) {
+std::unique_ptr<MujocoVisualization> createVisualization(
+    const std::string& name) {
   for (const Entry& entry : registry()) {
     std::unique_ptr<MujocoVisualization> visualization = entry.create();
     if (visualization->name() == name) return visualization;
@@ -114,27 +123,34 @@ std::unique_ptr<MujocoVisualization> createVisualization(const std::string& name
   return nullptr;
 }
 
-std::vector<std::unique_ptr<MujocoVisualization>> createVisualizations(const std::vector<std::string>& names,
-                                                                       std::vector<std::string>* absl_nullable errors) {
+std::vector<std::unique_ptr<MujocoVisualization>> createVisualizations(
+    const std::vector<std::string>& names,
+    std::vector<std::string>* absl_nullable errors) {
   std::set<std::string> known;
-  for (const VisualizationInfo& info : availableVisualizations()) known.insert(info.name);
+  for (const VisualizationInfo& info : availableVisualizations())
+    known.insert(info.name);
   std::set<std::string> requested;
   for (const std::string& name : names) {
     if (!known.contains(name)) {
       if (errors != nullptr) {
-        errors->push_back(absl::StrCat("unknown visualization '", name, "'; available: ", absl::StrJoin(known, " ")));
+        errors->push_back(
+            absl::StrCat("unknown visualization '", name,
+                         "'; available: ", absl::StrJoin(known, " ")));
       }
       continue;
     }
     if (!requested.insert(name).second && errors != nullptr) {
-      errors->push_back(absl::StrCat("visualization '", name, "' is listed more than once"));
+      errors->push_back(
+          absl::StrCat("visualization '", name, "' is listed more than once"));
     }
   }
   std::vector<std::unique_ptr<MujocoVisualization>> visualizations;
   for (const Entry& entry : registry()) {
     std::unique_ptr<MujocoVisualization> visualization = entry.create();
     if (!requested.contains(visualization->name())) continue;
-    visualization->setEnabled(true);  // listed means on at start-up, also for MuJoCo's own markers that default to off
+    visualization->setEnabled(
+        true);  // listed means on at start-up, also for MuJoCo's own markers
+                // that default to off
     visualizations.push_back(std::move(visualization));
   }
   return visualizations;

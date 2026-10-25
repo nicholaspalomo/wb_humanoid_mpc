@@ -41,29 +41,38 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-// deviation_, initialized first, checks that the model is not null before the input dimension is read off it.
-TuningQuadraticStateInputCost::TuningQuadraticStateInputCost(const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModel)
+// deviation_, initialized first, checks that the model is not null before the
+// input dimension is read off it.
+TuningQuadraticStateInputCost::TuningQuadraticStateInputCost(
+    const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModel)
     : deviation_(mpcRobotModel), inputDim_(mpcRobotModel->getInputDim()) {}
 
-scalar_t TuningQuadraticStateInputCost::getValue(scalar_t time,
-                                                 const vector_t& state,
-                                                 const vector_t& input,
-                                                 const TargetTrajectories& targetTrajectories,
-                                                 const PreComputation& preComputation) const {
-  const StateInputReference reference = getReference(time, state, input, targetTrajectories, preComputation);
+scalar_t TuningQuadraticStateInputCost::getValue(
+    scalar_t time,
+    const vector_t& state,
+    const vector_t& input,
+    const TargetTrajectories& targetTrajectories,
+    const PreComputation& preComputation) const {
+  const StateInputReference reference =
+      getReference(time, state, input, targetTrajectories, preComputation);
   const vector_t residual = deviation_.evaluate(state, reference.state);
   const vector_t inputDeviation = input - reference.input;
   // OCS2's QuadraticStateInputCost::getValue, term for term.
-  return 0.5 * residual.dot(stateWeights_ * residual) + 0.5 * inputDeviation.dot(inputWeights_ * inputDeviation);
+  return 0.5 * residual.dot(stateWeights_ * residual) +
+         0.5 * inputDeviation.dot(inputWeights_ * inputDeviation);
 }
 
-ScalarFunctionQuadraticApproximation TuningQuadraticStateInputCost::getQuadraticApproximation(scalar_t time,
-                                                                                              const vector_t& state,
-                                                                                              const vector_t& input,
-                                                                                              const TargetTrajectories& targetTrajectories,
-                                                                                              const PreComputation& preComputation) const {
-  const StateInputReference reference = getReference(time, state, input, targetTrajectories, preComputation);
-  const TuningDeviationApproximation deviation = deviation_.linearize(state, reference.state);
+ScalarFunctionQuadraticApproximation
+TuningQuadraticStateInputCost::getQuadraticApproximation(
+    scalar_t time,
+    const vector_t& state,
+    const vector_t& input,
+    const TargetTrajectories& targetTrajectories,
+    const PreComputation& preComputation) const {
+  const StateInputReference reference =
+      getReference(time, state, input, targetTrajectories, preComputation);
+  const TuningDeviationApproximation deviation =
+      deviation_.linearize(state, reference.state);
   const vector_t inputDeviation = input - reference.input;
   const size_t stateDim = static_cast<size_t>(state.size());
 
@@ -72,23 +81,31 @@ ScalarFunctionQuadraticApproximation TuningQuadraticStateInputCost::getQuadratic
   approximation.dfduu = inputWeights_;
   approximation.dfdx = tuningGradient(deviation, stateWeights_, stateDim);
   approximation.dfdu.noalias() = inputWeights_ * inputDeviation;
-  // On the identity Jacobian dfdx is Q r, and the value is taken from it as OCS2's QuadraticStateInputCost takes it.
-  const scalar_t stateValue = isIdentityTuningJacobian(deviation, stateDim)
-                                  ? 0.5 * deviation.residual.dot(approximation.dfdx)
-                                  : 0.5 * deviation.residual.dot(stateWeights_ * deviation.residual);
+  // On the identity Jacobian dfdx is Q r, and the value is taken from it as
+  // OCS2's QuadraticStateInputCost takes it.
+  const scalar_t stateValue =
+      isIdentityTuningJacobian(deviation, stateDim)
+          ? 0.5 * deviation.residual.dot(approximation.dfdx)
+          : 0.5 * deviation.residual.dot(stateWeights_ * deviation.residual);
   approximation.f = stateValue + 0.5 * inputDeviation.dot(approximation.dfdu);
   approximation.dfdux.setZero(input.size(), state.size());
   return approximation;
 }
 
-absl::Status TuningQuadraticStateInputCost::setStateWeights(matrix_t stateWeights) {
-  RETURN_IF_ERROR(validateQuadraticWeights(stateWeights, deviation_.getTuningDim(), "[TuningQuadraticStateInputCost] the state weights Q"));
+absl::Status TuningQuadraticStateInputCost::setStateWeights(
+    matrix_t stateWeights) {
+  RETURN_IF_ERROR(validateQuadraticWeights(
+      stateWeights, deviation_.getTuningDim(),
+      "[TuningQuadraticStateInputCost] the state weights Q"));
   stateWeights_ = std::move(stateWeights);
   return absl::OkStatus();
 }
 
-absl::Status TuningQuadraticStateInputCost::setInputWeights(matrix_t inputWeights) {
-  RETURN_IF_ERROR(validateQuadraticWeights(inputWeights, inputDim_, "[TuningQuadraticStateInputCost] the input weights R"));
+absl::Status TuningQuadraticStateInputCost::setInputWeights(
+    matrix_t inputWeights) {
+  RETURN_IF_ERROR(validateQuadraticWeights(
+      inputWeights, inputDim_,
+      "[TuningQuadraticStateInputCost] the input weights R"));
   inputWeights_ = std::move(inputWeights);
   return absl::OkStatus();
 }

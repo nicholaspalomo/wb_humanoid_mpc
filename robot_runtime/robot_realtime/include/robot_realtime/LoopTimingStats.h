@@ -37,9 +37,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace robot::realtime {
 
-/// The timing of one cycle of the loop, on CLOCK_MONOTONIC (see monotonicNow()).
+/// The timing of one cycle of the loop, on CLOCK_MONOTONIC (see
+/// monotonicNow()).
 struct CycleTiming {
-  /// When the cycle's work began, normally the wake-up from PeriodicTimer::waitForNextPeriod().
+  /// When the cycle's work began, normally the wake-up from
+  /// PeriodicTimer::waitForNextPeriod().
   std::chrono::nanoseconds start{0};
   /// When its work finished.
   std::chrono::nanoseconds end{0};
@@ -50,8 +52,9 @@ struct CycleTiming {
 };
 
 /**
- * Accumulates the realtime loop's period, compute time, overruns and wake-up latency over a reporting window, and
- * condenses them into a LoopTimingSnapshot when the window closes. Allocation-free and lock-free; owned by the realtime
+ * Accumulates the realtime loop's period, compute time, overruns and wake-up
+ * latency over a reporting window, and condenses them into a LoopTimingSnapshot
+ * when the window closes. Allocation-free and lock-free; owned by the realtime
  * thread, which hands the snapshot on:
  *
  *   if (stats.addCycle(wakeup, monotonicNow())) {
@@ -59,29 +62,36 @@ struct CycleTiming {
  *     timingBuffer.publishWrite();
  *   }
  *
- * A window opens at the start of a cycle and closes at the start of the first cycle that begins `reportingWindow` or
- * more after it; that cycle belongs to the closing window, and its start opens the next one. So the periods of a window
- * (the intervals between consecutive cycle starts) add up to its duration, and the windows tile time without gaps.
+ * A window opens at the start of a cycle and closes at the start of the first
+ * cycle that begins `reportingWindow` or more after it; that cycle belongs to
+ * the closing window, and its start opens the next one. So the periods of a
+ * window (the intervals between consecutive cycle starts) add up to its
+ * duration, and the windows tile time without gaps.
  */
 class LoopTimingStats {
  public:
   /// `targetPeriod` and `reportingWindow` must be positive.
-  LoopTimingStats(std::chrono::nanoseconds targetPeriod, std::chrono::nanoseconds reportingWindow);
+  LoopTimingStats(std::chrono::nanoseconds targetPeriod,
+                  std::chrono::nanoseconds reportingWindow);
 
-  /// Adds one cycle. True when it closed a reporting window, i.e. lastSnapshot() has just been replaced.
+  /// Adds one cycle. True when it closed a reporting window, i.e.
+  /// lastSnapshot() has just been replaced.
   bool addCycle(const CycleTiming& cycle);
 
-  /// addCycle() for a cycle that PeriodicTimer woke with `wakeup` and whose work finished at `end`.
+  /// addCycle() for a cycle that PeriodicTimer woke with `wakeup` and whose
+  /// work finished at `end`.
   bool addCycle(const TimerWakeup& wakeup, std::chrono::nanoseconds end);
 
-  /// The snapshot of the last closed window; LoopTimingSnapshot::window is 0 until the first has closed.
+  /// The snapshot of the last closed window; LoopTimingSnapshot::window is 0
+  /// until the first has closed.
   const LoopTimingSnapshot& lastSnapshot() const { return snapshot_; }
 
   std::chrono::nanoseconds targetPeriod() const { return targetPeriod_; }
   std::chrono::nanoseconds reportingWindow() const { return reportingWindow_; }
 
  private:
-  // Accumulated over the open window, in integer nanoseconds so that a long window loses no precision.
+  // Accumulated over the open window, in integer nanoseconds so that a long
+  // window loses no precision.
   struct Window {
     std::chrono::nanoseconds start{0};
     uint64_t cycles = 0;

@@ -144,7 +144,9 @@ class _RobotStateRecorder:
 
 
 def joint_value(
-    sample: robot_state_sample_pb2.RobotStateSample, values: list[float], joint: str
+    sample: robot_state_sample_pb2.RobotStateSample,
+    values: list[float],
+    joint: str,
 ) -> float:
     """The entry of `values` (an array of `sample` aligned with joint_names) of `joint`; NaN without one."""
     names = list(sample.joint_names)
@@ -167,13 +169,18 @@ class GuiControlsEndToEndTest(unittest.TestCase):
         # The laptop's copy, below a robot_models/ directory so that its configuration identity is the robot's.
         config = operator_test_support.copy_config(
             os.path.join(operator_test_support.ATLAS_PACKAGE, "config"),
-            os.path.join(self.scratch, "laptop", operator_test_support.ATLAS_PACKAGE),
+            os.path.join(
+                self.scratch, "laptop", operator_test_support.ATLAS_PACKAGE
+            ),
         )
         self.task_file = os.path.join(config, "mpc", "task.textproto")
         reference_file = os.path.join(config, "command", "reference.textproto")
 
         self.robot = operator_test_support.RobotProcess(
-            ROBOT_BINARY, network_file, self.store, os.path.join(logs, "robot.log")
+            ROBOT_BINARY,
+            network_file,
+            self.store,
+            os.path.join(logs, "robot.log"),
         )
         self.addCleanup(self.robot.stop)
 
@@ -219,7 +226,9 @@ class GuiControlsEndToEndTest(unittest.TestCase):
 
     # ── Driving the GUI ─────────────────────────────────────────────────────────────────────────────────────────
 
-    def _record_tk_error(self, exc: type, value: BaseException, tb: object) -> None:
+    def _record_tk_error(
+        self, exc: type, value: BaseException, tb: object
+    ) -> None:
         del exc, tb  # Unused: the message says what failed.
         self.tk_errors.append(repr(value))
 
@@ -251,12 +260,17 @@ class GuiControlsEndToEndTest(unittest.TestCase):
 
         def reported() -> bool:
             return (
-                self._robot_fsm_state() is not None and self.states.latest() is not None
+                self._robot_fsm_state() is not None
+                and self.states.latest() is not None
             ) or not self.robot.running()
 
         started = self._pump_until(reported, START_TIMEOUT_S)
-        self.assertTrue(self.robot.running(), "the robot process exited on start-up")
-        self.assertTrue(started, "the robot's FSM state or telemetry did not arrive")
+        self.assertTrue(
+            self.robot.running(), "the robot process exited on start-up"
+        )
+        self.assertTrue(
+            started, "the robot's FSM state or telemetry did not arrive"
+        )
 
     def _robot_fsm_state(self) -> fsm_state.FsmState | None:
         """The last robot/fsm_state the GUI followed, as App.update_fsm_state() kept it."""
@@ -275,7 +289,9 @@ class GuiControlsEndToEndTest(unittest.TestCase):
         self.app.fsm_mode_var.set(mode)
         self.app.fsm_dropdown.event_generate("<<ComboboxSelected>>")
         self.assertGreater(
-            self.bus.fsm_command.last_sequence, sent, f"selecting {mode} sent nothing"
+            self.bus.fsm_command.last_sequence,
+            sent,
+            f"selecting {mode} sent nothing",
         )
 
     def _controller_mode(self) -> str:
@@ -286,19 +302,25 @@ class GuiControlsEndToEndTest(unittest.TestCase):
         """The robot runs `mode`, its FSM state says so, and the GUI's drop-down shows it."""
 
         def entered() -> bool:
-            return self._controller_mode() == mode and self._robot_state().mode == mode
+            return (
+                self._controller_mode() == mode
+                and self._robot_state().mode == mode
+            )
 
         self.assertTrue(
             self._pump_until(entered),
-            f"the robot did not enter {mode}: it runs '{self._controller_mode()}', reports "
-            f"{self._robot_fsm_state()}",
+            f"the robot did not enter {mode}: it runs"
+            f" '{self._controller_mode()}', reports {self._robot_fsm_state()}",
         )
         self.assertEqual(self.app.fsm_mode_var.get(), mode)
 
     def _assert_gantry(self, locked: bool) -> None:
         self.assertTrue(
-            self._pump_until(lambda: self._robot_state().gantry_locked == locked),
-            f"the robot's gantry is not {'locked' if locked else 'released'}: {self._robot_fsm_state()}",
+            self._pump_until(
+                lambda: self._robot_state().gantry_locked == locked
+            ),
+            f"the robot's gantry is not {'locked' if locked else 'released'}:"
+            f" {self._robot_fsm_state()}",
         )
         self.assertEqual(self.app.gantry_var.get(), locked)
 
@@ -309,7 +331,9 @@ class GuiControlsEndToEndTest(unittest.TestCase):
 
     def _set_slider_height(self, height: float) -> None:
         """Moves the height slider to command the pelvis height `height` [m]."""
-        self.app.slider.set((height - self.app.min_height) / self.app.height_scale)
+        self.app.slider.set(
+            (height - self.app.min_height) / self.app.height_scale
+        )
 
     def _settled_base_height(self, duration: float = 1.5) -> float:
         self._pump_for(duration)
@@ -351,7 +375,8 @@ class GuiControlsEndToEndTest(unittest.TestCase):
             self._pump_until(
                 lambda: abs(self._base_height() - lifted) < HEIGHT_TOLERANCE_M
             ),
-            f"the locked gantry did not lift the base from {standing} m: it is at {self._base_height()} m",
+            f"the locked gantry did not lift the base from {standing} m: it is"
+            f" at {self._base_height()} m",
         )
         standing = self._touch_ground()
 
@@ -391,7 +416,9 @@ class GuiControlsEndToEndTest(unittest.TestCase):
         self._select_mode("JOINT_PD")
         self._assert_mode("JOINT_PD")
         tab = self.app.joint_targets_tab
-        target = tab.default_positions.get(TARGET_JOINT, 0.0) + TARGET_OFFSET_RAD
+        target = (
+            tab.default_positions.get(TARGET_JOINT, 0.0) + TARGET_OFFSET_RAD
+        )
         tab.slider_rows[TARGET_JOINT].set_value(target)
 
         def targeted() -> bool:
@@ -400,14 +427,17 @@ class GuiControlsEndToEndTest(unittest.TestCase):
 
         self.assertTrue(
             self._pump_until(targeted),
-            f"the JOINT_PD target of {TARGET_JOINT} is "
-            f"{self._joint_sample('joint_position_targets', TARGET_JOINT)}, not {target}",
+            f"the JOINT_PD target of {TARGET_JOINT} is"
+            f" {self._joint_sample('joint_position_targets', TARGET_JOINT)},"
+            f" not {target}",
         )
 
         kp = self._joint_sample("joint_kp", TARGET_JOINT)
         self.assertGreater(kp, 0.0)
         pd_tab = self.app.joint_pd_tab
-        button = pd_tab.scale_buttons[joint_pd_tab.SCALE_FACTORS.index(KP_FACTOR)]
+        button = pd_tab.scale_buttons[
+            joint_pd_tab.SCALE_FACTORS.index(KP_FACTOR)
+        ]
         self.assertEqual(button.cget("text"), f"{KP_FACTOR}x")
         button.invoke()
 
@@ -419,11 +449,14 @@ class GuiControlsEndToEndTest(unittest.TestCase):
 
         self.assertTrue(
             self._pump_until(scaled),
-            f"the Kp of {TARGET_JOINT} is {self._joint_sample('joint_kp', TARGET_JOINT)}, not "
-            f"{KP_FACTOR} x {kp}",
+            f"the Kp of {TARGET_JOINT} is"
+            f" {self._joint_sample('joint_kp', TARGET_JOINT)}, not"
+            f" {KP_FACTOR} x {kp}",
         )
 
-    def test_the_contact_estimator_choice_applies_and_save_stores_the_file(self):
+    def test_the_contact_estimator_choice_applies_and_save_stores_the_file(
+        self,
+    ):
         choice = self.app.schema_choices.get("contact_estimator")
         self.assertIsNotNone(
             choice, "the Base Controller tab offers no contact estimator"
@@ -456,13 +489,18 @@ class GuiControlsEndToEndTest(unittest.TestCase):
         )
         outcome = tab.robot_save.outcome()
         assert outcome is not None
-        self.assertEqual(outcome.state, robot_config_save.SaveState.SAVED, outcome)
+        self.assertEqual(
+            outcome.state, robot_config_save.SaveState.SAVED, outcome
+        )
         stored = os.path.join(self.store, STORED_TASK)
-        with open(stored, "rb") as robot_copy, open(self.task_file, "rb") as laptop:
+        with open(stored, "rb") as robot_copy, open(
+            self.task_file, "rb"
+        ) as laptop:
             stored_bytes = robot_copy.read()
             self.assertEqual(stored_bytes, laptop.read())
         self.assertIn(
-            f'contact_estimator: "{NEW_CONTACT_ESTIMATOR}"', stored_bytes.decode()
+            f'contact_estimator: "{NEW_CONTACT_ESTIMATOR}"',
+            stored_bytes.decode(),
         )
 
     def test_a_dodgeball_hits_the_released_robot(self):
@@ -482,7 +520,8 @@ class GuiControlsEndToEndTest(unittest.TestCase):
         self.assertGreater(
             hit_speed,
             standing_speed + DODGEBALL_SPEED_JUMP_MPS,
-            f"the base moved at most {hit_speed} m/s after the throw, {standing_speed} m/s before it",
+            f"the base moved at most {hit_speed} m/s after the throw,"
+            f" {standing_speed} m/s before it",
         )
 
 

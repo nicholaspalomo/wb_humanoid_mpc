@@ -37,31 +37,42 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `periodic_orientation`: H_Theta(Phi) = b1 sin(c1 Phi + d1) (Bledt, Appendix C, Table C.2).
+ * `periodic_orientation`: H_Theta(Phi) = b1 sin(c1 Phi + d1) (Bledt, Appendix
+ * C, Table C.2).
  *
- * The orientation limit cycle a walking robot falls into on its own, stated as a sinusoid in the gait phase.
+ * The orientation limit cycle a walking robot falls into on its own, stated as
+ * a sinusoid in the gait phase.
  *
- * This is the clearest illustration of what the extraction framework is for. The robot's steady-state pitch during a
- * trot is genuinely complicated, and Bledt makes the point that it is "currently too difficult to analyze without
- * data-driven methods" - yet a single sine at the step frequency fits it with R^2 = 0.84, and summed with the
- * velocity-dependent term of `orientation_compensation` it reproduces the measured pitch closely (section 4.2,
- * equation 4.13, figures 4-6 and 4-7). The value of the fit is not its accuracy but that its four numbers mean
- * something an engineer can turn: an amplitude, a frequency and a phase.
+ * This is the clearest illustration of what the extraction framework is for.
+ * The robot's steady-state pitch during a trot is genuinely complicated, and
+ * Bledt makes the point that it is "currently too difficult to analyze without
+ * data-driven methods" - yet a single sine at the step frequency fits it with
+ * R^2 = 0.84, and summed with the velocity-dependent term of
+ * `orientation_compensation` it reproduces the measured pitch closely
+ * (section 4.2, equation 4.13, figures 4-6 and 4-7). The value of the fit is
+ * not its accuracy but that its four numbers mean something an engineer can
+ * turn: an amplitude, a frequency and a phase.
  *
- * Because it is a limit cycle at gait frequency it is also the heuristic that could not be expressed by shaping the
- * target trajectory, whose knots over a one-second horizon, placed by the command (three on a straight walk), would
- * sample two or three whole periods and interpolate linearly between the samples. It only works at the per-node seam.
+ * Because it is a limit cycle at gait frequency it is also the heuristic that
+ * could not be expressed by shaping the target trajectory, whose knots over a
+ * one-second horizon, placed by the command (three on a straight walk), would
+ * sample two or three whole periods and interpolate linearly between the
+ * samples. It only works at the per-node seam.
  *
- * Like every LocomotionHeuristic, its const methods are safe to call concurrently; configure() is not, and must not run
- * while they do.
+ * Like every LocomotionHeuristic, its const methods are safe to call
+ * concurrently; configure() is not, and must not run while they do.
  */
 class PeriodicOrientationHeuristic final : public BasePoseHeuristic {
  public:
   PeriodicOrientationHeuristic() = default;
   ~PeriodicOrientationHeuristic() override = default;
 
-  absl::string_view name() const override { return heuristic::kPeriodicOrientation; }
-  absl::Status configure(const LocomotionHeuristicConfig& config, const LocomotionHeuristicModelParameters& model) override;
+  absl::string_view name() const override {
+    return heuristic::kPeriodicOrientation;
+  }
+  absl::Status configure(
+      const LocomotionHeuristicConfig& config,
+      const LocomotionHeuristicModelParameters& model) override;
   std::string describe() const override;
 
   BasePoseOffset offset(const BasePoseHeuristicContext& context) const override;

@@ -27,10 +27,11 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// The messages of the realtime loop and the MPC link convert without a heap allocation once the struct or message they
-// convert into has the value's shape, so that the robot's communication thread can decode a policy and encode an
-// observation into objects it keeps. A binary of its own, because the allocation counter replaces malloc for the whole
-// process.
+// The messages of the realtime loop and the MPC link convert without a heap
+// allocation once the struct or message they convert into has the value's
+// shape, so that the robot's communication thread can decode a policy and
+// encode an observation into objects it keeps. A binary of its own, because the
+// allocation counter replaces malloc for the whole process.
 
 #include "gtest/gtest.h"
 
@@ -54,21 +55,26 @@ struct Conversion {
 template <typename T>
 class RealtimeMessageAllocationTest : public ::testing::Test {};
 
-using RealtimeMessages = ::testing::Types<Conversion<RobotStateSample, humanoid_mpc_msgs::RobotStateSample>,
-                                          Conversion<MpcObservation, humanoid_mpc_msgs::MpcObservation>,
-                                          Conversion<SystemObservation, humanoid_mpc_msgs::SystemObservation>,
-                                          Conversion<LoopTiming, humanoid_mpc_msgs::LoopTiming>,
-                                          Conversion<FsmState, humanoid_mpc_msgs::FsmState>,
-                                          Conversion<MpcPolicy, humanoid_mpc_msgs::MpcPolicy>>;
+using RealtimeMessages = ::testing::Types<
+    Conversion<RobotStateSample, humanoid_mpc_msgs::RobotStateSample>,
+    Conversion<MpcObservation, humanoid_mpc_msgs::MpcObservation>,
+    Conversion<SystemObservation, humanoid_mpc_msgs::SystemObservation>,
+    Conversion<LoopTiming, humanoid_mpc_msgs::LoopTiming>,
+    Conversion<FsmState, humanoid_mpc_msgs::FsmState>,
+    Conversion<MpcPolicy, humanoid_mpc_msgs::MpcPolicy>>;
 TYPED_TEST_SUITE(RealtimeMessageAllocationTest, RealtimeMessages);
 
-TYPED_TEST(RealtimeMessageAllocationTest, ConvertingIntoObjectsOfTheValuesShapeDoesNotAllocate) {
-  nproto::test_support::ExpectConversionsIntoSizedObjectsDoNotAllocate<typename TypeParam::Struct, typename TypeParam::Proto>();
+TYPED_TEST(RealtimeMessageAllocationTest,
+           ConvertingIntoObjectsOfTheValuesShapeDoesNotAllocate) {
+  nproto::test_support::ExpectConversionsIntoSizedObjectsDoNotAllocate<
+      typename TypeParam::Struct, typename TypeParam::Proto>();
 }
 
 // A policy of the size the MPC sends: 60 nodes of 60-dimensional vectors.
-TEST(RealtimeMessageAllocationTest, AFullSizePolicyConvertsWithoutAllocatingOnceSized) {
-  nproto::test_support::ExpectConversionsIntoSizedObjectsDoNotAllocate<MpcPolicy, humanoid_mpc_msgs::MpcPolicy>(
+TEST(RealtimeMessageAllocationTest,
+     AFullSizePolicyConvertsWithoutAllocatingOnceSized) {
+  nproto::test_support::ExpectConversionsIntoSizedObjectsDoNotAllocate<
+      MpcPolicy, humanoid_mpc_msgs::MpcPolicy>(
       /*repeatedSize=*/60);
 }
 

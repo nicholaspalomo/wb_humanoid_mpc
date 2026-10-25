@@ -89,7 +89,9 @@ def _glob(root: str, package: str, call: ast.Call) -> set[str]:
                 os.path.join(root, package, pattern), recursive=True
             ):
                 if os.path.isfile(match):
-                    found.add(lint_files.normalize(os.path.relpath(match, root)))
+                    found.add(
+                        lint_files.normalize(os.path.relpath(match, root))
+                    )
         return found
 
     include = matches(_string_list(call.args[0])) if call.args else set()
@@ -97,7 +99,9 @@ def _glob(root: str, package: str, call: ast.Call) -> set[str]:
     if "include" in keywords:
         include |= matches(_string_list(keywords["include"]))
     excluded = (
-        matches(_string_list(keywords["exclude"])) if "exclude" in keywords else set()
+        matches(_string_list(keywords["exclude"]))
+        if "exclude" in keywords
+        else set()
     )
     return include - excluded
 
@@ -115,7 +119,9 @@ def _sources(root: str, package: str, node: ast.expr) -> set[str]:
             and not leaf.value.startswith((":", "//", "@"))
         ):
             sources.add(lint_files.normalize(os.path.join(package, leaf.value)))
-    return {path for path in sources if path.endswith(lint_files.CPP_EXTENSIONS)}
+    return {
+        path for path in sources if path.endswith(lint_files.CPP_EXTENSIONS)
+    }
 
 
 def _test_only_cpp_sources(root: str) -> set[str]:
@@ -138,11 +144,17 @@ def _test_only_cpp_sources(root: str) -> set[str]:
         with open(os.path.join(root, path), encoding="utf-8") as f:
             tree = ast.parse(f.read())
         for node in ast.walk(tree):
-            if not (isinstance(node, ast.Call) and _is_cc_rule(_rule_name(node))):
+            if not (
+                isinstance(node, ast.Call) and _is_cc_rule(_rule_name(node))
+            ):
                 continue
-            arguments = {keyword.arg: keyword.value for keyword in node.keywords}
+            arguments = {
+                keyword.arg: keyword.value for keyword in node.keywords
+            }
             testonly = arguments.get("testonly")
-            if not (isinstance(testonly, ast.Constant) and bool(testonly.value)):
+            if not (
+                isinstance(testonly, ast.Constant) and bool(testonly.value)
+            ):
                 continue
             for attribute in _SOURCE_ATTRIBUTES:
                 if attribute in arguments:
@@ -188,7 +200,9 @@ class ParseLiteralTest(unittest.TestCase):
             "0'0": (0, False),
             "1.0e-6": (fractions.Fraction(1, 1_000_000), True),
             "1.0000000000000001": (
-                fractions.Fraction(10_000_000_000_000_001, 10_000_000_000_000_000),
+                fractions.Fraction(
+                    10_000_000_000_000_001, 10_000_000_000_000_000
+                ),
                 True,
             ),
         }
@@ -291,10 +305,15 @@ class MultiplicativeFactorTest(unittest.TestCase):
 
     def test_the_compound_multiplicative_assignments_count(self):
         self.assertEqual(
-            _found("x *= 0.5;\ny /= 2.0;\nz *= -0.5;\nw *= 0.5 * v;\nf(x *= 2.0);\n"),
+            _found(
+                "x *= 0.5;\ny /= 2.0;\nz *= -0.5;\nw *= 0.5 * v;\nf(x *="
+                " 2.0);\n"
+            ),
             [],
         )
-        self.assertEqual(_found("x += 0.5;\ny -= 2.0;\nz %= 2;\n"), ["0.5", "2.0", "2"])
+        self.assertEqual(
+            _found("x += 0.5;\ny -= 2.0;\nz %= 2;\n"), ["0.5", "2.0", "2"]
+        )
 
     def test_after_a_compound_assignment_an_operand_of_a_sum_is_flagged(self):
         self.assertEqual(_found("x *= 2.0 + y;\n"), ["2.0"])
@@ -338,29 +357,24 @@ class MultiplicativeFactorTest(unittest.TestCase):
 class NamedConstantTest(unittest.TestCase):
     def test_literals_in_the_definition_of_a_named_constant_are_exempt(self):
         source = (
-            "constexpr int kPositionDim = 3;\n"
-            "static constexpr scalar_t kDefaultGain = 3.0;\n"
-            "inline constexpr scalar_t kGravitationalAcceleration = 9.81;  // [m/s^2]\n"
-            "const scalar_t kTolerance = 1.0e-6;\n"
-            "constexpr scalar_t kQuarterTurn = 0.25 * M_PI;\n"
-            "constexpr std::array<int, 3> kAxes = {2, 0, 1};\n"
-            "constexpr Rgba kTick{.r = 0.25f, .g = 0.5f, .b = 0.75f, .a = 1.0f};\n"
-            "constexpr scalar_t Foo::kBar = 3.0;\n"
-            "[[maybe_unused]] constexpr int kSpare = 7;\n"
-            "static const std::string kName = std::string(5, 'x');\n"
-            'inline constexpr char kText[] = "7";\n'
-            "constexpr int kFirst = 2, kSecond = 3;\n"
-            "const vector_t kDefault = vector_t::Constant(12, 0.3);\n"
-            "constexpr absl::Duration kPoll = absl::Milliseconds(100);\n"
-            "template <typename T>\n"
-            "constexpr T kPi = T(3.14159);\n"
-            "template <typename T = double, int N = 3>\n"
-            "constexpr T kTau = T(6.28318);\n"
-            "constexpr const scalar_t* kPointer = &kTable[2];\n"
-            "const Eigen::Matrix<scalar_t, 3, 1> kUp(0.0, 0.0, 9.81);\n"
-            'static constexpr std::array<const char* absl_nonnull, 4> kNames = {"a", "b", "c", "d"};\n'
-            "template <>\n"
-            "constexpr int kSize<Foo> = 3;\n"
+            "constexpr int kPositionDim = 3;\nstatic constexpr scalar_t"
+            " kDefaultGain = 3.0;\ninline constexpr scalar_t"
+            " kGravitationalAcceleration = 9.81;  // [m/s^2]\nconst scalar_t"
+            " kTolerance = 1.0e-6;\nconstexpr scalar_t kQuarterTurn = 0.25 *"
+            " M_PI;\nconstexpr std::array<int, 3> kAxes = {2, 0, 1};\nconstexpr"
+            " Rgba kTick{.r = 0.25f, .g = 0.5f, .b = 0.75f, .a ="
+            " 1.0f};\nconstexpr scalar_t Foo::kBar = 3.0;\n[[maybe_unused]]"
+            " constexpr int kSpare = 7;\nstatic const std::string kName ="
+            " std::string(5, 'x');\ninline constexpr char kText[] ="
+            ' "7";\nconstexpr int kFirst = 2, kSecond = 3;\nconst vector_t'
+            " kDefault = vector_t::Constant(12, 0.3);\nconstexpr absl::Duration"
+            " kPoll = absl::Milliseconds(100);\ntemplate <typename"
+            " T>\nconstexpr T kPi = T(3.14159);\ntemplate <typename T = double,"
+            " int N = 3>\nconstexpr T kTau = T(6.28318);\nconstexpr const"
+            " scalar_t* kPointer = &kTable[2];\nconst Eigen::Matrix<scalar_t,"
+            " 3, 1> kUp(0.0, 0.0, 9.81);\nstatic constexpr std::array<const"
+            ' char* absl_nonnull, 4> kNames = {"a", "b", "c", "d"};\ntemplate'
+            " <>\nconstexpr int kSize<Foo> = 3;\n"
         )
         self.assertEqual(_found(source), [])
 
@@ -413,9 +427,16 @@ class NamedConstantTest(unittest.TestCase):
             ],
             "std::vector<const Foo*> kList(3);\n": ["3"],
             # A statement that a keyword starts declares no constant.
-            "void f() {\n  if constexpr (kDim == 3) return kDefault;\n}\n": ["3"],
-            "int f() {\n  if constexpr (N == 3) return kTable[4];\n}\n": ["3", "4"],
-            "int f() {\n  if (x) return 1;\n  else return kTable[3];\n}\n": ["3"],
+            "void f() {\n  if constexpr (kDim == 3) return kDefault;\n}\n": [
+                "3"
+            ],
+            "int f() {\n  if constexpr (N == 3) return kTable[4];\n}\n": [
+                "3",
+                "4",
+            ],
+            "int f() {\n  if (x) return 1;\n  else return kTable[3];\n}\n": [
+                "3"
+            ],
             "typedef const int kAlias[3];\n": ["3"],
             # Only the declarators named kName are constants, and a macro call in front of one is not part of it.
             "const int kA = 2, b = 5;\n": ["5"],
@@ -434,59 +455,73 @@ class NamedConstantTest(unittest.TestCase):
         source = "const std::function<int()> kMake = [] { return 3; };\n"
         self.assertEqual(_found(source), ["3"])
 
-    def test_a_constant_a_lambda_initializes_is_defined_by_the_lambda_s_header(self):
+    def test_a_constant_a_lambda_initializes_is_defined_by_the_lambda_s_header(
+        self,
+    ):
         self.assertEqual(
             _found(
-                "constexpr std::array<int, 2> kTable = [] { return makeTable(); }();\n"
+                "constexpr std::array<int, 2> kTable = [] { return makeTable();"
+                " }();\n"
             ),
             [],
         )
         self.assertEqual(
-            _found("const int kN = compute(5, [](int x) { return x + 3; });\n"), ["3"]
+            _found("const int kN = compute(5, [](int x) { return x + 3; });\n"),
+            ["3"],
         )
 
     def test_a_lambda_in_a_constant_s_braced_initializer_is_code(self):
         self.assertEqual(
             _found(
-                "const std::vector<Fn> kFns = {[](double x) { return 3.0 * x; }};\n"
+                "const std::vector<Fn> kFns = {[](double x) { return 3.0 * x;"
+                " }};\n"
             ),
             ["3.0"],
         )
         self.assertEqual(
-            _found("const Foo kFoo{.make = [](int x) { return x * 9; }};\n"), ["9"]
+            _found("const Foo kFoo{.make = [](int x) { return x * 9; }};\n"),
+            ["9"],
         )
         self.assertEqual(
             _found(
-                "void f() {\n  const Foo kFoo{.make = [](int x) { return x * 9; }};\n}\n"
+                "void f() {\n  const Foo kFoo{.make = [](int x) { return x * 9;"
+                " }};\n}\n"
             ),
             ["9"],
         )
         self.assertEqual(
             _found(
-                'const std::array<Entry, 2> kEntries = {{{"a", [](double x) { return x * 3.7; }}}};\n'
+                'const std::array<Entry, 2> kEntries = {{{"a", [](double x) {'
+                " return x * 3.7; }}}};\n"
             ),
             ["3.7"],
         )
         self.assertEqual(
-            _found("const Foo kFoo{.make = []() constexpr { return 4; }};\n"), ["4"]
+            _found("const Foo kFoo{.make = []() constexpr { return 4; }};\n"),
+            ["4"],
         )
 
     def test_a_constant_inside_a_lambda_of_a_braced_initializer_is_exempt(self):
         self.assertEqual(
             _found(
-                "const Foo kFoo{.make = [](int x) { constexpr int kScale = 9; return x * kScale + 3; }};\n"
+                "const Foo kFoo{.make = [](int x) { constexpr int kScale = 9;"
+                " return x * kScale + 3; }};\n"
             ),
             ["3"],
         )
 
     def test_a_braced_initializer_of_a_constant_stays_exempt(self):
         self.assertEqual(
-            _found("const Foo kFoo{{1, 2}, Bar{3}, std::array<int, 1>{4}};\n"), []
+            _found("const Foo kFoo{{1, 2}, Bar{3}, std::array<int, 1>{4}};\n"),
+            [],
         )
 
     def test_a_function_returning_an_elaborated_enum_is_code(self):
         self.assertEqual(
-            _found("enum Color parse(int x) { return static_cast<Color>(x + 3); }\n"),
+            _found(
+                "enum Color parse(int x) { return static_cast<Color>(x +"
+                " 3); }\n"
+            ),
             ["3"],
         )
         self.assertEqual(_found("enum E : decltype(kX) { kA = 2 };\n"), [])
@@ -495,18 +530,15 @@ class NamedConstantTest(unittest.TestCase):
 class ContextTest(unittest.TestCase):
     def test_enumerator_values_are_exempt(self):
         source = (
-            "enum class Request { kDynamics = 2, kCost = 4, kAll = kDynamics | 8 };\n"
-            "enum : int { STATE_DIM = 12 };\n"
-            "class Foo {\n"
-            "  enum class Mode : std::uint8_t {\n"
-            "    kA = 0x10,\n"
-            "    kB = 3,\n"
-            "  };\n"
-            "};\n"
+            "enum class Request { kDynamics = 2, kCost = 4, kAll = kDynamics |"
+            " 8 };\nenum : int { STATE_DIM = 12 };\nclass Foo {\n  enum class"
+            " Mode : std::uint8_t {\n    kA = 0x10,\n    kB = 3,\n  };\n};\n"
         )
         self.assertEqual(_found(source), [])
 
-    def test_comments_strings_characters_and_preprocessor_lines_are_not_read(self):
+    def test_comments_strings_characters_and_preprocessor_lines_are_not_read(
+        self,
+    ):
         source = (
             "#define HUMANOID_SIZE 3\n"
             "#define HUMANOID_SUM(a) \\\n"
@@ -548,17 +580,18 @@ class ContextTest(unittest.TestCase):
                 self.assertEqual(_found(source), expected)
 
     def test_the_position_is_the_literal_s(self):
-        found = check_test_support.findings(_NAME, "x = f(a,\n      2.5);\n", _PATH)
+        found = check_test_support.findings(
+            _NAME, "x = f(a,\n      2.5);\n", _PATH
+        )
         self.assertEqual([(f.line, f.column) for f in found], [(2, 7)])
         self.assertIn("`2.5`", found[0].message)
 
     def test_a_nolint_block_suppresses_a_table(self):
         source = (
-            "// NOLINTBEGIN(magic-number): the published Butcher tableau of Dormand and Prince.\n"
-            "const scalar_t a2 = 1.0 / 5;\n"
-            "const scalar_t a3 = 3.0 / 10;\n"
-            "// NOLINTEND(magic-number)\n"
-            "const scalar_t a4 = 4.0 / 5;\n"
+            "// NOLINTBEGIN(magic-number): the published Butcher tableau of"
+            " Dormand and Prince.\nconst scalar_t a2 = 1.0 / 5;\nconst scalar_t"
+            " a3 = 3.0 / 10;\n// NOLINTEND(magic-number)\nconst scalar_t a4 ="
+            " 4.0 / 5;\n"
         )
         self.assertEqual(_found(source), ["4.0", "5"])
 
@@ -607,12 +640,15 @@ class ScopeTest(unittest.TestCase):
         self.assertIn("robot_runtime/web_viewer/src/JpegDecoder.cpp", test_only)
         # Every source of a testonly C++ target is out of the check's scope.
         self.assertEqual(
-            sorted(path for path in test_only if magic_number.in_scope(path)), []
+            sorted(path for path in test_only if magic_number.in_scope(path)),
+            [],
         )
         # Every entry of the list is the source of a testonly target that the test directories do not cover already.
         for entry in magic_number.TEST_ONLY_SOURCES:
             with self.subTest(entry=entry):
-                self.assertTrue(os.path.exists(os.path.join(root, entry)), entry)
+                self.assertTrue(
+                    os.path.exists(os.path.join(root, entry)), entry
+                )
                 self.assertFalse(lint_files.is_test_path(entry))
                 self.assertTrue(
                     any(
@@ -629,7 +665,10 @@ class ScopeTest(unittest.TestCase):
             _NAME,
             "const scalar_t height = 0.25 * legLength;\n",
             _PATH,
-            clean="constexpr scalar_t kHeightRatio = 0.25;\nconst scalar_t height = kHeightRatio * legLength;\n",
+            clean=(
+                "constexpr scalar_t kHeightRatio = 0.25;\nconst scalar_t height"
+                " = kHeightRatio * legLength;\n"
+            ),
         )
 
 

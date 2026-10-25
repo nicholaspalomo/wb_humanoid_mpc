@@ -47,25 +47,35 @@ using ::ocs2::kYAxisIndex;
 using ::ocs2::kZAxisIndex;
 
 namespace {
-constexpr double kMinDrawnForce = 1.0e-6;  // [N] a smaller applied force draws no arrow
+constexpr double kMinDrawnForce =
+    1.0e-6;  // [N] a smaller applied force draws no arrow
 // The arrow of a force grows with it, up to kMaxArrowLength.
 constexpr double kMinArrowLength = 0.1;         // [m]
 constexpr double kArrowLengthPerNewton = 0.05;  // [m/N]
-// The arrow of a held push grows with its impulse: 20 N s, a 0.45 kg ball at 44 m/s, draws 1 m.
+// The arrow of a held push grows with its impulse: 20 N s, a 0.45 kg ball at 44
+// m/s, draws 1 m.
 constexpr double kArrowLengthPerNewtonSecond = 0.05;  // [m/(N s)]
-constexpr double kMaxArrowLength = 1.5;               // [m] an impulse of one step's force would otherwise draw kilometers
-constexpr double kArrowWidth = 0.005;                 // [m]
-constexpr float kArrowRed = 0.5f;                     // the red of the yellow-green arrow
+constexpr double kMaxArrowLength =
+    1.5;  // [m] an impulse of one step's force would otherwise draw kilometers
+constexpr double kArrowWidth = 0.005;  // [m]
+constexpr float kArrowRed = 0.5f;      // the red of the yellow-green arrow
 
-// Appends, while `scene` has room, an arrow of `length` from `origin` along `vector` (of `magnitude`).
-void addArrow(const double* absl_nonnull origin, const double* absl_nonnull vector, double magnitude, double length, mjvScene& scene) {
+// Appends, while `scene` has room, an arrow of `length` from `origin` along
+// `vector` (of `magnitude`).
+void addArrow(const double* absl_nonnull origin,
+              const double* absl_nonnull vector,
+              double magnitude,
+              double length,
+              mjvScene& scene) {
   if (scene.ngeom >= scene.maxgeom) return;  // out of geom space
   mjvGeom* absl_nonnull arrow = &scene.geoms[scene.ngeom++];
   std::memset(arrow, 0, sizeof(mjvGeom));
-  const mjtNum from[kPositionDim] = {origin[kXAxisIndex], origin[kYAxisIndex], origin[kZAxisIndex]};
-  const mjtNum to[kPositionDim] = {origin[kXAxisIndex] + length * (vector[kXAxisIndex] / magnitude),
-                                   origin[kYAxisIndex] + length * (vector[kYAxisIndex] / magnitude),
-                                   origin[kZAxisIndex] + length * (vector[kZAxisIndex] / magnitude)};
+  const mjtNum from[kPositionDim] = {origin[kXAxisIndex], origin[kYAxisIndex],
+                                     origin[kZAxisIndex]};
+  const mjtNum to[kPositionDim] = {
+      origin[kXAxisIndex] + length * (vector[kXAxisIndex] / magnitude),
+      origin[kYAxisIndex] + length * (vector[kYAxisIndex] / magnitude),
+      origin[kZAxisIndex] + length * (vector[kZAxisIndex] / magnitude)};
   mjv_connector(arrow, mjGEOM_ARROW, kArrowWidth, from, to);
   arrow->rgba[kRedChannel] = kArrowRed;
   arrow->rgba[kGreenChannel] = 1.0f;
@@ -76,40 +86,55 @@ void addArrow(const double* absl_nonnull origin, const double* absl_nonnull vect
 }
 
 double norm(const double* absl_nonnull vector) {
-  return std::sqrt(vector[kXAxisIndex] * vector[kXAxisIndex] + vector[kYAxisIndex] * vector[kYAxisIndex] +
+  return std::sqrt(vector[kXAxisIndex] * vector[kXAxisIndex] +
+                   vector[kYAxisIndex] * vector[kYAxisIndex] +
                    vector[kZAxisIndex] * vector[kZAxisIndex]);
 }
 }  // namespace
 
-void ExternalForceVisualization::addSceneGeoms(const VisualizationFrame& frame) {
-  if (frame.model == nullptr || frame.state == nullptr || frame.scene == nullptr) return;
+void ExternalForceVisualization::addSceneGeoms(
+    const VisualizationFrame& frame) {
+  if (frame.model == nullptr || frame.state == nullptr ||
+      frame.scene == nullptr)
+    return;
   addArrows(frame.model, *frame.state, *frame.scene);
 }
 
-void ExternalForceVisualization::addArrows(const mjModel* absl_nonnull model, const MjState& state, mjvScene& scene) {
+void ExternalForceVisualization::addArrows(const mjModel* absl_nonnull model,
+                                           const MjState& state,
+                                           mjvScene& scene) {
   const mjData* absl_nullable data = state.data;
   if (data == nullptr) return;
 
-  // The held push, at the body's center of mass, where MuJoCo applies xfrc_applied (mj_xfrcAccumulate at xipos).
+  // The held push, at the body's center of mass, where MuJoCo applies
+  // xfrc_applied (mj_xfrcAccumulate at xipos).
   const AppliedPush& push = state.push;
-  const bool pushHeld = push.bodyId >= 0 && push.bodyId < model->nbody && data->time >= push.simTimeApplied &&
+  const bool pushHeld = push.bodyId >= 0 && push.bodyId < model->nbody &&
+                        data->time >= push.simTimeApplied &&
                         data->time - push.simTimeApplied < kPushHoldTime;
   if (pushHeld) {
     const double impulse = norm(push.impulseWorld.data());
     if (impulse >= kMinDrawnImpulse) {
-      addArrow(&data->xipos[kPositionDim * push.bodyId], push.impulseWorld.data(), impulse,
-               std::min(kMinArrowLength + kArrowLengthPerNewtonSecond * impulse, kMaxArrowLength), scene);
+      addArrow(&data->xipos[kPositionDim * push.bodyId],
+               push.impulseWorld.data(), impulse,
+               std::min(kMinArrowLength + kArrowLengthPerNewtonSecond * impulse,
+                        kMaxArrowLength),
+               scene);
     }
   }
 
   for (int body_id = 0; body_id < model->nbody; ++body_id) {
-    // The held push is drawn above; its one-step force would be a second arrow on the same body.
+    // The held push is drawn above; its one-step force would be a second arrow
+    // on the same body.
     if (pushHeld && body_id == push.bodyId) continue;
-    const double* absl_nonnull force = &data->xfrc_applied[kMjSpatialVectorSize * body_id];
+    const double* absl_nonnull force =
+        &data->xfrc_applied[kMjSpatialVectorSize * body_id];
     const double magnitude = norm(force);
     if (magnitude < kMinDrawnForce) continue;
     addArrow(&data->xipos[kPositionDim * body_id], force, magnitude,
-             std::min(kMinArrowLength + kArrowLengthPerNewton * magnitude, kMaxArrowLength), scene);
+             std::min(kMinArrowLength + kArrowLengthPerNewton * magnitude,
+                      kMaxArrowLength),
+             scene);
   }
 }
 

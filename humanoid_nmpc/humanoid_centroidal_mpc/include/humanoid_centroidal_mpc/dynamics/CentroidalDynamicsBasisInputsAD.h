@@ -61,82 +61,105 @@ namespace ocs2::humanoid {
  *
  *   W_i,world = blkdiag(w_R_l(q), w_R_l(q)) · B_i · λ_i
  *
- * with the contact frame rotation w_R_l(q) obtained from Pinocchio at the current
- * configuration q(x), and then evaluates the standard centroidal flow map with the
- * world-frame wrench input. Because the rotation is part of the tape, the linear
- * approximation captures both ∂f/∂λ and the additional ∂f/∂x contribution that
- * stems from the configuration-dependent rotation.
+ * with the contact frame rotation w_R_l(q) obtained from Pinocchio at the
+ * current configuration q(x), and then evaluates the standard centroidal flow
+ * map with the world-frame wrench input. Because the rotation is part of the
+ * tape, the linear approximation captures both ∂f/∂λ and the additional ∂f/∂x
+ * contribution that stems from the configuration-dependent rotation.
  *
- * The generated CppAD model name carries basisInputsLibraryKey() of the basis, so the DYNAMICS library is never
- * reused for a different basis. The other taped terms built on the basis-vector input (their domain and, for some,
- * their body depend on it too) are protected the same way because CentroidalMpcInterface keys the whole CppAD model
- * folder by that key (CentroidalMpcInterface::keyCppAdModelFolder).
+ * The generated CppAD model name carries basisInputsLibraryKey() of the basis,
+ * so the DYNAMICS library is never reused for a different basis. The other
+ * taped terms built on the basis-vector input (their domain and, for some,
+ * their body depend on it too) are protected the same way because
+ * CentroidalMpcInterface keys the whole CppAD model folder by that key
+ * (CentroidalMpcInterface::keyCppAdModelFolder).
  *
- * Not thread-safe: the CppAD model it evaluates is not, so the solver gives each worker thread its own clone().
+ * Not thread-safe: the CppAD model it evaluates is not, so the solver gives
+ * each worker thread its own clone().
  */
 class CentroidalDynamicsBasisInputsAD final : public SystemDynamicsBaseAD {
  public:
   /**
-   * Validates the arguments, then builds (and, unless cached, compiles) the CppAD model. Configuration errors are an
-   * InvalidArgumentError naming the task-file key to change.
+   * Validates the arguments, then builds (and, unless cached, compiles) the
+   * CppAD model. Configuration errors are an InvalidArgumentError naming the
+   * task-file key to change.
    *
    * @param pinocchioInterface The pinocchio model interface.
-   * @param info               CentroidalModelInfo with the *original* wrench-based inputDim.
+   * @param info               CentroidalModelInfo with the *original*
+   * wrench-based inputDim.
    * @param modelName          Base name for the CppAD model.
-   * @param modelSettings      Build settings (CppAD model folder, recompile flags, contact names, etc.).
-   * @param localBasisMatrices Per-contact basis matrices B_i (6 × numBasisPerFoot) in the local contact frame.
+   * @param modelSettings      Build settings (CppAD model folder, recompile
+   * flags, contact names, etc.).
+   * @param localBasisMatrices Per-contact basis matrices B_i (6 ×
+   * numBasisPerFoot) in the local contact frame.
    */
-  static absl::StatusOr<std::unique_ptr<CentroidalDynamicsBasisInputsAD>> Create(
+  static absl::StatusOr<std::unique_ptr<CentroidalDynamicsBasisInputsAD>>
+  Create(const PinocchioInterface& pinocchioInterface,
+         const CentroidalModelInfo& info,
+         const std::string& modelName,
+         const ModelSettings& modelSettings,
+         const std::array<matrix_t, kNumContacts>& localBasisMatrices);
+
+  /** The checks Create() runs before it builds anything. */
+  static absl::Status validate(
       const PinocchioInterface& pinocchioInterface,
       const CentroidalModelInfo& info,
-      const std::string& modelName,
       const ModelSettings& modelSettings,
       const std::array<matrix_t, kNumContacts>& localBasisMatrices);
 
-  /** The checks Create() runs before it builds anything. */
-  static absl::Status validate(const PinocchioInterface& pinocchioInterface,
-                               const CentroidalModelInfo& info,
-                               const ModelSettings& modelSettings,
-                               const std::array<matrix_t, kNumContacts>& localBasisMatrices);
-
   ~CentroidalDynamicsBasisInputsAD() override = default;
-  CentroidalDynamicsBasisInputsAD* absl_nonnull clone() const override { return new CentroidalDynamicsBasisInputsAD(*this); }
-  // Copied only by clone(), whose copy constructor is private; never assigned or moved.
-  CentroidalDynamicsBasisInputsAD& operator=(const CentroidalDynamicsBasisInputsAD&) = delete;
+  CentroidalDynamicsBasisInputsAD* absl_nonnull clone() const override {
+    return new CentroidalDynamicsBasisInputsAD(*this);
+  }
+  // Copied only by clone(), whose copy constructor is private; never assigned
+  // or moved.
+  CentroidalDynamicsBasisInputsAD& operator=(
+      const CentroidalDynamicsBasisInputsAD&) = delete;
   CentroidalDynamicsBasisInputsAD(CentroidalDynamicsBasisInputsAD&&) = delete;
-  CentroidalDynamicsBasisInputsAD& operator=(CentroidalDynamicsBasisInputsAD&&) = delete;
+  CentroidalDynamicsBasisInputsAD& operator=(
+      CentroidalDynamicsBasisInputsAD&&) = delete;
 
   size_t getBasisInputDim() const { return basisInputDim_; }
   size_t getNumBasisPerFoot() const { return numBasisPerFoot_; }
 
   /**
-   * Name of the generated CppAD model: modelName + "_" + basisInputsLibraryKey(localBasisMatrices), i.e.
-   * modelName + "_basis<numBasisPerFoot>_<16 hex digits of the basis content hash>". Two different bases (generator
-   * set, dimension, friction coefficient, footprint, ...) therefore never share a cached dynamics library.
+   * Name of the generated CppAD model: modelName + "_" +
+   * basisInputsLibraryKey(localBasisMatrices), i.e. modelName +
+   * "_basis<numBasisPerFoot>_<16 hex digits of the basis content hash>". Two
+   * different bases (generator set, dimension, friction coefficient, footprint,
+   * ...) therefore never share a cached dynamics library.
    */
-  static std::string uniqueModelName(absl::string_view modelName, const std::array<matrix_t, kNumContacts>& localBasisMatrices);
+  static std::string uniqueModelName(
+      absl::string_view modelName,
+      const std::array<matrix_t, kNumContacts>& localBasisMatrices);
 
   /**
-   * Converts a basis-vector input into the wrench-space input of the underlying centroidal model with all
-   * contact wrenches rotated into the world frame. Exposed for testing.
+   * Converts a basis-vector input into the wrench-space input of the underlying
+   * centroidal model with all contact wrenches rotated into the world frame.
+   * Exposed for testing.
    *
-   * @param pinocchioInterface Interface whose frame placements have been updated for the configuration of interest.
+   * @param pinocchioInterface Interface whose frame placements have been
+   * updated for the configuration of interest.
    */
   template <typename SCALAR_T>
-  VECTOR_T<SCALAR_T> toWorldFrameWrenchInput(const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
-                                             const CentroidalModelInfoTpl<SCALAR_T>& info,
-                                             const VECTOR_T<SCALAR_T>& basisInput) const;
+  VECTOR_T<SCALAR_T> toWorldFrameWrenchInput(
+      const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
+      const CentroidalModelInfoTpl<SCALAR_T>& info,
+      const VECTOR_T<SCALAR_T>& basisInput) const;
 
  protected:
-  ad_vector_t systemFlowMap(ad_scalar_t time, const ad_vector_t& state, const ad_vector_t& input) const override;
+  ad_vector_t systemFlowMap(ad_scalar_t time,
+                            const ad_vector_t& state,
+                            const ad_vector_t& input) const override;
 
  private:
   /** Builds the model from arguments Create() has validated; use Create(). */
-  CentroidalDynamicsBasisInputsAD(const PinocchioInterface& pinocchioInterface,
-                                  const CentroidalModelInfo& info,
-                                  const std::string& modelName,
-                                  const ModelSettings& modelSettings,
-                                  const std::array<matrix_t, kNumContacts>& localBasisMatrices);
+  CentroidalDynamicsBasisInputsAD(
+      const PinocchioInterface& pinocchioInterface,
+      const CentroidalModelInfo& info,
+      const std::string& modelName,
+      const ModelSettings& modelSettings,
+      const std::array<matrix_t, kNumContacts>& localBasisMatrices);
 
   CentroidalDynamicsBasisInputsAD(const CentroidalDynamicsBasisInputsAD& rhs);
 

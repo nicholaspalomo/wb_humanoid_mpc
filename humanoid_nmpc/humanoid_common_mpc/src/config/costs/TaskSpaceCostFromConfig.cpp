@@ -55,7 +55,8 @@ namespace {
 
 using Weights = mpc_config::TaskSpaceWeights;
 
-/** A weight of the task_space_weights block and the entry of EndEffectorKinematicsWeights it becomes. */
+/** A weight of the task_space_weights block and the entry of
+ * EndEffectorKinematicsWeights it becomes. */
 struct KinematicsWeightField {
   const char* absl_nonnull name;
   double Weights::*absl_nonnull field;
@@ -63,11 +64,21 @@ struct KinematicsWeightField {
   Eigen::Index axis;
 };
 
-// The twelve weights of a task-space kinematics cost, in the order of EndEffectorKinematicsWeights::toVector().
+// The twelve weights of a task-space kinematics cost, in the order of
+// EndEffectorKinematicsWeights::toVector().
 constexpr std::array<KinematicsWeightField, 12> kKinematicsWeightFields = {{
-    {.name = "pos_x", .field = &Weights::pos_x, .weight = &EndEffectorKinematicsWeights::contactPositionErrorWeight, .axis = 0},
-    {.name = "pos_y", .field = &Weights::pos_y, .weight = &EndEffectorKinematicsWeights::contactPositionErrorWeight, .axis = 1},
-    {.name = "pos_z", .field = &Weights::pos_z, .weight = &EndEffectorKinematicsWeights::contactPositionErrorWeight, .axis = 2},
+    {.name = "pos_x",
+     .field = &Weights::pos_x,
+     .weight = &EndEffectorKinematicsWeights::contactPositionErrorWeight,
+     .axis = 0},
+    {.name = "pos_y",
+     .field = &Weights::pos_y,
+     .weight = &EndEffectorKinematicsWeights::contactPositionErrorWeight,
+     .axis = 1},
+    {.name = "pos_z",
+     .field = &Weights::pos_z,
+     .weight = &EndEffectorKinematicsWeights::contactPositionErrorWeight,
+     .axis = 2},
     {.name = "orientation_x",
      .field = &Weights::orientation_x,
      .weight = &EndEffectorKinematicsWeights::contactOrientationErrorWeight,
@@ -112,7 +123,8 @@ struct UnusedWeightField {
   double Weights::*absl_nonnull field;
 };
 
-// The acceleration weights, which only the whole-body MPC's foot cost weighs (EndEffectorDynamicsWeights).
+// The acceleration weights, which only the whole-body MPC's foot cost weighs
+// (EndEffectorDynamicsWeights).
 constexpr std::array<UnusedWeightField, 6> kAccelerationWeightFields = {{
     {.name = "lin_acceleration_x", .field = &Weights::lin_acceleration_x},
     {.name = "lin_acceleration_y", .field = &Weights::lin_acceleration_y},
@@ -124,61 +136,83 @@ constexpr std::array<UnusedWeightField, 6> kAccelerationWeightFields = {{
 
 }  // namespace
 
-absl::StatusOr<EndEffectorKinematicsWeights> endEffectorKinematicsWeightsFromConfig(const mpc_config::TaskSpaceWeights& weights,
-                                                                                    absl::string_view path) {
+absl::StatusOr<EndEffectorKinematicsWeights>
+endEffectorKinematicsWeightsFromConfig(
+    const mpc_config::TaskSpaceWeights& weights, absl::string_view path) {
   EndEffectorKinematicsWeights result;
   for (const KinematicsWeightField& entry : kKinematicsWeightFields) {
     const double value = weights.*entry.field;
-    // Negated, so that NaN is refused: a weight below 0 makes the cost indefinite.
+    // Negated, so that NaN is refused: a weight below 0 makes the cost
+    // indefinite.
     if (!std::isfinite(value) || !(value >= 0.0)) {
       return absl::InvalidArgumentError(
-          absl::StrCat(path, ".", entry.name, " is ", value, ", but a weight must be finite and non-negative."));
+          absl::StrCat(path, ".", entry.name, " is ", value,
+                       ", but a weight must be finite and non-negative."));
     }
     (result.*entry.weight)(entry.axis) = value;
   }
   for (const UnusedWeightField& entry : kAccelerationWeightFields) {
     const double value = weights.*entry.field;
     if (value != 0.0) {
-      return absl::InvalidArgumentError(absl::StrCat(path, ".", entry.name, " is ", value,
-                                                     ", but the task-space kinematics costs of the centroidal MPC weigh no acceleration: "
-                                                     "set it to 0 or leave it out."));
+      return absl::InvalidArgumentError(
+          absl::StrCat(path, ".", entry.name, " is ", value,
+                       ", but the task-space kinematics costs of the "
+                       "centroidal MPC weigh no acceleration: "
+                       "set it to 0 or leave it out."));
     }
   }
   return result;
 }
 
 std::vector<std::string> footCostPhasesNames() {
-  return {std::string(kSwingFootCostPhases), std::string(kSwingAndStanceFootCostPhases)};
+  return {std::string(kSwingFootCostPhases),
+          std::string(kSwingAndStanceFootCostPhases)};
 }
 
-absl::StatusOr<bool> footCostActiveInStanceFromName(absl::string_view name, absl::string_view path) {
+absl::StatusOr<bool> footCostActiveInStanceFromName(absl::string_view name,
+                                                    absl::string_view path) {
   if (name == kSwingFootCostPhases) return false;
   if (name == kSwingAndStanceFootCostPhases) return true;
   return absl::InvalidArgumentError(absl::StrCat(
       path, " is '", name,
-      "', which names no contact phases of the foot cost; valid names are: ", absl::StrJoin(footCostPhasesNames(), ", "), "."));
+      "', which names no contact phases of the foot cost; valid names are: ",
+      absl::StrJoin(footCostPhasesNames(), ", "), "."));
 }
 
-absl::StatusOr<TaskSpaceFootCostSettings> taskSpaceFootCostFromConfig(const mpc_config::TaskSpaceCostConfig& footCost) {
+absl::StatusOr<TaskSpaceFootCostSettings> taskSpaceFootCostFromConfig(
+    const mpc_config::TaskSpaceCostConfig& footCost) {
   if (!footCost.name.empty() || !footCost.link_name.empty()) {
-    return absl::InvalidArgumentError(absl::StrCat("task_space_foot_cost sets name \"", footCost.name, "\" and link_name \"",
-                                                   footCost.link_name,
-                                                   "\", which only the costs of task_space_costs have: the foot cost tracks the "
-                                                   "contact frames of model_settings."));
+    return absl::InvalidArgumentError(
+        absl::StrCat("task_space_foot_cost sets name \"", footCost.name,
+                     "\" and link_name \"", footCost.link_name,
+                     "\", which only the costs of task_space_costs have: the "
+                     "foot cost tracks the "
+                     "contact frames of model_settings."));
   }
   TaskSpaceFootCostSettings settings;
-  ASSIGN_OR_RETURN(settings.weights, endEffectorKinematicsWeightsFromConfig(footCost.weights, "task_space_foot_cost.weights"));
-  ASSIGN_OR_RETURN(settings.activeInStance, footCostActiveInStanceFromName(footCost.active_phases, "task_space_foot_cost.active_phases"));
-  const double swingVelocityReferenceWeight = footCost.swing_velocity_reference_weight.value_or(kDefaultSwingVelocityReferenceWeight);
-  if (!std::isfinite(swingVelocityReferenceWeight) || swingVelocityReferenceWeight < 0.0) {
-    return absl::InvalidArgumentError(absl::StrCat("task_space_foot_cost.swing_velocity_reference_weight is ", swingVelocityReferenceWeight,
-                                                   ", but a weight must be finite and non-negative."));
+  ASSIGN_OR_RETURN(settings.weights,
+                   endEffectorKinematicsWeightsFromConfig(
+                       footCost.weights, "task_space_foot_cost.weights"));
+  ASSIGN_OR_RETURN(
+      settings.activeInStance,
+      footCostActiveInStanceFromName(footCost.active_phases,
+                                     "task_space_foot_cost.active_phases"));
+  const double swingVelocityReferenceWeight =
+      footCost.swing_velocity_reference_weight.value_or(
+          kDefaultSwingVelocityReferenceWeight);
+  if (!std::isfinite(swingVelocityReferenceWeight) ||
+      swingVelocityReferenceWeight < 0.0) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("task_space_foot_cost.swing_velocity_reference_weight is ",
+                     swingVelocityReferenceWeight,
+                     ", but a weight must be finite and non-negative."));
   }
   settings.swingVelocityReferenceWeight = swingVelocityReferenceWeight;
   return settings;
 }
 
-absl::StatusOr<std::vector<TaskSpaceLinkCostSettings>> taskSpaceLinkCostsFromConfig(
+absl::StatusOr<std::vector<TaskSpaceLinkCostSettings>>
+taskSpaceLinkCostsFromConfig(
     const std::vector<mpc_config::TaskSpaceCostConfig>& costs) {
   std::vector<TaskSpaceLinkCostSettings> settings;
   settings.reserve(costs.size());
@@ -187,27 +221,40 @@ absl::StatusOr<std::vector<TaskSpaceLinkCostSettings>> taskSpaceLinkCostsFromCon
     const mpc_config::TaskSpaceCostConfig& cost = costs[index];
     if (cost.name.empty()) {
       return absl::InvalidArgumentError(
-          absl::StrCat("task_space_costs[", index, "] has no name; the name names the cost term <name>_TaskSpaceKinematicsCost."));
+          absl::StrCat("task_space_costs[", index,
+                       "] has no name; the name names the cost term "
+                       "<name>_TaskSpaceKinematicsCost."));
     }
-    const std::string where = absl::StrCat("task_space_costs[name=", cost.name, "]");
+    const std::string where =
+        absl::StrCat("task_space_costs[name=", cost.name, "]");
     if (!names.insert(cost.name).second) {
-      return absl::InvalidArgumentError(absl::StrCat(where, " is the second cost of that name; give each cost its own name."));
+      return absl::InvalidArgumentError(absl::StrCat(
+          where,
+          " is the second cost of that name; give each cost its own name."));
     }
     if (cost.link_name.empty()) {
-      return absl::InvalidArgumentError(absl::StrCat(where, " has no link_name, the frame the cost tracks."));
+      return absl::InvalidArgumentError(
+          absl::StrCat(where, " has no link_name, the frame the cost tracks."));
     }
     if (cost.active_phases != kSwingFootCostPhases) {
-      return absl::InvalidArgumentError(absl::StrCat(where, " sets active_phases \"", cost.active_phases,
-                                                     "\", which only task_space_foot_cost has: a link cost does not depend on contact."));
+      return absl::InvalidArgumentError(
+          absl::StrCat(where, " sets active_phases \"", cost.active_phases,
+                       "\", which only task_space_foot_cost has: a link cost "
+                       "does not depend on contact."));
     }
     if (cost.swing_velocity_reference_weight.has_value()) {
-      return absl::InvalidArgumentError(absl::StrCat(where, " sets swing_velocity_reference_weight ", *cost.swing_velocity_reference_weight,
-                                                     ", which only task_space_foot_cost has: a link cost has no swing. Leave it out."));
+      return absl::InvalidArgumentError(
+          absl::StrCat(where, " sets swing_velocity_reference_weight ",
+                       *cost.swing_velocity_reference_weight,
+                       ", which only task_space_foot_cost has: a link cost has "
+                       "no swing. Leave it out."));
     }
     TaskSpaceLinkCostSettings& entry = settings.emplace_back();
     entry.name = cost.name;
     entry.linkName = cost.link_name;
-    ASSIGN_OR_RETURN(entry.weights, endEffectorKinematicsWeightsFromConfig(cost.weights, absl::StrCat(where, ".weights")));
+    ASSIGN_OR_RETURN(entry.weights,
+                     endEffectorKinematicsWeightsFromConfig(
+                         cost.weights, absl::StrCat(where, ".weights")));
   }
   return settings;
 }

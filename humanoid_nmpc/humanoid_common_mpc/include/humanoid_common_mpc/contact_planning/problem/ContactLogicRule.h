@@ -36,25 +36,36 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * A logical rule on the contact binaries, enforced outside the QP by propagation: one pass over the fixed prefix of a
- * partial assignment that fixes implied values and rejects contradictions. The problem runs the listed rules in order
- * to a fixpoint (ContactPlanningProblem::propagate); every rule reads the assignment as it is at the time of the read,
- * including what an earlier rule, or this one earlier in the same pass, has just fixed.
+ * A logical rule on the contact binaries, enforced outside the QP by
+ * propagation: one pass over the fixed prefix of a partial assignment that
+ * fixes implied values and rejects contradictions. The problem runs the listed
+ * rules in order to a fixpoint (ContactPlanningProblem::propagate); every rule
+ * reads the assignment as it is at the time of the read, including what an
+ * earlier rule, or this one earlier in the same pass, has just fixed.
  *
- * The contract is the one MiqpPropagateFn states, and it is what makes the branch-and-bound exact:
- *  - on a COMPLETE assignment a rule decides feasibility (true or false) and fixes nothing;
- *  - on a PARTIAL assignment it may only return false when no completion satisfies it, and may only fix a binary to a
- *    value that every completion satisfying it shares. A preference (which foot should go first, which gait is
- *    nicer) is never a reason to fix anything: it belongs in the objective. A rule that fixes more than is implied
- *    prunes feasible subtrees silently - MixedIntegerOcpQp still reports `optimal` - and no test on complete
- *    assignments can see it (testContactPlanningRegression enumerates the partial assignments the search reaches).
+ * The contract is the one MiqpPropagateFn states, and it is what makes the
+ * branch-and-bound exact:
+ *  - on a COMPLETE assignment a rule decides feasibility (true or false) and
+ * fixes nothing;
+ *  - on a PARTIAL assignment it may only return false when no completion
+ * satisfies it, and may only fix a binary to a value that every completion
+ * satisfying it shares. A preference (which foot should go first, which gait is
+ *    nicer) is never a reason to fix anything: it belongs in the objective. A
+ * rule that fixes more than is implied prunes feasible subtrees silently -
+ * MixedIntegerOcpQp still reports `optimal` - and no test on complete
+ *    assignments can see it (testContactPlanningRegression enumerates the
+ * partial assignments the search reaches).
  *
- * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
  */
 class ContactLogicRule : public ContactPlanningTerm {
  public:
-  /** Returns false on a contradiction. `changed` is set when a value was fixed. */
-  virtual bool propagate(const ContactLogicState& state, MiqpAssignment& assignment, bool& changed) const = 0;
+  /** Returns false on a contradiction. `changed` is set when a value was fixed.
+   */
+  virtual bool propagate(const ContactLogicState& state,
+                         MiqpAssignment& assignment,
+                         bool& changed) const = 0;
 };
 
 }  // namespace ocs2::humanoid

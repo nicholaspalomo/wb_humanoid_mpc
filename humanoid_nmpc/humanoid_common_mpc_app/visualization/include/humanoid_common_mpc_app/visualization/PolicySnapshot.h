@@ -41,36 +41,46 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::visualization {
 
 /**
- * What the visualization keeps of one MPC solution: the planned trajectories, the mode schedule and the command it was
- * solved for. The controller is left out on purpose: the visualization samples the plan by interpolation, and a linear
- * controller's gains (hundreds of kilobytes) would only make the copy on the solver thread slower.
+ * What the visualization keeps of one MPC solution: the planned trajectories,
+ * the mode schedule and the command it was solved for. The controller is left
+ * out on purpose: the visualization samples the plan by interpolation, and a
+ * linear controller's gains (hundreds of kilobytes) would only make the copy on
+ * the solver thread slower.
  */
 struct PolicySnapshot {
   scalar_array_t time;
   vector_array_t state;
   vector_array_t input;
   ModeSchedule modeSchedule;
-  /** CommandData::mpcTargetTrajectories_: the reference the plan was solved for. */
+  /** CommandData::mpcTargetTrajectories_: the reference the plan was solved
+   * for. */
   TargetTrajectories target;
-  /** CommandData::mpcInitObservation_: the observation the plan was solved from. */
+  /** CommandData::mpcInitObservation_: the observation the plan was solved
+   * from. */
   SystemObservation initObservation;
 
   /**
-   * Copies `command` and `solution` into this snapshot. Assignment reuses the storage the snapshot already holds, so a
-   * snapshot that held a solution of the same shape takes the next one without allocating.
+   * Copies `command` and `solution` into this snapshot. Assignment reuses the
+   * storage the snapshot already holds, so a snapshot that held a solution of
+   * the same shape takes the next one without allocating.
    */
   void assign(const CommandData& command, const PrimalSolution& solution);
 };
 
-/** True when the plan has nodes, as many states and inputs as times, and states of `stateDim` and inputs of `inputDim`. */
-bool isConsistentPlan(const PolicySnapshot& plan, size_t stateDim, size_t inputDim);
+/** True when the plan has nodes, as many states and inputs as times, and states
+ * of `stateDim` and inputs of `inputDim`. */
+bool isConsistentPlan(const PolicySnapshot& plan,
+                      size_t stateDim,
+                      size_t inputDim);
 
 /**
- * The plan's state and input at `time`, interpolated between its nodes and held at the first or the last node outside
- * the horizon: the state along `stateManifold` (ocs2::interpolateStateTrajectory: a slerp of the base quaternion block),
- * the input linearly. At an event, where two nodes share a time, the node before the event is taken. Requires a plan
- * for which isConsistentPlan() holds, and a manifold whose ambient size is the plan's state size. Neither
- * `stateManifold` nor the outputs are retained.
+ * The plan's state and input at `time`, interpolated between its nodes and held
+ * at the first or the last node outside the horizon: the state along
+ * `stateManifold` (ocs2::interpolateStateTrajectory: a slerp of the base
+ * quaternion block), the input linearly. At an event, where two nodes share a
+ * time, the node before the event is taken. Requires a plan for which
+ * isConsistentPlan() holds, and a manifold whose ambient size is the plan's
+ * state size. Neither `stateManifold` nor the outputs are retained.
  */
 void samplePlan(const PolicySnapshot& plan,
                 const StateManifold* absl_nonnull stateManifold,
@@ -78,7 +88,8 @@ void samplePlan(const PolicySnapshot& plan,
                 vector_t* absl_nonnull state,
                 vector_t* absl_nonnull input);
 
-/** What a TargetTrajectories gives at a time: nothing, a state, or a state and an input. */
+/** What a TargetTrajectories gives at a time: nothing, a state, or a state and
+ * an input. */
 enum class TargetSample {
   kNone,
   kState,
@@ -86,8 +97,9 @@ enum class TargetSample {
 };
 
 /**
- * The reference state (and input, when the target carries inputs of `inputDim`) at `time`, interpolated as
- * samplePlan() interpolates, the state along `stateManifold`. kNone, with the outputs untouched, when the target has no
+ * The reference state (and input, when the target carries inputs of `inputDim`)
+ * at `time`, interpolated as samplePlan() interpolates, the state along
+ * `stateManifold`. kNone, with the outputs untouched, when the target has no
  * states of `stateDim`. Neither `stateManifold` nor the outputs are retained.
  */
 TargetSample sampleTarget(const TargetTrajectories& target,

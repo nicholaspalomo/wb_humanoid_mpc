@@ -47,9 +47,13 @@ namespace robot::model {
 
 // LINT.IfChange(contact_estimator_names)
 ContactEstimatorRegistry::ContactEstimatorRegistry() {
-  add(kRobotState, "the contact flags the hardware or simulator interface writes into the RobotState",
+  add(kRobotState,
+      "the contact flags the hardware or simulator interface writes into the "
+      "RobotState",
       [] { return std::make_shared<RobotStateContactEstimator>(); });
-  add(kAlwaysInContact, "every contact point touching: the executed schedule is taken as the measured contact state",
+  add(kAlwaysInContact,
+      "every contact point touching: the executed schedule is taken as the "
+      "measured contact state",
       [] { return std::make_shared<AlwaysInContactEstimator>(); });
 }
 // clang-format off
@@ -60,39 +64,56 @@ std::string ContactEstimatorRegistry::canonicalName(absl::string_view name) {
   return absl::AsciiStrToLower(absl::StripAsciiWhitespace(name));
 }
 
-void ContactEstimatorRegistry::add(absl::string_view name, absl::string_view description, Factory factory) {
+void ContactEstimatorRegistry::add(absl::string_view name,
+                                   absl::string_view description,
+                                   Factory factory) {
   const std::string canonical = canonicalName(name);
-  ABSL_CHECK(!canonical.empty()) << "ContactEstimatorRegistry: an estimator needs a name";
-  ABSL_CHECK(factory != nullptr) << "ContactEstimatorRegistry: estimator '" << canonical << "' has no factory";
-  ABSL_CHECK(!has(canonical)) << "ContactEstimatorRegistry: estimator '" << canonical << "' is already registered";
-  estimators_.push_back({{.name = canonical, .description = std::string(description)}, std::move(factory)});
+  ABSL_CHECK(!canonical.empty())
+      << "ContactEstimatorRegistry: an estimator needs a name";
+  ABSL_CHECK(factory != nullptr) << "ContactEstimatorRegistry: estimator '"
+                                 << canonical << "' has no factory";
+  ABSL_CHECK(!has(canonical)) << "ContactEstimatorRegistry: estimator '"
+                              << canonical << "' is already registered";
+  estimators_.push_back(
+      {{.name = canonical, .description = std::string(description)},
+       std::move(factory)});
 }
 
 bool ContactEstimatorRegistry::has(absl::string_view name) const {
   const std::string canonical = canonicalName(name);
-  return std::any_of(estimators_.begin(), estimators_.end(), [&canonical](const Registered& r) { return r.entry.name == canonical; });
+  return std::any_of(
+      estimators_.begin(), estimators_.end(),
+      [&canonical](const Registered& r) { return r.entry.name == canonical; });
 }
 
-std::shared_ptr<ContactEstimator> ContactEstimatorRegistry::create(absl::string_view name) const {
+std::shared_ptr<ContactEstimator> ContactEstimatorRegistry::create(
+    absl::string_view name) const {
   const std::string canonical = canonicalName(name);
-  const std::vector<Registered>::const_iterator found =
-      std::find_if(estimators_.begin(), estimators_.end(), [&canonical](const Registered& r) { return r.entry.name == canonical; });
-  ABSL_CHECK(found != estimators_.end()) << "ContactEstimatorRegistry: unknown contact estimator '" << name
-                                         << "'; available: " << availableNames()
-                                         << ". Check has() first: a name from a file is the caller's to validate.";
+  const std::vector<Registered>::const_iterator found = std::find_if(
+      estimators_.begin(), estimators_.end(),
+      [&canonical](const Registered& r) { return r.entry.name == canonical; });
+  ABSL_CHECK(found != estimators_.end())
+      << "ContactEstimatorRegistry: unknown contact estimator '" << name
+      << "'; available: " << availableNames()
+      << ". Check has() first: a name from a file is the caller's to validate.";
   return found->factory();
 }
 
-std::vector<ContactEstimatorRegistry::Entry> ContactEstimatorRegistry::available() const {
+std::vector<ContactEstimatorRegistry::Entry>
+ContactEstimatorRegistry::available() const {
   std::vector<Entry> entries;
   entries.reserve(estimators_.size());
-  for (const Registered& registered : estimators_) entries.push_back(registered.entry);
+  for (const Registered& registered : estimators_)
+    entries.push_back(registered.entry);
   return entries;
 }
 
 std::string ContactEstimatorRegistry::availableNames() const {
-  return absl::StrJoin(estimators_, ", ",
-                       [](std::string* absl_nonnull out, const Registered& registered) { out->append(registered.entry.name); });
+  return absl::StrJoin(
+      estimators_, ", ",
+      [](std::string* absl_nonnull out, const Registered& registered) {
+        out->append(registered.entry.name);
+      });
 }
 
 }  // namespace robot::model

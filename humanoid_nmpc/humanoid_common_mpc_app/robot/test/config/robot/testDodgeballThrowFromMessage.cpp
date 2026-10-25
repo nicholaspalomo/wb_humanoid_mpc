@@ -27,9 +27,10 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// The simulator's throw from a DodgeballThrow message: a complete throw converts, every value the simulator uses is
-// required and finite, the flight time is not negative and the mass is positive, and what is there for the record is
-// not read.
+// The simulator's throw from a DodgeballThrow message: a complete throw
+// converts, every value the simulator uses is required and finite, the flight
+// time is not negative and the mass is positive, and what is there for the
+// record is not read.
 
 #include <limits>
 #include <string>
@@ -49,7 +50,8 @@ namespace ocs2::humanoid {
 namespace {
 
 using ::testing::HasSubstr;
-using DodgeballThrow = robot::mujoco_sim_interface::MujocoSimInterface::DodgeballThrow;
+using DodgeballThrow =
+    robot::mujoco_sim_interface::MujocoSimInterface::DodgeballThrow;
 
 msgs::Vector3 vector3(double x, double y, double z) {
   msgs::Vector3 value;
@@ -75,7 +77,8 @@ msgs::DodgeballThrow completeThrow() {
 }
 
 TEST(DodgeballThrowFromMessageTest, ACompleteThrowConverts) {
-  const absl::StatusOr<DodgeballThrow> command = dodgeballThrowFromMessage(completeThrow());
+  const absl::StatusOr<DodgeballThrow> command =
+      dodgeballThrowFromMessage(completeThrow());
   ASSERT_TRUE(command.ok()) << command.status();
   EXPECT_EQ(command->spawnOffset[0], 2.5);
   EXPECT_EQ(command->spawnOffset[1], 1.4);
@@ -107,9 +110,12 @@ TEST(DodgeballThrowFromMessageTest, EveryValueTheSimulatorUsesIsRequired) {
       {.message = noMass, .field = "mass"},
   };
   for (const Missing& missing : cases) {
-    const absl::StatusOr<DodgeballThrow> command = dodgeballThrowFromMessage(missing.message);
-    EXPECT_EQ(command.status().code(), absl::StatusCode::kInvalidArgument) << missing.field;
-    EXPECT_THAT(command.status().message(), HasSubstr("the throw has no " + missing.field));
+    const absl::StatusOr<DodgeballThrow> command =
+        dodgeballThrowFromMessage(missing.message);
+    EXPECT_EQ(command.status().code(), absl::StatusCode::kInvalidArgument)
+        << missing.field;
+    EXPECT_THAT(command.status().message(),
+                HasSubstr("the throw has no " + missing.field));
   }
 }
 
@@ -118,26 +124,33 @@ TEST(DodgeballThrowFromMessageTest, AValueThatIsNotFiniteIsRefusedByItsField) {
   const double inf = std::numeric_limits<double>::infinity();
   msgs::DodgeballThrow velocity = completeThrow();
   velocity.launch_velocity = vector3(/*x=*/-7.8, /*y=*/nan, /*z=*/-0.8);
-  EXPECT_THAT(dodgeballThrowFromMessage(velocity).status().message(), HasSubstr("launch_velocity.y is nan"));
+  EXPECT_THAT(dodgeballThrowFromMessage(velocity).status().message(),
+              HasSubstr("launch_velocity.y is nan"));
   msgs::DodgeballThrow offset = completeThrow();
   offset.spawn_offset = vector3(/*x=*/2.5, /*y=*/1.4, /*z=*/inf);
-  EXPECT_THAT(dodgeballThrowFromMessage(offset).status().message(), HasSubstr("spawn_offset.z is inf"));
+  EXPECT_THAT(dodgeballThrowFromMessage(offset).status().message(),
+              HasSubstr("spawn_offset.z is inf"));
   msgs::DodgeballThrow mass = completeThrow();
   mass.mass = nan;
-  EXPECT_THAT(dodgeballThrowFromMessage(mass).status().message(), HasSubstr("mass is nan"));
+  EXPECT_THAT(dodgeballThrowFromMessage(mass).status().message(),
+              HasSubstr("mass is nan"));
 }
 
-TEST(DodgeballThrowFromMessageTest, TheFlightTimeIsNotNegativeAndTheMassIsPositive) {
+TEST(DodgeballThrowFromMessageTest,
+     TheFlightTimeIsNotNegativeAndTheMassIsPositive) {
   msgs::DodgeballThrow early = completeThrow();
   early.flight_time = -0.1;
-  EXPECT_THAT(dodgeballThrowFromMessage(early).status().message(), HasSubstr("before the throw"));
+  EXPECT_THAT(dodgeballThrowFromMessage(early).status().message(),
+              HasSubstr("before the throw"));
   msgs::DodgeballThrow now = completeThrow();
   now.flight_time = 0.0;
-  EXPECT_TRUE(dodgeballThrowFromMessage(now).ok()) << "a ball that arrives at once is a push";
+  EXPECT_TRUE(dodgeballThrowFromMessage(now).ok())
+      << "a ball that arrives at once is a push";
   for (const double bad : {0.0, -1.0}) {
     msgs::DodgeballThrow weightless = completeThrow();
     weightless.mass = bad;
-    EXPECT_THAT(dodgeballThrowFromMessage(weightless).status().message(), HasSubstr("a ball needs a positive mass"));
+    EXPECT_THAT(dodgeballThrowFromMessage(weightless).status().message(),
+                HasSubstr("a ball needs a positive mass"));
   }
 }
 
@@ -146,7 +159,8 @@ TEST(DodgeballThrowFromMessageTest, WhatIsThereForTheRecordIsNotRead) {
   recorded.azimuth_deg = std::numeric_limits<double>::quiet_NaN();
   recorded.distance = -1.0;
   recorded.launch_speed = std::numeric_limits<double>::infinity();
-  const absl::StatusOr<DodgeballThrow> command = dodgeballThrowFromMessage(recorded);
+  const absl::StatusOr<DodgeballThrow> command =
+      dodgeballThrowFromMessage(recorded);
   ASSERT_TRUE(command.ok()) << command.status();
   EXPECT_EQ(command->mass, 1.2);
 }

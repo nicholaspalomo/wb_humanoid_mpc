@@ -37,13 +37,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::mujoco_sim_interface {
 
 /**
- * A viewer of the simulation, selected by its registry name (ViewerNames.h, createViewer() in MujocoViewerRegistry.h)
- * and started by MujocoSimInterface::initSim(). Every viewer only displays the simulation: no viewer input reaches the
- * physics, the controller or the gantry.
+ * A viewer of the simulation, selected by its registry name (ViewerNames.h,
+ * createViewer() in MujocoViewerRegistry.h) and started by
+ * MujocoSimInterface::initSim(). Every viewer only displays the simulation: no
+ * viewer input reaches the physics, the controller or the gantry.
  *
- * Lifecycle: create, start() once, destroy. The destructor stops and joins every thread the viewer started; the
- * simulator destroys its viewer before any member the viewer reads. Unless an implementation says otherwise, the
- * methods are called from the thread that owns the simulator, and the const ones may be called from any thread.
+ * Lifecycle: create, start() once, destroy. The destructor stops and joins
+ * every thread the viewer started; the simulator destroys its viewer before any
+ * member the viewer reads. Unless an implementation says otherwise, the methods
+ * are called from the thread that owns the simulator, and the const ones may be
+ * called from any thread.
  */
 class MujocoViewer {
  public:
@@ -58,15 +61,18 @@ class MujocoViewer {
   virtual absl::string_view name() const = 0;
 
   /**
-   * Starts the viewer's threads. A viewer that can fail at start-up waits until it knows and returns why it did not
-   * start, having stopped every thread it began; the simulator then tries the next viewer of its list.
+   * Starts the viewer's threads. A viewer that can fail at start-up waits until
+   * it knows and returns why it did not start, having stopped every thread it
+   * began; the simulator then tries the next viewer of its list.
    */
   virtual absl::Status start() = 0;
 
-  /** False once the viewer has stopped on its own (its window was closed, or it failed after start()). */
+  /** False once the viewer has stopped on its own (its window was closed, or it
+   * failed after start()). */
   virtual bool ok() const = 0;
 
-  /** The TCP port the viewer serves, for a viewer that serves one (web); the bound port when it was configured as 0. */
+  /** The TCP port the viewer serves, for a viewer that serves one (web); the
+   * bound port when it was configured as 0. */
   virtual std::optional<int> port() const { return std::nullopt; }
 };
 

@@ -63,19 +63,30 @@ class TestReadKey(unittest.TestCase):
         ):
             with self.subTest(key=key):
                 self.assertEqual(
-                    keyboard_walking_command_publisher.read_key(_reader(sequence)), key
+                    keyboard_walking_command_publisher.read_key(
+                        _reader(sequence)
+                    ),
+                    key,
                 )
 
     def test_a_plain_key_is_its_character_and_nothing_is_none(self):
-        self.assertEqual(keyboard_walking_command_publisher.read_key(_reader("w")), "w")
-        self.assertIsNone(keyboard_walking_command_publisher.read_key(_reader("")))
+        self.assertEqual(
+            keyboard_walking_command_publisher.read_key(_reader("w")), "w"
+        )
+        self.assertIsNone(
+            keyboard_walking_command_publisher.read_key(_reader(""))
+        )
 
     def test_an_unknown_or_cut_escape_sequence_is_no_key(self):
         self.assertIsNone(
             keyboard_walking_command_publisher.read_key(_reader("\x1b[Z"))
         )
-        self.assertIsNone(keyboard_walking_command_publisher.read_key(_reader("\x1bO")))
-        self.assertIsNone(keyboard_walking_command_publisher.read_key(_reader("\x1b")))
+        self.assertIsNone(
+            keyboard_walking_command_publisher.read_key(_reader("\x1bO"))
+        )
+        self.assertIsNone(
+            keyboard_walking_command_publisher.read_key(_reader("\x1b"))
+        )
 
     def test_one_key_is_read_at_a_time(self):
         read_char = _reader("\x1b[Aw")
@@ -83,7 +94,9 @@ class TestReadKey(unittest.TestCase):
             keyboard_walking_command_publisher.read_key(read_char),
             keyboard_walking_command_publisher.KEY_UP,
         )
-        self.assertEqual(keyboard_walking_command_publisher.read_key(read_char), "w")
+        self.assertEqual(
+            keyboard_walking_command_publisher.read_key(read_char), "w"
+        )
 
 
 class TestKeyboardCommand(unittest.TestCase):
@@ -120,7 +133,9 @@ class TestKeyboardCommand(unittest.TestCase):
                 self.assertEqual(command.linear_velocity_x, 0.0)
                 self.assertEqual(command.angular_velocity_z, 0.0)
 
-    def test_the_height_moves_one_step_per_tick_held_and_stays_when_released(self):
+    def test_the_height_moves_one_step_per_tick_held_and_stays_when_released(
+        self,
+    ):
         state = keyboard_walking_command_publisher.KeyboardCommand(
             pelvis_height=0.8, pelvis_height_step=0.01
         )
@@ -161,11 +176,13 @@ class TestKeyboardWalkingCommandPublisher(unittest.TestCase):
             self.discards += 1
 
         self.output = io.StringIO()
-        return keyboard_walking_command_publisher.KeyboardWalkingCommandPublisher(
-            self.publisher,
-            _reader("".join(typed)),
-            discard_pending,
-            output=self.output,
+        return (
+            keyboard_walking_command_publisher.KeyboardWalkingCommandPublisher(
+                self.publisher,
+                _reader("".join(typed)),
+                discard_pending,
+                output=self.output,
+            )
         )
 
     def test_every_tick_publishes_one_command(self):

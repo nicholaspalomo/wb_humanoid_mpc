@@ -61,7 +61,9 @@ class SphericalZyxTest(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(_found(source, path), [(1, 12)])
 
-    def test_other_directories_comments_strings_and_the_quaternion_root_are_not(self):
+    def test_other_directories_comments_strings_and_the_quaternion_root_are_not(
+        self,
+    ):
         self.assertEqual(
             _found(
                 "pinocchio::JointModelSphericalZYX j;\n",
@@ -70,11 +72,15 @@ class SphericalZyxTest(unittest.TestCase):
             [],
         )
         self.assertEqual(
-            _found("pinocchio::JointModelSphericalZYX j;\n", "tools/config_dump/a.cpp"),
+            _found(
+                "pinocchio::JointModelSphericalZYX j;\n",
+                "tools/config_dump/a.cpp",
+            ),
             [],
         )
         source = (
-            "// The old SphericalZYX root was singular at a pitch of 90 degrees.\n"
+            "// The old SphericalZYX root was singular at a pitch of 90"
+            " degrees.\n"
             "/* JointModelSphericalZYX */\n"
             'const char kName[] = "SphericalZYX";\n'
             "root.addJoint(pinocchio::JointModelSpherical());\n"

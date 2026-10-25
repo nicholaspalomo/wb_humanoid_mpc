@@ -56,20 +56,25 @@ TEST(VisualizationRegistry, NamesAndHotkeysAreUnique) {
   for (const VisualizationInfo& info : infos) {
     EXPECT_FALSE(info.name.empty());
     EXPECT_FALSE(info.description.empty());
-    EXPECT_TRUE(names.insert(info.name).second) << "duplicate name " << info.name;
+    EXPECT_TRUE(names.insert(info.name).second)
+        << "duplicate name " << info.name;
     if (info.hotkey != 0) {
-      EXPECT_TRUE(info.hotkey >= 'a' && info.hotkey <= 'z') << info.name << " must use a lower-case letter";
-      EXPECT_TRUE(hotkeys.insert(info.hotkey).second) << "duplicate hotkey " << info.hotkey << " for " << info.name;
+      EXPECT_TRUE(info.hotkey >= 'a' && info.hotkey <= 'z')
+          << info.name << " must use a lower-case letter";
+      EXPECT_TRUE(hotkeys.insert(info.hotkey).second)
+          << "duplicate hotkey " << info.hotkey << " for " << info.name;
     }
   }
-  // Hotkeys the renderer keeps for itself: camera tracking, the cheatsheet and the geom groups.
+  // Hotkeys the renderer keeps for itself: camera tracking, the cheatsheet and
+  // the geom groups.
   EXPECT_EQ(hotkeys.count('k'), 0u);
   EXPECT_EQ(hotkeys.count('p'), 0u);
 }
 
 TEST(VisualizationRegistry, EveryNameCreatesItsVisualization) {
   for (const VisualizationInfo& info : availableVisualizations()) {
-    const std::unique_ptr<MujocoVisualization> visualization = createVisualization(info.name);
+    const std::unique_ptr<MujocoVisualization> visualization =
+        createVisualization(info.name);
     ASSERT_NE(visualization, nullptr) << info.name;
     EXPECT_EQ(visualization->name(), info.name);
     EXPECT_EQ(visualization->hotkey(), info.hotkey);
@@ -81,15 +86,19 @@ TEST(VisualizationRegistry, DefaultSetIsTheHistoricalViewer) {
   const std::vector<std::string> defaults = defaultVisualizationNames();
   const std::set<std::string> set(defaults.begin(), defaults.end());
   for (const char* absl_nonnull name :
-       {"metrics", "external_forces", "contact_forces", "base_velocity", "contact_timeline", "target_contact_patches"}) {
+       {"metrics", "external_forces", "contact_forces", "base_velocity",
+        "contact_timeline", "target_contact_patches"}) {
     EXPECT_EQ(set.count(name), 1u) << name << " is on by default";
   }
   for (const char* absl_nonnull name :
-       {"mj_contact_points", "mj_contact_forces", "mj_com", "mj_inertia", "mj_convex_hull", "mj_transparent"}) {
-    EXPECT_EQ(set.count(name), 0u) << name << " is off by default, like in MuJoCo";
+       {"mj_contact_points", "mj_contact_forces", "mj_com", "mj_inertia",
+        "mj_convex_hull", "mj_transparent"}) {
+    EXPECT_EQ(set.count(name), 0u)
+        << name << " is off by default, like in MuJoCo";
   }
   for (const char* absl_nonnull name : {"center_of_mass", "zmp", "dcm"}) {
-    EXPECT_EQ(set.count(name), 0u) << name << " is off unless listed in the task file";
+    EXPECT_EQ(set.count(name), 0u)
+        << name << " is off unless listed in the task file";
     EXPECT_NE(createVisualization(name), nullptr) << name;
   }
 }
@@ -97,13 +106,16 @@ TEST(VisualizationRegistry, DefaultSetIsTheHistoricalViewer) {
 TEST(VisualizationRegistry, ListedNamesAreCreatedEnabledInRegistryOrder) {
   std::vector<std::string> errors;
   const std::vector<std::unique_ptr<MujocoVisualization>> visualizations =
-      createVisualizations({"target_contact_patches", "metrics", "mj_com"}, &errors);
+      createVisualizations({"target_contact_patches", "metrics", "mj_com"},
+                           &errors);
   EXPECT_TRUE(errors.empty());
   ASSERT_EQ(visualizations.size(), 3u);
-  EXPECT_EQ(visualizations[0]->name(), "metrics") << "drawing order is the registry's, not the list's";
+  EXPECT_EQ(visualizations[0]->name(), "metrics")
+      << "drawing order is the registry's, not the list's";
   EXPECT_EQ(visualizations[1]->name(), "target_contact_patches");
   EXPECT_EQ(visualizations[2]->name(), "mj_com");
-  for (const std::unique_ptr<MujocoVisualization>& visualization : visualizations) {
+  for (const std::unique_ptr<MujocoVisualization>& visualization :
+       visualizations) {
     EXPECT_TRUE(visualization->enabled()) << visualization->name();
   }
 
@@ -119,14 +131,17 @@ TEST(VisualizationRegistry, UnknownAndRepeatedNamesAreReportedAndSkipped) {
   EXPECT_EQ(visualizations[0]->name(), "metrics");
   ASSERT_EQ(errors.size(), 2u);
   EXPECT_NE(errors[0].find("contact_barcode"), std::string::npos);
-  EXPECT_NE(errors[0].find("contact_timeline"), std::string::npos) << "the message lists the available names";
+  EXPECT_NE(errors[0].find("contact_timeline"), std::string::npos)
+      << "the message lists the available names";
   EXPECT_NE(errors[1].find("more than once"), std::string::npos);
   // No error sink: still skipped, no crash.
-  EXPECT_EQ(createVisualizations({"contact_barcode"}, /*errors=*/nullptr).size(), 0u);
+  EXPECT_EQ(
+      createVisualizations({"contact_barcode"}, /*errors=*/nullptr).size(), 0u);
 }
 
 TEST(VisualizationRegistry, ToggleAndEnable) {
-  std::unique_ptr<MujocoVisualization> timeline = createVisualization("contact_timeline");
+  std::unique_ptr<MujocoVisualization> timeline =
+      createVisualization("contact_timeline");
   ASSERT_NE(timeline, nullptr);
   EXPECT_TRUE(timeline->enabled());
   timeline->toggle();
@@ -138,7 +153,8 @@ TEST(VisualizationRegistry, ToggleAndEnable) {
 }
 
 TEST(MujocoOptionFlagVisualization, FlagFollowsTheEnabledStateEveryFrame) {
-  std::unique_ptr<MujocoOptionFlagVisualization> com = MujocoOptionFlagVisualization::centerOfMass();
+  std::unique_ptr<MujocoOptionFlagVisualization> com =
+      MujocoOptionFlagVisualization::centerOfMass();
   EXPECT_FALSE(com->enabled()) << "MuJoCo's own markers start off";
   EXPECT_EQ(com->flag(), mjVIS_COM);
 
@@ -148,7 +164,8 @@ TEST(MujocoOptionFlagVisualization, FlagFollowsTheEnabledStateEveryFrame) {
   VisualizationFrame frame;
   frame.options = &options;
   com->beforeSceneUpdate(frame);
-  EXPECT_EQ(options.flags[mjVIS_COM], 0) << "a disabled visualization clears its flag";
+  EXPECT_EQ(options.flags[mjVIS_COM], 0)
+      << "a disabled visualization clears its flag";
   com->setEnabled(true);
   com->beforeSceneUpdate(frame);
   EXPECT_EQ(options.flags[mjVIS_COM], 1);
@@ -162,7 +179,8 @@ TEST(MujocoOptionFlagVisualization, FlagFollowsTheEnabledStateEveryFrame) {
   MujocoOptionFlagVisualization::transparency()->beforeSceneUpdate(empty);
 }
 
-// Two geoms of their own transparency: an opaque box and a translucent collision shell, as Atlas's collision class.
+// Two geoms of their own transparency: an opaque box and a translucent
+// collision shell, as Atlas's collision class.
 constexpr char kTwoAlphas[] = R"(
 <mujoco>
   <worldbody>
@@ -175,16 +193,20 @@ constexpr char kTwoAlphas[] = R"(
 </mujoco>
 )";
 
-// The x-ray is MuJoCo's own mjVIS_TRANSPARENT flag, which leaves the model alone. It used to write one alpha into every
-// geom of the model (0.3, then 1.0), so switching it off turned the translucent collision shells opaque for good.
+// The x-ray is MuJoCo's own mjVIS_TRANSPARENT flag, which leaves the model
+// alone. It used to write one alpha into every geom of the model (0.3,
+// then 1.0), so switching it off turned the translucent collision shells opaque
+// for good.
 TEST(MujocoOptionFlagVisualization, TransparencyLeavesTheModelsAlphasAlone) {
   char error[1000] = "";
-  const MjSpecPtr spec(mj_parseXMLString(kTwoAlphas, /*vfs=*/nullptr, error, sizeof(error)));
+  const MjSpecPtr spec(
+      mj_parseXMLString(kTwoAlphas, /*vfs=*/nullptr, error, sizeof(error)));
   ASSERT_NE(spec, nullptr) << "mj_parseXMLString: " << error;
   const MjModelPtr model(mj_compile(spec.get(), /*vfs=*/nullptr));
   ASSERT_NE(model, nullptr);
   ASSERT_EQ(model->ngeom, 2);
-  std::unique_ptr<MujocoOptionFlagVisualization> transparency = MujocoOptionFlagVisualization::transparency();
+  std::unique_ptr<MujocoOptionFlagVisualization> transparency =
+      MujocoOptionFlagVisualization::transparency();
   EXPECT_EQ(transparency->flag(), mjVIS_TRANSPARENT);
   mjvOption options;
   mjv_defaultOption(&options);
@@ -195,12 +217,15 @@ TEST(MujocoOptionFlagVisualization, TransparencyLeavesTheModelsAlphasAlone) {
     transparency->setEnabled(enabled);
     transparency->beforeSceneUpdate(frame);
     EXPECT_EQ(options.flags[mjVIS_TRANSPARENT], enabled ? 1 : 0);
-    EXPECT_FLOAT_EQ(model->geom_rgba[kMjRgbaChannels * 0 + kAlphaChannel], 1.0f);
-    EXPECT_FLOAT_EQ(model->geom_rgba[kMjRgbaChannels * 1 + kAlphaChannel], 0.3f);
+    EXPECT_FLOAT_EQ(model->geom_rgba[kMjRgbaChannels * 0 + kAlphaChannel],
+                    1.0f);
+    EXPECT_FLOAT_EQ(model->geom_rgba[kMjRgbaChannels * 1 + kAlphaChannel],
+                    0.3f);
   }
 }
 
-// A free body whose center of mass is 0.2 m ahead of its frame origin, as a pelvis's is off its frame.
+// A free body whose center of mass is 0.2 m ahead of its frame origin, as a
+// pelvis's is off its frame.
 constexpr char kOffsetInertia[] = R"(
 <mujoco>
   <worldbody>
@@ -213,19 +238,24 @@ constexpr char kOffsetInertia[] = R"(
 </mujoco>
 )";
 
-// The push is held for kPushHoldTime after the step it was applied at, starts at the body's center of mass (where
-// MuJoCo applies xfrc_applied), and stays on screen: a 0.45 kg ball at 25 m/s used to draw an arrow of the one-step
-// force, 0.05 m/N x 22.5 kN, a kilometer long, from the frame origin, and only in the one frame that held it.
+// The push is held for kPushHoldTime after the step it was applied at, starts
+// at the body's center of mass (where MuJoCo applies xfrc_applied), and stays
+// on screen: a 0.45 kg ball at 25 m/s used to draw an arrow of the one-step
+// force, 0.05 m/N x 22.5 kN, a kilometer long, from the frame origin, and only
+// in the one frame that held it.
 TEST(ExternalForceVisualization, AHeldPushIsDrawnAtTheCenterOfMassAndClamped) {
   char error[1000] = "";
-  const MjSpecPtr spec(mj_parseXMLString(kOffsetInertia, /*vfs=*/nullptr, error, sizeof(error)));
+  const MjSpecPtr spec(
+      mj_parseXMLString(kOffsetInertia, /*vfs=*/nullptr, error, sizeof(error)));
   ASSERT_NE(spec, nullptr) << "mj_parseXMLString: " << error;
   const MjModelPtr model(mj_compile(spec.get(), /*vfs=*/nullptr));
   ASSERT_NE(model, nullptr);
   MjState state(model.get());
   mj_forward(model.get(), state.data);
   const int base = 1;
-  state.push = AppliedPush{.bodyId = base, .impulseWorld = {-11.25, 0.0, 0.0}, .simTimeApplied = 0.0};
+  state.push = AppliedPush{.bodyId = base,
+                           .impulseWorld = {-11.25, 0.0, 0.0},
+                           .simTimeApplied = 0.0};
   mjvScene scene;
   mjv_defaultScene(&scene);
   mjv_makeScene(model.get(), &scene, /*maxgeom=*/16);
@@ -237,9 +267,12 @@ TEST(ExternalForceVisualization, AHeldPushIsDrawnAtTheCenterOfMassAndClamped) {
   // mjvGeom stores single-precision floats.
   EXPECT_NEAR(arrow.pos[0], state.data->xipos[3 * base + 0], 1.0e-6);
   EXPECT_NEAR(arrow.pos[2], state.data->xipos[3 * base + 2], 1.0e-6);
-  EXPECT_NEAR(state.data->xipos[3 * base] - state.data->xpos[3 * base], 0.2, 1.0e-9);
-  EXPECT_LT(arrow.mat[2], -0.9) << "the arrow does not point along the push, -x";
-  EXPECT_LE(arrow.size[2], 1.5 + 1.0e-9) << "an arrow of " << arrow.size[2] << " m";
+  EXPECT_NEAR(state.data->xipos[3 * base] - state.data->xpos[3 * base], 0.2,
+              1.0e-9);
+  EXPECT_LT(arrow.mat[2], -0.9)
+      << "the arrow does not point along the push, -x";
+  EXPECT_LE(arrow.size[2], 1.5 + 1.0e-9)
+      << "an arrow of " << arrow.size[2] << " m";
 
   scene.ngeom = 0;
   state.data->time = 1.5 * ExternalForceVisualization::kPushHoldTime;
@@ -254,7 +287,8 @@ TEST(MetricsOverlay, TextShowsTheRatesAsIntegersAndTheRestToAMillisecond) {
   metrics.rtfSmoothed = 0.98765;
   metrics.driftTick = -0.0000234;
   metrics.driftCumulative = 0.25;
-  EXPECT_EQ(MetricsOverlay::text(metrics, /*renderFps=*/59.9, /*elapsedRealTime=*/12.3456, /*simTime=*/12.0),
+  EXPECT_EQ(MetricsOverlay::text(metrics, /*renderFps=*/59.9,
+                                 /*elapsedRealTime=*/12.3456, /*simTime=*/12.0),
             "Render FPS: 59\n"
             "Sim FPS: 1999\n"
             "Real Time[s]: 12.346\n"
@@ -267,29 +301,37 @@ TEST(MetricsOverlay, TextShowsTheRatesAsIntegersAndTheRestToAMillisecond) {
 TEST(ContactTimelineVisualization, TickLabelsCountTheSecondsBackFromNow) {
   EXPECT_EQ(ContactTimelineVisualization::tickLabel(/*secondsAgo=*/0), "now");
   EXPECT_EQ(ContactTimelineVisualization::tickLabel(/*secondsAgo=*/1), "-1 s");
-  EXPECT_EQ(ContactTimelineVisualization::tickLabel(/*secondsAgo=*/12), "-12 s");
+  EXPECT_EQ(ContactTimelineVisualization::tickLabel(/*secondsAgo=*/12),
+            "-12 s");
 }
 
-TEST(TargetContactPatchVisualization, AKindOutsideTheEnumeratorsIsDrawnLikeAStance) {
+TEST(TargetContactPatchVisualization,
+     AKindOutsideTheEnumeratorsIsDrawnLikeAStance) {
   TargetContactPatch patch;
   patch.kind = TargetContactPatch::Kind::kStance;
-  const ContactPatchStyle stance = TargetContactPatchVisualization::styleFor(/*contact=*/1, patch);
+  const ContactPatchStyle stance =
+      TargetContactPatchVisualization::styleFor(/*contact=*/1, patch);
   EXPECT_FALSE(stance.fill);
   EXPECT_FALSE(stance.arrow);
-  patch.kind = static_cast<TargetContactPatch::Kind>(7);  // what a patch decoded from a newer controller can carry
-  const ContactPatchStyle unknown = TargetContactPatchVisualization::styleFor(/*contact=*/1, patch);
+  patch.kind = static_cast<TargetContactPatch::Kind>(
+      7);  // what a patch decoded from a newer controller can carry
+  const ContactPatchStyle unknown =
+      TargetContactPatchVisualization::styleFor(/*contact=*/1, patch);
   EXPECT_EQ(unknown.rgba, stance.rgba);
   EXPECT_EQ(unknown.fill, stance.fill);
   EXPECT_EQ(unknown.arrow, stance.arrow);
   EXPECT_EQ(unknown.emission, stance.emission);
 
   patch.kind = TargetContactPatch::Kind::kSwingInFlight;
-  const ContactPatchStyle swing = TargetContactPatchVisualization::styleFor(/*contact=*/1, patch);
+  const ContactPatchStyle swing =
+      TargetContactPatchVisualization::styleFor(/*contact=*/1, patch);
   EXPECT_TRUE(swing.fill);
   EXPECT_TRUE(swing.arrow);
-  EXPECT_GT(swing.rgba[3], stance.rgba[3]) << "the step being executed is drawn brighter than a foot held in place";
+  EXPECT_GT(swing.rgba[3], stance.rgba[3])
+      << "the step being executed is drawn brighter than a foot held in place";
   patch.kind = TargetContactPatch::Kind::kNextSwing;
-  const ContactPatchStyle next = TargetContactPatchVisualization::styleFor(/*contact=*/1, patch);
+  const ContactPatchStyle next =
+      TargetContactPatchVisualization::styleFor(/*contact=*/1, patch);
   EXPECT_TRUE(next.fill);
   EXPECT_LT(next.rgba[3], swing.rgba[3]);
 }

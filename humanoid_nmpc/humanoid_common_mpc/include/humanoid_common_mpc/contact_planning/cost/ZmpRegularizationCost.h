@@ -37,16 +37,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `zmp_regularization`: w ||zmp_k - c_k||^2 on the running nodes, keeps the ZMP under the CoM when possible.
+ * `zmp_regularization`: w ||zmp_k - c_k||^2 on the running nodes, keeps the ZMP
+ * under the CoM when possible.
  *
- * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
  */
 class ZmpRegularizationCost final : public LipWeightedCost {
  public:
   std::string describe() const override;
   void configure(const ContactPlanningConfig& config) override;
   NodeSet nodeSet() const override { return NodeSet::kRunning; }
-  void addToStage(const ContactPlanningContext& ctx, int node, StageAccumulator& stage) const override;
+  void addToStage(const ContactPlanningContext& ctx,
+                  int node,
+                  StageAccumulator& stage) const override;
 };
 
 }  // namespace ocs2::humanoid

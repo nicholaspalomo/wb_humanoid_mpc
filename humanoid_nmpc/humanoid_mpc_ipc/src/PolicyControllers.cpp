@@ -40,24 +40,30 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::ipc {
 namespace {
 
-// `controller` as a `Concrete` when that is its exact type, else null; `Concrete` carries the const of `Base`.
+// `controller` as a `Concrete` when that is its exact type, else null;
+// `Concrete` carries the const of `Base`.
 template <typename Concrete, typename Base>
 Concrete* absl_nullable asExactly(Base& controller) {
   // NOLINTNEXTLINE(rtti): OCS2's ControllerBase has no visitor and no exact type tag (PolicyControllers.h says why).
-  return typeid(controller) == typeid(Concrete) ? static_cast<Concrete*>(&controller) : nullptr;
+  return typeid(controller) == typeid(Concrete)
+             ? static_cast<Concrete*>(&controller)
+             : nullptr;
 }
 
 }  // namespace
 
-const FeedforwardController* absl_nullable asFeedforwardController(const ControllerBase& controller) {
+const FeedforwardController* absl_nullable asFeedforwardController(
+    const ControllerBase& controller) {
   return asExactly<const FeedforwardController>(controller);
 }
 
-FeedforwardController* absl_nullable asFeedforwardController(ControllerBase& controller) {
+FeedforwardController* absl_nullable asFeedforwardController(
+    ControllerBase& controller) {
   return asExactly<FeedforwardController>(controller);
 }
 
-const LinearController* absl_nullable asLinearController(const ControllerBase& controller) {
+const LinearController* absl_nullable asLinearController(
+    const ControllerBase& controller) {
   return asExactly<const LinearController>(controller);
 }
 
@@ -65,11 +71,13 @@ LinearController* absl_nullable asLinearController(ControllerBase& controller) {
   return asExactly<LinearController>(controller);
 }
 
-const ManifoldLinearController* absl_nullable asManifoldLinearController(const ControllerBase& controller) {
+const ManifoldLinearController* absl_nullable asManifoldLinearController(
+    const ControllerBase& controller) {
   return asExactly<const ManifoldLinearController>(controller);
 }
 
-ManifoldLinearController* absl_nullable asManifoldLinearController(ControllerBase& controller) {
+ManifoldLinearController* absl_nullable asManifoldLinearController(
+    ControllerBase& controller) {
   return asExactly<ManifoldLinearController>(controller);
 }
 

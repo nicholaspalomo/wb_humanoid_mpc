@@ -46,14 +46,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::test_support {
 
 /**
- * An MpcLink whose policies the test hands it (deliver()), with no solver behind it: for tests of what an MRT joint
- * controller does with a policy in WB_MPC - one it evaluates, one it refuses - without a solver thread or a bus. Not
- * thread-safe: the test delivers between control cycles, on the thread that runs them.
+ * An MpcLink whose policies the test hands it (deliver()), with no solver
+ * behind it: for tests of what an MRT joint controller does with a policy in
+ * WB_MPC - one it evaluates, one it refuses - without a solver thread or a bus.
+ * Not thread-safe: the test delivers between control cycles, on the thread that
+ * runs them.
  */
 class ScriptedPolicyMpcLink final : public MpcLink {
  public:
-  /** A link whose resets the controller would serve from `resetTarget` (its own reset target, kept for resetTargetOf()). */
-  explicit ScriptedPolicyMpcLink(MpcLink::ResetTargetFunction resetTarget) : resetTarget_(std::move(resetTarget)) {}
+  /** A link whose resets the controller would serve from `resetTarget` (its own
+   * reset target, kept for resetTargetOf()). */
+  explicit ScriptedPolicyMpcLink(MpcLink::ResetTargetFunction resetTarget)
+      : resetTarget_(std::move(resetTarget)) {}
 
   void start(const SystemObservation& /*initialObservation*/) override {}
   void stop() override {}
@@ -61,12 +65,14 @@ class ScriptedPolicyMpcLink final : public MpcLink {
   const MRT_BASE& mrt() const override { return mrt_; }
 
   /**
-   * Serves the outstanding reset, if any (as a solver thread does before it solves: the buffered policy dropped, the
-   * reset completed), then moves a copy of `policy` to the MRT's buffer, which the controller's next updatePolicy()
-   * takes into use as a policy solved after that reset.
+   * Serves the outstanding reset, if any (as a solver thread does before it
+   * solves: the buffered policy dropped, the reset completed), then moves a
+   * copy of `policy` to the MRT's buffer, which the controller's next
+   * updatePolicy() takes into use as a policy solved after that reset.
    */
   void deliver(const PrimalSolution& policy) {
-    const std::optional<MpcResetSupervisor::ResetTicket> ticket = resetSupervisor().takeResetRequest();
+    const std::optional<MpcResetSupervisor::ResetTicket> ticket =
+        resetSupervisor().takeResetRequest();
     if (ticket.has_value()) {
       mrt_.discardBufferedPolicy();
       resetSupervisor().completeReset(*ticket);
@@ -74,19 +80,28 @@ class ScriptedPolicyMpcLink final : public MpcLink {
     mrt_.deliver(policy);
   }
 
-  /** The observation of the controller's last cycle (setCurrentObservation()). */
-  const SystemObservation& lastObservation() const { return mrt_.lastObservation(); }
+  /** The observation of the controller's last cycle (setCurrentObservation()).
+   */
+  const SystemObservation& lastObservation() const {
+    return mrt_.lastObservation();
+  }
 
-  /** The target the controller's MPC would restart from after a reset at `observation`: the controller's reset target. */
-  TargetTrajectories resetTargetOf(const SystemObservation& observation) const { return resetTarget_(observation); }
+  /** The target the controller's MPC would restart from after a reset at
+   * `observation`: the controller's reset target. */
+  TargetTrajectories resetTargetOf(const SystemObservation& observation) const {
+    return resetTarget_(observation);
+  }
 
   /**
-   * A factory for the controllers' constructors that leaves the address of the link it makes in `*link`; the
-   * controller owns the link, so `*link` lives as long as the controller.
+   * A factory for the controllers' constructors that leaves the address of the
+   * link it makes in `*link`; the controller owns the link, so `*link` lives as
+   * long as the controller.
    */
-  static MpcLinkFactory factory(ScriptedPolicyMpcLink* absl_nullable* absl_nonnull link) {
+  static MpcLinkFactory factory(
+      ScriptedPolicyMpcLink* absl_nullable* absl_nonnull link) {
     return [link](MpcLink::ResetTargetFunction resetTarget) {
-      std::unique_ptr<ScriptedPolicyMpcLink> created = std::make_unique<ScriptedPolicyMpcLink>(std::move(resetTarget));
+      std::unique_ptr<ScriptedPolicyMpcLink> created =
+          std::make_unique<ScriptedPolicyMpcLink>(std::move(resetTarget));
       *link = created.get();
       return std::unique_ptr<MpcLink>(std::move(created));
     };
@@ -95,11 +110,17 @@ class ScriptedPolicyMpcLink final : public MpcLink {
  private:
   class ScriptedMrt final : public MRT_BASE {
    public:
-    void resetMpcNode(const TargetTrajectories& /*initTargetTrajectories*/) override {}
-    // An assignment of equal sizes after the first cycle: no allocation on the control thread.
-    void setCurrentObservation(const SystemObservation& observation) override { observation_ = observation; }
+    void resetMpcNode(
+        const TargetTrajectories& /*initTargetTrajectories*/) override {}
+    // An assignment of equal sizes after the first cycle: no allocation on the
+    // control thread.
+    void setCurrentObservation(const SystemObservation& observation) override {
+      observation_ = observation;
+    }
     void deliver(const PrimalSolution& policy) {
-      moveToBuffer(std::make_unique<CommandData>(), std::make_unique<PrimalSolution>(policy), std::make_unique<PerformanceIndex>());
+      moveToBuffer(std::make_unique<CommandData>(),
+                   std::make_unique<PrimalSolution>(policy),
+                   std::make_unique<PerformanceIndex>());
     }
     const SystemObservation& lastObservation() const { return observation_; }
 

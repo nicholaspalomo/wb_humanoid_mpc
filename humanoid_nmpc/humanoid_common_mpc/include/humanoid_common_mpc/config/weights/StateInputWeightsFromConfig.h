@@ -45,99 +45,126 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-// The task file's weights and states by name as the matrices and vectors the MPC is set up with, on the coordinates of a
-// StateInputLayout: a matrix element is `scaling` times its entry, an element off the diagonal or left out `scaling`
-// times 0. What the file must give, and what it
-// may not, is refused with an InvalidArgument that names the field path (`fieldPath`, "state_weights" in a task
-// file) and lists every problem at once: a missing block, joint or contact; a block, joint list, joint or contact the
-// MPC does not have (a fixed joint said so); a name given twice; a value that is not finite; a weight or a scaling of
-// weights below 0, which would make the quadratic cost (and its Gauss-Newton Hessian) indefinite. A state value
+// The task file's weights and states by name as the matrices and vectors the
+// MPC is set up with, on the coordinates of a StateInputLayout: a matrix
+// element is `scaling` times its entry, an element off the diagonal or left out
+// `scaling` times 0. What the file must give, and what it may not, is refused
+// with an InvalidArgument that names the field path (`fieldPath`,
+// "state_weights" in a task file) and lists every problem at once: a missing
+// block, joint or contact; a block, joint list, joint or contact the MPC does
+// not have (a fixed joint said so); a name given twice; a value that is not
+// finite; a weight or a scaling of weights below 0, which would make the
+// quadratic cost (and its Gauss-Newton Hessian) indefinite. A state value
 // (stateValuesFromConfig()) may have any sign.
 
 /**
- * The diagonal state weight matrix (tuningDimension(layout) square, on the rows of tuningLayoutOf(layout)) of `weights`:
- * Q of state_weights, Q_final of final_state_weights, before the terminal scaling and before any zeroing of the base
- * pose block.
+ * The diagonal state weight matrix (tuningDimension(layout) square, on the rows
+ * of tuningLayoutOf(layout)) of `weights`: Q of state_weights, Q_final of
+ * final_state_weights, before the terminal scaling and before any zeroing of
+ * the base pose block.
  */
-absl::StatusOr<matrix_t> stateWeightsFromConfig(const mpc_config::StateWeights& weights,
-                                                const StateInputLayout& layout,
-                                                absl::string_view fieldPath);
+absl::StatusOr<matrix_t> stateWeightsFromConfig(
+    const mpc_config::StateWeights& weights,
+    const StateInputLayout& layout,
+    absl::string_view fieldPath);
 
-/** What the quadratic state costs do with the base-pose block of their state weights. */
+/** What the quadratic state costs do with the base-pose block of their state
+ * weights. */
 enum class BasePoseWeights {
   kKept,
-  // Zeroed (ComAndAcomTrackingCost::zeroBasePoseWeights): the problem carries com_and_acom_tracking_cost, which tracks
-  // the base pose in its own coordinates instead.
+  // Zeroed (ComAndAcomTrackingCost::zeroBasePoseWeights): the problem carries
+  // com_and_acom_tracking_cost, which tracks the base pose in its own
+  // coordinates instead.
   kZeroedForComAndAcomTracking,
 };
 
 /**
- * The state weights a running quadratic state cost is set up with, at start-up (HumanoidCostConstraintFactory) and on a
- * live reload (QuadraticCostWeightsApplier) alike: stateWeightsFromConfig() of `weights` (the field `fieldPath`), its
- * base-pose block as `basePose` says. The cost's TuningLayoutDeviation then maps these Euler-written rows onto the
- * state, the one mapping of the weights in both paths.
+ * The state weights a running quadratic state cost is set up with, at start-up
+ * (HumanoidCostConstraintFactory) and on a live reload
+ * (QuadraticCostWeightsApplier) alike: stateWeightsFromConfig() of `weights`
+ * (the field `fieldPath`), its base-pose block as `basePose` says. The cost's
+ * TuningLayoutDeviation then maps these Euler-written rows onto the state, the
+ * one mapping of the weights in both paths.
  */
-absl::StatusOr<matrix_t> trackingStateWeightsFromConfig(const mpc_config::StateWeights& weights,
-                                                        const StateInputLayout& layout,
-                                                        absl::string_view fieldPath,
-                                                        BasePoseWeights basePose);
+absl::StatusOr<matrix_t> trackingStateWeightsFromConfig(
+    const mpc_config::StateWeights& weights,
+    const StateInputLayout& layout,
+    absl::string_view fieldPath,
+    BasePoseWeights basePose);
 
 /**
- * The state weights of the quadratic terminal cost, in both paths: `terminalCostScaling` (terminalCostScalingFromConfig())
- * times trackingStateWeightsFromConfig() of `finalStateWeights`, the base-pose block treated before the scaling.
+ * The state weights of the quadratic terminal cost, in both paths:
+ * `terminalCostScaling` (terminalCostScalingFromConfig()) times
+ * trackingStateWeightsFromConfig() of `finalStateWeights`, the base-pose block
+ * treated before the scaling.
  */
-absl::StatusOr<matrix_t> terminalStateWeightsFromConfig(const mpc_config::StateWeights& finalStateWeights,
-                                                        scalar_t terminalCostScaling,
-                                                        const StateInputLayout& layout,
-                                                        absl::string_view fieldPath,
-                                                        BasePoseWeights basePose);
+absl::StatusOr<matrix_t> terminalStateWeightsFromConfig(
+    const mpc_config::StateWeights& finalStateWeights,
+    scalar_t terminalCostScaling,
+    const StateInputLayout& layout,
+    absl::string_view fieldPath,
+    BasePoseWeights basePose);
 
-/** The state vector (tuningDimension(layout), on the rows of tuningLayoutOf(layout)) of `values`: initial_state. */
-absl::StatusOr<vector_t> stateValuesFromConfig(const mpc_config::StateValues& values,
-                                               const StateInputLayout& layout,
-                                               absl::string_view fieldPath);
-
-/**
- * The diagonal input weight matrix (inputDimension(layout) square) of `weights`: R of input_weights, in wrench space,
- * which the MPC transforms into basis space for basis-vector contact inputs.
- */
-absl::StatusOr<matrix_t> inputWeightsFromConfig(const mpc_config::InputWeights& weights,
-                                                const StateInputLayout& layout,
-                                                absl::string_view fieldPath);
+/** The state vector (tuningDimension(layout), on the rows of
+ * tuningLayoutOf(layout)) of `values`: initial_state. */
+absl::StatusOr<vector_t> stateValuesFromConfig(
+    const mpc_config::StateValues& values,
+    const StateInputLayout& layout,
+    absl::string_view fieldPath);
 
 /**
- * The diagonal 3x3 center-of-mass weight of com_and_acom_tracking_cost (formerly Q_com), rows x, y, z. A block that
- * names none of them is refused: the cost would weigh nothing.
+ * The diagonal input weight matrix (inputDimension(layout) square) of
+ * `weights`: R of input_weights, in wrench space, which the MPC transforms into
+ * basis space for basis-vector contact inputs.
  */
-absl::StatusOr<matrix_t> comWeightsFromConfig(const mpc_config::ComWeights& weights, absl::string_view fieldPath);
+absl::StatusOr<matrix_t> inputWeightsFromConfig(
+    const mpc_config::InputWeights& weights,
+    const StateInputLayout& layout,
+    absl::string_view fieldPath);
 
 /**
- * The diagonal 3x3 angular-center-of-mass weight of com_and_acom_tracking_cost (formerly Q_acom), rows yaw, pitch, roll
- * (Euler ZYX). A block that names none of them is refused.
+ * The diagonal 3x3 center-of-mass weight of com_and_acom_tracking_cost
+ * (formerly Q_com), rows x, y, z. A block that names none of them is refused:
+ * the cost would weigh nothing.
  */
-absl::StatusOr<matrix_t> acomWeightsFromConfig(const mpc_config::AcomWeights& weights, absl::string_view fieldPath);
+absl::StatusOr<matrix_t> comWeightsFromConfig(
+    const mpc_config::ComWeights& weights, absl::string_view fieldPath);
 
 /**
- * The task file's terminal_cost_scaling, the factor of final_state_weights and of the terminal instance of
- * com_and_acom_tracking_cost; InvalidArgument when the file does not give it or it is not a finite number of at least 0.
+ * The diagonal 3x3 angular-center-of-mass weight of com_and_acom_tracking_cost
+ * (formerly Q_acom), rows yaw, pitch, roll (Euler ZYX). A block that names none
+ * of them is refused.
  */
-absl::StatusOr<scalar_t> terminalCostScalingFromConfig(const mpc_config::TaskFile& task);
+absl::StatusOr<matrix_t> acomWeightsFromConfig(
+    const mpc_config::AcomWeights& weights, absl::string_view fieldPath);
 
 /**
- * The torque cost of one leg (left_leg_torque_cost, right_leg_torque_cost): its joints in the order the block lists
- * them, each weighing `scaling` times its value. Refuses a block without a joint, a joint given twice, a fixed joint and
- * a name that is not a joint of the MPC model.
+ * The task file's terminal_cost_scaling, the factor of final_state_weights and
+ * of the terminal instance of com_and_acom_tracking_cost; InvalidArgument when
+ * the file does not give it or it is not a finite number of at least 0.
  */
-absl::StatusOr<ExternalTorqueQuadraticCostAD::Config> legTorqueCostFromConfig(const mpc_config::JointWeights& weights,
-                                                                              const StateInputLayout& layout,
-                                                                              absl::string_view fieldPath);
+absl::StatusOr<scalar_t> terminalCostScalingFromConfig(
+    const mpc_config::TaskFile& task);
 
 /**
- * The joint torque weights of the whole-body MPC's joint_torque_cost (joint_torque_weights): one per joint of the MPC
- * model, in its order, `scaling` times the value the block names it with; every joint exactly once.
+ * The torque cost of one leg (left_leg_torque_cost, right_leg_torque_cost): its
+ * joints in the order the block lists them, each weighing `scaling` times its
+ * value. Refuses a block without a joint, a joint given twice, a fixed joint
+ * and a name that is not a joint of the MPC model.
  */
-absl::StatusOr<vector_t> jointTorqueWeightsFromConfig(const mpc_config::JointWeights& weights,
-                                                      const StateInputLayout& layout,
-                                                      absl::string_view fieldPath);
+absl::StatusOr<ExternalTorqueQuadraticCostAD::Config> legTorqueCostFromConfig(
+    const mpc_config::JointWeights& weights,
+    const StateInputLayout& layout,
+    absl::string_view fieldPath);
+
+/**
+ * The joint torque weights of the whole-body MPC's joint_torque_cost
+ * (joint_torque_weights): one per joint of the MPC model, in its order,
+ * `scaling` times the value the block names it with; every joint exactly once.
+ */
+absl::StatusOr<vector_t> jointTorqueWeightsFromConfig(
+    const mpc_config::JointWeights& weights,
+    const StateInputLayout& layout,
+    absl::string_view fieldPath);
 
 }  // namespace ocs2::humanoid

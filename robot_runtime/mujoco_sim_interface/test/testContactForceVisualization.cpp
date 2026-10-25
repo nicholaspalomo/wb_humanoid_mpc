@@ -41,7 +41,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::mujoco_sim_interface {
 namespace {
 
-// A 10 kg box resting on the floor plane: MuJoCo orders the pair (floor, box), so geom[0] of its contacts is the world.
+// A 10 kg box resting on the floor plane: MuJoCo orders the pair (floor, box),
+// so geom[0] of its contacts is the world.
 constexpr char kBoxOnAPlane[] = R"(
 <mujoco>
   <option timestep="0.002"/>
@@ -55,7 +56,8 @@ constexpr char kBoxOnAPlane[] = R"(
 </mujoco>
 )";
 
-// A 10 kg sphere resting on a box of the world: MuJoCo orders the pair (sphere, box), so geom[0] is the free body.
+// A 10 kg sphere resting on a box of the world: MuJoCo orders the pair (sphere,
+// box), so geom[0] is the free body.
 constexpr char kSphereOnAWorldBox[] = R"(
 <mujoco>
   <option timestep="0.002"/>
@@ -69,7 +71,8 @@ constexpr char kSphereOnAWorldBox[] = R"(
 </mujoco>
 )";
 
-/** An mjvScene of up to `maxGeoms` geoms, freed with the object. Not copyable. */
+/** An mjvScene of up to `maxGeoms` geoms, freed with the object. Not copyable.
+ */
 class OwnedScene {
  public:
   OwnedScene(const mjModel* absl_nonnull model, int maxGeoms) {
@@ -85,10 +88,12 @@ class OwnedScene {
   mjvScene scene_ = {};
 };
 
-/** Settles the free body of `xml` on its support and expects every contact arrow to point up, the support's push. */
+/** Settles the free body of `xml` on its support and expects every contact
+ * arrow to point up, the support's push. */
 void expectArrowsPointUp(absl::string_view xml, int expectedFirstGeomBody) {
   char error[1000] = "";
-  const MjSpecPtr spec(mj_parseXMLString(std::string(xml).c_str(), /*vfs=*/nullptr, error, sizeof(error)));
+  const MjSpecPtr spec(mj_parseXMLString(
+      std::string(xml).c_str(), /*vfs=*/nullptr, error, sizeof(error)));
   ASSERT_NE(spec, nullptr) << "mj_parseXMLString: " << error;
   const MjModelPtr model(mj_compile(spec.get(), /*vfs=*/nullptr));
   ASSERT_NE(model, nullptr);
@@ -97,7 +102,9 @@ void expectArrowsPointUp(absl::string_view xml, int expectedFirstGeomBody) {
   for (int step = 0; step < 500; ++step) mj_step(model.get(), state.data);
   ASSERT_GT(state.data->ncon, 0) << "the body does not rest on its support";
   for (int contact = 0; contact < state.data->ncon; ++contact) {
-    ASSERT_EQ(model->geom_bodyid[state.data->contact[contact].geom[0]], expectedFirstGeomBody) << "the scene orders its pair otherwise";
+    ASSERT_EQ(model->geom_bodyid[state.data->contact[contact].geom[0]],
+              expectedFirstGeomBody)
+        << "the scene orders its pair otherwise";
   }
 
   OwnedScene scene(model.get(), /*maxGeoms=*/64);
@@ -111,22 +118,28 @@ void expectArrowsPointUp(absl::string_view xml, int expectedFirstGeomBody) {
   ASSERT_GT(scene.get().ngeom, 0) << "no contact force arrow";
   for (int geom = 0; geom < scene.get().ngeom; ++geom) {
     // mjvGeom::mat is row-major, so its third column is the arrow's axis.
-    EXPECT_GT(scene.get().geoms[geom].mat[8], 0.9) << "arrow " << geom << " does not point up";
+    EXPECT_GT(scene.get().geoms[geom].mat[8], 0.9)
+        << "arrow " << geom << " does not point up";
   }
 }
 
-// The arrows are the forces on the body that stands on its support, whichever geom of the pair MuJoCo lists first. The
-// behavior was right, but its comment said the opposite; this keeps both orders of the pair pinned.
-TEST(ContactForceVisualization, TheArrowOfABodyOnTheFloorPointsUpWhenTheWorldIsTheFirstGeomOfThePair) {
+// The arrows are the forces on the body that stands on its support, whichever
+// geom of the pair MuJoCo lists first. The behavior was right, but its comment
+// said the opposite; this keeps both orders of the pair pinned.
+TEST(ContactForceVisualization,
+     TheArrowOfABodyOnTheFloorPointsUpWhenTheWorldIsTheFirstGeomOfThePair) {
   expectArrowsPointUp(kBoxOnAPlane, /*expectedFirstGeomBody=*/0);
 }
 
-TEST(ContactForceVisualization, TheArrowOfABodyOnTheFloorPointsUpWhenTheBodyIsTheFirstGeomOfThePair) {
+TEST(ContactForceVisualization,
+     TheArrowOfABodyOnTheFloorPointsUpWhenTheBodyIsTheFirstGeomOfThePair) {
   expectArrowsPointUp(kSphereOnAWorldBox, /*expectedFirstGeomBody=*/1);
 }
 
-// The robot (the first body on a free joint, a box resting on the floor), a ball pressed into its side along +x, and a
-// second ball resting on the floor 2 m away. MuJoCo orders a sphere before a box, so geom[0] of the impact is the ball.
+// The robot (the first body on a free joint, a box resting on the floor), a
+// ball pressed into its side along +x, and a second ball resting on the floor 2
+// m away. MuJoCo orders a sphere before a box, so geom[0] of the impact is the
+// ball.
 constexpr char kBallAgainstARobot[] = R"(
 <mujoco>
   <option timestep="0.002"/>
@@ -148,12 +161,15 @@ constexpr char kBallAgainstARobot[] = R"(
 </mujoco>
 )";
 
-// The arrows are the forces on the robot: the ball's push on its side points into the robot (+x), which the marker
-// used to draw as the force on the ball (-x), and the ball resting on the floor, which does not touch the robot, draws
-// no arrow (it used to draw its weight).
-TEST(ContactForceVisualization, TheArrowsAreTheForcesOnTheRobotWhicheverGeomComesFirst) {
+// The arrows are the forces on the robot: the ball's push on its side points
+// into the robot (+x), which the marker used to draw as the force on the ball
+// (-x), and the ball resting on the floor, which does not touch the robot,
+// draws no arrow (it used to draw its weight).
+TEST(ContactForceVisualization,
+     TheArrowsAreTheForcesOnTheRobotWhicheverGeomComesFirst) {
   char error[1000] = "";
-  const MjSpecPtr spec(mj_parseXMLString(kBallAgainstARobot, /*vfs=*/nullptr, error, sizeof(error)));
+  const MjSpecPtr spec(mj_parseXMLString(kBallAgainstARobot, /*vfs=*/nullptr,
+                                         error, sizeof(error)));
   ASSERT_NE(spec, nullptr) << "mj_parseXMLString: " << error;
   const MjModelPtr model(mj_compile(spec.get(), /*vfs=*/nullptr));
   ASSERT_NE(model, nullptr);
@@ -165,9 +181,12 @@ TEST(ContactForceVisualization, TheArrowsAreTheForcesOnTheRobotWhicheverGeomCome
   bool impactFound = false;
   for (int contact = 0; contact < state.data->ncon; ++contact) {
     const mjContact& pair = state.data->contact[contact];
-    if (model->geom_bodyid[pair.geom[0]] == ball && model->geom_bodyid[pair.geom[1]] == robot) impactFound = true;
+    if (model->geom_bodyid[pair.geom[0]] == ball &&
+        model->geom_bodyid[pair.geom[1]] == robot)
+      impactFound = true;
   }
-  ASSERT_TRUE(impactFound) << "the scene does not order the impact (ball, robot)";
+  ASSERT_TRUE(impactFound)
+      << "the scene does not order the impact (ball, robot)";
 
   OwnedScene scene(model.get(), /*maxGeoms=*/64);
   VisualizationFrame frame;
@@ -180,14 +199,18 @@ TEST(ContactForceVisualization, TheArrowsAreTheForcesOnTheRobotWhicheverGeomCome
   int impactArrows = 0;
   for (int geom = 0; geom < scene.get().ngeom; ++geom) {
     const mjvGeom& arrow = scene.get().geoms[geom];
-    EXPECT_LT(arrow.pos[0], 1.0) << "an arrow at the floor ball, which does not touch the robot";
-    // The impact is on the robot's side at its mid-height; the floor's contacts are at its bottom.
+    EXPECT_LT(arrow.pos[0], 1.0)
+        << "an arrow at the floor ball, which does not touch the robot";
+    // The impact is on the robot's side at its mid-height; the floor's contacts
+    // are at its bottom.
     if (arrow.pos[0] < -0.05 && arrow.pos[2] > 0.05) {
       ++impactArrows;
       // mjvGeom::mat is row-major, so its third column is the arrow's axis.
-      EXPECT_GT(arrow.mat[2], 0.9) << "the impact arrow is not the ball's push on the robot, along +x";
+      EXPECT_GT(arrow.mat[2], 0.9)
+          << "the impact arrow is not the ball's push on the robot, along +x";
     } else {
-      EXPECT_GT(arrow.mat[8], 0.9) << "the floor's push on the robot does not point up";
+      EXPECT_GT(arrow.mat[8], 0.9)
+          << "the floor's push on the robot does not point up";
     }
   }
   EXPECT_GT(impactArrows, 0) << "no arrow of the ball's impact";

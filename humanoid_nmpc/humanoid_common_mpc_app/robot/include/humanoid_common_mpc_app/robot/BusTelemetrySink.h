@@ -40,9 +40,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The `bus` telemetry sink: publishes every sample on robot/state, where the MPC node's visualization publisher, the
- * Rerun bridge and `ipc_tool echo robot/state` read it. Publishes from the bus's IO thread, so it must be written to from
- * a handler or a periodic callback of `bus`.
+ * The `bus` telemetry sink: publishes every sample on robot/state, where the
+ * MPC node's visualization publisher, the Rerun bridge and `ipc_tool echo
+ * robot/state` read it. Publishes from the bus's IO thread, so it must be
+ * written to from a handler or a periodic callback of `bus`.
  */
 class BusTelemetrySink final : public TelemetrySink {
  public:
@@ -52,7 +53,8 @@ class BusTelemetrySink final : public TelemetrySink {
   absl::string_view name() const override;
   void write(const humanoid_mpc_msgs::RobotStateSample& sample) override;
 
-  /** Samples the bus refused (its send queue full, or not called on its IO thread). */
+  /** Samples the bus refused (its send queue full, or not called on its IO
+   * thread). */
   uint64_t publishFailures() const { return publishFailures_; }
 
  private:

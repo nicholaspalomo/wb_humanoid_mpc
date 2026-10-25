@@ -55,20 +55,23 @@ namespace ocs2::humanoid::visualization::test {
 enum class Formulation {
   /** CentroidalMpcRobotModel, world-frame wrench inputs. */
   kCentroidal,
-  /** CentroidalMpcRobotModel behind BasisInputsModelDecorator: local-frame basis-vector inputs. */
+  /** CentroidalMpcRobotModel behind BasisInputsModelDecorator: local-frame
+     basis-vector inputs. */
   kCentroidalBasisVectors,
   /** WBAccelMpcRobotModel. */
   kWholeBody,
 };
 
-/** The files of one shipped robot configuration, relative to the repository root. */
+/** The files of one shipped robot configuration, relative to the repository
+ * root. */
 struct RobotFiles {
   std::string taskFile;
   std::string referenceFile;
   std::string urdfFile;
 };
 
-/** The shipped configurations: G1 centroidal and whole-body, Atlas, SA01 and R1. */
+/** The shipped configurations: G1 centroidal and whole-body, Atlas, SA01 and
+ * R1. */
 RobotFiles g1CentroidalFiles();
 RobotFiles g1WholeBodyFiles();
 RobotFiles atlasFiles();
@@ -78,21 +81,29 @@ RobotFiles r1Files();
 std::vector<std::pair<RobotFiles, Formulation>> shippedConfigurations();
 
 /**
- * A robot's MPC model as the MPC node builds it, without the solver: the model settings, the MPC's Pinocchio model
- * (loadCustomPinocchioInterface) and the robot model of the formulation; plus synthetic observations, policies and
+ * A robot's MPC model as the MPC node builds it, without the solver: the model
+ * settings, the MPC's Pinocchio model (loadCustomPinocchioInterface) and the
+ * robot model of the formulation; plus synthetic observations, policies and
  * robot/state samples for it. Paths are resolved from the test's runfiles.
  */
 class TestRobot {
  public:
-  static std::unique_ptr<TestRobot> load(const RobotFiles& files, Formulation formulation);
+  static std::unique_ptr<TestRobot> load(const RobotFiles& files,
+                                         Formulation formulation);
 
   VisualizationModel model() const;
   const ModelSettings& modelSettings() const { return *modelSettings_; }
-  const PinocchioInterface& pinocchioInterface() const { return *pinocchioInterface_; }
+  const PinocchioInterface& pinocchioInterface() const {
+    return *pinocchioInterface_;
+  }
   const MpcRobotModelBase<scalar_t>& robotModel() const { return *robotModel_; }
-  /** The manifold of the robot model's state (stateManifoldOf(): the base quaternion on SO(3)), which model() hands over. */
-  const StateManifold* absl_nullable stateManifold() const { return stateManifold_.get(); }
-  /** A second, independently built MPC Pinocchio model, for reference kinematics. */
+  /** The manifold of the robot model's state (stateManifoldOf(): the base
+   * quaternion on SO(3)), which model() hands over. */
+  const StateManifold* absl_nullable stateManifold() const {
+    return stateManifold_.get();
+  }
+  /** A second, independently built MPC Pinocchio model, for reference
+   * kinematics. */
   PinocchioInterface makeReferencePinocchioInterface() const;
   const std::string& taskFile() const { return taskFile_; }
   /** The task file, as loadTaskFile() read it. */
@@ -100,18 +111,22 @@ class TestRobot {
   const std::string& urdfFile() const { return urdfFile_; }
   Formulation formulation() const { return formulation_; }
 
-  /** The task file's initial_state on the robot model's state (MpcRobotModelBase::stateFromTuning): a standing configuration. */
+  /** The task file's initial_state on the robot model's state
+   * (MpcRobotModelBase::stateFromTuning): a standing configuration. */
   const vector_t& nominalState() const { return nominalState_; }
 
   /** The nominal state at `time` in `mode`, its input zero. */
   SystemObservation observation(scalar_t time, size_t mode) const;
 
   /**
-   * A policy from `startTime` over one second in `nodes` nodes: the nominal state moving forward and bending its
-   * joints, each stance foot carrying `normalForce` with its center of pressure `copOffset` (in the contact frame) away
-   * from the contact frame, written through the model's world-frame setter. The mode schedule is STANCE, then RF
-   * (left foot in swing) from startTime + 0.3 s, then STANCE from startTime + 0.6 s; the target trajectories run from
-   * the nominal state to the policy's last state, with zero inputs.
+   * A policy from `startTime` over one second in `nodes` nodes: the nominal
+   * state moving forward and bending its joints, each stance foot carrying
+   * `normalForce` with its center of pressure `copOffset` (in the contact
+   * frame) away from the contact frame, written through the model's world-frame
+   * setter. The mode schedule is STANCE, then RF (left foot in swing) from
+   * startTime + 0.3 s, then STANCE from startTime + 0.6 s; the target
+   * trajectories run from the nominal state to the policy's last state, with
+   * zero inputs.
    */
   void makePolicy(scalar_t startTime,
                   size_t nodes,
@@ -121,11 +136,15 @@ class TestRobot {
                   PrimalSolution* absl_nonnull solution) const;
 
   /**
-   * A robot/state sample of every joint of fullJointNames (named, in reverse order, so that the order of the names is
-   * exercised): joint i at 0.01 * (i + 1) rad, moving at 0.1 rad/s, the base at `position` with roll, pitch, yaw
+   * A robot/state sample of every joint of fullJointNames (named, in reverse
+   * order, so that the order of the names is exercised): joint i at 0.01 * (i +
+   * 1) rad, moving at 0.1 rad/s, the base at `position` with roll, pitch, yaw
    * `rollPitchYaw`, no joint action.
    */
-  humanoid_mpc_msgs::RobotStateSample robotState(scalar_t time, const vector3_t& position, const vector3_t& rollPitchYaw) const;
+  humanoid_mpc_msgs::RobotStateSample robotState(
+      scalar_t time,
+      const vector3_t& position,
+      const vector3_t& rollPitchYaw) const;
 
  private:
   TestRobot() = default;
@@ -139,7 +158,8 @@ class TestRobot {
   std::unique_ptr<PinocchioInterface> pinocchioInterface_;
   CentroidalModelInfo centroidalModelInfo_;
   std::unique_ptr<MpcRobotModelBase<scalar_t>> robotModel_;
-  // A std::shared_ptr because stateManifoldOf() returns one (the OCS2 solvers share the manifold).
+  // A std::shared_ptr because stateManifoldOf() returns one (the OCS2 solvers
+  // share the manifold).
   std::shared_ptr<const StateManifold> stateManifold_;
   vector_t nominalState_;
 };

@@ -40,20 +40,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * What the robot process does about a robot that fell, or whose plant jumped, on its realtime thread after the cycle's
- * FSM command (FsmBridge::processCommands()). Selected with the FSM bridge by the backend's supervisor
- * (RobotSupervisorRegistry): SimFallRecovery catches a falling robot on the simulator's gantry and notices the
- * simulator's own resets; HardwareFallRecovery switches the torques of a robot that tilts past its limit off. Every
- * call is for the realtime thread: no lock, no log line (reports go to a RealtimeEventLog) and no allocation.
+ * What the robot process does about a robot that fell, or whose plant jumped,
+ * on its realtime thread after the cycle's FSM command
+ * (FsmBridge::processCommands()). Selected with the FSM bridge by the backend's
+ * supervisor (RobotSupervisorRegistry): SimFallRecovery catches a falling robot
+ * on the simulator's gantry and notices the simulator's own resets;
+ * HardwareFallRecovery switches the torques of a robot that tilts past its
+ * limit off. Every call is for the realtime thread: no lock, no log line
+ * (reports go to a RealtimeEventLog) and no allocation.
  */
 class FallRecovery {
  public:
   /** What happened in one control cycle. */
   struct Cycle {
-    /// The plant jumped since the previous cycle: the loop resets the controller and holds it (cause says why).
+    /// The plant jumped since the previous cycle: the loop resets the
+    /// controller and holds it (cause says why).
     bool discontinuity = false;
     DiscontinuityCause cause = DiscontinuityCause::kNone;
-    /// The simulator's reset epoch this cycle (kSimulatorReset) and the tilt that was caught [rad] (kTiltCaught).
+    /// The simulator's reset epoch this cycle (kSimulatorReset) and the tilt
+    /// that was caught [rad] (kTiltCaught).
     uint64_t resetEpoch = 0;
     scalar_t tilt = 0.0;
     /// The gantry was released since the previous cycle.
@@ -61,8 +66,9 @@ class FallRecovery {
     /// update() changed the mode: the loop publishes the FSM state.
     bool modeChanged = false;
     /**
-     * The backend moved the base by a means its sensors do not see (the simulator put it back, or the gantry took
-     * it): a state estimator that integrates the sensors starts again from the backend's measured state.
+     * The backend moved the base by a means its sensors do not see (the
+     * simulator put it back, or the gantry took it): a state estimator that
+     * integrates the sensors starts again from the backend's measured state.
      */
     bool baseRelocated = false;
   };
@@ -70,9 +76,10 @@ class FallRecovery {
   virtual ~FallRecovery() = default;
 
   /**
-   * Once per control cycle, after the operator's commands were processed, with the robot state of the cycle and the
-   * nominal posture of JOINT_PD (indexed like the robot's joints). May switch the torques, move the gantry and change
-   * `currentModeName`.
+   * Once per control cycle, after the operator's commands were processed, with
+   * the robot state of the cycle and the nominal posture of JOINT_PD (indexed
+   * like the robot's joints). May switch the torques, move the gantry and
+   * change `currentModeName`.
    */
   virtual Cycle update(const robot::model::RobotState& robotState,
                        const std::vector<scalar_t>& nominalJointPositions,

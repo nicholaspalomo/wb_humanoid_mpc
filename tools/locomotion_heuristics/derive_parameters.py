@@ -73,8 +73,9 @@ try:
     import pinocchio as pin
 except ImportError:  # pragma: no cover - the dev container always has it
     sys.exit(
-        "pinocchio is not importable. Run this inside the dev container:\n"
-        "  docker compose exec app python3 tools/locomotion_heuristics/derive_parameters.py --robot drc_atlas"
+        "pinocchio is not importable. Run this inside the dev container:\n "
+        " docker compose exec app python3"
+        " tools/locomotion_heuristics/derive_parameters.py --robot drc_atlas"
     )
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -232,7 +233,9 @@ class RobotGeometry:
     @property
     def hip_half_width(self) -> float:
         """[m] The largest lateral offset of a hip from the base; 0 without hips."""
-        return max(abs(y) for _, y in self.hip_offset) if self.hip_offset else 0.0
+        return (
+            max(abs(y) for _, y in self.hip_offset) if self.hip_offset else 0.0
+        )
 
 
 @dataclasses.dataclass
@@ -318,7 +321,9 @@ def gait_table(gait_file: dict[str, Any]) -> dict[str, Any]:
     }
     for gait in as_list(gait_file.get("gaits")):
         table[str(gait.get("name", ""))] = {
-            "mode_sequence": [str(mode) for mode in as_list(gait.get("mode_sequence"))],
+            "mode_sequence": [
+                str(mode) for mode in as_list(gait.get("mode_sequence"))
+            ],
             "switching_times": [
                 float(time) for time in as_list(gait.get("switching_times"))
             ],
@@ -331,7 +336,9 @@ def gait_table(gait_file: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------------------------------------------
 
 
-def derive_geometry(urdf_path: str, task: dict, model_settings: dict) -> RobotGeometry:
+def derive_geometry(
+    urdf_path: str, task: dict, model_settings: dict
+) -> RobotGeometry:
     """The C++ deriveLocomotionHeuristicModelParameters(), in Python and against the same nominal state.
 
     `com_height` is the C++ computeComHeightAboveFeet() at `initial_state`: the center of mass above the MEAN height of
@@ -380,7 +387,9 @@ def derive_geometry(urdf_path: str, task: dict, model_settings: dict) -> RobotGe
         str(entry.get("joint", "")): float(entry.get("value", 0.0))
         for entry in as_list(initial_state.get("joint_positions"))
     }
-    base_xy = np.array([float(position.get("x", 0.0)), float(position.get("y", 0.0))])
+    base_xy = np.array(
+        [float(position.get("x", 0.0)), float(position.get("y", 0.0))]
+    )
     yaw = float(orientation.get("yaw", 0.0))
 
     q = pin.neutral(model)
@@ -405,7 +414,9 @@ def derive_geometry(urdf_path: str, task: dict, model_settings: dict) -> RobotGe
     # The contact frames are NOT in the URDF: createPinocchioModel() adds them at run time, one per entry of
     # `contact_parent_joint_names`, offset from that joint by `contacts.contact_frame_translation`. So the foot position
     # is computed here the same way rather than looked up by name.
-    translation = task.get("contacts", {}).get("contact_frame_translation", {}) or {}
+    translation = (
+        task.get("contacts", {}).get("contact_frame_translation", {}) or {}
+    )
     contact_offset = np.array(
         [
             float(translation.get("x", 0.0)),
@@ -455,7 +466,9 @@ def derive_geometry(urdf_path: str, task: dict, model_settings: dict) -> RobotGe
             model.parents[joint] > 1
         ):  # stop at the first child of the floating base: the hip
             joint = model.parents[joint]
-        offset = rotation @ (np.array(data.oMi[joint].translation[0:2]) - base_position)
+        offset = rotation @ (
+            np.array(data.oMi[joint].translation[0:2]) - base_position
+        )
         geometry.hip_offset.append((float(offset[0]), float(offset[1])))
         geometry.hip_joint_names.append(model.names[joint])
     return geometry
@@ -494,7 +507,9 @@ def gait_cadence(gaits: dict, name: str) -> GaitCadence:
         right = mode in ("RF", "STANCE")
         contact["left"] += duration if left else 0.0
         contact["right"] += duration if right else 0.0
-    duty = min(contact["left"], contact["right"]) / stride if stride > 0 else 1.0
+    duty = (
+        min(contact["left"], contact["right"]) / stride if stride > 0 else 1.0
+    )
     # Two touch-downs per stride in any alternating gait, so the step period is half the stride. Counting them from
     # the sequence would miscount a stride that begins mid-swing.
     return GaitCadence(
@@ -598,7 +613,9 @@ def friction_coefficient(task: dict) -> tuple[float, str | None]:
         ("contact_wrench_cone", "contact_wrench_cone_soft_constraint"),
         ("friction_force_cone", "friction_force_cone_soft_constraint"),
     ):
-        if cone in listed and "friction_coefficient" in (contacts.get(key) or {}):
+        if cone in listed and "friction_coefficient" in (
+            contacts.get(key) or {}
+        ):
             return (
                 float(contacts[key]["friction_coefficient"]),
                 "contacts.%s.friction_coefficient" % key,
@@ -621,8 +638,8 @@ def derive_parameters(
     for field in REQUIRED_COMMAND_LIMITS:
         if field not in limits:
             notes.append(
-                "WARNING the reference file has no %s, which the MPC requires (it refuses the file); a stand-in is "
-                "assumed below" % field
+                "WARNING the reference file has no %s, which the MPC requires"
+                " (it refuses the file); a stand-in is assumed below" % field
             )
     max_forward = float(limits.get("max_displacement_velocity_x", 1.0))
     max_yaw_rate = float(limits.get("max_rotation_velocity", 1.0))
@@ -630,9 +647,10 @@ def derive_parameters(
     friction, friction_source = friction_coefficient(task)
     if friction_source is None:
         notes.append(
-            "WARNING the task file lists neither contact_wrench_cone nor friction_force_cone in soft_constraints, so "
-            "there is no friction coefficient to size the centripetal clamp against; %.2f is assumed."
-            % friction
+            "WARNING the task file lists neither contact_wrench_cone nor"
+            " friction_force_cone in soft_constraints, so there is no friction"
+            " coefficient to size the centripetal clamp against; %.2f is"
+            " assumed." % friction
         )
     step_width = float(
         task.get("nominal_foothold", {}).get(
@@ -651,13 +669,19 @@ def derive_parameters(
     # closed-form planner's own clip on the step it emits. With no planner running it is the reach that bounds
     # how far a landing target may be pushed.
     max_step_length = float(
-        foot_separation.get("max_step_length", separation_defaults["max_step_length"])
+        foot_separation.get(
+            "max_step_length", separation_defaults["max_step_length"]
+        )
     )
     max_step_width = float(
-        foot_separation.get("max_step_width", separation_defaults["max_step_width"])
+        foot_separation.get(
+            "max_step_width", separation_defaults["max_step_width"]
+        )
     )
     min_step_width = float(
-        foot_separation.get("min_step_width", separation_defaults["min_step_width"])
+        foot_separation.get(
+            "min_step_width", separation_defaults["min_step_width"]
+        )
     )
     planner_step_width = float(
         (planning.get("hlip", {}) or {}).get(
@@ -677,16 +701,22 @@ def derive_parameters(
     lip_height = configured_lip if configured_lip > 0 else geometry.com_height
     if (
         configured_lip > 0
-        and abs(configured_lip - geometry.com_height) > 0.05 * geometry.com_height
+        and abs(configured_lip - geometry.com_height)
+        > 0.05 * geometry.com_height
     ):
         notes.append(
-            "WARNING the configured LIP height (%.4f m, dcm_terminal_cost.com_height) and the model's center of mass "
-            "above the feet (%.4f m at initial_state) differ by %.0f%%. The configured one is used below so that the "
-            "capture point, the DCM terminal cost and the contact planner agree, but one of the two is wrong."
+            "WARNING the configured LIP height (%.4f m,"
+            " dcm_terminal_cost.com_height) and the model's center of mass"
+            " above the feet (%.4f m at initial_state) differ by %.0f%%. The"
+            " configured one is used below so that the capture point, the DCM"
+            " terminal cost and the contact planner agree, but one of the two"
+            " is wrong."
             % (
                 configured_lip,
                 geometry.com_height,
-                100.0 * abs(configured_lip - geometry.com_height) / geometry.com_height,
+                100.0
+                * abs(configured_lip - geometry.com_height)
+                / geometry.com_height,
             )
         )
 
@@ -707,12 +737,17 @@ def derive_parameters(
         "maximum_tilt": round(MAXIMUM_TILT, 3),
     }
     notes.append(
-        "orientation_compensation.pitch_per_forward_velocity = %.1f deg / %.2f m/s = %.4f rad s/m  "
-        "(POSITIVE is nose-down in this Euler-ZYX layout)"
-        % (math.degrees(PITCH_AT_MAX_FORWARD_SPEED), max_forward, pitch_per_speed)
+        "orientation_compensation.pitch_per_forward_velocity = %.1f deg / %.2f"
+        " m/s = %.4f rad s/m  (POSITIVE is nose-down in this Euler-ZYX layout)"
+        % (
+            math.degrees(PITCH_AT_MAX_FORWARD_SPEED),
+            max_forward,
+            pitch_per_speed,
+        )
     )
     notes.append(
-        "orientation_compensation.roll_per_lateral_velocity left at 0: no steady lateral lean to fit"
+        "orientation_compensation.roll_per_lateral_velocity left at 0: no"
+        " steady lateral lean to fit"
     )
 
     out["periodic_orientation"] = {
@@ -728,11 +763,12 @@ def derive_parameters(
         "pitch_phase_offset": 0.0,
     }
     notes.append(
-        "periodic_orientation.roll_amplitude = %.1f deg of pelvic obliquity; phase 0 peaks at mid LEFT stance"
-        % math.degrees(PELVIC_OBLIQUITY)
+        "periodic_orientation.roll_amplitude = %.1f deg of pelvic obliquity;"
+        " phase 0 peaks at mid LEFT stance" % math.degrees(PELVIC_OBLIQUITY)
     )
     notes.append(
-        "periodic_orientation.pitch_amplitude left at 0: its phase needs data, not arithmetic"
+        "periodic_orientation.pitch_amplitude left at 0: its phase needs data,"
+        " not arithmetic"
     )
 
     crouch_per_speed = (
@@ -742,10 +778,13 @@ def derive_parameters(
         "height_per_speed_squared": 0.0,
         "height_per_speed": round(crouch_per_speed, 4),
         "height_offset": 0.0,
-        "maximum_height_offset": round(max(0.05, 1.5 * CROUCH_AT_MAX_FORWARD_SPEED), 3),
+        "maximum_height_offset": round(
+            max(0.05, 1.5 * CROUCH_AT_MAX_FORWARD_SPEED), 3
+        ),
     }
     notes.append(
-        "height_compensation.height_per_speed = -%.3f m / %.2f m/s = %.4f  (%.1f%% of the %.4f m base height)"
+        "height_compensation.height_per_speed = -%.3f m / %.2f m/s = %.4f "
+        " (%.1f%% of the %.4f m base height)"
         % (
             CROUCH_AT_MAX_FORWARD_SPEED,
             max_forward,
@@ -771,16 +810,21 @@ def derive_parameters(
         "longitudinal_scale": 1.0,
     }
     if step_width > 0:
-        lateral_scale_note = "hip_centered_stepping.lateral_scale = nominal_foothold.step_width %.3f / hip width %.3f = %.3f%s"
+        lateral_scale_note = (
+            "hip_centered_stepping.lateral_scale = nominal_foothold.step_width"
+            " %.3f / hip width %.3f = %.3f%s"
+        )
     else:
         lateral_scale_note = (
-            "hip_centered_stepping.lateral_scale = nominal stance %.3f / hip width %.3f = %.3f: "
-            "nominal_foothold.step_width is 0, so the stance to reproduce is the one the robot stands in%s"
+            "hip_centered_stepping.lateral_scale = nominal stance %.3f / hip"
+            " width %.3f = %.3f: nominal_foothold.step_width is 0, so the"
+            " stance to reproduce is the one the robot stands in%s"
         )
     planner_comparison = ""
     if planner_step_width > 0 and hip_width > 0:
         planner_comparison = (
-            "  (%.2f matches the %.3f m stance of the nominal posture, %.2f the planner's %.2f m orbit)"
+            "  (%.2f matches the %.3f m stance of the nominal posture, %.2f the"
+            " planner's %.2f m orbit)"
             % (
                 geometry.nominal_foot_separation / hip_width,
                 geometry.nominal_foot_separation,
@@ -794,15 +838,22 @@ def derive_parameters(
     )
     if abs(geometry.hip_offset[0][0] if geometry.hip_offset else 0.0) < 1e-6:
         notes.append(
-            "hip_centered_stepping.longitudinal_scale is inert here: the hip joints sit at x = 0"
+            "hip_centered_stepping.longitudinal_scale is inert here: the hip"
+            " joints sit at x = 0"
         )
 
     # The lateral room is asymmetric: the shipped stance may already be AT max_step_width, in which case the only room
     # is inward. Take the tighter of the two bounds so the clamp fits whichever way the step is pushed.
-    inward_room = max(step_width - min_step_width, 0.0) if step_width > 0 else 0.0
-    outward_room = max(max_step_width - step_width, 0.0) if step_width > 0 else 0.0
+    inward_room = (
+        max(step_width - min_step_width, 0.0) if step_width > 0 else 0.0
+    )
+    outward_room = (
+        max(max_step_width - step_width, 0.0) if step_width > 0 else 0.0
+    )
     capture_clamp = (
-        CAPTURE_POINT_STEP_FRACTION * max_step_length if max_step_length > 0 else 0.25
+        CAPTURE_POINT_STEP_FRACTION * max_step_length
+        if max_step_length > 0
+        else 0.25
     )
     out["capture_point"] = {
         "gain": 1.0,
@@ -810,7 +861,8 @@ def derive_parameters(
         "maximum_offset": round(capture_clamp, 3),
     }
     notes.append(
-        "capture_point: omega = sqrt(%.2f / %.4f) = %.3f rad/s, so the offset is %.4f s per m/s of velocity error"
+        "capture_point: omega = sqrt(%.2f / %.4f) = %.3f rad/s, so the offset"
+        " is %.4f s per m/s of velocity error"
         % (
             GRAVITY,
             lip_height,
@@ -820,21 +872,35 @@ def derive_parameters(
     )
     if max_step_length > 0:
         notes.append(
-            "capture_point.maximum_offset = %.0f%% of foot_separation.max_step_length %.2f = %.3f m"
-            % (100 * CAPTURE_POINT_STEP_FRACTION, max_step_length, capture_clamp)
+            "capture_point.maximum_offset = %.0f%% of"
+            " foot_separation.max_step_length %.2f = %.3f m"
+            % (
+                100 * CAPTURE_POINT_STEP_FRACTION,
+                max_step_length,
+                capture_clamp,
+            )
         )
     else:
         notes.append(
-            "capture_point.maximum_offset = %.3f m, the fallback: there is no contact_planning.textproto with a "
-            "foot_separation.max_step_length to take %.0f%% of"
+            "capture_point.maximum_offset = %.3f m, the fallback: there is no"
+            " contact_planning.textproto with a foot_separation.max_step_length"
+            " to take %.0f%% of"
             % (capture_clamp, 100 * CAPTURE_POINT_STEP_FRACTION)
         )
     if step_width > 0 and outward_room < capture_clamp:
         notes.append(
-            "WARNING the lateral room is asymmetric: the %.2f m nominal stance leaves %.3f m outward to max_step_width "
-            "%.2f but %.3f m inward to min_step_width %.2f, so a capture step pushed OUTWARD can exceed the planner's "
-            "own bound. Narrow nominal_foothold.step_width, or accept that this clamp only fits inward."
-            % (step_width, outward_room, max_step_width, inward_room, min_step_width)
+            "WARNING the lateral room is asymmetric: the %.2f m nominal stance"
+            " leaves %.3f m outward to max_step_width %.2f but %.3f m inward to"
+            " min_step_width %.2f, so a capture step pushed OUTWARD can exceed"
+            " the planner's own bound. Narrow nominal_foothold.step_width, or"
+            " accept that this clamp only fits inward."
+            % (
+                step_width,
+                outward_room,
+                max_step_width,
+                inward_room,
+                min_step_width,
+            )
         )
 
     # Raibert's rule: the foot lands half a stance of travel ahead of the hip it lands under. The foothold anchor is the
@@ -853,8 +919,9 @@ def derive_parameters(
         "lateral_offset": 0.0,
     }
     notes.append(
-        "translational_stepping stance fraction = 1/2 (Raibert): a1 = T_stance / 2, e.g. %.3f s on `%s` "
-        "(stance %.2f s of a %.2f s stride), and it follows the gait the scheduler selects"
+        "translational_stepping stance fraction = 1/2 (Raibert): a1 = T_stance"
+        " / 2, e.g. %.3f s on `%s` (stance %.2f s of a %.2f s stride), and it"
+        " follows the gait the scheduler selects"
         % (stance / 2.0, cadence.name, stance, cadence.stride_duration)
     )
 
@@ -870,8 +937,9 @@ def derive_parameters(
         "lateral_offset": 0.0,
     }
     notes.append(
-        "in_place_turning.forward_stance_lever = (lever r = %.3f m) / 2 = %.4f m/rad per second of stance, i.e. %.3f m per "
-        "foot at the %.2f rad/s stick on `%s`"
+        "in_place_turning.forward_stance_lever = (lever r = %.3f m) / 2 = %.4f"
+        " m/rad per second of stance, i.e. %.3f m per foot at the %.2f rad/s"
+        " stick on `%s`"
         % (
             turn_radius,
             turn_radius / 2.0,
@@ -892,8 +960,9 @@ def derive_parameters(
         "lateral_offset": 0.0,
     }
     notes.append(
-        "high_speed_turning = z_com / g = %.4f / %.2f = %.4f s^2 (Bledt eq. 4.31); throws the foot %.3f m outwards "
-        "at the (%.2f m/s, %.2f rad/s) stick"
+        "high_speed_turning = z_com / g = %.4f / %.2f = %.4f s^2 (Bledt eq."
+        " 4.31); throws the foot %.3f m outwards at the (%.2f m/s, %.2f rad/s)"
+        " stick"
         % (
             lip_height,
             GRAVITY,
@@ -911,21 +980,26 @@ def derive_parameters(
     out["impulse_scaling"] = {
         "scale": 1.0,
         "minimum_duty_factor": duty_clamp,
-        "maximum_force_ratio": round(max(2.0, math.ceil(ratio * 10.0) / 10.0), 2),
+        "maximum_force_ratio": round(
+            max(2.0, math.ceil(ratio * 10.0) / 10.0), 2
+        ),
     }
     notes.append(
-        "impulse_scaling.minimum_duty_factor = %.3f, just below the smallest of any shipped gait (`%s`, beta = %.3f)"
+        "impulse_scaling.minimum_duty_factor = %.3f, just below the smallest of"
+        " any shipped gait (`%s`, beta = %.3f)"
         % (duty_clamp, worst_gait, worst_duty)
     )
     notes.append(
-        "impulse_scaling.maximum_force_ratio covers the binding gait `%s`, which asks for %.2f x weight "
-        "compensation" % (ratio_gait, ratio)
+        "impulse_scaling.maximum_force_ratio covers the binding gait `%s`,"
+        " which asks for %.2f x weight compensation" % (ratio_gait, ratio)
     )
 
     # The stance feet together carry the whole weight, so their friction budget is mu * W in total and mu * W / n each;
     # the clamp is on the total and is shared like the weight, so a fraction of mu * W is the same fraction of every
     # foot's budget, and the reference stays inside the cone the wrench-cone barrier enforces rather than fighting it.
-    needed = geometry.total_mass * max_forward * max_yaw_rate / geometry.total_weight
+    needed = (
+        geometry.total_mass * max_forward * max_yaw_rate / geometry.total_weight
+    )
     # maximum_force is left out (it has no 0 "off"): the ratio of weight below is the clamp.
     out["centripetal_acceleration"] = {
         "scale": 1.0,
@@ -934,8 +1008,9 @@ def derive_parameters(
         ),
     }
     notes.append(
-        "centripetal_acceleration.maximum_force_ratio_of_weight = %.0f%% of the mu = %.2f friction budget (%s) = %.3f W "
-        "(%.0f N); the largest legitimate demand is m*v*psidot = %.0f N = %.3f W"
+        "centripetal_acceleration.maximum_force_ratio_of_weight = %.0f%% of the"
+        " mu = %.2f friction budget (%s) = %.3f W (%.0f N); the largest"
+        " legitimate demand is m*v*psidot = %.0f N = %.3f W"
         % (
             100 * CENTRIPETAL_FRICTION_FRACTION,
             friction,
@@ -972,7 +1047,7 @@ def format_block(parameters: dict[str, dict[str, float]]) -> str:
             # Integers are printed with a decimal point, so that a coefficient of exactly 1 does not read as a count.
             # Ten significant digits, so that a printed block pasted into the task file reads back as exactly the
             # derived value and `--check` finds no difference (%g kept six, and turned 2*pi into a false positive).
-            text = ("%.10g" % value) if value != int(value) else ("%.1f" % value)
+            text = "%.10g" % value if value != int(value) else ("%.1f" % value)
             lines.append("    %s: %s" % (key, text))
         lines.append("  }")
     return "\n".join(lines)
@@ -1017,22 +1092,23 @@ def formulation_warnings(task: dict) -> list[str]:
     lines: list[str] = []
     if carries(task, RETIRED_ACOM_KEY):
         lines.append(
-            "# ERROR   %s is a retired key: the MPC refuses this task file at start-up. List %s under costs"
+            "# ERROR   %s is a retired key: the MPC refuses this task file at"
+            " start-up. List %s under costs"
             % (RETIRED_ACOM_KEY, COM_AND_ACOM_TRACKING_COST)
         )
         lines.append("#         instead where it was true, and delete the key.")
     if lists_com_and_acom_tracking(task):
         lines.append(
-            "# WARNING costs lists %s, so the cost factory zeroes the base-pose weights and the three"
-            % COM_AND_ACOM_TRACKING_COST
+            "# WARNING costs lists %s, so the cost factory zeroes the base-pose"
+            " weights and the three" % COM_AND_ACOM_TRACKING_COST
         )
         lines.append(
             "#         base_pose heuristics are INERT on this robot as shipped."
         )
     if carries(task, RETIRED_CONTACT_PLANNING_KEY):
         lines.append(
-            "# ERROR   %s is a retired key: the MPC refuses this task file at start-up. Write"
-            % RETIRED_CONTACT_PLANNING_KEY
+            "# ERROR   %s is a retired key: the MPC refuses this task file at"
+            " start-up. Write" % RETIRED_CONTACT_PLANNING_KEY
         )
         lines.append(
             '#         %s: "%s" where it was true, and delete the key.'
@@ -1040,45 +1116,57 @@ def formulation_warnings(task: dict) -> list[str]:
         )
     if task.get(CONTACT_SCHEDULE_SOURCE_KEY) == CONTACT_PLANNER_SCHEDULE_SOURCE:
         lines.append(
-            "# WARNING %s is %s, so the foothold heuristics are REJECTED at start-up: the planner"
+            "# WARNING %s is %s, so the foothold heuristics are REJECTED at"
+            " start-up: the planner"
             % (CONTACT_SCHEDULE_SOURCE_KEY, CONTACT_PLANNER_SCHEDULE_SOURCE)
         )
         lines.append("#         supplies footholds itself.")
     if carries(task, RETIRED_DCM_TERMINAL_COST_KEY):
         lines.append(
-            "# ERROR   %s is a retired key: the MPC refuses this task file at start-up. List %s under costs"
+            "# ERROR   %s is a retired key: the MPC refuses this task file at"
+            " start-up. List %s under costs"
             % (RETIRED_DCM_TERMINAL_COST_KEY, DCM_TERMINAL_COST)
         )
         lines.append(
-            "#         in place of terminal_cost where it was true, and delete the key."
+            "#         in place of terminal_cost where it was true, and delete"
+            " the key."
         )
     if carries(task, RETIRED_BASIS_KEY):
         lines.append(
-            "# ERROR   %s is a retired key: the MPC refuses this task file at start-up. Write"
-            % RETIRED_BASIS_KEY
+            "# ERROR   %s is a retired key: the MPC refuses this task file at"
+            " start-up. Write" % RETIRED_BASIS_KEY
         )
         lines.append(
             '#         %s: "%s" where it was true, and delete the key.'
             % (CONTACT_INPUT_PARAMETERIZATION_KEY, BASIS_VECTOR_CONTACT_INPUTS)
         )
-    if task.get(CONTACT_INPUT_PARAMETERIZATION_KEY) == BASIS_VECTOR_CONTACT_INPUTS:
+    if (
+        task.get(CONTACT_INPUT_PARAMETERIZATION_KEY)
+        == BASIS_VECTOR_CONTACT_INPUTS
+    ):
         lines.append(
-            "# NOTE    %s is %s, so centripetal_acceleration - the one heuristic whose"
+            "# NOTE    %s is %s, so centripetal_acceleration - the one"
+            " heuristic whose"
             % (CONTACT_INPUT_PARAMETERIZATION_KEY, BASIS_VECTOR_CONTACT_INPUTS)
         )
         lines.append(
-            "#         force is horizontal - puts the contact-force reference on the forward-kinematics path."
+            "#         force is horizontal - puts the contact-force reference"
+            " on the forward-kinematics path."
         )
-    weights = (task.get("task_space_foot_cost", {}) or {}).get("weights", {}) or {}
+    weights = (task.get("task_space_foot_cost", {}) or {}).get(
+        "weights", {}
+    ) or {}
     if (
         float(weights.get("pos_x", 0.0)) == 0.0
         and float(weights.get("pos_y", 0.0)) == 0.0
     ):
         lines.append(
-            "# NOTE    task_space_foot_cost.weights.pos_x and pos_y are both 0, so a foothold heuristic's landing"
+            "# NOTE    task_space_foot_cost.weights.pos_x and pos_y are both 0,"
+            " so a foothold heuristic's landing"
         )
         lines.append(
-            "#         target is computed and then multiplied by zero. Raise them before sweeping one."
+            "#         target is computed and then multiplied by zero. Raise"
+            " them before sweeping one."
         )
     return lines
 
@@ -1089,7 +1177,8 @@ def shipped_parameters(task: dict) -> dict[str, dict[str, float]]:
     return {
         name: {key: float(value) for key, value in (values or {}).items()}
         for name, values in block.items()
-        if name not in ("base_pose", "foothold", "wrench") and isinstance(values, dict)
+        if name not in ("base_pose", "foothold", "wrench")
+        and isinstance(values, dict)
     }
 
 
@@ -1131,7 +1220,8 @@ def compare(
 def main() -> int:
     """Prints the derived block, or with --check its differences from the shipped one; returns the exit status."""
     parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--robot",
@@ -1153,13 +1243,19 @@ def main() -> int:
     parser.add_argument(
         "--gait",
         default="trot",
-        help="the gait of the gait file the stepping coefficients are sized for (default: trot). The step period is "
-        "what sets them, so a robot walking with another gait needs them re-derived.",
+        help=(
+            "the gait of the gait file the stepping coefficients are sized for"
+            " (default: trot). The step period is what sets them, so a robot"
+            " walking with another gait needs them re-derived."
+        ),
     )
     parser.add_argument(
         "--check",
         action="store_true",
-        help="compare the shipped block against the derivation and report the differences instead of printing it",
+        help=(
+            "compare the shipped block against the derivation and report the"
+            " differences instead of printing it"
+        ),
     )
     args = parser.parse_args()
 
@@ -1168,12 +1264,16 @@ def main() -> int:
 
     paths = ROBOTS.get(args.robot, {})
     mpc_dir = os.path.join(REPO_ROOT, paths.get("mpc", "")) if paths else ""
-    task_file = args.task_file or os.path.join(mpc_dir, "config/mpc/task.textproto")
+    task_file = args.task_file or os.path.join(
+        mpc_dir, "config/mpc/task.textproto"
+    )
     urdf_file = args.urdf or os.path.join(REPO_ROOT, paths.get("urdf", ""))
     reference_file = args.reference_file or os.path.join(
         mpc_dir, "config/command/reference.textproto"
     )
-    planning_file = args.planning_file or os.path.join(mpc_dir, CONTACT_PLANNING_FILE)
+    planning_file = args.planning_file or os.path.join(
+        mpc_dir, CONTACT_PLANNING_FILE
+    )
     gait_file = os.path.join(REPO_ROOT, GAIT_FILE)
 
     for label, path in (
@@ -1189,7 +1289,9 @@ def main() -> int:
         task = load_textproto(task_file)
         limits = load_textproto(reference_file)
         planning = (
-            load_textproto(planning_file) if os.path.isfile(planning_file) else {}
+            load_textproto(planning_file)
+            if os.path.isfile(planning_file)
+            else {}
         )
         gaits = gait_table(load_textproto(gait_file))
     except (OSError, textproto_document.DocumentError) as error:
@@ -1205,7 +1307,10 @@ def main() -> int:
 
     print(
         "# Robot:      %s"
-        % (args.robot or os.path.basename(os.path.dirname(os.path.dirname(task_file))))
+        % (
+            args.robot
+            or os.path.basename(os.path.dirname(os.path.dirname(task_file)))
+        )
     )
     print("# URDF:       %s" % os.path.relpath(urdf_file, REPO_ROOT))
     print("# Task file:  %s" % os.path.relpath(task_file, REPO_ROOT))
@@ -1254,7 +1359,8 @@ def main() -> int:
     if args.check:
         print()
         print(
-            "# Differences between the shipped block and this derivation (a swept coefficient SHOULD differ):"
+            "# Differences between the shipped block and this derivation (a"
+            " swept coefficient SHOULD differ):"
         )
         differences = compare(parameters, shipped_parameters(task))
         print("#   %d difference(s)." % differences)

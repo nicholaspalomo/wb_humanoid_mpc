@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/constraint/FootCollisionSpheres.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
@@ -51,33 +52,15 @@ namespace ocs2::humanoid {
 /**
  * Implements the constraint h(t,x,u) >= 0 to prevent collisions of the feet.
  *
- * Added once to the MPC's state inequality constraints; the reference manager and the robot model must outlive it. Like
- * every OCS2 term it is cloned for each solver thread, and a single instance is not thread-safe.
+ * Added once to the MPC's state inequality constraints; the reference manager
+ * and the robot model must outlive it. Like every OCS2 term it is cloned for
+ * each solver thread, and a single instance is not thread-safe.
  */
 class FootCollisionConstraint final : public StateConstraintCppAd {
  public:
-  struct Config {
-    // Foot and ankle
-    std::string leftAnkleFrame;
-    std::string rightAnkleFrame;
-
-    std::string leftFootCenterFrame = "foot_l_contact";
-    std::string rightFootCenterFrame = "foot_r_contact";
-
-    std::string leftFootFrame1 = "foot_l_contact_collision_p_1";
-    std::string rightFootFrame1 = "foot_r_contact_collision_p_1";
-
-    std::string leftFootFrame2 = "foot_l_contact_collision_p_2";
-    std::string rightFootFrame2 = "foot_r_contact_collision_p_2";
-
-    // 0 when the task file does not set it (the loader leaves a missing key at its default).
-    scalar_t footCollisionSphereRadius = 0.0;
-
-    // Knee
-    std::string leftKneeFrame;
-    std::string rightKneeFrame;
-    scalar_t kneeCollisionSphereRadius = 0.0;
-  };
+  /** The spheres kept apart (FootCollisionSpheres, shared with
+   * FootCollisionCbfConstraint). */
+  using Config = FootCollisionSpheres;
 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
   FootCollisionConstraint(const SwitchedModelReferenceManager& referenceManager,
@@ -91,27 +74,37 @@ class FootCollisionConstraint final : public StateConstraintCppAd {
   FootCollisionConstraint& operator=(const FootCollisionConstraint&) = delete;
   FootCollisionConstraint(FootCollisionConstraint&&) = delete;
   FootCollisionConstraint& operator=(FootCollisionConstraint&&) = delete;
-  FootCollisionConstraint* absl_nonnull clone() const override { return new FootCollisionConstraint(*this); }
+  FootCollisionConstraint* absl_nonnull clone() const override {
+    return new FootCollisionConstraint(*this);
+  }
 
   bool isActive(scalar_t time) const override;
   bool getActive() const { return isActive_; }
   void setActive(bool active) { isActive_ = active; }
 
-  size_t getNumConstraints(scalar_t /*time*/) const override { return numConstraints_; };
+  size_t getNumConstraints(scalar_t /*time*/) const override {
+    return numConstraints_;
+  };
 
-  vector_t getParameters(scalar_t /*time*/, const PreComputation& /*preComputation*/) const override {
+  vector_t getParameters(
+      scalar_t /*time*/,
+      const PreComputation& /*preComputation*/) const override {
     vector_t parameters(kNumParameters);
-    parameters << cfg_.footCollisionSphereRadius, cfg_.kneeCollisionSphereRadius;
+    parameters << cfg_.footCollisionSphereRadius,
+        cfg_.kneeCollisionSphereRadius;
     return parameters;
   };
 
  private:
-  /** The parameters of the taped function: the foot's and the knee's collision sphere radius. */
+  /** The parameters of the taped function: the foot's and the knee's collision
+   * sphere radius. */
   static constexpr int kNumParameters = 2;
-  /** The distances kept apart: nine between the feet, one between the knees and six between a foot and an ankle. */
-  static constexpr size_t kNumConstraints = 16;
+  /** One row per pair of kFootCollisionPairs. */
+  static constexpr size_t kNumConstraints = kNumFootCollisionPairs;
 
-  ad_vector_t constraintFunction(ad_scalar_t time, const ad_vector_t& state, const ad_vector_t& parameters) const override;
+  ad_vector_t constraintFunction(ad_scalar_t time,
+                                 const ad_vector_t& state,
+                                 const ad_vector_t& parameters) const override;
 
   FootCollisionConstraint(const FootCollisionConstraint& other);
 

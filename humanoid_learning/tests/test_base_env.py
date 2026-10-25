@@ -72,12 +72,15 @@ def _yaw_rotation(psi: float) -> np.ndarray:
 def _reward_terms(
     env: base_env.HumanoidMpxEnv, qpos: np.ndarray, qvel: np.ndarray
 ) -> dict[str, float]:
+    """The reward terms of `env` at the state (qpos, qvel), under its command and a zero action."""
     pipeline_state = env.pipeline_init(jnp.asarray(qpos), jnp.asarray(qvel))
+    command = (
+        env._command()
+    )  # pylint: disable=protected-access  # The unit under test.
+    action = jnp.zeros(env.action_size)
     _, metrics = (
-        env._compute_reward(  # pylint: disable=protected-access  # The unit under test.
-            pipeline_state,
-            env._command(),
-            jnp.zeros(env.action_size),  # pylint: disable=protected-access  # Same.
+        env._compute_reward(  # pylint: disable=protected-access  # Same.
+            pipeline_state, command, action
         )
     )
     return {key: float(value) for key, value in metrics.items()}
@@ -117,7 +120,9 @@ class HeadingFrameTest(unittest.TestCase):
             data.qpos[3:7] = _random_quaternion(rng)
             data.qvel[:] = rng.standard_normal(6)
             mujoco.mj_forward(model, data)
-            world_velocity = np.zeros(6)  # (angular, linear), world orientation.
+            world_velocity = np.zeros(
+                6
+            )  # (angular, linear), world orientation.
             mujoco.mj_objectVelocity(
                 model, data, mujoco.mjtObj.mjOBJ_BODY, 1, world_velocity, 0
             )
@@ -135,7 +140,9 @@ class HeadingFrameTest(unittest.TestCase):
                 atol=1e-5,
             )
             np.testing.assert_allclose(
-                base_env.world_yaw_rate(qpos, qvel), world_velocity[2], atol=1e-5
+                base_env.world_yaw_rate(qpos, qvel),
+                world_velocity[2],
+                atol=1e-5,
             )
             np.testing.assert_allclose(
                 base_env.projected_gravity(qpos),
@@ -171,7 +178,9 @@ class HeadingFrameTest(unittest.TestCase):
 
         # Unturned, the same world velocity is forward motion, and tracks the command exactly.
         unturned = _reward_terms(env, np.array(env.sys.qpos0), moving)
-        self.assertAlmostEqual(unturned["forward_velocity_reward"], 1.0, places=6)
+        self.assertAlmostEqual(
+            unturned["forward_velocity_reward"], 1.0, places=6
+        )
 
     def test_the_reward_and_observation_do_not_depend_on_the_heading_or_position(
         self,
@@ -231,7 +240,9 @@ class ObservationTest(unittest.TestCase):
 
 
 class ResetTest(unittest.TestCase):
-    def test_the_same_key_is_the_same_state_and_another_key_another(self) -> None:
+    def test_the_same_key_is_the_same_state_and_another_key_another(
+        self,
+    ) -> None:
         env = base_env.HumanoidMpxEnv()
         first = env.reset(jax.random.PRNGKey(3))
         again = env.reset(jax.random.PRNGKey(3))
@@ -256,11 +267,17 @@ class ResetTest(unittest.TestCase):
         noise = env.config.reset_joint_position_noise
         headings = []
         for seed in range(32):
-            qpos = np.asarray(env.reset(jax.random.PRNGKey(seed)).pipeline_state.qpos)
-            self.assertAlmostEqual(float(np.linalg.norm(qpos[3:7])), 1.0, places=6)
+            qpos = np.asarray(
+                env.reset(jax.random.PRNGKey(seed)).pipeline_state.qpos
+            )
+            self.assertAlmostEqual(
+                float(np.linalg.norm(qpos[3:7])), 1.0, places=6
+            )
             np.testing.assert_allclose(qpos[:3], np.asarray(env.sys.qpos0)[:3])
             self.assertTrue(
-                np.all(np.abs(qpos[7:] - np.asarray(env.sys.qpos0)[7:]) <= noise)
+                np.all(
+                    np.abs(qpos[7:] - np.asarray(env.sys.qpos0)[7:]) <= noise
+                )
             )
             headings.append(float(base_env.heading(jnp.asarray(qpos[3:7]))))
         self.assertGreater(max(headings) - min(headings), np.pi)
@@ -268,8 +285,12 @@ class ResetTest(unittest.TestCase):
     def test_without_randomization_the_reset_is_qpos0_at_rest(self) -> None:
         env = _deterministic_env()
         state = env.reset(jax.random.PRNGKey(5))
-        np.testing.assert_allclose(state.pipeline_state.qpos, env.sys.qpos0, atol=1e-7)
-        np.testing.assert_array_equal(state.pipeline_state.qvel, np.zeros(env.sys.nv))
+        np.testing.assert_allclose(
+            state.pipeline_state.qpos, env.sys.qpos0, atol=1e-7
+        )
+        np.testing.assert_array_equal(
+            state.pipeline_state.qvel, np.zeros(env.sys.nv)
+        )
 
 
 class SubstepTest(unittest.TestCase):
@@ -289,7 +310,9 @@ class SubstepTest(unittest.TestCase):
             (float("nan"), 0.002),
             (0.02, float("inf")),
         ):
-            with self.assertRaises(ValueError, msg=f"{control_dt}, {physics_dt}"):
+            with self.assertRaises(
+                ValueError, msg=f"{control_dt}, {physics_dt}"
+            ):
                 base_env.substep_count(control_dt, physics_dt)
         with self.assertRaises(ValueError):
             base_env.HumanoidMpxEnv(

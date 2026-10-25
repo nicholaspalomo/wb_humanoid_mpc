@@ -37,11 +37,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `lip_com`: the LIP center of mass, states c_xy, v_xy, input zmp_xy, with the exact zero-order-hold discretization of
- * the LIP with constant ZMP per interval:
- *   [c_{k+1}; v_{k+1}] = [cosh(w dt), sinh(w dt)/w; w sinh(w dt), cosh(w dt)] [c_k; v_k] + [1 - cosh(w dt); -w sinh(w dt)] zmp_k.
+ * `lip_com`: the LIP center of mass, states c_xy, v_xy, input zmp_xy, with the
+ * exact zero-order-hold discretization of the LIP with constant ZMP per
+ * interval: [c_{k+1}; v_{k+1}] = [cosh(w dt), sinh(w dt)/w; w sinh(w dt),
+ * cosh(w dt)] [c_k; v_k] + [1 - cosh(w dt); -w sinh(w dt)] zmp_k.
  *
- * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
  */
 class LipComDynamics final : public LipModelBlock {
  public:
@@ -49,9 +51,14 @@ class LipComDynamics final : public LipModelBlock {
   void configure(const ContactPlanningConfig& config) override;
   void bind(const Layout& layout) override;
   void declareVariables(LayoutBuilder& layout) const override;
-  void addDynamics(const ContactPlanningContext& ctx, int node, OcpQpStage& stage) const override;
-  void setInitialState(const ContactPlanningContext& ctx, vector_t& x0) const override;
-  void decode(const ContactPlanningContext& ctx, const MiqpResult& result, ContactPlan& plan) const override;
+  void addDynamics(const ContactPlanningContext& ctx,
+                   int node,
+                   OcpQpStage& stage) const override;
+  void setInitialState(const ContactPlanningContext& ctx,
+                       vector_t& x0) const override;
+  void decode(const ContactPlanningContext& ctx,
+              const MiqpResult& result,
+              ContactPlan& plan) const override;
 
  private:
   scalar_t omega_ = 0.0;

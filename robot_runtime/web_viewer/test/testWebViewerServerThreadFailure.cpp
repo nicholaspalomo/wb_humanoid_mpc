@@ -42,15 +42,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "web_viewer/WebViewerServer.h"
 
 /*
- * WebViewerServer::Create() when a request thread cannot start (EAGAIN from pthread_create, as under a pids cgroup or
- * RLIMIT_NPROC near its limit): it must fail with Internal rather than return a server that never accepts. A binary of
- * its own, since it interposes pthread_create for the whole process (PthreadCreateInterposer.cpp).
+ * WebViewerServer::Create() when a request thread cannot start (EAGAIN from
+ * pthread_create, as under a pids cgroup or RLIMIT_NPROC near its limit): it
+ * must fail with Internal rather than return a server that never accepts. A
+ * binary of its own, since it interposes pthread_create for the whole process
+ * (PthreadCreateInterposer.cpp).
  */
 
 namespace robot::web_viewer {
 namespace {
 
-// How many more pthread_create calls succeed before one fails with EAGAIN; negative: none fails.
+// How many more pthread_create calls succeed before one fails with EAGAIN;
+// negative: none fails.
 std::atomic<int> callsBeforeFailure = -1;
 
 }  // namespace
@@ -61,18 +64,27 @@ bool takePthreadCreateFailure() {
 
 namespace {
 
-TEST(WebViewerServerThreadFailureTest, CreateFailsWhenARequestThreadCannotStart) {
+TEST(WebViewerServerThreadFailureTest,
+     CreateFailsWhenARequestThreadCannotStart) {
   ViewerFrameMailbox mailbox(/*maxClients=*/4);
   ViewerInputQueue inputs;
-  // The listen thread and the first request thread start; the second request thread does not.
+  // The listen thread and the first request thread start; the second request
+  // thread does not.
   callsBeforeFailure.store(2);
-  absl::StatusOr<std::unique_ptr<WebViewerServer>> server = WebViewerServer::Create(test_support::testServerOptions(), &mailbox, &inputs);
+  absl::StatusOr<std::unique_ptr<WebViewerServer>> server =
+      WebViewerServer::Create(test_support::testServerOptions(), &mailbox,
+                              &inputs);
   callsBeforeFailure.store(-1);
-  EXPECT_EQ(server.status().code(), absl::StatusCode::kInternal) << server.status();
-  EXPECT_TRUE(absl::StrContains(server.status().message(), "could not start its request threads")) << server.status();
+  EXPECT_EQ(server.status().code(), absl::StatusCode::kInternal)
+      << server.status();
+  EXPECT_TRUE(absl::StrContains(server.status().message(),
+                                "could not start its request threads"))
+      << server.status();
 
   // With its threads, a server starts.
-  absl::StatusOr<std::unique_ptr<WebViewerServer>> again = WebViewerServer::Create(test_support::testServerOptions(), &mailbox, &inputs);
+  absl::StatusOr<std::unique_ptr<WebViewerServer>> again =
+      WebViewerServer::Create(test_support::testServerOptions(), &mailbox,
+                              &inputs);
   EXPECT_TRUE(again.ok()) << again.status();
 }
 

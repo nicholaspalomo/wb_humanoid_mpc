@@ -55,18 +55,24 @@ using google::protobuf::Reflection;
 
 constexpr int kMaximumDepth = 8;
 
-// A number for one value of one field: distinct per seed, field and element, never zero.
-int64_t variantOf(const TestValueOptions& options, const FieldDescriptor* absl_nonnull field, int element) {
-  return static_cast<int64_t>(options.seed) * 1000 + field->number() * 10 + element + 1;
+// A number for one value of one field: distinct per seed, field and element,
+// never zero.
+int64_t variantOf(const TestValueOptions& options,
+                  const FieldDescriptor* absl_nonnull field,
+                  int element) {
+  return static_cast<int64_t>(options.seed) * 1000 + field->number() * 10 +
+         element + 1;
 }
 
-// A string of fixed length (longer than any small-string buffer), so that two seeds give strings of one size.
+// A string of fixed length (longer than any small-string buffer), so that two
+// seeds give strings of one size.
 std::string textOf(int64_t variant) {
   return absl::StrFormat("value-%09d-text", variant);
 }
 
 // An enum value other than the default when there is one.
-const EnumValueDescriptor* absl_nonnull enumValueOf(const FieldDescriptor* absl_nonnull field, int64_t variant) {
+const EnumValueDescriptor* absl_nonnull enumValueOf(
+    const FieldDescriptor* absl_nonnull field, int64_t variant) {
   const EnumDescriptor* absl_nonnull enumType = field->enum_type();
   const int defaultNumber = field->default_value_enum()->number();
   int candidates = 0;
@@ -88,71 +94,98 @@ const EnumValueDescriptor* absl_nonnull enumValueOf(const FieldDescriptor* absl_
   return field->default_value_enum();
 }
 
-void fill(const TestValueOptions& options, int depth, Message* absl_nonnull message);
+void fill(const TestValueOptions& options,
+          int depth,
+          Message* absl_nonnull message);
 
-// Sets the singular field `field` of `message`, or adds an element when it is repeated.
-void setValue(
-    const TestValueOptions& options, int depth, const FieldDescriptor* absl_nonnull field, int64_t variant, Message* absl_nonnull message) {
+// Sets the singular field `field` of `message`, or adds an element when it is
+// repeated.
+void setValue(const TestValueOptions& options,
+              int depth,
+              const FieldDescriptor* absl_nonnull field,
+              int64_t variant,
+              Message* absl_nonnull message) {
   const Reflection* absl_nonnull reflection = message->GetReflection();
   const bool repeated = field->is_repeated();
   switch (field->cpp_type()) {
     case FieldDescriptor::CPPTYPE_INT32:
-      repeated ? reflection->AddInt32(message, field, static_cast<int32_t>(-variant))
-               : reflection->SetInt32(message, field, static_cast<int32_t>(-variant));
+      repeated
+          ? reflection->AddInt32(message, field, static_cast<int32_t>(-variant))
+          : reflection->SetInt32(message, field,
+                                 static_cast<int32_t>(-variant));
       break;
     case FieldDescriptor::CPPTYPE_INT64:
-      repeated ? reflection->AddInt64(message, field, -variant * 1000003) : reflection->SetInt64(message, field, -variant * 1000003);
+      repeated ? reflection->AddInt64(message, field, -variant * 1000003)
+               : reflection->SetInt64(message, field, -variant * 1000003);
       break;
     case FieldDescriptor::CPPTYPE_UINT32:
-      repeated ? reflection->AddUInt32(message, field, static_cast<uint32_t>(variant))
-               : reflection->SetUInt32(message, field, static_cast<uint32_t>(variant));
+      repeated ? reflection->AddUInt32(message, field,
+                                       static_cast<uint32_t>(variant))
+               : reflection->SetUInt32(message, field,
+                                       static_cast<uint32_t>(variant));
       break;
     case FieldDescriptor::CPPTYPE_UINT64:
-      repeated ? reflection->AddUInt64(message, field, static_cast<uint64_t>(variant) * 1000003u)
-               : reflection->SetUInt64(message, field, static_cast<uint64_t>(variant) * 1000003u);
+      repeated ? reflection->AddUInt64(
+                     message, field, static_cast<uint64_t>(variant) * 1000003u)
+               : reflection->SetUInt64(
+                     message, field, static_cast<uint64_t>(variant) * 1000003u);
       break;
     case FieldDescriptor::CPPTYPE_DOUBLE:
-      repeated ? reflection->AddDouble(message, field, static_cast<double>(variant) + 0.25)
-               : reflection->SetDouble(message, field, static_cast<double>(variant) + 0.25);
+      repeated ? reflection->AddDouble(message, field,
+                                       static_cast<double>(variant) + 0.25)
+               : reflection->SetDouble(message, field,
+                                       static_cast<double>(variant) + 0.25);
       break;
     case FieldDescriptor::CPPTYPE_FLOAT:
-      repeated ? reflection->AddFloat(message, field, static_cast<float>(variant) + 0.5f)
-               : reflection->SetFloat(message, field, static_cast<float>(variant) + 0.5f);
+      repeated ? reflection->AddFloat(message, field,
+                                      static_cast<float>(variant) + 0.5f)
+               : reflection->SetFloat(message, field,
+                                      static_cast<float>(variant) + 0.5f);
       break;
     case FieldDescriptor::CPPTYPE_BOOL:
       // Singular: true, the non-default value. Repeated: alternating.
-      repeated ? reflection->AddBool(message, field, variant % 2 == 0) : reflection->SetBool(message, field, /*value=*/true);
+      repeated ? reflection->AddBool(message, field, variant % 2 == 0)
+               : reflection->SetBool(message, field, /*value=*/true);
       break;
     case FieldDescriptor::CPPTYPE_ENUM:
-      repeated ? reflection->AddEnum(message, field, enumValueOf(field, variant))
-               : reflection->SetEnum(message, field, enumValueOf(field, variant));
+      repeated
+          ? reflection->AddEnum(message, field, enumValueOf(field, variant))
+          : reflection->SetEnum(message, field, enumValueOf(field, variant));
       break;
     case FieldDescriptor::CPPTYPE_STRING:
-      repeated ? reflection->AddString(message, field, textOf(variant)) : reflection->SetString(message, field, textOf(variant));
+      repeated ? reflection->AddString(message, field, textOf(variant))
+               : reflection->SetString(message, field, textOf(variant));
       break;
     case FieldDescriptor::CPPTYPE_MESSAGE:
       if (depth < kMaximumDepth) {
-        fill(options, depth + 1, repeated ? reflection->AddMessage(message, field) : reflection->MutableMessage(message, field));
+        fill(options, depth + 1,
+             repeated ? reflection->AddMessage(message, field)
+                      : reflection->MutableMessage(message, field));
       }
       break;
   }
 }
 
-// Sets the key of a map entry from its index only, so that two seeds give one key set.
-void setKey(const FieldDescriptor* absl_nonnull key, int index, Message* absl_nonnull entry) {
+// Sets the key of a map entry from its index only, so that two seeds give one
+// key set.
+void setKey(const FieldDescriptor* absl_nonnull key,
+            int index,
+            Message* absl_nonnull entry) {
   const Reflection* absl_nonnull reflection = entry->GetReflection();
   switch (key->cpp_type()) {
     case FieldDescriptor::CPPTYPE_INT32:
       reflection->SetInt32(entry, key, index - 1);
       break;
     case FieldDescriptor::CPPTYPE_INT64:
-      reflection->SetInt64(entry, key, static_cast<int64_t>(index) * 10000000000LL - 1);
+      reflection->SetInt64(entry, key,
+                           static_cast<int64_t>(index) * 10000000000LL - 1);
       break;
     case FieldDescriptor::CPPTYPE_UINT32:
       reflection->SetUInt32(entry, key, static_cast<uint32_t>(index) + 5u);
       break;
     case FieldDescriptor::CPPTYPE_UINT64:
-      reflection->SetUInt64(entry, key, static_cast<uint64_t>(index) * 10000000000ULL + 5u);
+      reflection->SetUInt64(entry, key,
+                            static_cast<uint64_t>(index) * 10000000000ULL + 5u);
       break;
     case FieldDescriptor::CPPTYPE_BOOL:
       reflection->SetBool(entry, key, index % 2 == 0);
@@ -166,40 +199,51 @@ void setKey(const FieldDescriptor* absl_nonnull key, int index, Message* absl_no
   }
 }
 
-void fill(const TestValueOptions& options, int depth, Message* absl_nonnull message) {
+void fill(const TestValueOptions& options,
+          int depth,
+          Message* absl_nonnull message) {
   const Descriptor* absl_nonnull descriptor = message->GetDescriptor();
   const Reflection* absl_nonnull reflection = message->GetReflection();
   for (int index = 0; index < descriptor->field_count(); ++index) {
     const FieldDescriptor* absl_nonnull field = descriptor->field(index);
-    if (options.skipEvery > 0 && (field->number() + options.seed) % options.skipEvery == 0) {
+    if (options.skipEvery > 0 &&
+        (field->number() + options.seed) % options.skipEvery == 0) {
       continue;
     }
-    if (const google::protobuf::OneofDescriptor* absl_nullable oneof = field->real_containing_oneof(); oneof != nullptr) {
+    if (const google::protobuf::OneofDescriptor* absl_nullable oneof =
+            field->real_containing_oneof();
+        oneof != nullptr) {
       if (oneof->field(options.oneofChoice % oneof->field_count()) != field) {
         continue;
       }
     }
     if (field->is_map()) {
-      const int entries = field->message_type()->map_key()->cpp_type() == FieldDescriptor::CPPTYPE_BOOL ? std::min(options.repeatedSize, 2)
-                                                                                                        : options.repeatedSize;
+      const int entries = field->message_type()->map_key()->cpp_type() ==
+                                  FieldDescriptor::CPPTYPE_BOOL
+                              ? std::min(options.repeatedSize, 2)
+                              : options.repeatedSize;
       for (int element = 0; element < entries; ++element) {
         Message* absl_nonnull entry = reflection->AddMessage(message, field);
         setKey(field->message_type()->map_key(), element, entry);
-        setValue(options, depth, field->message_type()->map_value(), variantOf(options, field, element), entry);
+        setValue(options, depth, field->message_type()->map_value(),
+                 variantOf(options, field, element), entry);
       }
     } else if (field->is_repeated()) {
       for (int element = 0; element < options.repeatedSize; ++element) {
-        setValue(options, depth, field, variantOf(options, field, element), message);
+        setValue(options, depth, field, variantOf(options, field, element),
+                 message);
       }
     } else {
-      setValue(options, depth, field, variantOf(options, field, /*element=*/0), message);
+      setValue(options, depth, field, variantOf(options, field, /*element=*/0),
+               message);
     }
   }
 }
 
 }  // namespace
 
-void FillWithTestValues(const TestValueOptions& options, google::protobuf::Message* absl_nonnull message) {
+void FillWithTestValues(const TestValueOptions& options,
+                        google::protobuf::Message* absl_nonnull message) {
   fill(options, /*depth=*/0, message);
 }
 
@@ -214,8 +258,11 @@ std::string DeterministicBytes(const google::protobuf::Message& message) {
   return bytes;
 }
 
-::testing::AssertionResult ProtoEquals(const google::protobuf::Message& expected, const google::protobuf::Message& actual) {
-  if (expected.GetDescriptor() == actual.GetDescriptor() && DeterministicBytes(expected) == DeterministicBytes(actual)) {
+::testing::AssertionResult ProtoEquals(
+    const google::protobuf::Message& expected,
+    const google::protobuf::Message& actual) {
+  if (expected.GetDescriptor() == actual.GetDescriptor() &&
+      DeterministicBytes(expected) == DeterministicBytes(actual)) {
     return ::testing::AssertionSuccess();
   }
   std::string expectedText;
@@ -226,9 +273,11 @@ std::string DeterministicBytes(const google::protobuf::Message& message) {
   if (!google::protobuf::TextFormat::PrintToString(actual, &actualText)) {
     actualText = "<cannot print>";
   }
-  return ::testing::AssertionFailure() << "expected " << expected.GetDescriptor()->full_name() << ":\n"
-                                       << expectedText << "\nactual " << actual.GetDescriptor()->full_name() << ":\n"
-                                       << actualText;
+  return ::testing::AssertionFailure()
+         << "expected " << expected.GetDescriptor()->full_name() << ":\n"
+         << expectedText << "\nactual " << actual.GetDescriptor()->full_name()
+         << ":\n"
+         << actualText;
 }
 
 }  // namespace nproto::test_support

@@ -36,8 +36,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
 /**
- * Unit tests of the target contact poses the MuJoCo viewer draws (TargetContactPose.h). Written in terms of
- * kNumContacts: every scenario is run for every foot.
+ * Unit tests of the target contact poses the MuJoCo viewer draws
+ * (TargetContactPose.h). Written in terms of kNumContacts: every scenario is
+ * run for every foot.
  */
 namespace ocs2::humanoid {
 
@@ -54,13 +55,18 @@ size_t modeWithSwinging(std::initializer_list<size_t> swingingFeet) {
 const size_t kAllInContact = modeWithSwinging({});
 
 /** STANCE | foot swings [liftOff, touchDown] | STANCE. */
-ModeSchedule singleSwingSchedule(size_t foot, scalar_t liftOff, scalar_t touchDown) {
-  return ModeSchedule({liftOff, touchDown}, {kAllInContact, modeWithSwinging({foot}), kAllInContact});
+ModeSchedule singleSwingSchedule(size_t foot,
+                                 scalar_t liftOff,
+                                 scalar_t touchDown) {
+  return ModeSchedule({liftOff, touchDown},
+                      {kAllInContact, modeWithSwinging({foot}), kAllInContact});
 }
 
 /**
- * A valid plan from 0 s in 0.1 s nodes. The footholds move by 0.1 m per node along x so that a lookup at the wrong node
- * is visible, and foot i sits at y = 0.1 - 0.2 i. With the heading model the foot yaws are 0.05 k + 0.01 i at node k.
+ * A valid plan from 0 s in 0.1 s nodes. The footholds move by 0.1 m per node
+ * along x so that a lookup at the wrong node is visible, and foot i sits at y =
+ * 0.1 - 0.2 i. With the heading model the foot yaws are 0.05 k + 0.01 i at node
+ * k.
  */
 ContactPlan makePlan(bool heading) {
   constexpr int numIntervals = 25;
@@ -73,7 +79,8 @@ ContactPlan makePlan(bool heading) {
   plan.footholds.resize(numIntervals + 1);
   for (int k = 0; k <= numIntervals; ++k) {
     for (size_t foot = 0; foot < kNumContacts; ++foot) {
-      plan.footholds[k][foot] = vector2_t(0.1 * k, 0.1 - 0.2 * static_cast<scalar_t>(foot));
+      plan.footholds[k][foot] =
+          vector2_t(0.1 * k, 0.1 - 0.2 * static_cast<scalar_t>(foot));
     }
   }
   if (heading) {
@@ -81,7 +88,8 @@ ContactPlan makePlan(bool heading) {
     plan.headingRate.assign(numIntervals + 1, 0.0);
     plan.footYaws.resize(numIntervals + 1);
     for (int k = 0; k <= numIntervals; ++k) {
-      for (size_t foot = 0; foot < kNumContacts; ++foot) plan.footYaws[k][foot] = 0.05 * k + 0.01 * static_cast<scalar_t>(foot);
+      for (size_t foot = 0; foot < kNumContacts; ++foot)
+        plan.footYaws[k][foot] = 0.05 * k + 0.01 * static_cast<scalar_t>(foot);
     }
   }
   return plan;
@@ -91,24 +99,30 @@ scalar_t plannedYaw(int node, size_t foot) {
   return 0.05 * node + 0.01 * static_cast<scalar_t>(foot);
 }
 
-/** Measured feet somewhere else entirely, so that a stance pose is distinguishable from any planned foothold. */
+/** Measured feet somewhere else entirely, so that a stance pose is
+ * distinguishable from any planned foothold. */
 TargetContactPoseInputs makeInputs(scalar_t time) {
   TargetContactPoseInputs inputs;
   inputs.time = time;
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
-    inputs.footPositions[foot] = vector3_t(-1.0, 0.5 - static_cast<scalar_t>(foot), 0.02 * static_cast<scalar_t>(foot + 1));
+    inputs.footPositions[foot] =
+        vector3_t(-1.0, 0.5 - static_cast<scalar_t>(foot),
+                  0.02 * static_cast<scalar_t>(foot + 1));
     inputs.footYaws[foot] = -0.7 + 0.1 * static_cast<scalar_t>(foot);
   }
   inputs.terrainHeight = 0.15;
   return inputs;
 }
 
-void expectStancePlacement(const TargetContactPose& pose, size_t foot, const TargetContactPoseInputs& inputs) {
+void expectStancePlacement(const TargetContactPose& pose,
+                           size_t foot,
+                           const TargetContactPoseInputs& inputs) {
   EXPECT_TRUE(pose.valid);
   EXPECT_EQ(pose.kind, TargetContactPose::Kind::kStance);
   EXPECT_NEAR(pose.position(0), inputs.footPositions[foot](0), kTol);
   EXPECT_NEAR(pose.position(1), inputs.footPositions[foot](1), kTol);
-  EXPECT_NEAR(pose.height, inputs.footPositions[foot](2), kTol) << "a stance foot sits at its measured height";
+  EXPECT_NEAR(pose.height, inputs.footPositions[foot](2), kTol)
+      << "a stance foot sits at its measured height";
   EXPECT_NEAR(pose.yaw, inputs.footYaws[foot], kTol);
   EXPECT_FALSE(pose.yawPlanned);
   EXPECT_NEAR(pose.touchDownTime, inputs.time, kTol);
@@ -120,30 +134,37 @@ TEST(TargetContactPose, InvalidPlanGivesNoTargets) {
   ContactPlan plan = makePlan(/*heading=*/true);
   plan.valid = false;
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
-    const feet_array_t<TargetContactPose> poses =
-        computeTargetContactPoses(plan, singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4), makeInputs(1.2));
+    const feet_array_t<TargetContactPose> poses = computeTargetContactPoses(
+        plan, singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4),
+        makeInputs(1.2));
     for (const TargetContactPose& pose : poses) EXPECT_FALSE(pose.valid);
   }
-  const feet_array_t<TargetContactPose> poses = computeTargetContactPoses(ContactPlan{}, ModeSchedule(), makeInputs(0.0));
+  const feet_array_t<TargetContactPose> poses =
+      computeTargetContactPoses(ContactPlan{}, ModeSchedule(), makeInputs(0.0));
   for (const TargetContactPose& pose : poses) EXPECT_FALSE(pose.valid);
 }
 
-TEST(TargetContactPose, SwingInFlightTargetsThePlannedLandingWithTheStepAdjustment) {
+TEST(TargetContactPose,
+     SwingInFlightTargetsThePlannedLandingWithTheStepAdjustment) {
   const ContactPlan plan = makePlan(/*heading=*/true);
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
     TargetContactPoseInputs inputs = makeInputs(1.2);
     inputs.dcmStepAdjustment[foot] = vector2_t(0.02, -0.01);
-    const feet_array_t<TargetContactPose> poses =
-        computeTargetContactPoses(plan, singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4), inputs);
+    const feet_array_t<TargetContactPose> poses = computeTargetContactPoses(
+        plan, singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4),
+        inputs);
 
     const TargetContactPose& pose = poses[foot];
     EXPECT_TRUE(pose.valid);
     EXPECT_EQ(pose.kind, TargetContactPose::Kind::kSwingInFlight);
     EXPECT_NEAR(pose.touchDownTime, 1.4, kTol);
-    // Foothold at the touch-down node (1.4 s -> node 14) plus the step adjustment.
+    // Foothold at the touch-down node (1.4 s -> node 14) plus the step
+    // adjustment.
     EXPECT_NEAR(pose.position(0), 1.4 + 0.02, kTol);
-    EXPECT_NEAR(pose.position(1), 0.1 - 0.2 * static_cast<scalar_t>(foot) - 0.01, kTol);
-    EXPECT_NEAR(pose.height, inputs.terrainHeight, kTol) << "a landing target sits on the ground";
+    EXPECT_NEAR(pose.position(1),
+                0.1 - 0.2 * static_cast<scalar_t>(foot) - 0.01, kTol);
+    EXPECT_NEAR(pose.height, inputs.terrainHeight, kTol)
+        << "a landing target sits on the ground";
     EXPECT_TRUE(pose.yawPlanned);
     EXPECT_NEAR(pose.yaw, plannedYaw(/*node=*/14, foot), kTol);
 
@@ -156,27 +177,34 @@ TEST(TargetContactPose, SwingInFlightTargetsThePlannedLandingWithTheStepAdjustme
 TEST(TargetContactPose, StanceFootWithAnUpcomingSwingTargetsItsNextLanding) {
   const ContactPlan plan = makePlan(/*heading=*/true);
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
-    const ModeSchedule schedule = singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4);
+    const ModeSchedule schedule =
+        singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4);
     const TargetContactPoseInputs inputs = makeInputs(0.5);
-    // A copy: a reference into the returned array dangled at the end of the statement.
-    const TargetContactPose pose = computeTargetContactPoses(plan, schedule, inputs)[foot];
+    // A copy: a reference into the returned array dangled at the end of the
+    // statement.
+    const TargetContactPose pose =
+        computeTargetContactPoses(plan, schedule, inputs)[foot];
     EXPECT_TRUE(pose.valid);
     EXPECT_EQ(pose.kind, TargetContactPose::Kind::kNextSwing);
     EXPECT_NEAR(pose.touchDownTime, 1.4, kTol);
     EXPECT_NEAR(pose.position(0), 1.4, kTol);
-    EXPECT_NEAR(pose.position(1), 0.1 - 0.2 * static_cast<scalar_t>(foot), kTol);
+    EXPECT_NEAR(pose.position(1), 0.1 - 0.2 * static_cast<scalar_t>(foot),
+                kTol);
     EXPECT_NEAR(pose.height, inputs.terrainHeight, kTol);
     EXPECT_TRUE(pose.yawPlanned);
     EXPECT_NEAR(pose.yaw, plannedYaw(/*node=*/14, foot), kTol);
 
-    // At the lift-off instant the event has passed: the same landing, now as the swing in flight.
-    const TargetContactPose atLiftOff = computeTargetContactPoses(plan, schedule, makeInputs(1.0))[foot];
+    // At the lift-off instant the event has passed: the same landing, now as
+    // the swing in flight.
+    const TargetContactPose atLiftOff =
+        computeTargetContactPoses(plan, schedule, makeInputs(1.0))[foot];
     EXPECT_EQ(atLiftOff.kind, TargetContactPose::Kind::kSwingInFlight);
     EXPECT_NEAR(atLiftOff.position(0), 1.4, kTol);
 
     // After the touch-down there is no further swing: the foot's placement.
     const TargetContactPoseInputs later = makeInputs(2.0);
-    expectStancePlacement(computeTargetContactPoses(plan, schedule, later)[foot], foot, later);
+    expectStancePlacement(
+        computeTargetContactPoses(plan, schedule, later)[foot], foot, later);
   }
 }
 
@@ -185,8 +213,9 @@ TEST(TargetContactPose, WithoutTheHeadingModelTheYawIsTheMeasuredFootYaw) {
   ASSERT_FALSE(plan.hasHeading());
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
     const TargetContactPoseInputs inputs = makeInputs(1.2);
-    const TargetContactPose pose =
-        computeTargetContactPoses(plan, singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4), inputs)[foot];
+    const TargetContactPose pose = computeTargetContactPoses(
+        plan, singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4),
+        inputs)[foot];
     EXPECT_EQ(pose.kind, TargetContactPose::Kind::kSwingInFlight);
     EXPECT_NEAR(pose.position(0), 1.4, kTol);
     EXPECT_FALSE(pose.yawPlanned);
@@ -194,13 +223,17 @@ TEST(TargetContactPose, WithoutTheHeadingModelTheYawIsTheMeasuredFootYaw) {
   }
 }
 
-TEST(TargetContactPose, SwingWithoutTouchDownEventFallsBackToTheStancePlacement) {
+TEST(TargetContactPose,
+     SwingWithoutTouchDownEventFallsBackToTheStancePlacement) {
   const ContactPlan plan = makePlan(/*heading=*/true);
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
-    const ModeSchedule noTouchDown({1.0}, {kAllInContact, modeWithSwinging({foot})});
+    const ModeSchedule noTouchDown({1.0},
+                                   {kAllInContact, modeWithSwinging({foot})});
     for (scalar_t time : {0.5, 1.2}) {
       const TargetContactPoseInputs inputs = makeInputs(time);
-      expectStancePlacement(computeTargetContactPoses(plan, noTouchDown, inputs)[foot], foot, inputs);
+      expectStancePlacement(
+          computeTargetContactPoses(plan, noTouchDown, inputs)[foot], foot,
+          inputs);
     }
   }
 }
@@ -209,9 +242,12 @@ TEST(TargetContactPose, TwoStepSequenceGivesEachFootItsOwnLanding) {
   if (kNumContacts < 2) GTEST_SKIP() << "needs a second foot";
   const ContactPlan plan = makePlan(/*heading=*/true);
   // foot 0 swings [1.0, 1.4], double support, foot 1 swings [1.5, 1.9].
-  const ModeSchedule schedule({1.0, 1.4, 1.5, 1.9},
-                              {kAllInContact, modeWithSwinging({0}), kAllInContact, modeWithSwinging({1}), kAllInContact});
-  const feet_array_t<TargetContactPose> poses = computeTargetContactPoses(plan, schedule, makeInputs(1.2));
+  const ModeSchedule schedule(
+      {1.0, 1.4, 1.5, 1.9},
+      {kAllInContact, modeWithSwinging({0}), kAllInContact,
+       modeWithSwinging({1}), kAllInContact});
+  const feet_array_t<TargetContactPose> poses =
+      computeTargetContactPoses(plan, schedule, makeInputs(1.2));
   EXPECT_EQ(poses[0].kind, TargetContactPose::Kind::kSwingInFlight);
   EXPECT_NEAR(poses[0].touchDownTime, 1.4, kTol);
   EXPECT_NEAR(poses[0].position(0), 1.4, kTol);

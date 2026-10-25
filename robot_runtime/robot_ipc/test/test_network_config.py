@@ -78,9 +78,12 @@ transport { max_message_size_bytes: 1400 lease_duration_ms: 2500 simulated_send_
         self.assertEqual(config.find("mpc"), node("mpc", "laptop.local"))
         self.assertIsNone(config.find("operator"))
         self.assertIs(
-            config.qos_profile_of("mpc/policy"), robot_ipc.QosProfile.RELIABLE_LATEST
+            config.qos_profile_of("mpc/policy"),
+            robot_ipc.QosProfile.RELIABLE_LATEST,
         )
-        self.assertIs(config.qos_profile_of("robot/state"), robot_ipc.QosProfile.LATEST)
+        self.assertIs(
+            config.qos_profile_of("robot/state"), robot_ipc.QosProfile.LATEST
+        )
         self.assertIs(
             config.qos_profile_of("unlisted/topic"), robot_ipc.QosProfile.LATEST
         )
@@ -105,7 +108,8 @@ transport { max_message_size_bytes: 1400 lease_duration_ms: 2500 simulated_send_
         self.assertEqual(example.topics, shipped.topics)
         self.assertEqual(len(example.peer_hosts()), 2)
         self.assertIs(
-            shipped.qos_profile_of("mpc/policy"), robot_ipc.QosProfile.RELIABLE_LATEST
+            shipped.qos_profile_of("mpc/policy"),
+            robot_ipc.QosProfile.RELIABLE_LATEST,
         )
 
     def test_missing_file_raises_file_not_found(self) -> None:
@@ -114,12 +118,17 @@ transport { max_message_size_bytes: 1400 lease_duration_ms: 2500 simulated_send_
 
     def test_formatted_networks_parse_back_unchanged(self) -> None:
         custom = robot_ipc.NetworkConfig(
-            nodes=(node("robot", "192.168.1.10"), node("mpc-laptop_2", "laptop.local")),
+            nodes=(
+                node("robot", "192.168.1.10"),
+                node("mpc-laptop_2", "laptop.local"),
+            ),
             domain_id=robot_ipc.MAX_DOMAIN_ID,
             domain_tag="tag",
             topics=(
                 robot_ipc.TopicQos(
-                    "a/b", robot_ipc.QosProfile.LATEST, ("robot", "mpc-laptop_2")
+                    "a/b",
+                    robot_ipc.QosProfile.LATEST,
+                    ("robot", "mpc-laptop_2"),
                 ),
             ),
             default_qos_profile=robot_ipc.QosProfile.RELIABLE_LATEST,
@@ -127,12 +136,16 @@ transport { max_message_size_bytes: 1400 lease_duration_ms: 2500 simulated_send_
                 socket_send_buffer_bytes=1 << 20, max_processes_per_host=4
             ),
         )
-        for config in (robot_ipc.load_network_config(SHIPPED_NETWORK_FILE), custom):
+        for config in (
+            robot_ipc.load_network_config(SHIPPED_NETWORK_FILE),
+            custom,
+        ):
             text = robot_ipc.format_network_config(config)
             self.assertEqual(parse(text), config, text)
         # One line for the domain, one per node and per topic, one for the transport.
         self.assertEqual(
-            len(robot_ipc.format_network_config(custom).splitlines()), 1 + 2 + 1 + 1
+            len(robot_ipc.format_network_config(custom).splitlines()),
+            1 + 2 + 1 + 1,
         )
 
 
@@ -141,7 +154,10 @@ transport { max_message_size_bytes: 1400 lease_duration_ms: 2500 simulated_send_
 MALFORMED_FILES = [
     (
         "an unknown field of a node",
-        'nodes { name: "robot" host: "127.0.0.1" }\nnodes { name: "mpc" hots: "a" }',
+        (
+            'nodes { name: "robot" host: "127.0.0.1" }\nnodes { name: "mpc"'
+            ' hots: "a" }'
+        ),
         2,
         "hots",
     ),
@@ -151,7 +167,12 @@ MALFORMED_FILES = [
         3,
         "port",
     ),
-    ("an unknown top-level field", '# The nodes.\nhosts { name: "robot" }', 2, "hosts"),
+    (
+        "an unknown top-level field",
+        '# The nodes.\nhosts { name: "robot" }',
+        2,
+        "hosts",
+    ),
     ("a quoted domain id", 'domain_id: "7"', 1, ""),
     ("a fractional domain id", "domain_id: 7.5", 1, ""),
     (
@@ -168,7 +189,12 @@ MALFORMED_FILES = [
         4,
         "host",
     ),
-    ("an unquoted host", 'nodes {\n  name: "robot"\n  host: 127.0.0.1\n}', 3, ""),
+    (
+        "an unquoted host",
+        'nodes {\n  name: "robot"\n  host: 127.0.0.1\n}',
+        3,
+        "",
+    ),
     ("a missing colon", 'nodes { name: "robot" }\nnodes { name "mpc" }', 2, ""),
     ("an unclosed node", 'nodes { name: "robot" host: "127.0.0.1"', 1, ""),
 ]
@@ -234,7 +260,8 @@ INVALID_FILES = [
     (
         "a topic listed twice",
         _ROBOT
-        + 'topics { name: "a" qos_profile: "latest" }\ntopics { name: "a" qos_profile: "latest" }',
+        + 'topics { name: "a" qos_profile: "latest" }\ntopics { name: "a"'
+        ' qos_profile: "latest" }',
         "topics[1] (a).name",
     ),
     (
@@ -283,7 +310,9 @@ INVALID_FILES = [
 
 class MalformedFileTest(unittest.TestCase):
 
-    def test_every_malformed_file_is_rejected_with_its_line_and_column(self) -> None:
+    def test_every_malformed_file_is_rejected_with_its_line_and_column(
+        self,
+    ) -> None:
         for description, text, line, fragment in MALFORMED_FILES:
             with self.subTest(description=description):
                 with self.assertRaises(robot_ipc.NetworkConfigError) as raised:
@@ -300,7 +329,9 @@ class MalformedFileTest(unittest.TestCase):
 
 class InvalidFileTest(unittest.TestCase):
 
-    def test_every_invalid_file_is_rejected_with_the_offending_entry(self) -> None:
+    def test_every_invalid_file_is_rejected_with_the_offending_entry(
+        self,
+    ) -> None:
         for description, text, key in INVALID_FILES:
             with self.subTest(description=description):
                 with self.assertRaises(robot_ipc.NetworkConfigError) as raised:
@@ -320,11 +351,15 @@ class ValidateTest(unittest.TestCase):
             )
         with self.assertRaises(robot_ipc.NetworkConfigError):
             robot_ipc.validate_network_config(robot_ipc.NetworkConfig(nodes=()))
-        with self.assertRaisesRegex(robot_ipc.NetworkConfigError, r"^domain_id"):
+        with self.assertRaisesRegex(
+            robot_ipc.NetworkConfigError, r"^domain_id"
+        ):
             robot_ipc.validate_network_config(
                 robot_ipc.NetworkConfig(nodes=(node("robot"),), domain_id=-1)
             )
-        with self.assertRaisesRegex(robot_ipc.NetworkConfigError, r"^transport"):
+        with self.assertRaisesRegex(
+            robot_ipc.NetworkConfigError, r"^transport"
+        ):
             robot_ipc.validate_network_config(
                 robot_ipc.NetworkConfig(
                     nodes=(node("robot"),),
@@ -339,7 +374,13 @@ class ValidateTest(unittest.TestCase):
         is_loopback = robot_ipc.network_config.is_loopback_host
         self.assertTrue(is_ipv4("192.168.1.10"))
         self.assertTrue(is_ipv4("0.0.0.0"))
-        for host in ("256.1.1.1", "1.2.3", "1.2.3.4.5", "1.2.3.x", "laptop.local"):
+        for host in (
+            "256.1.1.1",
+            "1.2.3",
+            "1.2.3.4.5",
+            "1.2.3.x",
+            "laptop.local",
+        ):
             with self.subTest(host=host):
                 self.assertFalse(is_ipv4(host))
         for host in ("127.0.0.1", "127.1.2.3", "localhost"):
@@ -352,7 +393,9 @@ class ValidateTest(unittest.TestCase):
 
 class DeliveryAndProfileTest(unittest.TestCase):
 
-    def test_names_round_trip_and_unknown_names_list_the_valid_ones(self) -> None:
+    def test_names_round_trip_and_unknown_names_list_the_valid_ones(
+        self,
+    ) -> None:
         for delivery in robot_ipc.Delivery:
             self.assertIs(robot_ipc.parse_delivery(delivery.value), delivery)
             self.assertIs(robot_ipc.parse_delivery(delivery), delivery)
@@ -370,9 +413,12 @@ class DeliveryAndProfileTest(unittest.TestCase):
         policy = robot_ipc.qos_profile.qos_policy
         reliability = robot_ipc.qos_profile.Reliability
         self.assertIs(
-            policy(robot_ipc.QosProfile.LATEST).reliability, reliability.BEST_EFFORT
+            policy(robot_ipc.QosProfile.LATEST).reliability,
+            reliability.BEST_EFFORT,
         )
-        self.assertEqual(policy(robot_ipc.QosProfile.LATEST).writer_history_depth, 1)
+        self.assertEqual(
+            policy(robot_ipc.QosProfile.LATEST).writer_history_depth, 1
+        )
         self.assertIs(
             policy(robot_ipc.QosProfile.RELIABLE_LATEST).reliability,
             reliability.RELIABLE,
@@ -400,13 +446,19 @@ class DomainConfigTest(unittest.TestCase):
             nodes=(node("robot"),), domain_id=robot_ipc.MAX_DOMAIN_ID
         )
         robot_ipc.validate_network_config(largest)
-        self.assertLessEqual(robot_ipc.unicast_port_range(largest).last, MAX_UDP_PORT)
-        with self.assertRaisesRegex(robot_ipc.NetworkConfigError, r"^domain_id"):
+        self.assertLessEqual(
+            robot_ipc.unicast_port_range(largest).last, MAX_UDP_PORT
+        )
+        with self.assertRaisesRegex(
+            robot_ipc.NetworkConfigError, r"^domain_id"
+        ):
             robot_ipc.validate_network_config(
                 robot_ipc.NetworkConfig(
                     nodes=(node("robot"),),
                     domain_id=robot_ipc.MAX_DOMAIN_ID,
-                    transport=robot_ipc.TransportOptions(max_processes_per_host=115),
+                    transport=robot_ipc.TransportOptions(
+                        max_processes_per_host=115
+                    ),
                 )
             )
 
@@ -442,7 +494,9 @@ class DomainConfigTest(unittest.TestCase):
         )
         with self.assertRaises(robot_ipc.InterfaceError):
             domain_config.interface_address_for(network, "robot")
-        self.assertEqual(domain_config.interface_address_for(network, "mpc"), "")
+        self.assertEqual(
+            domain_config.interface_address_for(network, "mpc"), ""
+        )
         self.assertEqual(
             domain_config.interface_address_for(network, "local"), "127.0.0.1"
         )
@@ -450,7 +504,8 @@ class DomainConfigTest(unittest.TestCase):
         config = robot_ipc.cyclone_domain_config(network, "mpc")
         self.assertIn('<NetworkInterface autodetermine="true"/>', config)
         self.assertIn(
-            '<Peer Address="192.0.2.1"/><Peer Address="laptop.example"/><Peer Address="127.0.0.1"/>',
+            '<Peer Address="192.0.2.1"/><Peer Address="laptop.example"/><Peer'
+            ' Address="127.0.0.1"/>',
             config,
         )
 

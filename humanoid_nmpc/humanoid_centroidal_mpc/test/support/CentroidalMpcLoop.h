@@ -49,54 +49,65 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** What CentroidalMpcLoop::Create() changes in the shipped task file. Passive data. */
+/** What CentroidalMpcLoop::Create() changes in the shipped task file. Passive
+ * data. */
 struct CentroidalMpcLoopOptions {
   /**
-   * The yaw weight of the base orientation in state_weights and final_state_weights, when set. Every shipped
-   * configuration weighs no yaw and turns its base only through its feet, which does not follow a turn in place (design
-   * README section 6, risk 4).
+   * The yaw weight of the base orientation in state_weights and
+   * final_state_weights, when set. Every shipped configuration weighs no yaw
+   * and turns its base only through its feet, which does not follow a turn in
+   * place (design README section 6, risk 4).
    */
   std::optional<scalar_t> baseYawWeight;
 };
 
-/** What one step of CentroidalMpcLoop solved and how the plant moved. Passive data. */
+/** What one step of CentroidalMpcLoop solved and how the plant moved. Passive
+ * data. */
 struct CentroidalMpcLoopStep {
   /** The solve's performance index (SolverBase::getPerformanceIndeces()). */
   PerformanceIndex performance;
   /**
-   * [rad] The rotation part of the initial state gap the solve closed: the largest rotation of the difference, on the
-   * state manifold, from the last policy's planned state at the solve's time to the observation; 0 for the first solve.
+   * [rad] The rotation part of the initial state gap the solve closed: the
+   * largest rotation of the difference, on the state manifold, from the last
+   * policy's planned state at the solve's time to the observation; 0 for the
+   * first solve.
    */
   scalar_t initialGapRotation = 0.0;
   /**
-   * The feedback correction of the policy where the period starts, the observation after the push: |u(t, x) - u(t,
-   * x_bar(t))|_inf, x_bar the planned state; 0 for a feedforward policy and without a push (the solve starts its plan at
-   * the observation).
+   * The feedback correction of the policy where the period starts, the
+   * observation after the push: |u(t, x) - u(t, x_bar(t))|_inf, x_bar the
+   * planned state; 0 for a feedforward policy and without a push (the solve
+   * starts its plan at the observation).
    */
   scalar_t feedbackCorrection = 0.0;
   /** |u(t, x_bar(t))|_inf at the same times: the scale of the correction. */
   scalar_t feedforwardMagnitude = 0.0;
-  /** max | |xi| - 1 | over the policy's nodes and the plant's state after the step. */
+  /** max | |xi| - 1 | over the policy's nodes and the plant's state after the
+   * step. */
   scalar_t quaternionNormError = 0.0;
 };
 
 /**
- * The centroidal MPC of a shipped configuration in a lockstep loop, without a simulator: the interface's problem solved
- * by its SQP MPC with the reference manager, the target calculator and the procedural motion manager registered as the
- * MPC node registers them, every solve's observation handed to the motion manager before it (the command neither
- * filtered nor ramped, its limits 1, so a command is applied as given), an
- * MRT on the state manifold, and a plant that is the projected rollout of the policy over one MPC period
- * (MRT_BASE::rolloutPolicy() on the interface's rollout, which projects the quaternion back onto the unit sphere). Every
- * step solves once from the plant's state and then moves the plant. Builds the CppAD libraries of the configuration on a
- * cold cache. Not thread-safe.
+ * The centroidal MPC of a shipped configuration in a lockstep loop, without a
+ * simulator: the interface's problem solved by its SQP MPC with the reference
+ * manager, the target calculator and the procedural motion manager registered
+ * as the MPC node registers them, every solve's observation handed to the
+ * motion manager before it (the command neither filtered nor ramped, its limits
+ * 1, so a command is applied as given), an MRT on the state manifold, and a
+ * plant that is the projected rollout of the policy over one MPC period
+ * (MRT_BASE::rolloutPolicy() on the interface's rollout, which projects the
+ * quaternion back onto the unit sphere). Every step solves once from the
+ * plant's state and then moves the plant. Builds the CppAD libraries of the
+ * configuration on a cold cache. Not thread-safe.
  */
 class CentroidalMpcLoop {
  public:
   /**
-   * The loop of `robot`'s shipped files with `options`' changes, the robot standing at the task file's initial state at
-   * time 0.
+   * The loop of `robot`'s shipped files with `options`' changes, the robot
+   * standing at the task file's initial state at time 0.
    */
-  static absl::StatusOr<std::unique_ptr<CentroidalMpcLoop>> Create(ShippedCentroidalRobot robot, const CentroidalMpcLoopOptions& options);
+  static absl::StatusOr<std::unique_ptr<CentroidalMpcLoop>> Create(
+      ShippedCentroidalRobot robot, const CentroidalMpcLoopOptions& options);
 
   CentroidalMpcLoop(const CentroidalMpcLoop&) = delete;
   CentroidalMpcLoop& operator=(const CentroidalMpcLoop&) = delete;
@@ -104,21 +115,26 @@ class CentroidalMpcLoop {
   CentroidalMpcLoop& operator=(CentroidalMpcLoop&&) = delete;
   ~CentroidalMpcLoop() = default;
 
-  /** The operator's command, applied as given: [m/s] forward and to the left in the heading frame, [rad/s] about z. */
+  /** The operator's command, applied as given: [m/s] forward and to the left in
+   * the heading frame, [rad/s] about z. */
   void command(scalar_t forward, scalar_t lateral, scalar_t yawRate);
 
   /**
-   * Pushes the plant in the next step(), after its solve: adds `momentumChange` to the normalized centroidal momentum
-   * [v_com, L / m] the period starts from, as an impulse would, so that the plant leaves the plan and the policy's
-   * feedback acts over the period.
+   * Pushes the plant in the next step(), after its solve: adds `momentumChange`
+   * to the normalized centroidal momentum [v_com, L / m] the period starts
+   * from, as an impulse would, so that the plant leaves the plan and the
+   * policy's feedback acts over the period.
    */
   void push(const vector6_t& momentumChange) { pendingPush_ = momentumChange; }
 
-  /** One solve from the plant's state, then one MPC period of the plant; the solve's status. */
+  /** One solve from the plant's state, then one MPC period of the plant; the
+   * solve's status. */
   absl::StatusOr<CentroidalMpcLoopStep> step();
 
   CentroidalMpcInterface& interface() { return *interface_; }
-  const ProceduralMpcMotionManager& motionManager() const { return *motionManager_; }
+  const ProceduralMpcMotionManager& motionManager() const {
+    return *motionManager_;
+  }
   const SystemObservation& observation() const { return observation_; }
   /** Whether a solve has given a policy yet; policy() needs one. */
   bool hasPolicy() const { return mrt_->initialPolicyReceived(); }

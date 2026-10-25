@@ -52,106 +52,153 @@ struct JointState {
 };
 
 /**
- * The state of a floating-base robot: the root's pose and twist, the state of every joint of a robot description by
- * joint index, and a contact flag per contact point. Copying one into another of the same robot allocates nothing (the
- * realtime loop does it every cycle). Not thread-safe.
+ * The state of a floating-base robot: the root's pose and twist, the state of
+ * every joint of a robot description by joint index, and a contact flag per
+ * contact point. Copying one into another of the same robot allocates nothing
+ * (the realtime loop does it every cycle). Not thread-safe.
  */
 class RobotState {
  public:
   /** The default number of contact points: the two feet of a biped. */
   static constexpr size_t kDefaultContactSize = 2;
 
-  explicit RobotState(const RobotDescription& robotDescription, size_t contactSize = kDefaultContactSize);
+  explicit RobotState(const RobotDescription& robotDescription,
+                      size_t contactSize = kDefaultContactSize);
 
   // orientation of the root joint wrt world frame, corresponds to the passive
   // rotation from local to world R_l_to_w
-  quaternion_t getRootRotationLocalToWorldFrame() const { return rootOrientation_; }
+  quaternion_t getRootRotationLocalToWorldFrame() const {
+    return rootOrientation_;
+  }
   vector3_t getRootPositionInWorldFrame() const { return rootPosition_; }
 
-  vector3_t getRootLinearVelocityInLocalFrame() const { return rootLinearVelocity_; }
-  vector3_t getRootAngularVelocityInLocalFrame() const { return rootAngularVelocity_; }
+  vector3_t getRootLinearVelocityInLocalFrame() const {
+    return rootLinearVelocity_;
+  }
+  vector3_t getRootAngularVelocityInLocalFrame() const {
+    return rootAngularVelocity_;
+  }
 
   // orientation of the root joint wrt world frame, corresponds to the passive
   // rotation from local to world R_l_to_w
-  void setRootRotationLocalToWorldFrame(const quaternion_t& orientation) { rootOrientation_ = orientation; }
-  void setRootPositionInWorldFrame(const vector3_t& position) { rootPosition_ = position; }
+  void setRootRotationLocalToWorldFrame(const quaternion_t& orientation) {
+    rootOrientation_ = orientation;
+  }
+  void setRootPositionInWorldFrame(const vector3_t& position) {
+    rootPosition_ = position;
+  }
 
-  void setRootLinearVelocityInLocalFrame(const vector3_t& linearVelocity) { rootLinearVelocity_ = linearVelocity; }
-  void setRootAngularVelocityInLocalFrame(const vector3_t& angularVelocity) { rootAngularVelocity_ = angularVelocity; }
+  void setRootLinearVelocityInLocalFrame(const vector3_t& linearVelocity) {
+    rootLinearVelocity_ = linearVelocity;
+  }
+  void setRootAngularVelocityInLocalFrame(const vector3_t& angularVelocity) {
+    rootAngularVelocity_ = angularVelocity;
+  }
 
   /**
-   * What an accelerometer at the root's origin reads, in the root's frame [m/s^2]: the specific force R^T (a - g) of
-   * that point, with a its acceleration and g the gravity in the world frame, so +|g| along the root's vertical at rest.
-   * The input of a state estimator that integrates the IMU (KalmanStateEstimator); zero from a backend without one. The
-   * root's orientation and angular velocity above are the IMU's on hardware; the root's position and linear velocity
-   * are what a backend measures (the simulator: the truth) and what a state estimator replaces.
+   * What an accelerometer at the root's origin reads, in the root's frame
+   * [m/s^2]: the specific force R^T (a - g) of that point, with a its
+   * acceleration and g the gravity in the world frame, so +|g| along the root's
+   * vertical at rest. The input of a state estimator that integrates the IMU
+   * (KalmanStateEstimator); zero from a backend without one. The root's
+   * orientation and angular velocity above are the IMU's on hardware; the
+   * root's position and linear velocity are what a backend measures (the
+   * simulator: the truth) and what a state estimator replaces.
    */
-  vector3_t getImuLinearAccelerationInLocalFrame() const { return imuLinearAcceleration_; }
-  void setImuLinearAccelerationInLocalFrame(const vector3_t& linearAcceleration) { imuLinearAcceleration_ = linearAcceleration; }
+  vector3_t getImuLinearAccelerationInLocalFrame() const {
+    return imuLinearAcceleration_;
+  }
+  void setImuLinearAccelerationInLocalFrame(
+      const vector3_t& linearAcceleration) {
+    imuLinearAcceleration_ = linearAcceleration;
+  }
 
   /** True when `jointId` is a joint of the robot description. */
   bool hasJoint(size_t jointId) const { return findJoint(jointId) != nullptr; }
 
-  /** Sets the position of joint `jointId`; an id that is not a joint (hasJoint()) is ignored. */
+  /** Sets the position of joint `jointId`; an id that is not a joint
+   * (hasJoint()) is ignored. */
   void setJointPosition(size_t jointId, scalar_t jointPosition);
   /**
-   * The position of joint `jointId`, without a check, as std::vector's operator[]: `jointId` must be a joint of the
-   * robot description (hasJoint(), every index below its getNumJoints()). The control thread's form: code on the
-   * realtime path validates its ids once, when it is built, and nothing there may end the process. Setup code and tests
-   * use getCheckedJointPosition().
+   * The position of joint `jointId`, without a check, as std::vector's
+   * operator[]: `jointId` must be a joint of the robot description (hasJoint(),
+   * every index below its getNumJoints()). The control thread's form: code on
+   * the realtime path validates its ids once, when it is built, and nothing
+   * there may end the process. Setup code and tests use
+   * getCheckedJointPosition().
    */
   scalar_t getJointPosition(size_t jointId) const {
-    return jointStateMap_[jointId]->position;  // NOLINT(bugprone-unchecked-optional-access): the precondition above.
+    return jointStateMap_[jointId]
+        ->position;  // NOLINT(bugprone-unchecked-optional-access): the precondition above.
   }
-  /** getJointPosition(), checked: an id that is not a joint ends the process. Not for the realtime path. */
+  /** getJointPosition(), checked: an id that is not a joint ends the process.
+   * Not for the realtime path. */
   scalar_t getCheckedJointPosition(size_t jointId) const;
   /** As setJointPosition(), for the velocity. */
   void setJointVelocity(size_t jointId, scalar_t jointVelocity);
-  /** As getJointPosition(), for the velocity: unchecked, `jointId` must be a joint. */
+  /** As getJointPosition(), for the velocity: unchecked, `jointId` must be a
+   * joint. */
   scalar_t getJointVelocity(size_t jointId) const {
-    return jointStateMap_[jointId]->velocity;  // NOLINT(bugprone-unchecked-optional-access): the precondition above.
+    return jointStateMap_[jointId]
+        ->velocity;  // NOLINT(bugprone-unchecked-optional-access): the precondition above.
   }
   /** As getCheckedJointPosition(), for the velocity. */
   scalar_t getCheckedJointVelocity(size_t jointId) const;
 
   //  Get a vector_t of joint positions given a vector of joint IDs
   template <typename E>
-  vector_t getJointPositions(const std::vector<E>& jointIds, scalar_t defaultValue = std::numeric_limits<scalar_t>::quiet_NaN()) const {
-    return jointStateMap_.toVector(jointIds, &RobotState::positionOf, defaultValue);
+  vector_t getJointPositions(
+      const std::vector<E>& jointIds,
+      scalar_t defaultValue =
+          std::numeric_limits<scalar_t>::quiet_NaN()) const {
+    return jointStateMap_.toVector(jointIds, &RobotState::positionOf,
+                                   defaultValue);
   }
 
   //  Get a vector_t of joint velocities given a vector of joint IDs
   template <typename E>
-  vector_t getJointVelocities(const std::vector<E>& jointIds, scalar_t defaultValue = std::numeric_limits<scalar_t>::quiet_NaN()) const {
-    return jointStateMap_.toVector(jointIds, &RobotState::velocityOf, defaultValue);
+  vector_t getJointVelocities(
+      const std::vector<E>& jointIds,
+      scalar_t defaultValue =
+          std::numeric_limits<scalar_t>::quiet_NaN()) const {
+    return jointStateMap_.toVector(jointIds, &RobotState::velocityOf,
+                                   defaultValue);
   }
 
-  //  The joint positions into `positions`, resized to jointIds.size(): no allocation once it has that size (the
-  //  control thread's form).
+  //  The joint positions into `positions`, resized to jointIds.size(): no
+  //  allocation once it has that size (the control thread's form).
   template <typename E>
   void getJointPositions(const std::vector<E>& jointIds,
                          vector_t& positions,
-                         scalar_t defaultValue = std::numeric_limits<scalar_t>::quiet_NaN()) const {
-    jointStateMap_.writeVector(jointIds, &RobotState::positionOf, positions, defaultValue);
+                         scalar_t defaultValue =
+                             std::numeric_limits<scalar_t>::quiet_NaN()) const {
+    jointStateMap_.writeVector(jointIds, &RobotState::positionOf, positions,
+                               defaultValue);
   }
 
   //  The joint velocities into `velocities`, as getJointPositions() above.
   template <typename E>
-  void getJointVelocities(const std::vector<E>& jointIds,
-                          vector_t& velocities,
-                          scalar_t defaultValue = std::numeric_limits<scalar_t>::quiet_NaN()) const {
-    jointStateMap_.writeVector(jointIds, &RobotState::velocityOf, velocities, defaultValue);
+  void getJointVelocities(
+      const std::vector<E>& jointIds,
+      vector_t& velocities,
+      scalar_t defaultValue =
+          std::numeric_limits<scalar_t>::quiet_NaN()) const {
+    jointStateMap_.writeVector(jointIds, &RobotState::velocityOf, velocities,
+                               defaultValue);
   }
 
-  /** The flag of contact point `index`, which must be below getContactFlags().size(); another index ends the process. */
+  /** The flag of contact point `index`, which must be below
+   * getContactFlags().size(); another index ends the process. */
   bool getContactFlag(size_t index) const {
-    ABSL_CHECK_LT(index, contactFlags_.size()) << "RobotState: no contact point " << index;
+    ABSL_CHECK_LT(index, contactFlags_.size())
+        << "RobotState: no contact point " << index;
     return contactFlags_[index];
   }
 
   /** Sets the flag of contact point `index`, as getContactFlag(). */
   void setContactFlag(size_t index, bool contactFlag) {
-    ABSL_CHECK_LT(index, contactFlags_.size()) << "RobotState: no contact point " << index;
+    ABSL_CHECK_LT(index, contactFlags_.size())
+        << "RobotState: no contact point " << index;
     contactFlags_[index] = contactFlag;
   }
 
@@ -168,8 +215,12 @@ class RobotState {
   const JointState* absl_nullable findJoint(size_t jointId) const;
   JointState* absl_nullable findJoint(size_t jointId);
 
-  static scalar_t positionOf(const JointState& jointState) { return jointState.position; }
-  static scalar_t velocityOf(const JointState& jointState) { return jointState.velocity; }
+  static scalar_t positionOf(const JointState& jointState) {
+    return jointState.position;
+  }
+  static scalar_t velocityOf(const JointState& jointState) {
+    return jointState.velocity;
+  }
 
   JointIdMap<JointState> jointStateMap_;
 

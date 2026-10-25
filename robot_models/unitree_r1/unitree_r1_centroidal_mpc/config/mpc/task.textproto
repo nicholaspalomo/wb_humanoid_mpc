@@ -130,6 +130,7 @@ hard_constraints: "zero_velocity"
 hard_constraints: "normal_velocity"
 soft_constraints: "joint_limits"
 soft_constraints: "foot_collision"
+soft_constraints: "foot_collision_cbf"  # bounds how fast the feet and knees approach, not only how close
 soft_constraints: "friction_force_cone"
 soft_constraints: "contact_moment_xy"
 costs: "state_quadratic_cost"
@@ -802,5 +803,16 @@ collision_constraint {
   }
   # relaxed log barrier parameters
   mu: 30000
+  delta: 0.05
+}
+
+# The control barrier function of the collision_constraint spheres (soft constraint foot_collision_cbf,
+# FootCollisionCbfConstraint): each row is dh/dt + gamma * h >= 0 with h = |p_a - p_b|^2 - (2 r)^2, so a pair may
+# approach at most at gamma times its squared margin. With delta = 0.05 m^2/s the barrier engages at rest once the
+# squared margin falls below delta / gamma = 0.005 m^2.
+collision_cbf_constraint {
+  gamma: 10.0  # [1/s]
+  # relaxed log barrier parameters
+  mu: 5000
   delta: 0.05
 }

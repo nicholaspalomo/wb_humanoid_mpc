@@ -60,43 +60,61 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-constexpr absl::string_view kWrenchCone = "contacts.contact_wrench_cone_soft_constraint";
-/** The fewest basis vectors of a wrench cone, as a signed count, to check a count before it becomes a size_t. */
-constexpr int32_t kMinConeBasisVectors = static_cast<int32_t>(ContactWrenchConeConstraint::Config::kMinNumBasisVectors);
+constexpr absl::string_view kWrenchCone =
+    "contacts.contact_wrench_cone_soft_constraint";
+/** The fewest basis vectors of a wrench cone, as a signed count, to check a
+ * count before it becomes a size_t. */
+constexpr int32_t kMinConeBasisVectors = static_cast<int32_t>(
+    ContactWrenchConeConstraint::Config::kMinNumBasisVectors);
 
 /** InvalidArgument naming `<block>.<field>` unless `value` is finite. */
-absl::Status checkFinite(absl::string_view block, absl::string_view field, double value) {
+absl::Status checkFinite(absl::string_view block,
+                         absl::string_view field,
+                         double value) {
   if (std::isfinite(value)) {
     return absl::OkStatus();
   }
-  return absl::InvalidArgumentError(absl::StrCat(block, ".", field, " is ", value, ", but it must be finite."));
+  return absl::InvalidArgumentError(absl::StrCat(
+      block, ".", field, " is ", value, ", but it must be finite."));
 }
 
-/** InvalidArgument naming `<block>.<field>` unless `value` is finite and positive. */
-absl::Status checkPositive(absl::string_view block, absl::string_view field, double value) {
+/** InvalidArgument naming `<block>.<field>` unless `value` is finite and
+ * positive. */
+absl::Status checkPositive(absl::string_view block,
+                           absl::string_view field,
+                           double value) {
   if (std::isfinite(value) && value > 0.0) {
     return absl::OkStatus();
   }
-  return absl::InvalidArgumentError(absl::StrCat(block, ".", field, " is ", value,
-                                                 ", but it must be finite and positive: a negative barrier weight rewards violating the "
-                                                 "constraint, and the relaxed barrier is undefined at a non-positive delta."));
+  return absl::InvalidArgumentError(
+      absl::StrCat(block, ".", field, " is ", value,
+                   ", but it must be finite and positive: a negative barrier "
+                   "weight rewards violating the "
+                   "constraint, and the relaxed barrier is undefined at a "
+                   "non-positive delta."));
 }
 
-/** The required field `field` of the wrench cone block, or InvalidArgument saying that every consumer needs it. */
+/** The required field `field` of the wrench cone block, or InvalidArgument
+ * saying that every consumer needs it. */
 template <typename T>
-absl::StatusOr<T> requiredConeValue(std::optional<T> value, absl::string_view field) {
+absl::StatusOr<T> requiredConeValue(std::optional<T> value,
+                                    absl::string_view field) {
   if (value.has_value()) {
     return *value;
   }
   return absl::InvalidArgumentError(absl::StrCat(
       kWrenchCone, ".", field,
-      " is missing. The block is the ground of the whole-body constraints: the wrench cone, the generators of the basis-vector "
-      "contact inputs and the online contact planner all read it, and none of them falls back to a library default. Give it "
-      "friction_coefficient, torsional_friction_coefficient, min_normal_force, gripper_force and num_basis_vectors."));
+      " is missing. The block is the ground of the whole-body constraints: the "
+      "wrench cone, the generators of the basis-vector "
+      "contact inputs and the online contact planner all read it, and none of "
+      "them falls back to a library default. Give it "
+      "friction_coefficient, torsional_friction_coefficient, min_normal_force, "
+      "gripper_force and num_basis_vectors."));
 }
 
 /** The relaxed barrier `block` {mu delta}, both finite and positive. */
-absl::StatusOr<RelaxedBarrierPenalty::Config> relaxedBarrier(absl::string_view block, double mu, double delta) {
+absl::StatusOr<RelaxedBarrierPenalty::Config> relaxedBarrier(
+    absl::string_view block, double mu, double delta) {
   RETURN_IF_ERROR(checkPositive(block, "mu", mu));
   RETURN_IF_ERROR(checkPositive(block, "delta", delta));
   return RelaxedBarrierPenalty::Config(mu, delta);
@@ -104,13 +122,17 @@ absl::StatusOr<RelaxedBarrierPenalty::Config> relaxedBarrier(absl::string_view b
 
 }  // namespace
 
-absl::StatusOr<ContactCenterPoint> contactCenterPointFromConfig(const mpc_config::ContactsConfig& contacts,
-                                                                const ModelSettings& modelSettings,
-                                                                int contactIndex) {
-  if (contactIndex < 0 || static_cast<size_t>(contactIndex) >= modelSettings.contactNames.size() ||
-      static_cast<size_t>(contactIndex) >= modelSettings.contactParentJointNames.size()) {
-    return absl::InvalidArgumentError(absl::StrCat("contact ", contactIndex, " is not one of the ", modelSettings.contactNames.size(),
-                                                   " contacts of the model settings"));
+absl::StatusOr<ContactCenterPoint> contactCenterPointFromConfig(
+    const mpc_config::ContactsConfig& contacts,
+    const ModelSettings& modelSettings,
+    int contactIndex) {
+  if (contactIndex < 0 ||
+      static_cast<size_t>(contactIndex) >= modelSettings.contactNames.size() ||
+      static_cast<size_t>(contactIndex) >=
+          modelSettings.contactParentJointNames.size()) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "contact ", contactIndex, " is not one of the ",
+        modelSettings.contactNames.size(), " contacts of the model settings"));
   }
   const mpc_config::Xyz& translation = contacts.contact_frame_translation;
   constexpr absl::string_view kBlock = "contacts.contact_frame_translation";
@@ -118,61 +140,90 @@ absl::StatusOr<ContactCenterPoint> contactCenterPointFromConfig(const mpc_config
   RETURN_IF_ERROR(checkFinite(kBlock, "y", translation.y));
   RETURN_IF_ERROR(checkFinite(kBlock, "z", translation.z));
   const size_t index = static_cast<size_t>(contactIndex);
-  return ContactCenterPoint(modelSettings.contactNames[index], modelSettings.contactParentJointNames[index],
-                            vector3_t(translation.x, translation.y, translation.z));
+  return ContactCenterPoint(
+      modelSettings.contactNames[index],
+      modelSettings.contactParentJointNames[index],
+      vector3_t(translation.x, translation.y, translation.z));
 }
 
-absl::StatusOr<ContactRectangle> contactRectangleFromConfig(const mpc_config::ContactsConfig& contacts,
-                                                            const ContactCenterPoint& centerPoint) {
-  const mpc_config::ContactsConfig::Rectangle& rectangle = contacts.contact_rectangle;
+absl::StatusOr<ContactRectangle> contactRectangleFromConfig(
+    const mpc_config::ContactsConfig& contacts,
+    const ContactCenterPoint& centerPoint) {
+  const mpc_config::ContactsConfig::Rectangle& rectangle =
+      contacts.contact_rectangle;
   constexpr absl::string_view kBlock = "contacts.contact_rectangle";
   RETURN_IF_ERROR(checkFinite(kBlock, "x_min", rectangle.x_min));
   RETURN_IF_ERROR(checkFinite(kBlock, "x_max", rectangle.x_max));
   RETURN_IF_ERROR(checkFinite(kBlock, "y_min", rectangle.y_min));
   RETURN_IF_ERROR(checkFinite(kBlock, "y_max", rectangle.y_max));
   RETURN_IF_ERROR(checkFinite(kBlock, "scale_factor", rectangle.scale_factor));
-  // An empty or inverted rectangle has no interior for the wrench cone and the center of pressure, and a scale factor of
-  // 0 or less shrinks it to a point or flips it.
-  if (!(rectangle.x_min < rectangle.x_max) || !(rectangle.y_min < rectangle.y_max)) {
-    return absl::InvalidArgumentError(absl::StrCat(kBlock, " is x in [", rectangle.x_min, ", ", rectangle.x_max, "], y in [",
-                                                   rectangle.y_min, ", ", rectangle.y_max,
-                                                   "], but it must have x_min < x_max and y_min < y_max."));
+  // An empty or inverted rectangle has no interior for the wrench cone and the
+  // center of pressure, and a scale factor of 0 or less shrinks it to a point
+  // or flips it.
+  if (!(rectangle.x_min < rectangle.x_max) ||
+      !(rectangle.y_min < rectangle.y_max)) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        kBlock, " is x in [", rectangle.x_min, ", ", rectangle.x_max,
+        "], y in [", rectangle.y_min, ", ", rectangle.y_max,
+        "], but it must have x_min < x_max and y_min < y_max."));
   }
   if (!(rectangle.scale_factor > 0.0)) {
-    return absl::InvalidArgumentError(absl::StrCat(kBlock, ".scale_factor is ", rectangle.scale_factor, ", but it must be positive."));
+    return absl::InvalidArgumentError(
+        absl::StrCat(kBlock, ".scale_factor is ", rectangle.scale_factor,
+                     ", but it must be positive."));
   }
-  return ContactRectangle(PolygonBounds(rectangle.x_min, rectangle.x_max, rectangle.y_min, rectangle.y_max), centerPoint,
-                          rectangle.scale_factor);
+  return ContactRectangle(PolygonBounds(rectangle.x_min, rectangle.x_max,
+                                        rectangle.y_min, rectangle.y_max),
+                          centerPoint, rectangle.scale_factor);
 }
 
-absl::StatusOr<ContactRectangle> contactRectangleFromConfig(const mpc_config::ContactsConfig& contacts,
-                                                            const ModelSettings& modelSettings,
-                                                            int contactIndex) {
-  ASSIGN_OR_RETURN(const ContactCenterPoint centerPoint, contactCenterPointFromConfig(contacts, modelSettings, contactIndex));
+absl::StatusOr<ContactRectangle> contactRectangleFromConfig(
+    const mpc_config::ContactsConfig& contacts,
+    const ModelSettings& modelSettings,
+    int contactIndex) {
+  ASSIGN_OR_RETURN(
+      const ContactCenterPoint centerPoint,
+      contactCenterPointFromConfig(contacts, modelSettings, contactIndex));
   return contactRectangleFromConfig(contacts, centerPoint);
 }
 
-absl::StatusOr<ContactWrenchConeConstraint::Config> contactWrenchConeConfigFromConfig(const mpc_config::ContactsConfig& contacts) {
-  const mpc_config::ContactsConfig::WrenchCone& cone = contacts.contact_wrench_cone_soft_constraint;
-  ASSIGN_OR_RETURN(const scalar_t frictionCoefficient, requiredConeValue(cone.friction_coefficient, "friction_coefficient"));
+absl::StatusOr<ContactWrenchConeConstraint::Config>
+contactWrenchConeConfigFromConfig(const mpc_config::ContactsConfig& contacts) {
+  const mpc_config::ContactsConfig::WrenchCone& cone =
+      contacts.contact_wrench_cone_soft_constraint;
+  ASSIGN_OR_RETURN(
+      const scalar_t frictionCoefficient,
+      requiredConeValue(cone.friction_coefficient, "friction_coefficient"));
   ASSIGN_OR_RETURN(const scalar_t torsionalFrictionCoefficient,
-                   requiredConeValue(cone.torsional_friction_coefficient, "torsional_friction_coefficient"));
-  ASSIGN_OR_RETURN(const scalar_t minNormalForce, requiredConeValue(cone.min_normal_force, "min_normal_force"));
-  ASSIGN_OR_RETURN(const scalar_t gripperForce, requiredConeValue(cone.gripper_force, "gripper_force"));
-  ASSIGN_OR_RETURN(const int32_t numBasisVectors, requiredConeValue(cone.num_basis_vectors, "num_basis_vectors"));
-  // Checked before the conversion to size_t, which would turn a negative count into a huge one.
+                   requiredConeValue(cone.torsional_friction_coefficient,
+                                     "torsional_friction_coefficient"));
+  ASSIGN_OR_RETURN(
+      const scalar_t minNormalForce,
+      requiredConeValue(cone.min_normal_force, "min_normal_force"));
+  ASSIGN_OR_RETURN(const scalar_t gripperForce,
+                   requiredConeValue(cone.gripper_force, "gripper_force"));
+  ASSIGN_OR_RETURN(
+      const int32_t numBasisVectors,
+      requiredConeValue(cone.num_basis_vectors, "num_basis_vectors"));
+  // Checked before the conversion to size_t, which would turn a negative count
+  // into a huge one.
   if (numBasisVectors < kMinConeBasisVectors) {
-    return absl::InvalidArgumentError(absl::StrCat(kWrenchCone, ".num_basis_vectors is ", numBasisVectors, " but must be at least ",
-                                                   kMinConeBasisVectors, " (the facets of the friction pyramid)."));
+    return absl::InvalidArgumentError(
+        absl::StrCat(kWrenchCone, ".num_basis_vectors is ", numBasisVectors,
+                     " but must be at least ", kMinConeBasisVectors,
+                     " (the facets of the friction pyramid)."));
   }
-  ContactWrenchConeConstraint::Config config(static_cast<size_t>(numBasisVectors), frictionCoefficient, torsionalFrictionCoefficient,
-                                             minNormalForce, gripperForce);
+  ContactWrenchConeConstraint::Config config(
+      static_cast<size_t>(numBasisVectors), frictionCoefficient,
+      torsionalFrictionCoefficient, minNormalForce, gripperForce);
   RETURN_IF_ERROR(ContactWrenchConeConstraint::validateConfig(config));
   return config;
 }
 
-absl::StatusOr<RelaxedBarrierPenalty::Config> contactWrenchConeBarrierFromConfig(const mpc_config::ContactsConfig& contacts) {
-  const mpc_config::ContactsConfig::WrenchCone& cone = contacts.contact_wrench_cone_soft_constraint;
+absl::StatusOr<RelaxedBarrierPenalty::Config>
+contactWrenchConeBarrierFromConfig(const mpc_config::ContactsConfig& contacts) {
+  const mpc_config::ContactsConfig::WrenchCone& cone =
+      contacts.contact_wrench_cone_soft_constraint;
   RelaxedBarrierPenalty::Config barrier;
   if (cone.mu.has_value()) {
     barrier.mu = *cone.mu;
@@ -185,58 +236,86 @@ absl::StatusOr<RelaxedBarrierPenalty::Config> contactWrenchConeBarrierFromConfig
   return barrier;
 }
 
-absl::StatusOr<ContactWrenchConeBasisMatrix> contactWrenchConeBasisFromConfig(const mpc_config::ContactsConfig& contacts,
-                                                                              const ContactRectangle& footprint) {
-  ASSIGN_OR_RETURN(const ContactWrenchConeConstraint::Config coneConfig, contactWrenchConeConfigFromConfig(contacts));
-  return ContactWrenchConeBasisMatrix::Create(coneConfig, footprint, contacts.basis_generator_set);
+absl::StatusOr<ContactWrenchConeBasisMatrix> contactWrenchConeBasisFromConfig(
+    const mpc_config::ContactsConfig& contacts,
+    const ContactRectangle& footprint) {
+  ASSIGN_OR_RETURN(const ContactWrenchConeConstraint::Config coneConfig,
+                   contactWrenchConeConfigFromConfig(contacts));
+  return ContactWrenchConeBasisMatrix::Create(coneConfig, footprint,
+                                              contacts.basis_generator_set);
 }
 
-absl::StatusOr<feet_array_t<ContactWrenchConeBasisMatrix>> contactWrenchConeBasesFromConfig(const mpc_config::ContactsConfig& contacts,
-                                                                                            const ModelSettings& modelSettings) {
-  static_assert(kNumContacts == kBipedFootCount, "contactWrenchConeBasesFromConfig builds one basis per foot of a biped");
-  ASSIGN_OR_RETURN(const ContactRectangle leftFootprint, contactRectangleFromConfig(contacts, modelSettings, /*contactIndex=*/0));
-  ASSIGN_OR_RETURN(const ContactRectangle rightFootprint, contactRectangleFromConfig(contacts, modelSettings, /*contactIndex=*/1));
-  ASSIGN_OR_RETURN(ContactWrenchConeBasisMatrix leftBasis, contactWrenchConeBasisFromConfig(contacts, leftFootprint));
-  ASSIGN_OR_RETURN(ContactWrenchConeBasisMatrix rightBasis, contactWrenchConeBasisFromConfig(contacts, rightFootprint));
-  return feet_array_t<ContactWrenchConeBasisMatrix>{std::move(leftBasis), std::move(rightBasis)};
+absl::StatusOr<feet_array_t<ContactWrenchConeBasisMatrix>>
+contactWrenchConeBasesFromConfig(const mpc_config::ContactsConfig& contacts,
+                                 const ModelSettings& modelSettings) {
+  static_assert(
+      kNumContacts == kBipedFootCount,
+      "contactWrenchConeBasesFromConfig builds one basis per foot of a biped");
+  ASSIGN_OR_RETURN(
+      const ContactRectangle leftFootprint,
+      contactRectangleFromConfig(contacts, modelSettings, /*contactIndex=*/0));
+  ASSIGN_OR_RETURN(
+      const ContactRectangle rightFootprint,
+      contactRectangleFromConfig(contacts, modelSettings, /*contactIndex=*/1));
+  ASSIGN_OR_RETURN(ContactWrenchConeBasisMatrix leftBasis,
+                   contactWrenchConeBasisFromConfig(contacts, leftFootprint));
+  ASSIGN_OR_RETURN(ContactWrenchConeBasisMatrix rightBasis,
+                   contactWrenchConeBasisFromConfig(contacts, rightFootprint));
+  return feet_array_t<ContactWrenchConeBasisMatrix>{std::move(leftBasis),
+                                                    std::move(rightBasis)};
 }
 
-absl::StatusOr<PieceWisePolynomialBarrierPenalty::Config> basisNonNegativityBarrierFromConfig(const mpc_config::ContactsConfig& contacts) {
-  const mpc_config::ContactsConfig::BasisBarrier& barrier = contacts.basis_non_negativity_barrier;
+absl::StatusOr<PieceWisePolynomialBarrierPenalty::Config>
+basisNonNegativityBarrierFromConfig(
+    const mpc_config::ContactsConfig& contacts) {
+  const mpc_config::ContactsConfig::BasisBarrier& barrier =
+      contacts.basis_non_negativity_barrier;
   constexpr absl::string_view kBlock = "contacts.basis_non_negativity_barrier";
-  // A non-positive mu rewards a negative basis coefficient, and the polynomial barrier is discontinuous for a
-  // non-positive delta.
+  // A non-positive mu rewards a negative basis coefficient, and the polynomial
+  // barrier is discontinuous for a non-positive delta.
   RETURN_IF_ERROR(checkPositive(kBlock, "mu", barrier.mu));
   RETURN_IF_ERROR(checkPositive(kBlock, "delta", barrier.delta));
   return PieceWisePolynomialBarrierPenalty::Config(barrier.mu, barrier.delta);
 }
 
-absl::StatusOr<BasisRegularizationSettings> basisRegularizationFromConfig(const mpc_config::ContactsConfig& contacts) {
-  RETURN_IF_ERROR(checkFinite("contacts", "basis_scaling_regularization", contacts.basis_scaling_regularization));
-  RETURN_IF_ERROR(getBasisRegularizationBuilder(contacts.basis_regularization).status());
+absl::StatusOr<BasisRegularizationSettings> basisRegularizationFromConfig(
+    const mpc_config::ContactsConfig& contacts) {
+  RETURN_IF_ERROR(checkFinite("contacts", "basis_scaling_regularization",
+                              contacts.basis_scaling_regularization));
+  RETURN_IF_ERROR(
+      getBasisRegularizationBuilder(contacts.basis_regularization).status());
   BasisRegularizationSettings settings;
   settings.basisScalingRegularization = contacts.basis_scaling_regularization;
   settings.basisRegularization = contacts.basis_regularization;
   return settings;
 }
 
-absl::StatusOr<FrictionForceConeConstraint::Config> frictionForceConeConfigFromConfig(const mpc_config::ContactsConfig& contacts) {
-  const double frictionCoefficient = contacts.friction_force_cone_soft_constraint.friction_coefficient;
+absl::StatusOr<FrictionForceConeConstraint::Config>
+frictionForceConeConfigFromConfig(const mpc_config::ContactsConfig& contacts) {
+  const double frictionCoefficient =
+      contacts.friction_force_cone_soft_constraint.friction_coefficient;
   if (!std::isfinite(frictionCoefficient) || frictionCoefficient <= 0.0) {
-    return absl::InvalidArgumentError(absl::StrCat("contacts.friction_force_cone_soft_constraint.friction_coefficient is ",
-                                                   frictionCoefficient, ", but it must be finite and positive."));
+    return absl::InvalidArgumentError(absl::StrCat(
+        "contacts.friction_force_cone_soft_constraint.friction_coefficient is ",
+        frictionCoefficient, ", but it must be finite and positive."));
   }
   return FrictionForceConeConstraint::Config(frictionCoefficient);
 }
 
-absl::StatusOr<RelaxedBarrierPenalty::Config> frictionForceConeBarrierFromConfig(const mpc_config::ContactsConfig& contacts) {
-  const mpc_config::ContactsConfig::FrictionCone& cone = contacts.friction_force_cone_soft_constraint;
-  return relaxedBarrier("contacts.friction_force_cone_soft_constraint", cone.mu, cone.delta);
+absl::StatusOr<RelaxedBarrierPenalty::Config>
+frictionForceConeBarrierFromConfig(const mpc_config::ContactsConfig& contacts) {
+  const mpc_config::ContactsConfig::FrictionCone& cone =
+      contacts.friction_force_cone_soft_constraint;
+  return relaxedBarrier("contacts.friction_force_cone_soft_constraint", cone.mu,
+                        cone.delta);
 }
 
-absl::StatusOr<RelaxedBarrierPenalty::Config> contactMomentXyBarrierFromConfig(const mpc_config::ContactsConfig& contacts) {
-  const mpc_config::ContactsConfig::ContactMoment& moment = contacts.contact_moment_xy_soft_constraint;
-  return relaxedBarrier("contacts.contact_moment_xy_soft_constraint", moment.mu, moment.delta);
+absl::StatusOr<RelaxedBarrierPenalty::Config> contactMomentXyBarrierFromConfig(
+    const mpc_config::ContactsConfig& contacts) {
+  const mpc_config::ContactsConfig::ContactMoment& moment =
+      contacts.contact_moment_xy_soft_constraint;
+  return relaxedBarrier("contacts.contact_moment_xy_soft_constraint", moment.mu,
+                        moment.delta);
 }
 
 }  // namespace ocs2::humanoid

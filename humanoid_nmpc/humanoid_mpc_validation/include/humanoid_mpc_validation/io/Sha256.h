@@ -37,12 +37,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::validation {
 
 /**
- * The SHA-256 digest (FIPS 180-4) of `data`, as 64 lower-case hexadecimal digits: what `sha256sum` prints, so that a
- * hash recorded in a golden or metrics header can be checked against a file by hand.
+ * The SHA-256 digest (FIPS 180-4) of `data`, as 64 lower-case hexadecimal
+ * digits: what `sha256sum` prints, so that a hash recorded in a golden or
+ * metrics header can be checked against a file by hand.
  */
 std::string sha256Hex(absl::string_view data);
 
-/** sha256Hex() of the bytes of the file at `path`; NotFound naming the path when it cannot be read. */
+/** sha256Hex() of the bytes of the file at `path`; NotFound naming the path
+ * when it cannot be read. */
 absl::StatusOr<std::string> sha256HexOfFile(const std::string& path);
 
 }  // namespace ocs2::humanoid::validation

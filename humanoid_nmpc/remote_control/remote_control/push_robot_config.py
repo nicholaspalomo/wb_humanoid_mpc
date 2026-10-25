@@ -105,7 +105,9 @@ def push(
         saver.poll(clock())
         outcome = saver.outcome(sequence)
         if outcome is None:
-            raise RuntimeError(f"the saver forgot the save {sequence} it is sending")
+            raise RuntimeError(
+                f"the saver forgot the save {sequence} it is sending"
+            )
         answered = (
             not outcome.waiting
             and outcome.state != robot_config_save.SaveState.NOT_SENT
@@ -139,7 +141,9 @@ def read_file(path: str) -> tuple[robot_config_save.FileKind, str]:
         raise PushError(str(error)) from error
     header = nproto_textproto.header_message(text)
     entry = (
-        None if header is None else robot_config_save.file_kind_of_message(header[1])
+        None
+        if header is None
+        else robot_config_save.file_kind_of_message(header[1])
     )
     if entry is None:
         stored = ", ".join(
@@ -147,7 +151,8 @@ def read_file(path: str) -> tuple[robot_config_save.FileKind, str]:
             for kind in robot_config_save.FILE_KINDS
         )
         raise PushError(
-            f"{path} names no file the robot stores in its '# proto-message:' header (one of: {stored})"
+            f"{path} names no file the robot stores in its '# proto-message:'"
+            f" header (one of: {stored})"
         )
     try:
         nproto_textproto.parse_textproto(text, entry.message_class(), path)
@@ -170,12 +175,20 @@ def describe(outcome: robot_config_save.SaveOutcome, timeout: float) -> str:
     if state == robot_config_save.SaveState.SAVED:
         return f"stored on the robot at {outcome.stored_path}"
     if state == robot_config_save.SaveState.UNCHANGED:
-        return f"unchanged: the robot's copy at {outcome.stored_path} is the same"
+        return (
+            f"unchanged: the robot's copy at {outcome.stored_path} is the same"
+        )
     if state == robot_config_save.SaveState.NOT_STORED:
         if outcome.reads_laptop_file:
-            return f"the robot has no store and reads this file in place ({outcome.stored_path})"
+            return (
+                "the robot has no store and reads this file in place"
+                f" ({outcome.stored_path})"
+            )
         read = outcome.stored_path or "its own copy"
-        return f"the robot has no store: it reads {read} in place, which this push did not change"
+        return (
+            f"the robot has no store: it reads {read} in place, which this push"
+            " did not change"
+        )
     if state == robot_config_save.SaveState.REFUSED:
         return f"the robot refused it: {outcome.message}"
     if state == robot_config_save.SaveState.FAILED:
@@ -188,12 +201,17 @@ def describe(outcome: robot_config_save.SaveOutcome, timeout: float) -> str:
 def build_parser() -> argparse.ArgumentParser:
     """The tool's flags: the file and the bus flags (teleop.add_bus_flags)."""
     parser = argparse.ArgumentParser(
-        description="Sends a configuration file to the robot's store on the IPC bus and prints the robot's answer."
+        description=(
+            "Sends a configuration file to the robot's store on the IPC bus and"
+            " prints the robot's answer."
+        )
     )
     parser.add_argument(
         "file",
-        help="the task, reference or joint PD gains textproto (relative: to the directory the tool was started from, "
-        "then to the checkout)",
+        help=(
+            "the task, reference or joint PD gains textproto (relative: to the"
+            " directory the tool was started from, then to the checkout)"
+        ),
     )
     teleop.add_bus_flags(parser, default_node=operator_bus.CONFIG_PUSH_NODE)
     return parser
@@ -208,9 +226,14 @@ def _connect(
     statuses = operator_bus.ConfigSaveStatusMailbox()
     status = operator_bus.operator_topic(topics.ROBOT_CONFIG_SAVE_STATUS)
     bus.subscribe(
-        status.topic, status.message_class, statuses.put, delivery=status.delivery
+        status.topic,
+        status.message_class,
+        statuses.put,
+        delivery=status.delivery,
     )
-    publisher = operator_bus.TopicPublisher.for_topic(bus, topics.OPERATOR_CONFIG_SAVE)
+    publisher = operator_bus.TopicPublisher.for_topic(
+        bus, topics.OPERATOR_CONFIG_SAVE
+    )
     bus.start()
     return bus, robot_config_save.RobotConfigSaver(
         publisher, statuses, timeout=ANSWER_TIMEOUT_SECONDS
@@ -235,7 +258,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (PushError, robot_config_save.RobotNameError) as error:
         print(f"push_robot_config: {error}", file=sys.stderr)
         return EXIT_CANNOT_SEND
-    network_config = config_files.resolve_input_path(args.network_config, repo_root)
+    network_config = config_files.resolve_input_path(
+        args.network_config, repo_root
+    )
     try:
         bus, saver = _connect(network_config, args.ipc_node)
     except (
@@ -248,8 +273,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return EXIT_CANNOT_SEND
     try:
         print(
-            f"push_robot_config: sending the {entry.name} {robot_config_save.config_path_of(path)} "
-            f"for robot '{robot_name}'"
+            "push_robot_config: sending the"
+            f" {entry.name} {robot_config_save.config_path_of(path)} for robot"
+            f" '{robot_name}'"
         )
         outcome = push(saver, entry.kind, path, text, robot_name)
     finally:

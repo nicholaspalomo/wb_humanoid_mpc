@@ -38,7 +38,8 @@ _PATH = "humanoid_nmpc/humanoid_common_mpc_app/visualization/src/RobotStateDecod
 
 def _found(source: str, path: str = _PATH) -> list[tuple[int, int]]:
     return [
-        (f.line, f.column) for f in check_test_support.findings(_NAME, source, path)
+        (f.line, f.column)
+        for f in check_test_support.findings(_NAME, source, path)
     ]
 
 
@@ -59,16 +60,17 @@ class QuaternionScalarConstructorTest(unittest.TestCase):
 
     def test_other_constructions_and_declarations_are_not(self):
         source = (
-            "quaternion_t a(vector4_t(m.x, m.y, m.z, m.w));\n"
-            "const quaternion_t b(rotation);\n"
-            "quaternion_t c = quaternion_t::Identity();\n"
-            "Eigen::Quaternion<scalar_t> d(Eigen::AngleAxis<scalar_t>(angle, axis));\n"
-            "quaternion_t make(scalar_t w, scalar_t x, scalar_t y, scalar_t z);\n"
-            "quaternion_t make2(const scalar_t& w, scalar_t x, scalar_t y, scalar_t z) {\n"
-            "std::vector<quaternion_t> e(4, quaternion_t::Identity());\n"
-            "using QUATERNION_T = Eigen::Quaternion<SCALAR_T>;\n"
-            "// quaternion_t(w, x, y, z) takes the scalar part first.\n"
-            'const char kText[] = "quaternion_t(w, x, y, z)";\n'
+            "quaternion_t a(vector4_t(m.x, m.y, m.z, m.w));\nconst quaternion_t"
+            " b(rotation);\nquaternion_t c ="
+            " quaternion_t::Identity();\nEigen::Quaternion<scalar_t>"
+            " d(Eigen::AngleAxis<scalar_t>(angle, axis));\nquaternion_t"
+            " make(scalar_t w, scalar_t x, scalar_t y, scalar_t"
+            " z);\nquaternion_t make2(const scalar_t& w, scalar_t x, scalar_t"
+            " y, scalar_t z) {\nstd::vector<quaternion_t> e(4,"
+            " quaternion_t::Identity());\nusing QUATERNION_T ="
+            " Eigen::Quaternion<SCALAR_T>;\n// quaternion_t(w, x, y, z) takes"
+            ' the scalar part first.\nconst char kText[] = "quaternion_t(w, x,'
+            ' y, z)";\n'
         )
         self.assertEqual(_found(source), [])
 

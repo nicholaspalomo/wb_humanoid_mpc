@@ -27,8 +27,9 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// The nproto structs of every humanoid_mpc_msgs message (ocs2::humanoid::msgs, tools/nproto/README.md): each one
-// round-trips through its protobuf message both ways, and the test covers every .proto file of the package.
+// The nproto structs of every humanoid_mpc_msgs message (ocs2::humanoid::msgs,
+// tools/nproto/README.md): each one round-trips through its protobuf message
+// both ways, and the test covers every .proto file of the package.
 
 #include <cstddef>
 #include <cstdint>
@@ -90,22 +91,35 @@ using nproto::test_support::ExpectRoundTrips;
 using nproto::test_support::ProtoEquals;
 
 // The mappings the realtime and IPC code relies on.
-static_assert(std::is_same_v<decltype(MpcPolicy::time_trajectory), Eigen::VectorXd>);
-static_assert(std::is_same_v<decltype(MpcPolicy::state_trajectory), std::vector<Vector>>);
-static_assert(std::is_same_v<decltype(MpcPolicy::controller_type), ControllerType>);
+static_assert(
+    std::is_same_v<decltype(MpcPolicy::time_trajectory), Eigen::VectorXd>);
+static_assert(
+    std::is_same_v<decltype(MpcPolicy::state_trajectory), std::vector<Vector>>);
+static_assert(
+    std::is_same_v<decltype(MpcPolicy::controller_type), ControllerType>);
 static_assert(std::is_same_v<decltype(Vector::data), Eigen::VectorXd>);
-static_assert(std::is_same_v<decltype(SystemObservation::state), Eigen::VectorXd>);
+static_assert(
+    std::is_same_v<decltype(SystemObservation::state), Eigen::VectorXd>);
 static_assert(std::is_same_v<decltype(SystemObservation::mode), uint64_t>);
-static_assert(std::is_same_v<decltype(ModeSchedule::mode_sequence), std::vector<uint64_t>>);
-static_assert(std::is_same_v<decltype(RobotStateSample::joint_names), std::vector<std::string>>);
-static_assert(std::is_same_v<decltype(RobotStateSample::contact_flags), std::vector<bool>>);
-static_assert(std::is_same_v<decltype(RobotStateSample::measured_contact_wrenches), std::vector<Wrench>>);
-static_assert(std::is_same_v<decltype(JointTargets::positions), std::map<std::string, double>>);
+static_assert(std::is_same_v<decltype(ModeSchedule::mode_sequence),
+                             std::vector<uint64_t>>);
+static_assert(std::is_same_v<decltype(RobotStateSample::joint_names),
+                             std::vector<std::string>>);
+static_assert(std::is_same_v<decltype(RobotStateSample::contact_flags),
+                             std::vector<bool>>);
+static_assert(
+    std::is_same_v<decltype(RobotStateSample::measured_contact_wrenches),
+                   std::vector<Wrench>>);
+static_assert(std::is_same_v<decltype(JointTargets::positions),
+                             std::map<std::string, double>>);
 static_assert(std::is_same_v<decltype(Spheres::radii), Eigen::VectorXf>);
-static_assert(std::is_same_v<decltype(TargetContactPatch::kind), TargetContactPatch::Kind>);
+static_assert(std::is_same_v<decltype(TargetContactPatch::kind),
+                             TargetContactPatch::Kind>);
 // Presence, not a `bool valid`: a foot without a target has no pose.
-static_assert(std::is_same_v<decltype(TargetContactPatch::pose), std::optional<TargetContactPatch::Pose>>);
-static_assert(std::is_enum_v<ControllerType> && !std::is_convertible_v<ControllerType, int>);
+static_assert(std::is_same_v<decltype(TargetContactPatch::pose),
+                             std::optional<TargetContactPatch::Pose>>);
+static_assert(std::is_enum_v<ControllerType> &&
+              !std::is_convertible_v<ControllerType, int>);
 
 template <typename StructType, typename ProtoType>
 struct Conversion {
@@ -113,41 +127,44 @@ struct Conversion {
   using Proto = ProtoType;
 };
 
-// Every message of the package; controller_type.proto and config_file_kind.proto are its enums (EnumTest below).
-using AllMessages = ::testing::Types<Conversion<Arrows, humanoid_mpc_msgs::Arrows>,
-                                     Conversion<Color, humanoid_mpc_msgs::Color>,
-                                     Conversion<ConfigFileSave, humanoid_mpc_msgs::ConfigFileSave>,
-                                     Conversion<ConfigFileSaveStatus, humanoid_mpc_msgs::ConfigFileSaveStatus>,
-                                     Conversion<DodgeballThrow, humanoid_mpc_msgs::DodgeballThrow>,
-                                     Conversion<FsmCommand, humanoid_mpc_msgs::FsmCommand>,
-                                     Conversion<FsmState, humanoid_mpc_msgs::FsmState>,
-                                     Conversion<JointTargets, humanoid_mpc_msgs::JointTargets>,
-                                     Conversion<LineStrip, humanoid_mpc_msgs::LineStrip>,
-                                     Conversion<LineStrips, humanoid_mpc_msgs::LineStrips>,
-                                     Conversion<LoopTiming, humanoid_mpc_msgs::LoopTiming>,
-                                     Conversion<ModeSchedule, humanoid_mpc_msgs::ModeSchedule>,
-                                     Conversion<MpcObservation, humanoid_mpc_msgs::MpcObservation>,
-                                     Conversion<MpcPolicy, humanoid_mpc_msgs::MpcPolicy>,
-                                     Conversion<MpcSolverStatus, humanoid_mpc_msgs::MpcSolverStatus>,
-                                     Conversion<MpcStatus, humanoid_mpc_msgs::MpcStatus>,
-                                     Conversion<PerformanceIndex, humanoid_mpc_msgs::PerformanceIndex>,
-                                     Conversion<Pose, humanoid_mpc_msgs::Pose>,
-                                     Conversion<Quaternion, humanoid_mpc_msgs::Quaternion>,
-                                     Conversion<ResetRequests, humanoid_mpc_msgs::ResetRequests>,
-                                     Conversion<RobotModelInstance, humanoid_mpc_msgs::RobotModelInstance>,
-                                     Conversion<RobotStateSample, humanoid_mpc_msgs::RobotStateSample>,
-                                     Conversion<ScalarGroup, humanoid_mpc_msgs::ScalarGroup>,
-                                     Conversion<Spheres, humanoid_mpc_msgs::Spheres>,
-                                     Conversion<SystemObservation, humanoid_mpc_msgs::SystemObservation>,
-                                     Conversion<TargetContactPatch, humanoid_mpc_msgs::TargetContactPatch>,
-                                     Conversion<TargetTrajectories, humanoid_mpc_msgs::TargetTrajectories>,
-                                     Conversion<TelemetrySeries, humanoid_mpc_msgs::TelemetrySeries>,
-                                     Conversion<Vector, humanoid_mpc_msgs::Vector>,
-                                     Conversion<Vector3, humanoid_mpc_msgs::Vector3>,
-                                     Conversion<ViewerAnnotations, humanoid_mpc_msgs::ViewerAnnotations>,
-                                     Conversion<VisualizationScene, humanoid_mpc_msgs::VisualizationScene>,
-                                     Conversion<WalkingVelocityCommand, humanoid_mpc_msgs::WalkingVelocityCommand>,
-                                     Conversion<Wrench, humanoid_mpc_msgs::Wrench>>;
+// Every message of the package; controller_type.proto and
+// config_file_kind.proto are its enums (EnumTest below).
+using AllMessages = ::testing::Types<
+    Conversion<Arrows, humanoid_mpc_msgs::Arrows>,
+    Conversion<Color, humanoid_mpc_msgs::Color>,
+    Conversion<ConfigFileSave, humanoid_mpc_msgs::ConfigFileSave>,
+    Conversion<ConfigFileSaveStatus, humanoid_mpc_msgs::ConfigFileSaveStatus>,
+    Conversion<DodgeballThrow, humanoid_mpc_msgs::DodgeballThrow>,
+    Conversion<FsmCommand, humanoid_mpc_msgs::FsmCommand>,
+    Conversion<FsmState, humanoid_mpc_msgs::FsmState>,
+    Conversion<JointTargets, humanoid_mpc_msgs::JointTargets>,
+    Conversion<LineStrip, humanoid_mpc_msgs::LineStrip>,
+    Conversion<LineStrips, humanoid_mpc_msgs::LineStrips>,
+    Conversion<LoopTiming, humanoid_mpc_msgs::LoopTiming>,
+    Conversion<ModeSchedule, humanoid_mpc_msgs::ModeSchedule>,
+    Conversion<MpcObservation, humanoid_mpc_msgs::MpcObservation>,
+    Conversion<MpcPolicy, humanoid_mpc_msgs::MpcPolicy>,
+    Conversion<MpcSolverStatus, humanoid_mpc_msgs::MpcSolverStatus>,
+    Conversion<MpcStatus, humanoid_mpc_msgs::MpcStatus>,
+    Conversion<PerformanceIndex, humanoid_mpc_msgs::PerformanceIndex>,
+    Conversion<Pose, humanoid_mpc_msgs::Pose>,
+    Conversion<Quaternion, humanoid_mpc_msgs::Quaternion>,
+    Conversion<ResetRequests, humanoid_mpc_msgs::ResetRequests>,
+    Conversion<RobotModelInstance, humanoid_mpc_msgs::RobotModelInstance>,
+    Conversion<RobotStateSample, humanoid_mpc_msgs::RobotStateSample>,
+    Conversion<ScalarGroup, humanoid_mpc_msgs::ScalarGroup>,
+    Conversion<Spheres, humanoid_mpc_msgs::Spheres>,
+    Conversion<SystemObservation, humanoid_mpc_msgs::SystemObservation>,
+    Conversion<TargetContactPatch, humanoid_mpc_msgs::TargetContactPatch>,
+    Conversion<TargetTrajectories, humanoid_mpc_msgs::TargetTrajectories>,
+    Conversion<TelemetrySeries, humanoid_mpc_msgs::TelemetrySeries>,
+    Conversion<Vector, humanoid_mpc_msgs::Vector>,
+    Conversion<Vector3, humanoid_mpc_msgs::Vector3>,
+    Conversion<ViewerAnnotations, humanoid_mpc_msgs::ViewerAnnotations>,
+    Conversion<VisualizationScene, humanoid_mpc_msgs::VisualizationScene>,
+    Conversion<WalkingVelocityCommand,
+               humanoid_mpc_msgs::WalkingVelocityCommand>,
+    Conversion<Wrench, humanoid_mpc_msgs::Wrench>>;
 
 template <typename T>
 class MessageRoundTripTest : public ::testing::Test {};
@@ -164,67 +181,89 @@ std::set<std::string> filesOf(::testing::Types<Conversions...> /*types*/) {
 
 TEST(CoverageTest, EveryProtoFileOfThePackageIsTested) {
   std::set<std::string> covered = filesOf(AllMessages());
-  covered.insert(std::string(humanoid_mpc_msgs::ControllerType_descriptor()->file()->name()));
-  covered.insert(std::string(humanoid_mpc_msgs::ConfigFileKind_descriptor()->file()->name()));
+  covered.insert(std::string(
+      humanoid_mpc_msgs::ControllerType_descriptor()->file()->name()));
+  covered.insert(std::string(
+      humanoid_mpc_msgs::ConfigFileKind_descriptor()->file()->name()));
   const std::filesystem::path directory =
-      std::filesystem::path(std::getenv("TEST_SRCDIR")) / "_main" / "humanoid_nmpc" / "humanoid_mpc_msgs";
+      std::filesystem::path(std::getenv("TEST_SRCDIR")) / "_main" /
+      "humanoid_nmpc" / "humanoid_mpc_msgs";
   size_t files = 0;
-  for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(directory)) {
+  for (const std::filesystem::directory_entry& entry :
+       std::filesystem::directory_iterator(directory)) {
     if (entry.path().extension() != ".proto") {
       continue;
     }
     ++files;
-    const std::string importPath = "humanoid_mpc_msgs/" + entry.path().filename().string();
-    EXPECT_EQ(covered.count(importPath), 1u) << importPath << " has no round-trip test here";
+    const std::string importPath =
+        "humanoid_mpc_msgs/" + entry.path().filename().string();
+    EXPECT_EQ(covered.count(importPath), 1u)
+        << importPath << " has no round-trip test here";
   }
   EXPECT_EQ(files, covered.size());
 }
 
 TEST(EnumTest, ControllerTypeConvertsBothWaysAndRejectsUndefinedNumbers) {
   for (const ControllerType type :
-       {ControllerType::kUnknown, ControllerType::kFeedforward, ControllerType::kLinear, ControllerType::kManifoldLinear}) {
-    humanoid_mpc_msgs::ControllerType proto = humanoid_mpc_msgs::CONTROLLER_TYPE_UNKNOWN;
+       {ControllerType::kUnknown, ControllerType::kFeedforward,
+        ControllerType::kLinear, ControllerType::kManifoldLinear}) {
+    humanoid_mpc_msgs::ControllerType proto =
+        humanoid_mpc_msgs::CONTROLLER_TYPE_UNKNOWN;
     ToProto(type, &proto);
     ControllerType back = ControllerType::kUnknown;
     ASSERT_TRUE(FromProto(proto, &back).ok());
     EXPECT_EQ(back, type);
   }
-  humanoid_mpc_msgs::ControllerType linear = humanoid_mpc_msgs::CONTROLLER_TYPE_UNKNOWN;
+  humanoid_mpc_msgs::ControllerType linear =
+      humanoid_mpc_msgs::CONTROLLER_TYPE_UNKNOWN;
   ToProto(ControllerType::kLinear, &linear);
   EXPECT_EQ(linear, humanoid_mpc_msgs::CONTROLLER_TYPE_LINEAR);
-  // The wire codes are fixed: a robot and an MPC node built from other commits still agree on them.
-  humanoid_mpc_msgs::ControllerType manifoldLinear = humanoid_mpc_msgs::CONTROLLER_TYPE_UNKNOWN;
+  // The wire codes are fixed: a robot and an MPC node built from other commits
+  // still agree on them.
+  humanoid_mpc_msgs::ControllerType manifoldLinear =
+      humanoid_mpc_msgs::CONTROLLER_TYPE_UNKNOWN;
   ToProto(ControllerType::kManifoldLinear, &manifoldLinear);
   EXPECT_EQ(manifoldLinear, humanoid_mpc_msgs::CONTROLLER_TYPE_MANIFOLD_LINEAR);
-  EXPECT_EQ(static_cast<int>(humanoid_mpc_msgs::CONTROLLER_TYPE_FEEDFORWARD), 1);
+  EXPECT_EQ(static_cast<int>(humanoid_mpc_msgs::CONTROLLER_TYPE_FEEDFORWARD),
+            1);
   EXPECT_EQ(static_cast<int>(humanoid_mpc_msgs::CONTROLLER_TYPE_LINEAR), 2);
-  EXPECT_EQ(static_cast<int>(humanoid_mpc_msgs::CONTROLLER_TYPE_MANIFOLD_LINEAR), 3);
+  EXPECT_EQ(
+      static_cast<int>(humanoid_mpc_msgs::CONTROLLER_TYPE_MANIFOLD_LINEAR), 3);
 
   ControllerType value = ControllerType::kUnknown;
-  const absl::Status status = FromProto(static_cast<humanoid_mpc_msgs::ControllerType>(17), &value);
+  const absl::Status status =
+      FromProto(static_cast<humanoid_mpc_msgs::ControllerType>(17), &value);
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_EQ(status.message(), "17 is not a value of humanoid_mpc_msgs.ControllerType");
+  EXPECT_EQ(status.message(),
+            "17 is not a value of humanoid_mpc_msgs.ControllerType");
 }
 
 TEST(EnumTest, ConfigFileKindConvertsBothWaysAndRejectsUndefinedNumbers) {
   for (const ConfigFileKind kind :
-       {ConfigFileKind::kUnspecified, ConfigFileKind::kTask, ConfigFileKind::kReference, ConfigFileKind::kJointPdGains}) {
-    humanoid_mpc_msgs::ConfigFileKind proto = humanoid_mpc_msgs::CONFIG_FILE_KIND_UNSPECIFIED;
+       {ConfigFileKind::kUnspecified, ConfigFileKind::kTask,
+        ConfigFileKind::kReference, ConfigFileKind::kJointPdGains}) {
+    humanoid_mpc_msgs::ConfigFileKind proto =
+        humanoid_mpc_msgs::CONFIG_FILE_KIND_UNSPECIFIED;
     ToProto(kind, &proto);
     ConfigFileKind back = ConfigFileKind::kUnspecified;
     ASSERT_TRUE(FromProto(proto, &back).ok());
     EXPECT_EQ(back, kind);
   }
   ConfigFileKind value = ConfigFileKind::kUnspecified;
-  EXPECT_EQ(FromProto(static_cast<humanoid_mpc_msgs::ConfigFileKind>(9), &value).code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(FromProto(static_cast<humanoid_mpc_msgs::ConfigFileKind>(9), &value)
+                .code(),
+            absl::StatusCode::kInvalidArgument);
 }
 
-// A save as the GUI sends it, and the robot's answer: the text travels byte for byte, the result by its name.
+// A save as the GUI sends it, and the robot's answer: the text travels byte for
+// byte, the result by its name.
 TEST(ConfigFileSaveTest, TheTextAndTheResultTravelUnchanged) {
   ConfigFileSave save;
   save.kind = ConfigFileKind::kJointPdGains;
   save.robot_name = "g1";
-  save.config_path = "robot_models/unitree_g1/g1_wb_mpc/config/controller/joint_pd_gains.textproto";
+  save.config_path =
+      "robot_models/unitree_g1/g1_wb_mpc/config/controller/"
+      "joint_pd_gains.textproto";
   save.text = "# proto-file: x\ndefault_gains { kp: 100.0 }\n";
   save.sequence = 1'759'680'000'000'000'000ULL;
   humanoid_mpc_msgs::ConfigFileSave proto;
@@ -243,33 +282,41 @@ TEST(ConfigFileSaveTest, TheTextAndTheResultTravelUnchanged) {
   status.result = ConfigFileSaveStatus::Result::kSaved;
   humanoid_mpc_msgs::ConfigFileSaveStatus statusProto;
   ToProto(status, &statusProto);
-  EXPECT_EQ(statusProto.result(), humanoid_mpc_msgs::ConfigFileSaveStatus::RESULT_SAVED);
+  EXPECT_EQ(statusProto.result(),
+            humanoid_mpc_msgs::ConfigFileSaveStatus::RESULT_SAVED);
 }
 
 TEST(ErrorTest, AnUndefinedEnumNumberDeepInAPolicyNamesItsPath) {
   humanoid_mpc_msgs::MpcPolicy proto;
   proto.mutable_annotations()->add_target_contact_patches();
-  proto.mutable_annotations()->add_target_contact_patches()->set_kind(static_cast<humanoid_mpc_msgs::TargetContactPatch_Kind>(9));
+  proto.mutable_annotations()->add_target_contact_patches()->set_kind(
+      static_cast<humanoid_mpc_msgs::TargetContactPatch_Kind>(9));
   MpcPolicy value;
   const absl::Status status = FromProto(proto, &value);
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_EQ(status.message(), "annotations.target_contact_patches[1].kind: 9 is not a value of humanoid_mpc_msgs.TargetContactPatch.Kind");
+  EXPECT_EQ(status.message(),
+            "annotations.target_contact_patches[1].kind: 9 is not a value of "
+            "humanoid_mpc_msgs.TargetContactPatch.Kind");
 }
 
-// A policy written by hand: the members land in the fields of the same names, element by element.
+// A policy written by hand: the members land in the fields of the same names,
+// element by element.
 TEST(MpcPolicyTest, AHandWrittenPolicyLandsInTheMessageFields) {
   constexpr int kNodes = 4;
   constexpr int kStateDim = 3;
   MpcPolicy policy;
   policy.resets_served = 3;
   policy.solver_status.healthy = true;
-  policy.solver_status.last_error = "a message long enough to leave the small-string buffer";
+  policy.solver_status.last_error =
+      "a message long enough to leave the small-string buffer";
   policy.init_observation.time = 1.25;
-  policy.init_observation.state = Eigen::VectorXd::LinSpaced(kStateDim, 0.0, 2.0);
+  policy.init_observation.state =
+      Eigen::VectorXd::LinSpaced(kStateDim, 0.0, 2.0);
   policy.time_trajectory = Eigen::VectorXd::LinSpaced(kNodes, 1.25, 1.28);
   for (int node = 0; node < kNodes; ++node) {
     Vector state;
-    state.data = Eigen::VectorXd::Constant(kStateDim, static_cast<double>(node));
+    state.data =
+        Eigen::VectorXd::Constant(kStateDim, static_cast<double>(node));
     policy.state_trajectory.push_back(state);
   }
   policy.post_event_indices = {2};
@@ -278,25 +325,30 @@ TEST(MpcPolicyTest, AHandWrittenPolicyLandsInTheMessageFields) {
   policy.controller_type = ControllerType::kLinear;
   TargetContactPatch patch;
   patch.kind = TargetContactPatch::Kind::kNextSwing;
-  patch.pose = TargetContactPatch::Pose{.x = 0.25, .y = -0.1, .z = 0.0, .yaw = 0.5, .yaw_planned = true};
+  patch.pose = TargetContactPatch::Pose{
+      .x = 0.25, .y = -0.1, .z = 0.0, .yaw = 0.5, .yaw_planned = true};
   policy.annotations.target_contact_patches.push_back(patch);
   // A foot without a target: no pose.
-  policy.annotations.target_contact_patches.push_back(TargetContactPatch{.kind = TargetContactPatch::Kind::kStance, .pose = std::nullopt});
+  policy.annotations.target_contact_patches.push_back(TargetContactPatch{
+      .kind = TargetContactPatch::Kind::kStance, .pose = std::nullopt});
 
   humanoid_mpc_msgs::MpcPolicy proto;
   ToProto(policy, &proto);
   EXPECT_EQ(proto.resets_served(), 3u);
   EXPECT_TRUE(proto.solver_status().healthy());
-  EXPECT_EQ(proto.solver_status().last_error(), policy.solver_status.last_error);
+  EXPECT_EQ(proto.solver_status().last_error(),
+            policy.solver_status.last_error);
   ASSERT_EQ(proto.time_trajectory_size(), kNodes);
-  EXPECT_EQ(proto.time_trajectory(kNodes - 1), policy.time_trajectory[kNodes - 1]);
+  EXPECT_EQ(proto.time_trajectory(kNodes - 1),
+            policy.time_trajectory[kNodes - 1]);
   ASSERT_EQ(proto.state_trajectory_size(), kNodes);
   ASSERT_EQ(proto.state_trajectory(2).data_size(), kStateDim);
   EXPECT_EQ(proto.state_trajectory(2).data(1), 2.0);
   EXPECT_EQ(proto.mode_schedule().mode_sequence(1), 1u);
   EXPECT_EQ(proto.controller_type(), humanoid_mpc_msgs::CONTROLLER_TYPE_LINEAR);
   ASSERT_EQ(proto.annotations().target_contact_patches_size(), 2);
-  EXPECT_EQ(proto.annotations().target_contact_patches(0).kind(), humanoid_mpc_msgs::TargetContactPatch::KIND_NEXT_SWING);
+  EXPECT_EQ(proto.annotations().target_contact_patches(0).kind(),
+            humanoid_mpc_msgs::TargetContactPatch::KIND_NEXT_SWING);
   ASSERT_TRUE(proto.annotations().target_contact_patches(0).has_pose());
   EXPECT_EQ(proto.annotations().target_contact_patches(0).pose().x(), 0.25);
   EXPECT_FALSE(proto.annotations().target_contact_patches(1).has_pose());

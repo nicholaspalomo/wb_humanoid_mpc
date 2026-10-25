@@ -73,7 +73,9 @@ def rounded(times: list[float]) -> list[float]:
     return [round(time_s, 6) for time_s in times]
 
 
-def one_group_telemetry(robot_time: float) -> telemetry_series_pb2.TelemetrySeries:
+def one_group_telemetry(
+    robot_time: float,
+) -> telemetry_series_pb2.TelemetrySeries:
     """A TelemetrySeries of one group, for tests of many messages."""
     return telemetry_series_pb2.TelemetrySeries(
         time=robot_time,
@@ -122,7 +124,9 @@ class BridgeTestCase(unittest.TestCase):
             self.model = urdf_model.load_urdf(
                 synthetic_messages.write_sample_package(self.directory)
             )
-        self.bridge = bridge.RerunBridge(self.recording, self.model, clock=FakeClock())
+        self.bridge = bridge.RerunBridge(
+            self.recording, self.model, clock=FakeClock()
+        )
         self._contents: rrd_contents.RrdContents | None = None
 
     def contents(self) -> rrd_contents.RrdContents:
@@ -148,7 +152,9 @@ class StaticDataTest(BridgeTestCase):
         for style in scene_contract.ROBOT_INSTANCES:
             for visual in self.model.visuals:
                 self.assertIn(
-                    scene_contract.visual_path(style.name, visual.link, visual.index),
+                    scene_contract.visual_path(
+                        style.name, visual.link, visual.index
+                    ),
                     contents.entities,
                 )
 
@@ -161,11 +167,19 @@ class SceneTest(BridgeTestCase):
         contents = self.contents()
         for style in scene_contract.ROBOT_INSTANCES:
             for link in LINKS:
-                entity = contents.entities[scene_contract.link_path(style.name, link)]
+                entity = contents.entities[
+                    scene_contract.link_path(style.name, link)
+                ]
                 self.assertEqual(entity.static_components, set())
-                self.assertIn("Transform3D:translation", entity.temporal_components)
-                self.assertIn("Transform3D:quaternion", entity.temporal_components)
-                self.assertEqual(entity.timelines, {ROBOT_TIMELINE, WALL_TIMELINE})
+                self.assertIn(
+                    "Transform3D:translation", entity.temporal_components
+                )
+                self.assertIn(
+                    "Transform3D:quaternion", entity.temporal_components
+                )
+                self.assertEqual(
+                    entity.timelines, {ROBOT_TIMELINE, WALL_TIMELINE}
+                )
                 self.assertEqual(entity.times(ROBOT_TIMELINE), [1.0, 1.1])
         # The scene's links without visuals have nothing to move.
         self.assertNotIn(
@@ -188,7 +202,9 @@ class SceneTest(BridgeTestCase):
             math.sin(half_angle) * 3.0 / axis_norm,
             math.cos(half_angle),
         )
-        self.assertEqual(len({round(component, 3) for component in expected}), 4)
+        self.assertEqual(
+            len({round(component, 3) for component in expected}), 4
+        )
         self.assertTrue(all(abs(component) > 0.05 for component in expected))
         pose = scene.robots[0].link_poses[1]
         scale = 2.0
@@ -213,25 +229,36 @@ class SceneTest(BridgeTestCase):
         self.bridge.handle_scene(synthetic_messages.full_scene(1.0, LINKS))
         contents = self.contents()
         for marker in scene_contract.MARKERS:
-            path = scene_contract.entity_path(scene_contract.WORLD_ROOT, marker.path)
+            path = scene_contract.entity_path(
+                scene_contract.WORLD_ROOT, marker.path
+            )
             entity = contents.entities[path]
             with self.subTest(marker=marker.path):
                 if marker.kind is scene_contract.MarkerKind.ARROWS:
-                    self.assertEqual(len(entity.values("Arrows3D:vectors")[0]), 2)
+                    self.assertEqual(
+                        len(entity.values("Arrows3D:vectors")[0]), 2
+                    )
                     radii = entity.values("Arrows3D:radii")[0]
                     colors = entity.values("Arrows3D:colors")[0]
                 elif marker.kind is scene_contract.MarkerKind.SPHERES:
-                    self.assertEqual(len(entity.values("Points3D:positions")[0]), 3)
+                    self.assertEqual(
+                        len(entity.values("Points3D:positions")[0]), 3
+                    )
                     radii = entity.values("Points3D:radii")[0]
                     colors = entity.values("Points3D:colors")[0]
                 else:
-                    self.assertEqual(len(entity.values("LineStrips3D:strips")[0]), 2)
+                    self.assertEqual(
+                        len(entity.values("LineStrips3D:strips")[0]), 2
+                    )
                     radii = entity.values("LineStrips3D:radii")[0]
                     colors = entity.values("LineStrips3D:colors")[0]
                 self.assertEqual(len(radii), 1)
-                self.assertAlmostEqual(radii[0], marker.default_radius, places=6)
+                self.assertAlmostEqual(
+                    radii[0], marker.default_radius, places=6
+                )
                 self.assertEqual(
-                    colors[0], packed(palette.to_rgba8(marker.default_colors[0]))
+                    colors[0],
+                    packed(palette.to_rgba8(marker.default_colors[0])),
                 )
 
     def test_the_message_radius_and_colors_win(self) -> None:
@@ -242,7 +269,9 @@ class SceneTest(BridgeTestCase):
         arrows.colors.add(r=1.0, g=0.0, b=0.0, a=1.0)
         self.bridge.handle_scene(scene)
         entity = self.contents().entities["world/markers/contact_forces"]
-        self.assertAlmostEqual(entity.values("Arrows3D:radii")[0][0], 0.03, places=6)
+        self.assertAlmostEqual(
+            entity.values("Arrows3D:radii")[0][0], 0.03, places=6
+        )
         self.assertEqual(
             entity.values("Arrows3D:colors")[0], [packed((255, 0, 0, 255))]
         )
@@ -252,7 +281,9 @@ class SceneTest(BridgeTestCase):
         emptied = visualization_scene_pb2.VisualizationScene(time=1.1)
         emptied.arrows.add(path="markers/contact_forces")
         self.bridge.handle_scene(emptied)
-        self.bridge.handle_scene(visualization_scene_pb2.VisualizationScene(time=1.2))
+        self.bridge.handle_scene(
+            visualization_scene_pb2.VisualizationScene(time=1.2)
+        )
         contents = self.contents()
         self.assertEqual(
             [
@@ -267,7 +298,9 @@ class SceneTest(BridgeTestCase):
             if marker.path == "markers/contact_forces":
                 continue
             entity = contents.entities[
-                scene_contract.entity_path(scene_contract.WORLD_ROOT, marker.path)
+                scene_contract.entity_path(
+                    scene_contract.WORLD_ROOT, marker.path
+                )
             ]
             component = {
                 scene_contract.MarkerKind.ARROWS: "Arrows3D:vectors",
@@ -278,7 +311,9 @@ class SceneTest(BridgeTestCase):
             self.assertEqual(len(values), 2, marker.path)
             self.assertEqual(values[-1], [], marker.path)
 
-    def test_unchanged_poses_are_skipped_until_the_clock_goes_back(self) -> None:
+    def test_unchanged_poses_are_skipped_until_the_clock_goes_back(
+        self,
+    ) -> None:
         links_logged = len(LINKS) * len(scene_contract.ROBOT_INSTANCES)
         scene = synthetic_messages.full_scene(1.0, LINKS)
         self.bridge.handle_scene(scene)
@@ -328,9 +363,13 @@ class SceneTest(BridgeTestCase):
         # The end of a stream (a robot that fell and stopped) must not leave the viewer on an older scene.
         clock = ManualClock()
         throttled_bridge = self.throttled(clock)
-        throttled_bridge.handle_scene(synthetic_messages.full_scene(10.0, LINKS))
+        throttled_bridge.handle_scene(
+            synthetic_messages.full_scene(10.0, LINKS)
+        )
         clock.now += 0.033
-        throttled_bridge.handle_scene(synthetic_messages.full_scene(10.033, LINKS))
+        throttled_bridge.handle_scene(
+            synthetic_messages.full_scene(10.033, LINKS)
+        )
         self.assertEqual(throttled_bridge.statistics.scenes_throttled, 1)
         clock.now += 0.1
         throttled_bridge.flush()
@@ -342,22 +381,34 @@ class SceneTest(BridgeTestCase):
     def test_a_held_back_scene_waits_for_the_interval(self) -> None:
         clock = ManualClock()
         throttled_bridge = self.throttled(clock)
-        throttled_bridge.handle_scene(synthetic_messages.full_scene(10.0, LINKS))
+        throttled_bridge.handle_scene(
+            synthetic_messages.full_scene(10.0, LINKS)
+        )
         clock.now += 0.033
-        throttled_bridge.handle_scene(synthetic_messages.full_scene(10.033, LINKS))
+        throttled_bridge.handle_scene(
+            synthetic_messages.full_scene(10.033, LINKS)
+        )
         clock.now += 0.01
         throttled_bridge.flush()
         link = scene_contract.link_path(scene_contract.MEASURED, "base_link")
-        self.assertEqual(self.contents().entities[link].times(ROBOT_TIMELINE), [10.0])
+        self.assertEqual(
+            self.contents().entities[link].times(ROBOT_TIMELINE), [10.0]
+        )
 
     def test_a_newer_scene_drawn_replaces_the_held_back_one(self) -> None:
         clock = ManualClock()
         throttled_bridge = self.throttled(clock)
-        throttled_bridge.handle_scene(synthetic_messages.full_scene(10.0, LINKS))
+        throttled_bridge.handle_scene(
+            synthetic_messages.full_scene(10.0, LINKS)
+        )
         clock.now += 0.033
-        throttled_bridge.handle_scene(synthetic_messages.full_scene(10.033, LINKS))
+        throttled_bridge.handle_scene(
+            synthetic_messages.full_scene(10.033, LINKS)
+        )
         clock.now += 0.1
-        throttled_bridge.handle_scene(synthetic_messages.full_scene(10.133, LINKS))
+        throttled_bridge.handle_scene(
+            synthetic_messages.full_scene(10.133, LINKS)
+        )
         clock.now += 0.1
         throttled_bridge.flush()
         link = scene_contract.link_path(scene_contract.MEASURED, "base_link")
@@ -368,9 +419,13 @@ class SceneTest(BridgeTestCase):
     def test_a_clock_that_goes_back_drops_the_held_back_scene(self) -> None:
         clock = ManualClock()
         throttled_bridge = self.throttled(clock)
-        throttled_bridge.handle_scene(synthetic_messages.full_scene(10.0, LINKS))
+        throttled_bridge.handle_scene(
+            synthetic_messages.full_scene(10.0, LINKS)
+        )
         clock.now += 0.033
-        throttled_bridge.handle_scene(synthetic_messages.full_scene(10.033, LINKS))
+        throttled_bridge.handle_scene(
+            synthetic_messages.full_scene(10.033, LINKS)
+        )
         throttled_bridge.handle_scene(synthetic_messages.full_scene(9.5, LINKS))
         clock.now += 0.1
         throttled_bridge.flush()
@@ -384,15 +439,21 @@ class SceneTest(BridgeTestCase):
     ) -> visualization_scene_pb2.VisualizationScene:
         scene = visualization_scene_pb2.VisualizationScene(time=1.0)
         scene.robots.append(
-            synthetic_messages.robot_instance(scene_contract.MEASURED, links, 1.0)
+            synthetic_messages.robot_instance(
+                scene_contract.MEASURED, links, 1.0
+            )
         )
         return scene
 
     def test_a_scene_that_names_links_the_urdf_lacks_is_counted(self) -> None:
         # Another robot's URDF (--urdf): its links stay at the world origin, which the operator must be told about.
         with self.assertLogs("humanoid_rerun_viewer", level="WARNING") as logs:
-            self.bridge.handle_scene(self.scene_with_links(["pelvis", "torso_link"]))
-            self.bridge.handle_scene(self.scene_with_links(["pelvis", "torso_link"]))
+            self.bridge.handle_scene(
+                self.scene_with_links(["pelvis", "torso_link"])
+            )
+            self.bridge.handle_scene(
+                self.scene_with_links(["pelvis", "torso_link"])
+            )
         self.assertEqual(self.malformed(topics.VIZ_SCENE), 2)
         (reason,) = {reason for _, reason in self.bridge.statistics.malformed}
         self.assertIn("'measured'", reason)
@@ -403,8 +464,12 @@ class SceneTest(BridgeTestCase):
 
     def test_visual_links_a_scene_never_names_are_warned_of_once(self) -> None:
         with self.assertLogs("humanoid_rerun_viewer", level="WARNING") as logs:
-            self.bridge.handle_scene(self.scene_with_links(["base_link", "ghost"]))
-            self.bridge.handle_scene(self.scene_with_links(["base_link", "ghost"]))
+            self.bridge.handle_scene(
+                self.scene_with_links(["base_link", "ghost"])
+            )
+            self.bridge.handle_scene(
+                self.scene_with_links(["base_link", "ghost"])
+            )
         unposed = [line for line in logs.output if "no pose" in line]
         self.assertEqual(len(unposed), 1, logs.output)
         self.assertIn("foot, shin, thigh", unposed[0])
@@ -417,7 +482,8 @@ class SceneTest(BridgeTestCase):
         for invalid in (-1.0, math.nan, math.inf):
             with self.subTest(invalid=invalid):
                 with self.assertRaisesRegex(
-                    ValueError, "max_scene_frequency must be non-negative and finite"
+                    ValueError,
+                    "max_scene_frequency must be non-negative and finite",
                 ):
                     bridge.RerunBridge(
                         self.recording, self.model, max_scene_frequency=invalid
@@ -425,28 +491,42 @@ class SceneTest(BridgeTestCase):
 
     def test_allowed_instances_filters_unwanted_robots(self) -> None:
         filtered_bridge = bridge.RerunBridge(
-            self.recording, self.model, allowed_instances=(scene_contract.MEASURED,)
+            self.recording,
+            self.model,
+            allowed_instances=(scene_contract.MEASURED,),
         )
         scene = visualization_scene_pb2.VisualizationScene(time=1.0)
-        scene.robots.append(synthetic_messages.robot_instance("measured", LINKS, 1.0))
+        scene.robots.append(
+            synthetic_messages.robot_instance("measured", LINKS, 1.0)
+        )
         scene.robots.append(
             synthetic_messages.robot_instance("terminal_state", LINKS, 1.0)
         )
         filtered_bridge.handle_scene(scene)
-        self.assertEqual(filtered_bridge.statistics.link_poses_logged, len(LINKS))
+        self.assertEqual(
+            filtered_bridge.statistics.link_poses_logged, len(LINKS)
+        )
 
     def test_an_unknown_instance_is_drawn_with_the_default_style(self) -> None:
         scene = visualization_scene_pb2.VisualizationScene(time=1.0)
-        scene.robots.append(synthetic_messages.robot_instance("ghost", LINKS, 1.0))
+        scene.robots.append(
+            synthetic_messages.robot_instance("ghost", LINKS, 1.0)
+        )
         self.bridge.handle_scene(scene)
         contents = self.contents()
-        visual = contents.entities[scene_contract.visual_path("ghost", "base_link", 0)]
+        visual = contents.entities[
+            scene_contract.visual_path("ghost", "base_link", 0)
+        ]
         self.assertIn("Asset3D:blob", visual.static_components)
-        self.assertIn(scene_contract.link_path("ghost", "base_link"), contents.entities)
+        self.assertIn(
+            scene_contract.link_path("ghost", "base_link"), contents.entities
+        )
 
     def test_malformed_parts_are_counted_and_the_rest_is_drawn(self) -> None:
         scene = synthetic_messages.full_scene(1.0, LINKS)
-        scene.robots[0].link_names.append("extra")  # names and poses differ in length
+        scene.robots[0].link_names.append(
+            "extra"
+        )  # names and poses differ in length
         scene.robots[1].link_poses[0].orientation.w = 0.0
         scene.robots[1].link_poses[0].orientation.z = 0.0  # a zero quaternion
         scene.arrows.add(path="../escape").vectors.add(z=1.0)
@@ -469,7 +549,11 @@ class SceneTest(BridgeTestCase):
             contents.entities,
         )
         self.assertEqual(
-            len(contents.values("world/markers/contact_forces", "Arrows3D:vectors")[0]),
+            len(
+                contents.values(
+                    "world/markers/contact_forces", "Arrows3D:vectors"
+                )[0]
+            ),
             2,
         )
         self.assertEqual(
@@ -494,8 +578,12 @@ class SceneTest(BridgeTestCase):
     def test_a_handler_never_raises(self) -> None:
         self.bridge.handle_scene(None)
         self.bridge.handle_telemetry(object())
-        self.assertEqual(self.bridge.statistics.handler_errors[topics.VIZ_SCENE], 1)
-        self.assertEqual(self.bridge.statistics.handler_errors[topics.VIZ_TELEMETRY], 1)
+        self.assertEqual(
+            self.bridge.statistics.handler_errors[topics.VIZ_SCENE], 1
+        )
+        self.assertEqual(
+            self.bridge.statistics.handler_errors[topics.VIZ_TELEMETRY], 1
+        )
 
 
 class SceneWithoutModelTest(BridgeTestCase):
@@ -521,9 +609,13 @@ class TelemetryTest(BridgeTestCase):
     def test_every_group_of_the_contract_is_plotted(self) -> None:
         times = [0.01 * step for step in range(5)]
         for time in times:
-            self.bridge.handle_telemetry(synthetic_messages.full_telemetry(time))
+            self.bridge.handle_telemetry(
+                synthetic_messages.full_telemetry(time)
+            )
         groups = telemetry_contract.all_groups(synthetic_messages.FRAMES)
-        self.assertEqual(self.bridge.statistics.telemetry_groups, 5 * len(groups))
+        self.assertEqual(
+            self.bridge.statistics.telemetry_groups, 5 * len(groups)
+        )
         self.assertEqual(self.bridge.telemetry_batcher.pending_frames, 5)
         contents = self.contents()
         for group in groups:
@@ -531,18 +623,24 @@ class TelemetryTest(BridgeTestCase):
             with self.subTest(group=group.path):
                 entity = contents.entities[path]
                 self.assertEqual(entity.rows["Scalars:scalars"], 5)
-                for actual, expected in zip(entity.times(ROBOT_TIMELINE), times):
+                for actual, expected in zip(
+                    entity.times(ROBOT_TIMELINE), times
+                ):
                     self.assertAlmostEqual(actual, expected)
                 (names,) = entity.values("SeriesLines:names")
                 self.assertEqual(
                     tuple(names),
-                    group.names or synthetic_messages.robot_dependent_names(group),
+                    group.names
+                    or synthetic_messages.robot_dependent_names(group),
                 )
                 if group.colors:
                     (colors,) = entity.values("SeriesLines:colors")
                     self.assertEqual(
                         colors,
-                        [packed(palette.hex_to_rgba8(color)) for color in group.colors],
+                        [
+                            packed(palette.hex_to_rgba8(color))
+                            for color in group.colors
+                        ],
                     )
                 else:
                     self.assertNotIn("SeriesLines:colors", entity.components)
@@ -552,14 +650,22 @@ class TelemetryTest(BridgeTestCase):
         return telemetry_series_pb2.TelemetrySeries(
             time=time,
             groups=[
-                scalar_group_pb2.ScalarGroup(path=path, names=names, values=values)
+                scalar_group_pb2.ScalarGroup(
+                    path=path, names=names, values=values
+                )
             ],
         )
 
     def test_malformed_groups_are_skipped_and_counted(self) -> None:
-        self.bridge.handle_telemetry(self.group_message(0.0, "a", ["x", "y"], [1.0]))
-        self.bridge.handle_telemetry(self.group_message(0.0, "/a", ["x"], [1.0]))
-        self.bridge.handle_telemetry(self.group_message(math.inf, "a", ["x"], [1.0]))
+        self.bridge.handle_telemetry(
+            self.group_message(0.0, "a", ["x", "y"], [1.0])
+        )
+        self.bridge.handle_telemetry(
+            self.group_message(0.0, "/a", ["x"], [1.0])
+        )
+        self.bridge.handle_telemetry(
+            self.group_message(math.inf, "a", ["x"], [1.0])
+        )
         self.assertEqual(self.malformed(topics.VIZ_TELEMETRY), 3)
         self.assertEqual(self.bridge.statistics.telemetry_groups, 0)
         self.assertNotIn("telemetry/a", self.contents().entities)
@@ -581,7 +687,9 @@ class TelemetryTest(BridgeTestCase):
             .entities["telemetry/a"]
             .sorted_values("Scalars:scalars", ROBOT_TIMELINE)
         )
-        self.assertEqual([value for value in values if value is not None], [[1.0, 2.0]])
+        self.assertEqual(
+            [value for value in values if value is not None], [[1.0, 2.0]]
+        )
 
     def test_a_group_twice_in_one_message_is_plotted_once(self) -> None:
         message = self.group_message(0.0, "a", ["x"], [1.0])
@@ -611,7 +719,10 @@ class TelemetryTest(BridgeTestCase):
         # The display's Euler rates are NaN near a pitch of +-90 degrees: a value, not a malformed group.
         self.bridge.handle_telemetry(
             self.group_message(
-                0.0, "base_pose/pitch_rate", ["measured", "reference"], [math.nan, 0.1]
+                0.0,
+                "base_pose/pitch_rate",
+                ["measured", "reference"],
+                [math.nan, 0.1],
             )
         )
         self.assertEqual(self.bridge.statistics.malformed_count(), 0)
@@ -622,7 +733,9 @@ class TelemetryTest(BridgeTestCase):
         self.assertAlmostEqual(reference, 0.1)
 
     def test_a_group_outside_the_contract_is_plotted_anyway(self) -> None:
-        self.bridge.handle_telemetry(self.group_message(0.0, "custom/x", ["v"], [1.0]))
+        self.bridge.handle_telemetry(
+            self.group_message(0.0, "custom/x", ["v"], [1.0])
+        )
         self.assertIn("telemetry/custom/x", self.contents().entities)
         self.assertEqual(self.bridge.statistics.malformed_count(), 0)
 
@@ -637,17 +750,23 @@ class StatusTest(BridgeTestCase):
             zip(
                 [
                     text[0]
-                    for text in entity.sorted_values("TextLog:text", WALL_TIMELINE)
+                    for text in entity.sorted_values(
+                        "TextLog:text", WALL_TIMELINE
+                    )
                 ],
                 [
                     level[0]
-                    for level in entity.sorted_values("TextLog:level", WALL_TIMELINE)
+                    for level in entity.sorted_values(
+                        "TextLog:level", WALL_TIMELINE
+                    )
                 ],
             )
         )
 
     def test_the_fsm_state_is_logged_on_change(self) -> None:
-        self.bridge.handle_scene(visualization_scene_pb2.VisualizationScene(time=2.0))
+        self.bridge.handle_scene(
+            visualization_scene_pb2.VisualizationScene(time=2.0)
+        )
         state = fsm_state_pb2.FsmState(mode="STANCE", mpc_healthy=True)
         self.bridge.handle_fsm_state(state)
         self.bridge.handle_fsm_state(state)
@@ -676,7 +795,9 @@ class StatusTest(BridgeTestCase):
             status.solver_status.healthy = healthy
             status.solver_status.solve_time_ms = 5.0 + step
             status.solver_status.consecutive_failures = 0 if healthy else 3
-            status.solver_status.last_error = "" if healthy else "line search failed"
+            status.solver_status.last_error = (
+                "" if healthy else "line search failed"
+            )
             self.bridge.handle_mpc_status(status)
         contents = self.contents()
         solve_time = contents.entities[status_contract.MPC_SOLVE_TIME.path]
@@ -689,9 +810,9 @@ class StatusTest(BridgeTestCase):
         ):
             self.assertAlmostEqual(actual, expected)
         self.assertEqual(
-            contents.entities[status_contract.MPC_OBSERVATIONS.path].sorted_values(
-                "Scalars:scalars", ROBOT_TIMELINE
-            )[-1],
+            contents.entities[
+                status_contract.MPC_OBSERVATIONS.path
+            ].sorted_values("Scalars:scalars", ROBOT_TIMELINE)[-1],
             [4.0, 3.0],
         )
         lines = self.text_lines(status_contract.MPC_STATUS_LOG)
@@ -751,9 +872,9 @@ class StatusTest(BridgeTestCase):
         self.assertAlmostEqual(
             lateness.sorted_values("Scalars:scalars", WALL_TIMELINE)[0][0], 4.0
         )
-        events = contents.entities[status_contract.LOOP_EVENTS.path].sorted_values(
-            "Scalars:scalars", WALL_TIMELINE
-        )
+        events = contents.entities[
+            status_contract.LOOP_EVENTS.path
+        ].sorted_values("Scalars:scalars", WALL_TIMELINE)
         missed = status_contract.LOOP_EVENTS.names.index("missed_periods")
         self.assertEqual(events[0][missed], 3.0)
         lines = self.text_lines(status_contract.LOOP_TIMING_LOG)
@@ -775,21 +896,32 @@ class StatusTest(BridgeTestCase):
         # MpcStatus.observation_time is a robot time the bridge has seen; before any scene, the rows take it.
         self.bridge.handle_mpc_status(self.mpc_status(3.5))
         self.bridge.handle_fsm_state(fsm_state_pb2.FsmState(mode="STANCE"))
-        self.bridge.handle_loop_timing(loop_timing_pb2.LoopTiming(policy_age_s=0.01))
+        self.bridge.handle_loop_timing(
+            loop_timing_pb2.LoopTiming(policy_age_s=0.01)
+        )
         contents = self.contents()
-        for path in (status_contract.FSM_STATE_LOG, status_contract.LOOP_PERIOD.path):
+        for path in (
+            status_contract.FSM_STATE_LOG,
+            status_contract.LOOP_PERIOD.path,
+        ):
             with self.subTest(path=path):
                 entity = contents.entities[path]
-                self.assertEqual(entity.timelines, {ROBOT_TIMELINE, WALL_TIMELINE})
+                self.assertEqual(
+                    entity.timelines, {ROBOT_TIMELINE, WALL_TIMELINE}
+                )
                 self.assertEqual(entity.times(ROBOT_TIMELINE), [3.5])
 
     def test_an_older_mpc_status_does_not_pull_the_latest_robot_time_back(
         self,
     ) -> None:
         # The observation a solve started from trails the scene by the solve.
-        self.bridge.handle_scene(visualization_scene_pb2.VisualizationScene(time=4.0))
+        self.bridge.handle_scene(
+            visualization_scene_pb2.VisualizationScene(time=4.0)
+        )
         self.bridge.handle_mpc_status(self.mpc_status(3.9))
-        self.bridge.handle_loop_timing(loop_timing_pb2.LoopTiming(policy_age_s=0.01))
+        self.bridge.handle_loop_timing(
+            loop_timing_pb2.LoopTiming(policy_age_s=0.01)
+        )
         entity = self.contents().entities[status_contract.LOOP_PERIOD.path]
         self.assertEqual(entity.times(ROBOT_TIMELINE), [4.0])
 
@@ -807,13 +939,17 @@ class StatusTest(BridgeTestCase):
         # failures all the same.
         for status in (
             self.mpc_status(0.0),
-            self.mpc_status(0.1, failures=1, error="MPC solver crashed at t = 1: QP"),
+            self.mpc_status(
+                0.1, failures=1, error="MPC solver crashed at t = 1: QP"
+            ),
             self.mpc_status(0.2),
             self.mpc_status(0.3),
         ):
             self.bridge.handle_mpc_status(status)
         lines = self.text_lines(status_contract.MPC_STATUS_LOG)
-        self.assertEqual([level for _, level in lines], ["INFO", "WARN", "INFO"])
+        self.assertEqual(
+            [level for _, level in lines], ["INFO", "WARN", "INFO"]
+        )
         self.assertIn("crashed at t = 1: QP", lines[1][0])
         self.assertIn("1 in a row", lines[1][0])
 
@@ -848,7 +984,9 @@ class StatusTest(BridgeTestCase):
             .sorted_values("Scalars:scalars", WALL_TIMELINE)
         )
         overruns = status_contract.LOOP_EVENTS.names.index("overruns")
-        self.assertEqual([row[overruns] for row in events], [1.0, 1.0, 2.0, 1.0])
+        self.assertEqual(
+            [row[overruns] for row in events], [1.0, 1.0, 2.0, 1.0]
+        )
 
     def test_a_stale_policy_is_warned_of_once(self) -> None:
         self.bridge.handle_loop_timing(self.loop_timing(500, stale=1))
@@ -866,7 +1004,11 @@ class StatusTest(BridgeTestCase):
         self.bridge.handle_telemetry(
             telemetry_series_pb2.TelemetrySeries(
                 time=0.0,
-                groups=[scalar_group_pb2.ScalarGroup(path="a", names=["x"], values=[])],
+                groups=[
+                    scalar_group_pb2.ScalarGroup(
+                        path="a", names=["x"], values=[]
+                    )
+                ],
             )
         )
         text = self.bridge.report(bus_rejected=2)
@@ -891,7 +1033,10 @@ class RunTest(unittest.TestCase):
             synthetic_messages.write_sample_package(self.directory)
         )
         self.bridge = bridge.RerunBridge(
-            self.new_recording(), model, clock=FakeClock(), new_run=self.next_run
+            self.new_recording(),
+            model,
+            clock=FakeClock(),
+            new_run=self.next_run,
         )
         self._contents: list[rrd_contents.RrdContents] | None = None
 
@@ -913,12 +1058,18 @@ class RunTest(unittest.TestCase):
             for recording in self.recordings:
                 recording.flush()
                 recording.disconnect()
-            self._contents = [rrd_contents.RrdContents(path) for path in self.paths]
+            self._contents = [
+                rrd_contents.RrdContents(path) for path in self.paths
+            ]
         return self._contents
 
     def step(self, robot_time: float) -> None:
-        self.bridge.handle_scene(synthetic_messages.full_scene(robot_time, LINKS))
-        self.bridge.handle_telemetry(synthetic_messages.full_telemetry(robot_time))
+        self.bridge.handle_scene(
+            synthetic_messages.full_scene(robot_time, LINKS)
+        )
+        self.bridge.handle_telemetry(
+            synthetic_messages.full_telemetry(robot_time)
+        )
 
     def test_a_clock_that_goes_back_starts_a_new_recording(self) -> None:
         self.bridge.log_static()
@@ -934,14 +1085,18 @@ class RunTest(unittest.TestCase):
         plot = f"{scene_contract.TELEMETRY_ROOT}/base_pose/position_x"
         for entity in (link, plot):
             self.assertEqual(
-                first.entities[entity].times(ROBOT_TIMELINE), [0.0, 1.0, 2.0, 3.0]
+                first.entities[entity].times(ROBOT_TIMELINE),
+                [0.0, 1.0, 2.0, 3.0],
             )
             # The messages that waited for the clock to confirm the new run are in it, in order.
             self.assertEqual(
-                second.entities[entity].times(ROBOT_TIMELINE), [0.5, 0.6, 0.7, 1.5]
+                second.entities[entity].times(ROBOT_TIMELINE),
+                [0.5, 0.6, 0.7, 1.5],
             )
         # The new recording holds everything a viewer needs: the world's axes, every instance's meshes, the series.
-        self.assertIn("ViewCoordinates:xyz", second.entities["world"].static_components)
+        self.assertIn(
+            "ViewCoordinates:xyz", second.entities["world"].static_components
+        )
         for style in scene_contract.ROBOT_INSTANCES:
             self.assertTrue(
                 second.has(
@@ -957,7 +1112,8 @@ class RunTest(unittest.TestCase):
             )
         ]
         self.assertTrue(
-            any("went back from 3.000 s to 0.500 s" in text for text in texts), texts
+            any("went back from 3.000 s to 0.500 s" in text for text in texts),
+            texts,
         )
 
     def test_a_small_step_back_stays_in_the_run(self) -> None:
@@ -967,7 +1123,9 @@ class RunTest(unittest.TestCase):
         self.assertEqual(self.runs_started, 0)
         (only,) = self.contents()
         link = scene_contract.link_path(scene_contract.MEASURED, "base_link")
-        self.assertEqual(only.entities[link].times(ROBOT_TIMELINE), [1.5, 2.0, 2.1])
+        self.assertEqual(
+            only.entities[link].times(ROBOT_TIMELINE), [1.5, 2.0, 2.1]
+        )
 
     def test_late_messages_of_other_topics_never_start_a_run(self) -> None:
         # What the live session showed: an MpcStatus whose solve took longer than NEW_RUN_REWIND_S, and a scene of
@@ -975,9 +1133,13 @@ class RunTest(unittest.TestCase):
         times = [index / 100 for index in range(301)]
         for robot_time in times:
             self.step(robot_time)
-        self.bridge.handle_mpc_status(mpc_status_pb2.MpcStatus(observation_time=1.5))
+        self.bridge.handle_mpc_status(
+            mpc_status_pb2.MpcStatus(observation_time=1.5)
+        )
         self.bridge.handle_scene(synthetic_messages.full_scene(1.6, LINKS))
-        self.bridge.handle_mpc_status(mpc_status_pb2.MpcStatus(observation_time=1.7))
+        self.bridge.handle_mpc_status(
+            mpc_status_pb2.MpcStatus(observation_time=1.7)
+        )
         self.assertEqual(self.bridge.statistics.handled[topics.MPC_STATUS], 2)
         self.step(3.01)
         self.assertEqual(self.runs_started, 0)
@@ -990,7 +1152,9 @@ class RunTest(unittest.TestCase):
         # Recorded at their own times, before the message that showed them late.
         self.assertEqual(
             rounded(
-                only.entities[status_contract.MPC_SOLVE_TIME.path].times(ROBOT_TIMELINE)
+                only.entities[status_contract.MPC_SOLVE_TIME.path].times(
+                    ROBOT_TIMELINE
+                )
             ),
             [1.5, 1.7],
         )
@@ -1001,15 +1165,21 @@ class RunTest(unittest.TestCase):
         )
         plot = f"{scene_contract.TELEMETRY_ROOT}/base_pose/position_x"
         self.assertEqual(
-            rounded(only.entities[plot].times(ROBOT_TIMELINE)), rounded([*times, 3.01])
+            rounded(only.entities[plot].times(ROBOT_TIMELINE)),
+            rounded([*times, 3.01]),
         )
 
     def test_fewer_clock_messages_than_the_confirmations_are_late(self) -> None:
         for robot_time in (0.0, 1.0, 2.0, 3.0):
             self.step(robot_time)
-        late = [0.5 + index / 100 for index in range(bridge.NEW_RUN_CONFIRMATIONS - 1)]
+        late = [
+            0.5 + index / 100
+            for index in range(bridge.NEW_RUN_CONFIRMATIONS - 1)
+        ]
         for robot_time in late:
-            self.bridge.handle_telemetry(synthetic_messages.full_telemetry(robot_time))
+            self.bridge.handle_telemetry(
+                synthetic_messages.full_telemetry(robot_time)
+            )
         self.bridge.handle_telemetry(synthetic_messages.full_telemetry(3.01))
         self.assertEqual(self.runs_started, 0)
         self.assertEqual(self.bridge.statistics.late_messages, len(late))
@@ -1022,24 +1192,34 @@ class RunTest(unittest.TestCase):
 
     def test_the_scene_is_the_clock_without_telemetry(self) -> None:
         for robot_time in (0.0, 1.0, 2.0, 3.0, 0.5, 0.6, 0.7):
-            self.bridge.handle_scene(synthetic_messages.full_scene(robot_time, LINKS))
+            self.bridge.handle_scene(
+                synthetic_messages.full_scene(robot_time, LINKS)
+            )
         self.assertEqual(self.runs_started, 1)
         _, second = self.contents()
         link = scene_contract.link_path(scene_contract.MEASURED, "base_link")
-        self.assertEqual(second.entities[link].times(ROBOT_TIMELINE), [0.5, 0.6, 0.7])
+        self.assertEqual(
+            second.entities[link].times(ROBOT_TIMELINE), [0.5, 0.6, 0.7]
+        )
 
     def test_a_message_of_the_previous_run_after_the_new_one_began_is_dropped(
         self,
     ) -> None:
         for robot_time in (0.0, 1.0, 2.0, 3.0):
             self.step(robot_time)
-        restarted = [0.5 + index / 100 for index in range(bridge.NEW_RUN_CONFIRMATIONS)]
+        restarted = [
+            0.5 + index / 100 for index in range(bridge.NEW_RUN_CONFIRMATIONS)
+        ]
         for robot_time in restarted:
-            self.bridge.handle_telemetry(synthetic_messages.full_telemetry(robot_time))
+            self.bridge.handle_telemetry(
+                synthetic_messages.full_telemetry(robot_time)
+            )
         self.assertEqual(self.runs_started, 1)
         # Still on its way when the robot restarted: telemetry and a status of the previous run.
         self.bridge.handle_telemetry(synthetic_messages.full_telemetry(3.01))
-        self.bridge.handle_mpc_status(mpc_status_pb2.MpcStatus(observation_time=2.99))
+        self.bridge.handle_mpc_status(
+            mpc_status_pb2.MpcStatus(observation_time=2.99)
+        )
         self.bridge.handle_telemetry(synthetic_messages.full_telemetry(0.6))
         self.assertEqual(self.runs_started, 1)
         self.assertEqual(self.bridge.statistics.previous_run_dropped, 2)
@@ -1051,14 +1231,18 @@ class RunTest(unittest.TestCase):
         )
         self.assertNotIn(status_contract.MPC_SOLVE_TIME.path, second.entities)
 
-    def test_messages_wait_for_a_quiet_clock_at_most_the_clock_timeout(self) -> None:
+    def test_messages_wait_for_a_quiet_clock_at_most_the_clock_timeout(
+        self,
+    ) -> None:
         clock = ManualClock()
         the_bridge = bridge.RerunBridge(
             self.new_recording(), None, clock=clock, new_run=self.next_run
         )
         self.bridge = the_bridge
         the_bridge.handle_telemetry(synthetic_messages.full_telemetry(3.0))
-        the_bridge.handle_mpc_status(mpc_status_pb2.MpcStatus(observation_time=1.0))
+        the_bridge.handle_mpc_status(
+            mpc_status_pb2.MpcStatus(observation_time=1.0)
+        )
         the_bridge.flush()
         self.assertEqual(the_bridge.statistics.late_messages, 0)
         clock.now += bridge.CLOCK_TIMEOUT_S
@@ -1161,7 +1345,9 @@ class TelemetryRecordingTest(unittest.TestCase):
         recording.disconnect()
         return the_bridge, rrd_contents.RrdContents(path)
 
-    def test_every_interval_records_its_first_sample_and_only_that(self) -> None:
+    def test_every_interval_records_its_first_sample_and_only_that(
+        self,
+    ) -> None:
         for source_rate, rate in (
             (100.0, 50.0),
             (100.0, 30.0),
@@ -1169,12 +1355,16 @@ class TelemetryRecordingTest(unittest.TestCase):
             (33.0, 50.0),
         ):
             with self.subTest(source_rate=source_rate, rate=rate):
-                times = sample_times(source_rate, rate, seed=int(source_rate * rate))
+                times = sample_times(
+                    source_rate, rate, seed=int(source_rate * rate)
+                )
                 the_bridge, contents = self.record(
                     [one_group_telemetry(time_s) for time_s in times], rate=rate
                 )
                 # The oracle: the interval [k / rate, (k + 1) / rate) of each sample, by bisection on the boundaries.
-                boundaries = [index / rate for index in range(int(4 * rate) + 2)]
+                boundaries = [
+                    index / rate for index in range(int(4 * rate) + 2)
+                ]
                 first_of_interval: dict[int, float] = {}
                 for time_s in times:
                     interval = bisect.bisect_right(boundaries, time_s) - 1
@@ -1197,7 +1387,8 @@ class TelemetryRecordingTest(unittest.TestCase):
             [one_group_telemetry(time_s) for time_s in times]
         )
         self.assertEqual(
-            rounded(contents.entities[self.PLOT].times(ROBOT_TIMELINE)), rounded(times)
+            rounded(contents.entities[self.PLOT].times(ROBOT_TIMELINE)),
+            rounded(times),
         )
         self.assertEqual(the_bridge.statistics.telemetry_decimated, 0)
 

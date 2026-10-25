@@ -89,14 +89,28 @@ class TestFrameOptions(unittest.TestCase):
         self.assertEqual(str(frame.cget("cursor")), "hand2")
 
     def test_scrollable_frame(self):
-        self._assert_cursor(scrollable_frame.ScrollableFrame(self.root, cursor="hand2"))
+        self._assert_cursor(
+            scrollable_frame.ScrollableFrame(self.root, cursor="hand2")
+        )
 
     def test_slider_row(self):
-        self._assert_cursor(slider_row.SliderRow(self.root, "kp", 1.0, cursor="hand2"))
+        self._assert_cursor(
+            slider_row.SliderRow(self.root, "kp", 1.0, cursor="hand2")
+        )
 
     def test_slider_row_refuses_an_extra_positional_argument(self):
         # Every parameter by position, and one more: it used to reach the frame as its `cnf`.
-        arguments: list[Any] = ["kp", 1.0, 0.0, 10.0, "", None, 24, False, "extra"]
+        arguments: list[Any] = [
+            "kp",
+            1.0,
+            0.0,
+            10.0,
+            "",
+            None,
+            24,
+            False,
+            "extra",
+        ]
         with self.assertRaises(TypeError):
             # pylint: disable-next=too-many-function-args  # The refusal is under test.
             slider_row.SliderRow(self.root, *arguments)
@@ -110,7 +124,9 @@ class TestFrameOptions(unittest.TestCase):
 
     def test_dodgeball_tab(self):
         self._assert_cursor(
-            dodgeball_tab.DodgeballTab(self.root, throw_publisher=None, cursor="hand2")
+            dodgeball_tab.DodgeballTab(
+                self.root, throw_publisher=None, cursor="hand2"
+            )
         )
 
     def test_joint_targets_tab(self):
@@ -182,7 +198,10 @@ class TestWidgets(unittest.TestCase):
     def test_a_slider_value_that_is_not_a_number_is_logged_and_ignored(self):
         changes: list[float | None] = []
         row = slider_row.SliderRow(
-            self.root, "kp", 1.0, on_change=lambda name, value: changes.append(value)
+            self.root,
+            "kp",
+            1.0,
+            on_change=lambda name, value: changes.append(value),
         )
         with self.assertLogs(slider_row.__name__, level="WARNING") as logs:
             row._on_scale_change("not a number")
@@ -194,11 +213,15 @@ class TestWidgets(unittest.TestCase):
         self.assertEqual(row.get_value(), 2.0)
         self.assertEqual(changes, [2.0])
 
-    def test_a_failing_change_callback_is_raised_and_the_row_keeps_working(self):
+    def test_a_failing_change_callback_is_raised_and_the_row_keeps_working(
+        self,
+    ):
         def failing_callback(name: str, value: float | None) -> None:
             raise RuntimeError(f"{name}={value}")
 
-        row = slider_row.SliderRow(self.root, "kp", 1.0, on_change=failing_callback)
+        row = slider_row.SliderRow(
+            self.root, "kp", 1.0, on_change=failing_callback
+        )
         with self.assertRaisesRegex(RuntimeError, "kp=2.0"):
             row._on_scale_change("2.0")
         # The row did not stay in its updating state: the next value is taken.
@@ -221,7 +244,8 @@ class TestControllerIndicator(unittest.TestCase):
                 operator_test_support.ATLAS_CONFIG, "mpc/task.textproto"
             ),
             reference_file=os.path.join(
-                operator_test_support.ATLAS_CONFIG, "command/reference.textproto"
+                operator_test_support.ATLAS_CONFIG,
+                "command/reference.textproto",
             ),
             enable_online_tuning=False,
         )

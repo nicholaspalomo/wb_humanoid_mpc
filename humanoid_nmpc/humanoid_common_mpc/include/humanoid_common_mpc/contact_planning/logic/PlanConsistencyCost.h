@@ -36,15 +36,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `plan_consistency`: a price per decided node whose contact differs from the previous plan, shifted to the current time.
+ * `plan_consistency`: a price per decided node whose contact differs from the
+ * previous plan, shifted to the current time.
  *
- * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
  */
 class PlanConsistencyCost final : public AssignmentCost {
  public:
   std::string describe() const override;
   void configure(const ContactPlanningConfig& config) override;
-  scalar_t cost(const ContactLogicState& state, const MiqpAssignment& a) const override;
+  scalar_t cost(const ContactLogicState& state,
+                const MiqpAssignment& a) const override;
 
  private:
   scalar_t cost_ = 0.0;

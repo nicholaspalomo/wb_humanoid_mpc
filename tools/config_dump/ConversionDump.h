@@ -39,7 +39,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::config_dump {
 
-/** The configuration files of an MPC that its typed conversions read, parsed. The contact planner's is not one of them. */
+/** The configuration files of an MPC that its typed conversions read, parsed.
+ * The contact planner's is not one of them. */
 struct ConversionInputs {
   mpc_config::TaskFile task;
   mpc_config::ReferenceFile reference;
@@ -48,17 +49,25 @@ struct ConversionInputs {
 };
 
 /**
- * Converts `inputs` with every typed conversion of the configuration that the start-up of `mpc` and of its robot
- * process makes (the conversions of the packages' config/ directories), and dumps what each one makes,
- * in the format of ValueDump: the model settings from `urdfFile`, the solver, the formulation's lists, every weight
- * matrix and value on the MPC's state and input layout, the contacts, constraints, costs and their barriers, the swing
- * trajectories, the locomotion heuristics, the reference, the gaits, the PD gains over fixed defaults, and the robot
- * process's, the controller side's, the visualization's and the keyboard teleoperation's settings. A conversion that
- * refuses its input is dumped as its error, and what depends on it is left out.
+ * Converts `inputs` with every typed conversion of the configuration that the
+ * start-up of `mpc` and of its robot process makes (the conversions of the
+ * packages' config/ directories), and dumps what each one makes, in the format
+ * of ValueDump: the model settings from `urdfFile`, the solver, the
+ * formulation's lists, every weight matrix and value on the MPC's state and
+ * input layout, the contacts, constraints, costs and their barriers, the swing
+ * trajectories, the locomotion heuristics, the reference, the gaits, the PD
+ * gains over fixed defaults, and the robot process's, the controller side's,
+ * the visualization's and the keyboard teleoperation's settings. A conversion
+ * that refuses its input is dumped as its error, and what depends on it is left
+ * out.
  *
- * Builds no Pinocchio model but the URDF's ModelSettings and no CppAD library, so it is cheap enough to run once per
- * value of a file (//tools/config_dump:every_field_is_consumed_test). It keeps no state of its own.
+ * Builds no Pinocchio model but the URDF's ModelSettings and no CppAD library,
+ * so it is cheap enough to run once per value of a file
+ * (//tools/config_dump:every_field_is_consumed_test). It keeps no state of its
+ * own.
  */
-std::string dumpConversions(const ConversionInputs& inputs, const std::string& urdfFile, StateInputLayout::Mpc mpc);
+std::string dumpConversions(const ConversionInputs& inputs,
+                            const std::string& urdfFile,
+                            StateInputLayout::Mpc mpc);
 
 }  // namespace ocs2::humanoid::config_dump

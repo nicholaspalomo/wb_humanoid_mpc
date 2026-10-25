@@ -57,7 +57,9 @@ ROBOT = "robot"
 def observation(
     time_s: float, state: list[float], inputs: list[float], mode: int = 3
 ) -> mpc_observation_pb2.MpcObservation:
-    message = mpc_observation_pb2.MpcObservation(sequence=int(abs(time_s) * 1000))
+    message = mpc_observation_pb2.MpcObservation(
+        sequence=int(abs(time_s) * 1000)
+    )
     message.observation.time = time_s
     message.observation.mode = mode
     message.observation.state.extend(state)
@@ -108,7 +110,9 @@ class WriterTest(unittest.TestCase):
         stream = io.StringIO()
         writer = mpc_observation_logger.ObservationCsvWriter(stream)
         for i in range(3):
-            self.assertTrue(writer.write(observation(0.01 * i, [i, -i], [2.0 * i])))
+            self.assertTrue(
+                writer.write(observation(0.01 * i, [i, -i], [2.0 * i]))
+            )
         rows = list(csv.reader(io.StringIO(stream.getvalue())))
         self.assertEqual(rows[0], ["time", "mode", "x0", "x1", "u0"])
         self.assertEqual(len(rows), 4)
@@ -117,7 +121,9 @@ class WriterTest(unittest.TestCase):
         )
         self.assertEqual((writer.written, writer.skipped), (3, 0))
 
-    def test_an_observation_of_other_dimensions_is_skipped_and_counted(self) -> None:
+    def test_an_observation_of_other_dimensions_is_skipped_and_counted(
+        self,
+    ) -> None:
         stream = io.StringIO()
         writer = mpc_observation_logger.ObservationCsvWriter(stream)
         writer.write(observation(0.0, [1.0, 2.0], [3.0]))
@@ -130,7 +136,9 @@ class WriterTest(unittest.TestCase):
 class BusTest(unittest.TestCase):
     """The logger's subscription over a DDS bus of the test process, as `run` sets it up."""
 
-    def test_every_observation_published_reaches_the_file_in_order(self) -> None:
+    def test_every_observation_published_reaches_the_file_in_order(
+        self,
+    ) -> None:
         network = robot_ipc.isolated_test_network([ROBOT])
         robot = robot_ipc.Bus(ROBOT, network)
         self.addCleanup(robot.close)
@@ -146,7 +154,8 @@ class BusTest(unittest.TestCase):
         # and at negative times, until one arrives.
         def probe_arrived() -> bool:
             robot.publish(
-                topics.ROBOT_MPC_OBSERVATION, observation(-1.0, [0.0, 0.0], [0.0])
+                topics.ROBOT_MPC_OBSERVATION,
+                observation(-1.0, [0.0, 0.0], [0.0]),
             )
             time.sleep(0.005)
             return writer.written > 0
@@ -182,11 +191,15 @@ class RunTest(unittest.TestCase):
             stop.set()
             path = mpc_observation_logger.run(
                 argparse.Namespace(
-                    network_config=network_file, output_dir=directory, duration=0.0
+                    network_config=network_file,
+                    output_dir=directory,
+                    duration=0.0,
                 ),
                 stop,
             )
-            self.assertTrue(os.path.basename(path).startswith("mpc_observation_"))
+            self.assertTrue(
+                os.path.basename(path).startswith("mpc_observation_")
+            )
             self.assertTrue(os.path.exists(path))
 
             # A recording as the logger writes it, exported with export_rollouts.py's defaults.

@@ -39,11 +39,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-absl::StatusOr<CentroidalMpcConfig> loadCentroidalMpcConfig(absl::string_view taskFile, absl::string_view referenceFile) {
+absl::StatusOr<CentroidalMpcConfig> loadCentroidalMpcConfig(
+    absl::string_view taskFile, absl::string_view referenceFile) {
   CentroidalMpcConfig config;
   ASSIGN_OR_RETURN(config.task, loadTaskFile(taskFile));
   ASSIGN_OR_RETURN(config.reference, loadReferenceFile(referenceFile));
-  ASSIGN_OR_RETURN(config.contactPlanning, loadContactPlanningFileBeside(taskFile));
+  ASSIGN_OR_RETURN(config.contactPlanning,
+                   loadContactPlanningFileBeside(taskFile));
   return config;
 }
 

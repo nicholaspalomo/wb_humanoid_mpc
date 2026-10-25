@@ -39,28 +39,35 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-HardwareFallRecovery::HardwareFallRecovery(scalar_t maxBaseTiltAngle,
-                                           RobotBackend* absl_nonnull backend,
-                                           RealtimeEventLog* absl_nullable eventLog)
-    : maxBaseTiltAngle_(maxBaseTiltAngle), backend_(backend), eventLog_(eventLog) {}
+HardwareFallRecovery::HardwareFallRecovery(
+    scalar_t maxBaseTiltAngle,
+    RobotBackend* absl_nonnull backend,
+    RealtimeEventLog* absl_nullable eventLog)
+    : maxBaseTiltAngle_(maxBaseTiltAngle),
+      backend_(backend),
+      eventLog_(eventLog) {}
 
-FallRecovery::Cycle HardwareFallRecovery::update(const robot::model::RobotState& robotState,
-                                                 const std::vector<scalar_t>& /*nominalJointPositions*/,
-                                                 std::string& currentModeName) {
+FallRecovery::Cycle HardwareFallRecovery::update(
+    const robot::model::RobotState& robotState,
+    const std::vector<scalar_t>& /*nominalJointPositions*/,
+    std::string& currentModeName) {
   Cycle cycle;
   if (!(maxBaseTiltAngle_ > 0.0) || !backend_->acceptsJointAction()) {
     return cycle;
   }
-  const scalar_t tilt = SimFallRecovery::baseTiltAngle(robotState.getRootRotationLocalToWorldFrame());
+  const scalar_t tilt = SimFallRecovery::baseTiltAngle(
+      robotState.getRootRotationLocalToWorldFrame());
   if (!(tilt > maxBaseTiltAngle_)) {
     return cycle;
   }
   backend_->enterSafeState();
-  currentModeName.assign(control_mode::kZeroTorque.data(), control_mode::kZeroTorque.size());
+  currentModeName.assign(control_mode::kZeroTorque.data(),
+                         control_mode::kZeroTorque.size());
   cycle.modeChanged = true;
   cycle.tilt = tilt;
   if (eventLog_ != nullptr) {
-    eventLog_->post(RealtimeEventCode::kFallTorquesOff, /*detail=*/0, /*text=*/{}, tilt, maxBaseTiltAngle_);
+    eventLog_->post(RealtimeEventCode::kFallTorquesOff, /*detail=*/0,
+                    /*text=*/{}, tilt, maxBaseTiltAngle_);
   }
   return cycle;
 }

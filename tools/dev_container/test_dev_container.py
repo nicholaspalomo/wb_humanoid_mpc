@@ -53,7 +53,9 @@ def _runfile(relative_path: str) -> str:
     roots = []
     if "TEST_SRCDIR" in os.environ:
         roots.append(os.path.join(os.environ["TEST_SRCDIR"], "_main"))
-    roots.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+    roots.append(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
+    )
     for root in roots:
         candidate = os.path.join(root, relative_path)
         if os.path.exists(candidate):
@@ -89,7 +91,9 @@ def _installed_packages(text: str) -> list[str]:
 def _dependency_list() -> list[str]:
     return [
         line.strip()
-        for line in _without_comment_lines(_read("dependencies.txt")).splitlines()
+        for line in _without_comment_lines(
+            _read("dependencies.txt")
+        ).splitlines()
         if line.strip()
     ]
 
@@ -155,7 +159,9 @@ class NoRosTest(unittest.TestCase):
     def test_nothing_starts_or_names_the_plotjuggler_display(self):
         for path in _CONTAINER_FILES:
             with self.subTest(path=path):
-                self.assertIsNone(_PLOTJUGGLER_DISPLAY_TRACES.search(_read(path)))
+                self.assertIsNone(
+                    _PLOTJUGGLER_DISPLAY_TRACES.search(_read(path))
+                )
 
 
 class BaseImageTest(unittest.TestCase):
@@ -163,10 +169,16 @@ class BaseImageTest(unittest.TestCase):
         dockerfile = _read("docker/Dockerfile")
         image = re.search(r"^ARG BASE_IMAGE=(\S+)$", dockerfile, re.MULTILINE)
         workflow = re.search(
-            r"^    container: (\S+)$", _read(".github/workflows/build_test.yml"), re.M
+            r"^    container: (\S+)$",
+            _read(".github/workflows/build_test.yml"),
+            re.M,
         )
-        emulator = re.search(r'^CI_IMAGE="(\S+)"$', _read("tools/ci_local.sh"), re.M)
-        assert image is not None and workflow is not None and emulator is not None
+        emulator = re.search(
+            r'^CI_IMAGE="(\S+)"$', _read("tools/ci_local.sh"), re.M
+        )
+        assert (
+            image is not None and workflow is not None and emulator is not None
+        )
         self.assertRegex(image.group(1), r"^ubuntu:\d+\.\d+$")
         self.assertEqual(workflow.group(1), image.group(1))
         self.assertEqual(emulator.group(1), image.group(1))
@@ -178,11 +190,13 @@ class NoninteractiveAptTest(unittest.TestCase):
 
     def test_the_image_ci_and_the_emulator_install_without_a_prompt(self):
         self.assertRegex(
-            _read("docker/Dockerfile"), r"(?m)^ENV DEBIAN_FRONTEND=noninteractive"
+            _read("docker/Dockerfile"),
+            r"(?m)^ENV DEBIAN_FRONTEND=noninteractive",
         )
         self.assertRegex(
             _read(".github/workflows/build_test.yml"),
-            r"(?m)^    env:\n(?:      \w+: \S+\n)*      DEBIAN_FRONTEND: noninteractive$",
+            r"(?m)^    env:\n(?:      \w+: \S+\n)*      DEBIAN_FRONTEND:"
+            r" noninteractive$",
         )
         self.assertRegex(
             _read("tools/ci_local.sh"),
@@ -203,7 +217,8 @@ class PinocchioTest(unittest.TestCase):
 
     def test_one_script_installs_it_for_the_image_ci_and_the_emulator(self):
         self.assertIn(
-            "COPY docker/install_robotpkg.sh /tmp/install_robotpkg.sh", self.dockerfile
+            "COPY docker/install_robotpkg.sh /tmp/install_robotpkg.sh",
+            self.dockerfile,
         )
         self.assertIn("RUN sh /tmp/install_robotpkg.sh", self.dockerfile)
         self.assertIn("sh docker/install_robotpkg.sh", self.workflow)
@@ -223,15 +238,25 @@ class PinocchioTest(unittest.TestCase):
                     ],
                     [],
                 )
-        self.assertEqual([p for p in _dependency_list() if "pinocchio" in p], [])
+        self.assertEqual(
+            [p for p in _dependency_list() if "pinocchio" in p], []
+        )
 
     def test_the_library_and_its_bindings_are_pinned_to_one_release(self):
-        version = re.search(r'^PINOCCHIO_VERSION="(\d+\.\d+\.\d+)"$', self.script, re.M)
-        self.assertIsNotNone(version, "PINOCCHIO_VERSION is not a full x.y.z release")
-        packages = re.search(r'^PINOCCHIO_PACKAGES="([^"]+)"$', self.script, re.M)
+        version = re.search(
+            r'^PINOCCHIO_VERSION="(\d+\.\d+\.\d+)"$', self.script, re.M
+        )
+        self.assertIsNotNone(
+            version, "PINOCCHIO_VERSION is not a full x.y.z release"
+        )
+        packages = re.search(
+            r'^PINOCCHIO_PACKAGES="([^"]+)"$', self.script, re.M
+        )
         assert packages is not None
         self.assertEqual(
-            sorted(re.sub(r"py\d+", "pyXY", p) for p in packages.group(1).split()),
+            sorted(
+                re.sub(r"py\d+", "pyXY", p) for p in packages.group(1).split()
+            ),
             [
                 "robotpkg-pinocchio=${PINOCCHIO_VERSION}",
                 "robotpkg-pyXY-pinocchio=${PINOCCHIO_VERSION}",
@@ -254,7 +279,9 @@ class PinocchioTest(unittest.TestCase):
             'if [ "${fingerprint}" != "${ROBOTPKG_KEY_FINGERPRINT}" ]; then',
             self.script,
         )
-        self.assertRegex(self.script, r'(?m)^KEYRING="/etc/apt/keyrings/[\w.-]+\.asc"$')
+        self.assertRegex(
+            self.script, r'(?m)^KEYRING="/etc/apt/keyrings/[\w.-]+\.asc"$'
+        )
         self.assertIn("signed-by=${KEYRING}", self.script)
         # apt-key would trust the key for every source on the system.
         for text in (self.script, self.dockerfile):
@@ -264,8 +291,12 @@ class PinocchioTest(unittest.TestCase):
         self.assertTrue(self.script.startswith("#!/bin/sh\n"))
         self.assertNotIn("[[", self.script)
         # CI installs dependencies.txt right after the script without another `apt-get update`.
-        self.assertNotIn("/var/lib/apt/lists", _without_comment_lines(self.script))
-        subprocess.run(["sh", "-n", _runfile("docker/install_robotpkg.sh")], check=True)
+        self.assertNotIn(
+            "/var/lib/apt/lists", _without_comment_lines(self.script)
+        )
+        subprocess.run(
+            ["sh", "-n", _runfile("docker/install_robotpkg.sh")], check=True
+        )
 
     def test_the_python_path_is_the_python_the_bindings_are_built_for(self):
         python = re.search(r"robotpkg-py(\d)(\d+)-pinocchio", self.script)
@@ -285,7 +316,9 @@ def _dockerfile_robotpkg_environment() -> dict[str, str]:
         _read("docker/Dockerfile"),
         re.S,
     )
-    assert block is not None, "docker/Dockerfile has no robotpkg_environment block"
+    assert (
+        block is not None
+    ), "docker/Dockerfile has no robotpkg_environment block"
     return dict(re.findall(r'(\w+)="([^":$]+)', block.group(1)))
 
 
@@ -303,7 +336,9 @@ class EnvironmentTest(unittest.TestCase):
         ci["PATH"] = path.group(1)
         self.assertEqual(ci, image)
         emulator = dict(
-            re.findall(r"^\s*export (\w+)=([^:\s]+)", _read("tools/ci_local.sh"), re.M)
+            re.findall(
+                r"^\s*export (\w+)=([^:\s]+)", _read("tools/ci_local.sh"), re.M
+            )
         )
         self.assertEqual(emulator, image)
 
@@ -333,7 +368,9 @@ class SystemPackagesTest(unittest.TestCase):
             ".github/workflows/build_test.yml",
         ):
             installed += _installed_packages(_read(path))
-        self.assertIn("libeigen3-dev", installed, "the package lists were not read")
+        self.assertIn(
+            "libeigen3-dev", installed, "the package lists were not read"
+        )
         self.assertEqual([p for p in installed if "boost" in p], [])
 
     def test_the_image_installs_every_program_start_vnc_calls(self):
@@ -391,7 +428,9 @@ def _published_ports(compose: str) -> dict[int, int]:
         The host port of each published container port; an entry this parser does not recognize is left out.
     """
     published: dict[int, int] = {}
-    for _, host_first, host_last, first, last in _PORT_ENTRY_RE.findall(compose):
+    for _, host_first, host_last, first, last in _PORT_ENTRY_RE.findall(
+        compose
+    ):
         host_ports = range(int(host_first), int(host_last or host_first) + 1)
         container_ports = range(int(first), int(last or first) + 1)
         published.update(zip(container_ports, host_ports))
@@ -403,7 +442,9 @@ def _devcontainer() -> dict:
     text = _read(".devcontainer/devcontainer.json")
     return json.loads(
         "\n".join(
-            line for line in text.splitlines() if not line.lstrip().startswith("//")
+            line
+            for line in text.splitlines()
+            if not line.lstrip().startswith("//")
         )
     )
 
@@ -415,7 +456,9 @@ class HostNetworkTest(unittest.TestCase):
     publishes the ports.
     """
 
-    def test_the_dev_container_uses_the_host_network_and_publishes_nothing(self):
+    def test_the_dev_container_uses_the_host_network_and_publishes_nothing(
+        self,
+    ):
         compose = _without_comment_lines(_read("docker-compose.yaml"))
         self.assertRegex(compose, r"(?m)^\s+network_mode: host$")
         # Docker discards published ports on the host network and refuses a `dns` option there.
@@ -451,13 +494,27 @@ class PublishedPortsParserTest(unittest.TestCase):
     def test_an_entry_with_a_host_address_is_published_at_its_ports(self):
         self.assertEqual(
             _published_ports(self._COMPOSE),
-            {5600: 5600, 5601: 5601, 5602: 5602, 6090: 6090, 7001: 7000, 8888: 8888},
+            {
+                5600: 5600,
+                5601: 5601,
+                5602: 5602,
+                6090: 6090,
+                7001: 7000,
+                8888: 8888,
+            },
         )
 
     def test_the_host_address_of_each_entry(self):
         self.assertEqual(
             _published_addresses(self._COMPOSE),
-            {5600: "", 5601: "", 5602: "", 6090: "127.0.0.1", 7001: "[::1]", 8888: ""},
+            {
+                5600: "",
+                5601: "",
+                5602: "",
+                6090: "127.0.0.1",
+                7001: "[::1]",
+                8888: "",
+            },
         )
 
 
@@ -467,7 +524,9 @@ class PortsTest(unittest.TestCase):
     def setUp(self):
         self.published = _published_ports(_read("docker-compose.bridge.yaml"))
 
-    def test_the_dds_ports_of_the_network_files_domain_are_published_over_udp(self):
+    def test_the_dds_ports_of_the_network_files_domain_are_published_over_udp(
+        self,
+    ):
         # 7400 + 250 * domain_id + 10 + 2 * index and the port after it, for the 20 process indices of one machine
         # (robot_ipc/DomainConfig.h unicastPortRange()).
         domain = re.search(
@@ -487,7 +546,9 @@ class PortsTest(unittest.TestCase):
         for port in (9876, 9090, 6080, 5901, 8888):
             self.assertIn(port, self.published)
 
-    def test_the_mujoco_web_viewer_is_published_on_the_computers_loopback_only(self):
+    def test_the_mujoco_web_viewer_is_published_on_the_computers_loopback_only(
+        self,
+    ):
         # The robot process binds it on every interface of the container's bridge network (--web_viewer_address=0.0.0.0),
         # so the host side keeps it off the computer's own network.
         self.assertEqual(self.published.get(6090), 6090)
@@ -499,17 +560,23 @@ class PortsTest(unittest.TestCase):
 
     def test_the_ports_of_the_plotjuggler_display_and_of_zeromq_are_gone(self):
         self.assertEqual(_REMOVED_PORTS & set(self.published), set())
-        self.assertEqual(_REMOVED_PORTS & set(_devcontainer()["forwardPorts"]), set())
+        self.assertEqual(
+            _REMOVED_PORTS & set(_devcontainer()["forwardPorts"]), set()
+        )
 
     def test_every_port_is_published_at_its_own_number(self):
         # The READMEs and the start-up banners name http://localhost:6080 and so on: a remapped port would break them.
-        self.assertEqual({c: h for c, h in self.published.items() if c != h}, {})
+        self.assertEqual(
+            {c: h for c, h in self.published.items() if c != h}, {}
+        )
 
     def test_the_ide_forwards_published_ports_and_labels_each(self):
         devcontainer = _devcontainer()
         forwarded = set(devcontainer["forwardPorts"])
         self.assertEqual(forwarded - set(self.published), set())
-        self.assertEqual({int(p) for p in devcontainer["portsAttributes"]}, forwarded)
+        self.assertEqual(
+            {int(p) for p in devcontainer["portsAttributes"]}, forwarded
+        )
 
     def test_the_mujoco_ports_say_where_the_viewer_shows(self):
         # The MuJoCo viewer is on noVNC only with VIEWER=glfw, and the web viewer refuses an editor preview, which frames
@@ -527,17 +594,25 @@ class PortsTest(unittest.TestCase):
 
 
 class DisplayTest(unittest.TestCase):
-    def test_compose_the_ide_and_the_vnc_script_use_the_same_single_display(self):
+    def test_compose_the_ide_and_the_vnc_script_use_the_same_single_display(
+        self,
+    ):
         start_vnc = _read(".devcontainer/start_vnc.sh")
         display = re.search(
             r'^VNC_DISPLAY="\$\{VNC_DISPLAY:-(:\d+)\}"$', start_vnc, re.M
         )
         assert display is not None
         self.assertEqual(len(re.findall(r"\bXvfb \$\{display\}", start_vnc)), 1)
-        self.assertIn('DISPLAY: "%s"' % display.group(1), _read("docker-compose.yaml"))
-        self.assertEqual(_devcontainer()["containerEnv"]["DISPLAY"], display.group(1))
+        self.assertIn(
+            'DISPLAY: "%s"' % display.group(1), _read("docker-compose.yaml")
+        )
+        self.assertEqual(
+            _devcontainer()["containerEnv"]["DISPLAY"], display.group(1)
+        )
 
-    def test_an_argument_that_is_no_resolution_is_refused_before_anything_starts(self):
+    def test_an_argument_that_is_no_resolution_is_refused_before_anything_starts(
+        self,
+    ):
         script = _runfile(".devcontainer/start_vnc.sh")
         for argument in ("1920", "wide"):
             with self.subTest(argument=argument):
@@ -624,19 +699,25 @@ class OpenboxLayoutTest(unittest.TestCase):
                 self.assertEqual(g["gui_y"] + g["gui_h"], g["pane_h"])
 
     def test_the_rules_place_the_three_windows_of_the_display(self):
-        rules = self.layout.RULE_TEMPLATE.format(**self.layout.layout(1920, 1080))
+        rules = self.layout.RULE_TEMPLATE.format(
+            **self.layout.layout(1920, 1080)
+        )
         titles = re.findall(r'<application title="\*([^*"]+)\*"', rules)
         self.assertEqual(titles, ["Rerun", "Robot Base Controller", "Mujoco"])
         self.assertNotRegex(rules.lower(), r"rviz|plotjuggler")
 
     def test_a_malformed_resolution_falls_back_to_the_default(self):
-        self.assertEqual(self.layout.parse_resolution("2560x1440"), (2560, 1440))
+        self.assertEqual(
+            self.layout.parse_resolution("2560x1440"), (2560, 1440)
+        )
         default = (self.layout.DEFAULT_WIDTH, self.layout.DEFAULT_HEIGHT)
         for value in ("", "plotjuggler", "1920x1080x24", "x"):
             with self.subTest(value=value):
                 self.assertEqual(self.layout.parse_resolution(value), default)
 
-    def _run_main(self, rc_xml: str, resolution: str = "1920x1080") -> tuple[int, str]:
+    def _run_main(
+        self, rc_xml: str, resolution: str = "1920x1080"
+    ) -> tuple[int, str]:
         """Runs openbox_layout.main() on `rc_xml` in a scratch HOME; its exit status and the rewritten rc.xml."""
         with tempfile.TemporaryDirectory() as home:
             rc_path = os.path.join(home, ".config", "openbox", "rc.xml")
@@ -644,10 +725,12 @@ class OpenboxLayoutTest(unittest.TestCase):
             with open(rc_path, "w", encoding="utf-8") as f:
                 f.write(rc_xml)
             output = io.StringIO()
-            with mock.patch.dict(os.environ, {"HOME": home, "RESOLUTION": resolution}):
-                with contextlib.redirect_stdout(output), contextlib.redirect_stderr(
+            with mock.patch.dict(
+                os.environ, {"HOME": home, "RESOLUTION": resolution}
+            ):
+                with contextlib.redirect_stdout(
                     output
-                ):
+                ), contextlib.redirect_stderr(output):
                     status = self.layout.main()
             with open(rc_path, encoding="utf-8") as f:
                 return status, f.read()

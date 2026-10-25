@@ -122,7 +122,11 @@ def rotation_about_axis(axis: np.ndarray, angle: float) -> np.ndarray:
     """Rodrigues' formula: the rotation by `angle` about the unit vector `axis`."""
     x, y, z = axis
     skew = np.array([[0.0, -z, y], [z, 0.0, -x], [-y, x, 0.0]])
-    return np.eye(3) + math.sin(angle) * skew + (1.0 - math.cos(angle)) * (skew @ skew)
+    return (
+        np.eye(3)
+        + math.sin(angle) * skew
+        + (1.0 - math.cos(angle)) * (skew @ skew)
+    )
 
 
 def quaternion_from_rotation(rotation: np.ndarray) -> QuaternionXyzw:
@@ -167,7 +171,11 @@ class KinematicTree:
     """
 
     def __init__(
-        self, name: str, links: Sequence[str], joints: Sequence[Joint], source: str
+        self,
+        name: str,
+        links: Sequence[str],
+        joints: Sequence[Joint],
+        source: str,
     ) -> None:
         self.name = name
         self.links: tuple[str, ...] = tuple(links)
@@ -178,18 +186,20 @@ class KinematicTree:
             for link in (joint.parent, joint.child):
                 if link not in known:
                     raise urdf_model.UrdfError(
-                        f"{source}: joint '{joint.name}' names the unknown link '{link}'"
+                        f"{source}: joint '{joint.name}' names the unknown link"
+                        f" '{link}'"
                     )
             if joint.child in parent_joint:
                 raise urdf_model.UrdfError(
-                    f"{source}: link '{joint.child}' is the child of joints '{parent_joint[joint.child].name}' and "
-                    f"'{joint.name}'"
+                    f"{source}: link '{joint.child}' is the child of joints"
+                    f" '{parent_joint[joint.child].name}' and '{joint.name}'"
                 )
             parent_joint[joint.child] = joint
         roots = [link for link in self.links if link not in parent_joint]
         if len(roots) != 1:
             raise urdf_model.UrdfError(
-                f"{source}: the links must form one tree; the links without a parent are {roots}"
+                f"{source}: the links must form one tree; the links without a"
+                f" parent are {roots}"
             )
         self.root_link = roots[0]
         children: dict[str, list[Joint]] = {link: [] for link in self.links}
@@ -211,13 +221,16 @@ class KinematicTree:
                 followed = by_name.get(joint.mimic.joint)
                 if followed is None or not followed.movable:
                     raise urdf_model.UrdfError(
-                        f"{source}: joint '{joint.name}' mimics '{joint.mimic.joint}', which is no movable joint"
+                        f"{source}: joint '{joint.name}' mimics"
+                        f" '{joint.mimic.joint}', which is no movable joint"
                     )
 
     def movable_joints(self) -> tuple[Joint, ...]:
         """The joints an operator sets: movable and not mimicking another, in document order."""
         return tuple(
-            joint for joint in self.joints if joint.movable and joint.mimic is None
+            joint
+            for joint in self.joints
+            if joint.movable and joint.mimic is None
         )
 
     def nominal_positions(self) -> dict[str, float]:
@@ -241,9 +254,12 @@ class KinematicTree:
             if joint.mimic is not None:
                 followed = by_name[joint.mimic.joint]
                 return (
-                    joint.mimic.multiplier * position_of(followed) + joint.mimic.offset
+                    joint.mimic.multiplier * position_of(followed)
+                    + joint.mimic.offset
                 )
-            return joint.clamp(float(positions.get(joint.name, nominal[joint.name])))
+            return joint.clamp(
+                float(positions.get(joint.name, nominal[joint.name]))
+            )
 
         rotations: dict[str, np.ndarray] = {self.root_link: np.eye(3)}
         translations: dict[str, np.ndarray] = {self.root_link: np.zeros(3)}
@@ -258,7 +274,9 @@ class KinematicTree:
                     joint.axis, position_of(joint)
                 )
             elif joint.type in PRISMATIC_TYPES:
-                translation = translation + rotation @ (joint.axis * position_of(joint))
+                translation = translation + rotation @ (
+                    joint.axis * position_of(joint)
+                )
             rotations[joint.child] = rotation
             translations[joint.child] = translation
         return {
@@ -287,7 +305,8 @@ def _floats(
         values = np.array([])
     if values.shape != (len(default),) or not np.all(np.isfinite(values)):
         raise urdf_model.UrdfError(
-            f'{source}: {where}: {attribute}="{text}" is not {len(default)} numbers'
+            f'{source}: {where}: {attribute}="{text}" is not'
+            f" {len(default)} numbers"
         )
     return values
 
@@ -304,7 +323,8 @@ def _optional_float(
         value = math.nan
     if not math.isfinite(value):
         raise urdf_model.UrdfError(
-            f'{source}: {where}: {attribute}="{element.get(attribute)}" is not a number'
+            f'{source}: {where}: {attribute}="{element.get(attribute)}" is not'
+            " a number"
         )
     return value
 
@@ -327,7 +347,8 @@ def parse_kinematic_tree(text: str, source: str) -> KinematicTree:
         joint_type = element.get("type", "")
         if joint_type not in _KNOWN_TYPES:
             raise urdf_model.UrdfError(
-                f"{source}: {where}: unknown type '{joint_type}'; the types are {', '.join(_KNOWN_TYPES)}"
+                f"{source}: {where}: unknown type '{joint_type}'; the types are"
+                f" {', '.join(_KNOWN_TYPES)}"
             )
         parent = element.find("parent")
         child = element.find("child")
@@ -338,7 +359,9 @@ def parse_kinematic_tree(text: str, source: str) -> KinematicTree:
         origin = element.find("origin")
         translation = _floats(origin, "xyz", (0.0, 0.0, 0.0), where, source)
         rpy = _floats(origin, "rpy", (0.0, 0.0, 0.0), where, source)
-        axis = _floats(element.find("axis"), "xyz", (1.0, 0.0, 0.0), where, source)
+        axis = _floats(
+            element.find("axis"), "xyz", (1.0, 0.0, 0.0), where, source
+        )
         norm = float(np.linalg.norm(axis))
         if joint_type in MOVABLE_TYPES and norm == 0.0:
             raise urdf_model.UrdfError(f"{source}: {where}: the axis is zero")
@@ -350,7 +373,9 @@ def parse_kinematic_tree(text: str, source: str) -> KinematicTree:
         mimic_element = element.find("mimic")
         mimic = None
         if mimic_element is not None:
-            multiplier = _optional_float(mimic_element, "multiplier", where, source)
+            multiplier = _optional_float(
+                mimic_element, "multiplier", where, source
+            )
             offset = _optional_float(mimic_element, "offset", where, source)
             mimic = Mimic(
                 joint=mimic_element.get("joint", ""),

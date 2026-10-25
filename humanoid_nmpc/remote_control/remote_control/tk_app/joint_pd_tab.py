@@ -82,14 +82,21 @@ def classify_joint_section(joint_name: str) -> str:
     name_lower = joint_name.lower()
     if re.search(r"waist|spine|torso|back", name_lower):
         return "Torso & Spine"
-    if re.search(r"left.*leg|l_leg|left.*hip|left.*knee|left.*ankle", name_lower):
+    if re.search(
+        r"left.*leg|l_leg|left.*hip|left.*knee|left.*ankle", name_lower
+    ):
         return "Left Leg"
-    if re.search(r"right.*leg|r_leg|right.*hip|right.*knee|right.*ankle", name_lower):
+    if re.search(
+        r"right.*leg|r_leg|right.*hip|right.*knee|right.*ankle", name_lower
+    ):
         return "Right Leg"
-    if re.search(r"left.*arm|l_arm|left.*shoulder|left.*elbow|left.*wrist", name_lower):
+    if re.search(
+        r"left.*arm|l_arm|left.*shoulder|left.*elbow|left.*wrist", name_lower
+    ):
         return "Left Arm"
     if re.search(
-        r"right.*arm|r_arm|right.*shoulder|right.*elbow|right.*wrist", name_lower
+        r"right.*arm|r_arm|right.*shoulder|right.*elbow|right.*wrist",
+        name_lower,
     ):
         return "Right Arm"
     if re.search(r"neck|head", name_lower):
@@ -106,7 +113,10 @@ def section_of(spec: config_schema.ParameterSpec) -> str:
 
 def _disabled_banner(reason: str) -> str:
     """The banner of a tab whose online tuning is off, for `reason` (empty: the task file's enable_online_tuning)."""
-    return f"🔒 Online Tuning Disabled ({reason or 'enable_online_tuning: false in the task file'})"
+    return (
+        "🔒 Online Tuning Disabled"
+        f" ({reason or 'enable_online_tuning: false in the task file'})"
+    )
 
 
 class JointPdGainsTab(ttk.Frame):
@@ -174,7 +184,9 @@ class JointPdGainsTab(ttk.Frame):
         self.scroll_container = scrollable_frame.ScrollableFrame(
             self, bg_color="#2c2c2c"
         )
-        self.scroll_container.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        self.scroll_container.pack(
+            fill="both", expand=True, padx=10, pady=(0, 10)
+        )
 
         # A file given that is not there is reported, never replaced by another robot's: the fallback is for none.
         if self.pd_gains_file:
@@ -189,9 +201,9 @@ class JointPdGainsTab(ttk.Frame):
         toolbar = ttk.Frame(self)
         toolbar.pack(fill="x", padx=10, pady=(10, 5))
 
-        ttk.Label(toolbar, text="Robot Preset:", font=("Helvetica", 9, "bold")).pack(
-            side="left", padx=(0, 4)
-        )
+        ttk.Label(
+            toolbar, text="Robot Preset:", font=("Helvetica", 9, "bold")
+        ).pack(side="left", padx=(0, 4))
         self.preset_var = tk.StringVar(value="Select Preset...")
         preset_cb = ttk.Combobox(
             toolbar,
@@ -208,10 +220,14 @@ class JointPdGainsTab(ttk.Frame):
         path_entry = ttk.Entry(toolbar, textvariable=self.path_var, width=32)
         path_entry.pack(side="left", fill="x", expand=True, padx=(0, 4))
 
-        browse_btn = ttk.Button(toolbar, text="Browse...", command=self._browse_file)
+        browse_btn = ttk.Button(
+            toolbar, text="Browse...", command=self._browse_file
+        )
         browse_btn.pack(side="left", padx=2)
 
-        reload_btn = ttk.Button(toolbar, text="⟳ Reload", command=self.reload_file)
+        reload_btn = ttk.Button(
+            toolbar, text="⟳ Reload", command=self.reload_file
+        )
         reload_btn.pack(side="left", padx=2)
 
         self.reset_btn = ttk.Button(
@@ -243,21 +259,28 @@ class JointPdGainsTab(ttk.Frame):
 
     def _build_global_scale_ui(self) -> None:
         """The buttons that scale every joint's Kp or Kd by one factor."""
-        scale_frame = ttk.LabelFrame(self, text="⚡ Global Quick Scaling (All Joints)")
+        scale_frame = ttk.LabelFrame(
+            self, text="⚡ Global Quick Scaling (All Joints)"
+        )
         scale_frame.pack(fill="x", padx=10, pady=(0, 6))
         btn_state = "normal" if self.enable_online_tuning else "disabled"
-        for field_name, title in ((KP_FIELD, "Scale Kp:"), (KD_FIELD, "Scale Kd:")):
+        for field_name, title in (
+            (KP_FIELD, "Scale Kp:"),
+            (KD_FIELD, "Scale Kd:"),
+        ):
             row = ttk.Frame(scale_frame)
             row.pack(fill="x", padx=6, pady=3)
-            ttk.Label(row, text=title, font=("Helvetica", 9, "bold"), width=10).pack(
-                side="left"
-            )
+            ttk.Label(
+                row, text=title, font=("Helvetica", 9, "bold"), width=10
+            ).pack(side="left")
             for factor in SCALE_FACTORS:
                 btn = ttk.Button(
                     row,
                     text=f"{factor}x",
                     width=6,
-                    command=functools.partial(self._scale_all, field_name, factor),
+                    command=functools.partial(
+                        self._scale_all, field_name, factor
+                    ),
                     state=btn_state,
                 )
                 btn.pack(side="left", padx=2)
@@ -268,9 +291,9 @@ class JointPdGainsTab(ttk.Frame):
         search_frame = ttk.Frame(self)
         search_frame.pack(fill="x", padx=10, pady=(0, 6))
 
-        ttk.Label(search_frame, text="🔍 Filter:", font=("Helvetica", 9, "bold")).pack(
-            side="left", padx=(0, 4)
-        )
+        ttk.Label(
+            search_frame, text="🔍 Filter:", font=("Helvetica", 9, "bold")
+        ).pack(side="left", padx=(0, 4))
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", self._on_search_filter)
         search_entry = ttk.Entry(
@@ -281,7 +304,10 @@ class JointPdGainsTab(ttk.Frame):
         search_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
 
         clear_btn = ttk.Button(
-            search_frame, text="Clear", width=6, command=lambda: self.search_var.set("")
+            search_frame,
+            text="Clear",
+            width=6,
+            command=lambda: self.search_var.set(""),
         )
         clear_btn.pack(side="left")
 
@@ -307,7 +333,10 @@ class JointPdGainsTab(ttk.Frame):
     def _browse_file(self) -> None:
         selected = filedialog.askopenfilename(
             title="Select joint_pd_gains.textproto",
-            filetypes=[("Textproto files", "*.textproto"), ("All files", "*.*")],
+            filetypes=[
+                ("Textproto files", "*.textproto"),
+                ("All files", "*.*"),
+            ],
         )
         if selected:
             self.load_file(selected)
@@ -323,7 +352,9 @@ class JointPdGainsTab(ttk.Frame):
         except (OSError, tuned_file.TunedFileError) as error:
             self.gains = None
             self._populate_rows()
-            self._show_status(f"Cannot load {self.pd_gains_file}: {error}", error=True)
+            self._show_status(
+                f"Cannot load {self.pd_gains_file}: {error}", error=True
+            )
             return
         self._populate_rows()
         self._show_status(f"Loaded: {os.path.basename(self.pd_gains_file)}")
@@ -347,7 +378,11 @@ class JointPdGainsTab(ttk.Frame):
         for section in (DEFAULT_GAINS_SECTION, *SECTION_ORDER):
             self.section_frames[section] = ttk.LabelFrame(
                 self.scroll_container.scrollable_content,
-                text=section if section == DEFAULT_GAINS_SECTION else f"• {section}",
+                text=(
+                    section
+                    if section == DEFAULT_GAINS_SECTION
+                    else f"• {section}"
+                ),
             )
         for spec in self.gains.rendered():
             row = parameter_rows.make_row(
@@ -370,7 +405,9 @@ class JointPdGainsTab(ttk.Frame):
             for row in self.slider_rows.values():
                 row.set_state("disabled")
 
-    def set_online_tuning_enabled(self, enabled: bool, reason: str = "") -> None:
+    def set_online_tuning_enabled(
+        self, enabled: bool, reason: str = ""
+    ) -> None:
         """Enables or disables online tuning; `reason` is why it is off, for the banner (empty: the task file says so)."""
         self.enable_online_tuning = bool(enabled)
         state = "normal" if self.enable_online_tuning else "disabled"
@@ -477,7 +514,8 @@ class JointPdGainsTab(ttk.Frame):
         self._populate_rows()
         self._on_search_filter()
         self._show_status(
-            "The file changed on disk: its values were taken, and your changes kept."
+            "The file changed on disk: its values were taken, and your changes"
+            " kept."
         )
         return True
 
@@ -491,7 +529,9 @@ class JointPdGainsTab(ttk.Frame):
             if gains is not None and self.gains is not None:
                 update = operator_bus.joint_pd_gains_update(
                     gains,
-                    config_path=robot_config_save.config_path_of(self.gains.path),
+                    config_path=robot_config_save.config_path_of(
+                        self.gains.path
+                    ),
                 )
                 self.param_publisher.publish(update)
         except tuned_file.TunedFileError as error:
@@ -544,7 +584,9 @@ class JointPdGainsTab(ttk.Frame):
         color = "#e74c3c" if error else "#27ae60"
         self.status_label.configure(text=msg, foreground=color)
         if transient:
-            self._status_clear_id = self.after(_STATUS_DISPLAY_MS, self._clear_status)
+            self._status_clear_id = self.after(
+                _STATUS_DISPLAY_MS, self._clear_status
+            )
 
     def _clear_status(self) -> None:
         self._status_clear_id = None

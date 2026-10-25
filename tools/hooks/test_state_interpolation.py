@@ -38,7 +38,9 @@ _PATH = "humanoid_nmpc/humanoid_common_mpc/src/reference_manager/SwitchedModelRe
 def _found(source: str, path: str = _PATH) -> list[tuple[int, int]]:
     return [
         (f.line, f.column)
-        for f in check_test_support.findings(state_interpolation.NAME, source, path)
+        for f in check_test_support.findings(
+            state_interpolation.NAME, source, path
+        )
     ]
 
 
@@ -51,13 +53,16 @@ class GetDesiredStateTest(unittest.TestCase):
         )
         self.assertEqual(_found(source), [(1, 39), (2, 29)])
 
-    def test_the_robot_models_and_the_reference_managers_overloads_are_not(self):
+    def test_the_robot_models_and_the_reference_managers_overloads_are_not(
+        self,
+    ):
         source = (
-            "const vector_t a = model.getDesiredState(targetTrajectories, time);\n"
-            "const vector_t b = referenceManager->getDesiredState(targets, state, time);\n"
-            "vector_t getDesiredState(scalar_t time) const;\n"
-            "const vector_t c = targets.getDesiredInput(time);\n"
-            "// targets.getDesiredState(time) interpolates linearly.\n"
+            "const vector_t a = model.getDesiredState(targetTrajectories,"
+            " time);\nconst vector_t b ="
+            " referenceManager->getDesiredState(targets, state,"
+            " time);\nvector_t getDesiredState(scalar_t time) const;\nconst"
+            " vector_t c = targets.getDesiredInput(time);\n//"
+            " targets.getDesiredState(time) interpolates linearly.\n"
         )
         self.assertEqual(_found(source), [])
 
@@ -65,16 +70,19 @@ class GetDesiredStateTest(unittest.TestCase):
 class LinearInterpolationTest(unittest.TestCase):
     def test_an_interpolation_of_states_is_flagged(self):
         source = (
-            "const vector_t a = LinearInterpolation::interpolate(time, timeTrajectory, stateTrajectory);\n"
-            "x = ocs2::LinearInterpolation::interpolate(t, plan.time, plan.state);\n"
+            "const vector_t a = LinearInterpolation::interpolate(time,"
+            " timeTrajectory, stateTrajectory);\nx ="
+            " ocs2::LinearInterpolation::interpolate(t, plan.time,"
+            " plan.state);\n"
         )
         self.assertEqual(_found(source), [(1, 20), (2, 11)])
 
     def test_an_interpolation_of_inputs_is_not(self):
         source = (
-            "*input = LinearInterpolation::interpolate(time, plan.time, plan.input);\n"
-            "u = LinearInterpolation::interpolate(time, target.timeTrajectory, target.inputTrajectory);\n"
-            "const scalar_t alpha = LinearInterpolation::timeSegment(time, times).second;\n"
+            "*input = LinearInterpolation::interpolate(time, plan.time,"
+            " plan.input);\nu = LinearInterpolation::interpolate(time,"
+            " target.timeTrajectory, target.inputTrajectory);\nconst scalar_t"
+            " alpha = LinearInterpolation::timeSegment(time, times).second;\n"
         )
         self.assertEqual(_found(source), [])
 
@@ -99,7 +107,10 @@ class LinearInterpolationTest(unittest.TestCase):
         self.assertEqual(_found(source), [])
 
     def test_the_robot_model_headers_and_other_directories_are_not_read(self):
-        source = "const vector_t a = LinearInterpolation::interpolate(time, times, states);\n"
+        source = (
+            "const vector_t a = LinearInterpolation::interpolate(time, times,"
+            " states);\n"
+        )
         for path in (
             "humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/MpcRobotModelBase.h",
             "humanoid_nmpc/humanoid_wb_mpc/include/humanoid_wb_mpc/common/WBAccelMpcRobotModel.h",

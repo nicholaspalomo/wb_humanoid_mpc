@@ -27,8 +27,9 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// The structs nproto generates for the test protos of this directory and their conversions: the type of every kind
-// of field, defaults, equality, round trips, presence, oneofs, maps, and the errors of FromProto().
+// The structs nproto generates for the test protos of this directory and their
+// conversions: the type of every kind of field, defaults, equality, round
+// trips, presence, oneofs, maps, and the errors of FromProto().
 
 #include <cmath>
 #include <cstddef>
@@ -53,6 +54,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "tools/nproto/test/editions.nproto.pb.h"
 #include "tools/nproto/test/empty.nproto.pb.h"
 #include "tools/nproto/test/imports.nproto.pb.h"
+#include "tools/nproto/test/long_names.nproto.pb.h"
 #include "tools/nproto/test/maps.nproto.pb.h"
 #include "tools/nproto/test/oneofs.nproto.pb.h"
 #include "tools/nproto/test/optionals.nproto.pb.h"
@@ -76,11 +78,15 @@ using test_support::ProtoEquals;
 template <typename Member, typename Expected>
 constexpr bool kIs = std::is_same_v<Member, Expected>;
 
-// The option names the struct; the protobuf class of the same message is another type.
-static_assert(std::is_class_v<Scalars> && !std::is_same_v<Scalars, nproto_test::Scalars>);
-static_assert(std::is_class_v<other::Point> && !std::is_same_v<other::Point, nproto_test::other::Point>);
+// The option names the struct; the protobuf class of the same message is
+// another type.
+static_assert(std::is_class_v<Scalars> &&
+              !std::is_same_v<Scalars, nproto_test::Scalars>);
+static_assert(std::is_class_v<other::Point> &&
+              !std::is_same_v<other::Point, nproto_test::other::Point>);
 // Plain data: copyable and movable values.
-static_assert(std::is_copy_constructible_v<RepeatedFields> && std::is_nothrow_move_constructible_v<Scalars>);
+static_assert(std::is_copy_constructible_v<RepeatedFields> &&
+              std::is_nothrow_move_constructible_v<Scalars>);
 
 static_assert(kIs<decltype(Scalars::double_value), double>);
 static_assert(kIs<decltype(Scalars::float_value), float>);
@@ -111,13 +117,17 @@ static_assert(kIs<decltype(RepeatedFields::kinds), std::vector<Outer::Kind>>);
 static_assert(kIs<decltype(RepeatedFields::scalars), std::vector<Scalars>>);
 static_assert(kIs<decltype(RepeatedFields::inners), std::vector<Outer::Inner>>);
 
-static_assert(kIs<decltype(Maps::double_by_name), std::map<std::string, double>>);
+static_assert(
+    kIs<decltype(Maps::double_by_name), std::map<std::string, double>>);
 static_assert(kIs<decltype(Maps::name_by_id), std::map<int32_t, std::string>>);
 static_assert(kIs<decltype(Maps::scalars_by_id), std::map<int64_t, Scalars>>);
-static_assert(kIs<decltype(Maps::severity_by_id), std::map<uint32_t, Severity>>);
-static_assert(kIs<decltype(Maps::inner_by_id), std::map<uint64_t, Outer::Inner>>);
+static_assert(
+    kIs<decltype(Maps::severity_by_id), std::map<uint32_t, Severity>>);
+static_assert(
+    kIs<decltype(Maps::inner_by_id), std::map<uint64_t, Outer::Inner>>);
 static_assert(kIs<decltype(Maps::count_by_flag), std::map<bool, int32_t>>);
-static_assert(kIs<decltype(Maps::kind_by_code), std::map<int64_t, Outer::Kind>>);
+static_assert(
+    kIs<decltype(Maps::kind_by_code), std::map<int64_t, Outer::Kind>>);
 
 // Nested messages by value; nested enums as nested enum classes.
 static_assert(kIs<decltype(Outer::inner), Outer::Inner>);
@@ -127,19 +137,33 @@ static_assert(kIs<decltype(Outer::kind), Outer::Kind>);
 static_assert(kIs<decltype(Imports::point), other::Point>);
 static_assert(kIs<decltype(Imports::frame), other::Point::Frame>);
 static_assert(kIs<decltype(Imports::units), std::vector<other::Unit>>);
-static_assert(kIs<decltype(Imports::point_by_name), std::map<std::string, other::Point>>);
-
-// A oneof is a std::variant whose index 0 means "not set"; alternatives of one type are told apart by index.
 static_assert(
-    kIs<decltype(Oneofs::shape), std::variant<std::monostate, double, double, std::string, Scalars, Severity, Outer::Inner, std::string>>);
-static_assert(kIs<decltype(Oneofs::flag), std::variant<std::monostate, bool, int64_t>>);
-static_assert(Oneofs::kRadiusIndex == 1 && Oneofs::kSideIndex == 2 && Oneofs::kBlobIndex == 7);
+    kIs<decltype(Imports::point_by_name), std::map<std::string, other::Point>>);
+
+// A oneof is a std::variant whose index 0 means "not set"; alternatives of one
+// type are told apart by index.
+static_assert(kIs<decltype(Oneofs::shape),
+                  std::variant<std::monostate,
+                               double,
+                               double,
+                               std::string,
+                               Scalars,
+                               Severity,
+                               Outer::Inner,
+                               std::string>>);
+static_assert(
+    kIs<decltype(Oneofs::flag), std::variant<std::monostate, bool, int64_t>>);
+static_assert(Oneofs::kRadiusIndex == 1 && Oneofs::kSideIndex == 2 &&
+              Oneofs::kBlobIndex == 7);
 static_assert(Oneofs::kEnabledIndex == 1 && Oneofs::kCountIndex == 2);
 
-// Explicit presence: proto3 `optional`, proto2 `optional` without a default, edition 2023 without IMPLICIT.
+// Explicit presence: proto3 `optional`, proto2 `optional` without a default,
+// edition 2023 without IMPLICIT.
 static_assert(kIs<decltype(Optionals::maybe_double), std::optional<double>>);
-static_assert(kIs<decltype(Optionals::maybe_string), std::optional<std::string>>);
-static_assert(kIs<decltype(Optionals::maybe_severity), std::optional<Severity>>);
+static_assert(
+    kIs<decltype(Optionals::maybe_string), std::optional<std::string>>);
+static_assert(
+    kIs<decltype(Optionals::maybe_severity), std::optional<Severity>>);
 static_assert(kIs<decltype(Optionals::maybe_scalars), std::optional<Scalars>>);
 static_assert(kIs<decltype(Optionals::maybe_kind), std::optional<Outer::Kind>>);
 static_assert(kIs<decltype(Optionals::plain_double), double>);
@@ -147,7 +171,8 @@ static_assert(kIs<decltype(Optionals::plain_scalars), Scalars>);
 static_assert(kIs<decltype(Imports::maybe_point), std::optional<other::Point>>);
 static_assert(kIs<decltype(Defaults::count), int32_t>);
 static_assert(kIs<decltype(Defaults::no_default), std::optional<int32_t>>);
-static_assert(kIs<decltype(Defaults::no_default_level), std::optional<Defaults::Level>>);
+static_assert(
+    kIs<decltype(Defaults::no_default_level), std::optional<Defaults::Level>>);
 static_assert(kIs<decltype(Defaults::required_count), int32_t>);
 static_assert(kIs<decltype(Editions::explicit_count), std::optional<int32_t>>);
 static_assert(kIs<decltype(Editions::implicit_count), int32_t>);
@@ -157,18 +182,22 @@ static_assert(kIs<decltype(Editions::scalars), Scalars>);
 // A message field with (nproto.optional_message) keeps its presence.
 static_assert(kIs<decltype(Editions::maybe_scalars), std::optional<Scalars>>);
 // Retired fields are options only: the struct holds the live fields.
-static_assert(kIs<decltype(Retired::step_width), double> && kIs<decltype(Retired::block), Retired::Block>);
+static_assert(kIs<decltype(Retired::step_width), double> &&
+              kIs<decltype(Retired::block), Retired::Block>);
 
 // Members named like types: the generated code names the types fully qualified.
 static_assert(kIs<decltype(Shadowing::Scalars), Scalars>);
 static_assert(kIs<decltype(Shadowing::Outer), Outer::Kind>);
 
 // Enums are scoped, 32-bit, with Google-style enumerators.
-static_assert(std::is_enum_v<Severity> && !std::is_convertible_v<Severity, int>);
+static_assert(std::is_enum_v<Severity> &&
+              !std::is_convertible_v<Severity, int>);
 static_assert(kIs<std::underlying_type_t<Severity>, int32_t>);
-static_assert(static_cast<int>(Severity::kUnspecified) == 0 && static_cast<int>(Severity::kLevel10) == 10);
+static_assert(static_cast<int>(Severity::kUnspecified) == 0 &&
+              static_cast<int>(Severity::kLevel10) == 10);
 static_assert(Severity::kSevere == Severity::kHigh);
-static_assert(static_cast<int>(Outer::Kind::kSwing) == 2 && static_cast<int>(other::Unit::kFoot) == 1);
+static_assert(static_cast<int>(Outer::Kind::kSwing) == 2 &&
+              static_cast<int>(other::Unit::kFoot) == 1);
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Round trips of every message
@@ -183,23 +212,27 @@ struct Conversion {
 template <typename T>
 class RoundTripTest : public ::testing::Test {};
 
-using AllMessages = ::testing::Types<Conversion<Scalars, nproto_test::Scalars>,
-                                     Conversion<Outer, nproto_test::Outer>,
-                                     Conversion<Outer::Inner, nproto_test::Outer_Inner>,
-                                     Conversion<Outer::Inner::Leaf, nproto_test::Outer_Inner_Leaf>,
-                                     Conversion<Outer::Later, nproto_test::Outer_Later>,
-                                     Conversion<RepeatedFields, nproto_test::RepeatedFields>,
-                                     Conversion<Maps, nproto_test::Maps>,
-                                     Conversion<Oneofs, nproto_test::Oneofs>,
-                                     Conversion<Optionals, nproto_test::Optionals>,
-                                     Conversion<Defaults, nproto_test::Defaults>,
-                                     Conversion<Editions, nproto_test::Editions>,
-                                     Conversion<Imports, nproto_test::Imports>,
-                                     Conversion<Empty, nproto_test::Empty>,
-                                     Conversion<Shadowing, nproto_test::Shadowing>,
-                                     Conversion<Retired, nproto_test::Retired>,
-                                     Conversion<Retired::Block, nproto_test::Retired_Block>,
-                                     Conversion<other::Point, nproto_test::other::Point>>;
+using AllMessages = ::testing::Types<
+    Conversion<Scalars, nproto_test::Scalars>,
+    Conversion<Outer, nproto_test::Outer>,
+    Conversion<Outer::Inner, nproto_test::Outer_Inner>,
+    Conversion<Outer::Inner::Leaf, nproto_test::Outer_Inner_Leaf>,
+    Conversion<Outer::Later, nproto_test::Outer_Later>,
+    Conversion<RepeatedFields, nproto_test::RepeatedFields>,
+    Conversion<Maps, nproto_test::Maps>,
+    Conversion<Oneofs, nproto_test::Oneofs>,
+    Conversion<Optionals, nproto_test::Optionals>,
+    Conversion<Defaults, nproto_test::Defaults>,
+    Conversion<Editions, nproto_test::Editions>,
+    Conversion<Imports, nproto_test::Imports>,
+    Conversion<Empty, nproto_test::Empty>,
+    Conversion<Shadowing, nproto_test::Shadowing>,
+    Conversion<Retired, nproto_test::Retired>,
+    Conversion<Retired::Block, nproto_test::Retired_Block>,
+    Conversion<LongNames, nproto_test::LongNames>,
+    Conversion<LongNames::SwingTrajectoryParametersOfTheFoot,
+               nproto_test::LongNames_SwingTrajectoryParametersOfTheFoot>,
+    Conversion<other::Point, nproto_test::other::Point>>;
 TYPED_TEST_SUITE(RoundTripTest, AllMessages);
 
 TYPED_TEST(RoundTripTest, ConvertsBothWaysWithoutLosingAnything) {
@@ -210,7 +243,9 @@ TYPED_TEST(RoundTripTest, ConvertsBothWaysWithoutLosingAnything) {
 TEST(RoundTripTest, EveryOneofAlternativeRoundTrips) {
   for (int choice = 0; choice < 7; ++choice) {
     nproto_test::Oneofs proto;
-    test_support::FillWithTestValues(test_support::TestValueOptions{.seed = 2, .oneofChoice = choice}, &proto);
+    test_support::FillWithTestValues(
+        test_support::TestValueOptions{.seed = 2, .oneofChoice = choice},
+        &proto);
     Oneofs value;
     ASSERT_TRUE(FromProto(proto, &value).ok());
     EXPECT_EQ(value.shape.index(), static_cast<size_t>(choice) + 1);
@@ -354,7 +389,8 @@ TEST(PresenceTest, OptionalFieldsKeepPresenceBothWays) {
   EXPECT_FALSE(back.has_maybe_int32()) << "an absent member clears the field";
   EXPECT_FALSE(back.has_maybe_kind());
 
-  // proto3 fields without `optional` and edition 2023 IMPLICIT fields have no presence of their own.
+  // proto3 fields without `optional` and edition 2023 IMPLICIT fields have no
+  // presence of their own.
   nproto_test::Editions editions;
   editions.set_explicit_count(0);
   Editions fromEditions;
@@ -371,9 +407,11 @@ TEST(PresenceTest, AnOptionalMessageFieldKeepsPresenceBothWays) {
   nproto_test::Editions proto;
   Editions value;
   ASSERT_TRUE(FromProto(proto, &value).ok());
-  EXPECT_FALSE(value.maybe_scalars.has_value()) << "absent is std::nullopt, not a default struct";
+  EXPECT_FALSE(value.maybe_scalars.has_value())
+      << "absent is std::nullopt, not a default struct";
 
-  // Present with every field at its default: a default struct, which is not std::nullopt.
+  // Present with every field at its default: a default struct, which is not
+  // std::nullopt.
   proto.mutable_maybe_scalars();
   ASSERT_TRUE(FromProto(proto, &value).ok());
   EXPECT_TRUE(value.maybe_scalars == std::optional<Scalars>(Scalars{}));
@@ -388,7 +426,8 @@ TEST(PresenceTest, AnOptionalMessageFieldKeepsPresenceBothWays) {
   value.maybe_scalars.reset();
   ToProto(value, &back);
   EXPECT_FALSE(back.has_maybe_scalars()) << "std::nullopt clears the field";
-  // The plain message field beside it keeps no presence: ToProto() always sets it.
+  // The plain message field beside it keeps no presence: ToProto() always sets
+  // it.
   EXPECT_TRUE(back.has_scalars());
 }
 
@@ -407,7 +446,8 @@ TEST(OneofTest, TheVariantFollowsTheSetAlternative) {
   proto.mutable_inner()->set_kind(nproto_test::Outer_Kind_KIND_SWING);
   ASSERT_TRUE(FromProto(proto, &value).ok());
   ASSERT_EQ(value.shape.index(), Oneofs::kInnerIndex);
-  EXPECT_EQ(std::get<Oneofs::kInnerIndex>(value.shape).kind, Outer::Kind::kSwing);
+  EXPECT_EQ(std::get<Oneofs::kInnerIndex>(value.shape).kind,
+            Outer::Kind::kSwing);
   value.shape.emplace<Oneofs::kLabelIndex>("label");
   ToProto(value, &proto);
   EXPECT_EQ(proto.shape_case(), nproto_test::Oneofs::kLabel);
@@ -430,19 +470,22 @@ TEST(MapTest, MapsAreInKeyOrderAndFollowTheMessage) {
   Maps value;
   ASSERT_TRUE(FromProto(proto, &value).ok());
   std::vector<std::string> keys;
-  for (const std::pair<const std::string, double>& entry : value.double_by_name) {
+  for (const std::pair<const std::string, double>& entry :
+       value.double_by_name) {
     keys.push_back(entry.first);
   }
   EXPECT_EQ(keys, (std::vector<std::string>{"a", "b", "c"}));
 
-  // The same keys update the map in place; other keys replace it, stale keys included.
+  // The same keys update the map in place; other keys replace it, stale keys
+  // included.
   (*proto.mutable_double_by_name())["a"] = 10.0;
   ASSERT_TRUE(FromProto(proto, &value).ok());
   EXPECT_EQ(value.double_by_name.at("a"), 10.0);
   proto.mutable_double_by_name()->erase("b");
   (*proto.mutable_double_by_name())["d"] = 4.0;
   ASSERT_TRUE(FromProto(proto, &value).ok());
-  EXPECT_EQ(value.double_by_name, (std::map<std::string, double>{{"a", 10.0}, {"c", 3.0}, {"d", 4.0}}));
+  EXPECT_EQ(value.double_by_name, (std::map<std::string, double>{
+                                      {"a", 10.0}, {"c", 3.0}, {"d", 4.0}}));
 
   value.double_by_name.erase("d");
   value.double_by_name["e"] = 5.0;
@@ -484,7 +527,8 @@ TEST(RepeatedTest, ShorterAndLongerValuesResizeTheMessage) {
 // ---------------------------------------------------------------------------------------------------------------------
 
 TEST(EnumTest, EveryValueConvertsBothWays) {
-  for (const Severity severity : {Severity::kUnspecified, Severity::kLow, Severity::kHigh, Severity::kLevel10}) {
+  for (const Severity severity : {Severity::kUnspecified, Severity::kLow,
+                                  Severity::kHigh, Severity::kLevel10}) {
     nproto_test::Severity proto = nproto_test::SEVERITY_UNSPECIFIED;
     ToProto(severity, &proto);
     EXPECT_EQ(static_cast<int>(proto), static_cast<int>(severity));
@@ -500,7 +544,8 @@ TEST(EnumTest, EveryValueConvertsBothWays) {
 
 TEST(EnumTest, AnUndefinedNumberIsAnError) {
   Severity value = Severity::kLow;
-  const absl::Status status = FromProto(static_cast<nproto_test::Severity>(99), &value);
+  const absl::Status status =
+      FromProto(static_cast<nproto_test::Severity>(99), &value);
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_EQ(status.message(), "99 is not a value of nproto_test.Severity");
 }
@@ -516,45 +561,59 @@ TEST(ErrorTest, ErrorsNameTheFieldPath) {
     nproto_test::Oneofs proto;
     proto.set_severity(static_cast<nproto_test::Severity>(99));
     Oneofs value;
-    expectError(FromProto(proto, &value), "severity: 99 is not a value of nproto_test.Severity");
+    expectError(FromProto(proto, &value),
+                "severity: 99 is not a value of nproto_test.Severity");
   }
   {
     nproto_test::RepeatedFields proto;
     proto.add_severities(nproto_test::SEVERITY_LOW);
     proto.add_severities(static_cast<nproto_test::Severity>(42));
     RepeatedFields value;
-    expectError(FromProto(proto, &value), "severities[1]: 42 is not a value of nproto_test.Severity");
+    expectError(FromProto(proto, &value),
+                "severities[1]: 42 is not a value of nproto_test.Severity");
   }
   {
     nproto_test::RepeatedFields proto;
     proto.add_inners();
-    proto.add_inners()->mutable_leaf()->set_kind(static_cast<nproto_test::Outer_Kind>(5));
+    proto.add_inners()->mutable_leaf()->set_kind(
+        static_cast<nproto_test::Outer_Kind>(5));
     RepeatedFields value;
-    expectError(FromProto(proto, &value), "inners[1].leaf.kind: 5 is not a value of nproto_test.Outer.Kind");
+    expectError(
+        FromProto(proto, &value),
+        "inners[1].leaf.kind: 5 is not a value of nproto_test.Outer.Kind");
   }
   {
     nproto_test::Maps proto;
-    (*proto.mutable_severity_by_id())[7] = static_cast<nproto_test::Severity>(13);
+    (*proto.mutable_severity_by_id())[7] =
+        static_cast<nproto_test::Severity>(13);
     Maps value;
-    expectError(FromProto(proto, &value), "severity_by_id[7]: 13 is not a value of nproto_test.Severity");
+    expectError(FromProto(proto, &value),
+                "severity_by_id[7]: 13 is not a value of nproto_test.Severity");
   }
   {
     nproto_test::Outer proto;
-    (*proto.mutable_inner_by_name())["a b"].set_kind(static_cast<nproto_test::Outer_Kind>(9));
+    (*proto.mutable_inner_by_name())["a b"].set_kind(
+        static_cast<nproto_test::Outer_Kind>(9));
     Outer value;
-    expectError(FromProto(proto, &value), "inner_by_name[\"a b\"].kind: 9 is not a value of nproto_test.Outer.Kind");
+    expectError(FromProto(proto, &value),
+                "inner_by_name[\"a b\"].kind: 9 is not a value of "
+                "nproto_test.Outer.Kind");
   }
   {
     nproto_test::Optionals proto;
     proto.set_maybe_kind(static_cast<nproto_test::Outer_Kind>(8));
     Optionals value;
-    expectError(FromProto(proto, &value), "maybe_kind: 8 is not a value of nproto_test.Outer.Kind");
+    expectError(FromProto(proto, &value),
+                "maybe_kind: 8 is not a value of nproto_test.Outer.Kind");
   }
   {
     nproto_test::Imports proto;
-    proto.add_points()->set_frame(static_cast<nproto_test::other::Point_Frame>(3));
+    proto.add_points()->set_frame(
+        static_cast<nproto_test::other::Point_Frame>(3));
     Imports value;
-    expectError(FromProto(proto, &value), "points[0].frame: 3 is not a value of nproto_test.other.Point.Frame");
+    expectError(
+        FromProto(proto, &value),
+        "points[0].frame: 3 is not a value of nproto_test.other.Point.Frame");
   }
 }
 

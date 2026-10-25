@@ -42,43 +42,58 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The command limits and the command shaping of a robot's reference file, checked (ReferenceSettings).
+ * The command limits and the command shaping of a robot's reference file,
+ * checked (ReferenceSettings).
  *
- * The file must give what the MPC cannot do without: target_displacement_velocity, target_rotation_velocity,
- * max_displacement_velocity_x, max_displacement_velocity_y, max_delta_pelvis_height, max_rotation_velocity and
- * default_base_height. target_joint_state_interpolation_time_constant stays absent when the file has none, and the
- * centroidal MPC, which requires it, refuses that. Every value is a finite number (inf and nan are refused); the target
- * velocities, the velocity limits, default_base_height and a given interpolation time constant are positive (each is
- * divided by, or is a height); max_delta_pelvis_height, the bound of a symmetric clamp, is >= 0 (an acceleration limit
- * at 0 or below turns its ramp off); and the command filter's break frequency is >= 0
- * (BreakFrequencyAlphaFilter::validateBreakFrequency()). The reloaders apply a reloaded file through this conversion, so a refused reload
- * keeps the running limits.
+ * The file must give what the MPC cannot do without:
+ * target_displacement_velocity, target_rotation_velocity,
+ * max_displacement_velocity_x, max_displacement_velocity_y,
+ * max_delta_pelvis_height, max_rotation_velocity and default_base_height.
+ * target_joint_state_interpolation_time_constant stays absent when the file has
+ * none, and the centroidal MPC, which requires it, refuses that. Every value is
+ * a finite number (inf and nan are refused); the target velocities, the
+ * velocity limits, default_base_height and a given interpolation time constant
+ * are positive (each is divided by, or is a height); max_delta_pelvis_height,
+ * the bound of a symmetric clamp, is >= 0 (an acceleration limit at 0 or below
+ * turns its ramp off); and the command filter's break frequency is >= 0
+ * (BreakFrequencyAlphaFilter::validateBreakFrequency()). The reloaders apply a
+ * reloaded file through this conversion, so a refused reload keeps the running
+ * limits.
  *
- * @return The settings; InvalidArgument naming the field that is absent or out of range.
+ * @return The settings; InvalidArgument naming the field that is absent or out
+ * of range.
  */
-absl::StatusOr<ReferenceSettings> referenceSettingsFromConfig(const mpc_config::ReferenceFile& file);
+absl::StatusOr<ReferenceSettings> referenceSettingsFromConfig(
+    const mpc_config::ReferenceFile& file);
 
 /**
- * The fields of the reference file that a running MPC applies when the file is reloaded, by their paths: the
- * ReferenceSettings members that TargetTrajectoriesCalculatorBase::applyCommandLimits() and
- * ProceduralMpcMotionManager::applyCommandLimits() apply. The schema marks exactly these RELOAD_HOT (testConfigReload).
+ * The fields of the reference file that a running MPC applies when the file is
+ * reloaded, by their paths: the ReferenceSettings members that
+ * TargetTrajectoriesCalculatorBase::applyCommandLimits() and
+ * ProceduralMpcMotionManager::applyCommandLimits() apply. The schema marks
+ * exactly these RELOAD_HOT (testConfigReload).
  */
 absl::Span<const absl::string_view> hotReferenceFileFields();
 
 /**
- * The joint positions [rad] of the reference file's default posture, in the order of the MPC model's joints.
+ * The joint positions [rad] of the reference file's default posture, in the
+ * order of the MPC model's joints.
  *
- * default_joint_state names every joint of `mpcJointNames` exactly once, in any order: the index of a joint is the
- * model's, never the file's.
+ * default_joint_state names every joint of `mpcJointNames` exactly once, in any
+ * order: the index of a joint is the model's, never the file's.
  *
  * @param file The reference file.
- * @param mpcJointNames The joints of the MPC model in state order (ModelSettings::mpcModelJointNames).
- * @param fixedJointNames The joints the task file fixes (ModelSettings::fixedJointNames), which the posture may not name.
- * @return The posture, one entry per MPC joint; InvalidArgument listing every joint that is missing, named twice, fixed
- *         or not a joint of the model, and naming a value that is not a finite number.
+ * @param mpcJointNames The joints of the MPC model in state order
+ * (ModelSettings::mpcModelJointNames).
+ * @param fixedJointNames The joints the task file fixes
+ * (ModelSettings::fixedJointNames), which the posture may not name.
+ * @return The posture, one entry per MPC joint; InvalidArgument listing every
+ * joint that is missing, named twice, fixed or not a joint of the model, and
+ * naming a value that is not a finite number.
  */
-absl::StatusOr<vector_t> defaultJointStateFromConfig(const mpc_config::ReferenceFile& file,
-                                                     absl::Span<const std::string> mpcJointNames,
-                                                     absl::Span<const std::string> fixedJointNames);
+absl::StatusOr<vector_t> defaultJointStateFromConfig(
+    const mpc_config::ReferenceFile& file,
+    absl::Span<const std::string> mpcJointNames,
+    absl::Span<const std::string> fixedJointNames);
 
 }  // namespace ocs2::humanoid

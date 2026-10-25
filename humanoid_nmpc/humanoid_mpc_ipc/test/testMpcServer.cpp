@@ -27,8 +27,9 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// The MPC side of the network MPC link against a robot the test scripts message by message: which resets the server
-// serves from which observation, what it stamps on the policies, the status after every attempt, the solution window,
+// The MPC side of the network MPC link against a robot the test scripts message
+// by message: which resets the server serves from which observation, what it
+// stamps on the policies, the status after every attempt, the solution window,
 // the hooks, the pacing, the back-off, and its lifecycle.
 
 #include <algorithm>
@@ -73,35 +74,51 @@ using test_support::observationAt;
 using test_support::resetTargetsFor;
 using test_support::waitFor;
 
-/** A robot the test speaks for: it publishes the observations the test makes and records what the server sends. */
+/** A robot the test speaks for: it publishes the observations the test makes
+ * and records what the server sends. */
 class FakeRobot {
  public:
   FakeRobot() : bus_(test_support::createNodeBus("robot")) {
-    CHECK_OK(bus_->subscribe<humanoid_mpc_msgs::MpcPolicy>(topics::kMpcPolicy, robot::ipc::Delivery::kAll,
-                                                           [this](const humanoid_mpc_msgs::MpcPolicy& message) {
-                                                             absl::MutexLock lock(mutex_);
-                                                             policies_.push_back(message);
-                                                           }));
-    CHECK_OK(bus_->subscribe<humanoid_mpc_msgs::MpcStatus>(topics::kMpcStatus, robot::ipc::Delivery::kAll,
-                                                           [this](const humanoid_mpc_msgs::MpcStatus& message) {
-                                                             absl::MutexLock lock(mutex_);
-                                                             statuses_.push_back(message);
-                                                           }));
+    CHECK_OK(bus_->subscribe<humanoid_mpc_msgs::MpcPolicy>(
+        topics::kMpcPolicy, robot::ipc::Delivery::kAll,
+        [this](const humanoid_mpc_msgs::MpcPolicy& message) {
+          absl::MutexLock lock(mutex_);
+          policies_.push_back(message);
+        }));
+    CHECK_OK(bus_->subscribe<humanoid_mpc_msgs::MpcStatus>(
+        topics::kMpcStatus, robot::ipc::Delivery::kAll,
+        [this](const humanoid_mpc_msgs::MpcStatus& message) {
+          absl::MutexLock lock(mutex_);
+          statuses_.push_back(message);
+        }));
   }
 
   robot::ipc::Bus& bus() { return *bus_; }
 
-  /** Publishes the observation at `time` with the given counters, as the next control cycle. */
-  void publish(scalar_t time, uint64_t requested = 0, uint64_t fullRequested = 0, scalar_t value = 1.0) {
+  /** Publishes the observation at `time` with the given counters, as the next
+   * control cycle. */
+  void publish(scalar_t time,
+               uint64_t requested = 0,
+               uint64_t fullRequested = 0,
+               scalar_t value = 1.0) {
     publishWithSequence(++sequence_, time, requested, fullRequested, value);
   }
 
-  void publishWithSequence(uint64_t sequence, scalar_t time, uint64_t requested, uint64_t fullRequested, scalar_t value = 1.0) {
-    publishObservation(sequence, observationAt(time, value), requested, fullRequested);
+  void publishWithSequence(uint64_t sequence,
+                           scalar_t time,
+                           uint64_t requested,
+                           uint64_t fullRequested,
+                           scalar_t value = 1.0) {
+    publishObservation(sequence, observationAt(time, value), requested,
+                       fullRequested);
   }
 
-  /** Publishes `observation` as the next control cycle, with no reset requested. */
-  void publish(const SystemObservation& observation) { publishObservation(++sequence_, observation, /*requested=*/0, /*fullRequested=*/0); }
+  /** Publishes `observation` as the next control cycle, with no reset
+   * requested. */
+  void publish(const SystemObservation& observation) {
+    publishObservation(++sequence_, observation, /*requested=*/0,
+                       /*fullRequested=*/0);
+  }
 
   std::vector<humanoid_mpc_msgs::MpcPolicy> policies() const {
     absl::MutexLock lock(mutex_);
@@ -115,7 +132,8 @@ class FakeRobot {
     absl::MutexLock lock(mutex_);
     return policies_.size();
   }
-  /** The newest policy solved from the observation at `time`, if one has arrived. */
+  /** The newest policy solved from the observation at `time`, if one has
+   * arrived. */
   bool hasPolicyFrom(scalar_t time) const {
     absl::MutexLock lock(mutex_);
     for (const humanoid_mpc_msgs::MpcPolicy& policy : policies_) {
@@ -130,11 +148,17 @@ class FakeRobot {
 
   uint64_t sequence() const { return sequence_; }
 
-  /** The model layout the next observations are stamped with (MpcObservation.model_fingerprint); 0 by default. */
-  void setModelFingerprint(uint64_t fingerprint) { modelFingerprint_ = fingerprint; }
+  /** The model layout the next observations are stamped with
+   * (MpcObservation.model_fingerprint); 0 by default. */
+  void setModelFingerprint(uint64_t fingerprint) {
+    modelFingerprint_ = fingerprint;
+  }
 
  private:
-  void publishObservation(uint64_t sequence, const SystemObservation& observation, uint64_t requested, uint64_t fullRequested) {
+  void publishObservation(uint64_t sequence,
+                          const SystemObservation& observation,
+                          uint64_t requested,
+                          uint64_t fullRequested) {
     humanoid_mpc_msgs::MpcObservation message;
     toProto(observation, message.mutable_observation());
     message.mutable_resets()->set_requested(requested);
@@ -164,11 +188,13 @@ class MpcServerTest : public ::testing::Test {
   void build(MpcServer::Config config = defaultConfig(),
              MpcServer::Hooks hooks = MpcServer::Hooks(),
              const mpc::Settings& settings = test_support::mpcSettings(),
-             MpcServer::ResetTargetTrajectoriesFunction resetTargets = resetTargetsFor) {
+             MpcServer::ResetTargetTrajectoriesFunction resetTargets =
+                 resetTargetsFor) {
     mpc_ = test_support::makeScriptedMpc(settings);
     mpcBus_ = test_support::createNodeBus("mpc");
     absl::StatusOr<std::unique_ptr<MpcServer>> server =
-        MpcServer::Create(mpcBus_.get(), mpc_.get(), std::move(resetTargets), std::move(config), std::move(hooks));
+        MpcServer::Create(mpcBus_.get(), mpc_.get(), std::move(resetTargets),
+                          std::move(config), std::move(hooks));
     CHECK_OK(server.status());
     server_ = std::move(*server);
     CHECK_OK(robot_.bus().start());
@@ -180,14 +206,16 @@ class MpcServerTest : public ::testing::Test {
     if (server_ != nullptr) server_->stop();
   }
 
-  /** Publishes observations at `time` until a policy solved from one has arrived ("slow joiner"). */
+  /** Publishes observations at `time` until a policy solved from one has
+   * arrived ("slow joiner"). */
   void warmUp(scalar_t time = 1.0) {
     ASSERT_TRUE(waitFor([&]() {
       robot_.publish(time);
       absl::SleepFor(absl::Milliseconds(2));
       return robot_.hasPolicyFrom(time);
     }));
-    // Whatever was still being solved has been published once the server has answered every attempt.
+    // Whatever was still being solved has been published once the server has
+    // answered every attempt.
     ASSERT_TRUE(waitFor([&]() {
       const MpcServer::Statistics statistics = server_->statistics();
       return statistics.statusesPublished == statistics.solveAttempts;
@@ -196,9 +224,12 @@ class MpcServerTest : public ::testing::Test {
   }
 
   /** Publishes one observation and waits for the policy solved from it. */
-  humanoid_mpc_msgs::MpcPolicy solveFrom(scalar_t time, uint64_t requested = 0, uint64_t fullRequested = 0) {
+  humanoid_mpc_msgs::MpcPolicy solveFrom(scalar_t time,
+                                         uint64_t requested = 0,
+                                         uint64_t fullRequested = 0) {
     robot_.publish(time, requested, fullRequested);
-    EXPECT_TRUE(waitFor([&]() { return robot_.hasPolicyFrom(time); })) << "no policy from t = " << time;
+    EXPECT_TRUE(waitFor([&]() { return robot_.hasPolicyFrom(time); }))
+        << "no policy from t = " << time;
     return robot_.lastPolicy();
   }
 
@@ -212,54 +243,72 @@ class MpcServerTest : public ::testing::Test {
 // Resets and stamps
 // ---------------------------------------------------------------------------------------------------------------------
 
-TEST_F(MpcServerTest, ThePolicyCarriesTheCountersItServedAndAStatusFollowsEveryAttempt) {
+TEST_F(MpcServerTest,
+       ThePolicyCarriesTheCountersItServedAndAStatusFollowsEveryAttempt) {
   build();
   warmUp();
-  EXPECT_EQ(server_->statistics().fullResets, 1u) << "the start-up reset, before the first solve";
+  EXPECT_EQ(server_->statistics().fullResets, 1u)
+      << "the start-up reset, before the first solve";
 
-  const humanoid_mpc_msgs::MpcPolicy full = solveFrom(/*time=*/1.1, /*requested=*/2, /*fullRequested=*/1);
+  const humanoid_mpc_msgs::MpcPolicy full =
+      solveFrom(/*time=*/1.1, /*requested=*/2, /*fullRequested=*/1);
   EXPECT_EQ(full.resets_served(), 2u);
   EXPECT_EQ(full.full_resets_served(), 1u);
   EXPECT_EQ(server_->statistics().fullResets, 2u);
 
-  const humanoid_mpc_msgs::MpcPolicy solver = solveFrom(/*time=*/1.2, /*requested=*/3, /*fullRequested=*/1);
+  const humanoid_mpc_msgs::MpcPolicy solver =
+      solveFrom(/*time=*/1.2, /*requested=*/3, /*fullRequested=*/1);
   EXPECT_EQ(solver.resets_served(), 3u);
   EXPECT_EQ(solver.full_resets_served(), 1u);
   EXPECT_EQ(server_->statistics().solverResets, 1u);
   EXPECT_EQ(server_->statistics().fullResets, 2u);
 
-  const humanoid_mpc_msgs::MpcPolicy none = solveFrom(/*time=*/1.3, /*requested=*/3, /*fullRequested=*/1);
+  const humanoid_mpc_msgs::MpcPolicy none =
+      solveFrom(/*time=*/1.3, /*requested=*/3, /*fullRequested=*/1);
   EXPECT_EQ(none.resets_served(), 3u);
-  EXPECT_EQ(server_->statistics().solverResets + server_->statistics().fullResets, 3u);
+  EXPECT_EQ(
+      server_->statistics().solverResets + server_->statistics().fullResets,
+      3u);
   EXPECT_TRUE(none.solver_status().healthy());
   EXPECT_EQ(none.solver_status().consecutive_failures(), 0u);
   EXPECT_TRUE(none.solver_status().last_error().empty());
-  EXPECT_GT(none.solver_status().solve_count(), solver.solver_status().solve_count());
+  EXPECT_GT(none.solver_status().solve_count(),
+            solver.solver_status().solve_count());
   EXPECT_EQ(none.init_observation().time(), 1.3);
-  EXPECT_FALSE(none.has_annotations()) << "no annotations provider, no annotations";
+  EXPECT_FALSE(none.has_annotations())
+      << "no annotations provider, no annotations";
 
-  // The targets of a full reset are the caller's, of the observation it reset from.
+  // The targets of a full reset are the caller's, of the observation it reset
+  // from.
   TargetTrajectories targets;
   ASSERT_TRUE(fromProto(full.target_trajectories(), &targets).ok());
-  EXPECT_EQ(targets.timeTrajectory, resetTargetsFor(observationAt(1.1, 1.0)).timeTrajectory);
+  EXPECT_EQ(targets.timeTrajectory,
+            resetTargetsFor(observationAt(1.1, 1.0)).timeTrajectory);
 
-  ASSERT_TRUE(waitFor([&]() { return robot_.statuses().size() >= server_->statistics().solveAttempts; }));
+  ASSERT_TRUE(waitFor([&]() {
+    return robot_.statuses().size() >= server_->statistics().solveAttempts;
+  }));
   const std::vector<humanoid_mpc_msgs::MpcStatus> statuses = robot_.statuses();
   const humanoid_mpc_msgs::MpcStatus& last = statuses.back();
   EXPECT_EQ(last.observation_time(), 1.3);
   EXPECT_EQ(last.resets_served(), 3u);
   EXPECT_EQ(last.full_resets_served(), 1u);
-  EXPECT_EQ(last.solver_status().solve_count(), none.solver_status().solve_count());
-  // One server instance, nonzero, on everything it publishes: the robot tells a restarted node by it.
+  EXPECT_EQ(last.solver_status().solve_count(),
+            none.solver_status().solve_count());
+  // One server instance, nonzero, on everything it publishes: the robot tells a
+  // restarted node by it.
   EXPECT_NE(server_->serverInstance(), 0u);
   for (const humanoid_mpc_msgs::MpcPolicy& policy : {full, solver, none}) {
-    EXPECT_EQ(policy.solver_status().server_instance(), server_->serverInstance());
+    EXPECT_EQ(policy.solver_status().server_instance(),
+              server_->serverInstance());
   }
   for (const humanoid_mpc_msgs::MpcStatus& status : statuses) {
-    EXPECT_EQ(status.solver_status().server_instance(), server_->serverInstance());
+    EXPECT_EQ(status.solver_status().server_instance(),
+              server_->serverInstance());
   }
   uint64_t received = 0;
-  for (const humanoid_mpc_msgs::MpcStatus& status : statuses) received += status.observations_received();
+  for (const humanoid_mpc_msgs::MpcStatus& status : statuses)
+    received += status.observations_received();
   EXPECT_LE(received, server_->statistics().observationsReceived);
 }
 
@@ -271,17 +320,20 @@ TEST_F(MpcServerTest, ARestartedRobotProcessGetsAFullReset) {
   EXPECT_EQ(before.robotSessions, 1u);
 
   // The sequence numbers start over.
-  robot_.publishWithSequence(/*sequence=*/1, /*time=*/0.0, /*requested=*/3, /*fullRequested=*/1);
+  robot_.publishWithSequence(/*sequence=*/1, /*time=*/0.0, /*requested=*/3,
+                             /*fullRequested=*/1);
   ASSERT_TRUE(waitFor([&]() { return robot_.hasPolicyFrom(0.0); }));
   EXPECT_EQ(server_->statistics().fullResets, before.fullResets + 1);
   EXPECT_EQ(server_->statistics().robotSessions, 2u);
 
   // The counters start over.
-  robot_.publishWithSequence(/*sequence=*/2, /*time=*/0.01, /*requested=*/0, /*fullRequested=*/0);
+  robot_.publishWithSequence(/*sequence=*/2, /*time=*/0.01, /*requested=*/0,
+                             /*fullRequested=*/0);
   ASSERT_TRUE(waitFor([&]() { return robot_.hasPolicyFrom(0.01); }));
   EXPECT_EQ(server_->statistics().fullResets, before.fullResets + 2);
   EXPECT_EQ(server_->statistics().robotSessions, 3u);
-  EXPECT_EQ(robot_.lastPolicy().resets_served(), 0u) << "the counters of the new robot process";
+  EXPECT_EQ(robot_.lastPolicy().resets_served(), 0u)
+      << "the counters of the new robot process";
 }
 
 TEST_F(MpcServerTest, AnObservationOfOtherDimensionsIsRejectedAndNotSolved) {
@@ -293,7 +345,10 @@ TEST_F(MpcServerTest, AnObservationOfOtherDimensionsIsRejectedAndNotSolved) {
   wrong.mutable_observation()->add_state(1.0);
   wrong.set_sequence(robot_.sequence() + 1);
   CHECK_OK(robot_.bus().publish(topics::kRobotMpcObservation, wrong));
-  ASSERT_TRUE(waitFor([&]() { return server_->statistics().observationsRejected == before.observationsRejected + 1; }));
+  ASSERT_TRUE(waitFor([&]() {
+    return server_->statistics().observationsRejected ==
+           before.observationsRejected + 1;
+  }));
 
   // A mode the model does not have.
   humanoid_mpc_msgs::MpcObservation unknownMode;
@@ -301,42 +356,57 @@ TEST_F(MpcServerTest, AnObservationOfOtherDimensionsIsRejectedAndNotSolved) {
   unknownMode.mutable_observation()->set_mode(test_support::kNumModes);
   unknownMode.set_sequence(robot_.sequence() + 2);
   CHECK_OK(robot_.bus().publish(topics::kRobotMpcObservation, unknownMode));
-  ASSERT_TRUE(waitFor([&]() { return server_->statistics().observationsRejected == before.observationsRejected + 2; }));
+  ASSERT_TRUE(waitFor([&]() {
+    return server_->statistics().observationsRejected ==
+           before.observationsRejected + 2;
+  }));
   absl::SleepFor(absl::Milliseconds(20));
   EXPECT_EQ(server_->statistics().solveAttempts, before.solveAttempts);
 }
 
 TEST_F(MpcServerTest, AnObservationOfAnotherModelLayoutIsRejectedAndNotSolved) {
-  // Equal dimensions, another joint order or set of fixed joints: only the fingerprint tells them apart.
+  // Equal dimensions, another joint order or set of fixed joints: only the
+  // fingerprint tells them apart.
   constexpr uint64_t kLayout = 0x5eed'0000'0000'0001;
   MpcServer::Config config = defaultConfig();
   config.modelFingerprint = kLayout;
   build(config);
   robot_.setModelFingerprint(kLayout);
   warmUp();
-  EXPECT_EQ(robot_.lastPolicy().model_fingerprint(), kLayout) << "the policy carries the MPC's layout";
+  EXPECT_EQ(robot_.lastPolicy().model_fingerprint(), kLayout)
+      << "the policy carries the MPC's layout";
   const MpcServer::Statistics before = server_->statistics();
 
   robot_.setModelFingerprint(kLayout + 1);
   robot_.publish(/*time=*/1.1);
-  ASSERT_TRUE(waitFor([&]() { return server_->statistics().observationsRejected == before.observationsRejected + 1; }));
-  // A robot that does not stamp its observations runs a build without the check: refused too.
+  ASSERT_TRUE(waitFor([&]() {
+    return server_->statistics().observationsRejected ==
+           before.observationsRejected + 1;
+  }));
+  // A robot that does not stamp its observations runs a build without the
+  // check: refused too.
   robot_.setModelFingerprint(0);
   robot_.publish(/*time=*/1.2);
-  ASSERT_TRUE(waitFor([&]() { return server_->statistics().observationsRejected == before.observationsRejected + 2; }));
+  ASSERT_TRUE(waitFor([&]() {
+    return server_->statistics().observationsRejected ==
+           before.observationsRejected + 2;
+  }));
   absl::SleepFor(absl::Milliseconds(20));
   EXPECT_EQ(server_->statistics().solveAttempts, before.solveAttempts);
 
   robot_.setModelFingerprint(kLayout);
-  EXPECT_EQ(solveFrom(/*time=*/1.3).model_fingerprint(), kLayout) << "positive control";
+  EXPECT_EQ(solveFrom(/*time=*/1.3).model_fingerprint(), kLayout)
+      << "positive control";
 }
 
 TEST_F(MpcServerTest, TheSolutionTimeWindowBoundsThePolicy) {
-  build(defaultConfig(), MpcServer::Hooks(), test_support::mpcSettings(/*solutionTimeWindow=*/0.3));
+  build(defaultConfig(), MpcServer::Hooks(),
+        test_support::mpcSettings(/*solutionTimeWindow=*/0.3));
   warmUp();
   const humanoid_mpc_msgs::MpcPolicy policy = solveFrom(/*time=*/1.1);
   ASSERT_GT(policy.time_trajectory_size(), 1);
-  EXPECT_NEAR(policy.time_trajectory(policy.time_trajectory_size() - 1), 1.4, 1.0e-12);
+  EXPECT_NEAR(policy.time_trajectory(policy.time_trajectory_size() - 1), 1.4,
+              1.0e-12);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -347,15 +417,19 @@ TEST_F(MpcServerTest, TheHooksSeeEveryPolicyAndAHookThatFailsStopsNothing) {
   std::atomic<uint64_t> observed{0};
   std::atomic<bool> failNext{false};
   MpcServer::Hooks hooks;
-  hooks.annotationsProvider = [](const CommandData& command, const PrimalSolution& /*solution*/,
-                                 humanoid_mpc_msgs::ViewerAnnotations* absl_nonnull annotations) {
-    annotations->set_scaled_velocity_x(command.mpcInitObservation_.time);
-    return absl::OkStatus();
-  };
-  hooks.postSolveObserver = [&](const CommandData& /*command*/, const PrimalSolution& solution, const PerformanceIndex& /*performance*/) {
+  hooks.annotationsProvider =
+      [](const CommandData& command, const PrimalSolution& /*solution*/,
+         humanoid_mpc_msgs::ViewerAnnotations* absl_nonnull annotations) {
+        annotations->set_scaled_velocity_x(command.mpcInitObservation_.time);
+        return absl::OkStatus();
+      };
+  hooks.postSolveObserver = [&](const CommandData& /*command*/,
+                                const PrimalSolution& solution,
+                                const PerformanceIndex& /*performance*/) {
     EXPECT_FALSE(solution.timeTrajectory_.empty());
     observed.fetch_add(1);
-    return failNext.exchange(false) ? absl::InternalError("observer failure") : absl::OkStatus();
+    return failNext.exchange(false) ? absl::InternalError("observer failure")
+                                    : absl::OkStatus();
   };
   build(defaultConfig(), std::move(hooks));
   warmUp();
@@ -365,32 +439,40 @@ TEST_F(MpcServerTest, TheHooksSeeEveryPolicyAndAHookThatFailsStopsNothing) {
   failNext.store(true);
   solveFrom(/*time=*/1.2);
   solveFrom(/*time=*/1.3);
-  // Joined before the hooks' state goes out of scope; every hook call has returned by then.
+  // Joined before the hooks' state goes out of scope; every hook call has
+  // returned by then.
   server_->stop();
   EXPECT_EQ(observed.load(), server_->statistics().policiesPublished);
   EXPECT_TRUE(server_->statistics().healthy);
 }
 
 TEST_F(MpcServerTest, ThePreSolveObserverSeesTheObservationOfEverySolve) {
-  // The observation the solve starts from, handed over before it, bit for bit: ProceduralMpcMotionManager::observe()
-  // reads the joint velocities of its input, which the solve itself does not take. Every entry differs, so a mix-up of
-  // fields or entries, or an input dropped on the way, shows.
+  // The observation the solve starts from, handed over before it, bit for bit:
+  // ProceduralMpcMotionManager::observe() reads the joint velocities of its
+  // input, which the solve itself does not take. Every entry differs, so a
+  // mix-up of fields or entries, or an input dropped on the way, shows.
   absl::Mutex mutex;
   std::vector<SystemObservation> observations;
   MpcServer::Hooks hooks;
-  hooks.preSolveObserver = [&mutex, &observations](const SystemObservation& observation) {
-    absl::MutexLock lock(mutex);
-    observations.push_back(observation);
-  };
+  hooks.preSolveObserver =
+      [&mutex, &observations](const SystemObservation& observation) {
+        absl::MutexLock lock(mutex);
+        observations.push_back(observation);
+      };
   build(defaultConfig(), std::move(hooks));
   warmUp();
   std::vector<SystemObservation> sent;
   for (const scalar_t time : {1.1, 1.2}) {
     SystemObservation observation = observationAt(time, /*value=*/1.0);
-    observation.state = vector_t::LinSpaced(static_cast<Eigen::Index>(test_support::kStateDim), -0.7 * time, 0.3 + time);
-    observation.input = vector_t::LinSpaced(static_cast<Eigen::Index>(test_support::kInputDim), 0.11 * time, -1.3 * time);
+    observation.state =
+        vector_t::LinSpaced(static_cast<Eigen::Index>(test_support::kStateDim),
+                            -0.7 * time, 0.3 + time);
+    observation.input =
+        vector_t::LinSpaced(static_cast<Eigen::Index>(test_support::kInputDim),
+                            0.11 * time, -1.3 * time);
     robot_.publish(observation);
-    ASSERT_TRUE(waitFor([&]() { return robot_.hasPolicyFrom(time); })) << "no policy from t = " << time;
+    ASSERT_TRUE(waitFor([&]() { return robot_.hasPolicyFrom(time); }))
+        << "no policy from t = " << time;
     sent.push_back(observation);
   }
   // Joined before the hook's state goes out of scope.
@@ -401,29 +483,39 @@ TEST_F(MpcServerTest, ThePreSolveObserverSeesTheObservationOfEverySolve) {
     SCOPED_TRACE(expected.time);
     const std::vector<SystemObservation>::const_iterator found =
         std::find_if(observations.begin(), observations.end(),
-                     [&expected](const SystemObservation& observation) { return observation.time == expected.time; });
+                     [&expected](const SystemObservation& observation) {
+                       return observation.time == expected.time;
+                     });
     ASSERT_NE(found, observations.end());
     EXPECT_EQ(found->state, expected.state);
     EXPECT_EQ(found->input, expected.input);
     EXPECT_EQ(found->mode, expected.mode);
-    ASSERT_GT(expected.input.cwiseAbs().minCoeff(), 0.0) << "every input entry must be nonzero to tell it from a default";
+    ASSERT_GT(expected.input.cwiseAbs().minCoeff(), 0.0)
+        << "every input entry must be nonzero to tell it from a default";
   }
 }
 
-TEST_F(MpcServerTest, AnAnnotationsProviderThatFailsSendsThePolicyWithoutAnnotations) {
+TEST_F(MpcServerTest,
+       AnAnnotationsProviderThatFailsSendsThePolicyWithoutAnnotations) {
   std::atomic<bool> failNext{false};
   MpcServer::Hooks hooks;
-  hooks.annotationsProvider = [&failNext](const CommandData& command, const PrimalSolution& /*solution*/,
-                                          humanoid_mpc_msgs::ViewerAnnotations* absl_nonnull annotations) {
-    annotations->set_scaled_velocity_x(command.mpcInitObservation_.time);
-    return failNext.exchange(false) ? absl::InternalError("annotations failure") : absl::OkStatus();
-  };
+  hooks.annotationsProvider =
+      [&failNext](
+          const CommandData& command, const PrimalSolution& /*solution*/,
+          humanoid_mpc_msgs::ViewerAnnotations* absl_nonnull annotations) {
+        annotations->set_scaled_velocity_x(command.mpcInitObservation_.time);
+        return failNext.exchange(false)
+                   ? absl::InternalError("annotations failure")
+                   : absl::OkStatus();
+      };
   build(defaultConfig(), std::move(hooks));
   warmUp();
 
   failNext.store(true);
-  const humanoid_mpc_msgs::MpcPolicy withoutAnnotations = solveFrom(/*time=*/1.1);
-  EXPECT_EQ(withoutAnnotations.annotations().scaled_velocity_x(), 0.0) << "what the provider wrote before it failed is cleared";
+  const humanoid_mpc_msgs::MpcPolicy withoutAnnotations =
+      solveFrom(/*time=*/1.1);
+  EXPECT_EQ(withoutAnnotations.annotations().scaled_velocity_x(), 0.0)
+      << "what the provider wrote before it failed is cleared";
   EXPECT_FALSE(withoutAnnotations.time_trajectory().empty());
   const humanoid_mpc_msgs::MpcPolicy annotated = solveFrom(/*time=*/1.2);
   EXPECT_EQ(annotated.annotations().scaled_velocity_x(), 1.2);
@@ -464,7 +556,8 @@ TEST_F(MpcServerTest, AFailingSolverReportsInEveryStatusBacksOffAndRecovers) {
   ASSERT_TRUE(waitFor([&]() {
     time += 0.001;
     robot_.publish(time);
-    return !server_->statistics().healthy && server_->statistics().failedAttempts >= 5;
+    return !server_->statistics().healthy &&
+           server_->statistics().failedAttempts >= 5;
   }));
   absl::SleepFor(absl::Milliseconds(30));
   const std::vector<humanoid_mpc_msgs::MpcStatus> statuses = robot_.statuses();
@@ -472,9 +565,13 @@ TEST_F(MpcServerTest, AFailingSolverReportsInEveryStatusBacksOffAndRecovers) {
   EXPECT_FALSE(last.solver_status().healthy());
   EXPECT_GE(last.solver_status().consecutive_failures(), 3u);
   // OCS2's exception, as the attempt's status.
-  EXPECT_THAT(last.solver_status().last_error(), ::testing::StartsWith("MPC solver crashed at t = "));
-  EXPECT_THAT(last.solver_status().last_error(), ::testing::HasSubstr("[ScriptedSolver] scripted failure: Failed to solve QP"));
-  EXPECT_EQ(robot_.numPolicies(), policiesBefore) << "a failed solve publishes no policy";
+  EXPECT_THAT(last.solver_status().last_error(),
+              ::testing::StartsWith("MPC solver crashed at t = "));
+  EXPECT_THAT(last.solver_status().last_error(),
+              ::testing::HasSubstr(
+                  "[ScriptedSolver] scripted failure: Failed to solve QP"));
+  EXPECT_EQ(robot_.numPolicies(), policiesBefore)
+      << "a failed solve publishes no policy";
 
   mpc_->solver().failEverySolve(/*fail=*/false);
   ASSERT_TRUE(waitFor([&]() {
@@ -505,19 +602,23 @@ TEST_F(MpcServerTest, ARequestFromTheRobotEndsTheBackOff) {
   mpc_->solver().failEverySolve(/*fail=*/false);
   const absl::Time requested = absl::Now();
   robot_.publish(/*time=*/1.1, /*requested=*/1, /*fullRequested=*/1);
-  ASSERT_TRUE(waitFor([&]() { return robot_.hasPolicyFrom(1.1); }, absl::Seconds(3)));
-  EXPECT_LT(absl::Now() - requested, absl::Seconds(1)) << "an operator re-entering WB_MPC waited out the back-off";
+  ASSERT_TRUE(
+      waitFor([&]() { return robot_.hasPolicyFrom(1.1); }, absl::Seconds(3)));
+  EXPECT_LT(absl::Now() - requested, absl::Seconds(1))
+      << "an operator re-entering WB_MPC waited out the back-off";
   EXPECT_GT(server_->statistics().solveAttempts, attempts);
   EXPECT_EQ(robot_.lastPolicy().resets_served(), 1u);
 }
 
-TEST_F(MpcServerTest, AResetThatKeepsFailingWaitsOutTheBackOffInsteadOfSpinning) {
+TEST_F(MpcServerTest,
+       AResetThatKeepsFailingWaitsOutTheBackOffInsteadOfSpinning) {
   MpcServer::Config config = defaultConfig();
   config.resetSupervisor.initialRetryInterval = 0.05;
   config.resetSupervisor.maxRetryInterval = 0.1;
   std::atomic<bool> resetFails{false};
   const MpcServer::ResetTargetTrajectoriesFunction resetTargets =
-      [&resetFails](const SystemObservation& observation) -> absl::StatusOr<TargetTrajectories> {
+      [&resetFails](const SystemObservation& observation)
+      -> absl::StatusOr<TargetTrajectories> {
     if (resetFails.load()) {
       return absl::InvalidArgumentError("the reset targets cannot be made");
     }
@@ -526,23 +627,30 @@ TEST_F(MpcServerTest, AResetThatKeepsFailingWaitsOutTheBackOffInsteadOfSpinning)
   build(config, MpcServer::Hooks(), test_support::mpcSettings(), resetTargets);
   warmUp();
 
-  // A reset the robot asks for and the server cannot make: the request stays unserved, attempt after attempt.
+  // A reset the robot asks for and the server cannot make: the request stays
+  // unserved, attempt after attempt.
   resetFails.store(true);
   robot_.publish(/*time=*/1.1, /*requested=*/1, /*fullRequested=*/1);
   ASSERT_TRUE(waitFor([&]() { return !server_->statistics().healthy; }));
   const MpcServer::Statistics before = server_->statistics();
   absl::SleepFor(absl::Milliseconds(300));
   const MpcServer::Statistics after = server_->statistics();
-  // Backing off 0.05 s, then 0.1 s: about four attempts in 0.3 s. The unserved request used to end every back-off at
-  // once, and the solver thread retried, and published mpc/status, as fast as it could.
-  EXPECT_GE(after.solveAttempts - before.solveAttempts, 1u) << "it keeps retrying";
-  EXPECT_LE(after.solveAttempts - before.solveAttempts, 10u) << "it did not back off";
+  // Backing off 0.05 s, then 0.1 s: about four attempts in 0.3 s. The unserved
+  // request used to end every back-off at once, and the solver thread retried,
+  // and published mpc/status, as fast as it could.
+  EXPECT_GE(after.solveAttempts - before.solveAttempts, 1u)
+      << "it keeps retrying";
+  EXPECT_LE(after.solveAttempts - before.solveAttempts, 10u)
+      << "it did not back off";
   EXPECT_LE(after.statusesPublished - before.statusesPublished, 10u);
-  EXPECT_EQ(robot_.lastPolicy().resets_served(), 0u) << "a policy that serves the request without the reset";
+  EXPECT_EQ(robot_.lastPolicy().resets_served(), 0u)
+      << "a policy that serves the request without the reset";
   // What the reset function returned, as the failed attempt's status.
-  EXPECT_EQ(robot_.statuses().back().solver_status().last_error(), "Resetting the MPC failed: the reset targets cannot be made");
+  EXPECT_EQ(robot_.statuses().back().solver_status().last_error(),
+            "Resetting the MPC failed: the reset targets cannot be made");
 
-  // Once the reset can be made the next attempt makes it, from the observation that asked for it.
+  // Once the reset can be made the next attempt makes it, from the observation
+  // that asked for it.
   resetFails.store(false);
   ASSERT_TRUE(waitFor([&]() { return robot_.hasPolicyFrom(1.1); }));
   EXPECT_EQ(robot_.lastPolicy().resets_served(), 1u);
@@ -560,40 +668,62 @@ TEST(MpcServerCreateTest, RefusesWhatItCannotRun) {
   MpcServer::Config config;
   config.dimensions = modelDimensions();
 
-  EXPECT_EQ(MpcServer::Create(bus.get(), mpc.get(), /*resetTargetTrajectories=*/nullptr, config).status().code(),
+  EXPECT_EQ(MpcServer::Create(bus.get(), mpc.get(),
+                              /*resetTargetTrajectories=*/nullptr, config)
+                .status()
+                .code(),
             absl::StatusCode::kInvalidArgument);
   MpcServer::Config noDimensions = config;
   noDimensions.dimensions.stateDim = 0;
-  EXPECT_EQ(MpcServer::Create(bus.get(), mpc.get(), resetTargetsFor, noDimensions).status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(
+      MpcServer::Create(bus.get(), mpc.get(), resetTargetsFor, noDimensions)
+          .status()
+          .code(),
+      absl::StatusCode::kInvalidArgument);
   MpcServer::Config noModes = config;
   noModes.dimensions.numModes = 0;
-  EXPECT_EQ(MpcServer::Create(bus.get(), mpc.get(), resetTargetsFor, noModes).status().code(), absl::StatusCode::kInvalidArgument);
-  std::unique_ptr<robot::ipc::Bus> subscriber = test_support::createSubscriberBus();
-  EXPECT_EQ(MpcServer::Create(subscriber.get(), mpc.get(), resetTargetsFor, config).status().code(), absl::StatusCode::kInvalidArgument)
+  EXPECT_EQ(MpcServer::Create(bus.get(), mpc.get(), resetTargetsFor, noModes)
+                .status()
+                .code(),
+            absl::StatusCode::kInvalidArgument);
+  std::unique_ptr<robot::ipc::Bus> subscriber =
+      test_support::createSubscriberBus();
+  EXPECT_EQ(
+      MpcServer::Create(subscriber.get(), mpc.get(), resetTargetsFor, config)
+          .status()
+          .code(),
+      absl::StatusCode::kInvalidArgument)
       << "a bus that cannot publish";
   CHECK_OK(bus->start());
-  EXPECT_EQ(MpcServer::Create(bus.get(), mpc.get(), resetTargetsFor, config).status().code(), absl::StatusCode::kFailedPrecondition);
+  EXPECT_EQ(MpcServer::Create(bus.get(), mpc.get(), resetTargetsFor, config)
+                .status()
+                .code(),
+            absl::StatusCode::kFailedPrecondition);
 }
 
-TEST(MpcServerLifecycleTest, StartsOnceAndStopsPromptlyWhileWaitingForAnObservation) {
+TEST(MpcServerLifecycleTest,
+     StartsOnceAndStopsPromptlyWhileWaitingForAnObservation) {
   std::unique_ptr<mpc_test::ScriptedMpc> mpc = test_support::makeScriptedMpc();
   std::unique_ptr<robot::ipc::Bus> bus = test_support::createNodeBus("mpc");
   MpcServer::Config config;
   config.dimensions = modelDimensions();
-  absl::StatusOr<std::unique_ptr<MpcServer>> server = MpcServer::Create(bus.get(), mpc.get(), resetTargetsFor, config);
+  absl::StatusOr<std::unique_ptr<MpcServer>> server =
+      MpcServer::Create(bus.get(), mpc.get(), resetTargetsFor, config);
   ASSERT_TRUE(server.ok()) << server.status();
   CHECK_OK(bus->start());
   ASSERT_TRUE((*server)->start().ok());
   EXPECT_EQ((*server)->start().code(), absl::StatusCode::kFailedPrecondition);
 
   absl::SleepFor(absl::Milliseconds(20));
-  EXPECT_EQ((*server)->statistics().solveAttempts, 0u) << "nothing is solved before the first observation";
+  EXPECT_EQ((*server)->statistics().solveAttempts, 0u)
+      << "nothing is solved before the first observation";
   EXPECT_EQ(mpc->solver().numResets(), 0u) << "nor reset";
   const absl::Time stop = absl::Now();
   (*server)->stop();
   (*server)->stop();
   EXPECT_LT(absl::Now() - stop, absl::Seconds(1));
-  EXPECT_EQ((*server)->start().code(), absl::StatusCode::kFailedPrecondition) << "a stopped server stays stopped";
+  EXPECT_EQ((*server)->start().code(), absl::StatusCode::kFailedPrecondition)
+      << "a stopped server stays stopped";
 }
 
 }  // namespace

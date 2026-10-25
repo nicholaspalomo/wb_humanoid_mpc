@@ -92,7 +92,9 @@ def _find_model_pairs() -> list[tuple[str, str, str]]:
             urdf = os.path.join(dirpath, filename)
             mjcf = urdf[: -len(".urdf")] + ".xml"
             if os.path.exists(mjcf):
-                pairs.append((os.path.relpath(urdf, root).split(os.sep)[0], urdf, mjcf))
+                pairs.append(
+                    (os.path.relpath(urdf, root).split(os.sep)[0], urdf, mjcf)
+                )
     return sorted(pairs)
 
 
@@ -115,7 +117,9 @@ def _origin(element: ElementTree.Element) -> tuple[np.ndarray, np.ndarray]:
     origin = element.find("origin")
     xyz = origin.get("xyz") if origin is not None else None
     rpy = origin.get("rpy") if origin is not None else None
-    translation = np.array([float(v) for v in xyz.split()]) if xyz else np.zeros(3)
+    translation = (
+        np.array([float(v) for v in xyz.split()]) if xyz else np.zeros(3)
+    )
     angles = [float(v) for v in rpy.split()] if rpy else [0.0, 0.0, 0.0]
     return translation, _rotation_from_rpy(*angles)
 
@@ -133,7 +137,8 @@ def _attribute(element: ElementTree.Element, tag: str, name: str) -> str:
     value = None if child is None else child.get(name)
     if value is None:
         raise ValueError(
-            f"<{element.tag} name='{element.get('name')}'> has no <{tag} {name}=...>"
+            f"<{element.tag} name='{element.get('name')}'> has no"
+            f" <{tag} {name}=...>"
         )
     return value
 
@@ -180,9 +185,9 @@ def _parse_urdf(path: str) -> tuple[dict[str, _Inertia], dict[str, list]]:
         if joint.get("type") != "fixed":
             continue
         translation, rotation = _origin(joint)
-        fixed_children.setdefault(_attribute(joint, "parent", "link"), []).append(
-            (_attribute(joint, "child", "link"), translation, rotation)
-        )
+        fixed_children.setdefault(
+            _attribute(joint, "parent", "link"), []
+        ).append((_attribute(joint, "child", "link"), translation, rotation))
     return links, fixed_children
 
 
@@ -194,10 +199,14 @@ def _compile_mjcf(path: str) -> dict[str, _Inertia]:
         principal_axes = np.zeros(9)
         mujoco.mju_quat2Mat(principal_axes, model.body_iquat[body])
         principal_axes = principal_axes.reshape(3, 3)
-        bodies[mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, body)] = _Inertia(
-            float(model.body_mass[body]),
-            np.array(model.body_ipos[body]),
-            principal_axes @ np.diag(model.body_inertia[body]) @ principal_axes.T,
+        bodies[mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, body)] = (
+            _Inertia(
+                float(model.body_mass[body]),
+                np.array(model.body_ipos[body]),
+                principal_axes
+                @ np.diag(model.body_inertia[body])
+                @ principal_axes.T,
+            )
         )
     return bodies
 
@@ -245,7 +254,9 @@ def _lumped_inertia(
                 rotation @ part.rotational @ rotation.T,
             )
         )
-        for child, child_translation, child_rotation in fixed_children.get(name, []):
+        for child, child_translation, child_rotation in fixed_children.get(
+            name, []
+        ):
             if child in modeled_separately or child not in links:
                 continue
             stack.append(
@@ -276,7 +287,9 @@ class InertiaAlgebraTest(unittest.TestCase):
         principal_axes = np.zeros(9)
         mujoco.mju_quat2Mat(principal_axes, model.body_iquat[1])
         principal_axes = principal_axes.reshape(3, 3)
-        fused = principal_axes @ np.diag(model.body_inertia[1]) @ principal_axes.T
+        fused = (
+            principal_axes @ np.diag(model.body_inertia[1]) @ principal_axes.T
+        )
 
         child_rotation = np.zeros(9)
         child_quat = np.zeros(4)
@@ -296,11 +309,17 @@ class InertiaAlgebraTest(unittest.TestCase):
         }
         fixed_children = {
             "parent": [
-                ("child", np.array([0.2, 0.1, -0.3]), child_rotation.reshape(3, 3))
+                (
+                    "child",
+                    np.array([0.2, 0.1, -0.3]),
+                    child_rotation.reshape(3, 3),
+                )
             ]
         }
         lumped = _lumped_inertia("parent", links, fixed_children, {"parent"})
-        self.assertAlmostEqual(lumped.mass, float(model.body_mass[1]), places=12)
+        self.assertAlmostEqual(
+            lumped.mass, float(model.body_mass[1]), places=12
+        )
         np.testing.assert_allclose(lumped.com, model.body_ipos[1], atol=1e-12)
         # MuJoCo stores the fused inertia as principal moments and axes, which costs it the last few digits.
         np.testing.assert_allclose(lumped.rotational, fused, atol=1e-7)
@@ -313,7 +332,9 @@ class InertiaAlgebraTest(unittest.TestCase):
         mujoco.mju_euler2Quat(quat, np.array([roll, pitch, yaw]), "XYZ")
         mujoco.mju_quat2Mat(expected, quat)
         np.testing.assert_allclose(
-            _rotation_from_rpy(roll, pitch, yaw), expected.reshape(3, 3), atol=1e-12
+            _rotation_from_rpy(roll, pitch, yaw),
+            expected.reshape(3, 3),
+            atol=1e-12,
         )
 
 
@@ -325,7 +346,9 @@ class UrdfMjcfInertialConsistencyTest(unittest.TestCase):
         robots = [robot for robot, _, _ in _find_model_pairs()]
         for robot in ("drc_atlas", "engineai_sa01", "unitree_g1", "unitree_r1"):
             self.assertIn(
-                robot, robots, "expected a URDF/MJCF pair for each shipped robot"
+                robot,
+                robots,
+                "expected a URDF/MJCF pair for each shipped robot",
             )
 
     def test_bodies_agree_on_mass_center_of_mass_and_inertia(self):
@@ -334,14 +357,18 @@ class UrdfMjcfInertialConsistencyTest(unittest.TestCase):
             bodies = _compile_mjcf(mjcf)
             shared = sorted(set(links) & set(bodies))
             self.assertGreater(
-                len(shared), 0, f"{robot}: the two descriptions share no body names"
+                len(shared),
+                0,
+                f"{robot}: the two descriptions share no body names",
             )
             for body in shared:
                 with self.subTest(robot=robot, body=body):
                     self._assert_agree(
                         robot,
                         body,
-                        _lumped_inertia(body, links, fixed_children, set(bodies)),
+                        _lumped_inertia(
+                            body, links, fixed_children, set(bodies)
+                        ),
                         bodies[body],
                     )
 
@@ -351,21 +378,24 @@ class UrdfMjcfInertialConsistencyTest(unittest.TestCase):
         """Fails, naming both sets of numbers, when one body's two inertias differ."""
         mass_error = abs(urdf.mass - mjcf.mass)
         com_error = float(np.max(np.abs(urdf.com - mjcf.com)))
-        inertia_error = float(np.linalg.norm(urdf.rotational - mjcf.rotational)) / max(
-            float(np.linalg.norm(urdf.rotational)), 1e-12
-        )
+        inertia_error = float(
+            np.linalg.norm(urdf.rotational - mjcf.rotational)
+        ) / max(float(np.linalg.norm(urdf.rotational)), 1e-12)
         self.assertTrue(
             mass_error <= MASS_TOLERANCE_KG
             and com_error <= COM_TOLERANCE_M
             and inertia_error <= RELATIVE_INERTIA_TOLERANCE,
-            f"{robot}: body '{body}' differs between the URDF and the MJCF\n"
-            f"  mass {urdf.mass:.6f} vs {mjcf.mass:.6f} kg (difference {mass_error:.3e})\n"
-            f"  com  {urdf.com} vs {mjcf.com} m (largest difference {com_error:.3e})\n"
-            f"  inertia about the com\n{urdf.rotational}\n  vs\n{mjcf.rotational}\n"
-            f"  (relative difference {inertia_error:.3e})\n"
-            "(URDF figures include every fixed-joint descendant the MJCF does not model separately.)\n"
-            "The MPC computes its dynamics from the URDF and MuJoCo simulates the MJCF, so a difference here becomes "
-            "an uncommanded force on the robot. Correct whichever file is wrong; do not widen the tolerance.",
+            f"{robot}: body '{body}' differs between the URDF and the MJCF\n "
+            f" mass {urdf.mass:.6f} vs {mjcf.mass:.6f} kg (difference"
+            f" {mass_error:.3e})\n  com  {urdf.com} vs {mjcf.com} m (largest"
+            f" difference {com_error:.3e})\n  inertia about the"
+            f" com\n{urdf.rotational}\n  vs\n{mjcf.rotational}\n  (relative"
+            f" difference {inertia_error:.3e})\n(URDF figures include every"
+            " fixed-joint descendant the MJCF does not model separately.)\nThe"
+            " MPC computes its dynamics from the URDF and MuJoCo simulates the"
+            " MJCF, so a difference here becomes an uncommanded force on the"
+            " robot. Correct whichever file is wrong; do not widen the"
+            " tolerance.",
         )
 
     def test_total_mass_agrees(self):
@@ -377,7 +407,10 @@ class UrdfMjcfInertialConsistencyTest(unittest.TestCase):
                 urdf_total,
                 mjcf_total,
                 delta=TOTAL_MASS_TOLERANCE_KG,
-                msg=f"{robot}: total mass {urdf_total:.4f} kg (URDF) vs {mjcf_total:.4f} kg (MJCF)",
+                msg=(
+                    f"{robot}: total mass {urdf_total:.4f} kg (URDF) vs"
+                    f" {mjcf_total:.4f} kg (MJCF)"
+                ),
             )
 
 

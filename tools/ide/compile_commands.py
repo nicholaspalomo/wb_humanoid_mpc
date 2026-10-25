@@ -97,7 +97,9 @@ _OPTED_OUT = f"{_OPT_OUT_VARIABLE}=off"
 
 # The database's targets: the C++ rules (cc_library, cc_test, nproto_cc_library, ...), manual ones included, and the
 # proto_library targets, whose .pb.cc files the C++ proto aspect compiles. `bazel query` lists them without analyzing.
-_TARGETS_QUERY = 'kind("cc_.* rule", //...) + kind("^proto_library rule", //...)'
+_TARGETS_QUERY = (
+    'kind("cc_.* rule", //...) + kind("^proto_library rule", //...)'
+)
 _SOURCE_SUFFIXES = (".c", ".cc", ".cpp", ".cxx")
 # Output paths of Bazel's own action, which clangd neither needs nor should write: the flag and its value.
 _DROPPED_FLAGS_WITH_VALUE = frozenset(["-MF", "-MT", "-MQ", "-o"])
@@ -143,7 +145,9 @@ _BAZEL_PARTIAL_QUERY = 3
 # The statuses after which a command's output is not worth reading: a command line error, an interruption, a local
 # environment problem and an internal error. Any other failure of a `--keep_going` command, such as 1 when some targets
 # failed to build or to analyze, leaves the output of the rest.
-_BAZEL_FATAL = frozenset([_BAZEL_COMMAND_LINE_ERROR, _BAZEL_INTERRUPTED, 36, 37])
+_BAZEL_FATAL = frozenset(
+    [_BAZEL_COMMAND_LINE_ERROR, _BAZEL_INTERRUPTED, 36, 37]
+)
 # The statuses the shell reports for a command that could not start, and for one a signal ended (128 + the signal's
 # number), Ctrl-C's included.
 _NOT_STARTED = 127
@@ -153,10 +157,14 @@ _CTRL_C = 130
 
 def _repository_root() -> str:
     """Returns the checkout this module is in."""
-    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    )
 
 
-def skip_reason(environment: Mapping[str, str], repository_root: str) -> str | None:
+def skip_reason(
+    environment: Mapping[str, str], repository_root: str
+) -> str | None:
     """Returns why the database is left alone here, or None in a dev container that writes it.
 
     Args:
@@ -185,12 +193,13 @@ def _say_skipped(reason: str) -> None:
     """Prints the one line that says the database is left alone, and why."""
     if reason == _OPTED_OUT:
         print(
-            f"compile_commands: {reason}: {OUTPUT_NAME} is left alone", file=sys.stderr
+            f"compile_commands: {reason}: {OUTPUT_NAME} is left alone",
+            file=sys.stderr,
         )
         return
     print(
-        f"compile_commands: not the dev container ({reason}): {OUTPUT_NAME} is left alone; "
-        "run make compile-commands there (tools/ide/README.md)",
+        f"compile_commands: not the dev container ({reason}): {OUTPUT_NAME} is"
+        " left alone; run make compile-commands there (tools/ide/README.md)",
         file=sys.stderr,
     )
 
@@ -256,7 +265,9 @@ def checkout_path(
     return os.path.join(workspace, source)
 
 
-def with_external_repositories(arguments: Sequence[str], output_base: str) -> list[str]:
+def with_external_repositories(
+    arguments: Sequence[str], output_base: str
+) -> list[str]:
     """Returns the command line with every path into `external/` made absolute in the output base.
 
     Args:
@@ -274,14 +285,19 @@ def with_external_repositories(arguments: Sequence[str], output_base: str) -> li
         else:
             for flag in _INCLUDE_FLAGS:
                 if argument.startswith(flag + _EXTERNAL):
-                    argument = flag + os.path.join(output_base, argument[len(flag) :])
+                    argument = flag + os.path.join(
+                        output_base, argument[len(flag) :]
+                    )
                     break
         rewritten.append(argument)
     return rewritten
 
 
 def database_entries(
-    aquery: Mapping[str, Any], workspace: str, execution_root: str, output_base: str
+    aquery: Mapping[str, Any],
+    workspace: str,
+    execution_root: str,
+    output_base: str,
 ) -> list[dict[str, Any]]:
     """Turns `bazel aquery --output=jsonproto` into compilation database entries.
 
@@ -297,7 +313,9 @@ def database_entries(
     Returns:
       One entry per source file, sorted by file.
     """
-    labels = {target["id"]: target["label"] for target in aquery.get("targets", [])}
+    labels = {
+        target["id"]: target["label"] for target in aquery.get("targets", [])
+    }
     commands: dict[str, tuple[str, list[str]]] = {}
     for action in aquery.get("actions", []):
         arguments = action.get("arguments", [])
@@ -487,7 +505,13 @@ def _query_targets(quiet_flags: Sequence[str], workspace: str) -> _Targets:
       CalledProcessError: The query failed, other than by leaving out packages that failed to load.
     """
     completed = _bazel(
-        ["query", "--keep_going", *quiet_flags, "--output=label", _TARGETS_QUERY],
+        [
+            "query",
+            "--keep_going",
+            *quiet_flags,
+            "--output=label",
+            _TARGETS_QUERY,
+        ],
         workspace,
     )
     if completed.returncode not in (0, _BAZEL_PARTIAL_QUERY):
@@ -495,16 +519,24 @@ def _query_targets(quiet_flags: Sequence[str], workspace: str) -> _Targets:
     partial = completed.returncode == _BAZEL_PARTIAL_QUERY
     if partial:
         _warn(
-            "some packages failed to load; the database keeps its entries for their sources"
+            "some packages failed to load; the database keeps its entries for"
+            " their sources"
         )
     return _Targets(
-        sorted(line.strip() for line in completed.stdout.splitlines() if line.strip()),
+        sorted(
+            line.strip()
+            for line in completed.stdout.splitlines()
+            if line.strip()
+        ),
         partial,
     )
 
 
 def _build_headers(
-    targets_file: str, flags: Sequence[str], quiet_flags: Sequence[str], workspace: str
+    targets_file: str,
+    flags: Sequence[str],
+    quiet_flags: Sequence[str],
+    workspace: str,
 ) -> None:
     """Builds the compilation prerequisites of the targets the file lists: their generated headers and what makes them.
 
@@ -533,8 +565,9 @@ def _build_headers(
         raise _failure(completed)
     if completed.returncode != 0:
         _warn(
-            f"the generated headers of some targets failed to build (bazel exited with {completed.returncode}); "
-            "clangd will not resolve their includes"
+            "the generated headers of some targets failed to build (bazel"
+            f" exited with {completed.returncode}); clangd will not resolve"
+            " their includes"
         )
 
 
@@ -553,7 +586,8 @@ def _bazel_roots(
       ValueError: It did not print both.
     """
     completed = _bazel(
-        ["info", *quiet_flags, *flags, "execution_root", "output_base"], workspace
+        ["info", *quiet_flags, *flags, "execution_root", "output_base"],
+        workspace,
     )
     if completed.returncode != 0:
         raise _failure(completed)
@@ -567,7 +601,10 @@ def _bazel_roots(
 
 
 def _compile_actions(
-    query_file: str, flags: Sequence[str], quiet_flags: Sequence[str], workspace: str
+    query_file: str,
+    flags: Sequence[str],
+    quiet_flags: Sequence[str],
+    workspace: str,
 ) -> _Actions:
     """Returns the parsed `bazel aquery --output=jsonproto` of the expression in the query file.
 
@@ -605,8 +642,9 @@ def _compile_actions(
         if not parsed.get("actions"):
             raise _failure(completed)
         _warn(
-            f"some targets failed to analyze (bazel exited with {completed.returncode}); the database gets the rest "
-            "and keeps its entries for their sources"
+            "some targets failed to analyze (bazel exited with"
+            f" {completed.returncode}); the database gets the rest and keeps"
+            " its entries for their sources"
         )
     return _Actions(parsed, completed.returncode != 0)
 
@@ -645,10 +683,14 @@ def _query_database(
             f.write(compile_actions_query(targets.labels))
         if build_headers:
             _build_headers(targets_file, flags, quiet_flags, workspace)
-        execution_root, output_base = _bazel_roots(flags, quiet_flags, workspace)
+        execution_root, output_base = _bazel_roots(
+            flags, quiet_flags, workspace
+        )
         actions = _compile_actions(query_file, flags, quiet_flags, workspace)
     return _Query(
-        database_entries(actions.aquery, workspace, execution_root, output_base),
+        database_entries(
+            actions.aquery, workspace, execution_root, output_base
+        ),
         targets.partial or actions.partial,
     )
 
@@ -674,7 +716,9 @@ def refresh(
       The exit status: 0 when the database holds the query's entries, written or already there.
     """
     workspace = _repository_root()
-    quiet_flags = ["--ui_event_filters=-info", "--noshow_progress"] if quiet else []
+    quiet_flags = (
+        ["--ui_event_filters=-info", "--noshow_progress"] if quiet else []
+    )
     path = output or os.path.join(workspace, OUTPUT_NAME)
     if quiet:
         print(f"compile_commands: refreshing {OUTPUT_NAME}", file=sys.stderr)
@@ -685,13 +729,18 @@ def refresh(
             entries = merged_entries(query.entries, read_database(path))
         written = write_database(entries, path)
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
-        print(f"compile_commands: {path} is unchanged: {error}", file=sys.stderr)
+        print(
+            f"compile_commands: {path} is unchanged: {error}", file=sys.stderr
+        )
         return 1
     kept = len(entries) - len(query.entries)
-    previous = f", {kept} of them kept from the previous database" if kept else ""
+    previous = (
+        f", {kept} of them kept from the previous database" if kept else ""
+    )
     unchanged = "" if written else " (unchanged)"
     print(
-        f"compile_commands: {len(entries)} source files in {path}{previous}{unchanged}",
+        f"compile_commands: {len(entries)} source files in"
+        f" {path}{previous}{unchanged}",
         file=sys.stderr,
     )
     return 0
@@ -765,7 +814,10 @@ def _run(command: Sequence[str]) -> int:
             list(command)
         )  # pylint: disable=consider-using-with  # the with below closes it
     except OSError as error:
-        print(f"compile_commands: cannot run {command[0]}: {error}", file=sys.stderr)
+        print(
+            f"compile_commands: cannot run {command[0]}: {error}",
+            file=sys.stderr,
+        )
         return _NOT_STARTED
     with process:
         while True:
@@ -791,14 +843,18 @@ def _exec(command: Sequence[str]) -> int:
     try:
         os.execvp(command[0], list(command))
     except OSError as error:
-        print(f"compile_commands: cannot run {command[0]}: {error}", file=sys.stderr)
+        print(
+            f"compile_commands: cannot run {command[0]}: {error}",
+            file=sys.stderr,
+        )
     return _NOT_STARTED
 
 
 def _built(status: int) -> bool:
     """Returns whether a Bazel command that exited with `status` got to build: not interrupted, started, command line taken."""
     return (
-        status not in (_BAZEL_COMMAND_LINE_ERROR, _BAZEL_INTERRUPTED, _NOT_STARTED)
+        status
+        not in (_BAZEL_COMMAND_LINE_ERROR, _BAZEL_INTERRUPTED, _NOT_STARTED)
         and status <= _SIGNALED
     )
 
@@ -834,7 +890,12 @@ def _run_program(command: Sequence[str], flags: Sequence[str]) -> int:
     script_path = os.path.join(scratch, "run.sh")
     try:
         status = _run(
-            [command[0], command[1], f"--script_path={script_path}", *command[2:]]
+            [
+                command[0],
+                command[1],
+                f"--script_path={script_path}",
+                *command[2:],
+            ]
         )
         if _built(status) and not _refresh_after_command(flags):
             return _CTRL_C
@@ -843,7 +904,10 @@ def _run_program(command: Sequence[str], flags: Sequence[str]) -> int:
         with open(script_path, encoding="utf-8") as f:
             script = f.read()
     except OSError as error:
-        print(f"compile_commands: bazel run wrote no script: {error}", file=sys.stderr)
+        print(
+            f"compile_commands: bazel run wrote no script: {error}",
+            file=sys.stderr,
+        )
         return 1
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
@@ -883,12 +947,16 @@ def run_after(command: Sequence[str]) -> int:
 def _parse_arguments(argv: Sequence[str]) -> argparse.Namespace:
     """Parses the command line; the arguments after `--` are Bazel flags."""
     parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--build_headers",
         action="store_true",
-        help="first build the generated headers of the C++ targets and the tools that generate them, no first-party source",
+        help=(
+            "first build the generated headers of the C++ targets and the tools"
+            " that generate them, no first-party source"
+        ),
     )
     parser.add_argument(
         "--output",
@@ -901,7 +969,9 @@ def _parse_arguments(argv: Sequence[str]) -> argparse.Namespace:
         help="print one line instead of Bazel's progress",
     )
     parser.add_argument(
-        "bazel_flags", nargs="*", help="flags for Bazel after --, e.g. --config=dbg"
+        "bazel_flags",
+        nargs="*",
+        help="flags for Bazel after --, e.g. --config=dbg",
     )
     return parser.parse_args(argv)
 

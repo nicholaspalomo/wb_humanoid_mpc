@@ -39,17 +39,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/ThreadAffinity.h"
 
 /*
- * The default core partitions of the robot and MPC binaries (`--realtime_cores=default`, `--backend_cores=default`)
- * name cores of the process's own CPU set, not of the machine: a container started with a cpuset used to get cores
- * outside it, which the realtime thread could not be pinned to, and it then floated over the cpuset unpinned.
+ * The default core partitions of the robot and MPC binaries
+ * (`--realtime_cores=default`, `--backend_cores=default`) name cores of the
+ * process's own CPU set, not of the machine: a container started with a cpuset
+ * used to get cores outside it, which the realtime thread could not be pinned
+ * to, and it then floated over the cpuset unpinned.
  */
 
 namespace ocs2::humanoid {
 namespace {
 
 bool within(const std::vector<int>& cores, const std::vector<int>& allowed) {
-  return std::all_of(cores.begin(), cores.end(),
-                     [&allowed](int core) { return std::find(allowed.begin(), allowed.end(), core) != allowed.end(); });
+  return std::all_of(cores.begin(), cores.end(), [&allowed](int core) {
+    return std::find(allowed.begin(), allowed.end(), core) != allowed.end();
+  });
 }
 
 std::vector<int> range(int first, int count) {
@@ -59,39 +62,51 @@ std::vector<int> range(int first, int count) {
 }
 
 TEST(ThreadAffinity, ThePartitionsOfAWholeMachineAreTheShippedOnes) {
-  const SystemCoreAllocation twenty = coreAllocationFor(range(/*first=*/0, /*count=*/20));
+  const SystemCoreAllocation twenty =
+      coreAllocationFor(range(/*first=*/0, /*count=*/20));
   EXPECT_EQ(twenty.simCores, range(/*first=*/0, /*count=*/4));
   EXPECT_EQ(twenty.mrtCores, range(/*first=*/4, /*count=*/2));
   EXPECT_EQ(twenty.mpcCores, range(/*first=*/6, /*count=*/10));
-  const SystemCoreAllocation eight = coreAllocationFor(range(/*first=*/0, /*count=*/8));
+  const SystemCoreAllocation eight =
+      coreAllocationFor(range(/*first=*/0, /*count=*/8));
   EXPECT_EQ(eight.simCores, range(/*first=*/0, /*count=*/2));
   EXPECT_EQ(eight.mrtCores, range(/*first=*/2, /*count=*/1));
   EXPECT_EQ(eight.mpcCores, range(/*first=*/3, /*count=*/5));
 }
 
 bool intersects(const std::vector<int>& cores, const std::vector<int>& others) {
-  return std::any_of(cores.begin(), cores.end(),
-                     [&others](int core) { return std::find(others.begin(), others.end(), core) != others.end(); });
+  return std::any_of(cores.begin(), cores.end(), [&others](int core) {
+    return std::find(others.begin(), others.end(), core) != others.end();
+  });
 }
 
-TEST(ThreadAffinity, TheViewerTakesTheLeftOverCoresOrTheSimulationCoresButNeverTheMpcCores) {
-  // Cores beyond the 16 the partitions name are the viewer's (this 20-core workstation: 16..19).
-  const SystemCoreAllocation twenty = coreAllocationFor(range(/*first=*/0, /*count=*/20));
+TEST(ThreadAffinity,
+     TheViewerTakesTheLeftOverCoresOrTheSimulationCoresButNeverTheMpcCores) {
+  // Cores beyond the 16 the partitions name are the viewer's (this 20-core
+  // workstation: 16..19).
+  const SystemCoreAllocation twenty =
+      coreAllocationFor(range(/*first=*/0, /*count=*/20));
   EXPECT_EQ(twenty.viewerCores, range(/*first=*/16, /*count=*/4));
   // Without a core left over the viewer shares the simulation's.
   for (const int count : {16, 8, 4}) {
-    const SystemCoreAllocation allocation = coreAllocationFor(range(/*first=*/0, count));
+    const SystemCoreAllocation allocation =
+        coreAllocationFor(range(/*first=*/0, count));
     EXPECT_EQ(allocation.viewerCores, allocation.simCores) << count << " cores";
   }
   // Under four cores nothing is restricted.
-  EXPECT_EQ(coreAllocationFor(range(/*first=*/0, /*count=*/3)).viewerCores, range(/*first=*/0, /*count=*/3));
+  EXPECT_EQ(coreAllocationFor(range(/*first=*/0, /*count=*/3)).viewerCores,
+            range(/*first=*/0, /*count=*/3));
   // A cpuset is taken in order, as for the other partitions.
-  EXPECT_EQ(coreAllocationFor(range(/*first=*/2, /*count=*/18)).viewerCores, (std::vector<int>{18, 19}));
+  EXPECT_EQ(coreAllocationFor(range(/*first=*/2, /*count=*/18)).viewerCores,
+            (std::vector<int>{18, 19}));
   for (int count = 4; count <= 40; ++count) {
-    const SystemCoreAllocation allocation = coreAllocationFor(range(/*first=*/0, count));
+    const SystemCoreAllocation allocation =
+        coreAllocationFor(range(/*first=*/0, count));
     EXPECT_FALSE(allocation.viewerCores.empty()) << count << " cores";
-    EXPECT_FALSE(intersects(allocation.viewerCores, allocation.mpcCores)) << count << " cores";
-    EXPECT_FALSE(intersects(allocation.viewerCores, allocation.mrtCores)) << count << " cores";
+    EXPECT_FALSE(intersects(allocation.viewerCores, allocation.mpcCores))
+        << count << " cores";
+    EXPECT_FALSE(intersects(allocation.viewerCores, allocation.mrtCores))
+        << count << " cores";
   }
 }
 
@@ -106,7 +121,9 @@ TEST(ThreadAffinity, ThePartitionsOfACpusetNameItsCoresOnly) {
   const std::vector<int> sparse{1, 3, 5, 7, 9, 11, 13, 15};
   const SystemCoreAllocation sparseAllocation = coreAllocationFor(sparse);
   EXPECT_EQ(sparseAllocation.mrtCores, std::vector<int>{5});
-  for (const std::vector<int>& partition : {sparseAllocation.simCores, sparseAllocation.mrtCores, sparseAllocation.mpcCores}) {
+  for (const std::vector<int>& partition :
+       {sparseAllocation.simCores, sparseAllocation.mrtCores,
+        sparseAllocation.mpcCores}) {
     EXPECT_TRUE(within(partition, sparse));
   }
   // Under four cores nothing is restricted, within the set.
@@ -119,11 +136,13 @@ TEST(ThreadAffinity, TheDefaultFollowsTheCallersAffinity) {
   ASSERT_FALSE(all.empty());
   const SystemCoreAllocation unrestricted = getDefaultCoreAllocation();
   for (const std::vector<int>& partition :
-       {unrestricted.simCores, unrestricted.mrtCores, unrestricted.mpcCores, unrestricted.viewerCores}) {
+       {unrestricted.simCores, unrestricted.mrtCores, unrestricted.mpcCores,
+        unrestricted.viewerCores}) {
     EXPECT_TRUE(within(partition, all));
   }
 
-  // A thread restricted to the last available core, as a container's cpuset restricts the process.
+  // A thread restricted to the last available core, as a container's cpuset
+  // restricts the process.
   const int last = all.back();
   std::vector<int> seen;
   SystemCoreAllocation restricted;
@@ -131,7 +150,8 @@ TEST(ThreadAffinity, TheDefaultFollowsTheCallersAffinity) {
     cpu_set_t only;
     CPU_ZERO(&only);
     CPU_SET(last, &only);
-    ASSERT_EQ(pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &only), 0);
+    ASSERT_EQ(pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &only),
+              0);
     seen = availableCores();
     restricted = getDefaultCoreAllocation();
   });

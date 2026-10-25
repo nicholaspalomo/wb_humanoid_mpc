@@ -36,7 +36,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Collects the input box constraints of one running stage (index, lower, upper), in the order they are added.
+ * Collects the input box constraints of one running stage (index, lower,
+ * upper), in the order they are added.
  *
  * Not thread-safe: one thread fills a builder.
  */

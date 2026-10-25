@@ -50,10 +50,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_model/ContactEstimatorRegistry.h"
 
 /*
- * The FSM of the simulated robot against the headless simulator: the commands it takes from the operator's mailbox,
- * one per cycle and in order, the torque switch and the gantry they move, the FSM state it hands to the communication
- * thread (the mode, the gantry, the controller resets the remote control re-centers its joysticks on, and the MPC's
- * health), the gantry height slider, and the joint targets.
+ * The FSM of the simulated robot against the headless simulator: the commands
+ * it takes from the operator's mailbox, one per cycle and in order, the torque
+ * switch and the gantry they move, the FSM state it hands to the communication
+ * thread (the mode, the gantry, the controller resets the remote control
+ * re-centers its joysticks on, and the MPC's health), the gantry height slider,
+ * and the joint targets.
  */
 
 namespace ocs2::humanoid {
@@ -63,17 +65,22 @@ using robot::mujoco_sim_interface::MujocoSimInterface;
 
 class SimFsmBridgeTest : public ::testing::Test {
  protected:
-  SimFsmBridgeTest() : sim_(robot_test::makeHeadlessAtlas(/*gantryLocked=*/true)) {
-    const robot::model::RobotDescription& description = sim_->getRobotDescription();
+  SimFsmBridgeTest()
+      : sim_(robot_test::makeHeadlessAtlas(/*gantryLocked=*/true)) {
+    const robot::model::RobotDescription& description =
+        sim_->getRobotDescription();
     OperatorCommandMailbox::Config config;
     config.jointNames = jointNamesByIndex(description);
     config.initialNominalPositions.assign(description.getNumJoints(), 0.0);
-    absl::StatusOr<std::unique_ptr<OperatorCommandMailbox>> mailbox = OperatorCommandMailbox::Create(config, &registry_);
+    absl::StatusOr<std::unique_ptr<OperatorCommandMailbox>> mailbox =
+        OperatorCommandMailbox::Create(config, &registry_);
     EXPECT_TRUE(mailbox.ok()) << mailbox.status();
     mailbox_ = *std::move(mailbox);
     sim_->initSim();
     sim_->updateInterfaceStateFromRobot();
-    bridge_ = std::make_unique<SimFsmBridge>(description, sim_->getRobotState(), mailbox_.get(), &states_, sim_.get(), &log_);
+    bridge_ = std::make_unique<SimFsmBridge>(description, sim_->getRobotState(),
+                                             mailbox_.get(), &states_,
+                                             sim_.get(), &log_);
   }
 
   void send(const std::string& command) {
@@ -128,12 +135,16 @@ TEST_F(SimFsmBridgeTest, ModeCommandsSwitchTheTorquesAndPublishTheMode) {
   EXPECT_TRUE(bridge_->processCommands(mode));
   EXPECT_EQ(mode, "WB_MPC");
   EXPECT_FALSE(sim_->isZeroTorqueMode());
-  // Every command was reported for the communication thread to log: the torque switches, and the mode change between
-  // two active modes (JOINT_PD to WB_MPC), which switches nothing.
+  // Every command was reported for the communication thread to log: the torque
+  // switches, and the mode change between two active modes (JOINT_PD to
+  // WB_MPC), which switches nothing.
   std::vector<RealtimeEventCode> codes;
   log_.drain([&](const RealtimeEvent& event) { codes.push_back(event.code); });
-  EXPECT_EQ(codes, (std::vector<RealtimeEventCode>{RealtimeEventCode::kTorquesEnabled, RealtimeEventCode::kModeCommanded,
-                                                   RealtimeEventCode::kTorquesDisabled, RealtimeEventCode::kTorquesEnabled}));
+  EXPECT_EQ(codes, (std::vector<RealtimeEventCode>{
+                       RealtimeEventCode::kTorquesEnabled,
+                       RealtimeEventCode::kModeCommanded,
+                       RealtimeEventCode::kTorquesDisabled,
+                       RealtimeEventCode::kTorquesEnabled}));
 }
 
 TEST_F(SimFsmBridgeTest, OneCommandPerCycleInTheOrderTheyWereSent) {
@@ -154,7 +165,8 @@ TEST_F(SimFsmBridgeTest, TheGantryMovesOnlyWhenItWouldChange) {
   published();
   std::string mode = "JOINT_PD";
   send("LOCK_GANTRY");
-  EXPECT_FALSE(bridge_->processCommands(mode)) << "locked already: nothing to do";
+  EXPECT_FALSE(bridge_->processCommands(mode))
+      << "locked already: nothing to do";
   EXPECT_FALSE(published().has_value());
   send("UNLOCK_GANTRY");
   EXPECT_TRUE(bridge_->processCommands(mode));
@@ -168,11 +180,13 @@ TEST_F(SimFsmBridgeTest, TheGantryMovesOnlyWhenItWouldChange) {
   EXPECT_TRUE(robot_test::valueOrFail(published()).gantry_locked);
 }
 
-TEST_F(SimFsmBridgeTest, TheGantryFollowsTheSliderWhileLockedAndOnlyOnceItHasMoved) {
+TEST_F(SimFsmBridgeTest,
+       TheGantryFollowsTheSliderWhileLockedAndOnlyOnceItHasMoved) {
   std::string mode = "JOINT_PD";
   const double spawnHeight = sim_->getGantryHeight();
   EXPECT_FALSE(bridge_->processCommands(mode));
-  EXPECT_DOUBLE_EQ(sim_->getGantryHeight(), spawnHeight) << "no walking command yet: the gantry stays where it is";
+  EXPECT_DOUBLE_EQ(sim_->getGantryHeight(), spawnHeight)
+      << "no walking command yet: the gantry stays where it is";
   humanoid_mpc_msgs::WalkingVelocityCommand command;
   command.set_desired_pelvis_height(0.7);
   mailbox_->onWalkingVelocityCommand(command);
@@ -194,28 +208,33 @@ TEST_F(SimFsmBridgeTest, TheGantryFollowsTheSliderWhileLockedAndOnlyOnceItHasMov
   EXPECT_DOUBLE_EQ(sim_->getGantryHeight(), 0.8);
 }
 
-TEST_F(SimFsmBridgeTest, EveryControllerResetIsCountedAndTheHealthIsPublishedOnChange) {
+TEST_F(SimFsmBridgeTest,
+       EveryControllerResetIsCountedAndTheHealthIsPublishedOnChange) {
   published();
   bridge_->publishControllerReset("JOINT_PD");
   bridge_->publishControllerReset("JOINT_PD");
   const msgs::FsmState reset = robot_test::valueOrFail(published());
-  EXPECT_EQ(reset.controller_resets, 2u) << "the newest state carries every reset so far";
+  EXPECT_EQ(reset.controller_resets, 2u)
+      << "the newest state carries every reset so far";
   EXPECT_EQ(bridge_->controllerResets(), 2u);
 
   bridge_->setMpcHealthy(/*mpcHealthy=*/true, "WB_MPC");
-  EXPECT_FALSE(published().has_value()) << "healthy already: nothing to publish";
+  EXPECT_FALSE(published().has_value())
+      << "healthy already: nothing to publish";
   bridge_->setMpcHealthy(/*mpcHealthy=*/false, "WB_MPC");
   const msgs::FsmState unhealthy = robot_test::valueOrFail(published());
   EXPECT_FALSE(unhealthy.mpc_healthy);
   EXPECT_EQ(unhealthy.controller_resets, 2u);
   bridge_->publishFsmState("WB_MPC");
-  EXPECT_FALSE(robot_test::valueOrFail(published()).mpc_healthy) << "every state carries the health";
+  EXPECT_FALSE(robot_test::valueOrFail(published()).mpc_healthy)
+      << "every state carries the health";
 }
 
 TEST_F(SimFsmBridgeTest, JointTargetsMoveTheNominalPosture) {
   const std::vector<scalar_t> before = bridge_->getNominalJointPositions();
   bridge_->applyJointTargetUpdates();
-  EXPECT_EQ(bridge_->getNominalJointPositions(), before) << "nothing has arrived";
+  EXPECT_EQ(bridge_->getNominalJointPositions(), before)
+      << "nothing has arrived";
   humanoid_mpc_msgs::JointTargets targets;
   const std::string joint = sim_->getRobotDescription().getJointName(3);
   (*targets.mutable_positions())[joint] = 0.42;
@@ -225,12 +244,15 @@ TEST_F(SimFsmBridgeTest, JointTargetsMoveTheNominalPosture) {
 }
 
 TEST_F(SimFsmBridgeTest, ADodgeballIsHandedToTheSimulatorBeforeTheCommands) {
-  const absl::StatusOr<humanoid_mpc_msgs::DodgeballThrow> golden = nproto::ParseTextprotoFile<humanoid_mpc_msgs::DodgeballThrow>(
-      "humanoid_nmpc/humanoid_common_mpc_app/robot/test/data/dodgeball_throw.textproto");
+  const absl::StatusOr<humanoid_mpc_msgs::DodgeballThrow> golden =
+      nproto::ParseTextprotoFile<humanoid_mpc_msgs::DodgeballThrow>(
+          "humanoid_nmpc/humanoid_common_mpc_app/robot/test/data/"
+          "dodgeball_throw.textproto");
   ASSERT_TRUE(golden.ok()) << golden.status();
   mailbox_->onDodgeballThrow(*golden);
   std::string mode = "JOINT_PD";
-  EXPECT_FALSE(bridge_->processCommands(mode)) << "a throw is not an FSM command";
+  EXPECT_FALSE(bridge_->processCommands(mode))
+      << "a throw is not an FSM command";
   robot::mujoco_sim_interface::MujocoSimInterface::DodgeballThrow left;
   EXPECT_FALSE(mailbox_->takeDodgeballThrow(left)) << "taken by the bridge";
 }

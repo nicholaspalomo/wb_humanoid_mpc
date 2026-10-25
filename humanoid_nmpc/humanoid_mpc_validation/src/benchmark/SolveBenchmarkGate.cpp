@@ -47,16 +47,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::validation {
 namespace {
 
-std::optional<double> numberAt(const JsonValue& document, const std::string& path) {
+std::optional<double> numberAt(const JsonValue& document,
+                               const std::string& path) {
   const JsonValue* absl_nullable value = document.findPath(path);
   if (value == nullptr || !value->isNumber()) return std::nullopt;
   return value->asNumber();
 }
 
-/** The library keys of a document's tape_operation_counts, with their counts. */
-absl::flat_hash_map<std::string, double> tapeOperationCounts(const JsonValue& document) {
+/** The library keys of a document's tape_operation_counts, with their counts.
+ */
+absl::flat_hash_map<std::string, double> tapeOperationCounts(
+    const JsonValue& document) {
   absl::flat_hash_map<std::string, double> counts;
-  const JsonValue* absl_nullable libraries = document.findPath("tape_operation_counts");
+  const JsonValue* absl_nullable libraries =
+      document.findPath("tape_operation_counts");
   if (libraries == nullptr || !libraries->isObject()) return counts;
   for (size_t index = 0; index < libraries->size(); ++index) {
     const JsonValue& count = libraries->valueAt(index);
@@ -72,25 +76,31 @@ struct SharedLibrary {
   double baselineCount = 0.0;
 };
 
-/** A breach when `candidate` exceeds `baseline` by more than `increase`, relative. */
+/** A breach when `candidate` exceeds `baseline` by more than `increase`,
+ * relative. */
 void checkIncrease(const std::string& what,
                    std::optional<double> candidate,
                    std::optional<double> baseline,
                    double increase,
                    std::vector<std::string>& violations) {
   if (!candidate.has_value() || !baseline.has_value()) {
-    violations.push_back(absl::StrCat(what, ": missing in the ", candidate.has_value() ? "baseline" : "candidate"));
+    violations.push_back(
+        absl::StrCat(what, ": missing in the ",
+                     candidate.has_value() ? "baseline" : "candidate"));
     return;
   }
   if (*candidate > (1.0 + increase) * *baseline) {
-    violations.push_back(absl::StrCat(what, ": ", *candidate, " against ", *baseline, ", more than +", 100.0 * increase, " %"));
+    violations.push_back(absl::StrCat(what, ": ", *candidate, " against ",
+                                      *baseline, ", more than +",
+                                      100.0 * increase, " %"));
   }
 }
 
 /** The string at `path`, or "" when there is none. */
 std::string stringAt(const JsonValue& document, const std::string& path) {
   const JsonValue* absl_nullable value = document.findPath(path);
-  return value != nullptr && value->isString() ? value->asString() : std::string();
+  return value != nullptr && value->isString() ? value->asString()
+                                               : std::string();
 }
 
 /** The toolchain of a document, or why it has none. */
@@ -101,75 +111,113 @@ absl::StatusOr<RunToolchain> toolchainOf(const JsonValue& document) {
 }
 
 /**
- * Why the solve times of `candidate` and `baseline` cannot be compared: they were measured on another machine or with
- * another toolchain, or a document cannot show which. None when they can.
+ * Why the solve times of `candidate` and `baseline` cannot be compared: they
+ * were measured on another machine or with another toolchain, or a document
+ * cannot show which. None when they can.
  */
-std::optional<std::string> timingRefusal(const JsonValue& candidate, const JsonValue& baseline) {
+std::optional<std::string> timingRefusal(const JsonValue& candidate,
+                                         const JsonValue& baseline) {
   const std::string machine = stringAt(candidate, "provenance.machine");
   const std::string baselineMachine = stringAt(baseline, "provenance.machine");
   if (machine.empty() || machine != baselineMachine) {
-    return absl::StrCat("the machines differ ('", machine, "' against '", baselineMachine, "')");
+    return absl::StrCat("the machines differ ('", machine, "' against '",
+                        baselineMachine, "')");
   }
   const absl::StatusOr<RunToolchain> toolchain = toolchainOf(candidate);
   const absl::StatusOr<RunToolchain> baselineToolchain = toolchainOf(baseline);
   if (!toolchain.ok() || !baselineToolchain.ok()) {
-    return absl::StrCat("the ", toolchain.ok() ? "baseline" : "candidate", " names no toolchain (",
-                        toolchain.ok() ? baselineToolchain.status().message() : toolchain.status().message(), ")");
+    return absl::StrCat("the ", toolchain.ok() ? "baseline" : "candidate",
+                        " names no toolchain (",
+                        toolchain.ok() ? baselineToolchain.status().message()
+                                       : toolchain.status().message(),
+                        ")");
   }
   std::vector<std::string> differences;
   if (toolchain->compiler != baselineToolchain->compiler) {
-    differences.push_back(absl::StrCat("compiler '", toolchain->compiler, "' against '", baselineToolchain->compiler, "'"));
+    differences.push_back(absl::StrCat("compiler '", toolchain->compiler,
+                                       "' against '",
+                                       baselineToolchain->compiler, "'"));
   }
   if (toolchain->hpipmTarget != baselineToolchain->hpipmTarget) {
-    differences.push_back(absl::StrCat("HPIPM target '", toolchain->hpipmTarget, "' against '", baselineToolchain->hpipmTarget, "'"));
+    differences.push_back(absl::StrCat("HPIPM target '", toolchain->hpipmTarget,
+                                       "' against '",
+                                       baselineToolchain->hpipmTarget, "'"));
   }
   if (toolchain->containerImage != baselineToolchain->containerImage) {
-    differences.push_back(
-        absl::StrCat("container image '", toolchain->containerImage, "' against '", baselineToolchain->containerImage, "'"));
+    differences.push_back(absl::StrCat("container image '",
+                                       toolchain->containerImage, "' against '",
+                                       baselineToolchain->containerImage, "'"));
   }
   if (differences.empty()) return std::nullopt;
-  return absl::StrCat("the toolchains differ (", absl::StrJoin(differences, ", "), ")");
+  return absl::StrCat("the toolchains differ (",
+                      absl::StrJoin(differences, ", "), ")");
 }
 
 }  // namespace
 
-std::vector<std::string> compareSolveBenchmarks(const JsonValue& candidate, const JsonValue& baseline, const SolveBenchmarkGate& gate) {
+std::vector<std::string> compareSolveBenchmarks(
+    const JsonValue& candidate,
+    const JsonValue& baseline,
+    const SolveBenchmarkGate& gate) {
   std::vector<std::string> violations;
-  if (const std::optional<std::string> refusal = timingRefusal(candidate, baseline); refusal.has_value()) {
-    violations.push_back(
-        absl::StrCat("solve_time_ms: not compared, ", *refusal, ": record the baseline again on this machine and toolchain"));
+  if (const std::optional<std::string> refusal =
+          timingRefusal(candidate, baseline);
+      refusal.has_value()) {
+    violations.push_back(absl::StrCat(
+        "solve_time_ms: not compared, ", *refusal,
+        ": record the baseline again on this machine and toolchain"));
   } else {
-    checkIncrease("solve_time_ms.total.mean", numberAt(candidate, "solve_time_ms.total.mean"),
-                  numberAt(baseline, "solve_time_ms.total.mean"), gate.meanIncrease, violations);
-    checkIncrease("solve_time_ms.total.p99", numberAt(candidate, "solve_time_ms.total.p99"), numberAt(baseline, "solve_time_ms.total.p99"),
+    checkIncrease("solve_time_ms.total.mean",
+                  numberAt(candidate, "solve_time_ms.total.mean"),
+                  numberAt(baseline, "solve_time_ms.total.mean"),
+                  gate.meanIncrease, violations);
+    checkIncrease("solve_time_ms.total.p99",
+                  numberAt(candidate, "solve_time_ms.total.p99"),
+                  numberAt(baseline, "solve_time_ms.total.p99"),
                   gate.p99Increase, violations);
-    checkIncrease("solve_time_ms.lq_approximation.mean", numberAt(candidate, "solve_time_ms.lq_approximation.mean"),
-                  numberAt(baseline, "solve_time_ms.lq_approximation.mean"), gate.lqApproximationIncrease, violations);
+    checkIncrease("solve_time_ms.lq_approximation.mean",
+                  numberAt(candidate, "solve_time_ms.lq_approximation.mean"),
+                  numberAt(baseline, "solve_time_ms.lq_approximation.mean"),
+                  gate.lqApproximationIncrease, violations);
   }
-  const std::optional<double> fraction = numberAt(candidate, "real_time.p99_fraction_of_period");
+  const std::optional<double> fraction =
+      numberAt(candidate, "real_time.p99_fraction_of_period");
   if (!fraction.has_value()) {
-    violations.push_back("real_time.p99_fraction_of_period: missing in the candidate");
-  } else if (*fraction >= gate.maxP99FractionOfPeriod) {
     violations.push_back(
-        absl::StrCat("real_time.p99_fraction_of_period: ", *fraction, ", not below ", gate.maxP99FractionOfPeriod, " of the MPC period"));
+        "real_time.p99_fraction_of_period: missing in the candidate");
+  } else if (*fraction >= gate.maxP99FractionOfPeriod) {
+    violations.push_back(absl::StrCat(
+        "real_time.p99_fraction_of_period: ", *fraction, ", not below ",
+        gate.maxP99FractionOfPeriod, " of the MPC period"));
   }
 
-  const absl::flat_hash_map<std::string, double> candidateCounts = tapeOperationCounts(candidate);
-  const absl::flat_hash_map<std::string, double> baselineCounts = tapeOperationCounts(baseline);
+  const absl::flat_hash_map<std::string, double> candidateCounts =
+      tapeOperationCounts(candidate);
+  const absl::flat_hash_map<std::string, double> baselineCounts =
+      tapeOperationCounts(baseline);
   std::vector<SharedLibrary> libraries;
   for (const std::pair<const std::string, double>& library : candidateCounts) {
-    const absl::flat_hash_map<std::string, double>::const_iterator baselineCount = baselineCounts.find(library.first);
+    const absl::flat_hash_map<std::string, double>::const_iterator
+        baselineCount = baselineCounts.find(library.first);
     if (baselineCount != baselineCounts.end()) {
-      libraries.push_back({.key = library.first, .candidateCount = library.second, .baselineCount = baselineCount->second});
+      libraries.push_back({.key = library.first,
+                           .candidateCount = library.second,
+                           .baselineCount = baselineCount->second});
     }
   }
   // The hash maps' order is not reproducible.
-  std::sort(libraries.begin(), libraries.end(), [](const SharedLibrary& a, const SharedLibrary& b) { return a.key < b.key; });
+  std::sort(libraries.begin(), libraries.end(),
+            [](const SharedLibrary& a, const SharedLibrary& b) {
+              return a.key < b.key;
+            });
   for (const SharedLibrary& library : libraries) {
-    checkIncrease(absl::StrCat("tape_operation_counts.", library.key), library.candidateCount, library.baselineCount,
+    checkIncrease(absl::StrCat("tape_operation_counts.", library.key),
+                  library.candidateCount, library.baselineCount,
                   gate.tapeOperationIncrease, violations);
   }
-  checkIncrease("total_tape_operations", numberAt(candidate, "total_tape_operations"), numberAt(baseline, "total_tape_operations"),
+  checkIncrease("total_tape_operations",
+                numberAt(candidate, "total_tape_operations"),
+                numberAt(baseline, "total_tape_operations"),
                 gate.tapeOperationIncrease, violations);
   return violations;
 }

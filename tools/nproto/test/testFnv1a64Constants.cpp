@@ -27,8 +27,8 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// The FNV-1a 64-bit constants of nproto/Fnv1a64Constants.h give the hashes of the reference test vectors of the
-// algorithm.
+// The FNV-1a 64-bit constants of nproto/Fnv1a64Constants.h give the hashes of
+// the reference test vectors of the algorithm.
 
 #include <cstdint>
 

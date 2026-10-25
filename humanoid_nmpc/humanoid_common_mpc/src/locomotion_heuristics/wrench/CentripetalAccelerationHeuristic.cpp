@@ -38,38 +38,47 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-absl::Status CentripetalAccelerationHeuristic::configure(const LocomotionHeuristicConfig& config,
-                                                         const LocomotionHeuristicModelParameters& model) {
+absl::Status CentripetalAccelerationHeuristic::configure(
+    const LocomotionHeuristicConfig& config,
+    const LocomotionHeuristicModelParameters& model) {
   parameters_ = config.centripetalAcceleration;
   totalMass_ = model.totalMass;
   totalWeight_ = model.totalWeight;
   return absl::OkStatus();
 }
 
-vector3_t CentripetalAccelerationHeuristic::forceOffset(const WrenchHeuristicContext& context, size_t /*contactIndex*/) const {
+vector3_t CentripetalAccelerationHeuristic::forceOffset(
+    const WrenchHeuristicContext& context, size_t /*contactIndex*/) const {
   // H_f(Theta x pdot) = m omega x pdot, Bledt Table C.1.
   //
   // With omega = psidot e_z and a horizontal velocity,
   //
-  //     omega x v = (0, 0, psidot) x (v_x, v_y, 0) = (-psidot v_y, psidot v_x, 0),
+  //     omega x v = (0, 0, psidot) x (v_x, v_y, 0) = (-psidot v_y, psidot v_x,
+  //     0),
   //
-  // which points towards the center of the turn and has magnitude m |psidot| |v| - the centripetal force of a body of
-  // mass m on a circle of radius |v| / |psidot|. The feet share it equally, matching how the existing reference
+  // which points towards the center of the turn and has magnitude m |psidot|
+  // |v| - the centripetal force of a body of mass m on a circle of radius |v| /
+  // |psidot|. The feet share it equally, matching how the existing reference
   // shares the weight.
   if (context.numStanceFeet == 0) return vector3_t::Zero();
 
   const vector2_t velocity = context.commandedVelocity;
   const scalar_t yawRate = context.commandedYawRate;
-  vector3_t totalForce(-totalMass_ * yawRate * velocity.y(), totalMass_ * yawRate * velocity.x(), 0.0);
+  vector3_t totalForce(-totalMass_ * yawRate * velocity.y(),
+                       totalMass_ * yawRate * velocity.x(), 0.0);
   totalForce *= parameters_.scale;
 
-  // A foot cannot pull sideways harder than friction allows, and a reference outside the friction cone is one the
-  // wrench-cone barrier will fight at every node. The clamp is on the TOTAL horizontal force, before it is shared:
-  // the feet share the normal load W / n_stance as they share this force, so each foot's friction budget is
-  // mu W / n_stance and a total clamp of r W leaves each foot (r W / n_stance) / (mu W / n_stance) = r / mu of its own
-  // budget in single and in double support alike. A clamp on each foot's share would allow twice the fraction in
-  // double support that it allows in single support. The default clamp is a fraction of body weight rather than an
-  // absolute force so that it scales across the robots in this repository, whose masses differ by a factor of five.
+  // A foot cannot pull sideways harder than friction allows, and a reference
+  // outside the friction cone is one the wrench-cone barrier will fight at
+  // every node. The clamp is on the TOTAL horizontal force, before it is
+  // shared: the feet share the normal load W / n_stance as they share this
+  // force, so each foot's friction budget is mu W / n_stance and a total clamp
+  // of r W leaves each foot (r W / n_stance) / (mu W / n_stance) = r / mu of
+  // its own budget in single and in double support alike. A clamp on each
+  // foot's share would allow twice the fraction in double support that it
+  // allows in single support. The default clamp is a fraction of body weight
+  // rather than an absolute force so that it scales across the robots in this
+  // repository, whose masses differ by a factor of five.
   const scalar_t limit = totalForceLimit();
   const scalar_t magnitude = totalForce.norm();
   if (limit > 0.0 && magnitude > limit) totalForce *= limit / magnitude;
@@ -77,12 +86,17 @@ vector3_t CentripetalAccelerationHeuristic::forceOffset(const WrenchHeuristicCon
 }
 
 scalar_t CentripetalAccelerationHeuristic::totalForceLimit() const {
-  return parameters_.maximumForce > 0.0 ? parameters_.maximumForce : parameters_.maximumForceRatioOfWeight * totalWeight_;
+  return parameters_.maximumForce > 0.0
+             ? parameters_.maximumForce
+             : parameters_.maximumForceRatioOfWeight * totalWeight_;
 }
 
 std::string CentripetalAccelerationHeuristic::describe() const {
-  return absl::StrCat("centripetal_acceleration: f_xy = ", parameters_.scale, " * ", totalMass_,
-                      " kg * (omega x v) / n_stance [N], the total over the stance feet clamped to ", totalForceLimit(), " N");
+  return absl::StrCat("centripetal_acceleration: f_xy = ", parameters_.scale,
+                      " * ", totalMass_,
+                      " kg * (omega x v) / n_stance [N], the total over the "
+                      "stance feet clamped to ",
+                      totalForceLimit(), " N");
 }
 
 }  // namespace ocs2::humanoid

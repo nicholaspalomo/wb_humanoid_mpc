@@ -48,29 +48,35 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::robot_test {
 
 robot::model::RobotDescription atlasDescription() {
-  absl::StatusOr<robot::model::RobotDescription> description = robot::model::RobotDescription::Create(kAtlasUrdf);
+  absl::StatusOr<robot::model::RobotDescription> description =
+      robot::model::RobotDescription::Create(kAtlasUrdf);
   CHECK_OK(description.status());
   return *std::move(description);
 }
 
-std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface> makeHeadlessAtlas(bool gantryLocked) {
+std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface>
+makeHeadlessAtlas(bool gantryLocked) {
   robot::mujoco_sim_interface::MujocoSimConfig config;
   config.scenePath = kAtlasScene;
   config.viewer.names = {robot::mujoco_sim_interface::kNoViewerName};
   config.isGantryLocked = gantryLocked;
   config.gantryHold = "weld_constraint";
-  absl::StatusOr<std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface>> sim =
-      robot::mujoco_sim_interface::MujocoSimInterface::Create(config, kAtlasUrdf);
+  absl::StatusOr<
+      std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface>>
+      sim = robot::mujoco_sim_interface::MujocoSimInterface::Create(config,
+                                                                    kAtlasUrdf);
   CHECK_OK(sim.status());
   return *std::move(sim);
 }
 
-std::unique_ptr<robot::ipc::Bus> createLoopbackBus(const std::string& nodeName) {
+std::unique_ptr<robot::ipc::Bus> createLoopbackBus(
+    const std::string& nodeName) {
   robot::ipc::BusOptions options;
   options.nodeName = nodeName;
   options.network = robot::ipc::isolatedTestNetwork({nodeName});
   options.ioPollPeriod = absl::Milliseconds(5);
-  absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus = robot::ipc::Bus::Create(std::move(options));
+  absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus =
+      robot::ipc::Bus::Create(std::move(options));
   CHECK_OK(bus.status());
   return *std::move(bus);
 }
@@ -84,7 +90,9 @@ bool waitFor(const std::function<bool()>& condition, absl::Duration timeout) {
   return true;
 }
 
-void ScriptedRobotController::prepareCycle(absl::string_view controlMode, const std::vector<scalar_t>& nominalJointPositions) {
+void ScriptedRobotController::prepareCycle(
+    absl::string_view controlMode,
+    const std::vector<scalar_t>& nominalJointPositions) {
   absl::MutexLock lock(mutex_);
   mode_.assign(controlMode.data(), controlMode.size());
   nominal_ = nominalJointPositions;
@@ -95,8 +103,9 @@ void ScriptedRobotController::throwInNextCycle(const std::string& message) {
   throwInNextCycle_.store(true);
 }
 
-void ScriptedRobotController::computeJointControlAction(const robot::model::RobotState& robotState,
-                                                        robot::model::RobotJointAction& jointAction) {
+void ScriptedRobotController::computeJointControlAction(
+    const robot::model::RobotState& robotState,
+    robot::model::RobotJointAction& jointAction) {
   if (throwInNextCycle_.exchange(false)) {
     throw std::runtime_error(throwMessage_);
   }
@@ -117,7 +126,9 @@ void ScriptedRobotController::computeJointControlAction(const robot::model::Robo
   }
   if (contactEstimator_ != nullptr) {
     contactEstimator_->estimateContactFlags(robotState, estimatedFlags_);
-    for (size_t contact = 0; contact < kNumContacts && contact < estimatedFlags_.size(); ++contact) {
+    for (size_t contact = 0;
+         contact < kNumContacts && contact < estimatedFlags_.size();
+         ++contact) {
       measuredContactFlags_[contact] = estimatedFlags_[contact];
     }
   }
@@ -125,22 +136,28 @@ void ScriptedRobotController::computeJointControlAction(const robot::model::Robo
   if (cycleHook_) cycleHook_(cycle);
 }
 
-std::optional<contact_flag_t> ScriptedRobotController::plannedContactFlags() const {
+std::optional<contact_flag_t> ScriptedRobotController::plannedContactFlags()
+    const {
   return std::nullopt;
 }
 
-void ScriptedRobotController::setContactEstimator(std::shared_ptr<robot::model::ContactEstimator> contactEstimator) {
+void ScriptedRobotController::setContactEstimator(
+    std::shared_ptr<robot::model::ContactEstimator> contactEstimator) {
   contactEstimator_ = std::move(contactEstimator);
   absl::MutexLock lock(mutex_);
-  contactEstimatorName_ = contactEstimator_ != nullptr ? contactEstimator_->getName() : std::string();
+  contactEstimatorName_ = contactEstimator_ != nullptr
+                              ? contactEstimator_->getName()
+                              : std::string();
 }
 
-void ScriptedRobotController::setContactWrenchGateConfig(const ContactWrenchGate::Config& config) {
+void ScriptedRobotController::setContactWrenchGateConfig(
+    const ContactWrenchGate::Config& config) {
   absl::MutexLock lock(mutex_);
   gate_ = config;
 }
 
-absl::Status ScriptedRobotController::setPdGains(const mpc_config::JointPdGainsFile& /*gains*/) {
+absl::Status ScriptedRobotController::setPdGains(
+    const mpc_config::JointPdGainsFile& /*gains*/) {
   pdGainsDocuments_.fetch_add(1);
   return absl::OkStatus();
 }

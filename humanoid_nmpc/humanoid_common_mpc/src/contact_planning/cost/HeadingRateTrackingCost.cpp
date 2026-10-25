@@ -43,8 +43,11 @@ void HeadingRateTrackingCost::configure(const ContactPlanningConfig& config) {
   weight_ = config.headingRateTracking.weight;
 }
 
-void HeadingRateTrackingCost::addToStage(const ContactPlanningContext& ctx, int /*node*/, StageAccumulator& stage) const {
-  stage.addQuadraticResidual({{idx_.headingRate, 1.0}}, /*uCoefficients=*/{}, -ctx.input->headingRateCommand, weight_);
+void HeadingRateTrackingCost::addToStage(const ContactPlanningContext& ctx,
+                                         int /*node*/,
+                                         StageAccumulator& stage) const {
+  stage.addQuadraticResidual({{idx_.headingRate, 1.0}}, /*uCoefficients=*/{},
+                             -ctx.input->headingRateCommand, weight_);
 }
 
 }  // namespace ocs2::humanoid

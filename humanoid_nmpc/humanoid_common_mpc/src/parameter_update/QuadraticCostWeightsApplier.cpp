@@ -62,93 +62,132 @@ constexpr std::array<absl::string_view, 4> kFields = {
 };
 // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/task_file.proto)
 
-/** `weights` (`field`), refused unless it has the rows of the task file's tuning layout. */
-absl::StatusOr<matrix_t> checkedTuningWeights(absl::StatusOr<matrix_t> weights, const HotUpdateTarget& target, absl::string_view field) {
+/** `weights` (`field`), refused unless it has the rows of the task file's
+ * tuning layout. */
+absl::StatusOr<matrix_t> checkedTuningWeights(absl::StatusOr<matrix_t> weights,
+                                              const HotUpdateTarget& target,
+                                              absl::string_view field) {
   if (!weights.ok()) return weights;
-  if (static_cast<size_t>(weights->rows()) != target.tuningDim() || static_cast<size_t>(weights->cols()) != target.tuningDim()) {
-    return absl::InvalidArgumentError(
-        absl::StrCat(field, " is ", weights->rows(), " x ", weights->cols(), ", but the tuning layout has ", target.tuningDim(), " rows."));
+  if (static_cast<size_t>(weights->rows()) != target.tuningDim() ||
+      static_cast<size_t>(weights->cols()) != target.tuningDim()) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        field, " is ", weights->rows(), " x ", weights->cols(),
+        ", but the tuning layout has ", target.tuningDim(), " rows."));
   }
   return weights;
 }
 
 /** R of input_weights, refused unless it has the problem's input dimension. */
 absl::StatusOr<matrix_t> inputWeights(const HotUpdateTarget& target) {
-  absl::StatusOr<matrix_t> R = inputWeightsFromConfig(target.task().input_weights, target.layout(), "input_weights");
+  absl::StatusOr<matrix_t> R = inputWeightsFromConfig(
+      target.task().input_weights, target.layout(), "input_weights");
   if (!R.ok()) return R;
   if (static_cast<size_t>(R->rows()) != target.inputDim()) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("input_weights has ", R->rows(), " rows, but the problem has ", target.inputDim(), " inputs."));
+    return absl::InvalidArgumentError(absl::StrCat(
+        "input_weights has ", R->rows(), " rows, but the problem has ",
+        target.inputDim(), " inputs."));
   }
   return R;
 }
 
 /**
- * Hands the term `name` of `collection`, when the problem carries it, to `set`, and reports a refusal of its setter as
- * the failed update of the term (reportFailedTermUpdate()): the setter compares the weights with the running term's own
- * dimensions. A term of another type is reported by updateTermIfPresent().
+ * Hands the term `name` of `collection`, when the problem carries it, to `set`,
+ * and reports a refusal of its setter as the failed update of the term
+ * (reportFailedTermUpdate()): the setter compares the weights with the running
+ * term's own dimensions. A term of another type is reported by
+ * updateTermIfPresent().
  */
 template <typename Derived, typename Term>
-void setWeightsIfPresent(Collection<Term>& collection, const std::string& name, absl::FunctionRef<absl::Status(Derived&)> set) {
+void setWeightsIfPresent(Collection<Term>& collection,
+                         const std::string& name,
+                         absl::FunctionRef<absl::Status(Derived&)> set) {
   absl::Status refused = absl::OkStatus();
-  updateTermIfPresent<Derived>(collection, name, [&](Derived& term) { refused = set(term); });
+  updateTermIfPresent<Derived>(collection, name,
+                               [&](Derived& term) { refused = set(term); });
   if (!refused.ok()) reportFailedTermUpdate(name, refused);
 }
 
 }  // namespace
 
-absl::Span<const absl::string_view> QuadraticCostWeightsApplier::staticFields() {
+absl::Span<const absl::string_view>
+QuadraticCostWeightsApplier::staticFields() {
   return absl::MakeConstSpan(kFields);
 }
 
 void QuadraticCostWeightsApplier::apply(HotUpdateTarget& target) {
   const mpc_config::TaskFile& task = target.task();
   const OptimalControlProblem& running = target.runningProblem();
-  // The factory zeroes the base-pose block of both the running and the terminal state cost when the problem carries the
-  // CoM + ACoM cost, so a reload must do the same or a slider drag silently re-introduces base-pose tracking. Read off
-  // the running problem, never the reloaded file.
-  const BasePoseWeights basePose = carriesTerm(*running.stateCostPtr, std::string(ComAndAcomTrackingCost::kRunningTermName))
-                                       ? BasePoseWeights::kZeroedForComAndAcomTracking
-                                       : BasePoseWeights::kKept;
-  const bool quadraticTerminalCost = carriesTerm(*running.finalCostPtr, kTerminalCostTerm);
+  // The factory zeroes the base-pose block of both the running and the terminal
+  // state cost when the problem carries the CoM + ACoM cost, so a reload must
+  // do the same or a slider drag silently re-introduces base-pose tracking.
+  // Read off the running problem, never the reloaded file.
+  const BasePoseWeights basePose =
+      carriesTerm(*running.stateCostPtr,
+                  std::string(ComAndAcomTrackingCost::kRunningTermName))
+          ? BasePoseWeights::kZeroedForComAndAcomTracking
+          : BasePoseWeights::kKept;
+  const bool quadraticTerminalCost =
+      carriesTerm(*running.finalCostPtr, kTerminalCostTerm);
 
-  // The conversions of the start-up factory (HumanoidCostConstraintFactory), so that a reload and a fresh start hand the
-  // costs' TuningLayoutDeviation the same Euler-written rows.
+  // The conversions of the start-up factory (HumanoidCostConstraintFactory), so
+  // that a reload and a fresh start hand the costs' TuningLayoutDeviation the
+  // same Euler-written rows.
   const std::optional<matrix_t> Q = convertedOrReported(
-      checkedTuningWeights(trackingStateWeightsFromConfig(task.state_weights, target.layout(), "state_weights", basePose), target,
-                           "state_weights"),
+      checkedTuningWeights(
+          trackingStateWeightsFromConfig(task.state_weights, target.layout(),
+                                         "state_weights", basePose),
+          target, "state_weights"),
       target.source(), "state_weights");
   std::optional<matrix_t> R;
   if (inputCost_ == InputCost::kInputWeights) {
-    R = convertedOrReported(inputWeights(target), target.source(), "input_weights");
+    R = convertedOrReported(inputWeights(target), target.source(),
+                            "input_weights");
   }
   std::optional<matrix_t> Q_final;
   if (quadraticTerminalCost) {
-    if (const std::optional<scalar_t>& scaling = target.terminalCostScaling(); scaling.has_value()) {
-      Q_final = convertedOrReported(checkedTuningWeights(terminalStateWeightsFromConfig(task.final_state_weights, *scaling, target.layout(),
-                                                                                        "final_state_weights", basePose),
-                                                         target, "final_state_weights"),
-                                    target.source(), "final_state_weights");
+    if (const std::optional<scalar_t>& scaling = target.terminalCostScaling();
+        scaling.has_value()) {
+      Q_final = convertedOrReported(
+          checkedTuningWeights(
+              terminalStateWeightsFromConfig(task.final_state_weights, *scaling,
+                                             target.layout(),
+                                             "final_state_weights", basePose),
+              target, "final_state_weights"),
+          target.source(), "final_state_weights");
     }
   }
 
   for (OptimalControlProblem& ocp : target.problems()) {
-    // Each term is absent when the task file does not list it; whichever of Q and R was refused keeps its running value.
+    // Each term is absent when the task file does not list it; whichever of Q
+    // and R was refused keeps its running value.
     if (Q.has_value()) {
-      setWeightsIfPresent<TuningQuadraticStateInputCost>(*ocp.costPtr, kStateInputQuadraticCostTerm,
-                                                         [&](TuningQuadraticStateInputCost& cost) { return cost.setStateWeights(*Q); });
-      setWeightsIfPresent<TuningQuadraticStateInputCost>(*ocp.costPtr, kStateQuadraticCostTerm,
-                                                         [&](TuningQuadraticStateInputCost& cost) { return cost.setStateWeights(*Q); });
+      setWeightsIfPresent<TuningQuadraticStateInputCost>(
+          *ocp.costPtr, kStateInputQuadraticCostTerm,
+          [&](TuningQuadraticStateInputCost& cost) {
+            return cost.setStateWeights(*Q);
+          });
+      setWeightsIfPresent<TuningQuadraticStateInputCost>(
+          *ocp.costPtr, kStateQuadraticCostTerm,
+          [&](TuningQuadraticStateInputCost& cost) {
+            return cost.setStateWeights(*Q);
+          });
     }
     if (R.has_value()) {
-      setWeightsIfPresent<TuningQuadraticStateInputCost>(*ocp.costPtr, kStateInputQuadraticCostTerm,
-                                                         [&](TuningQuadraticStateInputCost& cost) { return cost.setInputWeights(*R); });
-      setWeightsIfPresent<InputQuadraticCost>(*ocp.costPtr, kInputQuadraticCostTerm,
-                                              [&](InputQuadraticCost& cost) { return cost.setInputWeights(*R); });
+      setWeightsIfPresent<TuningQuadraticStateInputCost>(
+          *ocp.costPtr, kStateInputQuadraticCostTerm,
+          [&](TuningQuadraticStateInputCost& cost) {
+            return cost.setInputWeights(*R);
+          });
+      setWeightsIfPresent<InputQuadraticCost>(
+          *ocp.costPtr, kInputQuadraticCostTerm,
+          [&](InputQuadraticCost& cost) { return cost.setInputWeights(*R); });
     }
     if (Q_final.has_value()) {
-      setWeightsIfPresent<TuningQuadraticStateCost>(*ocp.finalCostPtr, kTerminalCostTerm,
-                                                    [&](TuningQuadraticStateCost& cost) { return cost.setStateWeights(*Q_final); });
+      setWeightsIfPresent<TuningQuadraticStateCost>(
+          *ocp.finalCostPtr, kTerminalCostTerm,
+          [&](TuningQuadraticStateCost& cost) {
+            return cost.setStateWeights(*Q_final);
+          });
     }
   }
 }

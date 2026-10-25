@@ -50,31 +50,43 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_wb_mpc/cost/JointTorqueCostCppAd.h"
 
 /*
- * The CppAD costs of the whole-body MPC that clone the robot model - JointTorqueCostCppAd and
- * EndEffectorDynamicsFootCost - own their copy and release it: the cost and every clone of it, of which the solver
- * makes one per worker thread. Both used to keep the clone in a raw pointer that nothing deleted, so every cost and
- * every copy leaked a model. A robot model that counts its live instances stands in for the G1's. Each test tapes and
- * compiles the CppAD library of one cost on the G1 whole-body model, in a working directory made for the run.
+ * The CppAD costs of the whole-body MPC that clone the robot model -
+ * JointTorqueCostCppAd and EndEffectorDynamicsFootCost - own their copy and
+ * release it: the cost and every clone of it, of which the solver makes one per
+ * worker thread. Both used to keep the clone in a raw pointer that nothing
+ * deleted, so every cost and every copy leaked a model. A robot model that
+ * counts its live instances stands in for the G1's. Each test tapes and
+ * compiles the CppAD library of one cost on the G1 whole-body model, in a
+ * working directory made for the run.
  */
 
 namespace ocs2::humanoid {
 namespace {
 
-/** The whole-body robot model of the G1, counting its live instances, clones included. */
+/** The whole-body robot model of the G1, counting its live instances, clones
+ * included. */
 class CountingRobotModel final : public WBAccelMpcRobotModel<ad_scalar_t> {
  public:
-  explicit CountingRobotModel(const ModelSettings& modelSettings) : WBAccelMpcRobotModel<ad_scalar_t>(modelSettings) { ++liveInstances; }
+  explicit CountingRobotModel(const ModelSettings& modelSettings)
+      : WBAccelMpcRobotModel<ad_scalar_t>(modelSettings) {
+    ++liveInstances;
+  }
   ~CountingRobotModel() override { --liveInstances; }
   CountingRobotModel& operator=(const CountingRobotModel&) = delete;
   CountingRobotModel(CountingRobotModel&&) = delete;
   CountingRobotModel& operator=(CountingRobotModel&&) = delete;
-  CountingRobotModel* absl_nonnull clone() const override { return new CountingRobotModel(*this); }
+  CountingRobotModel* absl_nonnull clone() const override {
+    return new CountingRobotModel(*this);
+  }
 
   /** The instances alive in the test program. */
   inline static int liveInstances = 0;
 
  private:
-  CountingRobotModel(const CountingRobotModel& other) : WBAccelMpcRobotModel<ad_scalar_t>(other) { ++liveInstances; }
+  CountingRobotModel(const CountingRobotModel& other)
+      : WBAccelMpcRobotModel<ad_scalar_t>(other) {
+    ++liveInstances;
+  }
 };
 
 std::string runfilePath(absl::string_view relativePath) {
@@ -85,75 +97,106 @@ std::string runfilePath(absl::string_view relativePath) {
   roots.emplace_back(std::filesystem::current_path());
   for (const std::filesystem::path& root : roots) {
     const std::filesystem::path candidate = root / std::string(relativePath);
-    if (std::filesystem::exists(candidate)) return std::filesystem::absolute(candidate).string();
+    if (std::filesystem::exists(candidate))
+      return std::filesystem::absolute(candidate).string();
   }
   return std::string();
 }
 
 /**
- * The G1 controller models (no optimal control problem), in a working directory made for this run: the CppAD libraries
- * go to a folder relative to it (ModelSettings::modelFolderCppAd), and the shipped file does not force a recompile, so a
- * library left by an earlier unsandboxed run would be loaded instead of taped.
+ * The G1 controller models (no optimal control problem), in a working directory
+ * made for this run: the CppAD libraries go to a folder relative to it
+ * (ModelSettings::modelFolderCppAd), and the shipped file does not force a
+ * recompile, so a library left by an earlier unsandboxed run would be loaded
+ * instead of taped.
  */
-std::unique_ptr<WBMpcInterface> g1ControllerModelsInAFreshDirectory(absl::string_view testName) {
-  const std::string taskFile = runfilePath("robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto");
-  const std::string referenceFile = runfilePath("robot_models/unitree_g1/g1_wb_mpc/config/command/reference.textproto");
-  const std::string urdfFile = runfilePath("robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf");
-  EXPECT_FALSE(taskFile.empty() || referenceFile.empty() || urdfFile.empty()) << "the G1 whole-body files are not in the runfiles";
-  if (taskFile.empty() || referenceFile.empty() || urdfFile.empty()) return nullptr;
-  std::string freshDirectory = (std::filesystem::path(testing::TempDir()) / absl::StrCat(testName, "_XXXXXX")).string();
+std::unique_ptr<WBMpcInterface> g1ControllerModelsInAFreshDirectory(
+    absl::string_view testName) {
+  const std::string taskFile = runfilePath(
+      "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto");
+  const std::string referenceFile = runfilePath(
+      "robot_models/unitree_g1/g1_wb_mpc/config/command/reference.textproto");
+  const std::string urdfFile =
+      runfilePath("robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf");
+  EXPECT_FALSE(taskFile.empty() || referenceFile.empty() || urdfFile.empty())
+      << "the G1 whole-body files are not in the runfiles";
+  if (taskFile.empty() || referenceFile.empty() || urdfFile.empty())
+    return nullptr;
+  std::string freshDirectory = (std::filesystem::path(testing::TempDir()) /
+                                absl::StrCat(testName, "_XXXXXX"))
+                                   .string();
   if (mkdtemp(freshDirectory.data()) == nullptr) {
-    ADD_FAILURE() << "cannot make a fresh working directory from " << freshDirectory;
+    ADD_FAILURE() << "cannot make a fresh working directory from "
+                  << freshDirectory;
     return nullptr;
   }
   std::filesystem::current_path(freshDirectory);
-  absl::StatusOr<std::unique_ptr<WBMpcInterface>> created = WBMpcInterface::CreateControllerModels(taskFile, urdfFile, referenceFile);
+  absl::StatusOr<std::unique_ptr<WBMpcInterface>> created =
+      WBMpcInterface::CreateControllerModels(taskFile, urdfFile, referenceFile);
   EXPECT_TRUE(created.ok()) << created.status();
   return created.ok() ? *std::move(created) : nullptr;
 }
 
-TEST(CostRobotModelOwnership, TheJointTorqueCostReleasesTheRobotModelsItClones) {
-  const std::unique_ptr<WBMpcInterface> interface = g1ControllerModelsInAFreshDirectory("jointTorqueCostOwnership");
+TEST(CostRobotModelOwnership,
+     TheJointTorqueCostReleasesTheRobotModelsItClones) {
+  const std::unique_ptr<WBMpcInterface> interface =
+      g1ControllerModelsInAFreshDirectory("jointTorqueCostOwnership");
   ASSERT_NE(interface, nullptr);
   {
     const CountingRobotModel model(interface->modelSettings());
     ASSERT_EQ(CountingRobotModel::liveInstances, 1);
     {
       absl::StatusOr<std::unique_ptr<JointTorqueCostCppAd>> cost =
-          JointTorqueCostCppAd::Create(vector_t::Ones(static_cast<Eigen::Index>(model.getJointDim())), interface->getPinocchioInterface(),
-                                       model, "jointTorqueCostOwnership", interface->modelSettings());
+          JointTorqueCostCppAd::Create(
+              vector_t::Ones(static_cast<Eigen::Index>(model.getJointDim())),
+              interface->getPinocchioInterface(), model,
+              "jointTorqueCostOwnership", interface->modelSettings());
       ASSERT_TRUE(cost.ok()) << cost.status();
-      EXPECT_EQ(CountingRobotModel::liveInstances, 2) << "the cost holds a copy of the model of its own";
+      EXPECT_EQ(CountingRobotModel::liveInstances, 2)
+          << "the cost holds a copy of the model of its own";
       {
         const std::unique_ptr<JointTorqueCostCppAd> costCopy((*cost)->clone());
-        EXPECT_EQ(CountingRobotModel::liveInstances, 3) << "every copy of the cost holds a copy of its own";
+        EXPECT_EQ(CountingRobotModel::liveInstances, 3)
+            << "every copy of the cost holds a copy of its own";
       }
-      EXPECT_EQ(CountingRobotModel::liveInstances, 2) << "a copy of the cost released its model";
+      EXPECT_EQ(CountingRobotModel::liveInstances, 2)
+          << "a copy of the cost released its model";
     }
-    EXPECT_EQ(CountingRobotModel::liveInstances, 1) << "the cost released its model";
+    EXPECT_EQ(CountingRobotModel::liveInstances, 1)
+        << "the cost released its model";
   }
   EXPECT_EQ(CountingRobotModel::liveInstances, 0);
 }
 
 TEST(CostRobotModelOwnership, TheSwingFootCostReleasesTheRobotModelsItClones) {
-  const std::unique_ptr<WBMpcInterface> interface = g1ControllerModelsInAFreshDirectory("footCostOwnership");
+  const std::unique_ptr<WBMpcInterface> interface =
+      g1ControllerModelsInAFreshDirectory("footCostOwnership");
   ASSERT_NE(interface, nullptr);
   {
     const CountingRobotModel model(interface->modelSettings());
     ASSERT_EQ(CountingRobotModel::liveInstances, 1);
     {
-      absl::StatusOr<std::unique_ptr<EndEffectorDynamicsFootCost>> cost = EndEffectorDynamicsFootCost::Create(
-          *interface->getSwitchedModelReferenceManagerPtr(), EndEffectorDynamicsWeights(), interface->getPinocchioInterface(), model,
-          /*contactIndex=*/0, "footCostOwnership", interface->modelSettings());
+      absl::StatusOr<std::unique_ptr<EndEffectorDynamicsFootCost>> cost =
+          EndEffectorDynamicsFootCost::Create(
+              *interface->getSwitchedModelReferenceManagerPtr(),
+              EndEffectorDynamicsWeights(), interface->getPinocchioInterface(),
+              model,
+              /*contactIndex=*/0, "footCostOwnership",
+              interface->modelSettings());
       ASSERT_TRUE(cost.ok()) << cost.status();
-      EXPECT_EQ(CountingRobotModel::liveInstances, 2) << "the cost holds a copy of the model of its own";
+      EXPECT_EQ(CountingRobotModel::liveInstances, 2)
+          << "the cost holds a copy of the model of its own";
       {
-        const std::unique_ptr<EndEffectorDynamicsFootCost> costCopy((*cost)->clone());
-        EXPECT_EQ(CountingRobotModel::liveInstances, 3) << "every copy of the cost holds a copy of its own";
+        const std::unique_ptr<EndEffectorDynamicsFootCost> costCopy(
+            (*cost)->clone());
+        EXPECT_EQ(CountingRobotModel::liveInstances, 3)
+            << "every copy of the cost holds a copy of its own";
       }
-      EXPECT_EQ(CountingRobotModel::liveInstances, 2) << "a copy of the cost released its model";
+      EXPECT_EQ(CountingRobotModel::liveInstances, 2)
+          << "a copy of the cost released its model";
     }
-    EXPECT_EQ(CountingRobotModel::liveInstances, 1) << "the cost released its model";
+    EXPECT_EQ(CountingRobotModel::liveInstances, 1)
+        << "the cost released its model";
   }
   EXPECT_EQ(CountingRobotModel::liveInstances, 0);
 }

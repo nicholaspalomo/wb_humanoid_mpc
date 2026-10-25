@@ -44,16 +44,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The quadratic state-only cost of the task file's tuning layout, l(x) = 1/2 r' Q r with r = TuningLayoutDeviation(x,
- * x_ref): the terminal counterpart of TuningQuadraticStateInputCost, Q of final_state_weights (times
- * terminal_cost_scaling) written by setStateWeights() at start-up and on every live reload. On a layout of differences
- * only OCS2's QuadraticStateCost of x - x_ref, bit for bit; with the rotation rows, that cost's value, gradient and
- * Hessian at a level state only under the conditions TuningQuadraticStateInputCost states (the orientation rows' Hessian
- * against any reference, the angular-velocity rows' only without yaw and pitch rate errors).
+ * The quadratic state-only cost of the task file's tuning layout, l(x) = 1/2 r'
+ * Q r with r = TuningLayoutDeviation(x, x_ref): the terminal counterpart of
+ * TuningQuadraticStateInputCost, Q of final_state_weights (times
+ * terminal_cost_scaling) written by setStateWeights() at start-up and on every
+ * live reload. On a layout of differences only OCS2's QuadraticStateCost of x -
+ * x_ref, bit for bit; with the rotation rows, that cost's value, gradient and
+ * Hessian at a level state only under the conditions
+ * TuningQuadraticStateInputCost states (the orientation rows' Hessian against
+ * any reference, the angular-velocity rows' only without yaw and pitch rate
+ * errors).
  *
- * A base class: a derived term says where the reference comes from (getReference()) and builds itself through a static
- * Create() that sets Q. The robot model must outlive it. Like every OCS2 term it is cloned for each solver thread; its
- * const functions are safe to call concurrently, the setter is not.
+ * A base class: a derived term says where the reference comes from
+ * (getReference()) and builds itself through a static Create() that sets Q. The
+ * robot model must outlive it. Like every OCS2 term it is cloned for each
+ * solver thread; its const functions are safe to call concurrently, the setter
+ * is not.
  */
 class TuningQuadraticStateCost : public StateCost {
  public:
@@ -69,14 +75,16 @@ class TuningQuadraticStateCost : public StateCost {
                     const PreComputation& preComputation) const final;
 
   /** The Gauss-Newton model of l at `state`: value, J' Q r and J' Q J. */
-  ScalarFunctionQuadraticApproximation getQuadraticApproximation(scalar_t time,
-                                                                 const vector_t& state,
-                                                                 const TargetTrajectories& targetTrajectories,
-                                                                 const PreComputation& preComputation) const final;
+  ScalarFunctionQuadraticApproximation getQuadraticApproximation(
+      scalar_t time,
+      const vector_t& state,
+      const TargetTrajectories& targetTrajectories,
+      const PreComputation& preComputation) const final;
 
   /**
-   * Replaces Q. InvalidArgument, with Q left as it was, unless `stateWeights` is getTuningDim() square, finite and
-   * symmetric (validateQuadraticWeights()).
+   * Replaces Q. InvalidArgument, with Q left as it was, unless `stateWeights`
+   * is getTuningDim() square, finite and symmetric
+   * (validateQuadraticWeights()).
    */
   absl::Status setStateWeights(matrix_t stateWeights);
 
@@ -88,16 +96,20 @@ class TuningQuadraticStateCost : public StateCost {
 
  protected:
   /**
-   * The cost of `mpcRobotModel`'s tuning layout, which is retained; Q is empty until the derived Create() sets it, which
-   * it does before the cost is used.
+   * The cost of `mpcRobotModel`'s tuning layout, which is retained; Q is empty
+   * until the derived Create() sets it, which it does before the cost is used.
    */
-  explicit TuningQuadraticStateCost(const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModel);
+  explicit TuningQuadraticStateCost(
+      const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModel);
   TuningQuadraticStateCost(const TuningQuadraticStateCost& other) = default;
 
   /** The robot model the cost is built on. */
-  const MpcRobotModelBase<scalar_t>& mpcRobotModel() const { return *mpcRobotModelPtr_; }
+  const MpcRobotModelBase<scalar_t>& mpcRobotModel() const {
+    return *mpcRobotModelPtr_;
+  }
 
-  /** The reference state x_ref of the node at `time`, `state` the point the cost is evaluated at. */
+  /** The reference state x_ref of the node at `time`, `state` the point the
+   * cost is evaluated at. */
   virtual vector_t getReference(scalar_t time,
                                 const vector_t& state,
                                 const TargetTrajectories& targetTrajectories,

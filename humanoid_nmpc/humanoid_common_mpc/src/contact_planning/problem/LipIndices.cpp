@@ -37,7 +37,8 @@ void LipIndices::bind(const Layout& layout) {
   zmp = {layout.input(var::kZmpX), layout.input(var::kZmpY)};
   for (size_t i = 0; i < kNumContacts; ++i) {
     foot[i] = {layout.state(var::footX(i)), layout.state(var::footY(i))};
-    footDelta[i] = {layout.input(var::footDeltaX(i)), layout.input(var::footDeltaY(i))};
+    footDelta[i] = {layout.input(var::footDeltaX(i)),
+                    layout.input(var::footDeltaY(i))};
     contact[i] = layout.input(var::contact(i));
   }
   hasHeading = layout.hasHeading;

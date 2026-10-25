@@ -34,14 +34,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 
 /**
- * The scene contract with the Rerun bridge (humanoid_nmpc/humanoid_rerun_viewer/README.md, "The 3D scene"): the names
- * of the robot model instances and the paths of the markers, which the bridge resolves under world/, and the marker
- * colors the publisher sets explicitly. A marker the publisher leaves uncolored takes the bridge's default.
+ * The scene contract with the Rerun bridge
+ * (humanoid_nmpc/humanoid_rerun_viewer/README.md, "The 3D scene"): the names of
+ * the robot model instances and the paths of the markers, which the bridge
+ * resolves under world/, and the marker colors the publisher sets explicitly. A
+ * marker the publisher leaves uncolored takes the bridge's default.
  */
 namespace ocs2::humanoid::visualization::scene {
 
 // LINT.IfChange(robot_instances)
-/** The robot as robot/state measures it (the MPC observation's state when no sample has arrived recently). */
+/** The robot as robot/state measures it (the MPC observation's state when no
+ * sample has arrived recently). */
 inline constexpr absl::string_view kMeasuredInstance = "measured";
 /** The last node of the MPC plan. */
 inline constexpr absl::string_view kTerminalStateInstance = "terminal_state";
@@ -53,13 +56,15 @@ inline constexpr absl::string_view kTerminalTargetInstance = "terminal_target";
 
 // LINT.IfChange(markers)
 inline constexpr absl::string_view kContactForces = "markers/contact_forces";
-inline constexpr absl::string_view kCenterOfPressure = "markers/center_of_pressure";
+inline constexpr absl::string_view kCenterOfPressure =
+    "markers/center_of_pressure";
 inline constexpr absl::string_view kCornerForces = "markers/corner_forces";
 inline constexpr absl::string_view kPlanEndEffectors = "plan/end_effectors";
 inline constexpr absl::string_view kPlanBase = "plan/base";
 inline constexpr absl::string_view kPlanCom = "plan/com";
 inline constexpr absl::string_view kPlanFootholds = "plan/footholds";
-inline constexpr absl::string_view kCollisionSpheres = "markers/collision_spheres";
+inline constexpr absl::string_view kCollisionSpheres =
+    "markers/collision_spheres";
 // clang-format off
 // LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/python/humanoid_rerun_viewer/scene_contract.py:markers)
 // clang-format on
@@ -72,15 +77,22 @@ struct Rgba {
   float a = 1.0f;
 };
 
-// OCS2's MATLAB-like palette (ocs2::Color), which the bridge draws its defaults in.
+// OCS2's MATLAB-like palette (ocs2::Color), which the bridge draws its defaults
+// in.
 // LINT.IfChange(marker_palette)
 inline constexpr Rgba kBlue{.r = 0.0f, .g = 0.4470f, .b = 0.7410f, .a = 1.0f};
-inline constexpr Rgba kOrange{.r = 0.8500f, .g = 0.3250f, .b = 0.0980f, .a = 1.0f};
-inline constexpr Rgba kYellow{.r = 0.9290f, .g = 0.6940f, .b = 0.1250f, .a = 1.0f};
-inline constexpr Rgba kPurple{.r = 0.4940f, .g = 0.1840f, .b = 0.5560f, .a = 1.0f};
-inline constexpr Rgba kGreen{.r = 0.4660f, .g = 0.6740f, .b = 0.1880f, .a = 1.0f};
-/** Contact i (and plan frame i) is drawn in kContactColors[i % 5]: left foot purple, right foot orange. */
-inline constexpr std::array<Rgba, 5> kContactColors = {kPurple, kOrange, kBlue, kGreen, kYellow};
+inline constexpr Rgba kOrange{
+    .r = 0.8500f, .g = 0.3250f, .b = 0.0980f, .a = 1.0f};
+inline constexpr Rgba kYellow{
+    .r = 0.9290f, .g = 0.6940f, .b = 0.1250f, .a = 1.0f};
+inline constexpr Rgba kPurple{
+    .r = 0.4940f, .g = 0.1840f, .b = 0.5560f, .a = 1.0f};
+inline constexpr Rgba kGreen{
+    .r = 0.4660f, .g = 0.6740f, .b = 0.1880f, .a = 1.0f};
+/** Contact i (and plan frame i) is drawn in kContactColors[i % 5]: left foot
+ * purple, right foot orange. */
+inline constexpr std::array<Rgba, 5> kContactColors = {kPurple, kOrange, kBlue,
+                                                       kGreen, kYellow};
 // clang-format off
 // LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/python/humanoid_rerun_viewer/palette.py:marker_palette)
 // clang-format on

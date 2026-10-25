@@ -97,7 +97,9 @@ class ActorCritic(linen.Module):
 
         # Actor head (mean & log_std)
         actor_mean = linen.Dense(self.action_dim)(h)
-        log_std = self.param("log_std", linen.initializers.zeros, (self.action_dim,))
+        log_std = self.param(
+            "log_std", linen.initializers.zeros, (self.action_dim,)
+        )
 
         # Critic head (value)
         value = linen.Dense(1)(h)
@@ -122,7 +124,9 @@ class ObservationNormalizer:
         return (observations - self.mean) / self.std
 
 
-def normalizer_from_observations(observations: np.ndarray) -> ObservationNormalizer:
+def normalizer_from_observations(
+    observations: np.ndarray,
+) -> ObservationNormalizer:
     """Returns the normalizer of a data set's observations, (num_samples, observation_dim).
 
     An observation whose standard deviation is below _MIN_OBSERVATION_STD (a constant one) is centered and not scaled,
@@ -153,7 +157,9 @@ def policy_action(
     return jnp.tanh(mean)
 
 
-def save_checkpoint(path: str, params: Any, normalizer: ObservationNormalizer) -> None:
+def save_checkpoint(
+    path: str, params: Any, normalizer: ObservationNormalizer
+) -> None:
     """Writes the network's parameters and the normalizer to an .npz file at `path`, keyed as load_checkpoint() reads.
 
     Args:
@@ -191,7 +197,11 @@ def load_checkpoint(path: str) -> tuple[dict[str, Any], ObservationNormalizer]:
     """
     with np.load(path) as archive:
         arrays = {key: archive[key] for key in archive.files}
-    required = (*CHECKPOINT_PARAMETER_KEYS, _NORMALIZER_MEAN_KEY, _NORMALIZER_STD_KEY)
+    required = (
+        *CHECKPOINT_PARAMETER_KEYS,
+        _NORMALIZER_MEAN_KEY,
+        _NORMALIZER_STD_KEY,
+    )
     missing = [key for key in required if key not in arrays]
     if missing:
         raise KeyError(f"checkpoint {path} lacks {', '.join(missing)}")
@@ -208,6 +218,7 @@ def load_checkpoint(path: str) -> tuple[dict[str, Any], ObservationNormalizer]:
     )
     if not np.all(np.isfinite(normalizer.std) & (normalizer.std > 0.0)):
         raise ValueError(
-            f"checkpoint {path}: the normalizer's std is not positive and finite"
+            f"checkpoint {path}: the normalizer's std is not positive and"
+            " finite"
         )
     return params, normalizer

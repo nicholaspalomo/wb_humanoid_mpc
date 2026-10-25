@@ -36,18 +36,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `dcm_step_adjustment`: the planned landing spot of every swing in flight is shifted by the DCM (capture point) error
- * between the measured center of mass and the NMPC's prediction, propagated to touch-down and clipped to the planner's
- * reachable region.
+ * `dcm_step_adjustment`: the planned landing spot of every swing in flight is
+ * shifted by the DCM (capture point) error between the measured center of mass
+ * and the NMPC's prediction, propagated to touch-down and clipped to the
+ * planner's reachable region.
  *
- * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
  */
 class DcmStepAdjustmentRule final : public ExecutionRule {
  public:
   std::string describe() const override;
   void configure(const ContactPlanningConfig& config) override;
   bool needsPredictedTrajectory() const override { return true; }
-  feet_array_t<vector2_t> correctFootholds(const ExecutionContext& ctx, const ModeSchedule& schedule) const override;
+  feet_array_t<vector2_t> correctFootholds(
+      const ExecutionContext& ctx, const ModeSchedule& schedule) const override;
 
  private:
   DcmStepAdjustmentParameters params_;

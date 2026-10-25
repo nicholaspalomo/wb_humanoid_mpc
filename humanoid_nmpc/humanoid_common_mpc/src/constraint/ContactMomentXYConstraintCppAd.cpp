@@ -45,14 +45,15 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-ContactMomentXYConstraintCppAd::ContactMomentXYConstraintCppAd(const SwitchedModelReferenceManager& referenceManager,
-                                                               const ContactRectangle& contactRectangle,
-                                                               size_t contactPointIndex,
-                                                               const PinocchioInterface& pinocchioInterface,
-                                                               const MpcRobotModelBase<ad_scalar_t>& mpcRobotModel,
-                                                               const std::string& costName,
-                                                               const ModelSettings& modelSettings,
-                                                               bool scheduleGated)
+ContactMomentXYConstraintCppAd::ContactMomentXYConstraintCppAd(
+    const SwitchedModelReferenceManager& referenceManager,
+    const ContactRectangle& contactRectangle,
+    size_t contactPointIndex,
+    const PinocchioInterface& pinocchioInterface,
+    const MpcRobotModelBase<ad_scalar_t>& mpcRobotModel,
+    const std::string& costName,
+    const ModelSettings& modelSettings,
+    bool scheduleGated)
     : StateInputConstraintCppAd(ConstraintOrder::Linear),
       referenceManagerPtr_(&referenceManager),
       mpcRobotModelPtr_(&mpcRobotModel),
@@ -60,24 +61,28 @@ ContactMomentXYConstraintCppAd::ContactMomentXYConstraintCppAd(const SwitchedMod
       contactPointIndex_(contactPointIndex),
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
       scheduleGated_(scheduleGated) {
-  initialize(mpcRobotModelPtr_->getStateDim(), mpcRobotModelPtr_->getInputDim(), /*parameterDim=*/0, costName,
-             modelSettings.modelFolderCppAd, modelSettings.recompileLibrariesCppAd, modelSettings.verboseCppAd);
+  initialize(mpcRobotModelPtr_->getStateDim(), mpcRobotModelPtr_->getInputDim(),
+             /*parameterDim=*/0, costName, modelSettings.modelFolderCppAd,
+             modelSettings.recompileLibrariesCppAd, modelSettings.verboseCppAd);
 }
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-// The copy keeps isActive_: a hand-written copy constructor once dropped it, so every per-thread copy the SQP solver
-// makes of the problem silently reverted a deactivated term to active.
-ContactMomentXYConstraintCppAd::ContactMomentXYConstraintCppAd(const ContactMomentXYConstraintCppAd& other) = default;
+// The copy keeps isActive_: a hand-written copy constructor once dropped it, so
+// every per-thread copy the SQP solver makes of the problem silently reverted a
+// deactivated term to active.
+ContactMomentXYConstraintCppAd::ContactMomentXYConstraintCppAd(
+    const ContactMomentXYConstraintCppAd& other) = default;
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 bool ContactMomentXYConstraintCppAd::isActive(scalar_t time) const {
   if (!isActive_) return false;
-  // Under the contact-implicit formulation the mode schedule no longer decides which foot carries load, so it cannot
-  // be allowed to decide whose center of pressure is bounded either; see contactConstraintsAreScheduleGated().
+  // Under the contact-implicit formulation the mode schedule no longer decides
+  // which foot carries load, so it cannot be allowed to decide whose center of
+  // pressure is bounded either; see contactConstraintsAreScheduleGated().
   if (!scheduleGated_) return true;
   return referenceManagerPtr_->getContactFlags(time)[contactPointIndex_];
 }
@@ -86,22 +91,33 @@ bool ContactMomentXYConstraintCppAd::isActive(scalar_t time) const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-ad_vector_t ContactMomentXYConstraintCppAd::constraintFunction(ad_scalar_t /*time*/,
-                                                               const ad_vector_t& state,
-                                                               const ad_vector_t& input,
-                                                               const ad_vector_t& /*parameters*/) const {
-  const pinocchio::ModelTpl<ad_scalar_t>& model = pinocchioInterfaceCppAd_.getModel();
-  pinocchio::DataTpl<ad_scalar_t> data = pinocchioInterfaceCppAd_.getData();  // make copy of model since method is const
-  updateFramePlacements(mpcRobotModelPtr_->getGeneralizedCoordinates(state), model, data);
-  pinocchio::FrameIndex frameID = getContactFrameIndex(pinocchioInterfaceCppAd_, *mpcRobotModelPtr_, contactPointIndex_);
+ad_vector_t ContactMomentXYConstraintCppAd::constraintFunction(
+    ad_scalar_t /*time*/,
+    const ad_vector_t& state,
+    const ad_vector_t& input,
+    const ad_vector_t& /*parameters*/) const {
+  const pinocchio::ModelTpl<ad_scalar_t>& model =
+      pinocchioInterfaceCppAd_.getModel();
+  pinocchio::DataTpl<ad_scalar_t> data =
+      pinocchioInterfaceCppAd_
+          .getData();  // make copy of model since method is const
+  updateFramePlacements(mpcRobotModelPtr_->getGeneralizedCoordinates(state),
+                        model, data);
+  pinocchio::FrameIndex frameID = getContactFrameIndex(
+      pinocchioInterfaceCppAd_, *mpcRobotModelPtr_, contactPointIndex_);
 
   const ad_vector3_t localForce =
-      rotateVectorWorldToLocal(mpcRobotModelPtr_->getContactForceInWorldFrame(state, input, contactPointIndex_), data, frameID);
+      rotateVectorWorldToLocal(mpcRobotModelPtr_->getContactForceInWorldFrame(
+                                   state, input, contactPointIndex_),
+                               data, frameID);
   const ad_vector3_t localMoments =
-      rotateVectorWorldToLocal(mpcRobotModelPtr_->getContactMomentInWorldFrame(state, input, contactPointIndex_), data, frameID);
+      rotateVectorWorldToLocal(mpcRobotModelPtr_->getContactMomentInWorldFrame(
+                                   state, input, contactPointIndex_),
+                               data, frameID);
 
   ad_vector_t constraintValue(kNumConstraints);
-  constraintValue << localMoments.x() - contactRectangle_.getBounds().y_min * localForce.z(),
+  constraintValue << localMoments.x() -
+                         contactRectangle_.getBounds().y_min * localForce.z(),
       -localMoments.x() + contactRectangle_.getBounds().y_max * localForce.z(),
       -localMoments.y() - contactRectangle_.getBounds().x_min * localForce.z(),
       localMoments.y() + contactRectangle_.getBounds().x_max * localForce.z();

@@ -53,13 +53,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::realtime {
 namespace {
 
-// The prefault touches the stack in frames of this size, one recursive call per frame: a fixed-size array per frame
-// instead of alloca() or a variable-length array, which the Google style guide does not allow.
+// The prefault touches the stack in frames of this size, one recursive call per
+// frame: a fixed-size array per frame instead of alloca() or a variable-length
+// array, which the Google style guide does not allow.
 constexpr size_t kStackPrefaultChunkBytes = 16 * 1024;
-// What a frame of touchStackChunks() adds to its array (return address, saved registers, alignment), generously.
+// What a frame of touchStackChunks() adds to its array (return address, saved
+// registers, alignment), generously.
 constexpr size_t kStackPrefaultFrameOverheadBytes = 256;
-// Stack the prefault leaves untouched at the bottom: room for the calls the thread makes from its deepest frame, for a
-// signal handler, and for the inaccuracy of the stack bounds glibc reports for the main thread.
+// Stack the prefault leaves untouched at the bottom: room for the calls the
+// thread makes from its deepest frame, for a signal handler, and for the
+// inaccuracy of the stack bounds glibc reports for the main thread.
 constexpr size_t kStackSafetyMarginBytes = 64 * 1024;
 // [bytes] The page size assumed when sysconf() does not report one.
 constexpr size_t kFallbackPageSizeBytes = 4096;
@@ -76,8 +79,9 @@ std::string softLimitText(int resource) {
   return absl::StrCat(limit.rlim_cur);
 }
 
-// The failed steps of configureCurrentThread(): the code of the first, and the step and message of every one, so that
-// its error says everything it could not do.
+// The failed steps of configureCurrentThread(): the code of the first, and the
+// step and message of every one, so that its error says everything it could not
+// do.
 class StepFailures {
  public:
   void record(absl::string_view step, const absl::Status& status) {
@@ -102,17 +106,20 @@ class StepFailures {
   std::vector<std::string> messages_;
 };
 
-// Touches `chunks` frames of kStackPrefaultChunkBytes, one page at a time, by calling itself.
+// Touches `chunks` frames of kStackPrefaultChunkBytes, one page at a time, by
+// calling itself.
 [[gnu::noinline]] void touchStackChunks(size_t chunks, size_t pageSize) {
   volatile unsigned char chunk[kStackPrefaultChunkBytes];
-  for (size_t offset = 0; offset < kStackPrefaultChunkBytes; offset += pageSize) {
+  for (size_t offset = 0; offset < kStackPrefaultChunkBytes;
+       offset += pageSize) {
     chunk[offset] = 0;
   }
   chunk[kStackPrefaultChunkBytes - 1] = 0;
   if (chunks > 1) {
     touchStackChunks(chunks - 1, pageSize);
   }
-  // Reading the chunk after the call keeps the compiler from turning the call into a jump that reuses this frame.
+  // Reading the chunk after the call keeps the compiler from turning the call
+  // into a jump that reuses this frame.
   static_cast<void>(chunk[0]);
 }
 
@@ -122,21 +129,29 @@ absl::Status setCurrentThreadRealtime(int priority) {
   const int minPriority = sched_get_priority_min(SCHED_FIFO);
   const int maxPriority = sched_get_priority_max(SCHED_FIFO);
   if (priority < minPriority || priority > maxPriority) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("SCHED_FIFO priority ", priority, " is outside the valid range [", minPriority, ", ", maxPriority, "]"));
+    return absl::InvalidArgumentError(absl::StrCat(
+        "SCHED_FIFO priority ", priority, " is outside the valid range [",
+        minPriority, ", ", maxPriority, "]"));
   }
   sched_param parameters{};
   parameters.sched_priority = priority;
-  const int error = pthread_setschedparam(pthread_self(), SCHED_FIFO, &parameters);
+  const int error =
+      pthread_setschedparam(pthread_self(), SCHED_FIFO, &parameters);
   if (error == EPERM) {
     return absl::PermissionDeniedError(absl::StrCat(
-        "not permitted to run this thread under SCHED_FIFO at priority ", priority,
-        ": the process needs CAP_SYS_NICE or an RLIMIT_RTPRIO of at least ", priority, " (it is ", softLimitText(RLIMIT_RTPRIO),
-        "). Raise it with `ulimit -r`, /etc/security/limits.conf or `docker run --cap-add=SYS_NICE --ulimit rtprio=99`; "
-        "in a cgroup with realtime group scheduling, cpu.rt_runtime_us must be nonzero as well"));
+        "not permitted to run this thread under SCHED_FIFO at priority ",
+        priority,
+        ": the process needs CAP_SYS_NICE or an RLIMIT_RTPRIO of at least ",
+        priority, " (it is ", softLimitText(RLIMIT_RTPRIO),
+        "). Raise it with `ulimit -r`, /etc/security/limits.conf or `docker "
+        "run --cap-add=SYS_NICE --ulimit rtprio=99`; "
+        "in a cgroup with realtime group scheduling, cpu.rt_runtime_us must be "
+        "nonzero as well"));
   }
   if (error != 0) {
-    return absl::ErrnoToStatus(error, absl::StrCat("pthread_setschedparam(SCHED_FIFO, ", priority, ") failed"));
+    return absl::ErrnoToStatus(
+        error, absl::StrCat("pthread_setschedparam(SCHED_FIFO, ", priority,
+                            ") failed"));
   }
   return absl::OkStatus();
 }
@@ -144,9 +159,11 @@ absl::Status setCurrentThreadRealtime(int priority) {
 absl::Status setCurrentThreadNonRealtime() {
   sched_param parameters{};
   parameters.sched_priority = 0;
-  const int error = pthread_setschedparam(pthread_self(), SCHED_OTHER, &parameters);
+  const int error =
+      pthread_setschedparam(pthread_self(), SCHED_OTHER, &parameters);
   if (error != 0) {
-    return absl::ErrnoToStatus(error, "pthread_setschedparam(SCHED_OTHER) failed");
+    return absl::ErrnoToStatus(error,
+                               "pthread_setschedparam(SCHED_OTHER) failed");
   }
   return absl::OkStatus();
 }
@@ -158,17 +175,23 @@ absl::Status lockProcessMemory() {
   const int error = errno;
   if (error == EPERM) {
     return absl::PermissionDeniedError(
-        absl::StrCat("not permitted to lock the process's memory: the process needs CAP_IPC_LOCK or a nonzero RLIMIT_MEMLOCK (it is ",
-                     softLimitText(RLIMIT_MEMLOCK), " bytes). Raise it with `ulimit -l unlimited`, /etc/security/limits.conf or ",
+        absl::StrCat("not permitted to lock the process's memory: the process "
+                     "needs CAP_IPC_LOCK or a nonzero RLIMIT_MEMLOCK (it is ",
+                     softLimitText(RLIMIT_MEMLOCK),
+                     " bytes). Raise it with `ulimit -l unlimited`, "
+                     "/etc/security/limits.conf or ",
                      "`docker run --ulimit memlock=-1`"));
   }
   if (error == ENOMEM) {
-    return absl::ResourceExhaustedError(absl::StrCat("cannot lock the process's memory: it maps more than its RLIMIT_MEMLOCK of ",
-                                                     softLimitText(RLIMIT_MEMLOCK),
-                                                     " bytes allows. Raise it with `ulimit -l unlimited`, "
-                                                     "/etc/security/limits.conf or `docker run --ulimit memlock=-1`"));
+    return absl::ResourceExhaustedError(absl::StrCat(
+        "cannot lock the process's memory: it maps more than its "
+        "RLIMIT_MEMLOCK of ",
+        softLimitText(RLIMIT_MEMLOCK),
+        " bytes allows. Raise it with `ulimit -l unlimited`, "
+        "/etc/security/limits.conf or `docker run --ulimit memlock=-1`"));
   }
-  return absl::ErrnoToStatus(error, "mlockall(MCL_CURRENT | MCL_FUTURE) failed");
+  return absl::ErrnoToStatus(error,
+                             "mlockall(MCL_CURRENT | MCL_FUTURE) failed");
 }
 
 absl::Status prefaultStack(size_t bytes) {
@@ -192,46 +215,62 @@ absl::Status prefaultStack(size_t bytes) {
   const unsigned char marker = 0;
   const uintptr_t current = reinterpret_cast<uintptr_t>(&marker);
   const uintptr_t lowest = reinterpret_cast<uintptr_t>(stackLowest);
-  const size_t available = current > lowest ? static_cast<size_t>(current - lowest) : 0;
-  const size_t chunks = (bytes + kStackPrefaultChunkBytes - 1) / kStackPrefaultChunkBytes;
-  const size_t needed = chunks * (kStackPrefaultChunkBytes + kStackPrefaultFrameOverheadBytes) + kStackSafetyMarginBytes;
+  const size_t available =
+      current > lowest ? static_cast<size_t>(current - lowest) : 0;
+  const size_t chunks =
+      (bytes + kStackPrefaultChunkBytes - 1) / kStackPrefaultChunkBytes;
+  const size_t needed =
+      chunks * (kStackPrefaultChunkBytes + kStackPrefaultFrameOverheadBytes) +
+      kStackSafetyMarginBytes;
   if (needed > available) {
-    return absl::OutOfRangeError(absl::StrCat("cannot prefault ", bytes, " bytes of stack: the thread's stack of ", stackSize,
-                                              " bytes has ", available, " bytes left below the caller, and ", kStackSafetyMarginBytes,
-                                              " of them stay untouched as a margin"));
+    return absl::OutOfRangeError(absl::StrCat(
+        "cannot prefault ", bytes, " bytes of stack: the thread's stack of ",
+        stackSize, " bytes has ", available,
+        " bytes left below the caller, and ", kStackSafetyMarginBytes,
+        " of them stay untouched as a margin"));
   }
 
   const int64_t pageSize = sysconf(_SC_PAGESIZE);
-  touchStackChunks(chunks, pageSize > 0 ? static_cast<size_t>(pageSize) : kFallbackPageSizeBytes);
+  touchStackChunks(chunks, pageSize > 0 ? static_cast<size_t>(pageSize)
+                                        : kFallbackPageSizeBytes);
   return absl::OkStatus();
 }
 
 absl::Status setCurrentThreadAffinity(absl::Span<const int> cores) {
   if (cores.empty()) {
-    return absl::InvalidArgumentError("no CPU cores given to pin the thread to");
+    return absl::InvalidArgumentError(
+        "no CPU cores given to pin the thread to");
   }
   const int64_t configuredCpus = sysconf(_SC_NPROCESSORS_CONF);
-  const int cpuCount = configuredCpus > 0 ? static_cast<int>(std::min<int64_t>(configuredCpus, CPU_SETSIZE)) : CPU_SETSIZE;
+  const int cpuCount =
+      configuredCpus > 0
+          ? static_cast<int>(std::min<int64_t>(configuredCpus, CPU_SETSIZE))
+          : CPU_SETSIZE;
 
   cpu_set_t requested;
   CPU_ZERO(&requested);
   for (const int core : cores) {
     if (core < 0 || core >= cpuCount) {
-      return absl::InvalidArgumentError(absl::StrCat("CPU core ", core, " does not exist: this machine has cores 0 to ", cpuCount - 1));
+      return absl::InvalidArgumentError(absl::StrCat(
+          "CPU core ", core, " does not exist: this machine has cores 0 to ",
+          cpuCount - 1));
     }
     CPU_SET(core, &requested);
   }
 
-  int error = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &requested);
+  int error =
+      pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &requested);
   if (error == EINVAL) {
     return absl::InvalidArgumentError(
-        absl::StrCat("none of the CPU cores [", absl::StrJoin(cores, ", "), "] is available to this process (its cpuset)"));
+        absl::StrCat("none of the CPU cores [", absl::StrJoin(cores, ", "),
+                     "] is available to this process (its cpuset)"));
   }
   if (error != 0) {
     return absl::ErrnoToStatus(error, "pthread_setaffinity_np failed");
   }
 
-  // The kernel intersects the request with the cores the process may use and only fails when nothing is left.
+  // The kernel intersects the request with the cores the process may use and
+  // only fails when nothing is left.
   cpu_set_t applied;
   CPU_ZERO(&applied);
   error = pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &applied);
@@ -245,8 +284,10 @@ absl::Status setCurrentThreadAffinity(absl::Span<const int> cores) {
         leftOut.push_back(core);
       }
     }
-    return absl::FailedPreconditionError(absl::StrCat("the kernel left out CPU cores [", absl::StrJoin(leftOut, ", "),
-                                                      "], which this process may not use (its cpuset); the thread runs on the others"));
+    return absl::FailedPreconditionError(absl::StrCat(
+        "the kernel left out CPU cores [", absl::StrJoin(leftOut, ", "),
+        "], which this process may not use (its cpuset); the thread runs on "
+        "the others"));
   }
   return absl::OkStatus();
 }
@@ -254,10 +295,12 @@ absl::Status setCurrentThreadAffinity(absl::Span<const int> cores) {
 absl::Status setCurrentThreadName(absl::string_view name) {
   if (name.empty() || name.size() > kMaxThreadNameLength) {
     return absl::InvalidArgumentError(
-        absl::StrCat("thread name \"", name, "\" has ", name.size(), " characters; Linux keeps 1 to ", kMaxThreadNameLength));
+        absl::StrCat("thread name \"", name, "\" has ", name.size(),
+                     " characters; Linux keeps 1 to ", kMaxThreadNameLength));
   }
   if (absl::StrContains(name, '\0')) {
-    return absl::InvalidArgumentError("a thread name cannot contain a NUL character");
+    return absl::InvalidArgumentError(
+        "a thread name cannot contain a NUL character");
   }
   char terminated[kMaxThreadNameLength + 1] = {};
   name.copy(terminated, name.size());
@@ -270,21 +313,26 @@ absl::Status setCurrentThreadName(absl::string_view name) {
 
 absl::Status configureCurrentThread(const RealtimeThreadConfig& config) {
   if (config.priority < 0) {
-    return absl::InvalidArgumentError(absl::StrCat("realtime priority ", config.priority, " is negative; 0 means not realtime"));
+    return absl::InvalidArgumentError(
+        absl::StrCat("realtime priority ", config.priority,
+                     " is negative; 0 means not realtime"));
   }
   StepFailures failures;
   if (!config.name.empty()) {
     failures.record("naming the thread", setCurrentThreadName(config.name));
   }
   if (!config.cores.empty()) {
-    failures.record("pinning the thread", setCurrentThreadAffinity(config.cores));
+    failures.record("pinning the thread",
+                    setCurrentThreadAffinity(config.cores));
   }
   if (config.priority > 0) {
     if (config.memoryLock == MemoryLock::kLockProcess) {
       failures.record("locking memory", lockProcessMemory());
-      failures.record("prefaulting the stack", prefaultStack(config.stackPrefaultBytes));
+      failures.record("prefaulting the stack",
+                      prefaultStack(config.stackPrefaultBytes));
     }
-    failures.record("setting the realtime priority", setCurrentThreadRealtime(config.priority));
+    failures.record("setting the realtime priority",
+                    setCurrentThreadRealtime(config.priority));
   }
   return failures.status();
 }

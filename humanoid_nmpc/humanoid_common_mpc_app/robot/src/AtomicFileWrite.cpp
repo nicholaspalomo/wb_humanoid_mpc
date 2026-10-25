@@ -51,14 +51,19 @@ namespace {
 /** Bytes read per read() call. */
 constexpr size_t kReadChunk = 64 * 1024;
 
-/** Closes the descriptor `fd`; the errno's status naming `path` when that fails (a deferred write error). */
+/** Closes the descriptor `fd`; the errno's status naming `path` when that fails
+ * (a deferred write error). */
 absl::Status closeFile(int fd, absl::string_view path) {
-  if (::close(fd) != 0) return absl::ErrnoToStatus(errno, absl::StrCat("close(", path, ")"));
+  if (::close(fd) != 0)
+    return absl::ErrnoToStatus(errno, absl::StrCat("close(", path, ")"));
   return absl::OkStatus();
 }
 
-/** Writes all of `contents` to `fd`, retrying short writes and interrupted calls. */
-absl::Status writeAll(int fd, absl::string_view contents, absl::string_view path) {
+/** Writes all of `contents` to `fd`, retrying short writes and interrupted
+ * calls. */
+absl::Status writeAll(int fd,
+                      absl::string_view contents,
+                      absl::string_view path) {
   // Null for an empty view, which writes nothing.
   const char* absl_nullable cursor = contents.data();
   size_t remaining = contents.size();
@@ -74,30 +79,38 @@ absl::Status writeAll(int fd, absl::string_view contents, absl::string_view path
   return absl::OkStatus();
 }
 
-/** fsyncs the directory that holds `path`, so that a rename or an unlink in it survives a power loss. */
+/** fsyncs the directory that holds `path`, so that a rename or an unlink in it
+ * survives a power loss. */
 absl::Status syncDirectoryOf(absl::string_view path) {
-  std::string directory = std::filesystem::path(std::string(path)).parent_path().string();
+  std::string directory =
+      std::filesystem::path(std::string(path)).parent_path().string();
   if (directory.empty()) directory = ".";
   const int fd = ::open(directory.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-  if (fd < 0) return absl::ErrnoToStatus(errno, absl::StrCat("open(", directory, ")"));
+  if (fd < 0)
+    return absl::ErrnoToStatus(errno, absl::StrCat("open(", directory, ")"));
   absl::Status status = absl::OkStatus();
-  if (::fsync(fd) != 0) status = absl::ErrnoToStatus(errno, absl::StrCat("fsync(", directory, ")"));
+  if (::fsync(fd) != 0)
+    status = absl::ErrnoToStatus(errno, absl::StrCat("fsync(", directory, ")"));
   const absl::Status closed = closeFile(fd, directory);
   return status.ok() ? closed : status;
 }
 
 /**
- * syncDirectoryOf(`path`) after `what` has taken effect: a failure is DataLoss, saying that `what` was done but may not
- * survive a power loss.
+ * syncDirectoryOf(`path`) after `what` has taken effect: a failure is DataLoss,
+ * saying that `what` was done but may not survive a power loss.
  */
 absl::Status syncAfter(absl::string_view what, absl::string_view path) {
   absl::Status synced = syncDirectoryOf(path);
   if (synced.ok()) return synced;
   return absl::DataLossError(
-      absl::StrCat(what, ", but its directory could not be synced, so it may not survive a power loss: ", synced.message()));
+      absl::StrCat(what,
+                   ", but its directory could not be synced, so it may not "
+                   "survive a power loss: ",
+                   synced.message()));
 }
 
-/** Creates `temporary` exclusively; one left by a dead process of this pid is removed and the creation retried once. */
+/** Creates `temporary` exclusively; one left by a dead process of this pid is
+ * removed and the creation retried once. */
 absl::StatusOr<int> createTemporary(const std::string& temporary) {
   constexpr int kFlags = O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC;
   constexpr mode_t kMode = 0644;
@@ -105,28 +118,35 @@ absl::StatusOr<int> createTemporary(const std::string& temporary) {
   if (fd < 0 && errno == EEXIST && ::unlink(temporary.c_str()) == 0) {
     fd = ::open(temporary.c_str(), kFlags, kMode);
   }
-  if (fd < 0) return absl::ErrnoToStatus(errno, absl::StrCat("open(", temporary, ", O_CREAT | O_EXCL)"));
+  if (fd < 0)
+    return absl::ErrnoToStatus(
+        errno, absl::StrCat("open(", temporary, ", O_CREAT | O_EXCL)"));
   return fd;
 }
 
 /** Writes `contents` to the open temporary `fd`, fsyncs and closes it. */
-absl::Status fillTemporary(int fd, const std::string& temporary, absl::string_view contents) {
+absl::Status fillTemporary(int fd,
+                           const std::string& temporary,
+                           absl::string_view contents) {
   absl::Status status = writeAll(fd, contents, temporary);
-  if (status.ok() && ::fsync(fd) != 0) status = absl::ErrnoToStatus(errno, absl::StrCat("fsync(", temporary, ")"));
+  if (status.ok() && ::fsync(fd) != 0)
+    status = absl::ErrnoToStatus(errno, absl::StrCat("fsync(", temporary, ")"));
   const absl::Status closed = closeFile(fd, temporary);
   return status.ok() ? closed : status;
 }
 
 }  // namespace
 
-absl::Status writeFileAtomically(absl::string_view path, absl::string_view contents) {
+absl::Status writeFileAtomically(absl::string_view path,
+                                 absl::string_view contents) {
   const std::string target(path);
   const std::string temporary = absl::StrCat(target, ".tmp.", ::getpid());
   const absl::StatusOr<int> fd = createTemporary(temporary);
   if (!fd.ok()) return fd.status();
   absl::Status status = fillTemporary(*fd, temporary, contents);
   if (status.ok() && std::rename(temporary.c_str(), target.c_str()) != 0) {
-    status = absl::ErrnoToStatus(errno, absl::StrCat("rename(", temporary, ", ", target, ")"));
+    status = absl::ErrnoToStatus(
+        errno, absl::StrCat("rename(", temporary, ", ", target, ")"));
   }
   if (!status.ok()) {
     ::unlink(temporary.c_str());
@@ -138,7 +158,8 @@ absl::Status writeFileAtomically(absl::string_view path, absl::string_view conte
 absl::StatusOr<std::string> readFileBytes(absl::string_view path) {
   const std::string file(path);
   const int fd = ::open(file.c_str(), O_RDONLY | O_CLOEXEC);
-  if (fd < 0) return absl::ErrnoToStatus(errno, absl::StrCat("open(", file, ")"));
+  if (fd < 0)
+    return absl::ErrnoToStatus(errno, absl::StrCat("open(", file, ")"));
   std::string contents;
   std::string chunk(kReadChunk, '\0');
   absl::Status status = absl::OkStatus();
@@ -162,7 +183,8 @@ absl::Status renameFile(absl::string_view from, absl::string_view to) {
   const std::string source(from);
   const std::string target(to);
   if (std::rename(source.c_str(), target.c_str()) != 0) {
-    return absl::ErrnoToStatus(errno, absl::StrCat("rename(", source, ", ", target, ")"));
+    return absl::ErrnoToStatus(
+        errno, absl::StrCat("rename(", source, ", ", target, ")"));
   }
   return syncAfter(absl::StrCat(source, " was renamed ", target), target);
 }

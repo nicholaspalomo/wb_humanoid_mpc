@@ -27,9 +27,10 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// The realtime property of nproto's conversions, for the allocation tests: converting into a struct or message that
-// already has the value's shape makes no heap allocation. Link //robot_runtime/robot_realtime:allocation_counter into
-// the test binary, which counts every allocation of the process.
+// The realtime property of nproto's conversions, for the allocation tests:
+// converting into a struct or message that already has the value's shape makes
+// no heap allocation. Link //robot_runtime/robot_realtime:allocation_counter
+// into the test binary, which counts every allocation of the process.
 
 #pragma once
 
@@ -44,7 +45,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace nproto::test_support {
 
-/** `message` serialized and parsed back: maps filled through reflection are moved into their map representation. */
+/** `message` serialized and parsed back: maps filled through reflection are
+ * moved into their map representation. */
 template <typename Proto>
 Proto Reparsed(const Proto& message) {
   Proto parsed;
@@ -53,22 +55,26 @@ Proto Reparsed(const Proto& message) {
 }
 
 /**
- * FromProto() of a message into a struct that holds a value of the same shape (same sizes, same oneof alternatives,
- * same map keys, strings of the same lengths), and ToProto() of a struct into a message of that shape, make no heap
- * allocation. The first conversions, into empty objects, are free to. `repeatedSize` is the number of elements of every
- * repeated field and map (TestValueOptions).
+ * FromProto() of a message into a struct that holds a value of the same shape
+ * (same sizes, same oneof alternatives, same map keys, strings of the same
+ * lengths), and ToProto() of a struct into a message of that shape, make no
+ * heap allocation. The first conversions, into empty objects, are free to.
+ * `repeatedSize` is the number of elements of every repeated field and map
+ * (TestValueOptions).
  */
 template <typename Struct, typename Proto>
 void ExpectConversionsIntoSizedObjectsDoNotAllocate(int repeatedSize = 3) {
   const std::string name(Proto::descriptor()->full_name());
   const Proto first = Reparsed([repeatedSize] {
     Proto message;
-    FillWithTestValues(TestValueOptions{.seed = 1, .repeatedSize = repeatedSize}, &message);
+    FillWithTestValues(
+        TestValueOptions{.seed = 1, .repeatedSize = repeatedSize}, &message);
     return message;
   }());
   const Proto second = Reparsed([repeatedSize] {
     Proto message;
-    FillWithTestValues(TestValueOptions{.seed = 2, .repeatedSize = repeatedSize}, &message);
+    FillWithTestValues(
+        TestValueOptions{.seed = 2, .repeatedSize = repeatedSize}, &message);
     return message;
   }());
 
@@ -76,9 +82,11 @@ void ExpectConversionsIntoSizedObjectsDoNotAllocate(int repeatedSize = 3) {
   ASSERT_TRUE(FromProto(first, &value).ok());
   size_t before = robot::realtime::heapAllocationCount();
   const absl::Status status = FromProto(second, &value);
-  const size_t fromProtoAllocations = robot::realtime::heapAllocationCount() - before;
+  const size_t fromProtoAllocations =
+      robot::realtime::heapAllocationCount() - before;
   ASSERT_TRUE(status.ok()) << status;
-  EXPECT_EQ(fromProtoAllocations, 0u) << "FromProto() of " << name << " into a struct of its shape";
+  EXPECT_EQ(fromProtoAllocations, 0u)
+      << "FromProto() of " << name << " into a struct of its shape";
 
   Struct firstValue;
   ASSERT_TRUE(FromProto(first, &firstValue).ok());
@@ -86,8 +94,10 @@ void ExpectConversionsIntoSizedObjectsDoNotAllocate(int repeatedSize = 3) {
   ToProto(firstValue, &message);
   before = robot::realtime::heapAllocationCount();
   ToProto(value, &message);
-  const size_t toProtoAllocations = robot::realtime::heapAllocationCount() - before;
-  EXPECT_EQ(toProtoAllocations, 0u) << "ToProto() of " << name << " into a message of its shape";
+  const size_t toProtoAllocations =
+      robot::realtime::heapAllocationCount() - before;
+  EXPECT_EQ(toProtoAllocations, 0u)
+      << "ToProto() of " << name << " into a message of its shape";
   EXPECT_TRUE(ProtoEquals(second, message));
 }
 

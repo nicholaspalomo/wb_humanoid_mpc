@@ -70,7 +70,9 @@ _CLANG_TIDY_PREFIXES = (
 _CHECK_ENTRY = re.compile(r'^\s+- "?(?P<name>-\*|[a-z][a-z0-9.-]*)"?\s*(#.*)?$')
 _COPT = re.compile(r'^\s+"(?P<flag>-W[^"]+)",')
 _BACKTICKED = re.compile(r"`([^`]+)`")
-_NOLINT = re.compile(r"NOLINT(?:NEXTLINE|BEGIN|END)?\((?P<names>[a-z0-9, -]+)\)")
+_NOLINT = re.compile(
+    r"NOLINT(?:NEXTLINE|BEGIN|END)?\((?P<names>[a-z0-9, -]+)\)"
+)
 _CPPLINT_CATEGORY = re.compile(r"^cpplint `(?P<category>[a-z_+]+/[a-z_+]+)`$")
 
 
@@ -78,7 +80,9 @@ def _clang_tidy_checks() -> set[str]:
     """Every check of //:.clang-tidy."""
     names = set()
     in_checks = False
-    for line in check_test_support.read_repository_file(CLANG_TIDY).splitlines():
+    for line in check_test_support.read_repository_file(
+        CLANG_TIDY
+    ).splitlines():
         if line.startswith("Checks:"):
             in_checks = True
             continue
@@ -115,7 +119,9 @@ def _style_sections(text: str) -> str:
 
 def _werror_flags(token: str) -> list[str]:
     """`-Werror=a,b,c` written as one token in AGENTS.md: the flags `-Werror=a`, `-Werror=b` and `-Werror=c`."""
-    return [f"-Werror={name}" for name in token.removeprefix("-Werror=").split(",")]
+    return [
+        f"-Werror={name}" for name in token.removeprefix("-Werror=").split(",")
+    ]
 
 
 class AgentsStyleSectionsTest(unittest.TestCase):
@@ -162,11 +168,15 @@ class AgentsStyleSectionsTest(unittest.TestCase):
                 with self.subTest(tip=row.split("|")[1].strip(), item=item):
                     if _CPPLINT_CATEGORY.match(item):
                         continue
-                    self.assertRegex(item, r"^`[^`]+`$", "one backticked name per item")
+                    self.assertRegex(
+                        item, r"^`[^`]+`$", "one backticked name per item"
+                    )
                     name = item.strip("`")
                     if name.startswith("-Werror="):
                         for flag in _werror_flags(name):
-                            self.assertIn(flag, self.copts, f"{flag} is not in {COPTS}")
+                            self.assertIn(
+                                flag, self.copts, f"{flag} is not in {COPTS}"
+                            )
                     elif name.startswith(_CLANG_TIDY_PREFIXES):
                         self.assertIn(
                             name,
@@ -211,7 +221,9 @@ class AgentsStyleSectionsTest(unittest.TestCase):
         for name in sorted(checks.names()):
             with self.subTest(check=name):
                 named = f"`{name}`" in self.agents or re.search(
-                    r"NOLINT(?:NEXTLINE|BEGIN|END)?\([^)]*\b" + re.escape(name) + r"\b",
+                    r"NOLINT(?:NEXTLINE|BEGIN|END)?\([^)]*\b"
+                    + re.escape(name)
+                    + r"\b",
                     self.agents,
                 )
                 self.assertTrue(named, f"AGENTS.md does not name `{name}`")

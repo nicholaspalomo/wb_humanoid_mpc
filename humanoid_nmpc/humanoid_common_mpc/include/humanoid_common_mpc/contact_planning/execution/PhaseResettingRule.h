@@ -36,12 +36,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `phase_resetting`: early touch-down, a swing foot whose measured contact persists for the debounce duration (after
- * the scuffing window) is switched to contact at once, in place; late touch-down, a foot that misses the ground at its
- * scheduled touch-down keeps swinging in small steps, up to a bounded total extension, every later event delayed by
- * the same amount, its height reference descending at the search velocity.
+ * `phase_resetting`: early touch-down, a swing foot whose measured contact
+ * persists for the debounce duration (after the scuffing window) is switched to
+ * contact at once, in place; late touch-down, a foot that misses the ground at
+ * its scheduled touch-down keeps swinging in small steps, up to a bounded total
+ * extension, every later event delayed by the same amount, its height reference
+ * descending at the search velocity.
  *
- * Not thread-safe, like every ContactPlanningTerm: the planner that owns it configures and evaluates it from one thread at a time.
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
  */
 class PhaseResettingRule final : public ExecutionRule {
  public:
@@ -54,12 +57,16 @@ class PhaseResettingRule final : public ExecutionRule {
                          ModeSchedule& schedule,
                          SwingTimingLatch& latch,
                          ContactEventReport& report) const override;
-  bool adaptContactFoot(
-      const ExecutionContext& ctx, size_t foot, ModeSchedule& schedule, SwingTimingLatch& latch, ContactEventReport& report) const override;
-  std::optional<GroundSearchRequest> groundSearch(const ExecutionContext& ctx,
-                                                  size_t foot,
-                                                  const ModeSchedule& schedule,
-                                                  const SwingTimingLatch& latch) const override;
+  bool adaptContactFoot(const ExecutionContext& ctx,
+                        size_t foot,
+                        ModeSchedule& schedule,
+                        SwingTimingLatch& latch,
+                        ContactEventReport& report) const override;
+  std::optional<GroundSearchRequest> groundSearch(
+      const ExecutionContext& ctx,
+      size_t foot,
+      const ModeSchedule& schedule,
+      const SwingTimingLatch& latch) const override;
 
  private:
   PhaseResettingParameters params_;

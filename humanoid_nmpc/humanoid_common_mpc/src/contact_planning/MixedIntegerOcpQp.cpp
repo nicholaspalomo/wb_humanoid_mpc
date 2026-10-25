@@ -66,36 +66,46 @@ scalar_t elapsedSeconds(const Clock::time_point& start) {
 }
 
 bool isComplete(const MiqpAssignment& assignment) {
-  return std::none_of(assignment.begin(), assignment.end(), [](int8_t v) { return v == kMiqpFree; });
+  return std::none_of(assignment.begin(), assignment.end(),
+                      [](int8_t v) { return v == kMiqpFree; });
 }
 
 }  // namespace
 
-MixedIntegerOcpQp::MixedIntegerOcpQp(OcpQpHpipmSolver::Settings qpSettings, MiqpSettings settings)
+MixedIntegerOcpQp::MixedIntegerOcpQp(OcpQpHpipmSolver::Settings qpSettings,
+                                     MiqpSettings settings)
     : qpSolver_(qpSettings), settings_(settings) {}
 
-absl::StatusOr<std::vector<MixedIntegerOcpQp::BinaryLocation>> MixedIntegerOcpQp::locateBinaries(
-    const OcpQpProblem& problem, const std::vector<MiqpBinaryVariable>& binaries) const {
+absl::StatusOr<std::vector<MixedIntegerOcpQp::BinaryLocation>>
+MixedIntegerOcpQp::locateBinaries(
+    const OcpQpProblem& problem,
+    const std::vector<MiqpBinaryVariable>& binaries) const {
   std::vector<BinaryLocation> locations;
   locations.reserve(binaries.size());
   for (const MiqpBinaryVariable& binary : binaries) {
     if (binary.stage < 0 || binary.stage >= problem.numStages()) {
-      return absl::InvalidArgumentError(absl::StrCat("[MixedIntegerOcpQp] binary variable stage out of range: ", binary.stage));
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[MixedIntegerOcpQp] binary variable stage out of range: ",
+          binary.stage));
     }
     const OcpQpStage& stage = problem.stages[binary.stage];
-    const std::vector<int>::const_iterator it = std::find(stage.idxbu.begin(), stage.idxbu.end(), binary.inputIndex);
+    const std::vector<int>::const_iterator it =
+        std::find(stage.idxbu.begin(), stage.idxbu.end(), binary.inputIndex);
     if (it == stage.idxbu.end()) {
       return absl::InvalidArgumentError(
-          absl::StrCat("[MixedIntegerOcpQp] binary input ", binary.inputIndex, " of stage ", binary.stage, " has no box constraint"));
+          absl::StrCat("[MixedIntegerOcpQp] binary input ", binary.inputIndex,
+                       " of stage ", binary.stage, " has no box constraint"));
     }
-    locations.push_back({binary.stage, static_cast<int>(it - stage.idxbu.begin())});
+    locations.push_back(
+        {binary.stage, static_cast<int>(it - stage.idxbu.begin())});
   }
   return locations;
 }
 
-void MixedIntegerOcpQp::applyAssignment(OcpQpProblem& problem,
-                                        const std::vector<BinaryLocation>& locations,
-                                        const MiqpAssignment& assignment) const {
+void MixedIntegerOcpQp::applyAssignment(
+    OcpQpProblem& problem,
+    const std::vector<BinaryLocation>& locations,
+    const MiqpAssignment& assignment) const {
   for (size_t i = 0; i < locations.size(); ++i) {
     OcpQpStage& stage = problem.stages[locations[i].stage];
     const int boxIndex = locations[i].boxIndex;
@@ -110,15 +120,17 @@ void MixedIntegerOcpQp::applyAssignment(OcpQpProblem& problem,
   }
 }
 
-int MixedIntegerOcpQp::firstFractional(const OcpQpSolution& solution,
-                                       const std::vector<MiqpBinaryVariable>& binaries,
-                                       const MiqpAssignment& assignment,
-                                       scalar_t& fractionalValue) const {
+int MixedIntegerOcpQp::firstFractional(
+    const OcpQpSolution& solution,
+    const std::vector<MiqpBinaryVariable>& binaries,
+    const MiqpAssignment& assignment,
+    scalar_t& fractionalValue) const {
   for (size_t i = 0; i < binaries.size(); ++i) {
     if (assignment[i] != kMiqpFree) {
       continue;
     }
-    const scalar_t value = solution.u[binaries[i].stage](binaries[i].inputIndex);
+    const scalar_t value =
+        solution.u[binaries[i].stage](binaries[i].inputIndex);
     if (std::abs(value - std::round(value)) > settings_.integralityTol) {
       fractionalValue = value;
       return static_cast<int>(i);
@@ -127,17 +139,19 @@ int MixedIntegerOcpQp::firstFractional(const OcpQpSolution& solution,
   return -1;
 }
 
-absl::StatusOr<bool> MixedIntegerOcpQp::solveFixed(OcpQpProblem& problem,
-                                                   const std::vector<MiqpBinaryVariable>& binaries,
-                                                   MiqpAssignment assignment,
-                                                   const MiqpPropagateFn& propagate,
-                                                   const MiqpAssignmentCostFn& assignmentCost,
-                                                   OcpQpSolution& solution,
-                                                   scalar_t& objective) {
+absl::StatusOr<bool> MixedIntegerOcpQp::solveFixed(
+    OcpQpProblem& problem,
+    const std::vector<MiqpBinaryVariable>& binaries,
+    MiqpAssignment assignment,
+    const MiqpPropagateFn& propagate,
+    const MiqpAssignmentCostFn& assignmentCost,
+    OcpQpSolution& solution,
+    scalar_t& objective) {
   objective = std::numeric_limits<scalar_t>::infinity();
   if (assignment.size() != binaries.size()) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("[MixedIntegerOcpQp] the assignment has ", assignment.size(), " entries for ", binaries.size(), " binaries"));
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[MixedIntegerOcpQp] the assignment has ", assignment.size(),
+        " entries for ", binaries.size(), " binaries"));
   }
   if (propagate && !propagate(assignment)) {
     return false;
@@ -145,20 +159,23 @@ absl::StatusOr<bool> MixedIntegerOcpQp::solveFixed(OcpQpProblem& problem,
   if (!isComplete(assignment)) {
     return false;
   }
-  ASSIGN_OR_RETURN(const std::vector<BinaryLocation> locations, locateBinaries(problem, binaries));
+  ASSIGN_OR_RETURN(const std::vector<BinaryLocation> locations,
+                   locateBinaries(problem, binaries));
   applyAssignment(problem, locations, assignment);
   ASSIGN_OR_RETURN(solution, qpSolver_.solve(problem));
   if (!solution.success()) {
     return false;
   }
-  objective = solution.objective + (assignmentCost ? assignmentCost(assignment) : 0.0);
+  objective =
+      solution.objective + (assignmentCost ? assignmentCost(assignment) : 0.0);
   return true;
 }
 
 /**
- * One branch-and-bound search of MixedIntegerOcpQp::solve(): the problem, its binaries and hooks, the result found so far
- * and the first error of the QP solver. It lives for one solve() and refers to the solve()'s arguments, which outlive
- * it. Not thread-safe.
+ * One branch-and-bound search of MixedIntegerOcpQp::solve(): the problem, its
+ * binaries and hooks, the result found so far and the first error of the QP
+ * solver. It lives for one solve() and refers to the solve()'s arguments, which
+ * outlive it. Not thread-safe.
  */
 class MixedIntegerOcpQp::Search {
  public:
@@ -182,8 +199,11 @@ class MixedIntegerOcpQp::Search {
   Search& operator=(const Search&) = delete;
   ~Search() = default;
 
-  /** Runs the whole search from `initialAssignment` and returns its result, or the first error of the QP solver. */
-  absl::StatusOr<MiqpResult> run(const MiqpAssignment& initialAssignment, const MiqpAssignment* absl_nullable warmStart) {
+  /** Runs the whole search from `initialAssignment` and returns its result, or
+   * the first error of the QP solver. */
+  absl::StatusOr<MiqpResult> run(
+      const MiqpAssignment& initialAssignment,
+      const MiqpAssignment* absl_nullable warmStart) {
     // Root assignment.
     MiqpAssignment root = initialAssignment;
     if (!runPropagation(root)) {
@@ -195,26 +215,37 @@ class MixedIntegerOcpQp::Search {
     const bool exhausted = searchBestFirst(std::move(root));
 
     RETURN_IF_ERROR(qpError_);
-    result_.optimal = exhausted && !result_.nodeLimitHit && !result_.timeLimitHit && result_.numFailedRelaxations == 0;
+    result_.optimal = exhausted && !result_.nodeLimitHit &&
+                      !result_.timeLimitHit &&
+                      result_.numFailedRelaxations == 0;
     result_.solveTime = elapsedSeconds(startTime_);
     if (result_.hasIncumbent) {
-      // Leave the problem's binary bounds at the incumbent so that the caller can inspect it.
+      // Leave the problem's binary bounds at the incumbent so that the caller
+      // can inspect it.
       owner_->applyAssignment(*problem_, locations_, result_.assignment);
     }
     return result_;
   }
 
  private:
-  /** Orders the open nodes of the best-first search: the node with the lowest parent bound is on top. */
+  /** Orders the open nodes of the best-first search: the node with the lowest
+   * parent bound is on top. */
   struct WorseBound {
-    bool operator()(const Node& a, const Node& b) const { return a.parentBound > b.parentBound; }
+    bool operator()(const Node& a, const Node& b) const {
+      return a.parentBound > b.parentBound;
+    }
   };
   using OpenNodes = std::priority_queue<Node, std::vector<Node>, WorseBound>;
 
-  bool runPropagation(MiqpAssignment& assignment) const { return !*propagate_ || (*propagate_)(assignment); }
-  scalar_t logicalCost(const MiqpAssignment& assignment) const { return *assignmentCost_ ? (*assignmentCost_)(assignment) : 0.0; }
+  bool runPropagation(MiqpAssignment& assignment) const {
+    return !*propagate_ || (*propagate_)(assignment);
+  }
+  scalar_t logicalCost(const MiqpAssignment& assignment) const {
+    return *assignmentCost_ ? (*assignmentCost_)(assignment) : 0.0;
+  }
 
-  /** Whether the search has to stop: a QP error, or the node or time limit (which it records). */
+  /** Whether the search has to stop: a QP error, or the node or time limit
+   * (which it records). */
   bool limitsHit() {
     if (!qpError_.ok()) return true;
     if (result_.numNodes >= owner_->settings_.maxNodes) {
@@ -228,8 +259,10 @@ class MixedIntegerOcpQp::Search {
     return false;
   }
 
-  /** Solves the relaxation of an assignment into `solution`. Returns false if the QP failed (treated as infeasible). */
-  bool solveRelaxation(const MiqpAssignment& assignment, OcpQpSolution& solution) {
+  /** Solves the relaxation of an assignment into `solution`. Returns false if
+   * the QP failed (treated as infeasible). */
+  bool solveRelaxation(const MiqpAssignment& assignment,
+                       OcpQpSolution& solution) {
     owner_->applyAssignment(*problem_, locations_, assignment);
     absl::StatusOr<OcpQpSolution> solved = owner_->qpSolver_.solve(*problem_);
     if (!solved.ok()) {
@@ -242,20 +275,27 @@ class MixedIntegerOcpQp::Search {
     if (owner_->settings_.verbose) {
       int numFixed = 0;
       for (const int8_t v : assignment) numFixed += (v != kMiqpFree);
-      LOG(INFO) << "[MixedIntegerOcpQp] relaxation " << result_.numNodes << ": fixed " << numFixed << "/" << assignment.size() << " status "
-                << static_cast<int>(solution.status) << " iterations " << solution.iterations << " objective " << solution.objective;
+      LOG(INFO) << "[MixedIntegerOcpQp] relaxation " << result_.numNodes
+                << ": fixed " << numFixed << "/" << assignment.size()
+                << " status " << static_cast<int>(solution.status)
+                << " iterations " << solution.iterations << " objective "
+                << solution.objective;
     }
     if (!solution.success()) {
-      // HPIPM does not certify infeasibility: a relaxation it did not solve (iteration limit, step failure) is dropped
-      // with its subtree unproven, which is counted separately and keeps the result from being reported as optimal.
+      // HPIPM does not certify infeasibility: a relaxation it did not solve
+      // (iteration limit, step failure) is dropped with its subtree unproven,
+      // which is counted separately and keeps the result from being reported as
+      // optimal.
       ++result_.numFailedRelaxations;
       return false;
     }
     return true;
   }
 
-  /** Takes a complete assignment and its relaxation as the incumbent when it improves on it. */
-  void updateIncumbent(const MiqpAssignment& assignment, const OcpQpSolution& solution) {
+  /** Takes a complete assignment and its relaxation as the incumbent when it
+   * improves on it. */
+  void updateIncumbent(const MiqpAssignment& assignment,
+                       const OcpQpSolution& solution) {
     const scalar_t objective = solution.objective + logicalCost(assignment);
     if (objective < result_.incumbentObjective) {
       result_.hasIncumbent = true;
@@ -263,26 +303,33 @@ class MixedIntegerOcpQp::Search {
       result_.solution = solution;
       result_.assignment = assignment;
       if (owner_->settings_.verbose) {
-        LOG(INFO) << "[MixedIntegerOcpQp] incumbent " << objective << " after " << result_.numNodes << " relaxations";
+        LOG(INFO) << "[MixedIntegerOcpQp] incumbent " << objective << " after "
+                  << result_.numNodes << " relaxations";
       }
     }
   }
 
   /**
-   * Diving heuristic: fix every free binary that is integral in the relaxation, round the first fractional one,
-   * propagate, re-solve, and repeat until the assignment is complete. Only used to find incumbents, never to prune.
+   * Diving heuristic: fix every free binary that is integral in the relaxation,
+   * round the first fractional one, propagate, re-solve, and repeat until the
+   * assignment is complete. Only used to find incumbents, never to prune.
    */
   void dive(MiqpAssignment assignment, OcpQpSolution relaxation) {
     const std::vector<MiqpBinaryVariable>& binaries = *binaries_;
-    for (int iteration = 0; iteration < owner_->settings_.maxDiveIterations && !limitsHit(); ++iteration) {
+    for (int iteration = 0;
+         iteration < owner_->settings_.maxDiveIterations && !limitsHit();
+         ++iteration) {
       bool rounded = false;
       for (size_t i = 0; i < binaries.size(); ++i) {
         if (assignment[i] != kMiqpFree) continue;
-        const scalar_t value = relaxation.u[binaries[i].stage](binaries[i].inputIndex);
-        if (std::abs(value - std::round(value)) <= owner_->settings_.integralityTol) {
+        const scalar_t value =
+            relaxation.u[binaries[i].stage](binaries[i].inputIndex);
+        if (std::abs(value - std::round(value)) <=
+            owner_->settings_.integralityTol) {
           assignment[i] = static_cast<int8_t>(std::round(value));
         } else if (!rounded) {
-          assignment[i] = static_cast<int8_t>(value >= kRoundUpThreshold ? 1 : 0);
+          assignment[i] =
+              static_cast<int8_t>(value >= kRoundUpThreshold ? 1 : 0);
           rounded = true;
         }
       }
@@ -293,18 +340,23 @@ class MixedIntegerOcpQp::Search {
         return;
       }
       scalar_t unused = 0.0;
-      if (owner_->firstFractional(relaxation, binaries, assignment, unused) < 0) {
-        // Integral without being complete: the remaining free binaries take their values on the next round.
+      if (owner_->firstFractional(relaxation, binaries, assignment, unused) <
+          0) {
+        // Integral without being complete: the remaining free binaries take
+        // their values on the next round.
         continue;
       }
     }
   }
 
   /**
-   * Warm start: tries the provided complete assignment first. Where it contradicts the root fixings (e.g. a committed
-   * schedule that moved on since the warm start was made) the fixings win and the rest of the warm start is kept.
+   * Warm start: tries the provided complete assignment first. Where it
+   * contradicts the root fixings (e.g. a committed schedule that moved on since
+   * the warm start was made) the fixings win and the rest of the warm start is
+   * kept.
    */
-  void tryWarmStart(const MiqpAssignment& root, const MiqpAssignment* absl_nullable warmStart) {
+  void tryWarmStart(const MiqpAssignment& root,
+                    const MiqpAssignment* absl_nullable warmStart) {
     if (warmStart == nullptr || warmStart->size() != binaries_->size()) return;
     MiqpAssignment warm = root;
     for (size_t i = 0; i < warm.size(); ++i) {
@@ -319,12 +371,15 @@ class MixedIntegerOcpQp::Search {
   }
 
   /**
-   * Best-first search over the open nodes (lowest parent bound first) with depth-first diving: after branching, the
-   * preferred child is processed immediately, the other one is queued. Returns whether the open nodes were exhausted.
+   * Best-first search over the open nodes (lowest parent bound first) with
+   * depth-first diving: after branching, the preferred child is processed
+   * immediately, the other one is queued. Returns whether the open nodes were
+   * exhausted.
    */
   bool searchBestFirst(MiqpAssignment root) {
     OpenNodes open;
-    open.push({.assignment = std::move(root), .parentBound = -std::numeric_limits<scalar_t>::infinity()});
+    open.push({.assignment = std::move(root),
+               .parentBound = -std::numeric_limits<scalar_t>::infinity()});
     while (!open.empty() && !limitsHit()) {
       std::optional<Node> current = open.top();
       open.pop();
@@ -337,8 +392,9 @@ class MixedIntegerOcpQp::Search {
   }
 
   /**
-   * Solves the relaxation of `node` and branches on it: queues one child in `open` and returns the other to dive into,
-   * or nothing when the node is pruned, infeasible or closed.
+   * Solves the relaxation of `node` and branches on it: queues one child in
+   * `open` and returns the other to dive into, or nothing when the node is
+   * pruned, infeasible or closed.
    */
   std::optional<Node> expand(Node node, OpenNodes& open) {
     const MiqpSettings& settings = owner_->settings_;
@@ -353,7 +409,9 @@ class MixedIntegerOcpQp::Search {
     if (isRoot_) {
       isRoot_ = false;
       result_.rootRelaxationSolved = solved;
-      result_.rootBound = solved ? relaxation.objective + logicalCost(node.assignment) : std::numeric_limits<scalar_t>::infinity();
+      result_.rootBound =
+          solved ? relaxation.objective + logicalCost(node.assignment)
+                 : std::numeric_limits<scalar_t>::infinity();
     }
     if (!solved) return std::nullopt;
     const scalar_t bound = relaxation.objective + logicalCost(node.assignment);
@@ -362,7 +420,8 @@ class MixedIntegerOcpQp::Search {
       return std::nullopt;
     }
 
-    const std::optional<Branch> branch = chooseBranch(node.assignment, relaxation, bound);
+    const std::optional<Branch> branch =
+        chooseBranch(node.assignment, relaxation, bound);
     if (!branch.has_value()) return std::nullopt;
 
     if (settings.useDivingHeuristic && wasRoot) {
@@ -370,7 +429,8 @@ class MixedIntegerOcpQp::Search {
     }
 
     // Branch: continue with the rounding direction, queue the other child.
-    const int8_t preferred = static_cast<int8_t>(branch->fractionalValue >= kRoundUpThreshold ? 1 : 0);
+    const int8_t preferred = static_cast<int8_t>(
+        branch->fractionalValue >= kRoundUpThreshold ? 1 : 0);
     Node other{.assignment = node.assignment, .parentBound = bound};
     other.assignment[branch->index] = static_cast<int8_t>(1 - preferred);
     if (runPropagation(other.assignment)) {
@@ -392,47 +452,63 @@ class MixedIntegerOcpQp::Search {
   };
 
   /**
-   * The binary a node with relaxation `relaxation` and bound `bound` branches on: its first fractional one, or, when every
-   * binary is integral, its first free one unless the integral completion closes the subtree. Nothing when the node is
-   * closed or has no free binary left.
+   * The binary a node with relaxation `relaxation` and bound `bound` branches
+   * on: its first fractional one, or, when every binary is integral, its first
+   * free one unless the integral completion closes the subtree. Nothing when
+   * the node is closed or has no free binary left.
    */
-  std::optional<Branch> chooseBranch(const MiqpAssignment& assignment, const OcpQpSolution& relaxation, scalar_t bound) {
+  std::optional<Branch> chooseBranch(const MiqpAssignment& assignment,
+                                     const OcpQpSolution& relaxation,
+                                     scalar_t bound) {
     const std::vector<MiqpBinaryVariable>& binaries = *binaries_;
     scalar_t fractionalValue = 0.0;
-    const int fractional = owner_->firstFractional(relaxation, binaries, assignment, fractionalValue);
-    if (fractional >= 0) return Branch{.index = fractional, .fractionalValue = fractionalValue};
+    const int fractional = owner_->firstFractional(relaxation, binaries,
+                                                   assignment, fractionalValue);
+    if (fractional >= 0)
+      return Branch{.index = fractional, .fractionalValue = fractionalValue};
 
-    // Every binary is integral. The free ones took integral values by themselves, but only the propagation rules
-    // (which the QP does not know) decide whether that combination is admissible.
+    // Every binary is integral. The free ones took integral values by
+    // themselves, but only the propagation rules (which the QP does not know)
+    // decide whether that combination is admissible.
     MiqpAssignment complete = assignment;
     for (size_t i = 0; i < binaries.size(); ++i) {
       if (complete[i] == kMiqpFree) {
-        complete[i] = static_cast<int8_t>(std::round(relaxation.u[binaries[i].stage](binaries[i].inputIndex)));
+        complete[i] = static_cast<int8_t>(std::round(
+            relaxation.u[binaries[i].stage](binaries[i].inputIndex)));
       }
     }
     if (runPropagation(complete)) {
       updateIncumbent(complete, relaxation);
-      // CLOSING THE SUBTREE HERE IS ONLY SOUND WHEN THIS COMPLETION ATTAINS THE NODE'S OWN LOWER BOUND.
+      // CLOSING THE SUBTREE HERE IS ONLY SOUND WHEN THIS COMPLETION ATTAINS THE
+      // NODE'S OWN LOWER BOUND.
       //
-      // The node's bound is `relaxation.objective + logicalCost(node.assignment)`, and the contract on
-      // MiqpAssignmentCostFn (MixedIntegerOcpQp.h) is that the cost is EXACT on a complete assignment but only a
-      // LOWER BOUND on a partial one. So a sibling completion of this same node can have a worse QP objective and
-      // a smaller assignment cost, and a strictly smaller total - the relaxation being integral says nothing about
-      // the part of the objective the QP cannot see. Breaking unconditionally discarded it unexplored, and nothing
-      // counted it, so the search still reported `optimal`.
+      // The node's bound is `relaxation.objective +
+      // logicalCost(node.assignment)`, and the contract on MiqpAssignmentCostFn
+      // (MixedIntegerOcpQp.h) is that the cost is EXACT on a complete
+      // assignment but only a LOWER BOUND on a partial one. So a sibling
+      // completion of this same node can have a worse QP objective and a
+      // smaller assignment cost, and a strictly smaller total - the relaxation
+      // being integral says nothing about the part of the objective the QP
+      // cannot see. Breaking unconditionally discarded it unexplored, and
+      // nothing counted it, so the search still reported `optimal`.
       //
-      // When no assignment cost is supplied, or the node's assignment was already complete, the two agree exactly
-      // and this test always passes: the fast path is preserved bit for bit.
-      if (relaxation.objective + logicalCost(complete) <= bound + owner_->settings_.absoluteGap) {
+      // When no assignment cost is supplied, or the node's assignment was
+      // already complete, the two agree exactly and this test always passes:
+      // the fast path is preserved bit for bit.
+      if (relaxation.objective + logicalCost(complete) <=
+          bound + owner_->settings_.absoluteGap) {
         ++result_.numPrunedByBound;
         return std::nullopt;
       }
-      // Otherwise fall through and branch - the subtree may still hold something better than what we just took.
+      // Otherwise fall through and branch - the subtree may still hold
+      // something better than what we just took.
     }
     // Branch on the first free variable instead.
     for (size_t i = 0; i < binaries.size(); ++i) {
       if (assignment[i] == kMiqpFree) {
-        return Branch{.index = static_cast<int>(i), .fractionalValue = relaxation.u[binaries[i].stage](binaries[i].inputIndex)};
+        return Branch{.index = static_cast<int>(i),
+                      .fractionalValue = relaxation.u[binaries[i].stage](
+                          binaries[i].inputIndex)};
       }
     }
     return std::nullopt;
@@ -442,28 +518,36 @@ class MixedIntegerOcpQp::Search {
   OcpQpProblem* absl_nonnull problem_;
   const std::vector<MiqpBinaryVariable>* absl_nonnull binaries_;
   std::vector<BinaryLocation> locations_;
-  const MiqpPropagateFn* absl_nonnull propagate_;            // may hold no target: no propagation
-  const MiqpAssignmentCostFn* absl_nonnull assignmentCost_;  // may hold no target: no assignment cost
+  const MiqpPropagateFn* absl_nonnull
+  propagate_;  // may hold no target: no propagation
+  const MiqpAssignmentCostFn* absl_nonnull
+  assignmentCost_;  // may hold no target: no assignment cost
   Clock::time_point startTime_;
   MiqpResult result_;
-  // The first problem the QP solver rejects (inconsistent data, memory). Every relaxation solves the same problem
-  // structure, so once one is rejected the search stops and returns this instead of a result.
+  // The first problem the QP solver rejects (inconsistent data, memory). Every
+  // relaxation solves the same problem structure, so once one is rejected the
+  // search stops and returns this instead of a result.
   absl::Status qpError_ = absl::OkStatus();
   bool isRoot_ = true;  // until the first relaxation has been solved
 };
 
-absl::StatusOr<MiqpResult> MixedIntegerOcpQp::solve(OcpQpProblem& problem,
-                                                    const std::vector<MiqpBinaryVariable>& binaries,
-                                                    const MiqpAssignment& initialAssignment,
-                                                    const MiqpPropagateFn& propagate,
-                                                    const MiqpAssignment* absl_nullable warmStart,
-                                                    const MiqpAssignmentCostFn& assignmentCost) {
+absl::StatusOr<MiqpResult> MixedIntegerOcpQp::solve(
+    OcpQpProblem& problem,
+    const std::vector<MiqpBinaryVariable>& binaries,
+    const MiqpAssignment& initialAssignment,
+    const MiqpPropagateFn& propagate,
+    const MiqpAssignment* absl_nullable warmStart,
+    const MiqpAssignmentCostFn& assignmentCost) {
   if (initialAssignment.size() != binaries.size()) {
-    return absl::InvalidArgumentError(absl::StrCat("[MixedIntegerOcpQp] the initial assignment has ", initialAssignment.size(),
-                                                   " entries for ", binaries.size(), " binaries"));
+    return absl::InvalidArgumentError(
+        absl::StrCat("[MixedIntegerOcpQp] the initial assignment has ",
+                     initialAssignment.size(), " entries for ", binaries.size(),
+                     " binaries"));
   }
-  ASSIGN_OR_RETURN(std::vector<BinaryLocation> locations, locateBinaries(problem, binaries));
-  Search search(this, &problem, &binaries, std::move(locations), &propagate, &assignmentCost);
+  ASSIGN_OR_RETURN(std::vector<BinaryLocation> locations,
+                   locateBinaries(problem, binaries));
+  Search search(this, &problem, &binaries, std::move(locations), &propagate,
+                &assignmentCost);
   return search.run(initialAssignment, warmStart);
 }
 

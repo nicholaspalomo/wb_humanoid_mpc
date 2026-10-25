@@ -69,96 +69,140 @@ pinocchio::JointModelComposite eulerRoot() {
 
 /** Rows of a contact's entries of an input. */
 Eigen::Index contactInputDim(const EulerMpcOracleOptions& options) {
-  return options.contactInput == OracleContactInput::kWorldWrench ? 6 : options.localBasisMatrices[0].cols();
+  return options.contactInput == OracleContactInput::kWorldWrench
+             ? 6
+             : options.localBasisMatrices[0].cols();
 }
 
 }  // namespace
 
-absl::StatusOr<pinocchio::Model> eulerRootTwinOf(const pinocchio::Model& quaternionRootModel) {
-  if (quaternionRootModel.njoints < 2 || quaternionRootModel.joints[1].nq() != 7 || quaternionRootModel.joints[1].nv() != 6 ||
+absl::StatusOr<pinocchio::Model> eulerRootTwinOf(
+    const pinocchio::Model& quaternionRootModel) {
+  if (quaternionRootModel.njoints < 2 ||
+      quaternionRootModel.joints[1].nq() != 7 ||
+      quaternionRootModel.joints[1].nv() != 6 ||
       quaternionRootModel.parents[1] != 0) {
-    return absl::InvalidArgumentError("[eulerRootTwinOf] the model's first joint is not a six-DoF root of seven configuration entries");
+    return absl::InvalidArgumentError(
+        "[eulerRootTwinOf] the model's first joint is not a six-DoF root of "
+        "seven configuration entries");
   }
   pinocchio::Model twin;
   twin.name = quaternionRootModel.name;
   twin.gravity = quaternionRootModel.gravity;
-  for (pinocchio::JointIndex joint = 1; joint < static_cast<pinocchio::JointIndex>(quaternionRootModel.njoints); ++joint) {
-    const pinocchio::JointIndex added = joint == 1
-                                            ? twin.addJoint(/*parent=*/0, pinocchio::JointModel(eulerRoot()),
-                                                            quaternionRootModel.jointPlacements[joint], quaternionRootModel.names[joint])
-                                            : twin.addJoint(quaternionRootModel.parents[joint], quaternionRootModel.joints[joint],
-                                                            quaternionRootModel.jointPlacements[joint], quaternionRootModel.names[joint]);
-    if (added != joint) return absl::InternalError("[eulerRootTwinOf] the twin's joints are not numbered as the model's");
+  for (pinocchio::JointIndex joint = 1;
+       joint < static_cast<pinocchio::JointIndex>(quaternionRootModel.njoints);
+       ++joint) {
+    const pinocchio::JointIndex added =
+        joint == 1
+            ? twin.addJoint(/*parent=*/0, pinocchio::JointModel(eulerRoot()),
+                            quaternionRootModel.jointPlacements[joint],
+                            quaternionRootModel.names[joint])
+            : twin.addJoint(quaternionRootModel.parents[joint],
+                            quaternionRootModel.joints[joint],
+                            quaternionRootModel.jointPlacements[joint],
+                            quaternionRootModel.names[joint]);
+    if (added != joint)
+      return absl::InternalError(
+          "[eulerRootTwinOf] the twin's joints are not numbered as the "
+          "model's");
     twin.inertias[joint] = quaternionRootModel.inertias[joint];
   }
-  // Frame 0 is the universe of both; every other frame keeps its index, so its parent frame's index is the model's.
-  for (pinocchio::FrameIndex frame = 1; frame < static_cast<pinocchio::FrameIndex>(quaternionRootModel.nframes); ++frame) {
+  // Frame 0 is the universe of both; every other frame keeps its index, so its
+  // parent frame's index is the model's.
+  for (pinocchio::FrameIndex frame = 1;
+       frame < static_cast<pinocchio::FrameIndex>(quaternionRootModel.nframes);
+       ++frame) {
     // The joints' inertias already hold every body's: the frames add none.
     twin.addFrame(quaternionRootModel.frames[frame], /*append_inertia=*/false);
   }
-  if (twin.nv != quaternionRootModel.nv || twin.nq != quaternionRootModel.nq - 1 || twin.nframes != quaternionRootModel.nframes) {
-    return absl::InternalError(absl::StrCat("[eulerRootTwinOf] the twin has nq ", twin.nq, ", nv ", twin.nv, ", ", twin.nframes,
-                                            " frames; the model nq ", quaternionRootModel.nq, ", nv ", quaternionRootModel.nv, ", ",
-                                            quaternionRootModel.nframes, " frames"));
+  if (twin.nv != quaternionRootModel.nv ||
+      twin.nq != quaternionRootModel.nq - 1 ||
+      twin.nframes != quaternionRootModel.nframes) {
+    return absl::InternalError(absl::StrCat(
+        "[eulerRootTwinOf] the twin has nq ", twin.nq, ", nv ", twin.nv, ", ",
+        twin.nframes, " frames; the model nq ", quaternionRootModel.nq, ", nv ",
+        quaternionRootModel.nv, ", ", quaternionRootModel.nframes, " frames"));
   }
   const Eigen::Index joints = twin.nv - 6;
-  twin.lowerPositionLimit.tail(joints) = quaternionRootModel.lowerPositionLimit.tail(joints);
-  twin.upperPositionLimit.tail(joints) = quaternionRootModel.upperPositionLimit.tail(joints);
+  twin.lowerPositionLimit.tail(joints) =
+      quaternionRootModel.lowerPositionLimit.tail(joints);
+  twin.upperPositionLimit.tail(joints) =
+      quaternionRootModel.upperPositionLimit.tail(joints);
   twin.armature = quaternionRootModel.armature;
   return twin;
 }
 
-absl::StatusOr<std::unique_ptr<EulerMpcOracle>> EulerMpcOracle::Create(const pinocchio::Model& quaternionRootModel,
-                                                                       EulerMpcOracleOptions options) {
+absl::StatusOr<std::unique_ptr<EulerMpcOracle>> EulerMpcOracle::Create(
+    const pinocchio::Model& quaternionRootModel,
+    EulerMpcOracleOptions options) {
   absl::StatusOr<pinocchio::Model> twin = eulerRootTwinOf(quaternionRootModel);
   if (!twin.ok()) return twin.status();
   std::array<pinocchio::FrameIndex, kNumContacts> contactFrames{};
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
     if (!twin->existFrame(options.contactFrameNames[contact])) {
-      return absl::InvalidArgumentError(absl::StrCat("[EulerMpcOracle] no contact frame ", options.contactFrameNames[contact]));
+      return absl::InvalidArgumentError(
+          absl::StrCat("[EulerMpcOracle] no contact frame ",
+                       options.contactFrameNames[contact]));
     }
-    contactFrames[contact] = twin->getFrameId(options.contactFrameNames[contact]);
+    contactFrames[contact] =
+        twin->getFrameId(options.contactFrameNames[contact]);
   }
   if (options.contactInput == OracleContactInput::kLocalBasis) {
     if (options.formulation == OracleFormulation::kWholeBody) {
-      return absl::InvalidArgumentError("[EulerMpcOracle] the whole-body MPC takes world-frame wrenches");
+      return absl::InvalidArgumentError(
+          "[EulerMpcOracle] the whole-body MPC takes world-frame wrenches");
     }
     for (const matrix_t& basis : options.localBasisMatrices) {
-      if (basis.rows() != 6 || basis.cols() != options.localBasisMatrices[0].cols() || basis.cols() == 0) {
-        return absl::InvalidArgumentError("[EulerMpcOracle] a local basis is not 6 rows by the same number of columns on both contacts");
+      if (basis.rows() != 6 ||
+          basis.cols() != options.localBasisMatrices[0].cols() ||
+          basis.cols() == 0) {
+        return absl::InvalidArgumentError(
+            "[EulerMpcOracle] a local basis is not 6 rows by the same number "
+            "of columns on both contacts");
       }
     }
   }
   twin->gravity.linear(options.gravity);
   // Not std::make_unique: the constructor is private (ToTW #134).
-  return absl::WrapUnique(new EulerMpcOracle(*twin, std::move(options), contactFrames));
+  return absl::WrapUnique(
+      new EulerMpcOracle(*twin, std::move(options), contactFrames));
 }
 
-EulerMpcOracle::EulerMpcOracle(const pinocchio::Model& model,
-                               EulerMpcOracleOptions options,
-                               std::array<pinocchio::FrameIndex, kNumContacts> contactFrames)
-    : model_(model), options_(std::move(options)), contactFrames_(contactFrames), totalMass_(pinocchio::computeTotalMass(model_)) {}
+EulerMpcOracle::EulerMpcOracle(
+    const pinocchio::Model& model,
+    EulerMpcOracleOptions options,
+    std::array<pinocchio::FrameIndex, kNumContacts> contactFrames)
+    : model_(model),
+      options_(std::move(options)),
+      contactFrames_(contactFrames),
+      totalMass_(pinocchio::computeTotalMass(model_)) {}
 
 Eigen::Index EulerMpcOracle::stateDim() const {
-  return options_.formulation == OracleFormulation::kCentroidal ? 12 + jointDim() : 12 + 2 * jointDim();
+  return options_.formulation == OracleFormulation::kCentroidal
+             ? 12 + jointDim()
+             : 12 + 2 * jointDim();
 }
 
 Eigen::Index EulerMpcOracle::inputDim() const {
-  return static_cast<Eigen::Index>(kNumContacts) * contactInputDim(options_) + jointDim();
+  return static_cast<Eigen::Index>(kNumContacts) * contactInputDim(options_) +
+         jointDim();
 }
 
 vector_t EulerMpcOracle::configurationOf(const vector_t& eulerState) const {
-  return options_.formulation == OracleFormulation::kCentroidal ? vector_t(eulerState.segment(6, model_.nq))
-                                                                : vector_t(eulerState.head(model_.nq));
+  return options_.formulation == OracleFormulation::kCentroidal
+             ? vector_t(eulerState.segment(6, model_.nq))
+             : vector_t(eulerState.head(model_.nq));
 }
 
-std::array<vector6_t, kNumContacts> EulerMpcOracle::worldWrenches(const vector_t& eulerState, const vector_t& input) const {
+std::array<vector6_t, kNumContacts> EulerMpcOracle::worldWrenches(
+    const vector_t& eulerState, const vector_t& input) const {
   ABSL_CHECK_EQ(eulerState.size(), stateDim());
   ABSL_CHECK_EQ(input.size(), inputDim());
   std::array<vector6_t, kNumContacts> wrenches{};
   if (options_.contactInput == OracleContactInput::kWorldWrench) {
     for (size_t contact = 0; contact < kNumContacts; ++contact) {
-      wrenches[contact] = input.segment<6>(6 * static_cast<Eigen::Index>(contact));
+      wrenches[contact] =
+          input.segment<6>(6 * static_cast<Eigen::Index>(contact));
     }
     return wrenches;
   }
@@ -166,15 +210,19 @@ std::array<vector6_t, kNumContacts> EulerMpcOracle::worldWrenches(const vector_t
   pinocchio::framesForwardKinematics(model_, data, configurationOf(eulerState));
   const Eigen::Index basisDim = contactInputDim(options_);
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    const vector6_t local = options_.localBasisMatrices[contact] * input.segment(basisDim * static_cast<Eigen::Index>(contact), basisDim);
+    const vector6_t local =
+        options_.localBasisMatrices[contact] *
+        input.segment(basisDim * static_cast<Eigen::Index>(contact), basisDim);
     const matrix3_t rotation = data.oMf[contactFrames_[contact]].rotation();
     wrenches[contact] << rotation * local.head<3>(), rotation * local.tail<3>();
   }
   return wrenches;
 }
 
-vector_t EulerMpcOracle::flowMap(const vector_t& eulerState, const vector_t& input) const {
-  const std::array<vector6_t, kNumContacts> wrenches = worldWrenches(eulerState, input);
+vector_t EulerMpcOracle::flowMap(const vector_t& eulerState,
+                                 const vector_t& input) const {
+  const std::array<vector6_t, kNumContacts> wrenches =
+      worldWrenches(eulerState, input);
   const Eigen::Index nj = jointDim();
   const Eigen::Index nv = model_.nv;
   const vector_t jointRates = input.tail(nj);
@@ -183,44 +231,58 @@ vector_t EulerMpcOracle::flowMap(const vector_t& eulerState, const vector_t& inp
   vector_t derivative(stateDim());
 
   if (options_.formulation == OracleFormulation::kCentroidal) {
-    // (O1): computeCentroidalMap places the joints and the center of mass; the frames follow from the joints.
-    const matrix_t centroidalMap = pinocchio::computeCentroidalMap(model_, data, q);
+    // (O1): computeCentroidalMap places the joints and the center of mass; the
+    // frames follow from the joints.
+    const matrix_t centroidalMap =
+        pinocchio::computeCentroidalMap(model_, data, q);
     pinocchio::updateFramePlacements(model_, data);
     const vector3_t com = data.com[0];
     vector6_t momentumRate;
     momentumRate << totalMass_ * options_.gravity, vector3_t::Zero();
     for (size_t contact = 0; contact < kNumContacts; ++contact) {
       const vector3_t force = wrenches[contact].head<3>();
-      const vector3_t arm = data.oMf[contactFrames_[contact]].translation() - com;
+      const vector3_t arm =
+          data.oMf[contactFrames_[contact]].translation() - com;
       momentumRate.head<3>() += force;
       momentumRate.tail<3>() += arm.cross(force) + wrenches[contact].tail<3>();
     }
-    // (O2): the base velocity of the momentum m hbar with the input's joint rates.
-    const vector6_t baseMomentum = totalMass_ * eulerState.head<6>() - centroidalMap.rightCols(nj) * jointRates;
-    const vector6_t baseVelocity = centroidalMap.leftCols<6>().partialPivLu().solve(baseMomentum);
+    // (O2): the base velocity of the momentum m hbar with the input's joint
+    // rates.
+    const vector6_t baseMomentum = totalMass_ * eulerState.head<6>() -
+                                   centroidalMap.rightCols(nj) * jointRates;
+    const vector6_t baseVelocity =
+        centroidalMap.leftCols<6>().partialPivLu().solve(baseMomentum);
     derivative << momentumRate / totalMass_, baseVelocity, jointRates;
     return derivative;
   }
 
-  // (O3): the floating-base rows of the equations of motion in Euler coordinates.
+  // (O3): the floating-base rows of the equations of motion in Euler
+  // coordinates.
   const vector_t v = eulerState.tail(nv);
   const matrix_t massMatrixUpper = pinocchio::crba(model_, data, q);
   matrix_t massMatrix = massMatrixUpper;
-  massMatrix.triangularView<Eigen::StrictlyLower>() = massMatrixUpper.transpose();
-  const vector_t nonlinearEffects = pinocchio::nonLinearEffects(model_, data, q, v);
-  vector6_t baseForce = -nonlinearEffects.head<6>() - massMatrix.topRightCorner(6, nj) * jointRates;
+  massMatrix.triangularView<Eigen::StrictlyLower>() =
+      massMatrixUpper.transpose();
+  const vector_t nonlinearEffects =
+      pinocchio::nonLinearEffects(model_, data, q, v);
+  vector6_t baseForce = -nonlinearEffects.head<6>() -
+                        massMatrix.topRightCorner(6, nj) * jointRates;
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
     matrix_t jacobian = matrix_t::Zero(6, nv);
-    pinocchio::computeFrameJacobian(model_, data, q, contactFrames_[contact], pinocchio::LOCAL_WORLD_ALIGNED, jacobian);
+    pinocchio::computeFrameJacobian(model_, data, q, contactFrames_[contact],
+                                    pinocchio::LOCAL_WORLD_ALIGNED, jacobian);
     baseForce += jacobian.leftCols<6>().transpose() * wrenches[contact];
   }
-  const vector6_t baseAcceleration = massMatrix.topLeftCorner<6, 6>().llt().solve(baseForce);
+  const vector6_t baseAcceleration =
+      massMatrix.topLeftCorner<6, 6>().llt().solve(baseForce);
   // (O4): here `jointRates` are the input's joint accelerations.
   derivative << v, baseAcceleration, jointRates;
   return derivative;
 }
 
-vector_t EulerMpcOracle::rk4Step(const vector_t& eulerState, const vector_t& input, scalar_t dt) const {
+vector_t EulerMpcOracle::rk4Step(const vector_t& eulerState,
+                                 const vector_t& input,
+                                 scalar_t dt) const {
   const vector_t k1 = flowMap(eulerState, input);
   const vector_t k2 = flowMap(eulerState + 0.5 * dt * k1, input);
   const vector_t k3 = flowMap(eulerState + 0.5 * dt * k2, input);
@@ -228,9 +290,10 @@ vector_t EulerMpcOracle::rk4Step(const vector_t& eulerState, const vector_t& inp
   return eulerState + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4);
 }
 
-FiniteDifferenceJacobian richardsonJacobian(absl::FunctionRef<vector_t(const vector_t&)> function,
-                                            const vector_t& at,
-                                            scalar_t relativeStep) {
+FiniteDifferenceJacobian richardsonJacobian(
+    absl::FunctionRef<vector_t(const vector_t&)> function,
+    const vector_t& at,
+    scalar_t relativeStep) {
   const vector_t center = function(at);
   const Eigen::Index rows = center.size();
   const Eigen::Index columns = at.size();
@@ -240,7 +303,8 @@ FiniteDifferenceJacobian richardsonJacobian(absl::FunctionRef<vector_t(const vec
   for (Eigen::Index column = 0; column < columns; ++column) {
     const scalar_t step = relativeStep * std::max(1.0, std::abs(at(column)));
     std::array<vector_t, 4> values;
-    const std::array<scalar_t, 4> offsets = {step, -step, 0.5 * step, -0.5 * step};
+    const std::array<scalar_t, 4> offsets = {step, -step, 0.5 * step,
+                                             -0.5 * step};
     for (size_t i = 0; i < offsets.size(); ++i) {
       vector_t shifted = at;
       shifted(column) += offsets[i];
@@ -253,12 +317,16 @@ FiniteDifferenceJacobian richardsonJacobian(absl::FunctionRef<vector_t(const vec
   FiniteDifferenceJacobian jacobian;
   jacobian.value = (4.0 * fine - coarse) / 3.0;
   jacobian.errorBound = (coarse - fine).cwiseAbs();
-  // A row that is exactly zero at every evaluation (an identically zero function) has no evaluation error: its differences
-  // are exact zeros. Every other row's error is relative to its largest magnitude, floor 1.
-  const vector_t evaluationScale = (magnitude.array() > 0.0).select(magnitude.cwiseMax(1.0), vector_t::Zero(rows));
+  // A row that is exactly zero at every evaluation (an identically zero
+  // function) has no evaluation error: its differences are exact zeros. Every
+  // other row's error is relative to its largest magnitude, floor 1.
+  const vector_t evaluationScale =
+      (magnitude.array() > 0.0)
+          .select(magnitude.cwiseMax(1.0), vector_t::Zero(rows));
   for (Eigen::Index column = 0; column < columns; ++column) {
     const scalar_t step = relativeStep * std::max(1.0, std::abs(at(column)));
-    jacobian.errorBound.col(column) += (3.0 * kFunctionEvaluationRelativeError / step) * evaluationScale;
+    jacobian.errorBound.col(column) +=
+        (3.0 * kFunctionEvaluationRelativeError / step) * evaluationScale;
   }
   return jacobian;
 }

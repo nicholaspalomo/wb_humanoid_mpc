@@ -48,7 +48,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::ipc {
 namespace {
 
-// The XML of the configuration. The Python bus writes the same text (robot_ipc/domain_config.py).
+// The XML of the configuration. The Python bus writes the same text
+// (robot_ipc/domain_config.py).
 // LINT.IfChange(domain_config_xml)
 // "&<>\"'" escaped, for a host or a tag in an attribute or an element.
 std::string xmlEscaped(absl::string_view text) {
@@ -81,59 +82,83 @@ std::string bytes(int64_t value) {
   return absl::StrCat(value, "B");
 }
 
-std::string generalSection(absl::string_view interfaceAddress, const TransportOptions& transport) {
+std::string generalSection(absl::string_view interfaceAddress,
+                           const TransportOptions& transport) {
   std::string general = "<General>";
   if (interfaceAddress.empty()) {
-    absl::StrAppend(&general, R"(<Interfaces><NetworkInterface autodetermine="true"/></Interfaces>)");
+    absl::StrAppend(
+        &general,
+        R"(<Interfaces><NetworkInterface autodetermine="true"/></Interfaces>)");
   } else {
-    absl::StrAppend(&general, R"(<Interfaces><NetworkInterface address=")", xmlEscaped(interfaceAddress), R"("/></Interfaces>)");
+    absl::StrAppend(&general, R"(<Interfaces><NetworkInterface address=")",
+                    xmlEscaped(interfaceAddress), R"("/></Interfaces>)");
   }
   absl::StrAppend(&general, "<AllowMulticast>false</AllowMulticast>");
   if (transport.maxMessageSizeBytes > 0) {
-    absl::StrAppend(&general, "<MaxMessageSize>", bytes(transport.maxMessageSizeBytes), "</MaxMessageSize>");
+    absl::StrAppend(&general, "<MaxMessageSize>",
+                    bytes(transport.maxMessageSizeBytes), "</MaxMessageSize>");
   }
   absl::StrAppend(&general, "</General>");
   return general;
 }
 
 std::string discoverySection(const NetworkConfig& network) {
-  const int maxProcesses =
-      network.transport.maxProcessesPerHost > 0 ? network.transport.maxProcessesPerHost : TransportOptions::kDefaultMaxProcessesPerHost;
+  const int maxProcesses = network.transport.maxProcessesPerHost > 0
+                               ? network.transport.maxProcessesPerHost
+                               : TransportOptions::kDefaultMaxProcessesPerHost;
   const absl::Duration lease =
-      network.transport.leaseDuration > absl::ZeroDuration() ? network.transport.leaseDuration : TransportOptions::kDefaultLeaseDuration;
+      network.transport.leaseDuration > absl::ZeroDuration()
+          ? network.transport.leaseDuration
+          : TransportOptions::kDefaultLeaseDuration;
   std::string discovery = "<Discovery>";
   if (!network.domainTag.empty()) {
-    absl::StrAppend(&discovery, "<Tag>", xmlEscaped(network.domainTag), "</Tag>");
+    absl::StrAppend(&discovery, "<Tag>", xmlEscaped(network.domainTag),
+                    "</Tag>");
   }
-  absl::StrAppend(&discovery, "<ParticipantIndex>auto</ParticipantIndex><MaxAutoParticipantIndex>", maxProcesses - 1,
-                  "</MaxAutoParticipantIndex>", R"(<Peers AddLocalhost="false">)");
+  absl::StrAppend(
+      &discovery,
+      "<ParticipantIndex>auto</ParticipantIndex><MaxAutoParticipantIndex>",
+      maxProcesses - 1, "</MaxAutoParticipantIndex>",
+      R"(<Peers AddLocalhost="false">)");
   for (const std::string& host : network.peerHosts()) {
-    absl::StrAppend(&discovery, R"(<Peer Address=")", xmlEscaped(host), R"("/>)");
+    absl::StrAppend(&discovery, R"(<Peer Address=")", xmlEscaped(host),
+                    R"("/>)");
   }
-  absl::StrAppend(&discovery, "</Peers><LeaseDuration>", absl::ToInt64Milliseconds(lease), "ms</LeaseDuration></Discovery>");
+  absl::StrAppend(&discovery, "</Peers><LeaseDuration>",
+                  absl::ToInt64Milliseconds(lease),
+                  "ms</LeaseDuration></Discovery>");
   return discovery;
 }
 
 std::string internalSection(const TransportOptions& transport) {
   const int64_t unacked =
-      transport.writerUnackedBytesLimit > 0 ? transport.writerUnackedBytesLimit : TransportOptions::kDefaultWriterUnackedBytesLimit;
+      transport.writerUnackedBytesLimit > 0
+          ? transport.writerUnackedBytesLimit
+          : TransportOptions::kDefaultWriterUnackedBytesLimit;
   std::string internal = "<Internal>";
   if (transport.socketReceiveBufferBytes > 0) {
-    absl::StrAppend(&internal, R"(<SocketReceiveBufferSize min="default" max=")", bytes(transport.socketReceiveBufferBytes), R"("/>)");
+    absl::StrAppend(&internal,
+                    R"(<SocketReceiveBufferSize min="default" max=")",
+                    bytes(transport.socketReceiveBufferBytes), R"("/>)");
   }
   if (transport.socketSendBufferBytes > 0) {
-    absl::StrAppend(&internal, R"(<SocketSendBufferSize min="default" max=")", bytes(transport.socketSendBufferBytes), R"("/>)");
+    absl::StrAppend(&internal, R"(<SocketSendBufferSize min="default" max=")",
+                    bytes(transport.socketSendBufferBytes), R"("/>)");
   }
-  absl::StrAppend(&internal, "<Watermarks><WhcHigh>", bytes(unacked), "</WhcHigh><WhcAdaptive>false</WhcAdaptive></Watermarks>");
+  absl::StrAppend(&internal, "<Watermarks><WhcHigh>", bytes(unacked),
+                  "</WhcHigh><WhcAdaptive>false</WhcAdaptive></Watermarks>");
   if (transport.simulatedSendLossPerMille > 0) {
-    absl::StrAppend(&internal, "<Test><XmitLossiness>", transport.simulatedSendLossPerMille, "</XmitLossiness></Test>");
+    absl::StrAppend(&internal, "<Test><XmitLossiness>",
+                    transport.simulatedSendLossPerMille,
+                    "</XmitLossiness></Test>");
   }
   absl::StrAppend(&internal, "</Internal>");
   return internal;
 }
 // LINT.ThenChange(//robot_runtime/robot_ipc/python/robot_ipc/domain_config.py:domain_config_xml)
 
-// Whether `address` (IPv4) belongs to an interface of this machine: a UDP socket can bind it.
+// Whether `address` (IPv4) belongs to an interface of this machine: a UDP
+// socket can bind it.
 bool isLocalAddress(const std::string& address) {
   sockaddr_in socketAddress{};
   socketAddress.sin_family = AF_INET;
@@ -141,11 +166,14 @@ bool isLocalAddress(const std::string& address) {
   if (::inet_pton(AF_INET, address.c_str(), &socketAddress.sin_addr) != 1) {
     return false;
   }
-  const int socketFd = ::socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, /*protocol=*/0);
+  const int socketFd =
+      ::socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, /*protocol=*/0);
   if (socketFd < 0) {
     return false;
   }
-  const bool bound = ::bind(socketFd, reinterpret_cast<const sockaddr*>(&socketAddress), sizeof(socketAddress)) == 0;
+  const bool bound =
+      ::bind(socketFd, reinterpret_cast<const sockaddr*>(&socketAddress),
+             sizeof(socketAddress)) == 0;
   ::close(socketFd);
   return bound;
 }
@@ -162,20 +190,24 @@ bool everyNodeIsOnLoopback(const NetworkConfig& network) {
 }  // namespace
 
 PortRange unicastPortRange(const NetworkConfig& network) {
-  const int maxProcesses =
-      network.transport.maxProcessesPerHost > 0 ? network.transport.maxProcessesPerHost : TransportOptions::kDefaultMaxProcessesPerHost;
+  const int maxProcesses = network.transport.maxProcessesPerHost > 0
+                               ? network.transport.maxProcessesPerHost
+                               : TransportOptions::kDefaultMaxProcessesPerHost;
   const int domainBase = kDdsPortBase + kDdsDomainGain * network.domainId;
   return PortRange{.first = domainBase + kDdsUnicastDiscoveryOffset,
-                   .last = domainBase + kDdsUnicastDataOffset + kDdsParticipantGain * (maxProcesses - 1)};
+                   .last = domainBase + kDdsUnicastDataOffset +
+                           kDdsParticipantGain * (maxProcesses - 1)};
 }
 
-absl::StatusOr<std::string> interfaceAddressFor(const NetworkConfig& network, absl::string_view nodeName) {
+absl::StatusOr<std::string> interfaceAddressFor(const NetworkConfig& network,
+                                                absl::string_view nodeName) {
   if (nodeName.empty()) {
     if (everyNodeIsOnLoopback(network)) {
       return std::string(kLoopbackHost);
     }
     for (const NodeEndpoint& node : network.nodes) {
-      if (isIpv4Address(node.host) && !isLoopbackHost(node.host) && isLocalAddress(node.host)) {
+      if (isIpv4Address(node.host) && !isLoopbackHost(node.host) &&
+          isLocalAddress(node.host)) {
         return node.host;
       }
     }
@@ -183,7 +215,8 @@ absl::StatusOr<std::string> interfaceAddressFor(const NetworkConfig& network, ab
   }
   const NodeEndpoint* absl_nullable node = network.find(nodeName);
   if (node == nullptr) {
-    return absl::InvalidArgumentError(absl::StrCat("node '", nodeName, "' is not in the network"));
+    return absl::InvalidArgumentError(
+        absl::StrCat("node '", nodeName, "' is not in the network"));
   }
   if (isLoopbackHost(node->host)) {
     return std::string(kLoopbackHost);
@@ -192,19 +225,26 @@ absl::StatusOr<std::string> interfaceAddressFor(const NetworkConfig& network, ab
     return std::string();
   }
   if (!isLocalAddress(node->host)) {
-    return absl::UnavailableError(absl::StrCat("node '", node->name, "' is on ", node->host,
-                                               ", which is no address of this machine: run it on that machine, or fix its host"));
+    return absl::UnavailableError(
+        absl::StrCat("node '", node->name, "' is on ", node->host,
+                     ", which is no address of this machine: run it on that "
+                     "machine, or fix its host"));
   }
   return node->host;
 }
 
-absl::StatusOr<std::string> cycloneDomainConfig(const NetworkConfig& network, absl::string_view nodeName) {
-  const absl::StatusOr<std::string> interfaceAddress = interfaceAddressFor(network, nodeName);
+absl::StatusOr<std::string> cycloneDomainConfig(const NetworkConfig& network,
+                                                absl::string_view nodeName) {
+  const absl::StatusOr<std::string> interfaceAddress =
+      interfaceAddressFor(network, nodeName);
   if (!interfaceAddress.ok()) {
     return interfaceAddress.status();
   }
-  return absl::StrCat(R"(<CycloneDDS><Domain Id="any">)", generalSection(*interfaceAddress, network.transport), discoverySection(network),
-                      internalSection(network.transport), "</Domain></CycloneDDS>");
+  return absl::StrCat(R"(<CycloneDDS><Domain Id="any">)",
+                      generalSection(*interfaceAddress, network.transport),
+                      discoverySection(network),
+                      internalSection(network.transport),
+                      "</Domain></CycloneDDS>");
 }
 
 }  // namespace robot::ipc

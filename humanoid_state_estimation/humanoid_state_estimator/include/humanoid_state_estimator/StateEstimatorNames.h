@@ -33,10 +33,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::estimation {
 
-/** The names of StateEstimatorRegistry (src/StateEstimatorRegistry.cpp registers them). */
+/** The names of StateEstimatorRegistry (src/StateEstimatorRegistry.cpp
+ * registers them). */
 /** The backend's state as it is (GroundTruthStateEstimator). */
-inline constexpr absl::string_view kGroundTruthStateEstimatorName = "ground_truth";
-/** The IMU and the leg kinematics through a Kalman filter (KalmanStateEstimator). */
+inline constexpr absl::string_view kGroundTruthStateEstimatorName =
+    "ground_truth";
+/** The IMU and the leg kinematics through a Kalman filter
+ * (KalmanStateEstimator). */
 inline constexpr absl::string_view kKalmanStateEstimatorName = "kalman";
 
 }  // namespace ocs2::humanoid::estimation

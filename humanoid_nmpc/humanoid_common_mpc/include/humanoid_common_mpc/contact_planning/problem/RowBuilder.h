@@ -38,7 +38,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Collects general constraint rows of one stage and writes them into the OcpQpStage, hard or soft with a penalty.
+ * Collects general constraint rows of one stage and writes them into the
+ * OcpQpStage, hard or soft with a penalty.
  *
  * Not thread-safe: one thread fills a builder.
  */
@@ -52,12 +53,19 @@ class RowBuilder {
   ~RowBuilder() = default;
 
   /** A hard row lower <= C x + D u <= upper. */
-  void addHard(const Coefficients& xCoefficients, const Coefficients& uCoefficients, scalar_t lower, scalar_t upper) {
-    add(xCoefficients, uCoefficients, lower, upper, /*soft=*/false, SlackPenalty{});
+  void addHard(const Coefficients& xCoefficients,
+               const Coefficients& uCoefficients,
+               scalar_t lower,
+               scalar_t upper) {
+    add(xCoefficients, uCoefficients, lower, upper, /*soft=*/false,
+        SlackPenalty{});
   }
   /** A soft row: the same, relaxed by slacks penalized with `penalty`. */
-  void addSoft(
-      const Coefficients& xCoefficients, const Coefficients& uCoefficients, scalar_t lower, scalar_t upper, const SlackPenalty& penalty) {
+  void addSoft(const Coefficients& xCoefficients,
+               const Coefficients& uCoefficients,
+               scalar_t lower,
+               scalar_t upper,
+               const SlackPenalty& penalty) {
     add(xCoefficients, uCoefficients, lower, upper, /*soft=*/true, penalty);
   }
 

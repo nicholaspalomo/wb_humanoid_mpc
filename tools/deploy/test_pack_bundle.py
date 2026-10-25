@@ -60,7 +60,9 @@ class PackBundleTest(unittest.TestCase):
         pack_bundle.pack(entries, output)
         return output
 
-    def test_entries_are_sorted_regular_owned_by_root_and_dated_zero(self) -> None:
+    def test_entries_are_sorted_regular_owned_by_root_and_dated_zero(
+        self,
+    ) -> None:
         output = self.pack(
             [
                 ("b/plain.txt", self.plain, "auto"),
@@ -84,9 +86,15 @@ class PackBundleTest(unittest.TestCase):
                 ],
             )
             for member in members:
-                self.assertEqual((member.uid, member.gid, member.mtime), (0, 0, 0))
+                self.assertEqual(
+                    (member.uid, member.gid, member.mtime), (0, 0, 0)
+                )
                 self.assertFalse(member.issym() or member.islnk(), member.name)
-            modes = {member.name: member.mode for member in members if member.isfile()}
+            modes = {
+                member.name: member.mode
+                for member in members
+                if member.isfile()
+            }
             self.assertEqual(
                 modes,
                 {
@@ -102,7 +110,10 @@ class PackBundleTest(unittest.TestCase):
             self.assertEqual(run.read(), b"#!/bin/sh\n")
 
     def test_the_same_inputs_give_the_same_bytes(self) -> None:
-        entries = [("x/plain.txt", self.plain, "auto"), ("x/run", self.program, "auto")]
+        entries = [
+            ("x/plain.txt", self.plain, "auto"),
+            ("x/run", self.program, "auto"),
+        ]
         first = self.pack(entries)
         with open(first, "rb") as stream:
             first_bytes = stream.read()

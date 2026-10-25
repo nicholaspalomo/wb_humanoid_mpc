@@ -27,7 +27,8 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// Strict parsing of a textproto configuration file. Private to the library: not in include/.
+// Strict parsing of a textproto configuration file. Private to the library: not
+// in include/.
 
 #pragma once
 
@@ -40,18 +41,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::ipc {
 
 /**
- * Parses `text` into `message` with google::protobuf::TextFormat, strictly: a syntax error, an unknown field, a value
- * of the wrong type or a non-repeated field given twice is an InvalidArgument error "<source>:<line>:<column>:
- * <problem>", with 1-based line and column. What the parser would only warn about (a field marked deprecated) is an
- * error too, so that a file still naming a field on its way out fails at once. `message` is cleared first; on error its
- * contents are unspecified.
+ * Parses `text` into `message` with google::protobuf::TextFormat, strictly: a
+ * syntax error, an unknown field, a value of the wrong type or a non-repeated
+ * field given twice is an InvalidArgument error "<source>:<line>:<column>:
+ * <problem>", with 1-based line and column. What the parser would only warn
+ * about (a field marked deprecated) is an error too, so that a file still
+ * naming a field on its way out fails at once. `message` is cleared first; on
+ * error its contents are unspecified.
  */
-absl::Status parseTextproto(absl::string_view text, absl::string_view source, google::protobuf::Message& message);
+absl::Status parseTextproto(absl::string_view text,
+                            absl::string_view source,
+                            google::protobuf::Message& message);
 
 /**
- * parseTextproto() on the file at `path`, which also names it in the error messages. A file that cannot be read is
- * NotFound.
+ * parseTextproto() on the file at `path`, which also names it in the error
+ * messages. A file that cannot be read is NotFound.
  */
-absl::Status loadTextproto(const std::string& path, google::protobuf::Message& message);
+absl::Status loadTextproto(const std::string& path,
+                           google::protobuf::Message& message);
 
 }  // namespace robot::ipc

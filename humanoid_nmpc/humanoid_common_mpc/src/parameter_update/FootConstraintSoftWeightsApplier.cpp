@@ -56,28 +56,38 @@ constexpr std::array<absl::string_view, 3> kFields = {
 
 }  // namespace
 
-absl::Span<const absl::string_view> FootConstraintSoftWeightsApplier::staticFields() {
+absl::Span<const absl::string_view>
+FootConstraintSoftWeightsApplier::staticFields() {
   return absl::MakeConstSpan(kFields);
 }
 
 void FootConstraintSoftWeightsApplier::apply(HotUpdateTarget& target) {
-  const std::optional<ModelSettings::FootConstraintConfig>& gains = target.footConstraint();
+  const std::optional<ModelSettings::FootConstraintConfig>& gains =
+      target.footConstraint();
   if (!gains.has_value()) return;
-  // No soft zero_velocity: it is listed as a hard constraint (the shipped Atlas), or not at all (the contact-implicit
-  // formulation). No soft normal_velocity in every schedule-gated configuration.
-  setSoftTermWeight(target.problems(), target.contactNames(), kZeroVelocityTermSuffix, gains->softConstraintWeight);
-  setSoftTermWeight(target.problems(), target.contactNames(), contact_term::kNormalVelocitySoft, gains->normalVelocitySoftConstraintWeight);
+  // No soft zero_velocity: it is listed as a hard constraint (the shipped
+  // Atlas), or not at all (the contact-implicit formulation). No soft
+  // normal_velocity in every schedule-gated configuration.
+  setSoftTermWeight(target.problems(), target.contactNames(),
+                    kZeroVelocityTermSuffix, gains->softConstraintWeight);
+  setSoftTermWeight(target.problems(), target.contactNames(),
+                    contact_term::kNormalVelocitySoft,
+                    gains->normalVelocitySoftConstraintWeight);
 
-  // position_error_gain_z has to reach the PRE-COMPUTATION as well as the zero_velocity twist config, and that is not a
-  // refinement: under the contact-implicit formulation zero_velocity is not built at all, so the twist gain is written
-  // into a term that does not exist while the term that does - the soft normal-velocity servo - reads it from here.
-  // Each worker thread owns its own PreComputation, so writing it per problem is also what keeps this race-free;
-  // mutating the shared ModelSettings would not be.
+  // position_error_gain_z has to reach the PRE-COMPUTATION as well as the
+  // zero_velocity twist config, and that is not a refinement: under the
+  // contact-implicit formulation zero_velocity is not built at all, so the
+  // twist gain is written into a term that does not exist while the term that
+  // does - the soft normal-velocity servo - reads it from here. Each worker
+  // thread owns its own PreComputation, so writing it per problem is also what
+  // keeps this race-free; mutating the shared ModelSettings would not be.
   for (OptimalControlProblem& ocp : target.problems()) {
-    // NOLINTNEXTLINE(rtti): OCS2 holds the pre-computation as a PreComputation, and a problem may carry another kind.
-    HumanoidPreComputation* absl_nullable preComputationPtr = dynamic_cast<HumanoidPreComputation*>(ocp.preComputationPtr.get());
+    HumanoidPreComputation* absl_nullable preComputationPtr =
+        // NOLINTNEXTLINE(rtti): OCS2 holds the pre-computation as a PreComputation, and a problem may carry another kind.
+        dynamic_cast<HumanoidPreComputation*>(ocp.preComputationPtr.get());
     if (preComputationPtr != nullptr) {
-      preComputationPtr->setNormalVelocityPositionErrorGain(gains->positionErrorGain_z);
+      preComputationPtr->setNormalVelocityPositionErrorGain(
+          gains->positionErrorGain_z);
     }
   }
 }

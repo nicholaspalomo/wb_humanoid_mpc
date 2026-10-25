@@ -46,16 +46,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace nproto::internal {
 namespace {
 
-// The characters of a backslash and the character it escapes, which the scan of a quoted key steps over together, so
-// that an escaped '"' does not end the key.
+// The characters of a backslash and the character it escapes, which the scan of
+// a quoted key steps over together, so that an escaped '"' does not end the
+// key.
 constexpr int kBackslashEscapeLength = 2;
 
 bool isNameCharacter(char character) {
-  return absl::ascii_isalnum(static_cast<unsigned char>(character)) || character == '_';
+  return absl::ascii_isalnum(static_cast<unsigned char>(character)) ||
+         character == '_';
 }
 
-// Whether `message` starts with a field path followed by ": ", such as "kind: ...", "patch.kind: ..." or
-// "positions[\"a b\"]: ...", rather than with the reason of an error, "7 is not ...". A path is field names joined by
+// Whether `message` starts with a field path followed by ": ", such as "kind:
+// ...", "patch.kind: ..." or "positions[\"a b\"]: ...", rather than with the
+// reason of an error, "7 is not ...". A path is field names joined by
 // '.', each followed by any number of [index] or ["key"] segments.
 bool startsWithPath(absl::string_view message) {
   size_t position = 0;
@@ -66,7 +69,8 @@ bool startsWithPath(absl::string_view message) {
       while (position < message.size() && isNameCharacter(message[position])) {
         ++position;
       }
-      if (position == start || absl::ascii_isdigit(static_cast<unsigned char>(message[start]))) {
+      if (position == start ||
+          absl::ascii_isdigit(static_cast<unsigned char>(message[start]))) {
         return false;
       }
       expectName = false;
@@ -97,7 +101,8 @@ bool startsWithPath(absl::string_view message) {
   return false;
 }
 
-// `prefix` joined to the message of `status`: "[2]" + "[1].kind: ..." -> "[2][1].kind: ...", + "kind: ..." ->
+// `prefix` joined to the message of `status`: "[2]" + "[1].kind: ..." ->
+// "[2][1].kind: ...", + "kind: ..." ->
 // "[2].kind: ...", + "7 is not ..." -> "[2]: 7 is not ...".
 absl::Status prefixed(absl::string_view prefix, const absl::Status& status) {
   const absl::string_view message = status.message();
@@ -113,10 +118,12 @@ absl::Status prefixed(absl::string_view prefix, const absl::Status& status) {
 }  // namespace
 
 absl::Status UnknownEnumValueError(int32_t number, absl::string_view enumName) {
-  return absl::InvalidArgumentError(absl::StrCat(number, " is not a value of ", enumName));
+  return absl::InvalidArgumentError(
+      absl::StrCat(number, " is not a value of ", enumName));
 }
 
-absl::Status AnnotateError(absl::string_view field, const absl::Status& status) {
+absl::Status AnnotateError(absl::string_view field,
+                           const absl::Status& status) {
   return prefixed(field, status);
 }
 
@@ -124,7 +131,8 @@ absl::Status AnnotateElement(int index, const absl::Status& status) {
   return prefixed(absl::StrCat("[", index, "]"), status);
 }
 
-absl::Status AnnotateKey(absl::string_view formattedKey, const absl::Status& status) {
+absl::Status AnnotateKey(absl::string_view formattedKey,
+                         const absl::Status& status) {
   return prefixed(absl::StrCat("[", formattedKey, "]"), status);
 }
 
@@ -136,14 +144,18 @@ std::string FormatKey(bool key) {
   return key ? "true" : "false";
 }
 
-void StringsFromProto(const google::protobuf::RepeatedPtrField<std::string>& proto, std::vector<std::string>* absl_nonnull value) {
+void StringsFromProto(
+    const google::protobuf::RepeatedPtrField<std::string>& proto,
+    std::vector<std::string>* absl_nonnull value) {
   value->resize(static_cast<size_t>(proto.size()));
   for (int index = 0; index < proto.size(); ++index) {
     (*value)[static_cast<size_t>(index)] = proto.Get(index);
   }
 }
 
-void StringsToProto(const std::vector<std::string>& value, google::protobuf::RepeatedPtrField<std::string>* absl_nonnull proto) {
+void StringsToProto(
+    const std::vector<std::string>& value,
+    google::protobuf::RepeatedPtrField<std::string>* absl_nonnull proto) {
   ResizeRepeatedPtrField(static_cast<int>(value.size()), proto);
   for (size_t index = 0; index < value.size(); ++index) {
     *proto->Mutable(static_cast<int>(index)) = value[index];

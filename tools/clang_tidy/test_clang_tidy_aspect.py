@@ -123,22 +123,29 @@ class FixtureArgumentsTest(unittest.TestCase):
                 self.assertEqual(standards[-1], "-std=c++20")
                 self.assertTrue(
                     any(
-                        re.fullmatch(r"--gcc-install-dir=/.*/gcc/[^/]+/\d+", flag)
+                        re.fullmatch(
+                            r"--gcc-install-dir=/.*/gcc/[^/]+/\d+", flag
+                        )
                         for flag in flags
                     )
                 )
 
-    def test_external_includes_are_kept_and_first_party_ones_are_not_system(self):
+    def test_external_includes_are_kept_and_first_party_ones_are_not_system(
+        self,
+    ):
         flags = _compiler_flags(
             self.actions["tools/clang_tidy/testdata/DiscardedStatus.cpp"]
         )
         self.assertIn(
-            "external/abseil-cpp+", _pairs(flags, "-iquote") + _pairs(flags, "-isystem")
+            "external/abseil-cpp+",
+            _pairs(flags, "-iquote") + _pairs(flags, "-isystem"),
         )
         for arguments in self.actions.values():
             for directory in _pairs(_compiler_flags(arguments), "-isystem"):
                 self.assertTrue(
-                    re.match(r"^(bazel-out/[^/]+/bin/)?(external|lib)/", directory),
+                    re.match(
+                        r"^(bazel-out/[^/]+/bin/)?(external|lib)/", directory
+                    ),
                     directory,
                 )
 
@@ -147,15 +154,20 @@ class FixtureArgumentsTest(unittest.TestCase):
         flags = _compiler_flags(
             self.actions["tools/clang_tidy/testdata/rename/First.cpp"]
         )
-        self.assertIn("tools/clang_tidy/testdata/rename/include", _pairs(flags, "-I"))
+        self.assertIn(
+            "tools/clang_tidy/testdata/rename/include", _pairs(flags, "-I")
+        )
         self.assertNotIn(
-            "tools/clang_tidy/testdata/rename/include", _pairs(flags, "-isystem")
+            "tools/clang_tidy/testdata/rename/include",
+            _pairs(flags, "-isystem"),
         )
 
     def test_translation_units_show_first_party_headers_and_headers_only_themselves(
         self,
     ):
-        header_filter = f'--header-filter={_bzl_constant("FIRST_PARTY_HEADER_FILTER")}'
+        header_filter = (
+            f'--header-filter={_bzl_constant("FIRST_PARTY_HEADER_FILTER")}'
+        )
         for source, arguments in self.actions.items():
             with self.subTest(source=source):
                 self.assertEqual(arguments[arguments.index("--") - 1], source)
@@ -165,28 +177,38 @@ class FixtureArgumentsTest(unittest.TestCase):
                         _pairs(_compiler_flags(arguments), "-x"), ["c++-header"]
                     )
                     self.assertFalse(
-                        any(a.startswith("--exclude-header-filter=") for a in arguments)
+                        any(
+                            a.startswith("--exclude-header-filter=")
+                            for a in arguments
+                        )
                     )
                 else:
                     self.assertIn(header_filter, arguments)
                     self.assertNotIn("c++-header", arguments)
                     excluded = [
-                        a for a in arguments if a.startswith("--exclude-header-filter=")
+                        a
+                        for a in arguments
+                        if a.startswith("--exclude-header-filter=")
                     ]
                     self.assertEqual(len(excluded), 1)
                     for generated in _bzl_list("GENERATED_FILES"):
                         self.assertRegex(
-                            generated, excluded[0][len("--exclude-header-filter=") :]
+                            generated,
+                            excluded[0][len("--exclude-header-filter=") :],
                         )
 
-    def test_the_enforced_configuration_is_read_without_searching_the_sandbox(self):
+    def test_the_enforced_configuration_is_read_without_searching_the_sandbox(
+        self,
+    ):
         for arguments in self.actions.values():
             self.assertIn("--config-file=.clang-tidy", arguments)
 
     def test_generated_sources_are_not_linted(self):
         linted = set(self.actions)
         self.assertIn("tools/clang_tidy/testdata/Clean.cpp", linted)
-        self.assertFalse(any(path.endswith("Generated.cpp") for path in linted), linted)
+        self.assertFalse(
+            any(path.endswith("Generated.cpp") for path in linted), linted
+        )
 
 
 class ScopeTest(unittest.TestCase):
@@ -216,7 +238,8 @@ class ReportPathsTest(unittest.TestCase):
             "tools/x/Foo.h",
         )
         self.assertEqual(
-            clang_tidy_report.repository_path("./tools/x/Foo.h"), "tools/x/Foo.h"
+            clang_tidy_report.repository_path("./tools/x/Foo.h"),
+            "tools/x/Foo.h",
         )
 
 

@@ -55,21 +55,27 @@ namespace ocs2::humanoid::robot_test {
 inline constexpr absl::string_view kFakeBackendName = "fake";
 
 /**
- * A robot backend that is no simulator, for the tests of the robot process on its `hardware` supervisor: the way a
- * hardware backend plugs in (humanoid_nmpc/humanoid_common_mpc_app/robot/README.md, "A hardware backend"), with a
- * driver thread in place of a robot's drives. start() launches the driver, which every `period` publishes the state the
- * trajectory gives for its time (by default the initial state, standing still, the IMU reading gravity alone) and takes
- * the newest joint action, counting the ones it would execute: those applied while the torques are on and after they
- * came on. The torque switch is an atomic flag; there is no gantry, no contact force sensor and no own contact
- * estimator.
+ * A robot backend that is no simulator, for the tests of the robot process on
+ * its `hardware` supervisor: the way a hardware backend plugs in
+ * (humanoid_nmpc/humanoid_common_mpc_app/robot/README.md, "A hardware
+ * backend"), with a driver thread in place of a robot's drives. start()
+ * launches the driver, which every `period` publishes the state the trajectory
+ * gives for its time (by default the initial state, standing still, the IMU
+ * reading gravity alone) and takes the newest joint action, counting the ones
+ * it would execute: those applied while the torques are on and after they came
+ * on. The torque switch is an atomic flag; there is no gantry, no contact force
+ * sensor and no own contact estimator.
  *
- * Thread-safe as a backend is: the robot process's realtime thread calls the RobotBackend methods, the driver thread
- * publishes, and the test thread reads the counters. setTrajectory() comes before start().
+ * Thread-safe as a backend is: the robot process's realtime thread calls the
+ * RobotBackend methods, the driver thread publishes, and the test thread reads
+ * the counters. setTrajectory() comes before start().
  */
 class FakeRobotBackend final : public RobotBackend {
  public:
-  /** The state at `time` [s], written into `state` (a state of the backend's description, starting from the last one). */
-  using Trajectory = std::function<void(double time, robot::model::RobotState& state)>;
+  /** The state at `time` [s], written into `state` (a state of the backend's
+   * description, starting from the last one). */
+  using Trajectory =
+      std::function<void(double time, robot::model::RobotState& state)>;
 
   static constexpr std::chrono::microseconds kDefaultPeriod{1000};
 
@@ -82,30 +88,38 @@ class FakeRobotBackend final : public RobotBackend {
   FakeRobotBackend& operator=(const FakeRobotBackend&) = delete;
 
   /** Replaces the standing-still trajectory. Before start(). */
-  void setTrajectory(Trajectory trajectory) { trajectory_ = std::move(trajectory); }
+  void setTrajectory(Trajectory trajectory) {
+    trajectory_ = std::move(trajectory);
+  }
 
   absl::string_view name() const override { return kFakeBackendName; }
   robot::model::RobotHWInterfaceBase& hardware() override { return hardware_; }
-  const robot::model::RobotHWInterfaceBase& hardware() const override { return hardware_; }
+  const robot::model::RobotHWInterfaceBase& hardware() const override {
+    return hardware_;
+  }
   /** Publishes the trajectory's state at time 0. */
   absl::Status initialize() override;
   /** Launches the driver thread; the cores are ignored. */
   absl::Status start(const std::vector<int>& cores) override;
   bool acceptsJointAction() const override { return torquesEnabled_.load(); }
   void enableTorques() override;
-  void readMeasuredContactForces(std::array<vector3_t, kNumContacts>& forces) override;
+  void readMeasuredContactForces(
+      std::array<vector3_t, kNumContacts>& forces) override;
   void enterSafeState() override;
-  void registerContactEstimators(robot::model::ContactEstimatorRegistry& /*registry*/) const override {}
+  void registerContactEstimators(
+      robot::model::ContactEstimatorRegistry& /*registry*/) const override {}
   absl::string_view supervisorName() const override;
 
   /** Stops and joins the driver thread. Idempotent; the destructor calls it. */
   void stop();
 
   // ---- The test thread.
-  /** The states the driver has published, and the joint actions it would have executed. */
+  /** The states the driver has published, and the joint actions it would have
+   * executed. */
   uint64_t statesPublished() const { return statesPublished_.load(); }
   uint64_t actionsExecuted() const { return actionsExecuted_.load(); }
-  /** How often the torques were switched on, and how often the backend was put in its safe state. */
+  /** How often the torques were switched on, and how often the backend was put
+   * in its safe state. */
   uint64_t torqueEnables() const { return torqueEnables_.load(); }
   uint64_t safeStates() const { return safeStates_.load(); }
 
@@ -113,9 +127,14 @@ class FakeRobotBackend final : public RobotBackend {
   /** RobotHWInterfaceBase's robot side, opened for the driver thread. */
   class Hardware final : public robot::model::RobotHWInterfaceBase {
    public:
-    explicit Hardware(robot::model::RobotDescription description) : RobotHWInterfaceBase(std::move(description)) {}
-    void publish(const robot::model::RobotState& state) { publishRobotState(state); }
-    bool take(robot::model::RobotJointAction& action) { return takeJointAction(action); }
+    explicit Hardware(robot::model::RobotDescription description)
+        : RobotHWInterfaceBase(std::move(description)) {}
+    void publish(const robot::model::RobotState& state) {
+      publishRobotState(state);
+    }
+    bool take(robot::model::RobotJointAction& action) {
+      return takeJointAction(action);
+    }
     void discardApplied() { discardAppliedJointAction(); }
   };
 
@@ -137,7 +156,9 @@ class FakeRobotBackend final : public RobotBackend {
   std::atomic<uint64_t> safeStates_{0};
 };
 
-/** The trajectory that holds `initialState` still: its pose and joints, the IMU reading gravity alone. */
-FakeRobotBackend::Trajectory standingStill(const robot::model::RobotState& initialState);
+/** The trajectory that holds `initialState` still: its pose and joints, the IMU
+ * reading gravity alone. */
+FakeRobotBackend::Trajectory standingStill(
+    const robot::model::RobotState& initialState);
 
 }  // namespace ocs2::humanoid::robot_test

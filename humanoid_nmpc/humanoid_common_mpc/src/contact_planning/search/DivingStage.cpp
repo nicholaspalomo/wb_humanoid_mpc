@@ -36,7 +36,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 std::string DivingStage::describe() const {
-  return absl::StrCat("dive from the root relaxation for an early incumbent, at most ", maxDiveIterations_, " iterations");
+  return absl::StrCat(
+      "dive from the root relaxation for an early incumbent, at most ",
+      maxDiveIterations_, " iterations");
 }
 
 void DivingStage::configure(const ContactPlanningConfig& config) {

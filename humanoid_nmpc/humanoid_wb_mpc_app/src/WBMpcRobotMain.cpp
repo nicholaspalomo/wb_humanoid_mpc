@@ -73,101 +73,140 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_model/RobotDescription.h"
 
 /*
- * humanoid_wb_mpc_robot: the robot process of the whole-body MPC (humanoid_nmpc/docs/distributed_runtime/README.md,
- * "Processes"). The realtime loop over the backend --backend names (mujoco: the MuJoCo simulator) and the whole-body MRT
- * joint controller, which reaches the MPC node over the bus (RemoteMpcLink), in simulation as on the robot. The MPC never
- * runs in this process. See humanoid_nmpc/humanoid_common_mpc_app/robot/README.md.
+ * humanoid_wb_mpc_robot: the robot process of the whole-body MPC
+ * (humanoid_nmpc/docs/distributed_runtime/README.md, "Processes"). The realtime
+ * loop over the backend --backend names (mujoco: the MuJoCo simulator) and the
+ * whole-body MRT joint controller, which reaches the MPC node over the bus
+ * (RemoteMpcLink), in simulation as on the robot. The MPC never runs in this
+ * process. See humanoid_nmpc/humanoid_common_mpc_app/robot/README.md.
  */
 
 namespace ocs2::humanoid {
 namespace {
 
-/** The control periods between two checks of the joint_pd_gains.textproto file watcher: ~1 Hz at ~500 Hz. */
+/** The control periods between two checks of the joint_pd_gains.textproto file
+ * watcher: ~1 Hz at ~500 Hz. */
 constexpr size_t kPdGainsFileCheckInterval = 500;
 
 /**
- * The models the controller needs, nothing more: no reference manager and no optimal control problem, so nothing is
- * taped or loaded with CppAD (the MPC is the MPC node's). What the set-up builds, and what a save is checked with.
+ * The models the controller needs, nothing more: no reference manager and no
+ * optimal control problem, so nothing is taped or loaded with CppAD (the MPC is
+ * the MPC node's). What the set-up builds, and what a save is checked with.
  */
-absl::StatusOr<std::unique_ptr<WBMpcInterface>> controllerModelsOf(const RobotConfigFiles& files, const std::string& urdfFile) {
-  absl::StatusOr<std::unique_ptr<WBMpcInterface>> interface = WBMpcInterface::CreateControllerModels(files.task, urdfFile, files.reference);
-  if (!interface.ok()) return withConfigFile(interface.status(), files.taskSource);
+absl::StatusOr<std::unique_ptr<WBMpcInterface>> controllerModelsOf(
+    const RobotConfigFiles& files, const std::string& urdfFile) {
+  absl::StatusOr<std::unique_ptr<WBMpcInterface>> interface =
+      WBMpcInterface::CreateControllerModels(files.task, urdfFile,
+                                             files.reference);
+  if (!interface.ok())
+    return withConfigFile(interface.status(), files.taskSource);
   return interface;
 }
 
-/** The whole-body controller computes its feedforward with the inverse dynamics only. */
-absl::Status checkFeedforward(const RobotProcessSettings& settings, const std::string& taskSource) {
-  if (settings.wbMpcFeedforward == WbMpcFeedforward::kInverseDynamics) return absl::OkStatus();
-  return absl::InvalidArgumentError(absl::StrCat(taskSource, ": wb_mpc_feedforward: \"", wbMpcFeedforwardName(settings.wbMpcFeedforward),
-                                                 "\"; the whole-body controller computes its feedforward with the inverse dynamics only."));
+/** The whole-body controller computes its feedforward with the inverse dynamics
+ * only. */
+absl::Status checkFeedforward(const RobotProcessSettings& settings,
+                              const std::string& taskSource) {
+  if (settings.wbMpcFeedforward == WbMpcFeedforward::kInverseDynamics)
+    return absl::OkStatus();
+  return absl::InvalidArgumentError(
+      absl::StrCat(taskSource, ": wb_mpc_feedforward: \"",
+                   wbMpcFeedforwardName(settings.wbMpcFeedforward),
+                   "\"; the whole-body controller computes its feedforward "
+                   "with the inverse dynamics only."));
 }
 
-/** The whole-body MPC's check of saved files: its controller models and its feedforward. */
-absl::Status checkWholeBodyFiles(const RobotConfigFiles& files, const std::string& urdfFile) {
+/** The whole-body MPC's check of saved files: its controller models and its
+ * feedforward. */
+absl::Status checkWholeBodyFiles(const RobotConfigFiles& files,
+                                 const std::string& urdfFile) {
   RETURN_IF_ERROR(controllerModelsOf(files, urdfFile).status());
-  ASSIGN_OR_RETURN(const RobotProcessSettings settings, robotProcessSettingsFromConfig(files.task));
+  ASSIGN_OR_RETURN(const RobotProcessSettings settings,
+                   robotProcessSettingsFromConfig(files.task));
   return checkFeedforward(settings, files.taskSource);
 }
 
-/** The whole-body MRT joint controller over the MPC link `linkFactory`, with the controller settings of the task file. */
-absl::StatusOr<std::unique_ptr<RobotController>> createController(const robot::model::RobotDescription& robotDescription,
-                                                                  WBMpcInterface& models,
-                                                                  const MpcLinkFactory& linkFactory,
-                                                                  const std::string& pdGainsFile,
-                                                                  const RobotProcessSettings& settings) {
-  // The whole-body controller keeps a reference to the model settings: the interface outlives it.
+/** The whole-body MRT joint controller over the MPC link `linkFactory`, with
+ * the controller settings of the task file. */
+absl::StatusOr<std::unique_ptr<RobotController>> createController(
+    const robot::model::RobotDescription& robotDescription,
+    WBMpcInterface& models,
+    const MpcLinkFactory& linkFactory,
+    const std::string& pdGainsFile,
+    const RobotProcessSettings& settings) {
+  // The whole-body controller keeps a reference to the model settings: the
+  // interface outlives it.
   const ModelSettings& modelSettings = models.modelSettings();
   // LINT.IfChange(whole_body_robot_controller)
   absl::StatusOr<std::unique_ptr<WBMpcMrtJointController>> createdController =
-      WBMpcMrtJointController::Create(robotDescription, modelSettings, linkFactory, models.getPinocchioInterface(), pdGainsFile);
+      WBMpcMrtJointController::Create(
+          robotDescription, modelSettings, linkFactory,
+          models.getPinocchioInterface(), pdGainsFile);
   if (!createdController.ok()) {
     return absl::InvalidArgumentError(
-        absl::StrCat("the whole-body MRT joint controller did not start: ", createdController.status().message()));
+        absl::StrCat("the whole-body MRT joint controller did not start: ",
+                     createdController.status().message()));
   }
-  std::unique_ptr<WBMpcMrtJointController> jointController = *std::move(createdController);
+  std::unique_ptr<WBMpcMrtJointController> jointController =
+      *std::move(createdController);
   // The controller settings of the task file.
   if (settings.contactWrenchGate.has_value()) {
     jointController->setContactWrenchGateConfig(*settings.contactWrenchGate);
   }
-  // SAFETY: time constant of the exponential decay applied to the joint PD gains once the mode is entered (the
-  // controller's default when the task file has none).
+  // SAFETY: time constant of the exponential decay applied to the joint PD
+  // gains once the mode is entered (the controller's default when the task file
+  // has none).
   if (settings.safetyDecayTimeConstant.has_value()) {
-    jointController->setSafetyDecayTimeConstant(*settings.safetyDecayTimeConstant);
+    jointController->setSafetyDecayTimeConstant(
+        *settings.safetyDecayTimeConstant);
   }
-  LOG(INFO) << "MPC MRT joint controller is set up with PD gains from: " << pdGainsFile;
+  LOG(INFO) << "MPC MRT joint controller is set up with PD gains from: "
+            << pdGainsFile;
   // The whole-body sim handed the controller its posture before its mode.
-  return std::make_unique<MrtRobotController<WBMpcMrtJointController>>(std::move(jointController), CycleInputOrder::kPostureThenMode);
+  return std::make_unique<MrtRobotController<WBMpcMrtJointController>>(
+      std::move(jointController), CycleInputOrder::kPostureThenMode);
   // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/src/closed_loop/WholeBodyClosedLoopDriver.cpp:whole_body_robot_controller)
 }
 
 /**
- * Everything the robot process of the files of `directory` needs, built and checked, up to its start (runRobot()). The
- * checks a save is held to run before the bus binds its port, so that a configuration the robot refuses fails here,
- * where runRobot() can fall back to the bundled files.
+ * Everything the robot process of the files of `directory` needs, built and
+ * checked, up to its start (runRobot()). The checks a save is held to run
+ * before the bus binds its port, so that a configuration the robot refuses
+ * fails here, where runRobot() can fall back to the bundled files.
  */
-absl::StatusOr<RobotStack> setUpRobot(const RobotAppOptions& options, const RobotConfigDirectory& directory) {
+absl::StatusOr<RobotStack> setUpRobot(const RobotAppOptions& options,
+                                      const RobotConfigDirectory& directory) {
   const RobotConfigDirectory::Files& files = directory.files();
   const std::string& urdfFile = options.files.urdfFile;
-  ASSIGN_OR_RETURN(RobotConfiguration configuration, loadRobotConfiguration(directory));
+  ASSIGN_OR_RETURN(RobotConfiguration configuration,
+                   loadRobotConfiguration(directory));
   const RobotProcessSettings& settings = configuration.settings;
 
   RobotStack stack;
-  ASSIGN_OR_RETURN(std::unique_ptr<WBMpcInterface> interface, controllerModelsOf(configuration.files, urdfFile));
+  ASSIGN_OR_RETURN(std::unique_ptr<WBMpcInterface> interface,
+                   controllerModelsOf(configuration.files, urdfFile));
   RETURN_IF_ERROR(checkFeedforward(settings, files.taskFile));
   WBMpcInterface& models = *interface;
   stack.interface = std::move(interface);
   const ModelSettings& modelSettings = models.modelSettings();
 
   // Init Sim state
-  ASSIGN_OR_RETURN(robot::model::RobotDescription description, robot::model::RobotDescription::Create(urdfFile));
-  stack.robotDescription = std::make_unique<robot::model::RobotDescription>(std::move(description));
-  const robot::model::RobotDescription& robotDescription = *stack.robotDescription;
-  // A task file naming an MPC joint the URDF does not have is refused here, before anything indexes the joints by it.
-  ASSIGN_OR_RETURN(const std::vector<robot::joint_index_t> mpcJointIndices,
-                   robotDescription.findJointIndices(modelSettings.mpcModelJointNames));
-  const robot::model::RobotState initState =
-      createInitialSimState(robotDescription, modelSettings, models.getMpcRobotModel(), models.getInitialState());
-  LOG(INFO) << "initState: " << initState.getRootPositionInWorldFrame().transpose();
+  ASSIGN_OR_RETURN(robot::model::RobotDescription description,
+                   robot::model::RobotDescription::Create(urdfFile));
+  stack.robotDescription =
+      std::make_unique<robot::model::RobotDescription>(std::move(description));
+  const robot::model::RobotDescription& robotDescription =
+      *stack.robotDescription;
+  // A task file naming an MPC joint the URDF does not have is refused here,
+  // before anything indexes the joints by it.
+  ASSIGN_OR_RETURN(
+      const std::vector<robot::joint_index_t> mpcJointIndices,
+      robotDescription.findJointIndices(modelSettings.mpcModelJointNames));
+  const robot::model::RobotState initState = createInitialSimState(
+      robotDescription, modelSettings, models.getMpcRobotModel(),
+      models.getInitialState());
+  LOG(INFO) << "initState: "
+            << initState.getRootPositionInWorldFrame().transpose();
 
   // LINT.IfChange(robot_backend_options)
   RobotBackendOptions backendOptions;
@@ -176,64 +215,92 @@ absl::StatusOr<RobotStack> setUpRobot(const RobotAppOptions& options, const Robo
   backendOptions.mjcfFile = options.mjcfFile;
   backendOptions.initialState.emplace(initState);
   backendOptions.contactFrameNames = modelSettings.contactNames;
-  backendOptions.contactParentJointNames = modelSettings.contactParentJointNames;
+  backendOptions.contactParentJointNames =
+      modelSettings.contactParentJointNames;
   backendOptions.simulator = settings.simulator;
   backendOptions.viewer = options.viewer;
   // clang-format off
   // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/src/closed_loop/ClosedLoopDriver.cpp:robot_backend_options, //humanoid_nmpc/humanoid_centroidal_mpc_app/src/CentroidalMpcRobotMain.cpp:robot_backend_options)
   // clang-format on
-  ASSIGN_OR_RETURN(stack.backend, RobotBackendRegistry().create(options.backend, backendOptions));
-  stack.contactEstimators = std::make_unique<robot::model::ContactEstimatorRegistry>();
+  ASSIGN_OR_RETURN(stack.backend, RobotBackendRegistry().create(
+                                      options.backend, backendOptions));
+  stack.contactEstimators =
+      std::make_unique<robot::model::ContactEstimatorRegistry>();
   stack.backend->registerContactEstimators(*stack.contactEstimators);
 
-  RobotConfigurationCheckContext context =
-      robotConfigurationCheckContext(options, configuration.bundledRobotName, modelSettings, backendOptions, stack.contactEstimators.get());
+  RobotConfigurationCheckContext context = robotConfigurationCheckContext(
+      options, configuration.bundledRobotName, modelSettings, backendOptions,
+      stack.contactEstimators.get());
   RETURN_IF_ERROR(checkRobotConfiguration(configuration.files, context));
-  // A save is checked with the models of the saved files too; the set-up built them above.
-  context.checkFormulation = [urdfFile](const RobotConfigFiles& saved) { return checkWholeBodyFiles(saved, urdfFile); };
+  // A save is checked with the models of the saved files too; the set-up built
+  // them above.
+  context.checkFormulation = [urdfFile](const RobotConfigFiles& saved) {
+    return checkWholeBodyFiles(saved, urdfFile);
+  };
 
   // The bus first: it outlives everything registered on it.
-  ASSIGN_OR_RETURN(stack.bus, node::createNodeBus(options.networkConfig, options.ipcNode));
+  ASSIGN_OR_RETURN(stack.bus,
+                   node::createNodeBus(options.networkConfig, options.ipcNode));
 
-  // The MPC link, on the state's manifold, on which the link decodes the node's manifold-linear policies and
-  // interpolates their states.
+  // The MPC link, on the state's manifold, on which the link decodes the node's
+  // manifold-linear policies and interpolates their states.
   // LINT.IfChange(robot_mpc_link)
-  const WBAccelMpcRobotModel<scalar_t>& mpcRobotModel = models.getMpcRobotModel();
-  const ipc::ModelDimensions dimensions{
-      .stateDim = mpcRobotModel.getStateDim(), .inputDim = mpcRobotModel.getInputDim(), .numModes = kNumModeNumbers};
-  ASSIGN_OR_RETURN(std::shared_ptr<const StateManifold> stateManifold, stateManifoldOf(mpcRobotModel));
+  const WBAccelMpcRobotModel<scalar_t>& mpcRobotModel =
+      models.getMpcRobotModel();
+  const ipc::ModelDimensions dimensions{.stateDim = mpcRobotModel.getStateDim(),
+                                        .inputDim = mpcRobotModel.getInputDim(),
+                                        .numModes = kNumModeNumbers};
+  ASSIGN_OR_RETURN(std::shared_ptr<const StateManifold> stateManifold,
+                   stateManifoldOf(mpcRobotModel));
   ipc::RemoteMpcLink::Config linkConfig;
   linkConfig.dimensions = dimensions;
   linkConfig.stateManifold = std::move(stateManifold);
   linkConfig.policyTimeout = settings.mpcLinkPolicyTimeout;
-  // A policy of another layout (equal dimensions, other joints) is refused, as one of other dimensions.
+  // A policy of another layout (equal dimensions, other joints) is refused, as
+  // one of other dimensions.
   linkConfig.modelFingerprint = modelLayoutFingerprint(modelSettings);
-  ASSIGN_OR_RETURN(std::unique_ptr<RemoteMpcLinkAdapter> link, RemoteMpcLinkAdapter::Create(stack.bus.get(), linkConfig));
+  ASSIGN_OR_RETURN(std::unique_ptr<RemoteMpcLinkAdapter> link,
+                   RemoteMpcLinkAdapter::Create(stack.bus.get(), linkConfig));
   RemoteMpcLinkAdapter* absl_nonnull const remoteLink = link.get();
   const MpcLinkFactory linkFactory = handOverMpcLink(std::move(link));
   // LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc_app/src/CentroidalMpcRobotMain.cpp:robot_mpc_link)
-  ASSIGN_OR_RETURN(stack.controller, createController(robotDescription, models, linkFactory, files.pdGainsFile, settings));
+  ASSIGN_OR_RETURN(stack.controller,
+                   createController(robotDescription, models, linkFactory,
+                                    files.pdGainsFile, settings));
 
-  const scalar_t mrtDesiredFrequency = models.mpcSettings().mrtDesiredFrequency_;
-  RobotProcess::Config config = robotProcessConfig(options, directory, configuration, modelSettings);
-  config.controlFrequency = mrtDesiredFrequency > 0.0 ? mrtDesiredFrequency : kMrtFallbackControlFrequency;
+  const scalar_t mrtDesiredFrequency =
+      models.mpcSettings().mrtDesiredFrequency_;
+  RobotProcess::Config config =
+      robotProcessConfig(options, directory, configuration, modelSettings);
+  config.controlFrequency = mrtDesiredFrequency > 0.0
+                                ? mrtDesiredFrequency
+                                : kMrtFallbackControlFrequency;
   config.initialState.emplace(initState);
-  // Whether a caught robot is at rest is judged on the joints of the MPC model: the ones JOINT_PD brings to the nominal
-  // posture and the MPC starts from.
+  // Whether a caught robot is at rest is judged on the joints of the MPC model:
+  // the ones JOINT_PD brings to the nominal posture and the MPC starts from.
   config.restJointIndices = mpcJointIndices;
   config.pdGainsFileCheckInterval = kPdGainsFileCheckInterval;
 
-  ASSIGN_OR_RETURN(stack.process,
-                   RobotProcess::Create(stack.bus.get(), stack.backend.get(), stack.controller.get(), stack.contactEstimators.get(),
-                                        std::move(config), robotProcessHooks(remoteLink, files, std::move(context))));
+  ASSIGN_OR_RETURN(
+      stack.process,
+      RobotProcess::Create(
+          stack.bus.get(), stack.backend.get(), stack.controller.get(),
+          stack.contactEstimators.get(), std::move(config),
+          robotProcessHooks(remoteLink, files, std::move(context))));
   return stack;
 }
 
 absl::Status run() {
-  ASSIGN_OR_RETURN(const RobotAppOptions options, robotAppOptionsFromFlags(getDefaultCoreAllocation()));
-  exportSoftwareRasterizerThreads(options.viewer);  // before the process starts a thread
+  ASSIGN_OR_RETURN(const RobotAppOptions options,
+                   robotAppOptionsFromFlags(getDefaultCoreAllocation()));
+  exportSoftwareRasterizerThreads(
+      options.viewer);  // before the process starts a thread
   return runRobot(
-      options, [&options](const RobotConfigDirectory& directory) { return setUpRobot(options, directory); }, &node::shutdownRequested);
+      options,
+      [&options](const RobotConfigDirectory& directory) {
+        return setUpRobot(options, directory);
+      },
+      &node::shutdownRequested);
 }
 
 }  // namespace
@@ -241,9 +308,12 @@ absl::Status run() {
 
 int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   absl::SetProgramUsageMessage(
-      "The robot process of the whole-body MPC: the realtime loop over a robot backend and the MRT joint controller, with "
-      "its MPC behind the bus. humanoid_wb_mpc_robot --robot_name=unitree_g1 --task_file=... --reference_file=... "
-      "--urdf_file=... --mjcf_file=... [--network_config=...] [--backend=mujoco] [--realtime_priority=80]");
+      "The robot process of the whole-body MPC: the realtime loop over a robot "
+      "backend and the MRT joint controller, with "
+      "its MPC behind the bus. humanoid_wb_mpc_robot --robot_name=unitree_g1 "
+      "--task_file=... --reference_file=... "
+      "--urdf_file=... --mjcf_file=... [--network_config=...] "
+      "[--backend=mujoco] [--realtime_priority=80]");
   absl::ParseCommandLine(argc, argv);
   // Route Abseil log records to stderr, INFO included.
   absl::InitializeLog();

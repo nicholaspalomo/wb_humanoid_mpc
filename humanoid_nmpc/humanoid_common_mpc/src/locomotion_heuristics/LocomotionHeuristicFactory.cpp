@@ -52,38 +52,58 @@ namespace ocs2::humanoid {
 namespace {
 
 absl::Status unknownHeuristic(HeuristicKind kind, absl::string_view name) {
-  return absl::InvalidArgumentError(absl::StrCat("[LocomotionHeuristicFactory] unknown ", heuristicKindName(kind), " heuristic '", name,
-                                                 "'; supported: ", absl::StrJoin(knownHeuristicNames(kind), ", "), "."));
+  return absl::InvalidArgumentError(absl::StrCat(
+      "[LocomotionHeuristicFactory] unknown ", heuristicKindName(kind),
+      " heuristic '", name,
+      "'; supported: ", absl::StrJoin(knownHeuristicNames(kind), ", "), "."));
 }
 
 }  // namespace
 
-// Every heuristic is built here and nowhere else. Adding one is four edits - this switch, knownHeuristicNames(), a
-// parameter struct in LocomotionHeuristicConfig, and the block in each robot's task.textproto - and the IFTTT directives
-// tie the first, the second and the fourth together so the linter catches three of the four ways of doing it halfway.
+// Every heuristic is built here and nowhere else. Adding one is four edits -
+// this switch, knownHeuristicNames(), a parameter struct in
+// LocomotionHeuristicConfig, and the block in each robot's task.textproto - and
+// the IFTTT directives tie the first, the second and the fourth together so the
+// linter catches three of the four ways of doing it halfway.
 // LINT.IfChange(heuristic_factory)
-absl::StatusOr<std::unique_ptr<BasePoseHeuristic>> LocomotionHeuristicFactory::makeBasePoseHeuristic(absl::string_view name) {
-  const std::string canonical = canonicalHeuristicName(HeuristicKind::kBasePose, name);
-  if (canonical == heuristic::kOrientationCompensation) return std::make_unique<OrientationCompensationHeuristic>();
-  if (canonical == heuristic::kPeriodicOrientation) return std::make_unique<PeriodicOrientationHeuristic>();
-  if (canonical == heuristic::kHeightCompensation) return std::make_unique<HeightCompensationHeuristic>();
+absl::StatusOr<std::unique_ptr<BasePoseHeuristic>>
+LocomotionHeuristicFactory::makeBasePoseHeuristic(absl::string_view name) {
+  const std::string canonical =
+      canonicalHeuristicName(HeuristicKind::kBasePose, name);
+  if (canonical == heuristic::kOrientationCompensation)
+    return std::make_unique<OrientationCompensationHeuristic>();
+  if (canonical == heuristic::kPeriodicOrientation)
+    return std::make_unique<PeriodicOrientationHeuristic>();
+  if (canonical == heuristic::kHeightCompensation)
+    return std::make_unique<HeightCompensationHeuristic>();
   return unknownHeuristic(HeuristicKind::kBasePose, name);
 }
 
-absl::StatusOr<std::unique_ptr<FootholdHeuristic>> LocomotionHeuristicFactory::makeFootholdHeuristic(absl::string_view name) {
-  const std::string canonical = canonicalHeuristicName(HeuristicKind::kFoothold, name);
-  if (canonical == heuristic::kHipCenteredStepping) return std::make_unique<HipCenteredSteppingHeuristic>();
-  if (canonical == heuristic::kCapturePoint) return std::make_unique<CapturePointHeuristic>();
-  if (canonical == heuristic::kTranslationalStepping) return std::make_unique<TranslationalSteppingHeuristic>();
-  if (canonical == heuristic::kInPlaceTurning) return std::make_unique<InPlaceTurningHeuristic>();
-  if (canonical == heuristic::kHighSpeedTurning) return std::make_unique<HighSpeedTurningHeuristic>();
+absl::StatusOr<std::unique_ptr<FootholdHeuristic>>
+LocomotionHeuristicFactory::makeFootholdHeuristic(absl::string_view name) {
+  const std::string canonical =
+      canonicalHeuristicName(HeuristicKind::kFoothold, name);
+  if (canonical == heuristic::kHipCenteredStepping)
+    return std::make_unique<HipCenteredSteppingHeuristic>();
+  if (canonical == heuristic::kCapturePoint)
+    return std::make_unique<CapturePointHeuristic>();
+  if (canonical == heuristic::kTranslationalStepping)
+    return std::make_unique<TranslationalSteppingHeuristic>();
+  if (canonical == heuristic::kInPlaceTurning)
+    return std::make_unique<InPlaceTurningHeuristic>();
+  if (canonical == heuristic::kHighSpeedTurning)
+    return std::make_unique<HighSpeedTurningHeuristic>();
   return unknownHeuristic(HeuristicKind::kFoothold, name);
 }
 
-absl::StatusOr<std::unique_ptr<WrenchHeuristic>> LocomotionHeuristicFactory::makeWrenchHeuristic(absl::string_view name) {
-  const std::string canonical = canonicalHeuristicName(HeuristicKind::kWrench, name);
-  if (canonical == heuristic::kImpulseScaling) return std::make_unique<ImpulseScalingHeuristic>();
-  if (canonical == heuristic::kCentripetalAcceleration) return std::make_unique<CentripetalAccelerationHeuristic>();
+absl::StatusOr<std::unique_ptr<WrenchHeuristic>>
+LocomotionHeuristicFactory::makeWrenchHeuristic(absl::string_view name) {
+  const std::string canonical =
+      canonicalHeuristicName(HeuristicKind::kWrench, name);
+  if (canonical == heuristic::kImpulseScaling)
+    return std::make_unique<ImpulseScalingHeuristic>();
+  if (canonical == heuristic::kCentripetalAcceleration)
+    return std::make_unique<CentripetalAccelerationHeuristic>();
   return unknownHeuristic(HeuristicKind::kWrench, name);
 }
 // clang-format off

@@ -114,7 +114,9 @@ class SourceTest(unittest.TestCase):
         )
 
     def test_has_no_source_without_dash_c(self) -> None:
-        self.assertIsNone(compile_commands.source_of(["gcc", "-E", "pkg/a.cpp"]))
+        self.assertIsNone(
+            compile_commands.source_of(["gcc", "-E", "pkg/a.cpp"])
+        )
         self.assertIsNone(compile_commands.source_of(["gcc", "-c"]))
 
     def test_first_party_sources_are_in_the_checkout(self) -> None:
@@ -130,7 +132,10 @@ class SourceTest(unittest.TestCase):
     ) -> None:
         self.assertEqual(
             compile_commands.checkout_path(
-                "bazel-out/k8-opt/bin/pkg/a.pb.cc", _WORKSPACE, _EXECROOT, _OUTPUT_BASE
+                "bazel-out/k8-opt/bin/pkg/a.pb.cc",
+                _WORKSPACE,
+                _EXECROOT,
+                _OUTPUT_BASE,
             ),
             "/cache/output_base/execroot/_main/bazel-out/k8-opt/bin/pkg/a.pb.cc",
         )
@@ -212,7 +217,9 @@ class DatabaseEntriesTest(unittest.TestCase):
             ],
         }
 
-    def test_entries_are_sorted_by_file_and_run_from_the_execution_root(self) -> None:
+    def test_entries_are_sorted_by_file_and_run_from_the_execution_root(
+        self,
+    ) -> None:
         entries = compile_commands.database_entries(
             self._aquery(), _WORKSPACE, _EXECROOT, _OUTPUT_BASE
         )
@@ -236,7 +243,9 @@ class DatabaseEntriesTest(unittest.TestCase):
         entries = compile_commands.database_entries(
             self._aquery(), _WORKSPACE, _EXECROOT, _OUTPUT_BASE
         )
-        self.assertIn("-Ibazel-out/k8-opt/bin/pkg/include", entries[0]["arguments"])
+        self.assertIn(
+            "-Ibazel-out/k8-opt/bin/pkg/include", entries[0]["arguments"]
+        )
         self.assertIn(
             "/cache/output_base/external/abseil-cpp+", entries[0]["arguments"]
         )
@@ -244,7 +253,9 @@ class DatabaseEntriesTest(unittest.TestCase):
 
     def test_an_empty_query_gives_an_empty_database(self) -> None:
         self.assertEqual(
-            compile_commands.database_entries({}, _WORKSPACE, _EXECROOT, _OUTPUT_BASE),
+            compile_commands.database_entries(
+                {}, _WORKSPACE, _EXECROOT, _OUTPUT_BASE
+            ),
             [],
         )
 
@@ -263,7 +274,9 @@ class WriteDatabaseTest(unittest.TestCase):
             self.assertTrue(compile_commands.write_database(_ENTRIES, path))
             with open(path, encoding="utf-8") as f:
                 self.assertEqual(json.load(f), _ENTRIES)
-            self.assertEqual(os.listdir(directory), [compile_commands.OUTPUT_NAME])
+            self.assertEqual(
+                os.listdir(directory), [compile_commands.OUTPUT_NAME]
+            )
 
     def test_leaves_a_file_with_the_same_content_alone(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -273,7 +286,8 @@ class WriteDatabaseTest(unittest.TestCase):
             self.assertFalse(compile_commands.write_database(_ENTRIES, path))
             after = os.stat(path)
             self.assertEqual(
-                (before.st_ino, before.st_mtime_ns), (after.st_ino, after.st_mtime_ns)
+                (before.st_ino, before.st_mtime_ns),
+                (after.st_ino, after.st_mtime_ns),
             )
             self.assertTrue(compile_commands.write_database([], path))
 
@@ -288,7 +302,9 @@ class WriteDatabaseTest(unittest.TestCase):
                 os, "replace", side_effect=OSError("read-only")
             ), self.assertRaises(OSError):
                 compile_commands.write_database(_ENTRIES, path)
-            self.assertEqual(os.listdir(directory), [compile_commands.OUTPUT_NAME])
+            self.assertEqual(
+                os.listdir(directory), [compile_commands.OUTPUT_NAME]
+            )
             with open(path, encoding="utf-8") as f:
                 self.assertEqual(f.read(), "old\n")
 
@@ -336,14 +352,20 @@ class SkipReasonTest(unittest.TestCase):
     _IN_THE_DEV_CONTAINER = "/wb_humanoid_mpc_ws/workspace/wb_humanoid_mpc"
 
     def test_the_dev_container_writes_it(self) -> None:
-        self.assertIsNone(compile_commands.skip_reason({}, self._IN_THE_DEV_CONTAINER))
         self.assertIsNone(
-            compile_commands.skip_reason({"CI": "false"}, self._IN_THE_DEV_CONTAINER)
+            compile_commands.skip_reason({}, self._IN_THE_DEV_CONTAINER)
+        )
+        self.assertIsNone(
+            compile_commands.skip_reason(
+                {"CI": "false"}, self._IN_THE_DEV_CONTAINER
+            )
         )
 
     def test_ci_does_not(self) -> None:
         self.assertEqual(
-            compile_commands.skip_reason({"CI": "true"}, self._IN_THE_DEV_CONTAINER),
+            compile_commands.skip_reason(
+                {"CI": "true"}, self._IN_THE_DEV_CONTAINER
+            ),
             "CI is set",
         )
 
@@ -358,7 +380,8 @@ class SkipReasonTest(unittest.TestCase):
             with self.subTest(value=value):
                 self.assertIsNone(
                     compile_commands.skip_reason(
-                        {"WB_COMPILE_COMMANDS": value}, self._IN_THE_DEV_CONTAINER
+                        {"WB_COMPILE_COMMANDS": value},
+                        self._IN_THE_DEV_CONTAINER,
                     )
                 )
 
@@ -374,7 +397,8 @@ class SkipReasonTest(unittest.TestCase):
             self.assertEqual(compile_commands.main(["--quiet"]), 1)
         self.assertEqual(
             stderr.getvalue(),
-            "compile_commands: WB_COMPILE_COMMANDS=off: compile_commands.json is left alone\n",
+            "compile_commands: WB_COMPILE_COMMANDS=off: compile_commands.json"
+            " is left alone\n",
         )
 
     def test_a_checkout_outside_the_mount_does_not(self) -> None:
@@ -440,7 +464,9 @@ class _FakeBazelRun:
 
     def call(self, command: str) -> list[str]:
         """Returns the arguments of the one Bazel call of `command`."""
-        matching = [call.split() for call in self.calls if call.split()[0] == command]
+        matching = [
+            call.split() for call in self.calls if call.split()[0] == command
+        ]
         assert len(matching) == 1, self.calls
         return matching[0]
 
@@ -502,7 +528,9 @@ def _run_main(
         stdout = io.StringIO()
         with mock.patch.dict(os.environ, environment), mock.patch.object(
             compile_commands, "_skip_reason", return_value=None
-        ), contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(stdout):
+        ), contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(
+            stdout
+        ):
             status = compile_commands.main(["--output", output, *argv])
         with open(log, encoding="utf-8") as f:
             calls = f.read().splitlines()
@@ -531,10 +559,13 @@ class MainTest(unittest.TestCase):
         self.assertNotIn("--config=dbg", query)
         self.assertIn('kind("cc_.* rule", //...)', run.calls[0])
         self.assertIn("--config=dbg", run.call("info"))
-        self.assertEqual(run.call("info")[-2:], ["execution_root", "output_base"])
+        self.assertEqual(
+            run.call("info")[-2:], ["execution_root", "output_base"]
+        )
         self.assertIn("--config=dbg", run.call("aquery"))
         self.assertEqual(
-            run.files["query"], 'mnemonic("CppCompile", set("//pkg:a+b" "//pkg:lib"))'
+            run.files["query"],
+            'mnemonic("CppCompile", set("//pkg:a+b" "//pkg:lib"))',
         )
         self.assertNotIn("//...", run.calls[2])
         self.assertEqual(
@@ -552,7 +583,9 @@ class MainTest(unittest.TestCase):
             ["query", "build", "info", "aquery"],
         )
         build = run.call("build")
-        self.assertIn("--output_groups=compilation_prerequisites_INTERNAL_", build)
+        self.assertIn(
+            "--output_groups=compilation_prerequisites_INTERNAL_", build
+        )
         self.assertIn("--keep_going", build)
         self.assertNotIn("//...", build)
         self.assertEqual(run.files["targets"], "//pkg:a+b\n//pkg:lib\n")
@@ -560,7 +593,9 @@ class MainTest(unittest.TestCase):
     def test_a_failed_header_build_warns_and_the_query_still_runs(self) -> None:
         run = _run_main(["--build_headers"], statuses={"build": 1})
         self.assertEqual(run.status, 0, run.stderr)
-        self.assertIn("warning: the generated headers of some targets", run.stderr)
+        self.assertIn(
+            "warning: the generated headers of some targets", run.stderr
+        )
         self.assertEqual(len(json.loads(run.written)), 1)
 
     def test_a_partial_aquery_is_written_with_a_warning(self) -> None:
@@ -574,12 +609,22 @@ class MainTest(unittest.TestCase):
         self.assertEqual(run.status, 0, run.stderr)
         self.assertIn("warning: some packages failed to load", run.stderr)
 
-    def test_a_partial_aquery_keeps_the_entries_of_the_sources_it_lacks(self) -> None:
+    def test_a_partial_aquery_keeps_the_entries_of_the_sources_it_lacks(
+        self,
+    ) -> None:
         # The old database has a.cpp and b.cpp; the aquery that some targets failed in compiles a.cpp alone.
         root = compile_commands._repository_root()
         old = [
-            {"directory": "/old", "file": f"{root}/pkg/a.cpp", "arguments": ["gcc"]},
-            {"directory": "/old", "file": f"{root}/pkg/b.cpp", "arguments": ["gcc"]},
+            {
+                "directory": "/old",
+                "file": f"{root}/pkg/a.cpp",
+                "arguments": ["gcc"],
+            },
+            {
+                "directory": "/old",
+                "file": f"{root}/pkg/b.cpp",
+                "arguments": ["gcc"],
+            },
         ]
         for status, expected_directories in (
             (1, [_EXECROOT, "/old"]),
@@ -587,19 +632,26 @@ class MainTest(unittest.TestCase):
         ):
             with self.subTest(status=status):
                 run = _run_main(
-                    [], statuses={"aquery": status}, old_database=json.dumps(old)
+                    [],
+                    statuses={"aquery": status},
+                    old_database=json.dumps(old),
                 )
                 self.assertEqual(run.status, 0, run.stderr)
                 written = json.loads(run.written)
                 self.assertEqual(
-                    [entry["directory"] for entry in written], expected_directories
+                    [entry["directory"] for entry in written],
+                    expected_directories,
                 )
                 self.assertEqual(written[0]["file"], f"{root}/pkg/a.cpp")
-        partial = _run_main([], statuses={"aquery": 1}, old_database=json.dumps(old))
+        partial = _run_main(
+            [], statuses={"aquery": 1}, old_database=json.dumps(old)
+        )
         self.assertIn(
             "2 source files in", partial.stderr.splitlines()[-1], partial.stderr
         )
-        self.assertIn("1 of them kept from the previous database", partial.stderr)
+        self.assertIn(
+            "1 of them kept from the previous database", partial.stderr
+        )
 
     def test_a_query_that_lists_no_target_leaves_the_database_unchanged(
         self,
@@ -611,7 +663,9 @@ class MainTest(unittest.TestCase):
                 self.assertEqual(run.written, "old\n")
                 self.assertIn("bazel query listed no C++ target", run.stderr)
                 self.assertEqual(
-                    [call.split()[0] for call in run.calls], ["query"], run.calls
+                    [call.split()[0] for call in run.calls],
+                    ["query"],
+                    run.calls,
                 )
 
     def test_every_line_goes_to_stderr_and_a_quiet_refresh_announces_itself(
@@ -621,7 +675,9 @@ class MainTest(unittest.TestCase):
         self.assertEqual(quiet.status, 0, quiet.stderr)
         self.assertEqual(quiet.stdout, "")
         lines = quiet.stderr.splitlines()
-        self.assertEqual(lines[0], "compile_commands: refreshing compile_commands.json")
+        self.assertEqual(
+            lines[0], "compile_commands: refreshing compile_commands.json"
+        )
         self.assertRegex(
             lines[-1], r"^compile_commands: 1 source files in .+out\.json$"
         )
@@ -633,7 +689,9 @@ class MainTest(unittest.TestCase):
         for command in ("build", "aquery"):
             for status in (2, 8, 36, 37):
                 with self.subTest(command=command, status=status):
-                    run = _run_main(["--build_headers"], statuses={command: status})
+                    run = _run_main(
+                        ["--build_headers"], statuses={command: status}
+                    )
                     self.assertEqual(run.status, 1)
                     self.assertEqual(run.written, "old\n")
 
@@ -649,7 +707,9 @@ class MainTest(unittest.TestCase):
     ) -> None:
         for output in ("", "{}", "not json", "[1]"):
             with self.subTest(output=output):
-                run = _run_main([], aquery_output=output, statuses={"aquery": 1})
+                run = _run_main(
+                    [], aquery_output=output, statuses={"aquery": 1}
+                )
                 self.assertEqual(run.status, 1)
                 self.assertEqual(run.written, "old\n")
 
@@ -658,7 +718,9 @@ class MainTest(unittest.TestCase):
         self.assertEqual(run.status, 1)
         self.assertEqual(run.written, "old\n")
 
-    def test_unparsable_aquery_output_leaves_the_database_unchanged(self) -> None:
+    def test_unparsable_aquery_output_leaves_the_database_unchanged(
+        self,
+    ) -> None:
         run = _run_main([], aquery_output="not json")
         self.assertEqual(run.status, 1)
         self.assertEqual(run.written, "old\n")
@@ -714,7 +776,12 @@ class ConfigurationFlagsTest(unittest.TestCase):
     def test_leaves_out_the_aspect_only_configs(self) -> None:
         self.assertEqual(
             compile_commands.configuration_flags(
-                ["--config=clang-tidy", "--config", "clang-tidy-fix", "--config=dbg"]
+                [
+                    "--config=clang-tidy",
+                    "--config",
+                    "clang-tidy-fix",
+                    "--config=dbg",
+                ]
             ),
             ["--config=dbg"],
         )
@@ -765,7 +832,9 @@ def _run_after(
         result.runs.append(list(arguments))
         for argument in arguments:
             if write_script and argument.startswith("--script_path="):
-                with open(argument.split("=", 1)[1], "w", encoding="utf-8") as f:
+                with open(
+                    argument.split("=", 1)[1], "w", encoding="utf-8"
+                ) as f:
                     f.write("exec program 'a b' \"$@\"\n")
         return statuses[len(result.runs) - 1]
 
@@ -782,9 +851,13 @@ def _run_after(
         raise _ExecError()
 
     stderr = io.StringIO()
-    with mock.patch.object(compile_commands, "_run", fake_run), mock.patch.object(
+    with mock.patch.object(
+        compile_commands, "_run", fake_run
+    ), mock.patch.object(
         compile_commands, "refresh", fake_refresh
-    ), mock.patch.object(os, "execvp", fake_exec), mock.patch.object(
+    ), mock.patch.object(
+        os, "execvp", fake_exec
+    ), mock.patch.object(
         compile_commands, "_skip_reason", return_value=skip_reason
     ), contextlib.redirect_stderr(
         stderr
@@ -808,12 +881,17 @@ class RunAfterTest(unittest.TestCase):
         )
         self.assertEqual(result.status, 1)
         self.assertEqual(
-            result.runs, [["bazel", "build", "//...", "--config=dbg", "-c", "dbg"]]
+            result.runs,
+            [["bazel", "build", "//...", "--config=dbg", "-c", "dbg"]],
         )
-        self.assertEqual(result.refreshes, [["--config=dbg", "--compilation_mode=dbg"]])
+        self.assertEqual(
+            result.refreshes, [["--config=dbg", "--compilation_mode=dbg"]]
+        )
 
     def test_a_test_refreshes_after_failing_tests_too(self) -> None:
-        result = _run_after(["bazel", "test", "//pkg:test", "--test_output=all"], [3])
+        result = _run_after(
+            ["bazel", "test", "//pkg:test", "--test_output=all"], [3]
+        )
         self.assertEqual(result.status, 3)
         self.assertEqual(result.refreshes, [[]])
 
@@ -832,7 +910,9 @@ class RunAfterTest(unittest.TestCase):
         self.assertEqual(result.status, 0)
         self.assertIn("was not refreshed: interrupted", result.stderr)
 
-    def test_a_run_writes_a_script_refreshes_and_then_execs_the_script(self) -> None:
+    def test_a_run_writes_a_script_refreshes_and_then_execs_the_script(
+        self,
+    ) -> None:
         command = ["bazel", "run", "//pkg:bin", "--config=dbg", "--", "--flag"]
         result = _run_after(command, [0])
         self.assertIsNone(result.status)
@@ -849,9 +929,15 @@ class RunAfterTest(unittest.TestCase):
         )
         self.assertFalse(os.path.exists(os.path.dirname(script_path)))
 
-    def test_a_run_passes_its_program_arguments_without_a_separator(self) -> None:
-        result = _run_after(["bazel", "run", "//pkg:bin", "list", "--config=dbg"], [0])
-        self.assertEqual(result.runs[0][3:], ["//pkg:bin", "list", "--config=dbg"])
+    def test_a_run_passes_its_program_arguments_without_a_separator(
+        self,
+    ) -> None:
+        result = _run_after(
+            ["bazel", "run", "//pkg:bin", "list", "--config=dbg"], [0]
+        )
+        self.assertEqual(
+            result.runs[0][3:], ["//pkg:bin", "list", "--config=dbg"]
+        )
         self.assertEqual(result.refreshes, [["--config=dbg"]])
 
     def test_a_run_whose_build_fails_does_not_start_the_program(self) -> None:
@@ -861,7 +947,9 @@ class RunAfterTest(unittest.TestCase):
         self.assertEqual(result.execs, [])
 
     def test_a_run_whose_build_wrote_no_script_fails(self) -> None:
-        result = _run_after(["bazel", "run", "//pkg:bin"], [0], write_script=False)
+        result = _run_after(
+            ["bazel", "run", "//pkg:bin"], [0], write_script=False
+        )
         self.assertEqual(result.status, 1)
         self.assertEqual(result.refreshes, [[]])
         self.assertEqual(result.execs, [])
@@ -891,7 +979,10 @@ class RunAfterTest(unittest.TestCase):
         self.assertEqual(result.execs, [])
 
     def test_other_commands_run_unchanged_without_a_refresh(self) -> None:
-        for command in (["bazel", "query", "//..."], ["bazel", "coverage", "//..."]):
+        for command in (
+            ["bazel", "query", "//..."],
+            ["bazel", "coverage", "//..."],
+        ):
             with self.subTest(command=command):
                 result = _run_after(command, [])
                 self.assertIsNone(result.status)
@@ -900,25 +991,33 @@ class RunAfterTest(unittest.TestCase):
 
     def test_an_opted_out_container_runs_the_command_alone(self) -> None:
         result = _run_after(
-            ["bazel", "build", "//..."], [], skip_reason="WB_COMPILE_COMMANDS=off"
+            ["bazel", "build", "//..."],
+            [],
+            skip_reason="WB_COMPILE_COMMANDS=off",
         )
         self.assertIsNone(result.status)
         self.assertEqual(result.execs, [["bazel", "build", "//..."]])
         self.assertEqual(result.refreshes, [])
         self.assertEqual(
             result.stderr,
-            "compile_commands: WB_COMPILE_COMMANDS=off: compile_commands.json is left alone\n",
+            "compile_commands: WB_COMPILE_COMMANDS=off: compile_commands.json"
+            " is left alone\n",
         )
 
     def test_outside_the_dev_container_the_command_runs_alone(self) -> None:
-        for command in (["bazel", "build", "//..."], ["bazel", "run", "//pkg:bin"]):
+        for command in (
+            ["bazel", "build", "//..."],
+            ["bazel", "run", "//pkg:bin"],
+        ):
             with self.subTest(command=command):
                 result = _run_after(command, [], skip_reason="CI is set")
                 self.assertIsNone(result.status)
                 self.assertEqual(result.execs, [command])
                 self.assertEqual(result.refreshes, [])
                 self.assertEqual(len(result.stderr.splitlines()), 1)
-                self.assertIn("not the dev container (CI is set)", result.stderr)
+                self.assertIn(
+                    "not the dev container (CI is set)", result.stderr
+                )
 
 
 class _RecordingStream(io.StringIO):
@@ -961,7 +1060,9 @@ class ExecTest(unittest.TestCase):
         with mock.patch.object(
             os, "execvp", side_effect=OSError("No such file or directory")
         ), contextlib.redirect_stderr(stderr):
-            self.assertEqual(compile_commands._exec(["/nonexistent/program"]), 127)
+            self.assertEqual(
+                compile_commands._exec(["/nonexistent/program"]), 127
+            )
         self.assertIn("cannot run /nonexistent/program", stderr.getvalue())
 
 
@@ -980,7 +1081,10 @@ class RunTest(unittest.TestCase):
 
     def test_the_exit_status_is_kept(self) -> None:
         self.assertEqual(
-            compile_commands._run([sys.executable, "-c", "raise SystemExit(3)"]), 3
+            compile_commands._run(
+                [sys.executable, "-c", "raise SystemExit(3)"]
+            ),
+            3,
         )
 
     def test_a_missing_program_gives_127(self) -> None:

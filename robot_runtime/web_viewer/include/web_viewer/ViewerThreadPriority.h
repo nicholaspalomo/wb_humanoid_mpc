@@ -32,17 +32,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::web_viewer {
 
 /**
- * The scheduling a viewer thread runs under (placeCurrentThread()): how it shares its cores with the physics and the
- * MPC.
+ * The scheduling a viewer thread runs under (placeCurrentThread()): how it
+ * shares its cores with the physics and the MPC.
  */
 enum class ViewerThreadPriority {
-  // SCHED_IDLE, the default: the thread runs only on time no other thread wants, and a thread of the normal scheduler
-  // that wakes on its core - the physics, an MPC worker - takes the core at once. A higher nice value does not do that:
-  // under EEVDF a woken thread may wait out the running thread's time slice (3 ms on 8 or more CPUs), whatever its nice
+  // SCHED_IDLE, the default: the thread runs only on time no other thread
+  // wants, and a thread of the normal scheduler
+  // that wakes on its core - the physics, an MPC worker - takes the core at
+  // once. A higher nice value does not do that:
+  // under EEVDF a woken thread may wait out the running thread's time slice (3
+  // ms on 8 or more CPUs), whatever its nice
   // value.
   kIdle,
-  // The scheduling of the thread that starts it: for tests and the demo, whose viewer must keep its pace on a machine
-  // busy with other tests, and which share their cores with nothing that must keep a rate.
+  // The scheduling of the thread that starts it: for tests and the demo, whose
+  // viewer must keep its pace on a machine
+  // busy with other tests, and which share their cores with nothing that must
+  // keep a rate.
   kInherited,
 };
 

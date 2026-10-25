@@ -36,8 +36,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/swing_foot_planner/SplineCpg.h"
 
 /**
- * The time derivatives of CubicSpline and SplineCpg against central finite differences of re-built splines. SplineCpg's
- * apex time is the mean of the lift-off and touch-down times, so moving either end moves the apex by half as much.
+ * The time derivatives of CubicSpline and SplineCpg against central finite
+ * differences of re-built splines. SplineCpg's apex time is the mean of the
+ * lift-off and touch-down times, so moving either end moves the apex by half as
+ * much.
  */
 namespace ocs2::humanoid {
 namespace {
@@ -58,12 +60,18 @@ SwingNodes randomNodes(std::mt19937& generator) {
   std::normal_distribution<scalar_t> value(0.0, 0.1);
   const scalar_t liftOffTime = start(generator);
   const scalar_t touchDownTime = liftOffTime + duration(generator);
-  return SwingNodes{.liftOff = {.time = liftOffTime, .position = value(generator), .velocity = value(generator)},
+  return SwingNodes{.liftOff = {.time = liftOffTime,
+                                .position = value(generator),
+                                .velocity = value(generator)},
                     .apex = 0.1 + std::abs(value(generator)),
-                    .touchDown = {.time = touchDownTime, .position = value(generator), .velocity = value(generator)}};
+                    .touchDown = {.time = touchDownTime,
+                                  .position = value(generator),
+                                  .velocity = value(generator)}};
 }
 
-SplineCpg shifted(const SwingNodes& nodes, scalar_t liftOffShift, scalar_t touchDownShift) {
+SplineCpg shifted(const SwingNodes& nodes,
+                  scalar_t liftOffShift,
+                  scalar_t touchDownShift) {
   CubicSpline::Node liftOff = nodes.liftOff;
   CubicSpline::Node touchDown = nodes.touchDown;
   liftOff.time += liftOffShift;
@@ -81,17 +89,24 @@ TEST(SplineCpg, TimeDerivativesMatchFiniteDifferences) {
     const SplineCpg spline(nodes.liftOff, nodes.apex, nodes.touchDown);
     const scalar_t duration = nodes.touchDown.time - nodes.liftOff.time;
     const scalar_t time = nodes.liftOff.time + fraction(generator) * duration;
-    // Keep the evaluation away from the apex, where the active half changes under a shift of the ends.
-    if (std::abs(time - 0.5 * (nodes.liftOff.time + nodes.touchDown.time)) < 1.0e-3) continue;
+    // Keep the evaluation away from the apex, where the active half changes
+    // under a shift of the ends.
+    if (std::abs(time - 0.5 * (nodes.liftOff.time + nodes.touchDown.time)) <
+        1.0e-3)
+      continue;
 
     const scalar_t startDifference =
-        (shifted(nodes, kStep, /*touchDownShift=*/0.0).position(time) - shifted(nodes, -kStep, /*touchDownShift=*/0.0).position(time)) /
+        (shifted(nodes, kStep, /*touchDownShift=*/0.0).position(time) -
+         shifted(nodes, -kStep, /*touchDownShift=*/0.0).position(time)) /
         (2.0 * kStep);
     const scalar_t finalDifference =
-        (shifted(nodes, /*liftOffShift=*/0.0, kStep).position(time) - shifted(nodes, /*liftOffShift=*/0.0, -kStep).position(time)) /
+        (shifted(nodes, /*liftOffShift=*/0.0, kStep).position(time) -
+         shifted(nodes, /*liftOffShift=*/0.0, -kStep).position(time)) /
         (2.0 * kStep);
-    EXPECT_NEAR(spline.startTimeDerivative(time), startDifference, kTol) << "trial " << trial;
-    EXPECT_NEAR(spline.finalTimeDerivative(time), finalDifference, kTol) << "trial " << trial;
+    EXPECT_NEAR(spline.startTimeDerivative(time), startDifference, kTol)
+        << "trial " << trial;
+    EXPECT_NEAR(spline.finalTimeDerivative(time), finalDifference, kTol)
+        << "trial " << trial;
   }
 }
 
@@ -101,21 +116,29 @@ TEST(SplineCpg, CubicSplineTimeDerivativesMatchFiniteDifferences) {
   for (int trial = 0; trial < 2000; ++trial) {
     const SwingNodes nodes = randomNodes(generator);
     const CubicSpline spline(nodes.liftOff, nodes.touchDown);
-    const scalar_t time = nodes.liftOff.time + fraction(generator) * (nodes.touchDown.time - nodes.liftOff.time);
+    const scalar_t time =
+        nodes.liftOff.time +
+        fraction(generator) * (nodes.touchDown.time - nodes.liftOff.time);
     CubicSpline::Node earlier = nodes.liftOff;
     CubicSpline::Node later = nodes.liftOff;
     earlier.time -= kStep;
     later.time += kStep;
     const scalar_t startDifference =
-        (CubicSpline(later, nodes.touchDown).position(time) - CubicSpline(earlier, nodes.touchDown).position(time)) / (2.0 * kStep);
+        (CubicSpline(later, nodes.touchDown).position(time) -
+         CubicSpline(earlier, nodes.touchDown).position(time)) /
+        (2.0 * kStep);
     CubicSpline::Node earlierEnd = nodes.touchDown;
     CubicSpline::Node laterEnd = nodes.touchDown;
     earlierEnd.time -= kStep;
     laterEnd.time += kStep;
     const scalar_t finalDifference =
-        (CubicSpline(nodes.liftOff, laterEnd).position(time) - CubicSpline(nodes.liftOff, earlierEnd).position(time)) / (2.0 * kStep);
-    EXPECT_NEAR(spline.startTimeDerivative(time), startDifference, kTol) << "trial " << trial;
-    EXPECT_NEAR(spline.finalTimeDerivative(time), finalDifference, kTol) << "trial " << trial;
+        (CubicSpline(nodes.liftOff, laterEnd).position(time) -
+         CubicSpline(nodes.liftOff, earlierEnd).position(time)) /
+        (2.0 * kStep);
+    EXPECT_NEAR(spline.startTimeDerivative(time), startDifference, kTol)
+        << "trial " << trial;
+    EXPECT_NEAR(spline.finalTimeDerivative(time), finalDifference, kTol)
+        << "trial " << trial;
   }
 }
 

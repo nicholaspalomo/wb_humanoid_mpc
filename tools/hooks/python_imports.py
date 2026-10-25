@@ -145,9 +145,9 @@ def _is_module(package: str, name: str, here: str) -> bool:
         return True
     directory = _first_party_package(package, here)
     if directory is not None:
-        return os.path.isfile(os.path.join(directory, f"{name}.py")) or os.path.isdir(
-            os.path.join(directory, name)
-        )
+        return os.path.isfile(
+            os.path.join(directory, f"{name}.py")
+        ) or os.path.isdir(os.path.join(directory, name))
     if _is_first_party_module(package, here):
         return False  # a name inside a first-party module
     standard = _is_standard_module(qualified)
@@ -171,20 +171,28 @@ def check_import_modules(source: str, path: str) -> list[check_types.Finding]:
     here = os.path.dirname(os.path.join(ROOT, path))
     findings = []
     for node in ast.walk(tree):
-        if not isinstance(node, ast.ImportFrom) or node.level or not node.module:
+        if (
+            not isinstance(node, ast.ImportFrom)
+            or node.level
+            or not node.module
+        ):
             continue
         if node.module in EXEMPT_MODULES:
             continue
         for alias in node.names:
-            if alias.name == "*" or not _is_module(node.module, alias.name, here):
+            if alias.name == "*" or not _is_module(
+                node.module, alias.name, here
+            ):
                 findings.append(
                     check_types.Finding(
                         path,
                         node.lineno,
                         node.col_offset + 1,
                         IMPORT_MODULES,
-                        f"`from {node.module} import {alias.name}` imports a name, not a module: import the module "
-                        f"and write `{node.module.rsplit('.', 1)[-1]}.{alias.name}` (Python style 2.2.4).",
+                        f"`from {node.module} import {alias.name}` imports a"
+                        " name, not a module: import the module and write"
+                        f" `{node.module.rsplit('.', 1)[-1]}.{alias.name}`"
+                        " (Python style 2.2.4).",
                     )
                 )
     return findings
@@ -201,7 +209,8 @@ def check_relative_import(source: str, path: str) -> list[check_types.Finding]:
             node.lineno,
             node.col_offset + 1,
             RELATIVE_IMPORT,
-            "relative import: import by the module's full path (Python style 2.2.4).",
+            "relative import: import by the module's full path (Python style"
+            " 2.2.4).",
         )
         for node in ast.walk(tree)
         if isinstance(node, ast.ImportFrom) and node.level
@@ -230,8 +239,10 @@ def check_import_alias(source: str, path: str) -> list[check_types.Finding]:
                         node.lineno,
                         node.col_offset + 1,
                         IMPORT_ALIAS,
-                        f"`as {alias.asname}`: alias an import only to a standard abbreviation "
-                        f"({', '.join(sorted(IMPORT_ALIASES))}) or to avoid a clash (Python style 2.2.4).",
+                        f"`as {alias.asname}`: alias an import only to a"
+                        " standard abbreviation"
+                        f" ({', '.join(sorted(IMPORT_ALIASES))}) or to avoid a"
+                        " clash (Python style 2.2.4).",
                     )
                 )
     return findings
@@ -249,9 +260,15 @@ def check_sys_path(source: str, path: str) -> list[check_types.Finding]:
             if node.func.attr in ("insert", "append", "extend"):
                 target = node.func.value
         elif isinstance(node, (ast.Assign, ast.AugAssign)):
-            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            targets = (
+                node.targets if isinstance(node, ast.Assign) else [node.target]
+            )
             target = next(
-                (t.value if isinstance(t, ast.Subscript) else t for t in targets), None
+                (
+                    t.value if isinstance(t, ast.Subscript) else t
+                    for t in targets
+                ),
+                None,
             )
         if not (
             isinstance(node, (ast.expr, ast.stmt))
@@ -267,9 +284,10 @@ def check_sys_path(source: str, path: str) -> list[check_types.Finding]:
                 node.lineno,
                 node.col_offset + 1,
                 SYS_PATH,
-                "`sys.path` is changed: import first-party modules by their path below a Bazel import root or the "
-                "repository root, and run scripts as modules (`python3 -m tools.hooks.lint_code`) (Python style "
-                "2.3).",
+                "`sys.path` is changed: import first-party modules by their"
+                " path below a Bazel import root or the repository root, and"
+                " run scripts as modules (`python3 -m tools.hooks.lint_code`)"
+                " (Python style 2.3).",
             )
         )
     return findings
@@ -281,7 +299,10 @@ CHECKS = [
         languages=PYTHON,
         scope=lint_files.Scope.FIRST_PARTY,
         check_source=check_import_modules,
-        description="import modules, not classes or functions (Python style 2.2.4; AGENTS.md).",
+        description=(
+            "import modules, not classes or functions (Python style 2.2.4;"
+            " AGENTS.md)."
+        ),
     ),
     check_types.Check(
         name=RELATIVE_IMPORT,
@@ -295,7 +316,10 @@ CHECKS = [
         languages=PYTHON,
         scope=lint_files.Scope.FIRST_PARTY,
         check_source=check_import_alias,
-        description="import aliases only for the standard abbreviations (Python style 2.2.4).",
+        description=(
+            "import aliases only for the standard abbreviations (Python style"
+            " 2.2.4)."
+        ),
     ),
     check_types.Check(
         name=SYS_PATH,

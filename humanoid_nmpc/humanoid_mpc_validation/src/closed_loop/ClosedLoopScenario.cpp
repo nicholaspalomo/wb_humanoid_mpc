@@ -43,14 +43,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::validation {
 namespace {
 
-/** [s] Standing still after every motion, so that the metrics include the stop. */
+/** [s] Standing still after every motion, so that the metrics include the stop.
+ */
 constexpr double kStopDuration = 2.0;
 
-// The commands of each scenario (closedLoopScenarios()): durations [s], velocities [m/s] and yaw rates [rad/s].
+// The commands of each scenario (closedLoopScenarios()): durations [s],
+// velocities [m/s] and yaw rates [rad/s].
 constexpr double kStandingDuration = 10.0;
 constexpr double kWalkDuration = 15.0;
 constexpr double kWalkVelocity = 0.5;
-constexpr double kSlowWalkVelocity = 0.3;  // the slower walking variant of the design's section 4.5
+constexpr double kSlowWalkVelocity =
+    0.3;  // the slower walking variant of the design's section 4.5
 constexpr double kLateralWalkDuration = 10.0;
 constexpr double kLateralVelocity = 0.2;
 constexpr double kTurnInPlaceAngle = 4.0 * M_PI;  // [rad] 720 degrees
@@ -74,33 +77,61 @@ std::vector<ClosedLoopScenario> makeScenarios() {
   // 720 degrees at 0.5 rad/s.
   const double turnDuration = kTurnInPlaceAngle / kTurnInPlaceYawRate;
   std::vector<ClosedLoopScenario> scenarios;
-  scenarios.push_back({"standing", absl::StrCat("at rest for ", kStandingDuration, " s"), {rest(kStandingDuration)}});
+  scenarios.push_back({"standing",
+                       absl::StrCat("at rest for ", kStandingDuration, " s"),
+                       {rest(kStandingDuration)}});
   scenarios.push_back({"walk_0p5",
-                       absl::StrCat(kWalkVelocity, " m/s forward for ", kWalkDuration, " s, then at rest"),
-                       {CommandSegment{.duration = kWalkDuration, .forwardVelocity = kWalkVelocity}, rest(kStopDuration)}});
-  scenarios.push_back({"walk_0p3",
-                       absl::StrCat(kSlowWalkVelocity, " m/s forward for ", kWalkDuration, " s, then at rest (the slower walking variant)"),
-                       {CommandSegment{.duration = kWalkDuration, .forwardVelocity = kSlowWalkVelocity}, rest(kStopDuration)}});
+                       absl::StrCat(kWalkVelocity, " m/s forward for ",
+                                    kWalkDuration, " s, then at rest"),
+                       {CommandSegment{.duration = kWalkDuration,
+                                       .forwardVelocity = kWalkVelocity},
+                        rest(kStopDuration)}});
+  scenarios.push_back(
+      {"walk_0p3",
+       absl::StrCat(kSlowWalkVelocity, " m/s forward for ", kWalkDuration,
+                    " s, then at rest (the slower walking variant)"),
+       {CommandSegment{.duration = kWalkDuration,
+                       .forwardVelocity = kSlowWalkVelocity},
+        rest(kStopDuration)}});
   scenarios.push_back({"lateral_0p2",
-                       absl::StrCat(kLateralVelocity, " m/s to the left for ", kLateralWalkDuration, " s, then at rest"),
-                       {CommandSegment{.duration = kLateralWalkDuration, .lateralVelocity = kLateralVelocity}, rest(kStopDuration)}});
+                       absl::StrCat(kLateralVelocity, " m/s to the left for ",
+                                    kLateralWalkDuration, " s, then at rest"),
+                       {CommandSegment{.duration = kLateralWalkDuration,
+                                       .lateralVelocity = kLateralVelocity},
+                        rest(kStopDuration)}});
   scenarios.push_back(
       {"turn_in_place_720",
-       absl::StrCat("+", kTurnInPlaceYawRate, " rad/s in place through 720 degrees, -", kTurnInPlaceYawRate, " rad/s back, then at rest"),
-       {CommandSegment{.duration = turnDuration, .yawRate = kTurnInPlaceYawRate},
-        CommandSegment{.duration = turnDuration, .yawRate = -kTurnInPlaceYawRate}, rest(kStopDuration)}});
-  scenarios.push_back({"turn_1radps",
-                       absl::StrCat(kTurnYawRate, " rad/s in place for ", kTurnDuration, " s, then at rest"),
-                       {CommandSegment{.duration = kTurnDuration, .yawRate = kTurnYawRate}, rest(kStopDuration)}});
+       absl::StrCat("+", kTurnInPlaceYawRate,
+                    " rad/s in place through 720 degrees, -",
+                    kTurnInPlaceYawRate, " rad/s back, then at rest"),
+       {CommandSegment{.duration = turnDuration,
+                       .yawRate = kTurnInPlaceYawRate},
+        CommandSegment{.duration = turnDuration,
+                       .yawRate = -kTurnInPlaceYawRate},
+        rest(kStopDuration)}});
+  scenarios.push_back(
+      {"turn_1radps",
+       absl::StrCat(kTurnYawRate, " rad/s in place for ", kTurnDuration,
+                    " s, then at rest"),
+       {CommandSegment{.duration = kTurnDuration, .yawRate = kTurnYawRate},
+        rest(kStopDuration)}});
   scenarios.push_back(
       {"arc",
-       absl::StrCat(kArcVelocity, " m/s forward while turning at ", kArcYawRate, " rad/s for ", kArcDuration, " s, then at rest"),
-       {CommandSegment{.duration = kArcDuration, .forwardVelocity = kArcVelocity, .yawRate = kArcYawRate}, rest(kStopDuration)}});
+       absl::StrCat(kArcVelocity, " m/s forward while turning at ", kArcYawRate,
+                    " rad/s for ", kArcDuration, " s, then at rest"),
+       {CommandSegment{.duration = kArcDuration,
+                       .forwardVelocity = kArcVelocity,
+                       .yawRate = kArcYawRate},
+        rest(kStopDuration)}});
   ClosedLoopScenario smoke{
       .name = "smoke",
-      .description = absl::StrCat(kSmokeVelocity, " m/s forward while turning at ", kSmokeYawRate, " rad/s for ", kSmokeDuration,
-                                  " s after ", kSmokeStandingTime, " s of standing (the determinism test)"),
-      .segments = {CommandSegment{.duration = kSmokeDuration, .forwardVelocity = kSmokeVelocity, .yawRate = kSmokeYawRate}}};
+      .description = absl::StrCat(
+          kSmokeVelocity, " m/s forward while turning at ", kSmokeYawRate,
+          " rad/s for ", kSmokeDuration, " s after ", kSmokeStandingTime,
+          " s of standing (the determinism test)"),
+      .segments = {CommandSegment{.duration = kSmokeDuration,
+                                  .forwardVelocity = kSmokeVelocity,
+                                  .yawRate = kSmokeYawRate}}};
   smoke.standingTime = kSmokeStandingTime;
   scenarios.push_back(smoke);
   return scenarios;
@@ -109,51 +140,72 @@ std::vector<ClosedLoopScenario> makeScenarios() {
 }  // namespace
 
 const std::vector<ClosedLoopScenario>& closedLoopScenarios() {
-  static const absl::NoDestructor<std::vector<ClosedLoopScenario>> kScenarios(makeScenarios());
+  static const absl::NoDestructor<std::vector<ClosedLoopScenario>> kScenarios(
+      makeScenarios());
   return *kScenarios;
 }
 
-absl::StatusOr<ClosedLoopScenario> findClosedLoopScenario(absl::string_view name) {
+absl::StatusOr<ClosedLoopScenario> findClosedLoopScenario(
+    absl::string_view name) {
   std::string names;
   for (const ClosedLoopScenario& scenario : closedLoopScenarios()) {
     if (scenario.name == name) return scenario;
     absl::StrAppend(&names, names.empty() ? "" : ", ", scenario.name);
   }
-  return absl::NotFoundError(absl::StrCat("[findClosedLoopScenario] no scenario '", name, "'; the scenarios are ", names));
+  return absl::NotFoundError(
+      absl::StrCat("[findClosedLoopScenario] no scenario '", name,
+                   "'; the scenarios are ", names));
 }
 
 double getCommandDuration(const ClosedLoopScenario& scenario) {
   double duration = 0.0;
-  for (const CommandSegment& piece : scenario.segments) duration += piece.duration;
+  for (const CommandSegment& piece : scenario.segments)
+    duration += piece.duration;
   return duration;
 }
 
-Eigen::Vector3d commandAt(const ClosedLoopScenario& scenario, double timeSinceStart) {
+Eigen::Vector3d commandAt(const ClosedLoopScenario& scenario,
+                          double timeSinceStart) {
   if (timeSinceStart < 0.0) return Eigen::Vector3d::Zero();
   double start = 0.0;
   for (const CommandSegment& piece : scenario.segments) {
-    if (timeSinceStart < start + piece.duration) return Eigen::Vector3d(piece.forwardVelocity, piece.lateralVelocity, piece.yawRate);
+    if (timeSinceStart < start + piece.duration)
+      return Eigen::Vector3d(piece.forwardVelocity, piece.lateralVelocity,
+                             piece.yawRate);
     start += piece.duration;
   }
   return Eigen::Vector3d::Zero();
 }
 
 Eigen::Vector4d clampGuiVelocityMessage(const Eigen::Vector4d& message) {
-  return node::clampWalkingVelocityCommand(WalkingVelocityCommand(message)).toVector();
+  return node::clampWalkingVelocityCommand(WalkingVelocityCommand(message))
+      .toVector();
 }
 
-GuiVelocityCommand toGuiVelocityCommand(const Eigen::Vector3d& command, const Eigen::Vector3d& commandLimits, double pelvisHeight) {
-  const Eigen::Vector4d sticks(command(kCommandForwardVelocityIndex) / commandLimits(kCommandForwardVelocityIndex),
-                               command(kCommandLateralVelocityIndex) / commandLimits(kCommandLateralVelocityIndex), pelvisHeight,
-                               command(kCommandYawRateIndex) / commandLimits(kCommandYawRateIndex));
+GuiVelocityCommand toGuiVelocityCommand(const Eigen::Vector3d& command,
+                                        const Eigen::Vector3d& commandLimits,
+                                        double pelvisHeight) {
+  const Eigen::Vector4d sticks(
+      command(kCommandForwardVelocityIndex) /
+          commandLimits(kCommandForwardVelocityIndex),
+      command(kCommandLateralVelocityIndex) /
+          commandLimits(kCommandLateralVelocityIndex),
+      pelvisHeight,
+      command(kCommandYawRateIndex) / commandLimits(kCommandYawRateIndex));
   GuiVelocityCommand gui;
   gui.message = clampGuiVelocityMessage(sticks);
-  // A stick beyond its range is cut; a few ulps of the division are not a saturation.
+  // A stick beyond its range is cut; a few ulps of the division are not a
+  // saturation.
   constexpr double kTolerance = 1.0e-12;
-  // The sticks of the linear velocity and of the yaw rate, at their entries of the message (a WalkingVelocityCommand).
-  gui.saturated = std::abs(sticks(WalkingVelocityCommand::kLinearVelocityXIndex)) > 1.0 + kTolerance ||
-                  std::abs(sticks(WalkingVelocityCommand::kLinearVelocityYIndex)) > 1.0 + kTolerance ||
-                  std::abs(sticks(WalkingVelocityCommand::kAngularVelocityZIndex)) > 1.0 + kTolerance;
+  // The sticks of the linear velocity and of the yaw rate, at their entries of
+  // the message (a WalkingVelocityCommand).
+  gui.saturated =
+      std::abs(sticks(WalkingVelocityCommand::kLinearVelocityXIndex)) >
+          1.0 + kTolerance ||
+      std::abs(sticks(WalkingVelocityCommand::kLinearVelocityYIndex)) >
+          1.0 + kTolerance ||
+      std::abs(sticks(WalkingVelocityCommand::kAngularVelocityZIndex)) >
+          1.0 + kTolerance;
   return gui;
 }
 

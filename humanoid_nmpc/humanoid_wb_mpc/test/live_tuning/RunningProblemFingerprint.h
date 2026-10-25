@@ -39,20 +39,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::live_tuning_test {
 
 /**
- * Returns what the first worker's running problem of `stack` evaluates to, after the reference manager has planned the
- * next solve's references (WholeBodySolverStack::replanReferences()), as one vector: every cost, soft constraint and
- * equality constraint term's value and gradient (or linearization) at the points of evaluationPoints(), in the ramps of
- * the swings of the stack's schedule and at a point with every joint inside the band of its limit barrier, the pre-computation's swing-foot
- * coefficients there, the penalty of every soft constraint over a sweep of constraint values from deep inside to far outside its relaxation
- * (a barrier is identically zero away from its boundary), and the SQP settings a reload writes, which the solver iterates by. A field that
- * changes none of it is not live, whatever it writes.
+ * Returns what the first worker's running problem of `stack` evaluates to,
+ * after the reference manager has planned the next solve's references
+ * (WholeBodySolverStack::replanReferences()), as one vector: every cost, soft
+ * constraint and equality constraint term's value and gradient (or
+ * linearization) at the points of evaluationPoints(), in the ramps of the
+ * swings of the stack's schedule, at a point with every joint inside the band
+ * of its limit barrier and at one with the feet inside the band of the foot
+ * collision CBF's barrier (when the problem has one), the pre-computation's
+ * swing-foot coefficients there, the penalty of every soft constraint over a
+ * sweep of constraint values from deep inside to far outside its relaxation (a
+ * barrier is identically zero away from its boundary), and the SQP settings a
+ * reload writes, which the solver iterates by. A field that changes none of it
+ * is not live, whatever it writes.
  */
 std::vector<scalar_t> runningProblemEffects(WholeBodySolverStack& stack);
 
 /**
- * Returns runningProblemEffects() and what a reload wrote, read back: the parameters of the CppAD foot and joint torque
- * costs and the swing trajectory planner's configuration. Two problems that agree on all of it agree on what a reload
- * writes.
+ * Returns runningProblemEffects() and what a reload wrote, read back: the
+ * parameters of the CppAD foot and joint torque costs and the swing trajectory
+ * planner's configuration. Two problems that agree on all of it agree on what a
+ * reload writes.
  */
 std::vector<scalar_t> runningProblemFingerprint(WholeBodySolverStack& stack);
 

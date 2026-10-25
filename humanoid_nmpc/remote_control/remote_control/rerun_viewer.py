@@ -53,7 +53,11 @@ _LOGGER = logging.getLogger(__name__)
 # LINT.IfChange(rerun_bridge_binary)
 RERUN_BRIDGE_TARGET = "//humanoid_nmpc/humanoid_rerun_viewer"
 RERUN_BRIDGE_BINARY = os.path.join(
-    ".bazel", "bin", "humanoid_nmpc", "humanoid_rerun_viewer", "humanoid_rerun_viewer"
+    ".bazel",
+    "bin",
+    "humanoid_nmpc",
+    "humanoid_rerun_viewer",
+    "humanoid_rerun_viewer",
 )
 # LINT.ThenChange(//.bazelrc:symlink_prefix)
 
@@ -156,14 +160,18 @@ class RerunViewerLauncher:
         if self.is_running():
             return OpenResult(
                 started=False,
-                message="The Rerun bridge this GUI started is still running; its viewer is open.",
+                message=(
+                    "The Rerun bridge this GUI started is still running; its"
+                    " viewer is open."
+                ),
             )
         if not os.access(self.binary, os.X_OK):
             return OpenResult(
                 started=False,
                 message=(
-                    f"The Rerun bridge is not built ({self.binary} is missing). Build it with "
-                    f"'bazel build {RERUN_BRIDGE_TARGET}' and press the button again."
+                    f"The Rerun bridge is not built ({self.binary} is missing)."
+                    f" Build it with 'bazel build {RERUN_BRIDGE_TARGET}' and"
+                    " press the button again."
                 ),
             )
         try:
@@ -182,7 +190,8 @@ class RerunViewerLauncher:
         except OSError as error:
             self._process = None
             return OpenResult(
-                started=False, message=f"Could not start the Rerun bridge: {error}"
+                started=False,
+                message=f"Could not start the Rerun bridge: {error}",
             )
         return OpenResult(started=True, message="Started the Rerun bridge.")
 

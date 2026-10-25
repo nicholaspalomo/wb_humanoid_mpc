@@ -41,28 +41,34 @@ namespace ocs2::humanoid::live_tuning_test {
 
 /** How a leaf is moved. */
 enum class LeafStep {
-  // A floating-point value times a factor in [1.05, 1.2] of its own, 0 kept; an integer plus 1. Keeps every value valid
+  // A floating-point value times a factor in [1.05, 1.2] of its own, 0 kept; an
+  // integer plus 1. Keeps every value valid
   // (a weight positive, g_min below g_max) and every zero a zero.
   kScaled,
-  // A floating-point value times 1.1, a 0 made 0.1; an integer plus 1: a change of every leaf, for the liveness checks.
+  // A floating-point value times 1.1, a 0 made 0.1; an integer plus 1: a change
+  // of every leaf, for the liveness checks.
   kMoved,
 };
 
 /**
- * Returns the paths of the numeric leaves of `task` that the whole-body updater applies (below a name of
- * wholeBodyHotFieldNames()) and the file sets, in the order of the schema, each element of a list with its index
- * ("state_weights.joint_positions[3].value"), except terrain_height, whose live change is pinned on its own
- * (testBaseHeightFollowsTerrain): a live ground change lifts the target in use once, which a fresh start does not.
+ * Returns the paths of the numeric leaves of `task` that the whole-body updater
+ * applies (below a name of wholeBodyHotFieldNames()) and the file sets, in the
+ * order of the schema, each element of a list with its index
+ * ("state_weights.joint_positions[3].value"), except terrain_height, whose live
+ * change is pinned on its own (testBaseHeightFollowsTerrain): a live ground
+ * change lifts the target in use once, which a fresh start does not.
  */
 std::vector<std::string> appliedNumericLeaves(const mpc_config::TaskFile& task);
 
 /**
- * Returns `task` with the leaves of appliedNumericLeaves() whose path starts with `prefix` moved by `step`; `prefix`
- * empty moves them all. `onlyLeaf` set moves that one leaf alone.
+ * Returns `task` with the leaves of appliedNumericLeaves() whose path starts
+ * with `prefix` moved by `step`; `prefix` empty moves them all. `onlyLeaf` set
+ * moves that one leaf alone.
  */
-mpc_config::TaskFile withMovedLeaves(const mpc_config::TaskFile& task,
-                                     absl::string_view prefix,
-                                     LeafStep step,
-                                     std::optional<std::string> onlyLeaf = std::nullopt);
+mpc_config::TaskFile withMovedLeaves(
+    const mpc_config::TaskFile& task,
+    absl::string_view prefix,
+    LeafStep step,
+    std::optional<std::string> onlyLeaf = std::nullopt);
 
 }  // namespace ocs2::humanoid::live_tuning_test

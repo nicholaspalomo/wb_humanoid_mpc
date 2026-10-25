@@ -101,7 +101,9 @@ def parse_qos_profile(value: "str | QosProfile") -> QosProfile:
         return QosProfile(value)
     except ValueError:
         valid = ", ".join(profile.value for profile in QosProfile)
-        raise ValueError(f"unknown QoS profile '{value}' (valid: {valid})") from None
+        raise ValueError(
+            f"unknown QoS profile '{value}' (valid: {valid})"
+        ) from None
 
 
 def qos_policy(profile: QosProfile) -> QosPolicy:

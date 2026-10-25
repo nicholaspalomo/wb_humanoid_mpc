@@ -76,12 +76,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "support/AtlasReferenceStack.h"
 
 /*
- * MpcNodeRuntime, the MPC node without its formulation: the DRC Atlas references and procedural motion manager around
- * OCS2's scripted MPC (AtlasReferenceStack, no CppAD), served on a loopback bus to a robot and an operator that the test
- * scripts. Every topic is the one the robot process and the GUI use.
+ * MpcNodeRuntime, the MPC node without its formulation: the DRC Atlas
+ * references and procedural motion manager around OCS2's scripted MPC
+ * (AtlasReferenceStack, no CppAD), served on a loopback bus to a robot and an
+ * operator that the test scripts. Every topic is the one the robot process and
+ * the GUI use.
  *
- * A policy is checked with `if (!policy.has_value()) FAIL()` before it is read, not with ASSERT_TRUE: clang-tidy's
- * bugprone-unchecked-optional-access sees through an `if` that returns, not through googletest's assertion macros.
+ * A policy is checked with `if (!policy.has_value()) FAIL()` before it is read,
+ * not with ASSERT_TRUE: clang-tidy's bugprone-unchecked-optional-access sees
+ * through an `if` that returns, not through googletest's assertion macros.
  */
 
 namespace ocs2::humanoid::node {
@@ -90,9 +93,10 @@ namespace {
 namespace topics = ::ocs2::humanoid::ipc::topics;
 
 /**
- * Stands in for the MPC parameter updater: updates are handed to it on the bus's IO thread and taken into use in the
- * preSolverRun() of the next solve, as MpcParameterUpdaterModule does; it records the contact estimator of each and the
- * solve it was applied at.
+ * Stands in for the MPC parameter updater: updates are handed to it on the
+ * bus's IO thread and taken into use in the preSolverRun() of the next solve,
+ * as MpcParameterUpdaterModule does; it records the contact estimator of each
+ * and the solve it was applied at.
  */
 class RecordingParameterModule final : public SolverSynchronizedModule {
  public:
@@ -106,10 +110,11 @@ class RecordingParameterModule final : public SolverSynchronizedModule {
     pending_ = update.task.contact_estimator;
   }
 
-  void preSolverRun(scalar_t initTime,
-                    scalar_t /*finalTime*/,
-                    const vector_t& /*initState*/,
-                    const ReferenceManagerInterface& /*referenceManager*/) override {
+  void preSolverRun(
+      scalar_t initTime,
+      scalar_t /*finalTime*/,
+      const vector_t& /*initState*/,
+      const ReferenceManagerInterface& /*referenceManager*/) override {
     absl::MutexLock lock(mutex_);
     if (pending_.has_value()) {
       applied_.push_back({*std::move(pending_), initTime});
@@ -129,17 +134,21 @@ class RecordingParameterModule final : public SolverSynchronizedModule {
   std::vector<Applied> applied_ ABSL_GUARDED_BY(mutex_);
 };
 
-/** A non-owning shared_ptr, for an object of the reference stack, which outlives the runtime. */
+/** A non-owning shared_ptr, for an object of the reference stack, which
+ * outlives the runtime. */
 template <typename T>
 std::shared_ptr<T> borrowed(T* absl_nonnull object) {
   return std::shared_ptr<T>(std::shared_ptr<void>(), object);
 }
 
-/** The node's runtime around the Atlas reference stack, a scripted robot and a scripted operator. */
+/** The node's runtime around the Atlas reference stack, a scripted robot and a
+ * scripted operator. */
 class Harness {
  public:
-  explicit Harness(AtlasReferenceStack::ScheduleSource scheduleSource = AtlasReferenceStack::ScheduleSource::kGaitSchedule)
-      : stack_(scheduleSource), parameterModule_(std::make_shared<RecordingParameterModule>()) {
+  explicit Harness(AtlasReferenceStack::ScheduleSource scheduleSource =
+                       AtlasReferenceStack::ScheduleSource::kGaitSchedule)
+      : stack_(scheduleSource),
+        parameterModule_(std::make_shared<RecordingParameterModule>()) {
     stack_.mpc().getSolverPtr()->addSynchronizedModule(parameterModule_);
   }
 
@@ -152,21 +161,29 @@ class Harness {
   MpcNodeRuntime::Components components() {
     MpcNodeRuntime::Components components;
     components.mpc = &stack_.mpc();
-    components.resetTargetTrajectories = [this](const SystemObservation& observation) {
-      return stack_.resetTarget(observation.time, observation.state);
-    };
+    components.resetTargetTrajectories =
+        [this](const SystemObservation& observation) {
+          return stack_.resetTarget(observation.time, observation.state);
+        };
     components.motionManager = borrowed(&stack_.motionManager());
     const std::shared_ptr<RecordingParameterModule> module = parameterModule_;
-    components.parameterUpdateSink = [module](const mpc_config::MpcParameterUpdate& update) { module->enqueue(update); };
+    components.parameterUpdateSink =
+        [module](const mpc_config::MpcParameterUpdate& update) {
+          module->enqueue(update);
+        };
     if (stack_.planningReferenceManager() != nullptr) {
-      components.contactPlanningReferenceManager = borrowed<const ContactPlanningReferenceManager>(stack_.planningReferenceManager());
+      components.contactPlanningReferenceManager =
+          borrowed<const ContactPlanningReferenceManager>(
+              stack_.planningReferenceManager());
     }
     return components;
   }
 
   MpcNodeRuntime::Config config() const {
     MpcNodeRuntime::Config config;
-    config.dimensions = {.stateDim = stack_.model().getStateDim(), .inputDim = stack_.model().getInputDim(), .numModes = kNumModeNumbers};
+    config.dimensions = {.stateDim = stack_.model().getStateDim(),
+                         .inputDim = stack_.model().getInputDim(),
+                         .numModes = kNumModeNumbers};
     config.solverThread = defaultSolverThreadConfig(/*realtimePriority=*/0);
     config.robotName = robotName_;
     config.taskFileIdentity = taskFileIdentity_;
@@ -175,17 +192,30 @@ class Harness {
   }
 
   /** Config::walkingCommandTimeout; zero by default: off. */
-  void setWalkingCommandTimeout(absl::Duration timeout) { walkingCommandTimeout_ = timeout; }
+  void setWalkingCommandTimeout(absl::Duration timeout) {
+    walkingCommandTimeout_ = timeout;
+  }
 
-  /** The robot the runtime is created for (MpcNodeRuntime::Config::robotName); empty by default: not checked. */
-  void setRobotName(std::string robotName) { robotName_ = std::move(robotName); }
-  /** The configuration the runtime runs (MpcNodeRuntime::Config::taskFileIdentity); empty by default: not checked. */
-  void setTaskFileIdentity(std::string taskFileIdentity) { taskFileIdentity_ = std::move(taskFileIdentity); }
+  /** The robot the runtime is created for (MpcNodeRuntime::Config::robotName);
+   * empty by default: not checked. */
+  void setRobotName(std::string robotName) {
+    robotName_ = std::move(robotName);
+  }
+  /** The configuration the runtime runs
+   * (MpcNodeRuntime::Config::taskFileIdentity); empty by default: not checked.
+   */
+  void setTaskFileIdentity(std::string taskFileIdentity) {
+    taskFileIdentity_ = std::move(taskFileIdentity);
+  }
 
-  /** Creates the runtime on a loopback bus connected to the scripted robot and operator, and starts everything. */
+  /** Creates the runtime on a loopback bus connected to the scripted robot and
+   * operator, and starts everything. */
   absl::Status create(MpcNodeRuntime::Components components) {
-    std::unique_ptr<robot::ipc::Bus> mpcBus = ipc::test_support::createNodeBus("mpc");
-    absl::StatusOr<std::unique_ptr<MpcNodeRuntime>> runtime = MpcNodeRuntime::Create(std::move(mpcBus), std::move(components), config());
+    std::unique_ptr<robot::ipc::Bus> mpcBus =
+        ipc::test_support::createNodeBus("mpc");
+    absl::StatusOr<std::unique_ptr<MpcNodeRuntime>> runtime =
+        MpcNodeRuntime::Create(std::move(mpcBus), std::move(components),
+                               config());
     if (!runtime.ok()) return runtime.status();
     runtime_ = *std::move(runtime);
     absl::Status started = robot_.start();
@@ -194,21 +224,30 @@ class Harness {
   }
   absl::Status create() { return create(components()); }
 
-  /** The robot's observation at `time`, standing, with the reset counters (requested, fullRequested). */
-  humanoid_mpc_msgs::MpcObservation observation(double time, uint64_t sequence, uint64_t requested = 0, uint64_t fullRequested = 0) const {
+  /** The robot's observation at `time`, standing, with the reset counters
+   * (requested, fullRequested). */
+  humanoid_mpc_msgs::MpcObservation observation(
+      double time,
+      uint64_t sequence,
+      uint64_t requested = 0,
+      uint64_t fullRequested = 0) const {
     SystemObservation observation;
     observation.time = time;
     observation.state = stack_.initialState();
     observation.input = vector_t::Zero(stack_.model().getInputDim());
     observation.mode = ModeNumber::kStance;
-    return test_support::ScriptedRobot::observationMessage(observation, sequence, requested, fullRequested);
+    return test_support::ScriptedRobot::observationMessage(
+        observation, sequence, requested, fullRequested);
   }
 
-  std::optional<humanoid_mpc_msgs::MpcPolicy> solve(const humanoid_mpc_msgs::MpcObservation& observation) {
+  std::optional<humanoid_mpc_msgs::MpcPolicy> solve(
+      const humanoid_mpc_msgs::MpcObservation& observation) {
     return robot_.solve(observation, /*timeoutSeconds=*/10.0);
   }
 
-  bool sendAsOperator(absl::string_view topic, const google::protobuf::Message& message, const std::function<bool()>& received) {
+  bool sendAsOperator(absl::string_view topic,
+                      const google::protobuf::Message& message,
+                      const std::function<bool()>& received) {
     return robot_.sendAsOperator(topic, message, received);
   }
 
@@ -226,7 +265,10 @@ class Harness {
   absl::Duration walkingCommandTimeout_ = absl::ZeroDuration();
 };
 
-humanoid_mpc_msgs::WalkingVelocityCommand velocityCommand(double vx, double vy, double height, double yawRate) {
+humanoid_mpc_msgs::WalkingVelocityCommand velocityCommand(double vx,
+                                                          double vy,
+                                                          double height,
+                                                          double yawRate) {
   humanoid_mpc_msgs::WalkingVelocityCommand message;
   message.set_linear_velocity_x(vx);
   message.set_linear_velocity_y(vy);
@@ -235,14 +277,17 @@ humanoid_mpc_msgs::WalkingVelocityCommand velocityCommand(double vx, double vy, 
   return message;
 }
 
-/** The command limits of the reference file `referenceFile`, which the motion manager scales the commands by. */
+/** The command limits of the reference file `referenceFile`, which the motion
+ * manager scales the commands by. */
 ReferenceSettings commandLimits(const std::string& referenceFile) {
-  const absl::StatusOr<mpc_config::ReferenceFile> file = loadReferenceFile(referenceFile);
+  const absl::StatusOr<mpc_config::ReferenceFile> file =
+      loadReferenceFile(referenceFile);
   if (!file.ok()) {
     ADD_FAILURE() << file.status();
     return {};
   }
-  absl::StatusOr<ReferenceSettings> settings = referenceSettingsFromConfig(*file);
+  absl::StatusOr<ReferenceSettings> settings =
+      referenceSettingsFromConfig(*file);
   if (!settings.ok()) {
     ADD_FAILURE() << settings.status();
     return {};
@@ -253,13 +298,15 @@ ReferenceSettings commandLimits(const std::string& referenceFile) {
 TEST(MpcNodeRuntime, AnObservationGetsAPolicySolvedFromIt) {
   Harness harness;
   ASSERT_TRUE(harness.create().ok());
-  const std::optional<humanoid_mpc_msgs::MpcPolicy> policy = harness.solve(harness.observation(/*time=*/1.0, /*sequence=*/1));
+  const std::optional<humanoid_mpc_msgs::MpcPolicy> policy =
+      harness.solve(harness.observation(/*time=*/1.0, /*sequence=*/1));
   if (!policy.has_value()) FAIL() << "no policy";
   EXPECT_EQ(policy->init_observation().time(), 1.0);
   EXPECT_GT(policy->time_trajectory_size(), 1);
   EXPECT_EQ(policy->time_trajectory(0), 1.0);
   ASSERT_GT(policy->state_trajectory_size(), 0);
-  EXPECT_EQ(policy->state_trajectory(0).data_size(), static_cast<int>(harness.stack().model().getStateDim()));
+  EXPECT_EQ(policy->state_trajectory(0).data_size(),
+            static_cast<int>(harness.stack().model().getStateDim()));
   EXPECT_TRUE(policy->solver_status().healthy());
   // The start-up reset is a full one, before the first solve.
   const MpcNodeRuntime::Statistics statistics = harness.runtime().statistics();
@@ -270,13 +317,15 @@ TEST(MpcNodeRuntime, AnObservationGetsAPolicySolvedFromIt) {
 TEST(MpcNodeRuntime, ServesTheResetsTheObservationCountersRequest) {
   Harness harness;
   ASSERT_TRUE(harness.create().ok());
-  std::optional<humanoid_mpc_msgs::MpcPolicy> policy = harness.solve(harness.observation(/*time=*/1.0, /*sequence=*/1));
+  std::optional<humanoid_mpc_msgs::MpcPolicy> policy =
+      harness.solve(harness.observation(/*time=*/1.0, /*sequence=*/1));
   if (!policy.has_value()) FAIL() << "no policy";
   EXPECT_EQ(policy->resets_served(), 0);
   EXPECT_EQ(policy->full_resets_served(), 0);
 
   // A solver reset: requested grows, full_requested does not.
-  policy = harness.solve(harness.observation(/*time=*/1.1, /*sequence=*/2, /*requested=*/1, /*fullRequested=*/0));
+  policy = harness.solve(harness.observation(
+      /*time=*/1.1, /*sequence=*/2, /*requested=*/1, /*fullRequested=*/0));
   if (!policy.has_value()) FAIL() << "no policy";
   EXPECT_EQ(policy->resets_served(), 1);
   EXPECT_EQ(policy->full_resets_served(), 0);
@@ -284,73 +333,104 @@ TEST(MpcNodeRuntime, ServesTheResetsTheObservationCountersRequest) {
   EXPECT_EQ(harness.runtime().statistics().server.fullResets, 1);
 
   // A full reset.
-  policy = harness.solve(harness.observation(/*time=*/1.2, /*sequence=*/3, /*requested=*/2, /*fullRequested=*/1));
+  policy = harness.solve(harness.observation(
+      /*time=*/1.2, /*sequence=*/3, /*requested=*/2, /*fullRequested=*/1));
   if (!policy.has_value()) FAIL() << "no policy";
   EXPECT_EQ(policy->resets_served(), 2);
   EXPECT_EQ(policy->full_resets_served(), 1);
   EXPECT_EQ(harness.runtime().statistics().server.fullResets, 2);
 
   // No new request: no reset.
-  policy = harness.solve(harness.observation(/*time=*/1.3, /*sequence=*/4, /*requested=*/2, /*fullRequested=*/1));
+  policy = harness.solve(harness.observation(
+      /*time=*/1.3, /*sequence=*/4, /*requested=*/2, /*fullRequested=*/1));
   if (!policy.has_value()) FAIL() << "no policy";
   EXPECT_EQ(harness.runtime().statistics().server.fullResets, 2);
   EXPECT_EQ(harness.runtime().statistics().server.solverResets, 1);
 }
 
-TEST(MpcNodeRuntime, TheVelocityCommandReachesTheMotionManagerAndGoesOutWithThePolicy) {
+TEST(MpcNodeRuntime,
+     TheVelocityCommandReachesTheMotionManagerAndGoesOutWithThePolicy) {
   Harness harness;
   ASSERT_TRUE(harness.create().ok());
-  const ReferenceSettings limits = commandLimits(harness.stack().referenceFile());
+  const ReferenceSettings limits =
+      commandLimits(harness.stack().referenceFile());
   const scalar_t maxVelocityX = limits.maxDisplacementVelocityX;
   const scalar_t maxRotationVelocity = limits.maxRotationVelocity;
 
   ProceduralMpcMotionManager& motionManager = harness.stack().motionManager();
-  ASSERT_TRUE(harness.sendAsOperator(topics::kOperatorWalkingVelocityCommand,
-                                     velocityCommand(/*vx=*/0.5, /*vy=*/0.0, /*height=*/0.8, /*yawRate=*/-0.25),
-                                     [&]() { return motionManager.getScaledWalkingVelocityCommand().linear_velocity_x != 0.0; }));
-  const WalkingVelocityCommand scaled = motionManager.getScaledWalkingVelocityCommand();
+  ASSERT_TRUE(harness.sendAsOperator(
+      topics::kOperatorWalkingVelocityCommand,
+      velocityCommand(/*vx=*/0.5, /*vy=*/0.0, /*height=*/0.8,
+                      /*yawRate=*/-0.25),
+      [&]() {
+        return motionManager.getScaledWalkingVelocityCommand()
+                   .linear_velocity_x != 0.0;
+      }));
+  const WalkingVelocityCommand scaled =
+      motionManager.getScaledWalkingVelocityCommand();
   EXPECT_DOUBLE_EQ(scaled.linear_velocity_x, 0.5 * maxVelocityX);
   EXPECT_EQ(scaled.linear_velocity_y, 0.0);
   EXPECT_DOUBLE_EQ(scaled.angular_velocity_z, -0.25 * maxRotationVelocity);
 
-  // The annotations of the next policy carry the scaled command the solve started from.
-  const std::optional<humanoid_mpc_msgs::MpcPolicy> policy = harness.solve(harness.observation(/*time=*/2.0, /*sequence=*/1));
+  // The annotations of the next policy carry the scaled command the solve
+  // started from.
+  const std::optional<humanoid_mpc_msgs::MpcPolicy> policy =
+      harness.solve(harness.observation(/*time=*/2.0, /*sequence=*/1));
   if (!policy.has_value()) FAIL() << "no policy";
-  EXPECT_EQ(policy->annotations().scaled_velocity_x(), scaled.linear_velocity_x);
+  EXPECT_EQ(policy->annotations().scaled_velocity_x(),
+            scaled.linear_velocity_x);
   EXPECT_EQ(policy->annotations().scaled_yaw_rate(), scaled.angular_velocity_z);
-  // Under the gait schedule there is no contact planner, so no target contact patch.
+  // Under the gait schedule there is no contact planner, so no target contact
+  // patch.
   EXPECT_EQ(policy->annotations().target_contact_patches_size(), 0);
 }
 
-TEST(MpcNodeRuntime, AVelocityCommandThatIsNotFiniteIsRefusedAndChangesNothing) {
+TEST(MpcNodeRuntime,
+     AVelocityCommandThatIsNotFiniteIsRefusedAndChangesNothing) {
   Harness harness;
   ASSERT_TRUE(harness.create().ok());
   ProceduralMpcMotionManager& motionManager = harness.stack().motionManager();
-  const WalkingVelocityCommand before = motionManager.getScaledWalkingVelocityCommand();
+  const WalkingVelocityCommand before =
+      motionManager.getScaledWalkingVelocityCommand();
   const double nan = std::numeric_limits<double>::quiet_NaN();
-  ASSERT_TRUE(harness.sendAsOperator(topics::kOperatorWalkingVelocityCommand,
-                                     velocityCommand(/*vx=*/nan, /*vy=*/0.0, /*height=*/0.8, /*yawRate=*/0.0),
-                                     [&]() { return harness.runtime().statistics().velocityCommandsRejected > 0; }));
-  const WalkingVelocityCommand after = motionManager.getScaledWalkingVelocityCommand();
+  ASSERT_TRUE(harness.sendAsOperator(
+      topics::kOperatorWalkingVelocityCommand,
+      velocityCommand(/*vx=*/nan, /*vy=*/0.0, /*height=*/0.8, /*yawRate=*/0.0),
+      [&]() {
+        return harness.runtime().statistics().velocityCommandsRejected > 0;
+      }));
+  const WalkingVelocityCommand after =
+      motionManager.getScaledWalkingVelocityCommand();
   EXPECT_EQ(after.linear_velocity_x, before.linear_velocity_x);
   EXPECT_EQ(after.angular_velocity_z, before.angular_velocity_z);
 }
 
-TEST(MpcNodeRuntime, WithATimeoutAWalkingCommandThatIsNotRenewedIsReplacedByTheStopCommand) {
+TEST(MpcNodeRuntime,
+     WithATimeoutAWalkingCommandThatIsNotRenewedIsReplacedByTheStopCommand) {
   Harness harness;
   harness.setWalkingCommandTimeout(absl::Milliseconds(200));
   ASSERT_TRUE(harness.create().ok());
   ProceduralMpcMotionManager& motionManager = harness.stack().motionManager();
-  ASSERT_TRUE(harness.sendAsOperator(topics::kOperatorWalkingVelocityCommand,
-                                     velocityCommand(/*vx=*/0.5, /*vy=*/0.2, /*height=*/0.8, /*yawRate=*/-0.25),
-                                     [&]() { return motionManager.getScaledWalkingVelocityCommand().linear_velocity_x != 0.0; }));
-  const scalar_t walkingHeight = motionManager.getScaledWalkingVelocityCommand().desired_pelvis_height;
+  ASSERT_TRUE(harness.sendAsOperator(
+      topics::kOperatorWalkingVelocityCommand,
+      velocityCommand(/*vx=*/0.5, /*vy=*/0.2, /*height=*/0.8,
+                      /*yawRate=*/-0.25),
+      [&]() {
+        return motionManager.getScaledWalkingVelocityCommand()
+                   .linear_velocity_x != 0.0;
+      }));
+  const scalar_t walkingHeight =
+      motionManager.getScaledWalkingVelocityCommand().desired_pelvis_height;
 
-  // The publisher went away: within the timeout and a check period, the robot is commanded to stand, at its height.
+  // The publisher went away: within the timeout and a check period, the robot
+  // is commanded to stand, at its height.
   const absl::Time deadline = absl::Now() + absl::Seconds(5);
-  while (harness.runtime().statistics().walkingCommandTimeouts == 0 && absl::Now() < deadline) absl::SleepFor(absl::Milliseconds(5));
+  while (harness.runtime().statistics().walkingCommandTimeouts == 0 &&
+         absl::Now() < deadline)
+    absl::SleepFor(absl::Milliseconds(5));
   EXPECT_EQ(harness.runtime().statistics().walkingCommandTimeouts, 1u);
-  const WalkingVelocityCommand stopped = motionManager.getScaledWalkingVelocityCommand();
+  const WalkingVelocityCommand stopped =
+      motionManager.getScaledWalkingVelocityCommand();
   EXPECT_EQ(stopped.linear_velocity_x, 0.0);
   EXPECT_EQ(stopped.linear_velocity_y, 0.0);
   EXPECT_EQ(stopped.angular_velocity_z, 0.0);
@@ -360,57 +440,89 @@ TEST(MpcNodeRuntime, WithATimeoutAWalkingCommandThatIsNotRenewedIsReplacedByTheS
   EXPECT_EQ(harness.runtime().statistics().walkingCommandTimeouts, 1u);
 
   // A new command walks again.
-  ASSERT_TRUE(harness.sendAsOperator(topics::kOperatorWalkingVelocityCommand,
-                                     velocityCommand(/*vx=*/0.4, /*vy=*/0.0, /*height=*/0.8, /*yawRate=*/0.0),
-                                     [&]() { return motionManager.getScaledWalkingVelocityCommand().linear_velocity_x != 0.0; }));
+  ASSERT_TRUE(harness.sendAsOperator(
+      topics::kOperatorWalkingVelocityCommand,
+      velocityCommand(/*vx=*/0.4, /*vy=*/0.0, /*height=*/0.8, /*yawRate=*/0.0),
+      [&]() {
+        return motionManager.getScaledWalkingVelocityCommand()
+                   .linear_velocity_x != 0.0;
+      }));
 }
 
 TEST(MpcNodeRuntime, WithoutATimeoutTheLastWalkingCommandStays) {
   Harness harness;
   ASSERT_TRUE(harness.create().ok());
   ProceduralMpcMotionManager& motionManager = harness.stack().motionManager();
-  ASSERT_TRUE(harness.sendAsOperator(topics::kOperatorWalkingVelocityCommand,
-                                     velocityCommand(/*vx=*/0.5, /*vy=*/0.0, /*height=*/0.8, /*yawRate=*/0.0),
-                                     [&]() { return motionManager.getScaledWalkingVelocityCommand().linear_velocity_x != 0.0; }));
+  ASSERT_TRUE(harness.sendAsOperator(
+      topics::kOperatorWalkingVelocityCommand,
+      velocityCommand(/*vx=*/0.5, /*vy=*/0.0, /*height=*/0.8, /*yawRate=*/0.0),
+      [&]() {
+        return motionManager.getScaledWalkingVelocityCommand()
+                   .linear_velocity_x != 0.0;
+      }));
   absl::SleepFor(absl::Milliseconds(400));
-  EXPECT_NE(motionManager.getScaledWalkingVelocityCommand().linear_velocity_x, 0.0);
+  EXPECT_NE(motionManager.getScaledWalkingVelocityCommand().linear_velocity_x,
+            0.0);
   EXPECT_EQ(harness.runtime().statistics().walkingCommandTimeouts, 0u);
 }
 
-TEST(ApplyWalkingVelocityCommand, ScalesAConvertedCommandIntoTheMotionManagerAndRefusesOneThatIsNotFinite) {
-  // The function the node's subscription and the lockstep closed loop apply a message with, without a bus.
+TEST(ApplyWalkingVelocityCommand,
+     ScalesAConvertedCommandIntoTheMotionManagerAndRefusesOneThatIsNotFinite) {
+  // The function the node's subscription and the lockstep closed loop apply a
+  // message with, without a bus.
   AtlasReferenceStack stack;
   ProceduralMpcMotionManager& motionManager = stack.motionManager();
-  const scalar_t maxVelocityX = commandLimits(stack.referenceFile()).maxDisplacementVelocityX;
+  const scalar_t maxVelocityX =
+      commandLimits(stack.referenceFile()).maxDisplacementVelocityX;
 
-  ASSERT_TRUE(applyWalkingVelocityCommand(velocityCommand(/*vx=*/3.0, /*vy=*/0.0, /*height=*/0.8, /*yawRate=*/0.0), motionManager).ok());
-  EXPECT_DOUBLE_EQ(motionManager.getScaledWalkingVelocityCommand().linear_velocity_x, maxVelocityX) << "clamped to the stick's stop";
+  ASSERT_TRUE(applyWalkingVelocityCommand(
+                  velocityCommand(/*vx=*/3.0, /*vy=*/0.0, /*height=*/0.8,
+                                  /*yawRate=*/0.0),
+                  motionManager)
+                  .ok());
+  EXPECT_DOUBLE_EQ(
+      motionManager.getScaledWalkingVelocityCommand().linear_velocity_x,
+      maxVelocityX)
+      << "clamped to the stick's stop";
 
-  const WalkingVelocityCommand before = motionManager.getScaledWalkingVelocityCommand();
+  const WalkingVelocityCommand before =
+      motionManager.getScaledWalkingVelocityCommand();
   const absl::Status refused = applyWalkingVelocityCommand(
-      velocityCommand(/*vx=*/0.1, /*vy=*/0.0, /*height=*/std::numeric_limits<double>::infinity(), /*yawRate=*/0.0), motionManager);
+      velocityCommand(/*vx=*/0.1, /*vy=*/0.0,
+                      /*height=*/std::numeric_limits<double>::infinity(),
+                      /*yawRate=*/0.0),
+      motionManager);
   EXPECT_EQ(refused.code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_EQ(motionManager.getScaledWalkingVelocityCommand().linear_velocity_x, before.linear_velocity_x);
-  EXPECT_EQ(motionManager.getScaledWalkingVelocityCommand().desired_pelvis_height, before.desired_pelvis_height);
+  EXPECT_EQ(motionManager.getScaledWalkingVelocityCommand().linear_velocity_x,
+            before.linear_velocity_x);
+  EXPECT_EQ(
+      motionManager.getScaledWalkingVelocityCommand().desired_pelvis_height,
+      before.desired_pelvis_height);
 }
 
 TEST(MpcNodeRuntime, AParameterUpdateIsAppliedBeforeTheNextSolve) {
   Harness harness;
   ASSERT_TRUE(harness.create().ok());
-  ASSERT_TRUE(harness.solve(harness.observation(/*time=*/1.0, /*sequence=*/1)).has_value());
+  ASSERT_TRUE(harness.solve(harness.observation(/*time=*/1.0, /*sequence=*/1))
+                  .has_value());
   EXPECT_TRUE(harness.parameterModule().applied().empty());
 
   // The tuning GUI's whole task file, typed.
   humanoid_mpc_config::MpcParameterUpdate update;
   update.mutable_task()->set_contact_estimator("always_in_contact");
   update.set_schema_fingerprint(mpcParameterUpdateSchemaFingerprint());
-  ASSERT_TRUE(harness.sendAsOperator(topics::kOperatorMpcParameters, update,
-                                     [&]() { return harness.runtime().statistics().parameterUpdatesReceived > 0; }));
-  // No observation has come since, so nothing has been solved, and the update waits for the next solve.
+  ASSERT_TRUE(
+      harness.sendAsOperator(topics::kOperatorMpcParameters, update, [&]() {
+        return harness.runtime().statistics().parameterUpdatesReceived > 0;
+      }));
+  // No observation has come since, so nothing has been solved, and the update
+  // waits for the next solve.
   EXPECT_TRUE(harness.parameterModule().applied().empty());
 
-  ASSERT_TRUE(harness.solve(harness.observation(/*time=*/1.5, /*sequence=*/2)).has_value());
-  const std::vector<RecordingParameterModule::Applied> applied = harness.parameterModule().applied();
+  ASSERT_TRUE(harness.solve(harness.observation(/*time=*/1.5, /*sequence=*/2))
+                  .has_value());
+  const std::vector<RecordingParameterModule::Applied> applied =
+      harness.parameterModule().applied();
   ASSERT_FALSE(applied.empty());
   EXPECT_EQ(applied.front().contactEstimator, "always_in_contact");
   EXPECT_EQ(applied.front().solveTime, 1.5);
@@ -421,41 +533,59 @@ TEST(MpcNodeRuntime, AnUpdateOfAnotherSchemaVersionOrAnotherRobotIsNotApplied) {
   Harness harness;
   harness.setRobotName("drc_atlas");
   ASSERT_TRUE(harness.create().ok());
-  ASSERT_TRUE(harness.solve(harness.observation(/*time=*/1.0, /*sequence=*/1)).has_value());
+  ASSERT_TRUE(harness.solve(harness.observation(/*time=*/1.0, /*sequence=*/1))
+                  .has_value());
 
   humanoid_mpc_config::MpcParameterUpdate update;
   update.mutable_task()->mutable_model_settings()->set_robot_name("drc_atlas");
   update.mutable_task()->set_contact_estimator("always_in_contact");
   update.set_schema_fingerprint(mpcParameterUpdateSchemaFingerprint());
   humanoid_mpc_config::MpcParameterUpdate otherRobot = update;
-  otherRobot.mutable_task()->mutable_model_settings()->set_robot_name("unitree_r1");
+  otherRobot.mutable_task()->mutable_model_settings()->set_robot_name(
+      "unitree_r1");
   humanoid_mpc_config::MpcParameterUpdate otherFingerprint = update;
   otherFingerprint.set_schema_fingerprint("0123456789abcdef");
   // A field 103 more, as a GUI built from a newer schema sends it.
   humanoid_mpc_config::MpcParameterUpdate unknownField;
-  ASSERT_TRUE(unknownField.ParseFromString(update.SerializeAsString() + std::string("\xb8\x06\x01", 3)));
+  ASSERT_TRUE(unknownField.ParseFromString(update.SerializeAsString() +
+                                           std::string("\xb8\x06\x01", 3)));
   uint64_t rejected = 0;
-  for (const humanoid_mpc_config::MpcParameterUpdate& refused : {otherRobot, otherFingerprint, unknownField}) {
+  for (const humanoid_mpc_config::MpcParameterUpdate& refused :
+       {otherRobot, otherFingerprint, unknownField}) {
     ++rejected;
-    ASSERT_TRUE(harness.sendAsOperator(topics::kOperatorMpcParameters, refused,
-                                       [&]() { return harness.runtime().statistics().parameterUpdatesRejected >= rejected; }));
+    ASSERT_TRUE(
+        harness.sendAsOperator(topics::kOperatorMpcParameters, refused, [&]() {
+          return harness.runtime().statistics().parameterUpdatesRejected >=
+                 rejected;
+        }));
   }
-  ASSERT_TRUE(harness.solve(harness.observation(/*time=*/1.5, /*sequence=*/2)).has_value());
-  EXPECT_TRUE(harness.parameterModule().applied().empty()) << "a refused update reached the parameter updater";
+  ASSERT_TRUE(harness.solve(harness.observation(/*time=*/1.5, /*sequence=*/2))
+                  .has_value());
+  EXPECT_TRUE(harness.parameterModule().applied().empty())
+      << "a refused update reached the parameter updater";
 
-  ASSERT_TRUE(harness.sendAsOperator(topics::kOperatorMpcParameters, update,
-                                     [&]() { return harness.runtime().statistics().parameterUpdatesReceived > rejected; }));
-  ASSERT_TRUE(harness.solve(harness.observation(/*time=*/2.0, /*sequence=*/3)).has_value());
+  ASSERT_TRUE(
+      harness.sendAsOperator(topics::kOperatorMpcParameters, update, [&]() {
+        return harness.runtime().statistics().parameterUpdatesReceived >
+               rejected;
+      }));
+  ASSERT_TRUE(harness.solve(harness.observation(/*time=*/2.0, /*sequence=*/3))
+                  .has_value());
   ASSERT_FALSE(harness.parameterModule().applied().empty());
   EXPECT_EQ(harness.runtime().statistics().parameterUpdatesRejected, 3u);
 }
 
-// Two configurations of one robot share its robot_name: only the task file's path tells them apart.
-constexpr char kWholeBodyG1TaskFile[] = "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto";
-constexpr char kCentroidalG1TaskFile[] = "robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto";
+// Two configurations of one robot share its robot_name: only the task file's
+// path tells them apart.
+constexpr char kWholeBodyG1TaskFile[] =
+    "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto";
+constexpr char kCentroidalG1TaskFile[] =
+    "robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto";
 
-/** A G1 update of `configPath` (empty: none), stamped with this build's fingerprint. */
-humanoid_mpc_config::MpcParameterUpdate g1Update(const std::string& configPath) {
+/** A G1 update of `configPath` (empty: none), stamped with this build's
+ * fingerprint. */
+humanoid_mpc_config::MpcParameterUpdate g1Update(
+    const std::string& configPath) {
   humanoid_mpc_config::MpcParameterUpdate update;
   update.mutable_task()->mutable_model_settings()->set_robot_name("g1");
   update.mutable_task()->set_contact_estimator("always_in_contact");
@@ -469,33 +599,49 @@ TEST(MpcNodeRuntime, AnUpdateOfAnotherConfigurationOrWithoutAPathIsNotApplied) {
   harness.setRobotName("g1");
   harness.setTaskFileIdentity(kWholeBodyG1TaskFile);
   ASSERT_TRUE(harness.create().ok());
-  ASSERT_TRUE(harness.solve(harness.observation(/*time=*/1.0, /*sequence=*/1)).has_value());
+  ASSERT_TRUE(harness.solve(harness.observation(/*time=*/1.0, /*sequence=*/1))
+                  .has_value());
 
   uint64_t rejected = 0;
-  for (const humanoid_mpc_config::MpcParameterUpdate& refused : {g1Update(kCentroidalG1TaskFile), g1Update(/*configPath=*/"")}) {
+  for (const humanoid_mpc_config::MpcParameterUpdate& refused :
+       {g1Update(kCentroidalG1TaskFile), g1Update(/*configPath=*/"")}) {
     ++rejected;
-    ASSERT_TRUE(harness.sendAsOperator(topics::kOperatorMpcParameters, refused,
-                                       [&]() { return harness.runtime().statistics().parameterUpdatesRejected >= rejected; }));
+    ASSERT_TRUE(
+        harness.sendAsOperator(topics::kOperatorMpcParameters, refused, [&]() {
+          return harness.runtime().statistics().parameterUpdatesRejected >=
+                 rejected;
+        }));
   }
-  ASSERT_TRUE(harness.solve(harness.observation(/*time=*/1.5, /*sequence=*/2)).has_value());
-  EXPECT_TRUE(harness.parameterModule().applied().empty()) << "an update of another configuration reached the parameter updater";
+  ASSERT_TRUE(harness.solve(harness.observation(/*time=*/1.5, /*sequence=*/2))
+                  .has_value());
+  EXPECT_TRUE(harness.parameterModule().applied().empty())
+      << "an update of another configuration reached the parameter updater";
 
   // The running configuration's own update is applied.
-  ASSERT_TRUE(harness.sendAsOperator(topics::kOperatorMpcParameters, g1Update(kWholeBodyG1TaskFile),
-                                     [&]() { return harness.runtime().statistics().parameterUpdatesReceived > rejected; }));
-  ASSERT_TRUE(harness.solve(harness.observation(/*time=*/2.0, /*sequence=*/3)).has_value());
+  ASSERT_TRUE(harness.sendAsOperator(
+      topics::kOperatorMpcParameters, g1Update(kWholeBodyG1TaskFile), [&]() {
+        return harness.runtime().statistics().parameterUpdatesReceived >
+               rejected;
+      }));
+  ASSERT_TRUE(harness.solve(harness.observation(/*time=*/2.0, /*sequence=*/3))
+                  .has_value());
   EXPECT_EQ(harness.parameterModule().applied().size(), 1u);
   EXPECT_EQ(harness.runtime().statistics().parameterUpdatesRejected, 2u);
 }
 
-TEST(MpcNodeRuntime, WithoutATaskFileIdentityAnUpdateOfAnyConfigurationIsApplied) {
+TEST(MpcNodeRuntime,
+     WithoutATaskFileIdentityAnUpdateOfAnyConfigurationIsApplied) {
   Harness harness;
   harness.setRobotName("g1");
   ASSERT_TRUE(harness.create().ok());
-  ASSERT_TRUE(harness.solve(harness.observation(/*time=*/1.0, /*sequence=*/1)).has_value());
-  ASSERT_TRUE(harness.sendAsOperator(topics::kOperatorMpcParameters, g1Update(kCentroidalG1TaskFile),
-                                     [&]() { return harness.runtime().statistics().parameterUpdatesReceived > 0; }));
-  ASSERT_TRUE(harness.solve(harness.observation(/*time=*/1.5, /*sequence=*/2)).has_value());
+  ASSERT_TRUE(harness.solve(harness.observation(/*time=*/1.0, /*sequence=*/1))
+                  .has_value());
+  ASSERT_TRUE(harness.sendAsOperator(
+      topics::kOperatorMpcParameters, g1Update(kCentroidalG1TaskFile), [&]() {
+        return harness.runtime().statistics().parameterUpdatesReceived > 0;
+      }));
+  ASSERT_TRUE(harness.solve(harness.observation(/*time=*/1.5, /*sequence=*/2))
+                  .has_value());
   EXPECT_EQ(harness.parameterModule().applied().size(), 1u);
   EXPECT_EQ(harness.runtime().statistics().parameterUpdatesRejected, 0u);
 }
@@ -506,43 +652,57 @@ TEST(MpcNodeRuntime, WithoutAParameterSinkTheParameterDocumentsAreNotTaken) {
   components.parameterUpdateSink = nullptr;
   ASSERT_TRUE(harness.create(std::move(components)).ok());
   // The operator reaches the node: its velocity commands arrive.
-  ASSERT_TRUE(harness.sendAsOperator(topics::kOperatorWalkingVelocityCommand,
-                                     velocityCommand(/*vx=*/0.1, /*vy=*/0.0, /*height=*/0.8, /*yawRate=*/0.0),
-                                     [&]() { return harness.runtime().statistics().velocityCommandsReceived > 0; }));
+  ASSERT_TRUE(harness.sendAsOperator(
+      topics::kOperatorWalkingVelocityCommand,
+      velocityCommand(/*vx=*/0.1, /*vy=*/0.0, /*height=*/0.8, /*yawRate=*/0.0),
+      [&]() {
+        return harness.runtime().statistics().velocityCommandsReceived > 0;
+      }));
   humanoid_mpc_config::MpcParameterUpdate update;
   update.mutable_task()->set_contact_estimator("always_in_contact");
   update.set_schema_fingerprint(mpcParameterUpdateSchemaFingerprint());
   const absl::Time end = absl::Now() + absl::Milliseconds(200);
   while (absl::Now() < end) {
-    harness.sendAsOperator(topics::kOperatorMpcParameters, update, []() { return true; });
+    harness.sendAsOperator(topics::kOperatorMpcParameters, update,
+                           []() { return true; });
     absl::SleepFor(absl::Milliseconds(10));
   }
-  ASSERT_TRUE(harness.solve(harness.observation(/*time=*/1.0, /*sequence=*/1)).has_value());
+  ASSERT_TRUE(harness.solve(harness.observation(/*time=*/1.0, /*sequence=*/1))
+                  .has_value());
   EXPECT_EQ(harness.runtime().statistics().parameterUpdatesReceived, 0);
   EXPECT_TRUE(harness.parameterModule().applied().empty());
 }
 
-TEST(MpcNodeRuntime, UnderTheContactPlannerThePolicyCarriesATargetPatchPerFoot) {
+TEST(MpcNodeRuntime,
+     UnderTheContactPlannerThePolicyCarriesATargetPatchPerFoot) {
   Harness harness(AtlasReferenceStack::ScheduleSource::kContactPlanner);
   ASSERT_NE(harness.stack().planningReferenceManager(), nullptr);
   ASSERT_TRUE(harness.create().ok());
-  ASSERT_TRUE(harness.solve(harness.observation(/*time=*/1.0, /*sequence=*/1)).has_value());
-  const std::optional<humanoid_mpc_msgs::MpcPolicy> policy = harness.solve(harness.observation(/*time=*/1.1, /*sequence=*/2));
+  ASSERT_TRUE(harness.solve(harness.observation(/*time=*/1.0, /*sequence=*/1))
+                  .has_value());
+  const std::optional<humanoid_mpc_msgs::MpcPolicy> policy =
+      harness.solve(harness.observation(/*time=*/1.1, /*sequence=*/2));
   if (!policy.has_value()) FAIL() << "no policy";
-  EXPECT_EQ(policy->annotations().target_contact_patches_size(), static_cast<int>(kNumContacts));
+  EXPECT_EQ(policy->annotations().target_contact_patches_size(),
+            static_cast<int>(kNumContacts));
 }
 
-TEST(MpcNodeRuntime, TheVisualizationSeamGetsTheBusBeforeItStartsAndObservesEveryPolicy) {
+TEST(MpcNodeRuntime,
+     TheVisualizationSeamGetsTheBusBeforeItStartsAndObservesEveryPolicy) {
   Harness harness;
   std::atomic<robot::ipc::Bus* absl_nullable> attachedBus{nullptr};
   std::atomic<bool> busWasRunning{true};
-  const std::shared_ptr<std::atomic<int>> observed = std::make_shared<std::atomic<int>>(0);
+  const std::shared_ptr<std::atomic<int>> observed =
+      std::make_shared<std::atomic<int>>(0);
   MpcNodeRuntime::Components components = harness.components();
-  components.attachVisualization = [&](robot::ipc::Bus& bus) -> absl::StatusOr<ipc::MpcServer::PostSolveObserver> {
+  components.attachVisualization = [&](robot::ipc::Bus& bus)
+      -> absl::StatusOr<ipc::MpcServer::PostSolveObserver> {
     attachedBus.store(&bus);
     busWasRunning.store(bus.isRunning());
     return ipc::MpcServer::PostSolveObserver(
-        [observed](const CommandData& /*command*/, const PrimalSolution& /*solution*/, const PerformanceIndex& /*performance*/) {
+        [observed](const CommandData& /*command*/,
+                   const PrimalSolution& /*solution*/,
+                   const PerformanceIndex& /*performance*/) {
           observed->fetch_add(1);
           return absl::OkStatus();
         });
@@ -550,13 +710,15 @@ TEST(MpcNodeRuntime, TheVisualizationSeamGetsTheBusBeforeItStartsAndObservesEver
   ASSERT_TRUE(harness.create(std::move(components)).ok());
   EXPECT_EQ(attachedBus.load(), &harness.runtime().bus());
   EXPECT_FALSE(busWasRunning.load());
-  ASSERT_TRUE(harness.solve(harness.observation(/*time=*/1.0, /*sequence=*/1)).has_value());
-  EXPECT_TRUE(test_support::waitFor([&]() { return observed->load() >= 1; }, /*timeoutSeconds=*/10.0));
+  ASSERT_TRUE(harness.solve(harness.observation(/*time=*/1.0, /*sequence=*/1))
+                  .has_value());
+  EXPECT_TRUE(test_support::waitFor([&]() { return observed->load() >= 1; },
+                                    /*timeoutSeconds=*/10.0));
 }
 
 /**
- * Records, on the solver thread right after the motion manager's own pre-solve (it is added after it), the gait and the
- * measured motion of every solve.
+ * Records, on the solver thread right after the motion manager's own pre-solve
+ * (it is added after it), the gait and the measured motion of every solve.
  */
 class MotionManagerRecorder final : public SolverSynchronizedModule {
  public:
@@ -568,17 +730,23 @@ class MotionManagerRecorder final : public SolverSynchronizedModule {
   };
 
   /** Records `recorded`, which must outlive the recorder's last solve. */
-  explicit MotionManagerRecorder(const ProceduralMpcMotionManager* absl_nonnull recorded) : motionManager_(recorded) {}
+  explicit MotionManagerRecorder(
+      const ProceduralMpcMotionManager* absl_nonnull recorded)
+      : motionManager_(recorded) {}
 
-  void preSolverRun(scalar_t initTime,
-                    scalar_t /*finalTime*/,
-                    const vector_t& /*initState*/,
-                    const ReferenceManagerInterface& /*referenceManager*/) override {
+  void preSolverRun(
+      scalar_t initTime,
+      scalar_t /*finalTime*/,
+      const vector_t& /*initState*/,
+      const ReferenceManagerInterface& /*referenceManager*/) override {
     absl::MutexLock lock(mutex_);
-    solves_.push_back(Solve{.time = initTime,
-                            .gait = motionManager_->getCurrentGaitCommand(),
-                            .measuredHeadingRate = motionManager_->getMeasuredPlanarMotion().headingRate,
-                            .measuredOverTheWholeWindow = motionManager_->measuredOverTheWholeWindow()});
+    solves_.push_back(
+        Solve{.time = initTime,
+              .gait = motionManager_->getCurrentGaitCommand(),
+              .measuredHeadingRate =
+                  motionManager_->getMeasuredPlanarMotion().headingRate,
+              .measuredOverTheWholeWindow =
+                  motionManager_->measuredOverTheWholeWindow()});
   }
   void postSolverRun(const PrimalSolution& /*primalSolution*/) override {}
 
@@ -594,8 +762,9 @@ class MotionManagerRecorder final : public SolverSynchronizedModule {
 };
 
 /**
- * A robot that stands at the origin until `start` and then walks straight along the world x axis at `forwardSpeed`, its
- * heading swaying by `headingSway` sin(w (t - start)). Passive data.
+ * A robot that stands at the origin until `start` and then walks straight along
+ * the world x axis at `forwardSpeed`, its heading swaying by `headingSway`
+ * sin(w (t - start)). Passive data.
  */
 struct SwayingWalk {
   /** [s] */
@@ -608,96 +777,147 @@ struct SwayingWalk {
   scalar_t frequency = 0.0;
 };
 
-/** The observation of `walk` at `time` on the stack's robot, its momentum that of the walk's base twist, joints still. */
-humanoid_mpc_msgs::MpcObservation swayingWalkObservation(const AtlasReferenceStack& stack,
-                                                         const SwayingWalk& walk,
-                                                         scalar_t time,
-                                                         uint64_t sequence) {
-  const PinocchioInterface::Model& pinocchioModel = stack.pinocchioInterface().getModel();
+/** The observation of `walk` at `time` on the stack's robot, its momentum that
+ * of the walk's base twist, joints still. */
+humanoid_mpc_msgs::MpcObservation swayingWalkObservation(
+    const AtlasReferenceStack& stack,
+    const SwayingWalk& walk,
+    scalar_t time,
+    uint64_t sequence) {
+  const PinocchioInterface::Model& pinocchioModel =
+      stack.pinocchioInterface().getModel();
   PinocchioInterface::Data data(pinocchioModel);
   const scalar_t walked = std::max(time - walk.start, 0.0);
   SystemObservation observation;
   observation.time = time;
-  observation.state =
-      stack.standingAt(stack.initialState(), walk.forwardSpeed * walked, /*y=*/0.0, walk.headingSway * std::sin(walk.frequency * walked));
-  // The Pinocchio velocity [dp_W, dTheta/dt, dq_j] of the walk, and h = A(q) v / m, as the MRT measures it.
+  observation.state = stack.standingAt(
+      stack.initialState(), walk.forwardSpeed * walked, /*y=*/0.0,
+      walk.headingSway * std::sin(walk.frequency * walked));
+  // The Pinocchio velocity [dp_W, dTheta/dt, dq_j] of the walk, and h = A(q) v
+  // / m, as the MRT measures it.
   vector_t velocity = vector_t::Zero(pinocchioModel.nv);
   if (time > walk.start) {
     velocity(0) = walk.forwardSpeed;
-    velocity(3) = walk.headingSway * walk.frequency * std::cos(walk.frequency * walked);
+    velocity(3) =
+        walk.headingSway * walk.frequency * std::cos(walk.frequency * walked);
   }
-  pinocchio::computeCentroidalMap(pinocchioModel, data, stack.model().getGeneralizedCoordinates(observation.state));
-  observation.state.head<6>() = data.Ag * velocity / stack.centroidalModelInfo().robotMass;
-  observation.input = vector_t::Zero(static_cast<Eigen::Index>(stack.model().getInputDim()));
+  pinocchio::computeCentroidalMap(
+      pinocchioModel, data,
+      stack.model().getGeneralizedCoordinates(observation.state));
+  observation.state.head<6>() =
+      data.Ag * velocity / stack.centroidalModelInfo().robotMass;
+  observation.input =
+      vector_t::Zero(static_cast<Eigen::Index>(stack.model().getInputDim()));
   observation.mode = ModeNumber::kStance;
   return test_support::ScriptedRobot::observationMessage(observation, sequence);
 }
 
-/** The robot of `harness` on `walk`, an observation every 10 ms over [from, to], each until its policy arrives. */
-void walkOverTheBus(Harness& harness, const SwayingWalk& walk, scalar_t from, scalar_t to, uint64_t& sequence) {
+/** The robot of `harness` on `walk`, an observation every 10 ms over [from,
+ * to], each until its policy arrives. */
+void walkOverTheBus(Harness& harness,
+                    const SwayingWalk& walk,
+                    scalar_t from,
+                    scalar_t to,
+                    uint64_t& sequence) {
   for (scalar_t time = from; time <= to + 1.0e-9; time += 0.01) {
-    if (!harness.solve(swayingWalkObservation(harness.stack(), walk, time, ++sequence)).has_value()) {
+    if (!harness
+             .solve(swayingWalkObservation(harness.stack(), walk, time,
+                                           ++sequence))
+             .has_value()) {
       ADD_FAILURE() << "no policy at t = " << time;
       return;
     }
   }
 }
 
-TEST(MpcNodeRuntime, ANetworkStallOfUpToASecondKeepsTheStrideHistoryAndDoesNotReadTheSwayAsATurn) {
-  // The two processes: the robot sends its observations over the bus, the node solves each. The robot walks straight in
-  // slow_walk, its pelvis yawing by 0.08 rad with the cycle (a heading rate of up to 0.30 rad/s) while the operator asks
-  // for a turn of 0.3 rad/s, beyond slow_walk's 0.2: the gait must wait for the robot to turn faster than 0.15 rad/s on
-  // the mean, which it never does. Then the network stalls for 0.15, 0.5 and 0.95 s, each ending where the sway turns
-  // fastest. A stall used to restart the stride history from the observation's instantaneous twist, which read the sway
-  // as a turn of 0.30 rad/s and raised the gait; now the history is bridged across it: the mean stays the walk's (exact
-  // while its window starts before the stall, off by the heading's sway from the line across the stall while it starts
-  // inside), and the gait switches wait until the window holds no stall.
-  constexpr scalar_t kCycle = 1.7;  // slow_walk's, the window of its stride means
-  // It sets off once slow_walk runs: the first solve selects it, and the schedule starts it within 1.2 s.
-  const SwayingWalk walk{.start = 2.5, .forwardSpeed = 0.2, .headingSway = 0.08, .frequency = 2.0 * M_PI / kCycle};
-  ASSERT_GT(walk.headingSway * walk.frequency, 0.15) << "the sway alone must turn fast enough to raise slow_walk";
+TEST(
+    MpcNodeRuntime,
+    ANetworkStallOfUpToASecondKeepsTheStrideHistoryAndDoesNotReadTheSwayAsATurn) {
+  // The two processes: the robot sends its observations over the bus, the node
+  // solves each. The robot walks straight in slow_walk, its pelvis yawing by
+  // 0.08 rad with the cycle (a heading rate of up to 0.30 rad/s) while the
+  // operator asks for a turn of 0.3 rad/s, beyond slow_walk's 0.2: the gait
+  // must wait for the robot to turn faster than 0.15 rad/s on the mean, which
+  // it never does. Then the network stalls for 0.15, 0.5 and 0.95 s, each
+  // ending where the sway turns fastest. A stall used to restart the stride
+  // history from the observation's instantaneous twist, which read the sway as
+  // a turn of 0.30 rad/s and raised the gait; now the history is bridged across
+  // it: the mean stays the walk's (exact while its window starts before the
+  // stall, off by the heading's sway from the line across the stall while it
+  // starts inside), and the gait switches wait until the window holds no stall.
+  constexpr scalar_t kCycle =
+      1.7;  // slow_walk's, the window of its stride means
+  // It sets off once slow_walk runs: the first solve selects it, and the
+  // schedule starts it within 1.2 s.
+  const SwayingWalk walk{.start = 2.5,
+                         .forwardSpeed = 0.2,
+                         .headingSway = 0.08,
+                         .frequency = 2.0 * M_PI / kCycle};
+  ASSERT_GT(walk.headingSway * walk.frequency, 0.15)
+      << "the sway alone must turn fast enough to raise slow_walk";
   Harness harness;
-  const std::shared_ptr<MotionManagerRecorder> recorder = std::make_shared<MotionManagerRecorder>(&harness.stack().motionManager());
+  const std::shared_ptr<MotionManagerRecorder> recorder =
+      std::make_shared<MotionManagerRecorder>(&harness.stack().motionManager());
   harness.stack().mpc().getSolverPtr()->addSynchronizedModule(recorder);
   ASSERT_TRUE(harness.create().ok());
   ProceduralMpcMotionManager& motionManager = harness.stack().motionManager();
-  ASSERT_TRUE(harness.sendAsOperator(topics::kOperatorWalkingVelocityCommand,
-                                     velocityCommand(/*vx=*/0.0, /*vy=*/0.0, /*height=*/0.0, /*yawRate=*/0.3),
-                                     [&]() { return motionManager.getScaledWalkingVelocityCommand().angular_velocity_z != 0.0; }));
-  ASSERT_GT(motionManager.getScaledWalkingVelocityCommand().angular_velocity_z, 0.2) << "the turn must ask for more than slow_walk";
+  ASSERT_TRUE(harness.sendAsOperator(
+      topics::kOperatorWalkingVelocityCommand,
+      velocityCommand(/*vx=*/0.0, /*vy=*/0.0, /*height=*/0.0, /*yawRate=*/0.3),
+      [&]() {
+        return motionManager.getScaledWalkingVelocityCommand()
+                   .angular_velocity_z != 0.0;
+      }));
+  ASSERT_GT(motionManager.getScaledWalkingVelocityCommand().angular_velocity_z,
+            0.2)
+      << "the turn must ask for more than slow_walk";
 
   struct Stall {
     scalar_t start = 0.0;
     scalar_t end = 0.0;
   };
-  // Each ends a whole number of cycles into the walk, where the sway's heading rate is at its largest.
-  const std::vector<Stall> stalls = {{.start = walk.start + 3.0 * kCycle - 0.15, .end = walk.start + 3.0 * kCycle},
-                                     {.start = walk.start + 5.0 * kCycle - 0.5, .end = walk.start + 5.0 * kCycle},
-                                     {.start = walk.start + 7.0 * kCycle - 0.95, .end = walk.start + 7.0 * kCycle}};
+  // Each ends a whole number of cycles into the walk, where the sway's heading
+  // rate is at its largest.
+  const std::vector<Stall> stalls = {{.start = walk.start + 3.0 * kCycle - 0.15,
+                                      .end = walk.start + 3.0 * kCycle},
+                                     {.start = walk.start + 5.0 * kCycle - 0.5,
+                                      .end = walk.start + 5.0 * kCycle},
+                                     {.start = walk.start + 7.0 * kCycle - 0.95,
+                                      .end = walk.start + 7.0 * kCycle}};
   uint64_t sequence = 0;
   walkOverTheBus(harness, walk, /*from=*/1.0, stalls[0].start, sequence);
   for (size_t i = 0; i < stalls.size(); ++i) {
-    walkOverTheBus(harness, walk, stalls[i].end, i + 1 < stalls.size() ? stalls[i + 1].start : stalls[i].end + 3.0, sequence);
+    walkOverTheBus(
+        harness, walk, stalls[i].end,
+        i + 1 < stalls.size() ? stalls[i + 1].start : stalls[i].end + 3.0,
+        sequence);
   }
   harness.runtime().stop();
 
   const std::vector<MotionManagerRecorder::Solve> solves = recorder->solves();
   ASSERT_GT(solves.size(), 1000U);
-  // The first solve leaves stance on the command; slow_walk holds through every stall.
-  for (size_t i = 1; i < solves.size(); ++i) EXPECT_EQ(solves[i].gait, "slow_walk") << "t = " << solves[i].time;
+  // The first solve leaves stance on the command; slow_walk holds through every
+  // stall.
+  for (size_t i = 1; i < solves.size(); ++i)
+    EXPECT_EQ(solves[i].gait, "slow_walk") << "t = " << solves[i].time;
   const scalar_t insideTheStallBound = 2.0 * walk.headingSway / kCycle;
   for (const Stall& stall : stalls) {
     SCOPED_TRACE(stall.end - stall.start);
     for (const MotionManagerRecorder::Solve& solve : solves) {
-      if (solve.time < stall.end - 1.0e-9 || solve.time > stall.end + kCycle + (stall.end - stall.start)) continue;
-      // The window holds the stall: a mean for the targets, no measurement for the gait switches.
+      if (solve.time < stall.end - 1.0e-9 ||
+          solve.time > stall.end + kCycle + (stall.end - stall.start))
+        continue;
+      // The window holds the stall: a mean for the targets, no measurement for
+      // the gait switches.
       if (solve.time - kCycle < stall.end - 1.0e-6) {
         EXPECT_FALSE(solve.measuredOverTheWholeWindow) << "t = " << solve.time;
       }
       if (solve.time - kCycle <= stall.start) {
-        EXPECT_LT(std::abs(solve.measuredHeadingRate), 1.0e-3) << "t = " << solve.time << ": the window starts before the stall";
+        EXPECT_LT(std::abs(solve.measuredHeadingRate), 1.0e-3)
+            << "t = " << solve.time << ": the window starts before the stall";
       } else {
-        EXPECT_LT(std::abs(solve.measuredHeadingRate), insideTheStallBound) << "t = " << solve.time;
+        EXPECT_LT(std::abs(solve.measuredHeadingRate), insideTheStallBound)
+            << "t = " << solve.time;
       }
     }
   }
@@ -705,29 +925,43 @@ TEST(MpcNodeRuntime, ANetworkStallOfUpToASecondKeepsTheStrideHistoryAndDoesNotRe
   EXPECT_LT(std::abs(solves.back().measuredHeadingRate), 1.0e-3);
 }
 
-TEST(MpcNodeRuntime, CreateRefusesWhatIsMissingAndPassesOnTheVisualizationError) {
+TEST(MpcNodeRuntime,
+     CreateRefusesWhatIsMissingAndPassesOnTheVisualizationError) {
   Harness harness;
   MpcNodeRuntime::Components noMpc = harness.components();
   noMpc.mpc = nullptr;
-  EXPECT_EQ(MpcNodeRuntime::Create(ipc::test_support::createNodeBus("mpc"), std::move(noMpc), harness.config()).status().code(),
+  EXPECT_EQ(MpcNodeRuntime::Create(ipc::test_support::createNodeBus("mpc"),
+                                   std::move(noMpc), harness.config())
+                .status()
+                .code(),
             absl::StatusCode::kInvalidArgument);
 
   MpcNodeRuntime::Components noMotionManager = harness.components();
   noMotionManager.motionManager = nullptr;
-  EXPECT_EQ(MpcNodeRuntime::Create(ipc::test_support::createNodeBus("mpc"), std::move(noMotionManager), harness.config()).status().code(),
+  EXPECT_EQ(MpcNodeRuntime::Create(ipc::test_support::createNodeBus("mpc"),
+                                   std::move(noMotionManager), harness.config())
+                .status()
+                .code(),
             absl::StatusCode::kInvalidArgument);
 
   MpcNodeRuntime::Components noResetTarget = harness.components();
   noResetTarget.resetTargetTrajectories = nullptr;
-  EXPECT_EQ(MpcNodeRuntime::Create(ipc::test_support::createNodeBus("mpc"), std::move(noResetTarget), harness.config()).status().code(),
+  EXPECT_EQ(MpcNodeRuntime::Create(ipc::test_support::createNodeBus("mpc"),
+                                   std::move(noResetTarget), harness.config())
+                .status()
+                .code(),
             absl::StatusCode::kInvalidArgument);
 
   MpcNodeRuntime::Components failingVisualization = harness.components();
-  failingVisualization.attachVisualization = [](robot::ipc::Bus& /*bus*/) -> absl::StatusOr<ipc::MpcServer::PostSolveObserver> {
+  failingVisualization.attachVisualization = [](robot::ipc::Bus& /*bus*/)
+      -> absl::StatusOr<ipc::MpcServer::PostSolveObserver> {
     return absl::FailedPreconditionError("no robot model");
   };
   EXPECT_EQ(
-      MpcNodeRuntime::Create(ipc::test_support::createNodeBus("mpc"), std::move(failingVisualization), harness.config()).status().code(),
+      MpcNodeRuntime::Create(ipc::test_support::createNodeBus("mpc"),
+                             std::move(failingVisualization), harness.config())
+          .status()
+          .code(),
       absl::StatusCode::kFailedPrecondition);
 }
 
