@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/HumanoidPreComputation.h"
 
 #include <functional>
+#include <optional>
 #include <utility>
 
 #include "absl/base/nullability.h"
@@ -56,9 +57,14 @@ HumanoidPreComputation::HumanoidPreComputation(
       mpcRobotModelPtr_(&mpcRobotModel),
       positionErrorGainZ_(mpcRobotModel.modelSettings.footConstraintConfig
                               .positionErrorGain_z) {
-  eeNormalVelConConfigs_.resize(kNumContacts);
-  footHeightReferences_.resize(kNumContacts);
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  // The swing planner plans the biped's two feet: a contact set other than
+  // theirs has no swing references here, and its terms read the contact's
+  // patch instead (ZeroVelocityConstraintCppAd).
+  const size_t numPlannedFeet =
+      mpcRobotModel.modelSettings.isBipedContactSet() ? kNumContacts : 0;
+  eeNormalVelConConfigs_.resize(numPlannedFeet);
+  footHeightReferences_.resize(numPlannedFeet);
+  for (size_t i = 0; i < numPlannedFeet; ++i) {
     footHeightReferences_[i] = 0.0;
   }
 }
@@ -74,10 +80,22 @@ HumanoidPreComputation::HumanoidPreComputation(
       mpcRobotModelPtr_(rhs.mpcRobotModelPtr_),
       eeNormalVelConConfigs_(rhs.eeNormalVelConConfigs_),
       footHeightReferences_(rhs.footHeightReferences_),
+      contactSwingPlannerPtr_(rhs.contactSwingPlannerPtr_),
+      contactSwingReferences_(rhs.contactSwingReferences_),
       // Carried across the clone the SQP solver makes per worker thread;
       // dropping it would reset every worker's gain to the launch value on the
       // next retune, which is the class of bug this member exists to close.
       positionErrorGainZ_(rhs.positionErrorGainZ_) {}
+
+void HumanoidPreComputation::setContactSwingPlanner(
+    const ContactSwingPlanner* absl_nullable contactSwingPlanner) {
+  contactSwingPlannerPtr_ = contactSwingPlanner;
+  contactSwingReferences_.assign(
+      contactSwingPlanner != nullptr
+          ? mpcRobotModelPtr_->modelSettings.contactNames.size()
+          : 0,
+      std::nullopt);
+}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -153,10 +171,17 @@ void HumanoidPreComputation::request(RequestSet request,
   // reference rather than fail. One extra flag in the guard removes that trap
   // for the cost of two swing references on a cost-only request.
   if (request.containsAny(Request::Constraint + Request::SoftConstraint)) {
-    for (size_t i = 0; i < kNumContacts; ++i) {
+    for (size_t i = 0; i < footHeightReferences_.size(); ++i) {
       eeNormalVelConConfigs_[i] = eeNormalVelConConfig(i);
       footHeightReferences_[i] =
           swingTrajectoryPlannerPtr_->getZpositionConstraint(i, t);
+    }
+    // The generalized swing planner's references of every contact, read by
+    // the contact_swing terms (ContactSwingConstraint).
+    if (contactSwingPlannerPtr_ != nullptr) {
+      for (size_t i = 0; i < contactSwingReferences_.size(); ++i) {
+        contactSwingReferences_[i] = contactSwingPlannerPtr_->reference(i, t);
+      }
     }
   }
 }

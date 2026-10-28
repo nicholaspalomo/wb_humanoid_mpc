@@ -44,6 +44,8 @@ from humanoid_mpc_msgs import scalar_group_pb2
 from humanoid_mpc_msgs import spheres_pb2
 from humanoid_mpc_msgs import telemetry_series_pb2
 from humanoid_mpc_msgs import visualization_scene_pb2
+from humanoid_multi_contact.terrain import terrain_scene_pb2
+import numpy as np
 import rerun as rr
 
 from humanoid_mpc_ipc import topics
@@ -52,6 +54,7 @@ from humanoid_rerun_viewer import palette
 from humanoid_rerun_viewer import scene_contract
 from humanoid_rerun_viewer import status_contract
 from humanoid_rerun_viewer import telemetry_contract
+from humanoid_rerun_viewer import terrain_drawing
 from humanoid_rerun_viewer import urdf_model
 import rrd_contents
 import synthetic_messages
@@ -156,6 +159,57 @@ class StaticDataTest(BridgeTestCase):
                         style.name, visual.link, visual.index
                     ),
                     contents.entities,
+                )
+
+
+class TerrainTest(BridgeTestCase):
+    def test_the_static_scene_is_logged_with_the_static_data(self) -> None:
+        # The terrain of a multi-contact scenario (--multi_contact_scenario): a box and a capsule, logged with the world's
+        # axes and logged again when the static data is resent.
+        scene = terrain_scene_pb2.TerrainScene(name="step")
+        floor = scene.primitives.add(name="floor", friction=0.8)
+        floor.box.center.extend([0.0, 0.0, -0.5])
+        floor.box.half_extents.extend([5.0, 5.0, 0.5])
+        rail = scene.primitives.add(name="rail", friction=0.8)
+        rail.capsule.start.extend([0.0, 0.5, 1.0])
+        rail.capsule.end.extend([1.0, 0.5, 1.5])
+        rail.capsule.radius = 0.025
+        logged: list[int] = []
+
+        def log_terrain(recording: rr.RecordingStream) -> None:
+            logged.append(terrain_drawing.log_terrain(recording, scene))
+
+        self.bridge = bridge.RerunBridge(
+            self.recording,
+            self.model,
+            clock=FakeClock(),
+            static_scene=log_terrain,
+        )
+        self.bridge.log_static()
+        self.bridge.resend_static()
+        self.assertEqual(logged, [2, 2])
+        contents = self.contents()
+        for name in ("floor", "rail"):
+            self.assertIn(
+                f"{terrain_drawing.TERRAIN_ROOT}/{name}", contents.entities
+            )
+
+    def test_a_capsule_is_turned_from_z_onto_its_axis(self) -> None:
+        for axis in ([1.0, 0.0, 0.0], [0.0, 0.0, -2.0], [0.3, -0.4, 0.5]):
+            with self.subTest(axis=axis):
+                x, y, z, w = terrain_drawing.quaternion_between(
+                    [0.0, 0.0, 1.0], axis
+                )
+                # The rotated z axis: the third column of the rotation matrix.
+                rotated = np.array(
+                    [
+                        2 * (x * z + y * w),
+                        2 * (y * z - x * w),
+                        1 - 2 * (x * x + y * y),
+                    ]
+                )
+                np.testing.assert_allclose(
+                    rotated, np.asarray(axis) / np.linalg.norm(axis), atol=1e-12
                 )
 
 

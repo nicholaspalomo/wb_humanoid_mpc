@@ -65,6 +65,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/constraint/FootCollisionConstraint.h"
 #include "humanoid_common_mpc/constraint/FrictionForceConeConstraint.h"
 #include "humanoid_common_mpc/constraint/JointLimitsSoftConstraint.h"
+#include "humanoid_common_mpc/constraint/PointFrictionConeConstraint.h"
 #include "humanoid_common_mpc/constraint/ZeroWrenchConstraint.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/cost/BasePoseShapedQuadraticStateCost.h"
@@ -556,6 +557,26 @@ HumanoidCostConstraintFactory::makeContactWrenchConeConstraint(
       contactConeGatingOf(scheduleGatedContactConstraints_));
   return std::make_unique<StateInputSoftConstraint>(
       std::move(contactWrenchConeConstraintPtr), std::move(penalty));
+}
+
+absl::StatusOr<std::unique_ptr<StateInputCost>>
+HumanoidCostConstraintFactory::makePointFrictionConeConstraint(
+    size_t contactPointIndex) const {
+  const mpc_config::TaskFile& taskFile = *taskFilePtr_;
+  ASSIGN_OR_RETURN(const RelaxedBarrierPenalty::Config barrierPenaltyConfig,
+                   contactWrenchConeBarrierFromConfig(taskFile.contacts));
+  ASSIGN_OR_RETURN(const ContactWrenchConeConstraint::Config config,
+                   contactWrenchConeConfigFromConfig(taskFile.contacts));
+  ASSIGN_OR_RETURN(
+      std::unique_ptr<PointFrictionConeConstraint> pointFrictionConePtr,
+      PointFrictionConeConstraint::Create(
+          *referenceManagerPtr_, contactPointIndex, *mpcRobotModelPtr_, config,
+          scheduleGatedContactConstraints_));
+  std::unique_ptr<PenaltyBase> penalty = makeContactConePenalty(
+      barrierPenaltyConfig,
+      contactConeGatingOf(scheduleGatedContactConstraints_));
+  return std::make_unique<StateInputSoftConstraint>(
+      std::move(pointFrictionConePtr), std::move(penalty));
 }
 
 absl::StatusOr<std::unique_ptr<StateInputCost>>

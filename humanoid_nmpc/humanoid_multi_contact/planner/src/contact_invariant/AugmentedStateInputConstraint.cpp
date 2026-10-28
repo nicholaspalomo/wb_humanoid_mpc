@@ -1,0 +1,91 @@
+/******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#include "humanoid_multi_contact/planner/contact_invariant/AugmentedStateInputConstraint.h"
+
+#include <memory>
+#include <utility>
+
+#include "absl/log/absl_check.h"
+#include "ocs2_core/PreComputation.h"
+
+#include "humanoid_multi_contact/planner/contact_invariant/AugmentedPreComputation.h"
+
+namespace ocs2::humanoid::multi_contact {
+
+AugmentedStateInputConstraint::AugmentedStateInputConstraint(
+    const ContactInvariantLayout& layout,
+    std::unique_ptr<StateInputConstraint> physical)
+    : StateInputConstraint(ConstraintOrder::Linear),
+      layout_(layout),
+      physical_(std::move(physical)) {
+  ABSL_CHECK(physical_ != nullptr);
+}
+
+AugmentedStateInputConstraint::AugmentedStateInputConstraint(
+    const AugmentedStateInputConstraint& other)
+    : StateInputConstraint(other),
+      layout_(other.layout_),
+      physical_(other.physical_->clone()) {}
+
+vector_t AugmentedStateInputConstraint::getValue(
+    scalar_t time,
+    const vector_t& state,
+    const vector_t& input,
+    const PreComputation& preComp) const {
+  const AugmentedPreComputation& augmented =
+      cast<AugmentedPreComputation>(preComp);
+  return physical_->getValue(time, state.head(layout_.physicalStateDim),
+                             input.head(layout_.physicalInputDim),
+                             augmented.physical());
+}
+
+VectorFunctionLinearApproximation
+AugmentedStateInputConstraint::getLinearApproximation(
+    scalar_t time,
+    const vector_t& state,
+    const vector_t& input,
+    const PreComputation& preComp) const {
+  const AugmentedPreComputation& augmented =
+      cast<AugmentedPreComputation>(preComp);
+  const int n = layout_.physicalStateDim;
+  const int m = layout_.physicalInputDim;
+  const VectorFunctionLinearApproximation physical =
+      physical_->getLinearApproximation(time, state.head(n), input.head(m),
+                                        augmented.physical());
+  VectorFunctionLinearApproximation result;
+  result.setZero(static_cast<int>(physical.f.size()), layout_.stateDim(),
+                 layout_.inputDim());
+  result.f = physical.f;
+  result.dfdx.leftCols(n) = physical.dfdx;
+  result.dfdu.leftCols(m) = physical.dfdu;
+  return result;
+}
+
+}  // namespace ocs2::humanoid::multi_contact

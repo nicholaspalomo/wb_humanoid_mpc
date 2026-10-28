@@ -75,8 +75,11 @@ struct StateInputLayout {
   // The joints the task file fixes (ModelSettings::fixedJointNames): no weight
   // or value may name one.
   std::vector<std::string> fixedJointNames;
-  // The wrench contacts, in input order (ModelSettings::contactNames).
+  // The contacts, in input order (ModelSettings::contactNames): the first
+  // numPointContacts are 3-DoF ones, whose input is their force alone, and the
+  // rest 6-DoF ones, whose input is their wrench.
   std::vector<std::string> contactNames;
+  size_t numPointContacts = 0;
 };
 
 /** The layout of the MPC `mpc` of the robot model `settings`: its MPC joints,
@@ -101,8 +104,16 @@ TuningLayout tuningLayoutOf(const StateInputLayout& layout);
  * (whole body) for n joints. */
 size_t tuningDimension(const StateInputLayout& layout);
 
-/** The size of `layout`'s input: six wrench coordinates per contact, then one
- * per joint. */
+/** The size of `layout`'s input: three force coordinates per 3-DoF contact,
+ * six wrench coordinates per 6-DoF contact, then one per joint. */
 size_t inputDimension(const StateInputLayout& layout);
+
+/** The first input coordinate of contact `contactIndex` of `layout`: the
+ * forces of the 3-DoF contacts come first, the wrenches after them. */
+size_t contactInputStart(const StateInputLayout& layout, size_t contactIndex);
+
+/** The input coordinates of contact `contactIndex` of `layout`: kForceDim for
+ * a 3-DoF contact, kWrenchDim for a 6-DoF one. */
+size_t contactInputSize(const StateInputLayout& layout, size_t contactIndex);
 
 }  // namespace ocs2::humanoid

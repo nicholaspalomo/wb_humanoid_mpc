@@ -101,8 +101,11 @@ void configureZeroVelocityConstraint(
     const ModelSettings::FootConstraintConfig& gains,
     const EndEffectorKinematicsTwistConstraint::Config& twistConfig) {
   EndEffectorKinematicsTwistConstraint& twist = constraint.getTwistConstraint();
-  twist.setNumConstraints(gains.constrainOrientation ? kPoseTangentDim
-                                                     : kPositionDim);
+  // A point contact has its three translation rows whatever the gains say.
+  const bool pose = gains.constrainOrientation &&
+                    constraint.getContactKind() ==
+                        ZeroVelocityConstraintCppAd::ContactKind::kSurface;
+  twist.setNumConstraints(pose ? kPoseTangentDim : kPositionDim);
   twist.setConstrainYawRateAboutNormal(
       gains.constrainYawRateAboutContactNormal);
   twist.configure(EndEffectorKinematicsTwistConstraint::Config(twistConfig));

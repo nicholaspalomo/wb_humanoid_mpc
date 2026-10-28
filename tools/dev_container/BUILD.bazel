@@ -9,6 +9,8 @@ py_test(
     srcs = ["test_dev_container.py"],
     data = [
         "//:.devcontainer/README.md",
+        "//:.devcontainer/bazel.bazelrc",
+        "//:.devcontainer/reset_stale_bazel_cache.sh",
         "//:.devcontainer/devcontainer.json",
         "//:.devcontainer/openbox_layout.py",
         "//:.devcontainer/post_create.sh",

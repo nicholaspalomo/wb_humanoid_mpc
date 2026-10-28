@@ -3,6 +3,7 @@
     "humanoid_nmpc/humanoid_common_mpc_pyutils",
     "humanoid_nmpc/humanoid_mpc_config/python",
     "humanoid_nmpc/humanoid_mpc_ipc/python",
+    "humanoid_nmpc/humanoid_multi_contact/app/python",
     "humanoid_nmpc/humanoid_rerun_viewer/python",
     "humanoid_nmpc/humanoid_rerun_viewer/test",
     "humanoid_nmpc/remote_control",

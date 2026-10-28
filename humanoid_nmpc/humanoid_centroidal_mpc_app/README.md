@@ -61,6 +61,13 @@ newer one, after which the robot is commanded to stop at its pelvis height (posi
 The dummy's own flag: `--ipc_node` (default `robot`). It does not read `--gait_file`.
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc_app/src/CentroidalMpcDummySimMain.cpp:dummy_sim_flags) -->
 
+Both also take `--multi_contact_scenario`, `--multi_contact_plan` and `--multi_contact_playback` (`CentroidalAppFlags.h`):
+the scenario and the plan the MPC tracks under `contact_schedule_source: "multi_contact_plan"`, and how the plan plays
+(`once`, or `forward_and_reverse`: forward, a dwell, backward to its start, a dwell, over and over), in place of the task
+file's `multi_contact_plan` block; empty, the default, keeps the task file's. Under that source the dummy simulator starts
+the robot at the plan's first state and stance (the multi-contact dummy sims,
+[multi_contact_planning](../docs/multi_contact_planning/README.md), section 8.2).
+
 Both take the shared flags of [`humanoid_common_mpc_app/node`](../humanoid_common_mpc_app/node/README.md#the-command-line)
 (`--robot_name`, `--task_file`, `--reference_file`, `--urdf_file`, `--gait_file`, `--network_config`).
 

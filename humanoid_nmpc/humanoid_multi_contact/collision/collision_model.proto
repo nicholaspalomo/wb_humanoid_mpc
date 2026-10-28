@@ -1,0 +1,91 @@
+edition = "2023";
+
+package humanoid_multi_contact;
+
+import "nproto/options.proto";
+
+// The environment collision model of a robot for multi-contact planning (humanoid_nmpc/docs/multi_contact_planning/
+// README.md, section 5.4): the collision geometry of its links, copied from the robot's MJCF, which CollisionModel
+// approximates by spheres, and the pairs of links that must not touch each other. Each geometry is in the frame of its
+// parent joint, which is the frame of the MJCF body it is copied from.
+// Next ID: 4
+message CollisionModel {
+  option (nproto.generate_struct) = "ocs2::humanoid::multi_contact::config::CollisionModel";
+
+  reserved 4 to max;
+
+  // [m] A capsule: the points within `radius` of the segment from `start` to `end`. CollisionModel places spheres of
+  // its radius along the axis at a spacing of at most one radius.
+  // Next ID: 4
+  message Capsule {
+    reserved 4 to max;
+
+    repeated double start = 1;
+    repeated double end = 2;
+    // Positive.
+    double radius = 3 [default = 0.0];
+  }
+
+  // [m] An axis-aligned box of the joint frame. CollisionModel fills it with spheres of its smallest half extent, on a
+  // grid over its two other axes at a spacing of at most one radius: they lie inside the box.
+  // Next ID: 3
+  message Box {
+    reserved 3 to max;
+
+    repeated double center = 1;
+    // Positive.
+    repeated double half_extents = 2;
+  }
+
+  // [m] One sphere.
+  // Next ID: 3
+  message Sphere {
+    reserved 3 to max;
+
+    repeated double center = 1;
+    // Positive.
+    double radius = 2 [default = 0.0];
+  }
+
+  // Spheres taken as they are, such as the corners of a sole.
+  // Next ID: 2
+  message Spheres {
+    reserved 2 to max;
+
+    // At least one.
+    repeated Sphere spheres = 1;
+  }
+
+  // One link's collision geometry.
+  // Next ID: 7
+  message Link {
+    reserved 7 to max;
+
+    // Unique within the model; self_collision_pairs name links by it.
+    string name = 1 [default = ""];
+    // The joint of the robot's URDF whose frame the geometry is fixed to; "root_joint" is the floating base.
+    string parent_joint = 2 [default = ""];
+    oneof shape {
+      Capsule capsule = 3;
+      Box box = 4;
+      Spheres spheres = 5;
+    }
+    // The MJCF body the geometry is copied from, whose collision geom a test compares it with.
+    string mjcf_body = 6 [default = ""];
+  }
+
+  // Two links whose spheres must keep apart (self-collision).
+  // Next ID: 3
+  message SelfCollisionPair {
+    reserved 3 to max;
+
+    string first = 1 [default = ""];
+    string second = 2 [default = ""];
+  }
+
+  // The robot the model belongs to, for messages.
+  string robot = 1 [default = ""];
+  // At least one.
+  repeated Link links = 2;
+  repeated SelfCollisionPair self_collision_pairs = 3;
+}

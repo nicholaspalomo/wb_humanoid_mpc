@@ -3,14 +3,15 @@ edition = "2023";
 package humanoid_mpc_config;
 
 import "humanoid_mpc_config/config_options.proto";
+import "humanoid_mpc_config/xyz.proto";
 import "nproto/options.proto";
 import "nproto/retired_field_options.proto";
 
 // The robot model the MPC is formulated on (the task file's model_settings block, ModelSettings): the robot's name, the
 // gains of the foot constraints, the CppAD flags, the joints the MPC leaves out, the 6-DoF contacts and the joints they
-// are attached to, and the joints of the procedural arm swing. Joints and contacts are URDF and Pinocchio names;
-// ModelSettings::Create() reads the rest of the model, the joints and their order, off the URDF.
-// Next ID: 10
+// are attached to, the 3-DoF contacts, and the joints of the procedural arm swing. Joints and contacts are URDF and
+// Pinocchio names; ModelSettings::Create() reads the rest of the model, the joints and their order, off the URDF.
+// Next ID: 11
 message ModelSettingsConfig {
   option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::ModelSettingsConfig";
   // The folder used to be a key that nothing read; the old loader warned about it.
@@ -19,7 +20,7 @@ message ModelSettingsConfig {
     replacement: "the CppAD libraries are built under cppad_code_gen/cppad_<mpc><robot_name>, derived from the robot (the centroidal MPC adds a sub-folder per contact input parameterization); delete the key"
   };
 
-  reserved 10 to max;
+  reserved 11 to max;
 
   // The gains of the swing- and stance-foot constraints, the weights of their soft forms and the rows of the stance
   // constraint (ModelSettings::FootConstraintConfig).
@@ -126,4 +127,30 @@ message ModelSettingsConfig {
     }
   ];
   ArmJointNames arm_joint_names = 9;
+
+  // A 3-DoF (point) contact: a frame the MPC adds to the model, which carries a force and no moment
+  // (humanoid_nmpc/docs/multi_contact_planning/README.md, section 3.1).
+  // Next ID: 4
+  message PointContact {
+    reserved 4 to max;
+
+    // The frame's name: unique among the contacts, and not a frame the robot model already has.
+    string name = 1 [default = ""];
+    // The joint the frame is attached to, or a joint the MPC fixes (fixed_joint_names), whose frame it then hangs from.
+    string parent_joint_name = 2 [default = ""];
+    // [m] The frame's position in the parent's frame.
+    Xyz translation = 3 [(humanoid_mpc_config.tuning) = { unit: "m" }];
+  }
+
+  // The 3-DoF contacts; none by default, as every shipped robot is a biped on its two 6-DoF feet. They come before the
+  // 6-DoF contacts in the centroidal MPC's input (the force of each, then the wrench of each 6-DoF contact, then the
+  // joint velocities) and in a mode number's bits. A contact set other than two 6-DoF feet runs on the centroidal MPC
+  // only, which refuses the terms written for two feet.
+  // LINT.IfChange(contacts_3dof)
+  repeated PointContact contacts_3dof = 10 [
+    (humanoid_mpc_config.tuning) = {
+      exclude_reason: "the contacts of the robot model: they fix the problem's dimensions"
+    }
+  ];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/config/model/ModelSettingsFromConfig.cpp:contacts_3dof)
 }

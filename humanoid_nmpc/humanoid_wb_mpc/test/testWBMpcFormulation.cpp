@@ -284,6 +284,27 @@ TEST_F(WBMpcFormulationTest,
 }
 
 /**
+ * The whole-body MPC runs on the biped's two 6-DoF feet alone: a task file with
+ * a 3-DoF contact is refused when the models are built, before any term, with a
+ * message pointing at the centroidal MPC
+ * (humanoid_nmpc/docs/multi_contact_planning/README.md, section 7.2).
+ */
+TEST_F(WBMpcFormulationTest, aContactSetOtherThanTheFeetIsRefused) {
+  mpc_config::TaskFile withHand = task_;
+  mpc_config::ModelSettingsConfig::PointContact hand;
+  hand.name = "hand_contact";
+  hand.parent_joint_name = task_.model_settings.contact_parent_joint_names[0];
+  withHand.model_settings.contacts_3dof = {hand};
+  const absl::StatusOr<std::unique_ptr<WBMpcInterface>> refused =
+      WBMpcInterface::CreateControllerModels(withHand, urdfFile_, reference_);
+  ASSERT_FALSE(refused.ok());
+  EXPECT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_TRUE(absl::StrContains(refused.status().message(),
+                                "the whole-body MPC runs on the biped's"))
+      << refused.status();
+}
+
+/**
  * Finding WB-3: the whole-body dynamics and inverse dynamics looked the soles
  * up as "foot_l_contact" and "foot_r_contact" whatever model_settings named
  * them. The model builder makes the contact frames from

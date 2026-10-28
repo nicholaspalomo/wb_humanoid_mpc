@@ -650,6 +650,79 @@ TEST(InputWeightsFromConfigTest,
   expectDiagonal(*weights, 10.0 * counting(/*size=*/14));
 }
 
+/** smallLayout() with a 3-DoF contact "hand" before its two feet. */
+StateInputLayout layoutWithAPointContact() {
+  StateInputLayout layout = smallLayout(StateInputLayout::Mpc::kCentroidal);
+  layout.contactNames = {"hand", "left", "right"};
+  layout.numPointContacts = 1;
+  return layout;
+}
+
+TEST(InputWeightsFromConfigTest, APointContactIsWeighedByItsForceAlone) {
+  const StateInputLayout layout = layoutWithAPointContact();
+  // The hand's force, then each foot's wrench, then the joints.
+  EXPECT_EQ(inputDimension(layout), 3U + 6U + 6U + 2U);
+  EXPECT_EQ(contactInputStart(layout, /*contactIndex=*/0), 0U);
+  EXPECT_EQ(contactInputStart(layout, /*contactIndex=*/1), 3U);
+  EXPECT_EQ(contactInputStart(layout, /*contactIndex=*/2), 9U);
+  EXPECT_EQ(contactInputSize(layout, /*contactIndex=*/0), 3U);
+  EXPECT_EQ(contactInputSize(layout, /*contactIndex=*/2), 6U);
+  const mpc_config::TaskFile task = taskFile(R"pb(
+    input_weights {
+      contact_wrenches {
+        contact: "hand"
+        force { x: 1 y: 2 z: 3 }
+      }
+      contact_wrenches {
+        contact: "left"
+        force { x: 4 y: 5 z: 6 }
+        moment { x: 7 y: 8 z: 9 }
+      }
+      contact_wrenches {
+        contact: "right"
+        force { x: 10 y: 11 z: 12 }
+        moment { x: 13 y: 14 z: 15 }
+      }
+      joint_velocities { joint: "a" value: 16 }
+      joint_velocities { joint: "b" value: 17 }
+    }
+  )pb");
+  const absl::StatusOr<matrix_t> weights =
+      inputWeightsFromConfig(task.input_weights, layout, "input_weights");
+  ASSERT_TRUE(weights.ok()) << weights.status();
+  expectDiagonal(*weights, counting(/*size=*/17));
+}
+
+TEST(InputWeightsFromConfigTest, APointContactHasNoMomentToWeigh) {
+  const mpc_config::TaskFile task = taskFile(R"pb(
+    input_weights {
+      contact_wrenches {
+        contact: "hand"
+        force {}
+        moment {}
+      }
+      contact_wrenches {
+        contact: "left"
+        force {}
+        moment {}
+      }
+      contact_wrenches {
+        contact: "right"
+        force {}
+        moment {}
+      }
+      joint_velocities { joint: "a" value: 1 }
+      joint_velocities { joint: "b" value: 1 }
+    }
+  )pb");
+  const absl::StatusOr<matrix_t> weights = inputWeightsFromConfig(
+      task.input_weights, layoutWithAPointContact(), "input_weights");
+  ASSERT_FALSE(weights.ok());
+  EXPECT_TRUE(absl::StrContains(weights.status().message(),
+                                "contact_wrenches[contact=hand].moment"))
+      << weights.status();
+}
+
 TEST(InputWeightsFromConfigTest, TheWholeBodyInputWeighsJointAccelerations) {
   const mpc_config::TaskFile task = taskFile(R"pb(
     input_weights {

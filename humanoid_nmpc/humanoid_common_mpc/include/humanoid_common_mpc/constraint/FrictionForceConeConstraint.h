@@ -46,6 +46,13 @@ namespace ocs2::humanoid {
  * Implements the friction cone of one contact as h(t,x,u) >= 0, in one of two
  * forms chosen by `scheduleGated`.
  *
+ * The force F below is the contact's world-frame force written in the frame of
+ * the patch the contact touches, p_R_w F, with the rotation of
+ * SwitchedModelReferenceManager::getContactPatchFrame(): a parameter of the
+ * contact phase, so the state Jacobian stays zero. On the world-aligned patch
+ * of flat ground the rotation is the identity and the cone is the world-z cone
+ * it has always been.
+ *
  * SCHEDULE GATED (the historical form, one row, active only while the mode
  * schedule calls the foot a stance foot):
  *
@@ -262,7 +269,11 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
 
   FrictionForceConeConstraint(const FrictionForceConeConstraint& rhs);
   vector_t coneConstraint(const vector3_t& localForces) const;
-  LocalForceDerivatives computeLocalForceDerivatives() const;
+  /** The rotation p_R_w of the patch the contact touches at `time`
+   * (SwitchedModelReferenceManager::getContactPatchFrame()). */
+  matrix3_t worldToPatchRotation(scalar_t time) const;
+  LocalForceDerivatives computeLocalForceDerivatives(
+      const matrix3_t& t_R_w) const;
   ConeLocalDerivatives computeConeLocalDerivatives(
       const vector3_t& localForces) const;
   ConeDerivatives computeConeConstraintDerivatives(
@@ -295,9 +306,6 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
   const size_t contactInputStart_;
   const size_t contactInputDim_;
   const matrix_t contactForceInputJacobian_;  // 3 x contactInputDim_
-
-  // rotation world to terrain
-  matrix3_t t_R_w_ = matrix3_t::Identity();
 
   bool isActive_ = true;
   // Fixed by the formulation at load time rather than tuned, so it is const and

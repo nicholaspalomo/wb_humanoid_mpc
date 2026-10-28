@@ -1,0 +1,86 @@
+edition = "2023";
+
+package humanoid_multi_contact;
+
+import "humanoid_multi_contact/stability/certifier_report.proto";
+import "nproto/options.proto";
+
+// A multi-contact plan (humanoid_nmpc/docs/multi_contact_planning/README.md, section 7.1): the knots of a motion with
+// their active contacts, the contact phases, and the certifier's report. The state and the input of a knot are stored
+// by name and in physical units, not as the MPC's vectors, so that a plan does not depend on an MPC's state layout or
+// fixed joints; the planned-motion reference manager converts them. Written as a binary proto beside a textproto
+// summary (PlanFile.h); a plan whose hashes do not match the loaded contact set or scene is refused.
+// Next ID: 9
+message MultiContactPlan {
+  option (nproto.generate_struct) = "ocs2::humanoid::multi_contact::config::MultiContactPlan";
+
+  reserved 9 to max;
+
+  // The force and moment of one active contact, in the world frame.
+  // Next ID: 4
+  message ContactWrench {
+    reserved 4 to max;
+
+    // A candidate of the contact set.
+    string contact = 1 [default = ""];
+    // [N] x, y, z.
+    repeated double force = 2;
+    // [N m] About the pad's center, x, y, z; empty for a point contact.
+    repeated double torque = 3;
+  }
+
+  // One knot of the motion.
+  // Next ID: 10
+  message Knot {
+    reserved 10 to max;
+
+    // [s] Increasing from knot to knot.
+    double time = 1 [default = 0.0];
+    // [m] The floating base's position in the world frame: x, y, z.
+    repeated double base_position = 2;
+    // The base's orientation, a unit quaternion (x, y, z, w).
+    repeated double base_orientation_xyzw = 3;
+    // [rad] One per entry of the plan's joint_names; the joints it does not name are at 0.
+    repeated double joint_positions = 4;
+    // [rad/s] Empty, or one per joint name.
+    repeated double joint_velocities = 5;
+    // [kg m/s] The linear momentum m c_dot, world frame.
+    repeated double linear_momentum = 6;
+    // [kg m^2/s] The angular momentum about the center of mass, world frame.
+    repeated double angular_momentum = 7;
+    // The active contacts: bit i for candidate i of the contact set.
+    uint64 active_contacts = 8 [default = 0];
+    // The planned wrenches of the active contacts, for playback; any order.
+    repeated ContactWrench contact_wrenches = 9;
+  }
+
+  // One contact phase: a candidate resting on one patch of the terrain.
+  // Next ID: 7
+  message ContactPhase {
+    reserved 7 to max;
+
+    string contact = 1 [default = ""];
+    // [s]
+    double start_time = 2 [default = 0.0];
+    double end_time = 3 [default = 0.0];
+    // The terrain primitive the contact rests on, and, for a box, the face (BoxFace order: +x, -x, +y, -y, +z, -z).
+    string primitive = 4 [default = ""];
+    int32 face = 5 [default = 0];
+    // The target pad pose in the world frame, six values: its center [m], then its z axis (the patch normal).
+    repeated double target_pad_pose = 6;
+  }
+
+  // The scenario the plan was made for.
+  string scenario = 1 [default = ""];
+  // The hashes of the contact set and of the terrain scene the plan was made for (PlanHash.h).
+  uint64 contact_set_hash = 2 [default = 0];
+  uint64 terrain_scene_hash = 3 [default = 0];
+  // The joints of the knots' joint_positions, by URDF name.
+  repeated string joint_names = 4;
+  repeated Knot knots = 5;
+  repeated ContactPhase phases = 6;
+  // The certifier's report on the knots, when the plan was certified.
+  CertifierReport report = 7 [(nproto.optional_message) = true];
+  // Who made the plan: a planner's name, or "hand_written".
+  string planner = 8 [default = ""];
+}

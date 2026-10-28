@@ -55,6 +55,9 @@ namespace ocs2::humanoid::contact_term {
 inline constexpr absl::string_view kContactWrenchCone = "_contactWrenchCone";
 inline constexpr absl::string_view kFrictionForceCone = "_frictionForceCone";
 inline constexpr absl::string_view kContactMomentXY = "_contactMomentXY";
+// The friction cone a 3-DoF contact takes where a 6-DoF one takes the contact
+// wrench cone (PointFrictionConeConstraint).
+inline constexpr absl::string_view kPointFrictionCone = "_pointFrictionCone";
 // The contact-implicit formulation
 // (humanoid_nmpc/docs/contact_implicit_mpc/README.md).
 inline constexpr absl::string_view kContactComplementarity =
@@ -65,6 +68,15 @@ inline constexpr absl::string_view kGroundPenetration = "_groundPenetration";
 // which the contact-implicit formulation requires.
 inline constexpr absl::string_view kNormalVelocity = "_normalVelocity";
 inline constexpr absl::string_view kNormalVelocitySoft = "_normalVelocitySoft";
+// The terms of a tracked multi-contact plan: the swing servo of any contact
+// (ContactSwingConstraint), the landing alignment of a 6-DoF one
+// (SwingLandingAlignmentConstraint) and the collision sphere kept out of the
+// terrain (TerrainNonPenetrationConstraint).
+inline constexpr absl::string_view kContactSwing = "_contactSwing";
+inline constexpr absl::string_view kSwingLandingAlignment =
+    "_swingLandingAlignment";
+inline constexpr absl::string_view kTerrainNonPenetration =
+    "_terrainNonPenetration";
 
 /** The name the term with `suffix` of the foot `footName` is registered under.
  */

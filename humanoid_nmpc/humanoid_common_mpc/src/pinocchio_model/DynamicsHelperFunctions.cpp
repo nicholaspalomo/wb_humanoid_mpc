@@ -33,6 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
 // Pinnochio
+#include <algorithm>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -200,6 +202,21 @@ scalar_t computeComHeightAboveFeet(
                           pinocchioInterface.getData(), q,
                           /*computeSubtreeComs=*/false);
   const scalar_t comHeight = pinocchioInterface.getData().com[0](kZAxisIndex);
+  if (!mpcRobotModel.modelSettings.isBipedContactSet()) {
+    // Any other contact set: its first two contacts need not be the feet, so
+    // the height is measured above its lowest contact frame.
+    updateFramePlacements<scalar_t>(q, pinocchioInterface);
+    scalar_t lowest = std::numeric_limits<scalar_t>::infinity();
+    for (size_t i = 0; i < mpcRobotModel.modelSettings.contactNames.size();
+         ++i) {
+      lowest = std::min(
+          lowest,
+          pinocchioInterface.getData()
+              .oMf[getContactFrameIndex(pinocchioInterface, mpcRobotModel, i)]
+              .translation()(kZAxisIndex));
+    }
+    return comHeight - lowest;
+  }
   const std::vector<vector3_t> feet =
       computeContactPositions<scalar_t>(q, pinocchioInterface, mpcRobotModel);
   scalar_t meanFootHeight = 0.0;

@@ -22,6 +22,7 @@ import "humanoid_mpc_config/mimic_joints_config.proto";
 import "humanoid_mpc_config/model_settings_config.proto";
 import "humanoid_mpc_config/mpc_link_config.proto";
 import "humanoid_mpc_config/mpc_settings_config.proto";
+import "humanoid_mpc_config/multi_contact_plan_config.proto";
 import "humanoid_mpc_config/nominal_foothold_config.proto";
 import "humanoid_mpc_config/rollout_settings_config.proto";
 import "humanoid_mpc_config/sqp_settings_config.proto";
@@ -45,7 +46,7 @@ import "nproto/retired_field_options.proto";
 // Named components are strings that their registries resolve (costs, constraints, estimators, sinks, visualizations,
 // parameterizations, the centroidal model), never booleans or int codes; the retired booleans, int codes and blocks
 // below are refused with what replaced them.
-// Next ID: 61
+// Next ID: 62
 message TaskFile {
   option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::TaskFile";
   // LINT.IfChange(retired_formulation_keys)
@@ -125,7 +126,7 @@ message TaskFile {
     replacement: "the centroidal model is selected by name: centroidal_model: \"full_centroidal_dynamics\" where it was 0, \"single_rigid_body_dynamics\" where it was 1"
   };
 
-  reserved 61 to max;
+  reserved 62 to max;
   // 19 was centroidal_model_type, OCS2's int code of the centroidal model, now the name centroidal_model.
   reserved 19;
   // 44 was icp_cost_weights, the weight of the removed icp_cost.
@@ -450,4 +451,7 @@ message TaskFile {
   CollisionCbfConstraintConfig collision_cbf_constraint = 60 [(humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP minimum: 0 }];
   // Formerly mimicJoints.
   MimicJointsConfig mimic_joints = 53 [(humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP }];
+  // The offline multi-contact plan the centroidal MPC tracks under contact_schedule_source: "multi_contact_plan"
+  // (humanoid_nmpc/docs/multi_contact_planning/README.md, section 7.2); read under that source only.
+  MultiContactPlanConfig multi_contact_plan = 61 [(humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP formulations: "centroidal" }];
 }

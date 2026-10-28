@@ -1,0 +1,135 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/config_options.proto";
+import "nproto/options.proto";
+
+// The tracking of an offline multi-contact plan by the centroidal MPC (the task file's multi_contact_plan block, read
+// under contact_schedule_source: "multi_contact_plan"; humanoid_nmpc/docs/multi_contact_planning/README.md, section
+// 7.2): which scenario and plan are tracked, when the plan's clock is held, the generalized swing planner, and the two
+// soft constraints of the planned contacts, contact_swing and terrain_non_penetration. Every field takes effect at
+// start-up.
+// Next ID: 11
+message MultiContactPlanConfig {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::MultiContactPlanConfig";
+
+  reserved 11 to max;
+
+  // When the plan's clock waits for the robot: it stops lead [s] before the next contact change of the plan until
+  // every contact of the current stance touches its patch within contact_tolerance [m] (along the patch normal) and
+  // the center of mass is within com_tolerance [m] (horizontally) of the plan's there. A contact change is never
+  // skipped.
+  // Next ID: 4
+  message ClockHold {
+    reserved 4 to max;
+
+    // [s] Positive.
+    double lead = 1 [default = 0.1, (humanoid_mpc_config.tuning) = { unit: "s" minimum: 0 }];
+    // [m] Positive.
+    double contact_tolerance = 2 [default = 0.01, (humanoid_mpc_config.tuning) = { unit: "m" minimum: 0 }];
+    // [m] Positive.
+    double com_tolerance = 3 [default = 0.03, (humanoid_mpc_config.tuning) = { unit: "m" minimum: 0 }];
+  }
+
+  // The generalized swing planner (ContactSwingPlanner): a contact lifts off along the normal of the patch it leaves,
+  // follows a cubic Bezier arc whose two inner control points lie lift_height [m] along the two patch normals, raised
+  // until every point of the arc away from its ends keeps the terrain's signed distance at least clearance [m], and
+  // touches down along the normal of its target patch.
+  // Next ID: 3
+  message Swing {
+    reserved 3 to max;
+
+    // [m] Positive.
+    double lift_height = 1 [default = 0.1, (humanoid_mpc_config.tuning) = { unit: "m" minimum: 0 }];
+    // [m] Not negative.
+    double clearance = 2 [default = 0.05, (humanoid_mpc_config.tuning) = { unit: "m" minimum: 0 }];
+  }
+
+  // The soft constraint contact_swing: per swinging contact, v - v_ref + position_gain (p - p_ref) = 0 on its frame's
+  // world position and velocity, under a quadratic penalty of `weight`. With a positive landing_alignment_weight, every
+  // 6-DoF contact also lands flat: over the last landing_window [s] of a swing, z x n = 0 for its frame's z axis (its
+  // pad normal) and the normal n of the patch it touches down on, under a quadratic penalty of that weight
+  // (SwingLandingAlignmentConstraint); off at 0.
+  // Next ID: 5
+  message ContactSwing {
+    reserved 5 to max;
+
+    // Positive.
+    double weight = 1 [default = 100.0, (humanoid_mpc_config.tuning) = { minimum: 0 }];
+    // [1/s] Not negative.
+    double position_gain = 2 [default = 10.0, (humanoid_mpc_config.tuning) = { unit: "1/s" minimum: 0 }];
+    // Not negative; 0 adds no landing alignment.
+    double landing_alignment_weight = 3 [default = 0.0, (humanoid_mpc_config.tuning) = { minimum: 0 }];
+    // [s] Positive.
+    double landing_window = 4 [default = 0.2, (humanoid_mpc_config.tuning) = { unit: "s" minimum: 0 }];
+  }
+
+  // The soft constraint terrain_non_penetration: per contact that is not in contact, the signed distance of the
+  // collision sphere of its pad (the contact set's geom radius) to the terrain, minus `margin`, kept non-negative by a
+  // relaxed barrier (mu, delta).
+  // Next ID: 4
+  message TerrainNonPenetration {
+    reserved 4 to max;
+
+    // Positive.
+    double mu = 1 [default = 0.01, (humanoid_mpc_config.tuning) = { minimum: 0 }];
+    // [m] Positive.
+    double delta = 2 [default = 0.005, (humanoid_mpc_config.tuning) = { unit: "m" minimum: 0 }];
+    // [m] Not negative.
+    double margin = 3 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "m" minimum: 0 }];
+  }
+
+  // The scenario (humanoid_multi_contact/scenarios/scenario.proto) whose contact set and terrain the plan was made
+  // for, and the plan (a binary .binpb or a textproto), as paths below the repository root; a plan whose hashes do not
+  // match the scenario's contact set and terrain is refused. The MPC node's and the dummy simulator's
+  // --multi_contact_scenario and --multi_contact_plan flags replace them.
+  string scenario_file = 1 [
+    default = "",
+    (humanoid_mpc_config.tuning) = {
+      exclude_reason: "the files of the tracked plan, chosen by the launch file"
+    }
+  ];
+  string plan_file = 2 [
+    default = "",
+    (humanoid_mpc_config.tuning) = {
+      exclude_reason: "the files of the tracked plan, chosen by the launch file"
+    }
+  ];
+  ClockHold clock_hold = 3 [(humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP }];
+  Swing swing = 4 [(humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP }];
+  ContactSwing contact_swing = 5 [(humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP }];
+  TerrainNonPenetration terrain_non_penetration = 6 [(humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP }];
+  // The contact-force reference of the input costs, by name: "weight_share" (the robot's weight shared among the
+  // active contacts, as without a plan) or "planned_wrenches" (the plan's wrench of every active contact at the plan
+  // time, so that the MPC loads and unloads the contacts as the plan does).
+  // LINT.IfChange(force_reference_names)
+  string force_reference = 7 [
+    default = "weight_share",
+    (humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP registry: "multi_contact_force_reference" }
+  ];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/include/humanoid_centroidal_mpc/multi_contact/MultiContactPlanSource.h:force_reference_names)
+  // How the plan plays, by name (section 7.3): "once" (from its first knot to its last, then holding its last state) or
+  // "forward_and_reverse" (forward, playback_dwell [s] standing at its end, then backward in time to its start - every
+  // configuration retraced, every momentum negated, every planned wrench kept - playback_dwell standing there, and
+  // again, forever: the stairs walked up, then backward down). The MPC node's and the dummy simulator's
+  // --multi_contact_playback flag replaces it.
+  // LINT.IfChange(plan_playback_names)
+  string playback = 8 [
+    default = "once",
+    (humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP registry: "multi_contact_plan_playback" }
+  ];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/include/humanoid_centroidal_mpc/multi_contact/PlanPlayback.h:plan_playback_names)
+  // [s] Positive: how long the robot stands at either end of the plan under "forward_and_reverse"; unread under "once".
+  double playback_dwell = 9 [
+    default = 1.5,
+    (humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP unit: "s" minimum: 0 }
+  ];
+  // [s] Not negative: the longest swing that follows the generalized swing planner's arc. A contact out of contact for
+  // longer (a hand that reaches for a box for half a minute of a slow plan) follows the plan's own pad instead, from
+  // knot to knot, where the plan has it; 0, the default, swings every contact on an arc.
+  double arc_swing_duration_limit = 10 [
+    default = 0.0,
+    (humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP unit: "s" minimum: 0 }
+  ];
+}

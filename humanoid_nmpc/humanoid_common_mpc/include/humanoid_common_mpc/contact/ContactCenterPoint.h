@@ -38,18 +38,34 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /** The center of a contact surface: the frame it is named by, its parent joint
- * and its offset in the parent's frame. */
+ * and its pose in the parent's frame. The frame's rotation is the identity for
+ * a sole; a pad of another orientation (a seat or a torso pad, whose z axis is
+ * the terrain's normal when it rests on it) carries parent_R_contact. */
 struct ContactCenterPoint {
   const std::string frameName;
   const std::string parentJointName;
   const vector3_t translationFromParent;
+  // parent_R_contact: a rotation matrix.
+  const matrix3_t rotationFromParent;
 
+  /** A contact frame of the parent's orientation, as every sole's. */
   ContactCenterPoint(std::string frameName,
                      std::string parentJointName,
                      const vector3_t& translationFromParent)
+      : ContactCenterPoint(std::move(frameName),
+                           std::move(parentJointName),
+                           translationFromParent,
+                           matrix3_t::Identity()) {}
+
+  /** A contact frame rotated by `rotationFromParent` (parent_R_contact). */
+  ContactCenterPoint(std::string frameName,
+                     std::string parentJointName,
+                     const vector3_t& translationFromParent,
+                     const matrix3_t& rotationFromParent)
       : frameName(std::move(frameName)),
         parentJointName(std::move(parentJointName)),
-        translationFromParent(translationFromParent) {}
+        translationFromParent(translationFromParent),
+        rotationFromParent(rotationFromParent) {}
 };
 
 }  // namespace ocs2::humanoid

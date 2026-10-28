@@ -43,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 
+#include "humanoid_centroidal_mpc_app/CentroidalAppFlags.h"
 #include "humanoid_centroidal_mpc_app/CentroidalMpcNode.h"
 #include "humanoid_common_mpc/common/ThreadAffinity.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
@@ -138,6 +139,8 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   options.solverThread = ocs2::humanoid::node::defaultSolverThreadConfig(
       settings->solverThreadPriority);
   options.walkingCommandTimeout = settings->walkingCommandTimeout;
+  options.multiContactPlanFiles =
+      ocs2::humanoid::multiContactPlanFilesFromFlags();
   // The node also publishes viz/scene and viz/telemetry for the Rerun bridge
   // (humanoid_common_mpc_app/visualization), from a thread of its own under
   // SCHED_IDLE, on the MPC cores it inherits from this thread: a solver thread

@@ -1,0 +1,82 @@
+# proto-file: humanoid_nmpc/humanoid_multi_contact/scenarios/scenario.proto
+# proto-message: humanoid_multi_contact.Scenario
+# The high variant of box_climb.textproto: the box at Atlas's hip height at the nominal pose (the hip pitch joints
+# are 0.857 m above the floor), where the forearms must reach the top face before a knee can.
+
+name: "box_climb_high"
+robot: "drc_atlas"
+urdf_file: "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf"
+contact_set_file: "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/multi_contact/contact_set.textproto"
+collision_model_file: "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/multi_contact/collision_model.textproto"
+mpc_task_file: "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/multi_contact/task.textproto"
+mpc_reference_file: "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/multi_contact/reference.textproto"
+
+terrain_scene {
+  name: "box_climb_high"
+  # The floor: its top face is z = 0.
+  primitives {
+    name: "ground"
+    friction: 0.8
+    box { center: [0, 0, -0.5] half_extents: [20, 20, 0.5] }
+  }
+  # 1.0 x 1.0 m, 0.86 m high, its front face 0.4 m in front of the robot.
+  primitives {
+    name: "box"
+    friction: 0.8
+    box { center: [0.9, 0, 0.43] half_extents: [0.5, 0.5, 0.43] }
+  }
+}
+
+# Standing on the floor at the nominal pose: knees bent, arms down, the soles at z = 0.
+initial_pose {
+  name: "standing"
+  base_position: [0, 0, 0.9232]
+  base_orientation_xyzw: [0, 0, 0, 1]
+  joint_positions { joint: "l_leg_hpy" position: -0.3 }
+  joint_positions { joint: "r_leg_hpy" position: -0.3 }
+  joint_positions { joint: "l_leg_kny" position: 0.6 }
+  joint_positions { joint: "r_leg_kny" position: 0.6 }
+  joint_positions { joint: "l_leg_aky" position: -0.3 }
+  joint_positions { joint: "r_leg_aky" position: -0.3 }
+  joint_positions { joint: "l_arm_shx" position: -1.3 }
+  joint_positions { joint: "r_arm_shx" position: 1.3 }
+  active_contacts: "foot_l_contact"
+  active_contacts: "foot_r_contact"
+}
+
+goal {
+  contacts { contact: "foot_l_contact" primitive: "box" }
+  contacts { contact: "foot_r_contact" primitive: "box" }
+  base_region { center: [0.9, 0, 1.7832] half_extents: [0.3, 0.3, 0.15] }
+  pose {
+    name: "standing"
+    base_position: [0.9, 0, 1.7832]
+    base_orientation_xyzw: [0, 0, 0, 1]
+    joint_positions { joint: "l_leg_hpy" position: -0.3 }
+    joint_positions { joint: "r_leg_hpy" position: -0.3 }
+    joint_positions { joint: "l_leg_kny" position: 0.6 }
+    joint_positions { joint: "r_leg_kny" position: 0.6 }
+    joint_positions { joint: "l_leg_aky" position: -0.3 }
+    joint_positions { joint: "r_leg_aky" position: -0.3 }
+    joint_positions { joint: "l_arm_shx" position: -1.3 }
+    joint_positions { joint: "r_arm_shx" position: 1.3 }
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+  }
+}
+
+allowed_contacts: "foot_l_contact"
+allowed_contacts: "foot_r_contact"
+allowed_contacts: "knee_l_contact"
+allowed_contacts: "knee_r_contact"
+allowed_contacts: "hand_l_contact"
+allowed_contacts: "hand_r_contact"
+allowed_contacts: "forearm_l_contact"
+allowed_contacts: "forearm_r_contact"
+
+planner: "stance_graph_then_contact_invariant"
+static_margin: 0.03
+# The plan respects the joint position limits only, not the effort limits (design section 11, decision 6): the
+# dummy sims show the contact sequences, and Atlas's arms (elbow 112 N m, shoulder 87-99 N m) cannot carry its body.
+joint_limits: "position_only"
+duration: 15

@@ -57,6 +57,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_centroidal_mpc/initialization/CentroidalWeightCompInitializer.h"
+#include "humanoid_centroidal_mpc/multi_contact/MultiContactPlanSource.h"
+#include "humanoid_centroidal_mpc/multi_contact/PlannedMotionReferenceManager.h"
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
 #include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
 #include "humanoid_common_mpc/common/ContactInputParameterization.h"
@@ -125,6 +127,20 @@ class CentroidalMpcInterface final : public RobotInterface {
       const std::string& referenceFile);
   static absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> Create(
       CentroidalMpcConfig config, const std::string& urdfFile);
+
+  /**
+   * The MPC of `config` tracking the plan of `planSource` (a scenario and a
+   * plan made for it, held in memory) in place of the files the task file's
+   * multi_contact_plan block names: what an offline planner builds to refine
+   * a plan of its own (humanoid_nmpc/docs/multi_contact_planning/README.md,
+   * section 4.2, solve 3). InvalidArgument unless the task file's
+   * contact_schedule_source is "multi_contact_plan"; Create()'s errors
+   * otherwise.
+   */
+  static absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> Create(
+      CentroidalMpcConfig config,
+      const std::string& urdfFile,
+      MultiContactPlanSource planSource);
 
   /**
    * The models an MRT joint controller needs and nothing else, for a robot
@@ -217,6 +233,16 @@ class CentroidalMpcInterface final : public RobotInterface {
   std::shared_ptr<SwitchedModelReferenceManager>
   getSwitchedModelReferenceManagerPtr() const {
     return referenceManagerPtr_;
+  }
+
+  /**
+   * The reference manager tracking a multi-contact plan, under
+   * contact_schedule_source: "multi_contact_plan" (the same object as
+   * getSwitchedModelReferenceManagerPtr()); null under any other source.
+   */
+  const std::shared_ptr<PlannedMotionReferenceManager>&
+  getPlannedMotionReferenceManagerPtr() const {
+    return plannedReferenceManagerPtr_;
   }
 
   const CentroidalWeightCompInitializer& getInitializer() const override {
@@ -355,7 +381,10 @@ class CentroidalMpcInterface final : public RobotInterface {
    * CreateControllerModels().
    */
   static absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> build(
-      CentroidalMpcConfig config, const std::string& urdfFile, Scope scope);
+      CentroidalMpcConfig config,
+      const std::string& urdfFile,
+      Scope scope,
+      std::optional<MultiContactPlanSource> planSource = std::nullopt);
 
   /**
    * Builds the robot models: the Pinocchio model (loadCustomPinocchioInterface,
@@ -412,6 +441,16 @@ class CentroidalMpcInterface final : public RobotInterface {
   absl::Status setupReferenceManager();
 
   /**
+   * Under "multi_contact_plan": reads the task file's multi_contact_plan block,
+   * the scenario and the plan it names, and builds the planned-motion
+   * reference manager on `gaitSchedule` and `swingTrajectoryPlanner` (the
+   * base's); the MPC's initial state becomes the plan's first.
+   */
+  absl::Status setupPlannedMotionReferenceManager(
+      std::shared_ptr<GaitSchedule> gaitSchedule,
+      std::unique_ptr<SwingTrajectoryPlanner> swingTrajectoryPlanner);
+
+  /**
    * Builds the locomotion-heuristic layer from the task file's
    * locomotion_heuristics and installs it on the reference manager.
    *
@@ -454,6 +493,12 @@ class CentroidalMpcInterface final : public RobotInterface {
       size_t i,
       const ContactTermInputs& inputs,
       const EndEffectorKinematics<scalar_t>* absl_nullable eeKinematicsPtr);
+  /** The terms of a tracked plan: contact_swing and terrain_non_penetration;
+   * `eeKinematicsPtr` may be null. */
+  absl::Status addPlannedContactTerms(
+      size_t i,
+      const ContactTermInputs& inputs,
+      const EndEffectorKinematics<scalar_t>* absl_nullable eeKinematicsPtr);
   /** The hard constraints, the knee mimic and the per-foot costs;
    * `eeKinematicsPtr` may be null. */
   absl::Status addContactHardConstraintsAndFootCosts(
@@ -478,6 +523,10 @@ class CentroidalMpcInterface final : public RobotInterface {
   // The configuration the interface is built from (config()); the cost and
   // constraint factory reads the task file in it.
   CentroidalMpcConfig config_;
+  // The plan of Create()'s in-memory overload, which
+  // setupPlannedMotionReferenceManager() takes in place of the task file's
+  // files; std::nullopt otherwise, and after it is taken.
+  std::optional<MultiContactPlanSource> planSource_;
   ModelSettings modelSettings_;
   // The MPC, SQP and rollout settings and interface.verbose of the task file.
   SolverSettings solverSettings_;
@@ -487,6 +536,8 @@ class CentroidalMpcInterface final : public RobotInterface {
 
   std::unique_ptr<OptimalControlProblem> problemPtr_;
   std::shared_ptr<SwitchedModelReferenceManager> referenceManagerPtr_;
+  // The same manager, typed, under "multi_contact_plan"; null otherwise.
+  std::shared_ptr<PlannedMotionReferenceManager> plannedReferenceManagerPtr_;
   std::shared_ptr<ContactPlannerModule> contactPlannerModulePtr_;
   std::optional<ContactPlanningModelParameters>
       contactPlanningModelParameters_;  // derived from the model, applied to

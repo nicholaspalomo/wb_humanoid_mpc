@@ -18,6 +18,7 @@ cc_library(
     hdrs = ["ConfigRegistries.h"],
     copts = FIRST_PARTY_COPTS,
     deps = [
+        "//humanoid_nmpc/humanoid_centroidal_mpc",
         "//humanoid_nmpc/humanoid_common_mpc",
         "//humanoid_nmpc/humanoid_common_mpc:contact_planning_core",
         "//humanoid_nmpc/humanoid_common_mpc_app/robot:robot_process",
@@ -54,6 +55,7 @@ cc_test(
     data = ["//humanoid_nmpc/humanoid_mpc_config:config_registries.textproto"],
     deps = [
         ":config_registries",
+        "//humanoid_nmpc/humanoid_centroidal_mpc",
         "//humanoid_nmpc/humanoid_common_mpc",
         "//humanoid_nmpc/humanoid_common_mpc:contact_planning_core",
         "//humanoid_nmpc/humanoid_common_mpc_app/robot:robot_process",

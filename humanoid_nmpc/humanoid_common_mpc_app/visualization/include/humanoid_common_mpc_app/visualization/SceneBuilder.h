@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -86,9 +87,10 @@ struct SceneInputs {
  *     `terminal_state`, the last node of the plan, and `terminal_target`, the
  * reference at the plan's last time, with the MPC's model (its fixed joints at
  * their URDF zero);
- *   - at the observation: the contact force of every stance foot, an arrow
- * ending at the foot's center of pressure, their net center of pressure, the
- * four statically equivalent corner forces of every stance foot, and the
+ *   - at the observation: the contact force of every contact in contact, an
+ * arrow ending at a 6-DoF contact's center of pressure or at a 3-DoF contact's
+ * frame, the net center of pressure of the 6-DoF ones, the four statically
+ * equivalent corner forces of every 6-DoF contact in contact, and the
  *     collision spheres. The contact wrenches are the policy's input at the
  * observation's time, taken through the state-aware world-frame accessors, so
  * that they are right for every input parameterization, and not the
@@ -194,9 +196,14 @@ class SceneBuilder {
   std::vector<pinocchio::FrameIndex> mpcLinkFrames_;
   std::vector<std::string> mpcLinkNames_;
 
-  feet_array_t<pinocchio::FrameIndex> contactFrames_{};
-  feet_array_t<std::array<pinocchio::FrameIndex, kFootCorners>> cornerFrames_{};
-  std::vector<ContactWrenchMapper<kFootCorners>> cornerForceMappers_;
+  // Per contact of the model's contact set (ModelSettings::contactNames): its
+  // frame, and for a 6-DoF contact the corner frames of its rectangle and the
+  // mapper of its wrench to their forces (empty for a 3-DoF contact, whose
+  // force is drawn at its frame).
+  std::vector<pinocchio::FrameIndex> contactFrames_;
+  std::vector<std::array<pinocchio::FrameIndex, kFootCorners>> cornerFrames_;
+  std::vector<std::optional<ContactWrenchMapper<kFootCorners>>>
+      cornerForceMappers_;
   std::vector<CollisionSphere> collisionSpheres_;
   std::vector<pinocchio::FrameIndex> planFrames_;
 

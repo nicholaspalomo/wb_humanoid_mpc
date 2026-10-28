@@ -44,9 +44,9 @@ train-acom-jupyter:
 ## This cannot remove zombies: a zombie has already exited and only its parent can reap it. See check-zombies.
 kill-sims:
 	@echo "🧹 Cleaning up previous sim processes..."
-	@$(session) stop
-	@echo "✅ Cleanup done."
-	@$(MAKE) --no-print-directory check-zombies WARN_ONLY=1
+# 	@$(session) stop
+# 	@echo "✅ Cleanup done."
+# 	@$(MAKE) --no-print-directory check-zombies WARN_ONLY=1
 
 ## Report zombie processes and which parent is holding them.
 ## A zombie has already exited and only its parent can reap it, so kill/pkill have no effect; that is why kill-sims
@@ -505,7 +505,7 @@ ROBOT_CONFIGURATIONS := \
 	sa01:engineai_sa01:robot_models/engineai_sa01/engineai_sa01_centroidal_mpc:centroidal:robot_models/engineai_sa01/engineai_sa01_description
 # The robots with a sandbox target: one per description (the whole-body G1 shares the G1's).
 SANDBOX_ROBOTS := g1 drc-atlas r1 sa01
-# LINT.ThenChange(//tools/deploy/BUILD.bazel:robot_configurations, //robot_models/tests/test_launch_files.py:robot_configurations, //.devcontainer/README.md:launch_targets, //README.md:launch_targets)
+# LINT.ThenChange(//tools/deploy/BUILD.bazel:robot_configurations, //robot_models/tests/test_launch_files.py:robot_configurations, //.devcontainer/README.md:launch_targets, //README.md:launch_targets, //Makefile:multi_contact_scenarios)
 
 field = $(word $(2),$(subst :, ,$(1)))
 
@@ -564,6 +564,73 @@ $(foreach configuration,$(ROBOT_CONFIGURATIONS),$(eval $(call robot_launch_targe
 $(foreach configuration,$(filter $(addsuffix :%,$(SANDBOX_ROBOTS)),$(ROBOT_CONFIGURATIONS)),\
 	$(eval $(call robot_sandbox_targets,$(configuration))))
 # LINT.ThenChange(//.devcontainer/README.md:launch_targets, //README.md:launch_targets, //tools/deploy/test_deploy_files.py:launch_targets)
+
+# The DRC Atlas's multi-contact scenarios (humanoid_nmpc/docs/multi_contact_planning/README.md, section 8.1): <target
+# name>:<scenario> for the scenario file humanoid_nmpc/humanoid_multi_contact/scenarios/config/<scenario>.textproto,
+# whose plan is $(MULTI_CONTACT_PLAN_DIR)/<scenario>.binpb (the offline planner's output, `make plan-drc-atlas-<target
+# name>`). The rows of the plan and playback targets of the planner may reuse this table.
+# LINT.IfChange(multi_contact_scenarios)
+MULTI_CONTACT_SCENARIOS := \
+	stairs:stairs \
+	stairs-steep:stairs_steep \
+	box-climb:box_climb \
+	box-climb-high:box_climb_high \
+	car-egress:car_egress \
+	get-up-supine:get_up_supine \
+	get-up-prone:get_up_prone
+MULTI_CONTACT_PLAN_DIR := humanoid_nmpc/humanoid_multi_contact/plans
+multi_contact_launch_file := robot_models/drc_atlas/drc_atlas_centroidal_mpc/launch/multi_contact_dummy_sim.textproto
+# The binaries of the multi-contact launch file: the centroidal dummy sim's and the Rerun bridge.
+multi_contact_binaries := $(dummy_binaries_centroidal) //humanoid_nmpc/humanoid_rerun_viewer
+# LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/launch/multi_contact_dummy_sim.textproto:multi_contact_plan_dir, //tools/deploy/BUILD.bazel:robot_configurations, //robot_models/tests/test_launch_files.py:multi_contact_scenarios, //tools/deploy/test_deploy_files.py:multi_contact_targets, //README.md:multi_contact_targets, //.devcontainer/README.md:multi_contact_targets, //Makefile:robot_configurations)
+
+# LINT.IfChange(multi_contact_targets)
+# How the dummy sim of a scenario plays its plan (multi_contact_plan.playback; the multi-contact design, section 7.3),
+# MULTI_CONTACT_PLAYBACK_<target name>, where it is not "once": the stairs are walked up, stood on, walked backward down
+# and stood at, over and over.
+MULTI_CONTACT_PLAYBACK_stairs := forward_and_reverse
+multi_contact_playback = $(or $(MULTI_CONTACT_PLAYBACK_$(1)),once)
+# The dummy sim of one multi-contact scenario ($(1) is its entry of MULTI_CONTACT_SCENARIOS): the centroidal MPC tracking
+# its plan, with the scenario's terrain in Rerun. A -vnc target is the target with VIEWS=vnc.
+define multi_contact_dummy_sim_targets
+.PHONY: launch-drc-atlas-$(call field,$(1),1)-dummy-sim launch-drc-atlas-$(call field,$(1),1)-dummy-sim-vnc
+
+launch-drc-atlas-$(call field,$(1),1)-dummy-sim: kill-sims
+	@$(call udp_buffers,$(shipped_network),localhost)
+	@$(session) laptop --launch_file $(multi_contact_launch_file) --build "$(multi_contact_binaries)" $$(rerun_sets) \
+		--set scenario=$(call field,$(1),2) --set plan_dir=$(MULTI_CONTACT_PLAN_DIR) \
+		--set playback=$(call multi_contact_playback,$(call field,$(1),1))
+
+launch-drc-atlas-$(call field,$(1),1)-dummy-sim-vnc: override VIEWS = vnc
+launch-drc-atlas-$(call field,$(1),1)-dummy-sim-vnc: launch-drc-atlas-$(call field,$(1),1)-dummy-sim
+endef
+
+$(foreach scenario,$(MULTI_CONTACT_SCENARIOS),$(eval $(call multi_contact_dummy_sim_targets,$(scenario))))
+# LINT.ThenChange(//README.md:multi_contact_targets, //.devcontainer/README.md:multi_contact_targets, //tools/deploy/test_deploy_files.py:multi_contact_targets, //robot_models/drc_atlas/drc_atlas_centroidal_mpc/launch/multi_contact_dummy_sim.textproto:multi_contact_playback)
+
+# LINT.IfChange(multi_contact_plan_targets)
+# The offline plan and the kinematic playback of one multi-contact scenario ($(1) is its entry of
+# MULTI_CONTACT_SCENARIOS): plan-drc-atlas-<target name> runs the offline planner and writes
+# $(MULTI_CONTACT_PLAN_DIR)/<scenario>.binpb with its summary beside it; playback-drc-atlas-<target name> plays that
+# plan in Rerun (RERUN_SINK=serve_web by default, the web viewer at http://localhost:9090). The planner is the
+# scenario's own (its `planner` field); MULTI_CONTACT_PLANNER=<name> overrides it (stance_graph, contact_invariant or
+# stance_graph_then_contact_invariant).
+MULTI_CONTACT_PLANNER ?=
+multi_contact_app := //humanoid_nmpc/humanoid_multi_contact/app
+multi_contact_scenario_file = humanoid_nmpc/humanoid_multi_contact/scenarios/config/$(1).textproto
+multi_contact_plan_file = $(MULTI_CONTACT_PLAN_DIR)/$(1).binpb
+define multi_contact_plan_targets
+.PHONY: plan-drc-atlas-$(call field,$(1),1) playback-drc-atlas-$(call field,$(1),1)
+
+plan-drc-atlas-$(call field,$(1),1):
+	@$(dev_run) '$(bazel_indexed_in_repo) run $(multi_contact_app):plan_multi_contact -- --scenario=$(call multi_contact_scenario_file,$(call field,$(1),2)) --output=$(call multi_contact_plan_file,$(call field,$(1),2)) $$(if $$(MULTI_CONTACT_PLANNER),--planner=$$(MULTI_CONTACT_PLANNER))'
+
+playback-drc-atlas-$(call field,$(1),1):
+	@$(dev_run) '$(bazel_indexed_in_repo) run $(multi_contact_app):plan_playback -- --scenario=$(call multi_contact_scenario_file,$(call field,$(1),2)) --plan=$(call multi_contact_plan_file,$(call field,$(1),2)) --rerun_sink=$$(or $$(RERUN_SINK),serve_web)'
+endef
+
+$(foreach scenario,$(MULTI_CONTACT_SCENARIOS),$(eval $(call multi_contact_plan_targets,$(scenario))))
+# LINT.ThenChange(//README.md:multi_contact_plan_targets, //humanoid_nmpc/humanoid_multi_contact/README.md:multi_contact_plan_targets)
 
 ## Deploy the robot side to the robot's computer: make deploy-robot ROBOT=drc_atlas HOST=<ssh host> NETWORK=<file>
 ## [SERVICE=install|enable] [REGISTRY=<registry>] [PLATFORM=linux/arm64] [BACKEND=<backend name>] [MEMORY_LIMIT=4g]
@@ -627,6 +694,12 @@ help:
 	@echo "                                  on the VNC desktop :99; display: native windows on DISPLAY, checked"
 	@echo "  launch-<robot>-sandbox[-vnc]    for <robot> in $(SANDBOX_ROBOTS): the URDF in Rerun at its nominal pose or"
 	@echo "                                  at a slider per joint (JOINT_SOURCE=sliders|nominal)"
+	@echo "  launch-drc-atlas-<scenario>-dummy-sim[-vnc]  for <scenario> in $(foreach c,$(MULTI_CONTACT_SCENARIOS),$(call field,$(c),1)):"
+	@echo "                                  the centroidal MPC tracking the scenario's multi-contact plan in the dummy"
+	@echo "                                  simulator ($(MULTI_CONTACT_PLAN_DIR)/<scenario>.binpb)"
+	@echo "  plan-drc-atlas-<scenario>       the offline multi-contact planner: writes $(MULTI_CONTACT_PLAN_DIR)/"
+	@echo "                                  <scenario>.binpb and prints the certifier's report (MULTI_CONTACT_PLANNER=)"
+	@echo "  playback-drc-atlas-<scenario>   that plan played kinematically in Rerun (RERUN_SINK=, default serve_web)"
 	@echo "Deployment: deploy-robot ROBOT= HOST= NETWORK= [SERVICE=install|enable] [REGISTRY=] [PLATFORM=] [BACKEND=]"
 	@echo "            [MEMORY_LIMIT=], robot-images"
 	@echo "            udp-buffers [NETWORK=] [HOST=]: the kernel's UDP buffer limits the network file asks for (sudo,"

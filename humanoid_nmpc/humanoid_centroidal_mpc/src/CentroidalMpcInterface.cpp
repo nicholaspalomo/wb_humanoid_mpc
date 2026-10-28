@@ -63,15 +63,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_oc/synchronized_module/SolverSynchronizedModule.h"
 #include "ocs2_pinocchio_interface/PinocchioEndEffectorKinematicsCppAd.h"
 
+#include "humanoid_centroidal_mpc/CentroidalContactSet.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/config/costs/DcmTerminalCostFromConfig.h"
 #include "humanoid_centroidal_mpc/constraint/JointMimicKinematicConstraint.h"
 #include "humanoid_centroidal_mpc/constraint/NormalVelocityConstraintCppAd.h"
+#include "humanoid_centroidal_mpc/constraint/SwingLandingAlignmentConstraint.h"
+#include "humanoid_centroidal_mpc/constraint/TerrainNonPenetrationConstraint.h"
 #include "humanoid_centroidal_mpc/constraint/ZeroVelocityConstraintCppAd.h"
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
 #include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsAD.h"
 #include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsBasisInputsAD.h"
+#include "humanoid_centroidal_mpc/multi_contact/MultiContactPlanSource.h"
 #include "humanoid_centroidal_mpc/parameter_update/ZeroVelocityGainsApplier.h"
 #include "humanoid_common_mpc/HumanoidCostConstraintFactory.h"
 #include "humanoid_common_mpc/HumanoidPreComputation.h"
@@ -96,6 +100,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/config/weights/StateInputWeightsFromConfig.h"
 #include "humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h"
 #include "humanoid_common_mpc/constraint/ContactComplementarityConstraint.h"
+#include "humanoid_common_mpc/constraint/ContactSwingConstraint.h"
 #include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
 #include "humanoid_common_mpc/constraint/EndEffectorKinematicsTwistConstraint.h"
 #include "humanoid_common_mpc/constraint/ForceWeightedSlipConstraint.h"
@@ -120,6 +125,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_config/reference_file.pb.h"
 #include "humanoid_mpc_config/task_file.nproto.pb.h"
 #include "humanoid_mpc_config/task_file.pb.h"
+#include "humanoid_multi_contact/plan/PlanFile.h"
 #include "nproto/Textproto.h"
 
 namespace ocs2::humanoid {
@@ -312,6 +318,21 @@ CentroidalMpcInterface::Create(CentroidalMpcConfig config,
 }
 
 absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>>
+CentroidalMpcInterface::Create(CentroidalMpcConfig config,
+                               const std::string& urdfFile,
+                               MultiContactPlanSource planSource) {
+  if (config.task.contact_schedule_source !=
+      contactScheduleSourceName(ContactScheduleSource::kMultiContactPlan)) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[CentroidalMpcInterface] an in-memory multi-contact plan needs "
+        "contact_schedule_source: \"",
+        contactScheduleSourceName(ContactScheduleSource::kMultiContactPlan),
+        "\", not \"", config.task.contact_schedule_source, "\""));
+  }
+  return build(std::move(config), urdfFile, Scope::kMpc, std::move(planSource));
+}
+
+absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>>
 CentroidalMpcInterface::CreateControllerModels(
     const std::string& taskFile,
     const std::string& urdfFile,
@@ -329,9 +350,11 @@ CentroidalMpcInterface::CreateControllerModels(CentroidalMpcConfig config,
 }
 
 absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>>
-CentroidalMpcInterface::build(CentroidalMpcConfig config,
-                              const std::string& urdfFile,
-                              Scope scope) {
+CentroidalMpcInterface::build(
+    CentroidalMpcConfig config,
+    const std::string& urdfFile,
+    Scope scope,
+    std::optional<MultiContactPlanSource> planSource) {
   // The model settings read the URDF.
   RETURN_IF_ERROR(checkInputFileExists("URDF file", urdfFile));
   // The task file's interface.verbose first: it decides the logging of the
@@ -345,9 +368,13 @@ CentroidalMpcInterface::build(CentroidalMpcConfig config,
       ModelSettings modelSettings,
       ModelSettings::Create(config.task, urdfFile, "centroidal_mpc_",
                             solverSettings.verbose));
+  // A contact set other than the biped's two feet refuses, before any model is
+  // built, every selection written for exactly two feet.
+  RETURN_IF_ERROR(checkCentroidalContactSet(modelSettings, config.task));
   std::unique_ptr<CentroidalMpcInterface> interface = absl::WrapUnique(
       new CentroidalMpcInterface(std::move(config), std::move(modelSettings),
                                  std::move(solverSettings), urdfFile));
+  interface->planSource_ = std::move(planSource);
   RETURN_IF_ERROR(catchingModelBuilderExceptions([&]() -> absl::Status {
     // In this order: the robot models first; the reference manager and the
     // contact planner are built on the effective robot model, which the contact
@@ -576,6 +603,10 @@ absl::Status CentroidalMpcInterface::setupReferenceManager() {
         *pinocchioInterfacePtr_, *effectiveMpcRobotModelPtr_);
     return absl::OkStatus();
   }
+  if (contactScheduleSource_ == ContactScheduleSource::kMultiContactPlan) {
+    return setupPlannedMotionReferenceManager(
+        std::move(gaitSchedule), std::move(swingTrajectoryPlanner));
+  }
 
   // contact_planner: online contact planning (the planner planner.type of
   // contact_planning.textproto names) replaces the periodic gait schedule. The
@@ -691,6 +722,37 @@ absl::Status CentroidalMpcInterface::setupReferenceManager() {
               ? "background thread"
               : "synchronous")
       << ").";
+  return absl::OkStatus();
+}
+
+absl::Status CentroidalMpcInterface::setupPlannedMotionReferenceManager(
+    std::shared_ptr<GaitSchedule> gaitSchedule,
+    std::unique_ptr<SwingTrajectoryPlanner> swingTrajectoryPlanner) {
+  const mpc_config::MultiContactPlanConfig& block =
+      config_.task.multi_contact_plan;
+  ASSIGN_OR_RETURN(const PlannedMotionSettings settings,
+                   plannedMotionSettingsFromConfig(block));
+  const bool held = planSource_.has_value();
+  const std::string planName = held ? "held in memory" : block.plan_file;
+  ASSIGN_OR_RETURN(
+      MultiContactPlanSource source,
+      held ? absl::StatusOr<MultiContactPlanSource>(*std::move(planSource_))
+           : loadMultiContactPlanSource(block.scenario_file, block.plan_file));
+  planSource_.reset();
+  LOG(INFO) << "[CentroidalMpcInterface] tracking the multi-contact plan "
+            << planName << " of the scenario '" << source.scenario.scenario.name
+            << "' (" << source.plan.knots.size() << " knots, planner '"
+            << source.plan.planner << "').";
+  ASSIGN_OR_RETURN(
+      plannedReferenceManagerPtr_,
+      PlannedMotionReferenceManager::Create(
+          std::move(gaitSchedule), std::move(swingTrajectoryPlanner),
+          *pinocchioInterfacePtr_, *effectiveMpcRobotModelPtr_,
+          std::move(source), settings));
+  referenceManagerPtr_ = plannedReferenceManagerPtr_;
+  // The MPC, and the dummy simulator that reads getInitialState(), start
+  // where the plan does.
+  initialState_ = plannedReferenceManagerPtr_->plannedMotion().initialState();
   return absl::OkStatus();
 }
 
@@ -812,6 +874,22 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
   }
 
   RETURN_IF_ERROR(warnIfPlannedFootholdsCarryNoWeight(formulationTasks));
+  // The terms of a tracked plan read its swing planner and terrain.
+  for (const MpcSoftConstraintType planned :
+       {MpcSoftConstraintType::kContactSwing,
+        MpcSoftConstraintType::kTerrainNonPenetration}) {
+    if (formulationTasks.hasSoftConstraint(planned) &&
+        plannedReferenceManagerPtr_ == nullptr) {
+      ASSIGN_OR_RETURN(const std::string name,
+                       mpcSoftConstraintTypeToString(planned));
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[CentroidalMpcInterface] soft_constraints lists '", name,
+          "', which tracks a multi-contact plan: it needs "
+          "contact_schedule_source: \"multi_contact_plan\" "
+          "(humanoid_nmpc/docs/multi_contact_planning/README.md, section "
+          "7.2)."));
+    }
+  }
 
   // The parameters of the lambda >= 0 barrier that the basis-vector
   // parameterization builds for every contact below
@@ -981,15 +1059,20 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
       .scheduleGatedContactConstraints = scheduleGatedContactConstraints,
       .kneeMimicJoints = &kneeMimicJoints,
       .footCost = &footCost};
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  for (size_t i = 0; i < modelSettings_.contactNames.size(); ++i) {
     RETURN_IF_ERROR(addContactTerms(i, contactTermInputs));
   }
 
   // Pre-computation
-  problemPtr_->preComputationPtr = std::make_unique<HumanoidPreComputation>(
-      *pinocchioInterfacePtr_,
-      *referenceManagerPtr_->getSwingTrajectoryPlanner(),
-      *effectiveMpcRobotModelPtr_);
+  std::unique_ptr<HumanoidPreComputation> preComputation =
+      std::make_unique<HumanoidPreComputation>(
+          *pinocchioInterfacePtr_,
+          *referenceManagerPtr_->getSwingTrajectoryPlanner(),
+          *effectiveMpcRobotModelPtr_);
+  // The generalized swing planner of a tracked plan; null otherwise.
+  preComputation->setContactSwingPlanner(
+      referenceManagerPtr_->getContactSwingPlanner());
+  problemPtr_->preComputationPtr = std::move(preComputation);
 
   // Rollout, projecting every state it outputs onto the manifold
   rolloutPtr_ = std::make_unique<TimeTriggeredRollout>(
@@ -1188,16 +1271,18 @@ absl::Status CentroidalMpcInterface::addContactTerms(
   // below, so listing it here would generate a whole extra CppAD model per foot
   // that nothing reads.
   std::unique_ptr<EndEffectorKinematics<scalar_t>> eeKinematicsPtr;
-  const bool needsEeKinematics = formulationTasks.hasHardConstraint(
-                                     MpcHardConstraintType::kZeroVelocity) ||
-                                 formulationTasks.hasSoftConstraint(
-                                     MpcSoftConstraintType::kZeroVelocity) ||
-                                 formulationTasks.hasHardConstraint(
-                                     MpcHardConstraintType::kNormalVelocity) ||
-                                 formulationTasks.hasSoftConstraint(
-                                     MpcSoftConstraintType::kNormalVelocity) ||
-                                 formulationTasks.hasSoftConstraint(
-                                     MpcSoftConstraintType::kForceWeightedSlip);
+  const bool needsEeKinematics =
+      formulationTasks.hasHardConstraint(
+          MpcHardConstraintType::kZeroVelocity) ||
+      formulationTasks.hasSoftConstraint(
+          MpcSoftConstraintType::kZeroVelocity) ||
+      formulationTasks.hasHardConstraint(
+          MpcHardConstraintType::kNormalVelocity) ||
+      formulationTasks.hasSoftConstraint(
+          MpcSoftConstraintType::kNormalVelocity) ||
+      formulationTasks.hasSoftConstraint(
+          MpcSoftConstraintType::kForceWeightedSlip) ||
+      formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kContactSwing);
   // Neither contact_complementarity nor ground_penetration appears here: both
   // read the footprint CORNERS through a FootprintCornerHeights of their own,
   // not this contact-frame kinematics.
@@ -1212,6 +1297,7 @@ absl::Status CentroidalMpcInterface::addContactTerms(
   }
 
   RETURN_IF_ERROR(addContactConeTerms(i, inputs, eeKinematicsPtr.get()));
+  RETURN_IF_ERROR(addPlannedContactTerms(i, inputs, eeKinematicsPtr.get()));
   RETURN_IF_ERROR(addContactImplicitTerms(i, inputs, eeKinematicsPtr.get()));
   return addContactHardConstraintsAndFootCosts(i, inputs,
                                                eeKinematicsPtr.get());
@@ -1298,6 +1384,16 @@ absl::Status CentroidalMpcInterface::addContactConeTerms(
               << footName << " (" << numBasis << " basis vectors, start idx "
               << lambdaStartIdx << ").";
   } else if (formulationTasks.hasSoftConstraint(
+                 MpcSoftConstraintType::kContactWrenchCone) &&
+             modelSettings_.isPointContact(i)) {
+    // A 3-DoF contact carries no moment: its cone is the friction rows of the
+    // wrench cone, in the frame of its patch.
+    ASSIGN_OR_RETURN(std::unique_ptr<StateInputCost> pointFrictionCone,
+                     factory.makePointFrictionConeConstraint(i));
+    problemPtr_->softConstraintPtr->add(
+        contact_term::name(footName, contact_term::kPointFrictionCone),
+        std::move(pointFrictionCone));
+  } else if (formulationTasks.hasSoftConstraint(
                  MpcSoftConstraintType::kContactWrenchCone)) {
     ASSIGN_OR_RETURN(std::unique_ptr<StateInputCost> contactWrenchCone,
                      factory.makeContactWrenchConeConstraint(i));
@@ -1313,8 +1409,10 @@ absl::Status CentroidalMpcInterface::addContactConeTerms(
         contact_term::name(footName, contact_term::kFrictionForceCone),
         std::move(frictionForceCone));
   }
+  // The center of pressure is a 6-DoF contact's; a 3-DoF one has no moment.
   if (formulationTasks.hasSoftConstraint(
-          MpcSoftConstraintType::kContactMomentXy)) {
+          MpcSoftConstraintType::kContactMomentXy) &&
+      !modelSettings_.isPointContact(i)) {
     ASSIGN_OR_RETURN(
         std::unique_ptr<StateInputCost> contactMomentXYConstraint,
         factory.makeContactMomentXYConstraint(
@@ -1336,6 +1434,80 @@ absl::Status CentroidalMpcInterface::addContactConeTerms(
                                                    std::move(penalty)));
   }
 
+  return absl::OkStatus();
+}
+
+absl::Status CentroidalMpcInterface::addPlannedContactTerms(
+    size_t i,
+    const ContactTermInputs& inputs,
+    const EndEffectorKinematics<scalar_t>* absl_nullable eeKinematicsPtr) {
+  const MpcFormulationTasks& formulationTasks = *inputs.formulationTasks;
+  const bool swing =
+      formulationTasks.hasSoftConstraint(MpcSoftConstraintType::kContactSwing);
+  const bool nonPenetration = formulationTasks.hasSoftConstraint(
+      MpcSoftConstraintType::kTerrainNonPenetration);
+  if ((!swing && !nonPenetration) || plannedReferenceManagerPtr_ == nullptr) {
+    return absl::OkStatus();
+  }
+  const PlannedMotionSettings& settings =
+      plannedReferenceManagerPtr_->settings();
+  const std::string& contactName = modelSettings_.contactNames[i];
+  if (swing && eeKinematicsPtr != nullptr) {
+    problemPtr_->softConstraintPtr->add(
+        contact_term::name(contactName, contact_term::kContactSwing),
+        std::make_unique<StateInputSoftConstraint>(
+            std::make_unique<ContactSwingConstraint>(
+                *referenceManagerPtr_, *eeKinematicsPtr, i,
+                settings.contactSwingPositionGain),
+            std::make_unique<QuadraticPenalty>(settings.contactSwingWeight)));
+  }
+  // A 6-DoF contact lands flat on its patch (off at a zero weight).
+  if (swing && !modelSettings_.isPointContact(i) &&
+      settings.landingAlignmentWeight > 0.0) {
+    problemPtr_->stateSoftConstraintPtr->add(
+        contact_term::name(contactName, contact_term::kSwingLandingAlignment),
+        std::make_unique<StateSoftConstraint>(
+            std::make_unique<SwingLandingAlignmentConstraint>(
+                *referenceManagerPtr_, *pinocchioInterfacePtr_,
+                *effectiveMpcRobotModelADPtr_, i, settings.landingWindow,
+                absl::StrCat("swing_landing_alignment_", contactName),
+                modelSettings_),
+            std::make_unique<QuadraticPenalty>(
+                settings.landingAlignmentWeight)));
+  }
+  if (!nonPenetration) return absl::OkStatus();
+  // The collision sphere of the contact's geometry: its center lies the geom
+  // radius inside the pad, against the pad normal. The contact frame is the
+  // candidate's pad frame - a 3-DoF contact's in its parent's orientation, a
+  // 6-DoF contact's rotated by the pad axes (the multi-contact task file's
+  // test checks both against the contact set) - so the offset in the contact
+  // frame is -r R^T n, with n the pad normal in the parent's frame.
+  TerrainNonPenetrationConstraint::Sphere sphere;
+  if (const std::optional<multi_contact::ContactCandidate> candidate =
+          plannedReferenceManagerPtr_->candidateOf(i);
+      candidate.has_value()) {
+    const matrix3_t parentToContact = modelSettings_.isPointContact(i)
+                                          ? matrix3_t(matrix3_t::Identity())
+                                          : candidate->padRotation;
+    sphere.radius = candidate->geomRadius;
+    sphere.centerOffset = -candidate->geomRadius * parentToContact.transpose() *
+                          candidate->padNormal;
+  }
+  const multi_contact::LoadedScenario& scenario =
+      plannedReferenceManagerPtr_->scenario();
+  // The terrain is on the tape: the library's name carries its hash.
+  const std::string libraryName = absl::StrCat(
+      "terrain_non_penetration_", contactName, "_",
+      multi_contact::terrainSceneHash(scenario.scenario.terrain_scene));
+  problemPtr_->stateSoftConstraintPtr->add(
+      contact_term::name(contactName, contact_term::kTerrainNonPenetration),
+      std::make_unique<StateSoftConstraint>(
+          std::make_unique<TerrainNonPenetrationConstraint>(
+              *referenceManagerPtr_, *pinocchioInterfacePtr_,
+              *effectiveMpcRobotModelADPtr_, scenario.terrain, i, sphere,
+              settings.nonPenetrationMargin, libraryName, modelSettings_),
+          std::make_unique<RelaxedBarrierPenalty>(RelaxedBarrierPenalty::Config(
+              settings.nonPenetrationMu, settings.nonPenetrationDelta))));
   return absl::OkStatus();
 }
 
@@ -1550,11 +1722,15 @@ CentroidalMpcInterface::getStanceFootConstraint(
       modelSettings_.footConstraintConfig;
   const EndEffectorKinematicsTwistConstraint::Config twistConfig =
       footTwistConfig(footConfig);
+  const ZeroVelocityConstraintCppAd::ContactKind contactKind =
+      modelSettings_.isPointContact(contactPointIndex)
+          ? ZeroVelocityConstraintCppAd::ContactKind::kPoint
+          : ZeroVelocityConstraintCppAd::ContactKind::kSurface;
   const size_t numConstraints =
       footConfig.constrainOrientation ? kPoseTangentDim : kPositionDim;
   auto constraint = std::make_unique<ZeroVelocityConstraintCppAd>(
       *referenceManagerPtr_, eeKinematics, contactPointIndex, numConstraints,
-      twistConfig);
+      twistConfig, contactKind);
   configureZeroVelocityConstraint(*constraint, footConfig, twistConfig);
   return constraint;
 }

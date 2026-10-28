@@ -1,0 +1,294 @@
+load("@operator_deps//:requirements.bzl", "requirement")
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
+
+# humanoid_multi_contact/app - the multi-contact tools (humanoid_nmpc/docs/multi_contact_planning/README.md, sections 6
+# and 8.2): certify_plan, which certifies a plan against its scenario and writes it with its report, and plan_playback,
+# which plays a plan kinematically in Rerun.
+#
+#   bazel run //humanoid_nmpc/humanoid_multi_contact/app:certify_plan -- --scenario=<scenario> --plan=<plan> \
+#       --output=<certified.binpb>
+#   bazel run //humanoid_nmpc/humanoid_multi_contact/app:plan_playback -- --scenario=<scenario> --plan=<certified.binpb>
+
+package(default_visibility = ["//visibility:public"])
+
+# The robot files a scenario names (urdf_file, contact_set_file), which the tools find in their runfiles.
+_ROBOT_DATA = [
+    "//humanoid_nmpc/humanoid_multi_contact/scenarios:scenario_files",
+    "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+    "//robot_models/drc_atlas/drc_atlas_description",
+]
+
+cc_library(
+    name = "certify_plan_lib",
+    srcs = ["src/CertifyPlan.cpp"],
+    hdrs = ["include/humanoid_multi_contact/app/CertifyPlan.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_multi_contact/plan:multi_contact_plan_nproto",
+        "//humanoid_nmpc/humanoid_multi_contact/plan:plan_file",
+        "//humanoid_nmpc/humanoid_multi_contact/scenarios",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:certifier",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:certifier_report_nproto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_dimensions",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:str_format",
+        "@abseil-cpp//absl/strings:string_view",
+        "@eigen",
+    ],
+)
+
+# Where a `bazel run` command line's paths point.
+cc_library(
+    name = "command_line_paths",
+    srcs = ["src/CommandLinePaths.cpp"],
+    hdrs = ["include/humanoid_multi_contact/app/CommandLinePaths.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = ["@abseil-cpp//absl/base:nullability"],
+)
+
+cc_binary(
+    name = "certify_plan",
+    srcs = ["src/CertifyPlanMain.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = _ROBOT_DATA,
+    deps = [
+        ":certify_plan_lib",
+        ":command_line_paths",
+        "//humanoid_nmpc/humanoid_multi_contact/plan:plan_file",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/flags:flag",
+        "@abseil-cpp//absl/flags:parse",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/log:globals",
+        "@abseil-cpp//absl/log:initialize",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings:str_format",
+    ],
+)
+
+cc_library(
+    name = "plan_multi_contact_lib",
+    srcs = ["src/PlanMultiContact.cpp"],
+    hdrs = ["include/humanoid_multi_contact/app/PlanMultiContact.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set",
+        "//humanoid_nmpc/humanoid_multi_contact/plan:multi_contact_plan_nproto",
+        "//humanoid_nmpc/humanoid_multi_contact/planner",
+        "//humanoid_nmpc/humanoid_multi_contact/scenarios",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:certifier_report_nproto",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:str_format",
+        "@abseil-cpp//absl/strings:string_view",
+    ],
+)
+
+# The offline planner (design section 5): `make plan-drc-atlas-<scenario>`.
+#
+#   bazel run //humanoid_nmpc/humanoid_multi_contact/app:plan_multi_contact -- --scenario=<scenario> \
+#       --output=<plan.binpb> [--planner=stance_graph]
+cc_binary(
+    name = "plan_multi_contact",
+    srcs = ["src/PlanMultiContactMain.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = _ROBOT_DATA,
+    deps = [
+        ":certify_plan_lib",
+        ":command_line_paths",
+        ":plan_multi_contact_lib",
+        "//humanoid_nmpc/humanoid_multi_contact/plan:plan_file",
+        "//humanoid_nmpc/humanoid_multi_contact/planner",
+        "//humanoid_nmpc/humanoid_multi_contact/scenarios",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/flags:flag",
+        "@abseil-cpp//absl/flags:parse",
+        "@abseil-cpp//absl/log",
+        # --v=1 logs every validated stance.
+        "@abseil-cpp//absl/log:flags",
+        "@abseil-cpp//absl/log:globals",
+        "@abseil-cpp//absl/log:initialize",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings:str_format",
+    ],
+)
+
+# The hand-written plan of the tests: Atlas swaying on both feet in the box_climb scenario.
+filegroup(
+    name = "test_plans",
+    srcs = ["testdata/box_climb_sway.textproto"],
+)
+
+# The certifier end to end on the hand-written plan: its hashes, a passing report, and edited copies that fail
+# conditions 1, 2 and 3.
+cc_test(
+    name = "hand_written_plan_test",
+    size = "small",
+    srcs = ["test/testHandWrittenPlan.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = _ROBOT_DATA + [":test_plans"],
+    deps = [
+        ":certify_plan_lib",
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set",
+        "//humanoid_nmpc/humanoid_multi_contact/plan:multi_contact_plan_cc_proto",
+        "//humanoid_nmpc/humanoid_multi_contact/plan:multi_contact_plan_nproto",
+        "//humanoid_nmpc/humanoid_multi_contact/plan:plan_file",
+        "//humanoid_nmpc/humanoid_multi_contact/scenarios",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:certifier",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:certifier_report_nproto",
+        "//robot_runtime/robot_core:resource_paths",
+        "//tools/nproto:nproto_runtime",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# `from multi_contact_playback import plan_playback`: the package directory is python/multi_contact_playback.
+py_library(
+    name = "plan_playback_lib",
+    srcs = glob(["python/multi_contact_playback/*.py"]),
+    imports = ["python"],
+    deps = [
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set:contact_set_py_proto",
+        "//humanoid_nmpc/humanoid_multi_contact/plan:multi_contact_plan_py_proto",
+        "//humanoid_nmpc/humanoid_multi_contact/scenarios:scenario_py_proto",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:certifier_report_py_proto",
+        "//humanoid_nmpc/humanoid_multi_contact/terrain:terrain_scene_py_proto",
+        "//humanoid_nmpc/humanoid_rerun_viewer:humanoid_rerun_viewer_lib",
+        "//tools/nproto:nproto_textproto",
+        requirement("numpy"),
+        requirement("protobuf"),
+        "@operator_deps//rerun_sdk:rerun",
+    ],
+)
+
+py_binary(
+    name = "plan_playback",
+    srcs = ["python/multi_contact_playback/plan_playback.py"],
+    data = _ROBOT_DATA,
+    # The generated modules of the five proto libraries share the package humanoid_multi_contact from five import
+    # roots, which only a namespace package (no generated __init__.py) merges.
+    legacy_create_init = False,
+    main = "python/multi_contact_playback/plan_playback.py",
+    deps = [":plan_playback_lib"],
+)
+
+# The hand-written plan certified by certify_plan and played into an .rrd file: the terrain, the robot at every knot,
+# the contact forces, the support polygon and the margins; and an uncertified plan, drawn without them.
+py_test(
+    name = "test_plan_playback",
+    size = "small",
+    srcs = ["test/test_plan_playback.py"],
+    data = _ROBOT_DATA + [
+        ":certify_plan",
+        ":test_plans",
+    ],
+    env = {"CERTIFY_PLAN_BINARY": "$(rootpath :certify_plan)"},
+    # As plan_playback: humanoid_multi_contact is a namespace package.
+    legacy_create_init = False,
+    deps = [
+        ":plan_playback_lib",
+        "//humanoid_nmpc/humanoid_rerun_viewer:test_support",
+    ],
+)
+
+# The planners on the shipped scenarios (design section 9, "planner tests"): a certified plan that reaches the goal; on
+# the box more than the feet, on the stairs only the feet; planner A's plans over the scenario's duration. A search or
+# a solve takes minutes, so each planner and scenario is its own large test, `<planner>_<scenario>_test`: the
+# stance-graph planner on every scenario, planner A (contact_invariant) on every scenario, and the combined planner on
+# the scenarios that name it. The scenarios a planner does not plan yet (design section 5.5, "Status") are tagged
+# manual: they run with `bazel test //humanoid_nmpc/humanoid_multi_contact/app:<planner>_<scenario>_test` and fail
+# with what stopped the planner, and lose the tag when they plan. The box_climb scenario plans with the stance graph
+# through its waypoints (design section 5.5) within position limits relaxed by 0.1 rad (decision 8); the others plan
+# within the joint position limits only (joint_limits "position_only", design section 11, decision 6), which did not
+# unblock them:
+#  - stance_graph: the 40 min budget ends with the IK changing branch or stalling on the large changes (a hand onto the
+#    steep stairs' landing, the thigh off the car seat, the seat pad onto the floor from the back);
+#  - contact_invariant: solve 2 thresholds to seconds-long single-point stances (a hand or a knee alone on the box) that
+#    the inactive candidates' leaked force held up, and solve 3 fails 300-500 knots;
+#  - stance_graph_then_contact_invariant: planner B finds no sequence.
+# LINT.IfChange(planner_scenarios)
+_STANCE_GRAPH_SCENARIOS = {
+    "stairs": [],
+    "stairs_steep": ["manual"],
+    "box_climb": [],
+    "box_climb_high": ["manual"],
+    "car_egress": ["manual"],
+    "get_up_supine": ["manual"],
+    "get_up_prone": ["manual"],
+}
+
+_CONTACT_INVARIANT_SCENARIOS = {
+    "stairs": [],
+    "stairs_steep": ["manual"],
+    "box_climb": ["manual"],
+    "box_climb_high": ["manual"],
+    "car_egress": ["manual"],
+    "get_up_supine": ["manual"],
+    "get_up_prone": ["manual"],
+}
+
+_STANCE_GRAPH_THEN_CONTACT_INVARIANT_SCENARIOS = {
+    "stairs": [],
+    "box_climb_high": ["manual"],
+    "car_egress": ["manual"],
+    "get_up_supine": ["manual"],
+    "get_up_prone": ["manual"],
+}
+# LINT.ThenChange(//Makefile:multi_contact_scenarios, //humanoid_nmpc/docs/multi_contact_planning/README.md:planner_status, //humanoid_nmpc/docs/multi_contact_planning/README.md:contact_invariant_status)
+
+_PLANNER_SCENARIOS = [
+    ("stance_graph", _STANCE_GRAPH_SCENARIOS),
+    ("contact_invariant", _CONTACT_INVARIANT_SCENARIOS),
+    ("stance_graph_then_contact_invariant", _STANCE_GRAPH_THEN_CONTACT_INVARIANT_SCENARIOS),
+]
+
+[cc_test(
+    name = "%s_%s_test" % (planner, scenario),
+    size = "large",
+    timeout = "eternal",
+    srcs = ["test/testPlannerScenario.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = _ROBOT_DATA,
+    env = {
+        "MULTI_CONTACT_PLANNER": planner,
+        "MULTI_CONTACT_SCENARIO": scenario,
+    },
+    tags = tags,
+    deps = [
+        ":plan_multi_contact_lib",
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set",
+        "//humanoid_nmpc/humanoid_multi_contact/plan:multi_contact_plan_nproto",
+        "//humanoid_nmpc/humanoid_multi_contact/plan:plan_file",
+        "//humanoid_nmpc/humanoid_multi_contact/planner",
+        "//humanoid_nmpc/humanoid_multi_contact/planner:contact_invariant",
+        "//humanoid_nmpc/humanoid_multi_contact/planner:stance_graph_planner",
+        "//humanoid_nmpc/humanoid_multi_contact/scenarios",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:certifier_report_nproto",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+) for planner, scenarios in _PLANNER_SCENARIOS for scenario, tags in scenarios.items()]

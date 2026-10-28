@@ -90,6 +90,7 @@ exits without it (rerun-sdk 0.38 would wait without end).
 | `--plot_config` | `humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto` | a configuration file (`.textproto` or text file) specifying topics/signals to plot ('none' to disable) |
 | `--terminal_state` / `--no-terminal_state` | draw_terminal_state (`off`) | draw the end-of-trajectory robot visualization in `viz/scene` |
 | `--robot_instances` | all | comma-separated robot instances to draw (e.g. `measured`, `measured,terminal_state`) |
+| `--multi_contact_scenario` | none | a multi-contact scenario textproto whose terrain is drawn under `world/terrain` (the multi-contact dummy sims) |
 | `--app_id` | `humanoid_nmpc` | the Rerun application id; recordings of one id share the viewer's layout |
 | `--follow_robot` / `--no-follow_robot` | on | the 3D view's eye follows the measured robot's root link |
 | `--flush_period` | `0.2` (`serve_web`) / `0.05` | how often the buffered plots are sent [s]; every flush sends one chunk per plotted entity ("Cost") |

@@ -149,20 +149,27 @@ bool FrictionForceConeConstraint::isActive(scalar_t time) const {
   // which foot carries load, so it cannot be allowed to decide which foot's
   // force is bounded either; see contactConstraintsAreScheduleGated().
   if (!scheduleGated_) return true;
-  return referenceManagerPtr_->getContactFlags(time)[contactPointIndex_];
+  return referenceManagerPtr_->isInContact(time, contactPointIndex_);
+}
+
+matrix3_t FrictionForceConeConstraint::worldToPatchRotation(
+    scalar_t time) const {
+  return referenceManagerPtr_->getContactPatchFrame(contactPointIndex_, time)
+      .worldToPatchRotation;
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 vector_t FrictionForceConeConstraint::getValue(
-    scalar_t /*time*/,
+    scalar_t time,
     const vector_t& /*state*/,
     const vector_t& input,
     const PreComputation& /*preComp*/) const {
   const vector3_t contactForce =
       mpcRobotModelPtr_->getContactForce(input, contactPointIndex_);
-  const vector3_t localForce = t_R_w_ * contactForce;
+  const matrix3_t t_R_w = worldToPatchRotation(time);
+  const vector3_t localForce = t_R_w * contactForce;
   return coneConstraint(localForce);
 }
 
@@ -171,16 +178,17 @@ vector_t FrictionForceConeConstraint::getValue(
 /******************************************************************************************************/
 VectorFunctionLinearApproximation
 FrictionForceConeConstraint::getLinearApproximation(
-    scalar_t /*time*/,
+    scalar_t time,
     const vector_t& state,
     const vector_t& input,
     const PreComputation& /*preComp*/) const {
   const vector3_t contactForce =
       mpcRobotModelPtr_->getContactForce(input, contactPointIndex_);
-  const vector3_t localForce = t_R_w_ * contactForce;
+  const matrix3_t t_R_w = worldToPatchRotation(time);
+  const vector3_t localForce = t_R_w * contactForce;
 
   const LocalForceDerivatives localForceDerivatives =
-      computeLocalForceDerivatives();
+      computeLocalForceDerivatives(t_R_w);
   const ConeLocalDerivatives coneLocalDerivatives =
       computeConeLocalDerivatives(localForce);
   const ConeDerivatives coneDerivatives = computeConeConstraintDerivatives(
@@ -200,16 +208,17 @@ FrictionForceConeConstraint::getLinearApproximation(
 /******************************************************************************************************/
 VectorFunctionQuadraticApproximation
 FrictionForceConeConstraint::getQuadraticApproximation(
-    scalar_t /*time*/,
+    scalar_t time,
     const vector_t& state,
     const vector_t& input,
     const PreComputation& /*preComp*/) const {
   const vector3_t contactForce =
       mpcRobotModelPtr_->getContactForce(input, contactPointIndex_);
-  const vector3_t localForce = t_R_w_ * contactForce;
+  const matrix3_t t_R_w = worldToPatchRotation(time);
+  const vector3_t localForce = t_R_w * contactForce;
 
   const LocalForceDerivatives localForceDerivatives =
-      computeLocalForceDerivatives();
+      computeLocalForceDerivatives(t_R_w);
   const ConeLocalDerivatives coneLocalDerivatives =
       computeConeLocalDerivatives(localForce);
   const ConeDerivatives coneDerivatives = computeConeConstraintDerivatives(
@@ -236,13 +245,14 @@ FrictionForceConeConstraint::getQuadraticApproximation(
 /******************************************************************************************************/
 /******************************************************************************************************/
 FrictionForceConeConstraint::LocalForceDerivatives
-FrictionForceConeConstraint::computeLocalForceDerivatives() const {
+FrictionForceConeConstraint::computeLocalForceDerivatives(
+    const matrix3_t& t_R_w) const {
   LocalForceDerivatives localForceDerivatives{};
   // The cone is evaluated on `t_R_w * getContactForce(input)`, so its
   // derivative is that same rotation applied to the model's own force Jacobian
   // - NOT the rotation on its own, which is only the answer when the input
   // happens to store the force directly.
-  localForceDerivatives.dF_du.noalias() = t_R_w_ * contactForceInputJacobian_;
+  localForceDerivatives.dF_du.noalias() = t_R_w * contactForceInputJacobian_;
   return localForceDerivatives;
 }
 

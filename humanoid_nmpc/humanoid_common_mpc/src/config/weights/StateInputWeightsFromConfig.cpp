@@ -405,8 +405,9 @@ void placeState(const State& state, LayoutConversion& conversion) {
 // models index them (StateInputLayout). The state's blocks need none:
 // placeState() puts each at its row of the tuning layout.
 // LINT.IfChange(input_offsets)
-// The wrench of a contact in the input is kWrenchDim long: its force at 0, its
-// moment at kForceDim.
+// The wrench of a 6-DoF contact in the input is kWrenchDim long: its force at
+// 0, its moment at kForceDim; a 3-DoF contact has its force alone
+// (contactInputStart()).
 
 /**
  * Places the blocks of an input weight in the vector of `conversion` (the
@@ -414,7 +415,7 @@ void placeState(const State& state, LayoutConversion& conversion) {
  */
 void placeInput(const mpc_config::InputWeights& weights,
                 LayoutConversion& conversion) {
-  // Each contact's wrench at six times its index in the layout's contacts.
+  // Each contact's input block by its index in the layout's contacts.
   absl::flat_hash_map<std::string, Eigen::Index> contactIndices;
   for (size_t i = 0; i < conversion.layout().contactNames.size(); ++i) {
     contactIndices.emplace(conversion.layout().contactNames[i],
@@ -442,11 +443,16 @@ void placeInput(const mpc_config::InputWeights& weights,
     given[static_cast<size_t>(index)] = true;
     const std::string element =
         absl::StrCat("contact_wrenches[contact=", wrench.contact, "]");
+    // A 3-DoF contact's input is its force alone: it has no moment block.
+    const size_t contact = static_cast<size_t>(index);
+    const Eigen::Index start = static_cast<Eigen::Index>(
+        contactInputStart(conversion.layout(), contact));
+    const bool hasMoment =
+        contactInputSize(conversion.layout(), contact) == kWrenchDim;
     conversion.placeBlock(wrench.force, InThisMpc::kPresent,
-                          absl::StrCat(element, ".force"), kWrenchDim * index);
-    conversion.placeBlock(wrench.moment, InThisMpc::kPresent,
-                          absl::StrCat(element, ".moment"),
-                          kWrenchDim * index + kForceDim);
+                          absl::StrCat(element, ".force"), start);
+    conversion.placeBlock(wrench.moment, inThisMpcIf(hasMoment),
+                          absl::StrCat(element, ".moment"), start + kForceDim);
   }
   conversion.addRepeated(contactsPath, "contact", twice);
   std::vector<std::string> missing;
@@ -463,9 +469,8 @@ void placeInput(const mpc_config::InputWeights& weights,
   // (whole body).
   const bool centroidal =
       conversion.layout().mpc == StateInputLayout::Mpc::kCentroidal;
-  const Eigen::Index jointsStart =
-      kWrenchDim *
-      static_cast<Eigen::Index>(conversion.layout().contactNames.size());
+  const Eigen::Index jointsStart = static_cast<Eigen::Index>(contactInputStart(
+      conversion.layout(), conversion.layout().contactNames.size()));
   conversion.placeJoints(weights.joint_velocities, inThisMpcIf(centroidal),
                          "joint_velocities", jointsStart);
   conversion.placeJoints(weights.joint_accelerations, inThisMpcIf(!centroidal),

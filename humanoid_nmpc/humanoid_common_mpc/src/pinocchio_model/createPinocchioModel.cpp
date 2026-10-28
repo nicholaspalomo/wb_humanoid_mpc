@@ -98,7 +98,7 @@ pinocchio::JointModelComposite getBaseJointcomposite() {
 void addContactCenterFrames(const ContactPolygon& contactPolygon,
                             pinocchio::ModelTpl<scalar_t>& model) {
   const ContactCenterPoint& ccp = contactPolygon.getContactCenterPoint();
-  pinocchio::SE3 relPoseToParent(matrix3_t::Identity(),
+  pinocchio::SE3 relPoseToParent(ccp.rotationFromParent,
                                  ccp.translationFromParent);
   pinocchio::Frame contactCenterFrame(ccp.frameName,
                                       model.getJointId(ccp.parentJointName),
@@ -118,20 +118,25 @@ void addContactCenterFrames(const ContactPolygon& contactPolygon,
 void addCollisionCenterFrames(const ContactPolygon& contactPolygon,
                               pinocchio::ModelTpl<scalar_t>& model) {
   const ContactCenterPoint& ccp = contactPolygon.getContactCenterPoint();
+  // Along the contact frame's x axis, which is the parent's for a sole.
   pinocchio::SE3 relPoseToParentCP1(
-      matrix3_t::Identity(), ccp.translationFromParent +
-                                 vector3_t(contactPolygon.getBounds().x_max *
-                                               kCollisionPointFootprintFraction,
-                                           0.0, 0.0));
+      ccp.rotationFromParent,
+      ccp.translationFromParent +
+          ccp.rotationFromParent *
+              vector3_t(contactPolygon.getBounds().x_max *
+                            kCollisionPointFootprintFraction,
+                        0.0, 0.0));
   pinocchio::Frame contactCenterFrameCP1(
       ccp.frameName + "_collision_p_1", model.getJointId(ccp.parentJointName),
       model.getFrameId(ccp.parentJointName), relPoseToParentCP1,
       pinocchio::FIXED_JOINT);
   pinocchio::SE3 relPoseToParentCP2(
-      matrix3_t::Identity(), ccp.translationFromParent +
-                                 vector3_t(contactPolygon.getBounds().x_min *
-                                               kCollisionPointFootprintFraction,
-                                           0.0, 0.0));
+      ccp.rotationFromParent,
+      ccp.translationFromParent +
+          ccp.rotationFromParent *
+              vector3_t(contactPolygon.getBounds().x_min *
+                            kCollisionPointFootprintFraction,
+                        0.0, 0.0));
   pinocchio::Frame contactCenterFrameCP2(
       ccp.frameName + "_collision_p_2", model.getJointId(ccp.parentJointName),
       model.getFrameId(ccp.parentJointName), relPoseToParentCP2,
@@ -153,14 +158,16 @@ void addContactPolygonFrames(const ContactPolygon& contactPolygon,
                              pinocchio::ModelTpl<scalar_t>& model) {
   addContactCenterFrames(contactPolygon, model);
   addCollisionCenterFrames(contactPolygon, model);
-  const vector3_t& contactCenterTranslation =
-      contactPolygon.getContactCenterPoint()
-          .translationFromParent;  // from parent Joint
+  const ContactCenterPoint& center = contactPolygon.getContactCenterPoint();
+  // The corners are in the contact frame, which the parent's frame rotates by
+  // center.rotationFromParent (the identity for a sole).
   int nPoints = contactPolygon.getNumberOfContactPoints();
   for (int i = 0; i < nPoints; ++i) {
     vector3_t contactPointTranslation =
-        contactCenterTranslation + contactPolygon.getContactPointTranslation(i);
-    pinocchio::SE3 relPoseToParentJoint(matrix3_t::Identity(),
+        center.translationFromParent +
+        center.rotationFromParent *
+            contactPolygon.getContactPointTranslation(i);
+    pinocchio::SE3 relPoseToParentJoint(center.rotationFromParent,
                                         contactPointTranslation);
 
     pinocchio::Frame currContactFrame(
@@ -170,6 +177,50 @@ void addContactPolygonFrames(const ContactPolygon& contactPolygon,
         relPoseToParentJoint, pinocchio::FIXED_JOINT);
     model.addFrame(currContactFrame);
   }
+}
+
+/**
+ * Adds the frame of the 3-DoF contact `contact` to `model`: at its translation
+ * from its parent, a joint of the model or the frame of a joint the MPC fixes
+ * (whose placement it is then composed with). `index` is the contact's entry of
+ * model_settings.contacts_3dof, for the refusals: AlreadyExists when the model
+ * has a frame of the contact's name, NotFound when it has neither a joint nor a
+ * frame of the parent's.
+ */
+absl::Status addPointContactFrame(const ModelSettings::PointContact& contact,
+                                  size_t index,
+                                  pinocchio::ModelTpl<scalar_t>& model) {
+  if (model.existFrame(contact.name)) {
+    return absl::AlreadyExistsError(absl::StrCat(
+        "[loadCustomPinocchioInterface] model_settings.contacts_3dof[", index,
+        "].name '", contact.name,
+        "' is a frame of the robot model already; a 3-DoF contact names the "
+        "frame the MPC adds."));
+  }
+  const pinocchio::SE3 offset(matrix3_t::Identity(), contact.translation);
+  if (model.existJointName(contact.parentJointName)) {
+    model.addFrame(pinocchio::Frame(contact.name,
+                                    model.getJointId(contact.parentJointName),
+                                    model.getFrameId(contact.parentJointName),
+                                    offset, pinocchio::FIXED_JOINT));
+    return absl::OkStatus();
+  }
+  if (model.existFrame(contact.parentJointName)) {
+    // A joint the MPC fixes is a frame of the reduced model: the contact hangs
+    // from that frame's joint, at the frame's placement.
+    const pinocchio::FrameIndex parentFrame =
+        model.getFrameId(contact.parentJointName);
+    const pinocchio::Frame& parent =
+        model.frames[static_cast<size_t>(parentFrame)];
+    model.addFrame(pinocchio::Frame(contact.name, parent.parentJoint,
+                                    parentFrame, parent.placement * offset,
+                                    pinocchio::FIXED_JOINT));
+    return absl::OkStatus();
+  }
+  return absl::NotFoundError(absl::StrCat(
+      "[loadCustomPinocchioInterface] model_settings.contacts_3dof[", index,
+      "].parent_joint_name '", contact.parentJointName,
+      "' is neither a joint of the robot model nor a joint the MPC fixes."));
 }
 
 }  // namespace
@@ -229,7 +280,12 @@ absl::StatusOr<PinocchioInterface> buildCustomPinocchioInterface(
   pinocchio::ModelTpl<scalar_t> model;
   pinocchio::urdf::buildModel(newModel, getBaseJointcomposite(), model);
 
-  for (int i = 0; i < static_cast<int>(kNumContacts); ++i) {
+  // The footprint frames of each 6-DoF contact, which follow the 3-DoF ones in
+  // the contact set.
+  const int firstSurfaceContact =
+      static_cast<int>(modelSettings.contactNames3DoF.size());
+  const int numContacts = static_cast<int>(modelSettings.contactNames.size());
+  for (int i = firstSurfaceContact; i < numContacts; ++i) {
     ASSIGN_OR_RETURN(const ContactRectangle rectangle, contactRectangle(i));
     // The contact frames hang from model_settings' parent joint of the contact:
     // a name the model does not have would give them an out-of-range parent
@@ -242,6 +298,10 @@ absl::StatusOr<PinocchioInterface> buildCustomPinocchioInterface(
           "robot model."));
     }
     addContactPolygonFrames(rectangle, model);
+  }
+  for (size_t i = 0; i < modelSettings.pointContacts.size(); ++i) {
+    RETURN_IF_ERROR(
+        addPointContactFrame(modelSettings.pointContacts[i], i, model));
   }
 
   if (scaleTotalMass) {
@@ -264,6 +324,7 @@ absl::StatusOr<PinocchioInterface> loadCustomPinocchioInterface(
     bool scaleTotalMass,
     scalar_t totalMass,
     bool verbose) {
+  RETURN_IF_ERROR(validateSurfacePads(taskFile.contacts, modelSettings));
   return buildCustomPinocchioInterface(
       urdfFilePath, modelSettings,
       [&](int contactIndex) {

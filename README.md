@@ -255,6 +255,30 @@ make launch-drc-atlas-robot HOST=<robot ssh host>                    # or the ro
 `make ipc-list`, `make ipc-echo TOPIC=mpc/status` and `make ipc-hz TOPIC=robot/mpc_observation` inspect the bus.
 <!-- LINT.ThenChange(//Makefile:launch_targets, //Makefile:robot_configurations) -->
 
+The DRC Atlas's multi-contact scenarios (stairs, climbing onto a box, car egress, getting up;
+[humanoid_nmpc/docs/multi_contact_planning](humanoid_nmpc/docs/multi_contact_planning/README.md)) each have a dummy sim
+of the centroidal MPC tracking the scenario's offline plan, with the terrain in Rerun:
+
+<!-- LINT.IfChange(multi_contact_targets) -->
+```bash
+make launch-drc-atlas-stairs-dummy-sim         # also stairs-steep, box-climb, box-climb-high, car-egress,
+make launch-drc-atlas-box-climb-dummy-sim-vnc  # get-up-supine and get-up-prone; -vnc on the VNC desktop
+```
+
+The stairs dummy sim walks up the stairs, stands on the top, walks backward down them, stands at the bottom and starts
+again, over and over (`multi_contact_plan.playback: "forward_and_reverse"`); every other scenario plays its plan once.
+<!-- LINT.ThenChange(//Makefile:multi_contact_targets, //Makefile:multi_contact_scenarios) -->
+
+Their plans come from the offline planner, and each plan plays back kinematically in Rerun:
+
+<!-- LINT.IfChange(multi_contact_plan_targets) -->
+```bash
+make plan-drc-atlas-box-climb       # plan the scenario with its own planner (MULTI_CONTACT_PLANNER=<name> overrides it):
+                                    # humanoid_nmpc/humanoid_multi_contact/plans/box_climb.binpb
+make playback-drc-atlas-box-climb   # play the plan in Rerun (RERUN_SINK=, default serve_web: http://localhost:9090)
+```
+<!-- LINT.ThenChange(//Makefile:multi_contact_plan_targets) -->
+
 > **Cleanup Tip:** Run `make kill-sims` at any time to stop what a launch target left running: its launcher, the
 > robot-sim container and a NETEM qdisc.
 

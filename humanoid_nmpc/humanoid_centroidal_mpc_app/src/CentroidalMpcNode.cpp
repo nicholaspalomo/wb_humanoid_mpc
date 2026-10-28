@@ -70,9 +70,21 @@ absl::StatusOr<std::unique_ptr<CentroidalMpcNode>> CentroidalMpcNode::Create(
 
   std::unique_ptr<CentroidalMpcNode> node =
       absl::WrapUnique(new CentroidalMpcNode());
-  ASSIGN_OR_RETURN(node->interface_,
-                   CentroidalMpcInterface::Create(
-                       files.taskFile, files.urdfFile, files.referenceFile));
+  const MultiContactPlanFiles& planFiles = options.multiContactPlanFiles;
+  if (planFiles.scenarioFile.empty() && planFiles.planFile.empty() &&
+      planFiles.playback.empty()) {
+    ASSIGN_OR_RETURN(node->interface_,
+                     CentroidalMpcInterface::Create(
+                         files.taskFile, files.urdfFile, files.referenceFile));
+  } else {
+    // The launch's scenario, plan and playback in place of the task file's.
+    ASSIGN_OR_RETURN(
+        CentroidalMpcConfig config,
+        loadCentroidalMpcConfig(files.taskFile, files.referenceFile));
+    overrideMultiContactPlanFiles(planFiles, config);
+    ASSIGN_OR_RETURN(node->interface_, CentroidalMpcInterface::Create(
+                                           std::move(config), files.urdfFile));
+  }
   CentroidalMpcInterface& interface = *node->interface_;
 
   node->mpc_ = std::make_unique<SqpMpc>(
@@ -121,7 +133,12 @@ absl::StatusOr<std::unique_ptr<CentroidalMpcNode>> CentroidalMpcNode::Create(
 
   SolverBase& solver = *node->mpc_->getSolverPtr();
   solver.setReferenceManager(interface.getReferenceManagerPtr());
-  solver.addSynchronizedModule(node->motionManager_);
+  // A tracked multi-contact plan is the reference itself: the velocity command
+  // and the gait schedule of the motion manager would compute targets and
+  // schedules every solve that the plan's manager replaces.
+  if (interface.getPlannedMotionReferenceManagerPtr() == nullptr) {
+    solver.addSynchronizedModule(node->motionManager_);
+  }
   // Online contact planning (contact_schedule_source: "contact_planner"): the
   // planner module feeds mode schedules and footholds to the reference manager
   // and, like the other synchronized modules, runs before every solve.
@@ -239,9 +256,12 @@ TargetTrajectories CentroidalMpcNode::resetTargetTrajectories(
 ipc::ModelDimensions CentroidalMpcNode::dimensions() const {
   const MpcRobotModelBase<scalar_t>& effectiveModel =
       interface_->getEffectiveMpcRobotModel();
+  // Every mode of the contact set: the biped's FLY to STANCE
+  // (kNumModeNumbers), or the bitmasks of a larger set's.
   return {.stateDim = effectiveModel.getStateDim(),
           .inputDim = effectiveModel.getInputDim(),
-          .numModes = kNumModeNumbers};
+          .numModes = numModeNumbersOf(
+              interface_->modelSettings().contactNames.size())};
 }
 
 }  // namespace ocs2::humanoid

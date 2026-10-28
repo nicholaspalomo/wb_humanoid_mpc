@@ -1,0 +1,149 @@
+edition = "2023";
+
+package humanoid_multi_contact;
+
+import "humanoid_multi_contact/terrain/terrain_scene.proto";
+import "nproto/options.proto";
+
+// A multi-contact scenario (humanoid_nmpc/docs/multi_contact_planning/README.md, section 8.1): the robot, the terrain,
+// where the robot starts and where it must end, which contacts it may use, the planner, and the stability margins its
+// plan is certified with. Every number of a shipped scenario is an initial value, expected to be tuned.
+// Next ID: 20
+message Scenario {
+  option (nproto.generate_struct) = "ocs2::humanoid::multi_contact::config::Scenario";
+
+  reserved 20 to max;
+
+  // The position of one joint, by its URDF name.
+  // Next ID: 3
+  message JointPosition {
+    reserved 3 to max;
+
+    string joint = 1 [default = ""];
+    // [rad]
+    double position = 2 [default = 0.0];
+  }
+
+  // A whole-body pose: the base's pose and the joint positions (a joint left out is at 0), with the contacts that
+  // touch the terrain in it.
+  // Next ID: 6
+  message Pose {
+    reserved 6 to max;
+
+    // What the pose is, for messages: "standing", "sitting", "lying_supine", ...
+    string name = 1 [default = ""];
+    // [m] The floating base in the world frame: x, y, z.
+    repeated double base_position = 2;
+    // A unit quaternion (x, y, z, w).
+    repeated double base_orientation_xyzw = 3;
+    repeated JointPosition joint_positions = 4;
+    // The candidates in contact, each an allowed contact.
+    repeated string active_contacts = 5;
+  }
+
+  // A candidate of the goal stance and the primitive it rests on.
+  // Next ID: 3
+  message GoalContact {
+    reserved 3 to max;
+
+    string contact = 1 [default = ""];
+    // A primitive of the terrain scene.
+    string primitive = 2 [default = ""];
+  }
+
+  // [m] A box of base positions in the world frame.
+  // Next ID: 3
+  message BaseRegion {
+    reserved 3 to max;
+
+    repeated double center = 1;
+    // Positive.
+    repeated double half_extents = 2;
+  }
+
+  // Where the motion ends.
+  // Next ID: 4
+  message Goal {
+    reserved 4 to max;
+
+    // The goal stance: exactly these contacts, each on its primitive, and no other.
+    repeated GoalContact contacts = 1;
+    // The region the base must end in; absent: anywhere the goal stance allows.
+    BaseRegion base_region = 2 [(nproto.optional_message) = true];
+    // The pose the robot ends at, such as the nominal standing pose; absent: any pose of the goal stance. Its base
+    // pose is a reference for the end of the motion, not a constraint.
+    Pose pose = 3 [(nproto.optional_message) = true];
+  }
+
+  // How the MuJoCo simulation of the scenario starts (section 8.3): a robot that starts lying or seated would trip
+  // the gantry's catch and the tilt catch (sim_max_base_tilt_angle) at once, so a scenario can keep them disarmed
+  // until the robot stands. Read by the generated MuJoCo scenes (milestone 6).
+  // Next ID: 4
+  message SimulationStart {
+    reserved 4 to max;
+
+    // When the tilt catch and the gantry's catch arm, by name: "at_start" (as for every robot today) or
+    // "when_standing" (once the active contacts are exactly the goal stance's and the base is above
+    // standing_base_height).
+    // LINT.IfChange(arming_names)
+    string tilt_catch_arming = 1 [default = "at_start"];
+    string gantry_arming = 2 [default = "at_start"];
+    // LINT.ThenChange(//humanoid_nmpc/humanoid_multi_contact/scenarios/include/humanoid_multi_contact/scenarios/Scenario.h:arming_names)
+    // [m] Under "when_standing": the base height above which the robot counts as standing; positive then.
+    double standing_base_height = 3 [default = 0.0];
+  }
+
+  // The scenario's name, the stem of its file.
+  string name = 1 [default = ""];
+  // The robot configuration, as the Makefile names it: "drc_atlas".
+  string robot = 2 [default = ""];
+  // The robot's URDF and contact set, by their paths from the repository root.
+  string urdf_file = 3 [default = ""];
+  string contact_set_file = 4 [default = ""];
+  // The robot's collision model (collision_model.proto), by its path from the repository root; empty: none, and the
+  // certifier reports no sphere clearance.
+  string collision_model_file = 14 [default = ""];
+  // The robot's multi-contact centroidal MPC (its task and reference files, by their paths from the repository root),
+  // which planner A, the contact-invariant optimization, solves on (section 4.2); empty: planner A refuses the
+  // scenario. The other planners do not read them.
+  string mpc_task_file = 15 [default = ""];
+  string mpc_reference_file = 16 [default = ""];
+  TerrainScene terrain_scene = 5;
+  Pose initial_pose = 6;
+  Goal goal = 7;
+  // Stances the motion passes through on its way to the goal, in order: hints to the stance graph planner (section
+  // 5.5, "Waypoints"), which searches from each to the next. Each is reached when its contacts, exactly, are on their
+  // primitives (and the base in its region, when it has one); its pose, when it has one, is where the search samples
+  // the contacts and the posture its changes are solved toward. Empty: one search to the goal. Planner A does not read
+  // them.
+  repeated Goal waypoints = 18;
+  // The candidates the planner may use, from the contact set.
+  repeated string allowed_contacts = 8;
+  // The planner, by registry name (section 5.3).
+  // LINT.IfChange(planner_names)
+  string planner = 9 [default = "stance_graph"];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_multi_contact/scenarios/include/humanoid_multi_contact/scenarios/Scenario.h:planner_names)
+  // [m] delta_s of condition 1 (section 2). Absent: conditions 1 and 3 are not judged, only the dynamic feasibility of
+  // condition 2 (decision 5 of section 11). Not negative when set.
+  double static_margin = 10;
+  // Which of the URDF's joint limits the plan respects, by name (design section 11, decision 6): "position_and_effort"
+  // (the joint position limits, and the quasi-static joint torques of every planned configuration within torque_margin
+  // of the effort limits: the stance graph's statics check, solve 3's torque constraint and the certifier's condition 1)
+  // or "position_only" (the position limits alone: the certifier reports the torque utilization and never fails a knot
+  // on it) or "relaxed_position" (as "position_only", with the position limits the stance graph planner keeps to
+  // widened by joint_limit_relaxation on both sides, design section 11, decision 8). No planner reads the URDF's joint
+  // velocity limits under any. Friction cones, contact wrench cones, collision avoidance and the static margin hold
+  // under all.
+  // LINT.IfChange(joint_limits_names)
+  string joint_limits = 17 [default = "position_and_effort"];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_multi_contact/stability/include/humanoid_multi_contact/stability/JointLimits.h:joint_limits_names)
+  // The fraction of the URDF's effort limits a statically held stance may use, in (0, 1]. Read only under
+  // joint_limits "position_and_effort".
+  double torque_margin = 11 [default = 1.0];
+  // [rad] How far past each side of the URDF's position limits a joint may go under joint_limits "relaxed_position",
+  // in (0, 0.3]; 0 under the others.
+  double joint_limit_relaxation = 19 [default = 0.0];
+  // [s] The motion's length, positive.
+  double duration = 12 [default = 0.0];
+  SimulationStart simulation_start = 13;
+}

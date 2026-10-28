@@ -233,13 +233,14 @@ absl::Status TelemetryBuilder::initialize(const VisualizationConfig& config,
         " contacts; the telemetry needs ", kNumContacts, "."));
   }
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    if (!model.existFrame(modelSettings().contactNames[contact])) {
-      return absl::InvalidArgumentError(absl::StrCat(
-          "the contact frame '", modelSettings().contactNames[contact],
-          "' is not a frame of the MPC's robot model."));
+    const std::string& name =
+        modelSettings().contactNames[footContact(contact)];
+    if (!model.existFrame(name)) {
+      return absl::InvalidArgumentError(
+          absl::StrCat("the contact frame '", name,
+                       "' is not a frame of the MPC's robot model."));
     }
-    contactFrames_[contact] =
-        model.getFrameId(modelSettings().contactNames[contact]);
+    contactFrames_[contact] = model.getFrameId(name);
   }
   // The ACoM of the robot's network, the MPC's own (ComAndAcomTrackingCost); a
   // robot without one plots NaN.
@@ -412,7 +413,7 @@ absl::Status TelemetryBuilder::initialize(const VisualizationConfig& config,
     FrameGroups groups{
         .frame = model.getFrameId(frame), .contact = -1, .groups = {}};
     for (size_t contact = 0; contact < kNumContacts; ++contact) {
-      if (modelSettings().contactNames[contact] == frame) {
+      if (modelSettings().contactNames[footContact(contact)] == frame) {
         groups.contact = static_cast<int>(contact);
       }
     }
@@ -590,7 +591,8 @@ void TelemetryBuilder::computeReference(
   reference.v = generalizedVelocities(state, input);
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
     reference.contactWrenches[contact] =
-        robotModel_->getContactWrenchInWorldFrame(state, input, contact);
+        robotModel_->getContactWrenchInWorldFrame(state, input,
+                                                  footContact(contact));
   }
   const scalar_array_t& times = policy->target.timeTrajectory;
   const scalar_t earlier =
@@ -631,8 +633,8 @@ void TelemetryBuilder::computePlan(const DecodedRobotState& measured,
   plan.eulerAnglesZyx = robotModel_->getBaseOrientationEulerZyx(state);
   plan.v = generalizedVelocities(state, input);
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    plan.contactWrenches[contact] =
-        robotModel_->getContactWrenchInWorldFrame(state, input, contact);
+    plan.contactWrenches[contact] = robotModel_->getContactWrenchInWorldFrame(
+        state, input, footContact(contact));
   }
   const scalar_t earlier =
       std::max(time - kAccelerationHalfInterval, policy->time.front());

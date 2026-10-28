@@ -42,6 +42,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/contact/ContactPatchFrame.h"
+#include "humanoid_common_mpc/contact_swing/ContactSwingPlanner.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicLayer.h"
@@ -109,14 +111,45 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    */
   void reset() override;
 
+  /** The stance flags of the biped's two feet at `time`
+   * (modeNumber2StanceLeg()); the terms written for two feet read these. */
   contact_flag_t getContactFlags(scalar_t time) const;
 
   bool isInStancePhase(scalar_t time) const {
     return getContactFlags(time)[0] && getContactFlags(time)[1];
   }
 
+  /**
+   * Whether contact `contactIndex` of the model's contact set
+   * (ModelSettings::contactNames) is active at `time`: its bit of the mode
+   * number (contactIsActiveInMode()). For the biped's two feet it is
+   * getContactFlags(time)[contactIndex]. Thread-safe.
+   */
   bool isInContact(scalar_t time, size_t contactIndex) const {
-    return getContactFlags(time)[contactIndex];
+    return contactIsActiveInMode(this->getModeSchedule().modeAtTime(time),
+                                 contactIndex, numContacts_);
+  }
+
+  /**
+   * The patch contact `contactIndex` touches at `time`, which the contact terms
+   * written in the patch frame read on every evaluation (ContactPatchFrame.h).
+   * This manager's ground is flat: the world-aligned patch at the height the
+   * references in use were built on (getAppliedTerrainHeight()). A reference
+   * manager that plans contacts on other surfaces overrides it. Thread-safe.
+   */
+  virtual ContactPatchFrame getContactPatchFrame(size_t contactIndex,
+                                                 scalar_t time) const;
+
+  /**
+   * The generalized swing planner of a reference manager that plans the swing
+   * of any contact (ContactSwingPlanner), rebuilt by its preSolverRun(), or
+   * null: this manager swings the biped's feet on its SwingTrajectoryPlanner
+   * (getSwingTrajectoryPlanner()) and plans no other contact. The pointer
+   * lives as long as the manager.
+   */
+  virtual const ContactSwingPlanner* absl_nullable getContactSwingPlanner()
+      const {
+    return nullptr;
   }
 
   /**
@@ -375,9 +408,9 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * `state`, so that the input costs' Gauss-Newton gradient, which holds the
    * reference constant, is exact.
    */
-  vector_t getDesiredInput(const TargetTrajectories& targetTrajectories,
-                           const vector_t& state,
-                           scalar_t time) const;
+  virtual vector_t getDesiredInput(const TargetTrajectories& targetTrajectories,
+                                   const vector_t& state,
+                                   scalar_t time) const;
 
   /**
    * Installs the reference-shaping layer of Bledt's Regularized Predictive
@@ -578,6 +611,8 @@ class SwitchedModelReferenceManager : public ReferenceManager {
 
   PinocchioInterface pinocchioInterface_;
   const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModelPtr_;
+  // The contacts of the model's contact set, whose bits a mode number holds.
+  const size_t numContacts_;
   ModeSchedule modeSchedule_;
 
   /** Records the measured base pose and, per foot in contact, where it

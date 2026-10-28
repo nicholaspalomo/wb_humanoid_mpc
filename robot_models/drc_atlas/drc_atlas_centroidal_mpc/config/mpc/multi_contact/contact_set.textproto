@@ -1,0 +1,148 @@
+# proto-file: humanoid_nmpc/humanoid_multi_contact/contact_set/contact_set.proto
+# proto-message: humanoid_multi_contact.ContactSet
+# The contact candidates of the DRC Atlas for multi-contact planning (humanoid_nmpc/docs/multi_contact_planning/
+# README.md, section 3.1), in the order that numbers the bits of a contact mode. The offsets and radii are those of the
+# collision geoms of robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml, whose body frames are the URDF's
+# joint frames; //humanoid_nmpc/humanoid_multi_contact/stability:robot_stance_model_test checks every parent joint
+# against atlas.urdf.
+#
+# A pad's frame has z = -pad_normal (the terrain's normal when the pad rests on it) and x = pad_x_axis; a surface
+# candidate's rectangle is in that frame.
+
+robot: "drc_atlas"
+
+# The soles: the foot frames of task.textproto's contacts block (contact_frame_translation, contact_rectangle).
+# LINT.IfChange(foot_contacts)
+candidates {
+  name: "foot_l_contact"
+  kind: KIND_SURFACE
+  parent_joint: "l_leg_akx"
+  offset: [0.04, 0, -0.082]
+  pad_normal: [0, 0, -1]
+  pad_x_axis: [1, 0, 0]
+  rectangle { x_min: -0.12 x_max: 0.12 y_min: -0.055 y_max: 0.055 }
+}
+candidates {
+  name: "foot_r_contact"
+  kind: KIND_SURFACE
+  parent_joint: "r_leg_akx"
+  offset: [0.04, 0, -0.082]
+  pad_normal: [0, 0, -1]
+  pad_x_axis: [1, 0, 0]
+  rectangle { x_min: -0.12 x_max: 0.12 y_min: -0.055 y_max: 0.055 }
+}
+# LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto, //robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/multi_contact/task.textproto:multi_contact_candidates)
+
+# Every other candidate is a contact of the multi-contact task file too (task.textproto beside this file), with the
+# same parent, offset and pad: //humanoid_nmpc/humanoid_centroidal_mpc:test_multi_contact_task_file checks them.
+# LINT.IfChange(other_candidates)
+
+# The front of the shin capsule (l_lleg / r_lleg: radius 0.055, from the knee down to z = -0.42), 6 cm below the knee.
+candidates {
+  name: "knee_l_contact"
+  kind: KIND_POINT
+  parent_joint: "l_leg_kny"
+  offset: [0.055, 0, -0.06]
+  pad_normal: [1, 0, 0]
+  geom_radius: 0.055
+}
+candidates {
+  name: "knee_r_contact"
+  kind: KIND_POINT
+  parent_joint: "r_leg_kny"
+  offset: [0.055, 0, -0.06]
+  pad_normal: [1, 0, 0]
+  geom_radius: 0.055
+}
+
+# The hand sphere (l_hand / r_hand: radius 0.04 at the body origin), on the side that continues the arm.
+candidates {
+  name: "hand_l_contact"
+  kind: KIND_POINT
+  parent_joint: "l_arm_wrx"
+  offset: [0, 0.04, 0]
+  pad_normal: [0, 1, 0]
+  geom_radius: 0.04
+}
+candidates {
+  name: "hand_r_contact"
+  kind: KIND_POINT
+  parent_joint: "r_arm_wrx"
+  offset: [0, -0.04, 0]
+  pad_normal: [0, -1, 0]
+  geom_radius: 0.04
+}
+
+# The middle of the l_larm / r_larm capsule (radius 0.04, 0.10 long along +y / -y), on its front (+x) side: the side
+# that faces the floor with the arms at the sides of a robot lying face down.
+candidates {
+  name: "forearm_l_contact"
+  kind: KIND_POINT
+  parent_joint: "l_arm_elx"
+  offset: [0.04, 0.05, 0]
+  pad_normal: [1, 0, 0]
+  geom_radius: 0.04
+}
+candidates {
+  name: "forearm_r_contact"
+  kind: KIND_POINT
+  parent_joint: "r_arm_elx"
+  offset: [0.04, -0.05, 0]
+  pad_normal: [1, 0, 0]
+  geom_radius: 0.04
+}
+
+# Under the pelvis (the base), 0.24 x 0.20 m, at the height of the underside of the thighs when seated: the thigh
+# capsules (radius 0.06, from z = -0.066) reach below the pelvis box (bottom at z = -0.07), so a seated Atlas rests on
+# them and on this pad, not on the box.
+candidates {
+  name: "seat_contact"
+  kind: KIND_SURFACE
+  parent_joint: "root_joint"
+  offset: [-0.02, 0, -0.143]
+  pad_normal: [0, 0, -1]
+  pad_x_axis: [1, 0, 0]
+  rectangle { x_min: -0.12 x_max: 0.12 y_min: -0.10 y_max: 0.10 }
+}
+
+# The back of the thigh capsule (l_uleg / r_uleg: radius 0.06, from the hip to (-0.05, 0, -0.37)), at its middle, along
+# the capsule's normal in the sagittal plane. Its parent joint is the hip pitch joint, whose frame is l_uleg's.
+candidates {
+  name: "thigh_l_contact"
+  kind: KIND_POINT
+  parent_joint: "l_leg_hpy"
+  offset: [-0.0845, 0, -0.177]
+  pad_normal: [-0.99100, 0, 0.13392]
+  geom_radius: 0.06
+}
+candidates {
+  name: "thigh_r_contact"
+  kind: KIND_POINT
+  parent_joint: "r_leg_hpy"
+  offset: [-0.0845, 0, -0.177]
+  pad_normal: [-0.99100, 0, 0.13392]
+  geom_radius: 0.06
+}
+
+# The back and chest faces of the utorso collision box (half extents 0.18 0.22 0.30 at (-0.04, 0, 0.30) in the
+# back_bkx frame): x = -0.22 and x = +0.14. The pads, 0.36 x 0.30 m, lie inside the faces (0.60 x 0.44 m), with their x
+# axis up the torso.
+candidates {
+  name: "torso_back_contact"
+  kind: KIND_SURFACE
+  parent_joint: "back_bkx"
+  offset: [-0.22, 0, 0.30]
+  pad_normal: [-1, 0, 0]
+  pad_x_axis: [0, 0, 1]
+  rectangle { x_min: -0.18 x_max: 0.18 y_min: -0.15 y_max: 0.15 }
+}
+candidates {
+  name: "torso_front_contact"
+  kind: KIND_SURFACE
+  parent_joint: "back_bkx"
+  offset: [0.14, 0, 0.30]
+  pad_normal: [1, 0, 0]
+  pad_x_axis: [0, 0, 1]
+  rectangle { x_min: -0.18 x_max: 0.18 y_min: -0.15 y_max: 0.15 }
+}
+# LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/multi_contact/task.textproto:multi_contact_candidates)

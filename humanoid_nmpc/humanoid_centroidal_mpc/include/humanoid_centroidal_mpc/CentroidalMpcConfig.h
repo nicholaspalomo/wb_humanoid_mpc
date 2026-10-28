@@ -63,6 +63,23 @@ struct CentroidalMpcConfig {
 };
 
 /**
+ * The scenario and the plan a launch names in place of the task file's
+ * multi_contact_plan.scenario_file and plan_file, and how the plan plays in
+ * place of its playback (the MPC node's and the dummy simulator's
+ * --multi_contact_scenario, --multi_contact_plan and --multi_contact_playback).
+ * Passive data; an empty value keeps the task file's.
+ */
+struct MultiContactPlanFiles {
+  std::string scenarioFile;
+  std::string planFile;
+  std::string playback;
+};
+
+/** Writes the non-empty values of `files` into `config`'s task file. */
+void overrideMultiContactPlanFiles(const MultiContactPlanFiles& files,
+                                   CentroidalMpcConfig& config);
+
+/**
  * The configuration of the robot whose task file is at `taskFile` and whose
  * reference file is at `referenceFile` (loadTaskFile(), loadReferenceFile()),
  * with the contact planner's file beside the task file when there is one

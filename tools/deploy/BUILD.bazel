@@ -155,6 +155,7 @@ py_test(
         # The launch files the Makefile's launch targets run, against the binaries they build first.
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc:launch/dummy_sim.textproto",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc:launch/mpc.textproto",
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc:launch/multi_contact_dummy_sim.textproto",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc:launch/robot.textproto",
         "//robot_models/drc_atlas/drc_atlas_description:launch/sandbox.textproto",
         "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc:launch/dummy_sim.textproto",

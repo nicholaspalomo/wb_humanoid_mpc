@@ -46,6 +46,7 @@ StateInputLayout stateInputLayout(const ModelSettings& settings,
   layout.jointNames = settings.mpcModelJointNames;
   layout.fixedJointNames = settings.fixedJointNames;
   layout.contactNames = settings.contactNames;
+  layout.numPointContacts = settings.contactNames3DoF.size();
   return layout;
 }
 
@@ -109,10 +110,21 @@ size_t tuningDimension(const StateInputLayout& layout) {
   return getTuningLayoutDim(tuningLayoutOf(layout));
 }
 
+size_t contactInputStart(const StateInputLayout& layout, size_t contactIndex) {
+  if (contactIndex < layout.numPointContacts) return kForceDim * contactIndex;
+  return kForceDim * layout.numPointContacts +
+         kWrenchDim * (contactIndex - layout.numPointContacts);
+}
+
+size_t contactInputSize(const StateInputLayout& layout, size_t contactIndex) {
+  return contactIndex < layout.numPointContacts ? kForceDim : kWrenchDim;
+}
+
 size_t inputDimension(const StateInputLayout& layout) {
-  // The wrench of each contact (kWrenchDim: its force, then its moment), then
-  // the joints.
-  return kWrenchDim * layout.contactNames.size() + layout.jointNames.size();
+  // The force of each 3-DoF contact, the wrench of each 6-DoF contact
+  // (kWrenchDim: its force, then its moment), then the joints.
+  return contactInputStart(layout, layout.contactNames.size()) +
+         layout.jointNames.size();
 }
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/config/weights/StateInputWeightsFromConfig.cpp:input_offsets)
 

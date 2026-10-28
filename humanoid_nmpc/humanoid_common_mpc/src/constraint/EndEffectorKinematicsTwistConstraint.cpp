@@ -67,6 +67,7 @@ EndEffectorKinematicsTwistConstraint::EndEffectorKinematicsTwistConstraint(
     const EndEffectorKinematicsTwistConstraint& rhs)
     : StateInputConstraint(rhs),
       ground_plane_normal_(rhs.ground_plane_normal_),
+      worldToPatchRotation_(rhs.worldToPatchRotation_),
       constrainYawRateAboutNormal_(rhs.constrainYawRateAboutNormal_),
       endEffectorKinematicsPtr_(rhs.endEffectorKinematicsPtr_->clone()),
       numConstraints_(rhs.numConstraints_),
@@ -95,7 +96,7 @@ matrix3_t EndEffectorKinematicsTwistConstraint::
   const vector3_t v =
       orientation.toRotationMatrix() *
       vector3_t::UnitZ();  // end-effector normal in the world frame
-  const vector3_t& n = ground_plane_normal_;
+  const vector3_t n = planeNormal();
 
   const scalar_t cosAngle = v.dot(n);
   const scalar_t w = 1.0 + cosAngle;
@@ -124,6 +125,21 @@ matrix3_t EndEffectorKinematicsTwistConstraint::
   return map;
 }
 
+vector3_t EndEffectorKinematicsTwistConstraint::planeNormal() const {
+  if (!worldToPatchRotation_.has_value()) return ground_plane_normal_;
+  return worldToPatchRotation_->row(kZAxisIndex).transpose();
+}
+
+matrix_t EndEffectorKinematicsTwistConstraint::inPatchFrame(
+    const matrix_t& gains) const {
+  const matrix3_t& rotation = *worldToPatchRotation_;
+  matrix_t rotated(gains.rows(), gains.cols());
+  rotated.leftCols<kPositionDim>() = gains.leftCols<kPositionDim>() * rotation;
+  rotated.rightCols<kRotationTangentDim>() =
+      gains.rightCols<kRotationTangentDim>() * rotation;
+  return rotated;
+}
+
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -139,14 +155,22 @@ vector_t EndEffectorKinematicsTwistConstraint::getValue(
     // Foot pose: position and orientation error with respect to the ground
     // normal. The orientation error (a kinematics call) is only evaluated when
     // the active rows use it, mirroring getLinearApproximation.
-    const Eigen::Ref<const matrix_t> Ax = config_.Ax.topRows(numConstraints_);
+    // In a patch frame, the gains of the world-frame pose (inPatchFrame()).
+    const matrix_t patchAx =
+        worldToPatchRotation_.has_value()
+            ? inPatchFrame(config_.Ax.topRows(numConstraints_))
+            : matrix_t();
+    const Eigen::Ref<const matrix_t> Ax =
+        worldToPatchRotation_.has_value()
+            ? Eigen::Ref<const matrix_t>(patchAx)
+            : Eigen::Ref<const matrix_t>(config_.Ax.topRows(numConstraints_));
     vector6_t footPose = vector6_t::Zero();
     footPose.head<kPositionDim>() =
         endEffectorKinematicsPtr_->getPosition(state).front();
     if (!Ax.rightCols(kRotationTangentDim).isZero(0.0)) {
       footPose.tail<kRotationTangentDim>() =
           endEffectorKinematicsPtr_
-              ->getOrientationErrorWrtPlane(state, {ground_plane_normal_})
+              ->getOrientationErrorWrtPlane(state, {planeNormal()})
               .front();
     }
     f.noalias() += Ax * footPose;
@@ -164,7 +188,11 @@ vector_t EndEffectorKinematicsTwistConstraint::getValue(
           getAngularVelocityToOrientationErrorRateMap(state) *
           twist.tail(kRotationTangentDim);
     }
-    f.noalias() += config_.Av.topRows(numConstraints_) * twist;
+    if (worldToPatchRotation_.has_value()) {
+      f.noalias() += inPatchFrame(config_.Av.topRows(numConstraints_)) * twist;
+    } else {
+      f.noalias() += config_.Av.topRows(numConstraints_) * twist;
+    }
   }
   return f;
 }
@@ -186,7 +214,8 @@ EndEffectorKinematicsTwistConstraint::getLinearApproximation(
   linearApproximation.f = config_.b.head(numConstraints_);
 
   if (config_.Ax.size() > 0) {
-    const matrix_t Ax = config_.Ax.topRows(numConstraints_);
+    matrix_t Ax = config_.Ax.topRows(numConstraints_);
+    if (worldToPatchRotation_.has_value()) Ax = inPatchFrame(Ax);
     const VectorFunctionLinearApproximation positionApprox =
         endEffectorKinematicsPtr_->getPositionLinearApproximation(state)
             .front();
@@ -198,8 +227,8 @@ EndEffectorKinematicsTwistConstraint::getLinearApproximation(
     if (!Ax.rightCols(kRotationTangentDim).isZero(0.0)) {
       const VectorFunctionLinearApproximation orientationApprox =
           endEffectorKinematicsPtr_
-              ->getOrientationErrorWrtPlaneLinearApproximation(
-                  state, {ground_plane_normal_})
+              ->getOrientationErrorWrtPlaneLinearApproximation(state,
+                                                               {planeNormal()})
               .front();
       linearApproximation.f.noalias() +=
           Ax.rightCols(kRotationTangentDim) * orientationApprox.f;
@@ -213,6 +242,7 @@ EndEffectorKinematicsTwistConstraint::getLinearApproximation(
         endEffectorKinematicsPtr_->getTwistLinearApproximation(state, input)
             .front();
     matrix_t Av = config_.Av.topRows(numConstraints_);
+    if (worldToPatchRotation_.has_value()) Av = inPatchFrame(Av);
     if (!Av.rightCols(kRotationTangentDim).isZero(0.0)) {
       // The map is held at its value at the linearization point, so the state
       // Jacobian lacks Av_ang (dM/dx) omega - exactly that, which

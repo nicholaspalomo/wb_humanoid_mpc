@@ -9,15 +9,15 @@ import "nproto/options.proto";
 // The contact geometry and the contact constraints of the task file (its contacts block): where the contact frame sits
 // on its parent joint, the sole's rectangle around it, the ground of the contact wrench cone, the generators,
 // barrier and regularization of the basis-vector contact inputs, and the friction cone and contact moment constraints.
-// Every contact of the robot shares one block.
+// Every contact of the robot shares one block, but for the 6-DoF contacts that surface_pads lists.
 //
 // Each constraint's relaxed barrier is a block of its own, nested here, because the defaults of a barrier differ by
 // the constraint it belongs to.
-// Next ID: 10
+// Next ID: 11
 message ContactsConfig {
   option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::ContactsConfig";
 
-  reserved 10 to max;
+  reserved 11 to max;
 
   // [m] The sole of a contact, in its contact frame (ContactRectangle), with x_min < x_max and y_min < y_max. An absent
   // bound is 0.
@@ -102,6 +102,24 @@ message ContactsConfig {
     double delta = 2 [default = 0.001];
   }
 
+  // The pad of one 6-DoF contact that is not a sole of the shared block (contact_frame_translation, contact_rectangle):
+  // a seat or a torso pad of a multi-contact contact set (humanoid_nmpc/docs/multi_contact_planning/README.md, section
+  // 3.1). Its contact frame, in its parent joint's frame, has its origin at `translation`, its z axis along -pad_normal
+  // (the terrain's normal when the pad rests on it) and its x axis along pad_x_axis; the rectangle is in that frame.
+  // Next ID: 6
+  message SurfacePad {
+    reserved 6 to max;
+
+    // A contact of model_settings.contact_names_6dof, listed once.
+    string contact = 1 [default = ""];
+    // [m]
+    Xyz translation = 2 [(humanoid_mpc_config.tuning) = { unit: "m" }];
+    // Unit vectors (within 1e-3, then normalized), orthogonal to each other (within 1e-3).
+    Xyz pad_normal = 3;
+    Xyz pad_x_axis = 4;
+    Rectangle rectangle = 5;
+  }
+
   // [m] The contact frame (the center of the sole) in its parent joint's frame.
   Xyz contact_frame_translation = 1 [(humanoid_mpc_config.tuning) = { unit: "m" }];
   Rectangle contact_rectangle = 2;
@@ -152,4 +170,11 @@ message ContactsConfig {
   FrictionCone friction_force_cone_soft_constraint = 8;
   // Formerly contactMomentXYSoftConstraint.
   ContactMoment contact_moment_xy_soft_constraint = 9 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  // The 6-DoF contacts whose pad is not the shared sole above; none by default, as every shipped robot stands on its
+  // two soles.
+  repeated SurfacePad surface_pads = 10 [
+    (humanoid_mpc_config.tuning) = {
+      exclude_reason: "the contacts of the robot model: they fix the problem's frames"
+    }
+  ];
 }

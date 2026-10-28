@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/escaping.h"
 #include "absl/strings/str_cat.h"
 
+#include "humanoid_centroidal_mpc/multi_contact/MultiContactPlanSource.h"
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
 #include "humanoid_common_mpc/common/ContactInputParameterization.h"
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
@@ -105,6 +106,14 @@ std::vector<std::string> contactEstimatorNames() {
   return names;
 }
 
+std::vector<std::string> forceReferenceNames() {
+  return {kForceReferenceNames.begin(), kForceReferenceNames.end()};
+}
+
+std::vector<std::string> planPlaybackNames() {
+  return {kPlanPlaybackNames.begin(), kPlanPlaybackNames.end()};
+}
+
 std::vector<std::string> visualizationNames() {
   std::vector<std::string> names;
   for (const robot::mujoco_sim_interface::VisualizationInfo& info :
@@ -139,6 +148,8 @@ mpc_config::ConfigRegistries collectConfigRegistries() {
       {.name = "hard_constraint", .names = mpcHardConstraintNames()},
       {.name = "locomotion_heuristic", .names = locomotionHeuristicNames()},
       {.name = "mpc_cost", .names = mpcCostNames()},
+      {.name = "multi_contact_force_reference", .names = forceReferenceNames()},
+      {.name = "multi_contact_plan_playback", .names = planPlaybackNames()},
       {.name = "projectile",
        .names = robot::mujoco_sim_interface::availableProjectiles()},
       {.name = "rollout_integrator", .names = rolloutIntegratorNames()},

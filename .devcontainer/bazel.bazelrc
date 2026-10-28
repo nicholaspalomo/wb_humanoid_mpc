@@ -1,0 +1,15 @@
+# The dev container's Bazel caches, which docker-compose.yaml mounts as Bazel's system rc (/etc/bazel.bazelrc), read
+# before the workspace's .bazelrc: CI and `make ci-local` configure caches of their own (.github/workflows/build_test.yml).
+#
+# The container's output base is in its own filesystem and goes with it, so that a recreated container (a rebuilt
+# image, `docker compose up --force-recreate`) would compile Pinocchio, CppAD and OCS2 from nothing. The disk cache
+# (action outputs, by content) and the repository cache (downloads) live on the host instead, in <home>/.cache below
+# the mounted checkout's grandparent (.devcontainer/README.md, "Bazel Caches"), so the next container builds warm.
+# Bazel keys the actions by their command lines and inputs, not by the image's compiler binary, so the container's
+# start command deletes the disk cache when the image's packages have changed (reset_stale_bazel_cache.sh).
+# LINT.IfChange(dev_container_bazel_cache)
+build --disk_cache=/wb_humanoid_mpc_ws/.cache/wb_humanoid_mpc/bazel-disk
+build --repository_cache=/wb_humanoid_mpc_ws/.cache/wb_humanoid_mpc/bazel-repository
+# Bazel's server deletes the least recently used entries past this size while it is idle.
+build --experimental_disk_cache_gc_max_size=50G
+# LINT.ThenChange(//.devcontainer/README.md:dev_container_bazel_cache, //tools/dev_container/test_dev_container.py:dev_container_bazel_cache)

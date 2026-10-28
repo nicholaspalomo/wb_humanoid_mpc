@@ -53,6 +53,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/constraint/FootCollisionCbfConstraint.h"
 #include "humanoid_common_mpc/constraint/FrictionForceConeConstraint.h"
 #include "humanoid_common_mpc/constraint/JointLimitsSoftConstraint.h"
+#include "humanoid_common_mpc/constraint/PointFrictionConeConstraint.h"
 #include "humanoid_common_mpc/parameter_update/OcpTermUpdates.h"
 
 namespace ocs2::humanoid {
@@ -111,7 +112,9 @@ Penalties penaltiesOf(HotUpdateTarget& target) {
   const std::vector<std::string>& contactNames = target.contactNames();
   Penalties penalties;
   if (carriesContactTerm(running, contactNames,
-                         contact_term::kContactWrenchCone)) {
+                         contact_term::kContactWrenchCone) ||
+      carriesContactTerm(running, contactNames,
+                         contact_term::kPointFrictionCone)) {
     penalties.wrenchCone = convertedOrReported(
         contactWrenchConeBarrierFromConfig(task.contacts), target.source(),
         "the barrier of contacts.contact_wrench_cone_soft_constraint");
@@ -182,6 +185,10 @@ void ConstraintPenaltiesApplier::apply(HotUpdateTarget& target) {
     if (penalties.wrenchCone.has_value()) {
       setConePenalty<ContactWrenchConeConstraint>(
           ocp, contactNames, contact_term::kContactWrenchCone,
+          *penalties.wrenchCone);
+      // The point contacts' cones share the wrench cone's barrier.
+      setConePenalty<PointFrictionConeConstraint>(
+          ocp, contactNames, contact_term::kPointFrictionCone,
           *penalties.wrenchCone);
     }
     if (penalties.frictionCone.has_value()) {

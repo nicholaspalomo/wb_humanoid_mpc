@@ -294,7 +294,7 @@ bool ContactWrenchConeConstraint::isActive(scalar_t time) const {
   if (!scheduleGated_) {
     return true;
   }
-  return referenceManagerPtr_->getContactFlags(time)[contactPointIndex_];
+  return referenceManagerPtr_->isInContact(time, contactPointIndex_);
 }
 
 vector3_t contactPatchReferencePoint(
@@ -478,25 +478,13 @@ matrix_t cornerContactWrenchGenerators(
   return generators;
 }
 
-ContactWrenchConeRows buildLocalWrenchConeRows(
-    const ContactWrenchConeConstraint::Config& config,
-    const ContactRectangle& contactRectangle) {
-  // Every factory reports these as a Status naming the task-file key; only a
-  // caller that bypassed all of them gets here.
+ContactWrenchConeRows buildFrictionPyramidRows(
+    const ContactWrenchConeConstraint::Config& config) {
   const absl::Status validConfig =
       ContactWrenchConeConstraint::validateConfig(config);
   CHECK(validConfig.ok()) << validConfig.message();
-  const absl::Status validFootprint =
-      ContactWrenchConeConstraint::validateFootprint(contactRectangle);
-  CHECK(validFootprint.ok()) << validFootprint.message();
-
-  const std::vector<vector6_t> torsionRows =
-      torsionFacets(config, contactRectangle);
   const size_t numFrictionRows = config.numBasisVectors;
-  const size_t numRows = numFrictionRows +
-                         ContactWrenchConeRows::kNumNormalForceAndCopRows +
-                         torsionRows.size();
-
+  const size_t numRows = numFrictionRows + 1;
   ContactWrenchConeRows rows;
   rows.numFrictionRows = numFrictionRows;
   rows.A_f = matrix_t::Zero(numRows, kForceDim);
@@ -523,7 +511,42 @@ ContactWrenchConeRows buildLocalWrenchConeRows(
   // 2. Normal force limit: Fz - minNormalForce >= 0
   rows.A_f(constraintIdx, kZAxisIndex) = 1.0;
   rows.b(constraintIdx) = -config.minNormalForce;
-  ++constraintIdx;
+  return rows;
+}
+
+ContactWrenchConeRows buildLocalWrenchConeRows(
+    const ContactWrenchConeConstraint::Config& config,
+    const ContactRectangle& contactRectangle) {
+  // Every factory reports these as a Status naming the task-file key; only a
+  // caller that bypassed all of them gets here.
+  const absl::Status validConfig =
+      ContactWrenchConeConstraint::validateConfig(config);
+  CHECK(validConfig.ok()) << validConfig.message();
+  const absl::Status validFootprint =
+      ContactWrenchConeConstraint::validateFootprint(contactRectangle);
+  CHECK(validFootprint.ok()) << validFootprint.message();
+
+  const std::vector<vector6_t> torsionRows =
+      torsionFacets(config, contactRectangle);
+  const size_t numFrictionRows = config.numBasisVectors;
+  const size_t numRows = numFrictionRows +
+                         ContactWrenchConeRows::kNumNormalForceAndCopRows +
+                         torsionRows.size();
+
+  ContactWrenchConeRows rows;
+  rows.numFrictionRows = numFrictionRows;
+  rows.A_f = matrix_t::Zero(numRows, kForceDim);
+  rows.A_tau = matrix_t::Zero(numRows, kTorqueDim);
+  rows.b = vector_t::Zero(numRows);
+
+  // 1. and 2. The friction pyramid and the normal force bound, the rows a
+  // point contact shares (buildFrictionPyramidRows()).
+  const ContactWrenchConeRows pyramid = buildFrictionPyramidRows(config);
+  const Eigen::Index numPyramidRows =
+      static_cast<Eigen::Index>(pyramid.numRows());
+  rows.A_f.topRows(numPyramidRows) = pyramid.A_f;
+  rows.b.head(numPyramidRows) = pyramid.b;
+  size_t constraintIdx = pyramid.numRows();
 
   // 3. Center of Pressure (CoP) / Moment constraints (Bounds relative to local
   // foot contact frame)

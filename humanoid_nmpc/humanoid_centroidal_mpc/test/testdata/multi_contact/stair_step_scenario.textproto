@@ -1,0 +1,58 @@
+# proto-file: humanoid_nmpc/humanoid_multi_contact/scenarios/scenario.proto
+# proto-message: humanoid_multi_contact.Scenario
+# The test scenario of the centroidal MPC tracking a hand-written feet-only plan onto a stair
+# (//humanoid_nmpc/humanoid_centroidal_mpc:test_multi_contact_plan_tracking): one step 0.10 m high whose front face is
+# 0.18 m in front of the robot, so that Atlas reaches it from where it stands with its center of mass over the other
+# foot. Feet only; the goal is both feet on the step. Like the shipped stairs scenario it sets no static margin: only
+# the dynamic feasibility of condition 2 is judged (design section 11, decision 5).
+
+name: "stair_step"
+robot: "drc_atlas"
+urdf_file: "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf"
+contact_set_file: "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/multi_contact/contact_set.textproto"
+
+terrain_scene {
+  name: "stair_step"
+  # The floor: its top face is z = 0.
+  primitives {
+    name: "ground"
+    friction: 0.8
+    box { center: [0, 0, -0.5] half_extents: [20, 20, 0.5] }
+  }
+  # 0.10 m high, from x = 0.18 to x = 0.68.
+  primitives {
+    name: "step_1"
+    friction: 0.8
+    box { center: [0.43, 0, 0.05] half_extents: [0.25, 0.6, 0.05] }
+  }
+}
+
+# Standing on the floor at the hand-written plans' pose: knees bent, arms down, the soles at z = 0.
+initial_pose {
+  name: "standing"
+  base_position: [0, 0, 0.9232]
+  base_orientation_xyzw: [0, 0, 0, 1]
+  joint_positions { joint: "l_leg_hpy" position: -0.3 }
+  joint_positions { joint: "r_leg_hpy" position: -0.3 }
+  joint_positions { joint: "l_leg_kny" position: 0.6 }
+  joint_positions { joint: "r_leg_kny" position: 0.6 }
+  joint_positions { joint: "l_leg_aky" position: -0.3 }
+  joint_positions { joint: "r_leg_aky" position: -0.3 }
+  joint_positions { joint: "l_arm_shx" position: -1.3 }
+  joint_positions { joint: "r_arm_shx" position: 1.3 }
+  active_contacts: "foot_l_contact"
+  active_contacts: "foot_r_contact"
+}
+
+goal {
+  contacts { contact: "foot_l_contact" primitive: "step_1" }
+  contacts { contact: "foot_r_contact" primitive: "step_1" }
+  base_region { center: [0.292, 0, 1.0232] half_extents: [0.1, 0.1, 0.1] }
+}
+
+allowed_contacts: "foot_l_contact"
+allowed_contacts: "foot_r_contact"
+
+planner: "stance_graph"
+torque_margin: 0.9
+duration: 7.0

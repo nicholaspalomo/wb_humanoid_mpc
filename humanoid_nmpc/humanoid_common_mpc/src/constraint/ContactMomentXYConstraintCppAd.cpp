@@ -84,7 +84,7 @@ bool ContactMomentXYConstraintCppAd::isActive(scalar_t time) const {
   // which foot carries load, so it cannot be allowed to decide whose center of
   // pressure is bounded either; see contactConstraintsAreScheduleGated().
   if (!scheduleGated_) return true;
-  return referenceManagerPtr_->getContactFlags(time)[contactPointIndex_];
+  return referenceManagerPtr_->isInContact(time, contactPointIndex_);
 }
 
 /******************************************************************************************************/

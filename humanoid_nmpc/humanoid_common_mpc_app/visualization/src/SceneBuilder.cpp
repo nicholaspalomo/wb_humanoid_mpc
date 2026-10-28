@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <exception>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -210,10 +211,9 @@ absl::Status SceneBuilder::initialize(const VisualizationModel& model,
     }
   }
 
-  if (modelSettings().contactNames.size() < kNumContacts) {
-    return absl::InvalidArgumentError(absl::StrCat(
-        "the model settings name ", modelSettings().contactNames.size(),
-        " contacts; the visualization needs ", kNumContacts, "."));
+  if (modelSettings().contactNames.empty()) {
+    return absl::InvalidArgumentError(
+        "the model settings name no contact; the visualization needs one.");
   }
   // The contact polygons and the collision spheres of the typed task file.
   const absl::StatusOr<mpc_config::TaskFile> task =
@@ -222,10 +222,16 @@ absl::Status SceneBuilder::initialize(const VisualizationModel& model,
     return absl::InvalidArgumentError(absl::StrCat(
         "the contact polygons do not load: ", task.status().message()));
   }
-  for (size_t contact = 0; contact < kNumContacts; ++contact) {
+  const size_t numContacts = modelSettings().contactNames.size();
+  contactFrames_.assign(numContacts, 0);
+  cornerFrames_.assign(numContacts, {});
+  cornerForceMappers_.assign(numContacts, std::nullopt);
+  for (size_t contact = 0; contact < numContacts; ++contact) {
     ASSIGN_OR_RETURN(contactFrames_[contact],
                      findFrame(mpcModel, modelSettings().contactNames[contact],
                                "contactNames"));
+    // A 3-DoF contact has no rectangle: its force is drawn at its frame.
+    if (modelSettings().isPointContact(contact)) continue;
     const absl::StatusOr<ContactRectangle> rectangle =
         contactRectangleFromConfig(task->contacts, modelSettings(),
                                    static_cast<int>(contact));
@@ -248,7 +254,7 @@ absl::Status SceneBuilder::initialize(const VisualizationModel& model,
                                      static_cast<int>(corner)),
                                  "the contact polygon"));
     }
-    cornerForceMappers_.emplace_back(*rectangle);
+    cornerForceMappers_[contact].emplace(*rectangle);
   }
 
   for (const std::string& frame : config.planFrames) {
@@ -377,16 +383,22 @@ void SceneBuilder::writeObservationMarkers(
   vector_t planState;
   vector_t planInput;
   samplePlan(*policy, stateManifold_, observation.time, &planState, &planInput);
-  const contact_flag_t stance = modeNumber2StanceLeg(observation.mode);
   vector3_t weightedCop = vector3_t::Zero();
   scalar_t normalForceSum = 0.0;
-  for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    if (!stance[contact]) {
+  const size_t numContacts = contactFrames_.size();
+  for (size_t contact = 0; contact < numContacts; ++contact) {
+    // For the biped's two feet, modeNumber2StanceLeg()'s reading.
+    if (!contactIsActiveInMode(observation.mode, contact, numContacts)) {
       continue;
     }
     const pinocchio::FrameIndex frame = contactFrames_[contact];
     const vector6_t worldWrench = robotModel_->getContactWrenchInWorldFrame(
         observation.state, planInput, contact);
+    if (!cornerForceMappers_[contact].has_value()) {
+      addForceArrow(data.oMf[frame].translation(),
+                    worldWrench.head<kForceDim>(), contactForces);
+      continue;
+    }
     const vector6_t localWrench =
         rotateVectorWorldToLocal<scalar_t>(worldWrench, data, frame);
     vector3_t cop = data.oMf[frame].translation();
@@ -402,7 +414,7 @@ void SceneBuilder::writeObservationMarkers(
     addForceArrow(cop, worldWrench.head<kForceDim>(), contactForces);
 
     const std::array<vector3_t, kFootCorners> cornerForcesLocal =
-        cornerForceMappers_[contact].computeVisualizationForceArray(
+        cornerForceMappers_[contact]->computeVisualizationForceArray(
             localWrench);
     for (size_t corner = 0; corner < kFootCorners; ++corner) {
       addForceArrow(data.oMf[cornerFrames_[contact][corner]].translation(),
@@ -469,13 +481,14 @@ void SceneBuilder::computePlan(const PolicySnapshot& policy) {
     if (!(startTime < eventTime && eventTime < finalTime)) {
       continue;
     }
-    const contact_flag_t before =
-        modeNumber2StanceLeg(schedule.modeSequence[event]);
-    const contact_flag_t after =
-        modeNumber2StanceLeg(schedule.modeSequence[event + 1]);
+    const size_t numContacts = contactFrames_.size();
     bool kinematicsDone = false;
-    for (size_t contact = 0; contact < kNumContacts; ++contact) {
-      if (before[contact] || !after[contact]) {
+    for (size_t contact = 0; contact < numContacts; ++contact) {
+      // A contact lands at an event where it goes from swing to stance.
+      if (contactIsActiveInMode(schedule.modeSequence[event], contact,
+                                numContacts) ||
+          !contactIsActiveInMode(schedule.modeSequence[event + 1], contact,
+                                 numContacts)) {
         continue;
       }
       if (!kinematicsDone) {

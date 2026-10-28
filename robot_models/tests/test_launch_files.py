@@ -73,6 +73,28 @@ ROBOT_DESCRIPTIONS = (
 )
 # LINT.ThenChange(//Makefile:robot_configurations, //tools/deploy/BUILD.bazel:robot_configurations)
 
+# The DRC Atlas's multi-contact scenarios, by their files' names: the dummy sim of each runs the multi-contact launch
+# file with `scenario` set to it.
+# LINT.IfChange(multi_contact_scenarios)
+MULTI_CONTACT_SCENARIOS = (
+    "stairs",
+    "stairs_steep",
+    "box_climb",
+    "box_climb_high",
+    "car_egress",
+    "get_up_supine",
+    "get_up_prone",
+)
+MULTI_CONTACT_LAUNCH_FILE = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/launch/multi_contact_dummy_sim.textproto"
+# LINT.ThenChange(//Makefile:multi_contact_scenarios)
+# The flags the centroidal MPC's node and dummy simulator add to the shared ones: the scenario and plan they track, and
+# how the plan plays.
+CENTROIDAL_MULTI_CONTACT_FLAGS = (
+    "multi_contact_scenario",
+    "multi_contact_plan",
+    "multi_contact_playback",
+)
+
 MPC_LAUNCH_FILES = ("robot.textproto", "mpc.textproto", "dummy_sim.textproto")
 # The variables every launch file of a robot configuration gives the same value. The task and reference files are also
 # the configuration's identity on the bus (ConfigFiles.h, configFileIdentity()): the robot and the MPC refuse an update
@@ -112,14 +134,25 @@ def launch_paths() -> list[str]:
         os.path.join(description, "launch", "sandbox.textproto")
         for description in ROBOT_DESCRIPTIONS
     ]
+    paths.append(MULTI_CONTACT_LAUNCH_FILE)
     return paths
 
 
-def load(path: str) -> launch_file.LaunchFile:
-    """A launch file as the launcher reads it, its binaries looked up among this test's runfiles."""
+def load(
+    path: str, overrides: dict[str, str] | None = None
+) -> launch_file.LaunchFile:
+    """A launch file as the launcher reads it, its binaries looked up among this test's runfiles.
+
+    Args:
+        path: The launch file, relative to the repository.
+        overrides: Variables set as `--set` sets them, besides bin_dir.
+
+    Returns:
+        The launch file, its variables substituted.
+    """
     return launch_file.load_launch_file(
         os.path.join(RUNFILES, path),
-        overrides={"bin_dir": RUNFILES},
+        overrides={"bin_dir": RUNFILES, **(overrides or {})},
         builtins={"repo_root": RUNFILES},
     )
 
@@ -275,6 +308,63 @@ class LaunchFilesTest(unittest.TestCase):
                     ],
                 )
 
+    def test_every_multi_contact_scenario_launches_its_dummy_sim(
+        self,
+    ) -> None:
+        # The multi-contact launch file of every scenario: the node and the dummy simulator of the centroidal MPC on the
+        # multi-contact task file, tracking the same scenario and plan, and the Rerun bridge drawing that scenario.
+        for scenario in MULTI_CONTACT_SCENARIOS:
+            launch = load(MULTI_CONTACT_LAUNCH_FILE, {"scenario": scenario})
+            with self.subTest(scenario=scenario):
+                self.assertEqual(
+                    [
+                        (process.machine, os.path.basename(process.command[0]))
+                        for process in launch.processes
+                    ],
+                    [
+                        ("laptop", "humanoid_centroidal_mpc_node"),
+                        ("laptop", "humanoid_centroidal_mpc_dummy_sim"),
+                        ("laptop", "humanoid_rerun_viewer"),
+                    ],
+                )
+                scenario_file = launch.variables["scenario_file"]
+                self.assertTrue(
+                    scenario_file.endswith(f"/{scenario}.textproto"),
+                    scenario_file,
+                )
+                self.assertTrue(
+                    os.path.isfile(os.path.join(RUNFILES, scenario_file)),
+                    scenario_file,
+                )
+                self.assertTrue(
+                    launch.variables["task_file"].startswith(
+                        "robot_models/drc_atlas/drc_atlas_centroidal_mpc/"
+                    )
+                )
+                for process in launch.processes:
+                    self.assertIn(
+                        f"--multi_contact_scenario={scenario_file}",
+                        process.command,
+                    )
+                for process in launch.processes[:2]:
+                    self.assertIn(
+                        f"--multi_contact_plan={launch.variables['plan_file']}",
+                        process.command,
+                    )
+                    # The task file's default playback unless the launch sets
+                    # another (the Makefile's stairs target).
+                    self.assertIn(
+                        "--multi_contact_playback=once", process.command
+                    )
+        launch = load(
+            MULTI_CONTACT_LAUNCH_FILE,
+            {"scenario": "stairs", "playback": "forward_and_reverse"},
+        )
+        for process in launch.processes[:2]:
+            self.assertIn(
+                "--multi_contact_playback=forward_and_reverse", process.command
+            )
+
     def test_the_launch_files_of_a_robot_agree_on_its_files(self) -> None:
         for _, package, _ in ROBOT_CONFIGURATIONS:
             launches = {
@@ -404,6 +494,8 @@ class LaunchFilesTest(unittest.TestCase):
                 ).processes:
                     if process.name in binaries:
                         binaries[process.name].add(process.command[0])
+        centroidal = listed("the centroidal MPC's node and dummy simulator add")
+        self.assertEqual(centroidal, set(CENTROIDAL_MULTI_CONTACT_FLAGS))
         for role, extra in (
             ("mpc", set()),
             ("dummy_sim", set()),
@@ -412,10 +504,16 @@ class LaunchFilesTest(unittest.TestCase):
             self.assertTrue(binaries[role], role)
             for program in sorted(binaries[role]):
                 with self.subTest(binary=os.path.basename(program)):
+                    own: set[str] = set()
+                    name = os.path.basename(program)
+                    if role != "robot" and name.startswith(
+                        "humanoid_centroidal_mpc"
+                    ):
+                        own = centroidal
                     # Exactly: a flag the README lists that the binary lacks, or one the binary defines that the
                     # README leaves out, both fail.
                     self.assertEqual(
-                        first_party_flags_of(program), common | extra
+                        first_party_flags_of(program), common | extra | own
                     )
 
     def test_the_gui_hands_the_walking_command_over_by_a_variable(self) -> None:

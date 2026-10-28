@@ -249,6 +249,16 @@ class HumanoidCostConstraintFactory {
   absl::StatusOr<std::unique_ptr<StateInputCost>>
   makeContactWrenchConeConstraint(size_t contactPointIndex) const;
 
+  /**
+   * The friction cone of one 3-DoF contact as a soft constraint, the point
+   * contact's counterpart of the contact wrench cone: the friction rows and the
+   * barrier of contacts.contact_wrench_cone_soft_constraint, in the frame of
+   * the contact's patch (PointFrictionConeConstraint). Wrench-space models
+   * only.
+   */
+  absl::StatusOr<std::unique_ptr<StateInputCost>>
+  makePointFrictionConeConstraint(size_t contactPointIndex) const;
+
   /** The friction cone of one foot,
    * contacts.friction_force_cone_soft_constraint. */
   absl::StatusOr<std::unique_ptr<StateInputCost>>

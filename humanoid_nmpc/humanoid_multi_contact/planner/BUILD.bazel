@@ -1,0 +1,537 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
+
+# humanoid_multi_contact/planner - the multi-contact planners (humanoid_nmpc/docs/multi_contact_planning/README.md,
+# sections 4 and 5): the MultiContactPlanner interface and its registry by name, and planner B, the stance-graph
+# planner, with its lazy weighted A*, contact sampler, stance inverse kinematics, motions and timing law.
+
+package(default_visibility = ["//visibility:public"])
+
+# The search, the sampler, the swing paths and the timing law: no robot needed but its model.
+cc_library(
+    name = "search",
+    srcs = [
+        "src/ContactSampler.cpp",
+        "src/LazyWeightedAStar.cpp",
+        "src/PlanTiming.cpp",
+        "src/SwingPath.cpp",
+    ],
+    hdrs = [
+        "include/humanoid_multi_contact/planner/ContactSampler.h",
+        "include/humanoid_multi_contact/planner/LazyWeightedAStar.h",
+        "include/humanoid_multi_contact/planner/PlanTiming.h",
+        "include/humanoid_multi_contact/planner/SwingPath.h",
+    ],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set",
+        "//humanoid_nmpc/humanoid_multi_contact/plan:multi_contact_plan_nproto",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:robot_stance_model",
+        "//humanoid_nmpc/humanoid_multi_contact/terrain",
+        "//lib/ocs2:ocs2_dimensions",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/container:flat_hash_map",
+        "@abseil-cpp//absl/container:flat_hash_set",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/time",
+        "@abseil-cpp//absl/types:span",
+        "@eigen",
+        "@pinocchio",
+    ],
+)
+
+# The whole-body inverse kinematics of a stance and the motions between stances.
+cc_library(
+    name = "stance_motion",
+    srcs = [
+        "src/StanceInverseKinematics.cpp",
+        "src/StanceMotion.cpp",
+    ],
+    hdrs = [
+        "include/humanoid_multi_contact/planner/StanceInverseKinematics.h",
+        "include/humanoid_multi_contact/planner/StanceMotion.h",
+    ],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        ":search",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_multi_contact/collision",
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:certifier",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:equilibrium",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:joint_limits",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:robot_stance_model",
+        "//humanoid_nmpc/humanoid_multi_contact/terrain",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_dimensions",
+        "@abseil-cpp//absl/container:flat_hash_map",
+        "@abseil-cpp//absl/functional:function_ref",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/log:vlog_is_on",
+        "@abseil-cpp//absl/memory",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:str_format",
+        "@eigen",
+        "@pinocchio",
+    ],
+)
+
+# The planner interface and planner B, the stance graph (design section 5).
+cc_library(
+    name = "stance_graph_planner",
+    srcs = ["src/StanceGraphPlanner.cpp"],
+    hdrs = [
+        "include/humanoid_multi_contact/planner/MultiContactPlanner.h",
+        "include/humanoid_multi_contact/planner/StanceGraphPlanner.h",
+    ],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        ":search",
+        ":stance_motion",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_multi_contact/collision",
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set",
+        "//humanoid_nmpc/humanoid_multi_contact/plan:multi_contact_plan_nproto",
+        "//humanoid_nmpc/humanoid_multi_contact/plan:plan_file",
+        "//humanoid_nmpc/humanoid_multi_contact/scenarios",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:certifier",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:certifier_report_nproto",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:equilibrium",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:joint_limits",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:robot_stance_model",
+        "//humanoid_nmpc/humanoid_multi_contact/terrain",
+        "//lib/ocs2:ocs2_dimensions",
+        "//lib/ocs2:ocs2_physical_constants",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/container:flat_hash_map",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/log:vlog_is_on",
+        "@abseil-cpp//absl/memory",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:str_format",
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/time",
+        "@eigen",
+        "@pinocchio",
+    ],
+)
+
+# Planner A on a robot (design section 4): the contact features of the centroidal MPC's model, the collision spheres,
+# the quasi-static torques and the support polygons as terms, solve 3 on the MPC tracking a seed plan, the conversions
+# between plans and the MPC's trajectories, and the planners "contact_invariant" and
+# "stance_graph_then_contact_invariant".
+cc_library(
+    name = "contact_invariant",
+    srcs = [
+        "src/ContactInvariantPlanner.cpp",
+        "src/StanceGraphThenContactInvariantPlanner.cpp",
+        "src/contact_invariant/HardContactRefinement.cpp",
+        "src/contact_invariant/LiftOffUnloadingCost.cpp",
+        "src/contact_invariant/PlanSeeding.cpp",
+        "src/contact_invariant/PlanTrajectory.cpp",
+        "src/contact_invariant/QuasiStaticTorqueConstraint.cpp",
+        "src/contact_invariant/RobotContactFeatures.cpp",
+        "src/contact_invariant/SupportPolygonConstraint.cpp",
+        "src/contact_invariant/TerrainClearanceConstraint.cpp",
+    ],
+    hdrs = [
+        "include/humanoid_multi_contact/planner/ContactInvariantPlanner.h",
+        "include/humanoid_multi_contact/planner/StanceGraphThenContactInvariantPlanner.h",
+        "include/humanoid_multi_contact/planner/contact_invariant/HardContactRefinement.h",
+        "include/humanoid_multi_contact/planner/contact_invariant/LiftOffUnloadingCost.h",
+        "include/humanoid_multi_contact/planner/contact_invariant/PlanSeeding.h",
+        "include/humanoid_multi_contact/planner/contact_invariant/PlanTrajectory.h",
+        "include/humanoid_multi_contact/planner/contact_invariant/QuasiStaticTorqueConstraint.h",
+        "include/humanoid_multi_contact/planner/contact_invariant/RobotContactFeatures.h",
+        "include/humanoid_multi_contact/planner/contact_invariant/SupportPolygonConstraint.h",
+        "include/humanoid_multi_contact/planner/contact_invariant/TerrainClearanceConstraint.h",
+    ],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        ":contact_invariant_core",
+        ":stance_graph_planner",
+        "//humanoid_nmpc/humanoid_centroidal_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_multi_contact/collision",
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set",
+        "//humanoid_nmpc/humanoid_multi_contact/plan:multi_contact_plan_nproto",
+        "//humanoid_nmpc/humanoid_multi_contact/plan:plan_file",
+        "//humanoid_nmpc/humanoid_multi_contact/scenarios",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:certifier",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:certifier_report_nproto",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:equilibrium",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:joint_limits",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:robot_stance_model",
+        "//humanoid_nmpc/humanoid_multi_contact/terrain",
+        "//lib/ocs2:ocs2_centroidal_model",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_dimensions",
+        "//lib/ocs2:ocs2_oc",
+        "//lib/ocs2:ocs2_physical_constants",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "//lib/ocs2:ocs2_sqp",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/container:flat_hash_map",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/log:absl_check",
+        "@abseil-cpp//absl/log:vlog_is_on",
+        "@abseil-cpp//absl/memory",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:str_format",
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/time",
+        "@eigen",
+        "@pinocchio",
+    ],
+)
+
+# The multi-contact planners by name (design section 5.3).
+cc_library(
+    name = "planner",
+    srcs = ["src/MultiContactPlannerRegistry.cpp"],
+    hdrs = ["include/humanoid_multi_contact/planner/MultiContactPlannerRegistry.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        ":contact_invariant",
+        ":stance_graph_planner",
+        "//humanoid_nmpc/humanoid_multi_contact/scenarios",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+    ],
+)
+
+# Planner A's problem (design section 4.2), on any physical problem: the augmented state and input (a contact variable
+# and its rate per candidate), the wrappers of the physical terms, the contact features on a CppAD tape, the
+# contact-invariant terms, the continuation and the thresholding of the contact variables.
+cc_library(
+    name = "contact_invariant_core",
+    srcs = [
+        "src/contact_invariant/ActivationBoundsConstraint.cpp",
+        "src/contact_invariant/ActivationRateCost.cpp",
+        "src/contact_invariant/AugmentedDynamics.cpp",
+        "src/contact_invariant/AugmentedPreComputation.cpp",
+        "src/contact_invariant/AugmentedReferenceManager.cpp",
+        "src/contact_invariant/AugmentedStateCost.cpp",
+        "src/contact_invariant/AugmentedStateInputConstraint.cpp",
+        "src/contact_invariant/AugmentedStateInputCost.cpp",
+        "src/contact_invariant/ContactFeatureConstraint.cpp",
+        "src/contact_invariant/ContactFeatureFunction.cpp",
+        "src/contact_invariant/ContactForceGateCost.cpp",
+        "src/contact_invariant/ContactInvariantContinuation.cpp",
+        "src/contact_invariant/ContactInvariantCost.cpp",
+        "src/contact_invariant/ContactInvariantProblem.cpp",
+        "src/contact_invariant/LandingAlignmentCost.cpp",
+        "src/contact_invariant/LibraryName.cpp",
+        "src/contact_invariant/MomentumRateCost.cpp",
+        "src/contact_invariant/PsdProjection.cpp",
+        "src/contact_invariant/StanceThresholding.cpp",
+        "src/contact_invariant/TrajectoryInitializer.cpp",
+    ],
+    hdrs = [
+        "include/humanoid_multi_contact/planner/contact_invariant/ActivationBoundsConstraint.h",
+        "include/humanoid_multi_contact/planner/contact_invariant/ActivationRateCost.h",
+        "include/humanoid_multi_contact/planner/contact_invariant/AugmentedDynamics.h",
+        "include/humanoid_multi_contact/planner/contact_invariant/AugmentedPreComputation.h",
+        "include/humanoid_multi_contact/planner/contact_invariant/AugmentedReferenceManager.h",
+        "include/humanoid_multi_contact/planner/contact_invariant/AugmentedStateCost.h",
+        "include/humanoid_multi_contact/planner/contact_invariant/AugmentedStateInputConstraint.h",
+        "include/humanoid_multi_contact/planner/contact_invariant/AugmentedStateInputCost.h",
+        "include/humanoid_multi_contact/planner/contact_invariant/ContactFeatureConstraint.h",
+        "include/humanoid_multi_contact/planner/contact_invariant/ContactFeatureFunction.h",
+        "include/humanoid_multi_contact/planner/contact_invariant/ContactFeatureRows.h",
+        "include/humanoid_multi_contact/planner/contact_invariant/ContactForceGateCost.h",
+        "include/humanoid_multi_contact/planner/contact_invariant/ContactInvariantContinuation.h",
+        "include/humanoid_multi_contact/planner/contact_invariant/ContactInvariantCost.h",
+        "include/humanoid_multi_contact/planner/contact_invariant/ContactInvariantLayout.h",
+        "include/humanoid_multi_contact/planner/contact_invariant/ContactInvariantProblem.h",
+        "include/humanoid_multi_contact/planner/contact_invariant/LandingAlignmentCost.h",
+        "include/humanoid_multi_contact/planner/contact_invariant/LibraryName.h",
+        "include/humanoid_multi_contact/planner/contact_invariant/MomentumRateCost.h",
+        "include/humanoid_multi_contact/planner/contact_invariant/PsdProjection.h",
+        "include/humanoid_multi_contact/planner/contact_invariant/StanceThresholding.h",
+        "include/humanoid_multi_contact/planner/contact_invariant/TrajectoryInitializer.h",
+    ],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_dimensions",
+        "//lib/ocs2:ocs2_oc",
+        "//lib/ocs2:ocs2_sqp",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/log:absl_check",
+        "@abseil-cpp//absl/memory",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:str_format",
+        "@abseil-cpp//absl/time",
+        "@eigen",
+    ],
+)
+
+# The toy problem of the contact-invariant tests: a ball above a floor.
+cc_library(
+    name = "ball_problem",
+    testonly = True,
+    srcs = ["test/contact_invariant/BallProblem.cpp"],
+    hdrs = ["test/contact_invariant/BallProblem.h"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":contact_invariant_core",
+        "//humanoid_nmpc/humanoid_multi_contact/terrain",
+        "//humanoid_nmpc/humanoid_multi_contact/terrain:terrain_scene_nproto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_dimensions",
+        "//lib/ocs2:ocs2_oc",
+        "//lib/ocs2:ocs2_physical_constants",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
+        "@eigen",
+    ],
+)
+
+# The contact-invariant terms against finite differences, on the ball.
+cc_test(
+    name = "contact_invariant_terms_test",
+    size = "small",
+    srcs = ["test/contact_invariant/testContactInvariantTerms.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":ball_problem",
+        ":contact_invariant_core",
+        "//lib/ocs2:ocs2_core",
+        "@abseil-cpp//absl/status:statusor",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The thresholding of the contact variables into a stance sequence.
+cc_test(
+    name = "stance_thresholding_test",
+    size = "small",
+    srcs = ["test/contact_invariant/testStanceThresholding.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":contact_invariant_core",
+        "@abseil-cpp//absl/status:statusor",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The continuation and the thresholding on the toy problem: the ball discovers the floor.
+cc_test(
+    name = "contact_invariant_toy_test",
+    size = "small",
+    srcs = ["test/contact_invariant/testContactInvariantToy.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":ball_problem",
+        ":contact_invariant_core",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_oc",
+        "//lib/ocs2:ocs2_physical_constants",
+        "//lib/ocs2:ocs2_sqp",
+        "@abseil-cpp//absl/status:statusor",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The files the robot tests read: Atlas's URDF, contact set and collision model.
+_ATLAS_DATA = [
+    "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+    "//robot_models/drc_atlas/drc_atlas_description",
+]
+
+# The terms planner A adds on Atlas's multi-contact model against finite differences and the certifier's stance model:
+# the contact features, the collision spheres, the quasi-static torques (and the effort limits solve 3 constrains them
+# to, none under "position_only") and the support polygon. Tapes its libraries.
+cc_test(
+    name = "robot_contact_invariant_terms_test",
+    size = "large",
+    srcs = ["test/contact_invariant/testRobotContactInvariantTerms.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = _ATLAS_DATA + ["//humanoid_nmpc/humanoid_multi_contact/scenarios:scenario_files"],
+    deps = [
+        ":contact_invariant",
+        ":contact_invariant_core",
+        "//humanoid_nmpc/humanoid_centroidal_mpc",
+        "//humanoid_nmpc/humanoid_multi_contact/collision",
+        "//humanoid_nmpc/humanoid_multi_contact/scenarios",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:joint_limits",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:robot_stance_model",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_physical_constants",
+        "@abseil-cpp//absl/status:statusor",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The stance IK on Atlas: holding a stance, the CoM onto one foot, a hand onto a box, an unreachable target, the
+# shins off the floor in a squat, and the joint limits.
+cc_test(
+    name = "stance_inverse_kinematics_test",
+    size = "small",
+    srcs = ["test/testStanceInverseKinematics.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = _ATLAS_DATA,
+    deps = [
+        ":stance_motion",
+        "//humanoid_nmpc/humanoid_multi_contact/collision",
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:equilibrium",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:robot_stance_model",
+        "//humanoid_nmpc/humanoid_multi_contact/terrain",
+        "//humanoid_nmpc/humanoid_multi_contact/terrain:terrain_scene_nproto",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# A step forward on the floor through StanceMotion's transitions and swing, the overlap of pads, and the statics
+# check with the effort limits enforced and with the position limits only.
+cc_test(
+    name = "stance_motion_test",
+    size = "small",
+    srcs = ["test/testStanceMotion.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = _ATLAS_DATA,
+    deps = [
+        ":stance_motion",
+        "//humanoid_nmpc/humanoid_multi_contact/collision",
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:joint_limits",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:robot_stance_model",
+        "//humanoid_nmpc/humanoid_multi_contact/terrain",
+        "//humanoid_nmpc/humanoid_multi_contact/terrain:terrain_scene_nproto",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The stance graph planner's waypoints on the box_climb scene: a plan through a stance with both hands on the box,
+# and an unreachable waypoint named.
+cc_test(
+    name = "stance_graph_waypoints_test",
+    size = "medium",
+    srcs = ["test/testStanceGraphWaypoints.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = _ATLAS_DATA + ["//humanoid_nmpc/humanoid_multi_contact/scenarios:scenario_files"],
+    deps = [
+        ":stance_graph_planner",
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set",
+        "//humanoid_nmpc/humanoid_multi_contact/plan:multi_contact_plan_nproto",
+        "//humanoid_nmpc/humanoid_multi_contact/scenarios",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The lazy weighted A* on a toy problem: a grid with a wall.
+cc_test(
+    name = "lazy_weighted_a_star_test",
+    size = "small",
+    srcs = ["test/testLazyWeightedAStar.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":search",
+        "@abseil-cpp//absl/container:flat_hash_set",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/time",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The contact sampler on a stair and a rail.
+cc_test(
+    name = "contact_sampler_test",
+    size = "small",
+    srcs = ["test/testContactSampler.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":search",
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set",
+        "//humanoid_nmpc/humanoid_multi_contact/terrain",
+        "//humanoid_nmpc/humanoid_multi_contact/terrain:terrain_scene_nproto",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings:string_view",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The timing law: the minimum-jerk profile, a segment's duration, the dwells, rests and momenta.
+cc_test(
+    name = "plan_timing_test",
+    size = "small",
+    srcs = ["test/testPlanTiming.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = _ATLAS_DATA,
+    deps = [
+        ":search",
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:robot_stance_model",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The planner registry: the built-in planner, the design's names and the refusals.
+cc_test(
+    name = "multi_contact_planner_registry_test",
+    size = "small",
+    srcs = ["test/testMultiContactPlannerRegistry.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":contact_invariant",
+        ":planner",
+        ":stance_graph_planner",
+        "//humanoid_nmpc/humanoid_multi_contact/scenarios",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+

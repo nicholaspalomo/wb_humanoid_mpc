@@ -1,0 +1,201 @@
+load("@protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
+load("@protobuf//bazel:proto_library.bzl", "proto_library")
+load("@protobuf//bazel:py_proto_library.bzl", "py_proto_library")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
+load("//tools/nproto:nproto.bzl", "nproto_cc_library")
+
+# humanoid_multi_contact/stability - the stability conditions of the multi-contact plans (humanoid_nmpc/docs/
+# multi_contact_planning/README.md, sections 2 and 6): static equilibrium and its margin, torque feasibility, the
+# contact wrench cone check of a momentum rate, and the certifier that reports them per knot. The LPs run on HPIPM's
+# dense QP.
+
+package(default_visibility = ["//visibility:public"])
+
+proto_library(
+    name = "certifier_report_proto",
+    srcs = ["certifier_report.proto"],
+    strip_import_prefix = "/humanoid_nmpc",
+    deps = ["//tools/nproto:options_proto"],
+)
+
+cc_proto_library(
+    name = "certifier_report_cc_proto",
+    deps = [":certifier_report_proto"],
+)
+
+py_proto_library(
+    name = "certifier_report_py_proto",
+    deps = [":certifier_report_proto"],
+)
+
+nproto_cc_library(
+    name = "certifier_report_nproto",
+    deps = [":certifier_report_proto"],
+)
+
+# The LPs and the equilibrium of a stance, without a robot model.
+cc_library(
+    name = "equilibrium",
+    srcs = [
+        "src/ContactWrenchConeCheck.cpp",
+        "src/ConvexPolygon.cpp",
+        "src/LinearProgram.cpp",
+        "src/Stance.cpp",
+        "src/StaticEquilibrium.cpp",
+    ],
+    hdrs = [
+        "include/humanoid_multi_contact/stability/ContactWrenchConeCheck.h",
+        "include/humanoid_multi_contact/stability/ConvexPolygon.h",
+        "include/humanoid_multi_contact/stability/LinearProgram.h",
+        "include/humanoid_multi_contact/stability/Stance.h",
+        "include/humanoid_multi_contact/stability/StaticEquilibrium.h",
+    ],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set",
+        "//lib/ocs2:ocs2_dimensions",
+        "//lib/ocs2:ocs2_physical_constants",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/types:span",
+        "@eigen",
+        "@hpipm",
+    ],
+)
+
+# The whole-body statics of a configuration (Pinocchio) and the torque feasibility LP.
+cc_library(
+    name = "robot_stance_model",
+    srcs = [
+        "src/RobotStanceModel.cpp",
+        "src/TorqueFeasibility.cpp",
+    ],
+    hdrs = [
+        "include/humanoid_multi_contact/stability/RobotStanceModel.h",
+        "include/humanoid_multi_contact/stability/TorqueFeasibility.h",
+    ],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        ":equilibrium",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set",
+        "//lib/ocs2:ocs2_dimensions",
+        "//lib/ocs2:ocs2_physical_constants",
+        "@abseil-cpp//absl/container:flat_hash_set",
+        "@abseil-cpp//absl/memory",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/types:span",
+        "@eigen",
+        "@pinocchio",
+    ],
+)
+
+# Which of the URDF's joint limits a plan respects, by the scenario's name (JointLimits.h).
+cc_library(
+    name = "joint_limits",
+    srcs = ["src/JointLimits.cpp"],
+    hdrs = ["include/humanoid_multi_contact/stability/JointLimits.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+    ],
+)
+
+cc_library(
+    name = "certifier",
+    srcs = ["src/StabilityCertifier.cpp"],
+    hdrs = ["include/humanoid_multi_contact/stability/StabilityCertifier.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        ":certifier_report_nproto",
+        ":equilibrium",
+        ":joint_limits",
+        ":robot_stance_model",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_multi_contact/collision",
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set",
+        "//humanoid_nmpc/humanoid_multi_contact/plan:multi_contact_plan_nproto",
+        "//humanoid_nmpc/humanoid_multi_contact/terrain",
+        "//lib/ocs2:ocs2_dimensions",
+        "@abseil-cpp//absl/memory",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:str_format",
+        "@eigen",
+    ],
+)
+
+# The files the robot tests read: Atlas's URDF and contact set.
+_ATLAS_DATA = [
+    "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+    "//robot_models/drc_atlas/drc_atlas_description",
+]
+
+_TEST_DEPS = [
+    "//robot_runtime/robot_core:resource_paths",
+    "@abseil-cpp//absl/status",
+    "@abseil-cpp//absl/status:statusor",
+    "@abseil-cpp//absl/strings",
+    "@eigen",
+    "@googletest//:gtest_main",
+]
+
+# The LP wrapper, the convex hull, and static equilibrium on closed-form stances: two flat feet give the convex hull of
+# their rectangles, a hand on a wall widens it toward the wall, a single point contact holds only the CoM above it, the
+# margin's sign flips at the boundary; and the contact wrench cone check (a fast acceleration fails, a slow one passes).
+cc_test(
+    name = "equilibrium_test",
+    size = "small",
+    srcs = ["test/testStaticEquilibrium.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = _TEST_DEPS + [":equilibrium"],
+)
+
+# The Atlas model: every parent joint of the contact set is a joint of atlas.urdf, the Jacobians against differences
+# of the pad positions, g(q) - J^T f balances the base at the torque LP's forces, and torque feasibility fails when the
+# limits are scaled down.
+cc_test(
+    name = "robot_stance_model_test",
+    size = "small",
+    srcs = ["test/testRobotStanceModel.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = _ATLAS_DATA,
+    deps = _TEST_DEPS + [
+        ":equilibrium",
+        ":robot_stance_model",
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set",
+        "//lib/ocs2:ocs2_physical_constants",
+    ],
+)
+
+# The joint limits by name: every name round-trips, an unknown one is refused, and only "position_and_effort" binds the
+# torques.
+cc_test(
+    name = "joint_limits_test",
+    size = "small",
+    srcs = ["test/testJointLimits.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":joint_limits",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+    ],
+)

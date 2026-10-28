@@ -150,6 +150,17 @@ std::string describe(const ModelSettings::ContactImplicitConfig& config) {
       " ");
 }
 
+std::string describe(const std::vector<ModelSettings::PointContact>& contacts) {
+  std::vector<std::string> described;
+  for (const ModelSettings::PointContact& contact : contacts) {
+    described.push_back(absl::StrCat(contact.name, "@", contact.parentJointName,
+                                     "+", text(contact.translation.x()), ",",
+                                     text(contact.translation.y()), ",",
+                                     text(contact.translation.z())));
+  }
+  return absl::StrJoin(described, ";");
+}
+
 /** Every value of `settings`, or the error that `settings` is, as one string
  * per field. */
 std::string describe(const absl::StatusOr<ModelSettings>& settings) {
@@ -170,6 +181,7 @@ std::string describe(const absl::StatusOr<ModelSettings>& settings) {
        absl::StrJoin(settings->fixedJointNames, ","),
        absl::StrJoin(settings->contactNames6DoF, ","),
        absl::StrJoin(settings->contactNames3DoF, ","),
+       describe(settings->pointContacts),
        absl::StrJoin(settings->contactParentJointNames, ","),
        absl::StrJoin(settings->mpcModelJointNames, ","),
        absl::StrJoin(indices, ","),
@@ -414,6 +426,27 @@ void setNonDefault(const FieldDescriptor* absl_nonnull field,
   }
 }
 
+/**
+ * A new element of the repeated block `field` of `message`, its string fields
+ * set to names other than setNonDefault()'s, so that the element is valid and a
+ * change of any one of its fields shows.
+ */
+Message* absl_nonnull elementWithNamesSet(
+    const FieldDescriptor* absl_nonnull field, Message* absl_nonnull message) {
+  Message* absl_nonnull element =
+      message->GetReflection()->AddMessage(message, field);
+  const Descriptor* absl_nonnull descriptor = element->GetDescriptor();
+  for (int index = 0; index < descriptor->field_count(); ++index) {
+    const FieldDescriptor* absl_nonnull member = descriptor->field(index);
+    if (member->cpp_type() == FieldDescriptor::CPPTYPE_STRING &&
+        !member->is_repeated()) {
+      element->GetReflection()->SetString(element, member,
+                                          absl::StrCat("element_", index));
+    }
+  }
+  return element;
+}
+
 /** The dotted paths, `prefix` first, of every scalar or repeated scalar field
  * below `descriptor`. */
 void collectLeaves(const Descriptor* absl_nonnull descriptor,
@@ -423,8 +456,8 @@ void collectLeaves(const Descriptor* absl_nonnull descriptor,
     const FieldDescriptor* absl_nonnull field = descriptor->field(index);
     const std::string path = absl::StrCat(prefix, ".", field->name());
     if (field->cpp_type() == FieldDescriptor::CPPTYPE_MESSAGE) {
-      ASSERT_FALSE(field->is_repeated())
-          << path << ": a repeated block, which this test does not mutate";
+      // A repeated block is walked through one element of it
+      // (elementWithNamesSet()).
       collectLeaves(field->message_type(), path, leaves);
     } else {
       leaves.push_back(path);
@@ -457,7 +490,10 @@ TEST(ModelSettingsFromConfig, EveryFieldOfTheSchemaReachesTheSettings) {
           current->GetDescriptor()->FindFieldByName(names[depth]);
       ASSERT_NE(field, nullptr) << leaf;
       if (depth + 1 < names.size()) {
-        current = current->GetReflection()->MutableMessage(current, field);
+        current =
+            field->is_repeated()
+                ? elementWithNamesSet(field, current)
+                : current->GetReflection()->MutableMessage(current, field);
       } else {
         setNonDefault(field, current);
       }
@@ -614,6 +650,55 @@ TEST(ModelSettingsFromConfig, ABlockParsesIntoItsSettings) {
   EXPECT_EQ(settings->contactImplicitConfig.complementarityWeight,
             ModelSettings::ContactImplicitConfig{}.complementarityWeight);
   EXPECT_EQ(settings->nominalFootholdConfig.stepWidth, 0.45);
+}
+
+TEST(ModelSettingsFromConfig, ThePointContactsComeBeforeTheFeet) {
+  const absl::StatusOr<mpc_config::TaskFile> task = parseTask(
+      "model_settings {\n"
+      "  contact_names_6dof: \"foot_l\"\n"
+      "  contact_names_6dof: \"foot_r\"\n"
+      "  contacts_3dof {\n"
+      "    name: \"hand\"\n"
+      "    parent_joint_name: \"joint_a\"\n"
+      "    translation { x: 0.1 z: -0.2 }\n"
+      "  }\n"
+      "}\n");
+  ASSERT_TRUE(task.ok()) << task.status();
+  const absl::StatusOr<ModelSettings> settings =
+      ModelSettings::Create(*task, twoJointUrdf(), "test_", /*verbose=*/false);
+  ASSERT_TRUE(settings.ok()) << settings.status();
+  EXPECT_THAT(settings->contactNames,
+              ::testing::ElementsAre("hand", "foot_l", "foot_r"));
+  EXPECT_THAT(settings->contactNames3DoF, ::testing::ElementsAre("hand"));
+  ASSERT_EQ(settings->pointContacts.size(), 1U);
+  EXPECT_EQ(settings->pointContacts[0].parentJointName, "joint_a");
+  EXPECT_EQ(settings->pointContacts[0].translation, vector3_t(0.1, 0.0, -0.2));
+  EXPECT_TRUE(settings->isPointContact(0));
+  EXPECT_FALSE(settings->isPointContact(1));
+  EXPECT_FALSE(settings->isBipedContactSet());
+}
+
+TEST(ModelSettingsFromConfig, APointContactNeedsANameAParentAndAFiniteOffset) {
+  const std::vector<std::pair<std::string, std::string>> cases = {
+      {"parent_joint_name: \"joint_a\"", "contacts_3dof[0] needs a name"},
+      {"name: \"hand\"", "contacts_3dof[0] needs a name"},
+      {"name: \"foot_l\" parent_joint_name: \"joint_a\"",
+       "contacts_3dof[0].name is 'foot_l'"},
+      {"name: \"hand\" parent_joint_name: \"joint_a\" translation { y: nan }",
+       "contacts_3dof[0].translation.y"},
+  };
+  for (const std::pair<std::string, std::string>& entry : cases) {
+    const absl::StatusOr<mpc_config::TaskFile> task = parseTask(
+        absl::StrCat("model_settings {\n  contact_names_6dof: \"foot_l\"\n"
+                     "  contact_names_6dof: \"foot_r\"\n  contacts_3dof { ",
+                     entry.first, " }\n}\n"));
+    ASSERT_TRUE(task.ok()) << task.status();
+    const absl::StatusOr<ModelSettings> settings = ModelSettings::Create(
+        *task, twoJointUrdf(), "test_", /*verbose=*/false);
+    ASSERT_FALSE(settings.ok()) << entry.first;
+    EXPECT_EQ(settings.status().code(), absl::StatusCode::kInvalidArgument);
+    EXPECT_THAT(settings.status().message(), HasSubstr(entry.second));
+  }
 }
 
 }  // namespace

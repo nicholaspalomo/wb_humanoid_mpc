@@ -1,0 +1,61 @@
+edition = "2023";
+
+package humanoid_multi_contact;
+
+import "nproto/options.proto";
+
+// The terrain of a multi-contact scenario: convex primitives in the world frame, whose z axis points up, against
+// gravity (humanoid_nmpc/docs/multi_contact_planning/README.md, section 3.2). The floor is a large box whose top face
+// is at z = 0. TerrainModel reads it; the same scene is meant to generate the MuJoCo scene and the Rerun meshes.
+// Next ID: 3
+message TerrainScene {
+  option (nproto.generate_struct) = "ocs2::humanoid::multi_contact::config::TerrainScene";
+
+  reserved 3 to max;
+
+  // A box: a center, an orientation and three half extents.
+  // Next ID: 4
+  message Box {
+    reserved 4 to max;
+
+    // [m] The center in the world frame: x, y, z.
+    repeated double center = 1;
+    // The orientation of the box's frame in the world frame, a unit quaternion in the order x, y, z, w (Eigen's
+    // coeffs()). Empty: the identity.
+    repeated double orientation_xyzw = 2;
+    // [m] The half extents along the box's own x, y and z axes, all positive.
+    repeated double half_extents = 3;
+  }
+
+  // A capsule: the points within `radius` of the segment from `start` to `end`.
+  // Next ID: 4
+  message Capsule {
+    reserved 4 to max;
+
+    // [m] The ends of the axis in the world frame: x, y, z each. They may coincide (a sphere).
+    repeated double start = 1;
+    repeated double end = 2;
+    // [m] Positive.
+    double radius = 3 [default = 0.0];
+  }
+
+  // One convex primitive.
+  // Next ID: 5
+  message Primitive {
+    reserved 5 to max;
+
+    // Unique within the scene; scenario goals and plans name primitives by it.
+    string name = 1 [default = ""];
+    // The Coulomb friction coefficient of the primitive's surface, positive.
+    double friction = 2 [default = 0.0];
+    oneof shape {
+      Box box = 3;
+      Capsule capsule = 4;
+    }
+  }
+
+  // The scene's name, for messages.
+  string name = 1 [default = ""];
+  // At least one.
+  repeated Primitive primitives = 2;
+}

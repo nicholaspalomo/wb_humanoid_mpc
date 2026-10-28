@@ -1566,6 +1566,93 @@ class MakefileTest(unittest.TestCase):
         self.assertIn("VIEWS=desktop is not a view", unknown.stderr)
         self.assertIn("browser vnc display", unknown.stderr)
 
+    # LINT.IfChange(multi_contact_targets)
+    def multi_contact_scenarios(self) -> list[list[str]]:
+        """The rows <target name>:<scenario> of the Makefile's MULTI_CONTACT_SCENARIOS."""
+        block = search(
+            r"^MULTI_CONTACT_SCENARIOS := \\\n((?:\t.*\n)+)",
+            self.makefile,
+            re.M,
+        )
+        return [
+            line.strip().rstrip("\\").strip().split(":")
+            for line in block.group(1).splitlines()
+        ]
+
+    @unittest.skipUnless(shutil.which("make"), "needs make")
+    def test_every_multi_contact_scenario_has_its_dummy_sim_targets(
+        self,
+    ) -> None:
+        scenarios = self.multi_contact_scenarios()
+        self.assertEqual(
+            sorted(name for name, _ in scenarios),
+            sorted(
+                [
+                    "stairs",
+                    "stairs-steep",
+                    "box-climb",
+                    "box-climb-high",
+                    "car-egress",
+                    "get-up-supine",
+                    "get-up-prone",
+                ]
+            ),
+        )
+        launch = search(
+            r"^multi_contact_launch_file := (\S+)$", self.makefile, re.M
+        ).group(1)
+        for name, scenario in scenarios:
+            for suffix, view in (
+                ("dummy-sim", "browser"),
+                ("dummy-sim-vnc", "vnc"),
+            ):
+                with self.subTest(scenario=name, suffix=suffix):
+                    result = make_dry_run(f"launch-drc-atlas-{name}-{suffix}")
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    command = session_command(result.stdout)
+                    self.assertIn("session.sh laptop", command)
+                    self.assertIn(f"--launch_file {launch}", command)
+                    self.assertIn(f"--set scenario={scenario} ", command)
+                    self.assertIn(f"--views {view} ", command)
+                    # Only the stairs walk up and backward down, over and
+                    # over; every other plan plays once.
+                    playback = (
+                        "forward_and_reverse" if name == "stairs" else "once"
+                    )
+                    self.assertIn(f"--set playback={playback}", command)
+
+    def test_the_multi_contact_targets_build_the_binaries_of_their_launch_file(
+        self,
+    ) -> None:
+        launch = search(
+            r"^multi_contact_launch_file := (\S+)$", self.makefile, re.M
+        ).group(1)
+        started = launch_binaries(launch)
+        built = {
+            label(t) for t in self.makefile_variable("multi_contact_binaries")
+        }
+        self.assertTrue(started)
+        self.assertEqual(started - built, set())
+
+    def test_the_dev_container_readme_lists_the_multi_contact_targets(
+        self,
+    ) -> None:
+        block = search(
+            r"LINT\.IfChange\(multi_contact_targets\) -->\n(.*?)<!-- LINT\.ThenChange",
+            read(".devcontainer/README.md"),
+            re.S,
+        )
+        listed = set(re.findall(r"`make (launch-[a-z0-9-]+)", block.group(1)))
+        self.assertEqual(
+            listed,
+            {
+                f"launch-drc-atlas-{name}-dummy-sim-vnc"
+                for name, _ in self.multi_contact_scenarios()
+            },
+        )
+
+    # LINT.ThenChange(//Makefile:multi_contact_targets, //Makefile:multi_contact_scenarios)
+
     def test_no_ros_remains_and_no_launch_runs_the_mpc_in_the_robot_process(
         self,
     ) -> None:

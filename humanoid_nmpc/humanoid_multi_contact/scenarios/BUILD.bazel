@@ -1,0 +1,104 @@
+load("@protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
+load("@protobuf//bazel:proto_library.bzl", "proto_library")
+load("@protobuf//bazel:py_proto_library.bzl", "py_proto_library")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
+load("//tools/nproto:nproto.bzl", "nproto_cc_library")
+
+# humanoid_multi_contact/scenarios - the multi-contact scenarios of the DRC Atlas (humanoid_nmpc/docs/
+# multi_contact_planning/README.md, section 8.1): the Scenario schema, its validation, and the scenario files in config/.
+
+package(default_visibility = ["//visibility:public"])
+
+proto_library(
+    name = "scenario_proto",
+    srcs = ["scenario.proto"],
+    strip_import_prefix = "/humanoid_nmpc",
+    deps = [
+        "//humanoid_nmpc/humanoid_multi_contact/terrain:terrain_scene_proto",
+        "//tools/nproto:options_proto",
+    ],
+)
+
+cc_proto_library(
+    name = "scenario_cc_proto",
+    deps = [":scenario_proto"],
+)
+
+py_proto_library(
+    name = "scenario_py_proto",
+    deps = [":scenario_proto"],
+)
+
+nproto_cc_library(
+    name = "scenario_nproto",
+    deps = [":scenario_proto"],
+)
+
+# The scenario files: stairs, stairs_steep, box_climb, box_climb_high, car_egress, get_up_supine and get_up_prone.
+filegroup(
+    name = "scenario_files",
+    srcs = glob(["config/*.textproto"]),
+)
+
+cc_library(
+    name = "scenarios",
+    srcs = ["src/Scenario.cpp"],
+    hdrs = ["include/humanoid_multi_contact/scenarios/Scenario.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        ":scenario_cc_proto",
+        ":scenario_nproto",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_multi_contact/collision",
+        "//humanoid_nmpc/humanoid_multi_contact/collision:collision_model_nproto",
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:certifier",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:joint_limits",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:robot_stance_model",
+        "//humanoid_nmpc/humanoid_multi_contact/terrain",
+        "//lib/ocs2:ocs2_dimensions",
+        "//robot_runtime/robot_core:resource_paths",
+        "//tools/nproto:nproto_runtime",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/container:flat_hash_set",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@eigen",
+    ],
+)
+
+# Every scenario file parses, references existing contacts and primitives, has the design's static margin, and its
+# initial and goal stances pass the certifier; the validation refuses bad scenarios.
+cc_test(
+    name = "scenarios_test",
+    size = "small",
+    srcs = ["test/testScenarios.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        ":scenario_files",
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":scenario_nproto",
+        ":scenarios",
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:certifier",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:certifier_report_nproto",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:joint_limits",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:robot_stance_model",
+        "//humanoid_nmpc/humanoid_multi_contact/terrain",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)

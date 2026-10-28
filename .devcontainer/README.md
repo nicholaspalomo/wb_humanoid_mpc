@@ -34,6 +34,24 @@ open `/wb_humanoid_mpc_ws/workspace/wb_humanoid_mpc`, which `post_create.sh` mar
 shells' Bazel environment comes from. The host's launch targets (`tools/deploy/in_dev_container.sh`) and the editor's
 clangd (`tools/ide/clangd_in_dev_container.sh`) find the container's checkout through the same mount.
 
+## Bazel Caches
+
+<!-- LINT.IfChange(dev_container_bazel_cache) -->
+The container's Bazel output base is in its own filesystem, so a recreated container (a rebuilt image,
+`docker compose up --force-recreate`) starts with an empty one. `docker-compose.yaml` therefore mounts
+`.devcontainer/bazel.bazelrc` as Bazel's system rc (`/etc/bazel.bazelrc`), which keeps the disk cache (compiled
+outputs, by content) and the repository cache (downloads) on the host, in `<home>/.cache/wb_humanoid_mpc/` below the
+mounted grandparent: the next container builds from them instead of compiling Pinocchio, CppAD and OCS2 from nothing.
+Bazel trims the disk cache to 50 GB, least recently used first, while its server is idle. CI and `make ci-local` keep
+caches of their own (`.github/workflows/build_test.yml`).
+
+Bazel keys an action by its command line and inputs, not by the image's compiler binary, so a cache filled by an
+older image could hand out outputs of its compiler and headers. The container's start command therefore runs
+`.devcontainer/reset_stale_bazel_cache.sh` before any build: it fingerprints the installed Debian packages (the
+compiler, the system libraries, robotpkg's Pinocchio) and deletes the disk cache when they differ from the ones it was
+filled under. Nothing needs deleting by hand.
+<!-- LINT.ThenChange(//.devcontainer/bazel.bazelrc:dev_container_bazel_cache) -->
+
 ## Quick Start
 
 ```bash
@@ -179,6 +197,21 @@ Its `-vnc` twin is the same target with `VIEWS=vnc`: everything on the VNC deskt
 | `make launch-sa01-sandbox-vnc` | EngineAI SA01 URDF in Rerun, a slider per joint |
 | `make launch-sa01-mpc-vnc NETWORK=<file>` | EngineAI SA01 centroidal MPC — the laptop side against the robot |
 <!-- LINT.ThenChange(//Makefile:launch_targets, //Makefile:robot_configurations) -->
+
+The DRC Atlas's multi-contact scenarios (humanoid_nmpc/docs/multi_contact_planning/README.md) have a dummy sim each:
+the centroidal MPC tracking the scenario's offline plan, with the terrain in Rerun.
+
+<!-- LINT.IfChange(multi_contact_targets) -->
+| Target | Description |
+|--------|-------------|
+| `make launch-drc-atlas-stairs-dummy-sim-vnc` | DRC Atlas — up four stairs and backward down, over and over |
+| `make launch-drc-atlas-stairs-steep-dummy-sim-vnc` | DRC Atlas — steep stairs with a handrail |
+| `make launch-drc-atlas-box-climb-dummy-sim-vnc` | DRC Atlas — climbing onto a 0.6 m box |
+| `make launch-drc-atlas-box-climb-high-dummy-sim-vnc` | DRC Atlas — climbing onto a box at hip height |
+| `make launch-drc-atlas-car-egress-dummy-sim-vnc` | DRC Atlas — getting out of a utility vehicle |
+| `make launch-drc-atlas-get-up-supine-dummy-sim-vnc` | DRC Atlas — getting up from lying on the back |
+| `make launch-drc-atlas-get-up-prone-dummy-sim-vnc` | DRC Atlas — getting up from lying face down |
+<!-- LINT.ThenChange(//Makefile:multi_contact_targets, //Makefile:multi_contact_scenarios) -->
 
 The `browser` and `vnc` views start the VNC desktop themselves, so you do **not** need to run `make start-vnc` first.
 For native windows on the display of the shell the target runs in (the host's own display, when you run it on the

@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <memory>
 
+#include "absl/functional/function_ref.h"
 #include "cppad/cg.hpp"
 #include "ocs2_centroidal_model/AccessHelperFunctions.h"
 #include "ocs2_core/PhysicalConstants.h"
@@ -103,6 +104,37 @@ inline vector_t weightCompensatingInput(
                                                   forceInInertialFrame, i);
       }
     }  // end of i loop
+  }
+  return input;
+}
+
+/**
+ * The state-aware weightCompensatingInput() of any contact set: the weight of
+ * `info`'s robot shared evenly by the contacts of `mpcRobotModel`'s set
+ * (ModelSettings::contactNames) that `isContactActive` says are active, as
+ * vertical world-frame forces through the world-frame setter at `state`. Zero
+ * when no contact is active. Not retained.
+ */
+inline vector_t weightCompensatingInputOfContacts(
+    const CentroidalModelInfoTpl<scalar_t>& info,
+    absl::FunctionRef<bool(size_t)> isContactActive,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    const vector_t& state) {
+  const scalar_t totalGravitationalForce =
+      info.robotMass * kGravitationalAcceleration;
+  const size_t numContacts = mpcRobotModel.modelSettings.contactNames.size();
+  size_t numActive = 0;
+  for (size_t i = 0; i < numContacts; ++i) {
+    if (isContactActive(i)) ++numActive;
+  }
+  vector_t input = vector_t::Zero(mpcRobotModel.getInputDim());
+  if (numActive == 0) return input;
+  const vector3_t force(
+      0.0, 0.0, totalGravitationalForce / static_cast<scalar_t>(numActive));
+  for (size_t i = 0; i < numContacts; ++i) {
+    if (isContactActive(i)) {
+      mpcRobotModel.setContactForceInWorldFrame(state, input, force, i);
+    }
   }
   return input;
 }

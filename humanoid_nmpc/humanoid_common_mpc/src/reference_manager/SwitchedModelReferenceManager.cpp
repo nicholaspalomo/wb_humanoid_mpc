@@ -112,6 +112,7 @@ SwitchedModelReferenceManager::SwitchedModelReferenceManager(
       // initializing the ground height
       pinocchioInterface_(pinocchioInterface),
       mpcRobotModelPtr_(&mpcRobotModel),
+      numContacts_(mpcRobotModel.modelSettings.contactNames.size()),
       gaitSchedulePtr_(std::move(gaitSchedulePtr)),
       swingTrajectoryPtr_(std::move(swingTrajectoryPtr)) {
   ABSL_CHECK(swingTrajectoryPtr_ != nullptr)
@@ -164,6 +165,12 @@ void SwitchedModelReferenceManager::resetRuntimeState() {
 contact_flag_t SwitchedModelReferenceManager::getContactFlags(
     scalar_t time) const {
   return modeNumber2StanceLeg(this->getModeSchedule().modeAtTime(time));
+}
+
+ContactPatchFrame SwitchedModelReferenceManager::getContactPatchFrame(
+    size_t /*contactIndex*/, scalar_t /*time*/) const {
+  return ContactPatchFrame{.worldToPatchRotation = matrix3_t::Identity(),
+                           .normalOffset = appliedTerrainHeight_.load()};
 }
 
 /******************************************************************************************************/
@@ -798,6 +805,15 @@ vector_t SwitchedModelReferenceManager::getDesiredInput(
     const TargetTrajectories& targetTrajectories,
     const vector_t& /*state*/,
     scalar_t time) const {
+  if (!mpcRobotModelPtr_->modelSettings.isBipedContactSet()) {
+    // Any other contact set shares the weight among its active contacts; the
+    // wrench heuristics, which are written for two feet, are refused for it
+    // (checkCentroidalContactSet()).
+    return weightCompensatingInputOfContacts(
+        pinocchioInterface_,
+        [this, time](size_t contact) { return isInContact(time, contact); },
+        *mpcRobotModelPtr_);
+  }
   const contact_flag_t contactFlags = getContactFlags(time);
   if (heuristicLayerPtr_->wrenchEmpty()) {
     // Byte for byte the call the two input costs used to make for themselves.

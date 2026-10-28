@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <array>
 #include <cstddef>
+#include <limits>
 #include <map>
 #include <string>
 #include <vector>
@@ -86,9 +87,51 @@ inline contact_flag_t modeNumber2StanceLeg(size_t modeNumber) {
                         (modeNumber & 1U) != 0};
 }
 
+/**
+ * Whether contact `contactIndex` of a set of `numContacts` contacts
+ * (ModelSettings::contactNames) is active in `modeNumber`, the bitmask of the
+ * active contacts in contact-set order with the first contact the most
+ * significant bit: contact i is bit numContacts - 1 - i. For the biped's two
+ * feet that is modeNumber2StanceLeg()'s reading, FLY, RF, LF and STANCE
+ * unchanged, and in a larger set whose last two contacts are the feet those
+ * four numbers still mean the same feet with every other contact inactive. A
+ * number with a bit past the contacts is no mode: no contact is active in it.
+ * Realtime-safe.
+ */
+inline bool contactIsActiveInMode(size_t modeNumber,
+                                  size_t contactIndex,
+                                  size_t numContacts) {
+  constexpr size_t kModeNumberBits = std::numeric_limits<size_t>::digits;
+  if (contactIndex >= numContacts || numContacts >= kModeNumberBits ||
+      (modeNumber >> numContacts) != 0) {
+    return false;
+  }
+  return ((modeNumber >> (numContacts - 1 - contactIndex)) & 1U) != 0;
+}
+
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
+
+/**
+ * The mode number in which contact `contactIndex` alone of a set of
+ * `numContacts` contacts is active: bit numContacts - 1 - contactIndex
+ * (contactIsActiveInMode()). Requires contactIndex < numContacts < the bits of
+ * a size_t.
+ */
+inline size_t contactModeBit(size_t contactIndex, size_t numContacts) {
+  return size_t{1} << (numContacts - 1 - contactIndex);
+}
+
+/**
+ * The number of mode numbers of a set of `numContacts` contacts, 2^numContacts:
+ * the bound a mode of its schedules and policies is checked against.
+ * kNumModeNumbers for the biped's two feet. Requires numContacts < the bits of
+ * a size_t.
+ */
+inline size_t numModeNumbersOf(size_t numContacts) {
+  return size_t{1} << numContacts;
+}
 
 inline size_t stanceLeg2ModeNumber(const contact_flag_t& stanceLegs) {
   return static_cast<size_t>(static_cast<size_t>(stanceLegs[1]) +

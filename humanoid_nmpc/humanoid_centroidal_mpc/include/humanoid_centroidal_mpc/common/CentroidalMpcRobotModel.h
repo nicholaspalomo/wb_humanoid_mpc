@@ -81,11 +81,14 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /* Input Vector definition
 
-  Define the input vector u = [W_l, W_r, q_dot_j]^T
+  Define the input vector u = [f_1, ..., f_n3, W_1, ..., W_n6, q_dot_j]^T
 
-    Left contact Wrench W_l in inertial frame
-    Right contact Wrench W_r in inertial frame
+    The force f_i of each 3-DoF (point) contact in inertial frame
+    The wrench W_i = [f_i, tau_i] of each 6-DoF contact in inertial frame (for
+    the biped, the left foot's and then the right foot's)
     Joint velocities q_dot_j
+
+  in the order of ModelSettings::contactNames, CentroidalModelInfo's layout.
 
 */
 /******************************************************************************************************/
@@ -129,7 +132,9 @@ class CentroidalMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
                 .stateDim = centroidal_model::kJointAnglesStartInState +
                             modelSettings.mpc_joint_dim,
                 .inputDim =
-                    kWrenchDim * kNumContacts + modelSettings.mpc_joint_dim,
+                    kForceDim * centroidalModelInfo.numThreeDofContacts +
+                    kWrenchDim * centroidalModelInfo.numSixDofContacts +
+                    modelSettings.mpc_joint_dim,
                 .configurationDim =
                     kBaseConfigurationDim + modelSettings.mpc_joint_dim,
                 .velocityDim = kBaseVelocityDim + modelSettings.mpc_joint_dim},
@@ -168,18 +173,28 @@ class CentroidalMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
   }
   // LINT.IfChange(input_indices)
   size_t getJointVelocitiesStartindex() const override {
-    return kWrenchDim * kNumContacts;
+    return kForceDim * centroidalModelInfo_.numThreeDofContacts +
+           kWrenchDim * centroidalModelInfo_.numSixDofContacts;
   }
 
-  // Assumes contact wrench [f_x, f_y, f_z, M_x, M_y, M_z]^T
+  // The block of a contact: the force [f_x, f_y, f_z] of a 3-DoF contact, the
+  // wrench [f_x, f_y, f_z, M_x, M_y, M_z] of a 6-DoF one, which follow them.
   size_t getContactWrenchStartIndices(size_t contactIndex) const override {
-    return kWrenchDim * contactIndex;
+    const size_t numPointContacts = centroidalModelInfo_.numThreeDofContacts;
+    if (contactIndex < numPointContacts) return kForceDim * contactIndex;
+    return kForceDim * numPointContacts +
+           kWrenchDim * (contactIndex - numPointContacts);
   }
   size_t getContactForceStartIndices(size_t contactIndex) const override {
     return getContactWrenchStartIndices(contactIndex);
   }
+  // A 3-DoF contact has no moment: its "moment" starts where its block ends,
+  // which getContactInputDim() says is after its force.
   size_t getContactMomentStartIndices(size_t contactIndex) const override {
     return getContactWrenchStartIndices(contactIndex) + kForceDim;
+  }
+  size_t getContactInputDim(size_t contactIndex) const override {
+    return isPointContact(contactIndex) ? kForceDim : kContactWrenchDim;
   }
   // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/config/weights/StateInputWeightsFromConfig.cpp:input_offsets)
 
@@ -490,8 +505,15 @@ class CentroidalMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
   /*                                          Contacts */
   /******************************************************************************************************/
 
+  // A 3-DoF contact's wrench is its force with a zero moment, and a moment
+  // written to it is dropped: a point carries none.
   VECTOR6_T<SCALAR_T> getContactWrench(const VECTOR_T<SCALAR_T>& input,
                                        size_t contactIndex) const override {
+    if (isPointContact(contactIndex)) {
+      VECTOR6_T<SCALAR_T> wrench = VECTOR6_T<SCALAR_T>::Zero();
+      wrench.head(kForceDim) = getContactForce(input, contactIndex);
+      return wrench;
+    }
     return input.segment(getContactWrenchStartIndices(contactIndex),
                          kContactWrenchDim);
   }
@@ -503,6 +525,7 @@ class CentroidalMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
 
   VECTOR3_T<SCALAR_T> getContactMoment(const VECTOR_T<SCALAR_T>& input,
                                        size_t contactIndex) const override {
+    if (isPointContact(contactIndex)) return VECTOR3_T<SCALAR_T>::Zero();
     return input.segment(
         (getContactWrenchStartIndices(contactIndex) + kForceDim), kTorqueDim);
   }
@@ -510,6 +533,10 @@ class CentroidalMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
   void setContactWrench(VECTOR_T<SCALAR_T>& input,
                         const VECTOR6_T<SCALAR_T>& wrench,
                         size_t contactIndex) const override {
+    if (isPointContact(contactIndex)) {
+      setContactForce(input, wrench.head(kForceDim), contactIndex);
+      return;
+    }
     input.segment(getContactWrenchStartIndices(contactIndex), kWrenchDim) =
         wrench;
   }
@@ -524,6 +551,7 @@ class CentroidalMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
   void setContactMoment(VECTOR_T<SCALAR_T>& input,
                         const VECTOR3_T<SCALAR_T>& moment,
                         size_t contactIndex) const override {
+    if (isPointContact(contactIndex)) return;
     input.segment(getContactWrenchStartIndices(contactIndex) + kForceDim,
                   kTorqueDim) = moment;
   }
@@ -542,6 +570,12 @@ class CentroidalMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
   }
 
  private:
+  /** Whether contact `contactIndex` is a 3-DoF one: the first
+   * numThreeDofContacts of the set. */
+  bool isPointContact(size_t contactIndex) const {
+    return contactIndex < centroidalModelInfo_.numThreeDofContacts;
+  }
+
   /** The base angular velocity accessors' answer: the centroidal state holds
    * none, so calling one is a programming error. */
   [[noreturn]] static void abortWithoutBaseAngularVelocity(

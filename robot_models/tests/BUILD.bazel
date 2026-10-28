@@ -49,6 +49,9 @@ py_test(
     name = "test_launch_files",
     size = "small",
     srcs = ["test_launch_files.py"],
+    # The Rerun bridge it starts runs on this test's runfiles, where humanoid_multi_contact must be a namespace package
+    # (humanoid_nmpc/humanoid_rerun_viewer/BUILD.bazel, _NAMESPACE_PACKAGES).
+    legacy_create_init = False,
     data = [
         "//config/ipc:network.textproto",
         "//humanoid_nmpc/humanoid_centroidal_mpc_app:humanoid_centroidal_mpc_dummy_sim",
@@ -58,6 +61,8 @@ py_test(
         "//humanoid_nmpc/humanoid_common_mpc:gait_config",
         "//humanoid_nmpc/humanoid_rerun_viewer",
         "//humanoid_nmpc/humanoid_rerun_viewer:model_sandbox",
+        # The multi-contact scenarios of the DRC Atlas's multi-contact dummy sims.
+        "//humanoid_nmpc/humanoid_multi_contact/scenarios:scenario_files",
         "//humanoid_nmpc/humanoid_wb_mpc_app:humanoid_wb_mpc_dummy_sim",
         "//humanoid_nmpc/humanoid_wb_mpc_app:humanoid_wb_mpc_node",
         "//humanoid_nmpc/humanoid_wb_mpc_app:humanoid_wb_mpc_robot",

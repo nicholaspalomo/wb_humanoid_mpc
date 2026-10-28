@@ -18,8 +18,19 @@ cc_library(
         "src/constraint/ZeroVelocityConstraintCppAd.cpp",
         "src/constraint/NormalVelocityConstraintCppAd.cpp",
         "src/constraint/JointMimicKinematicConstraint.cpp",
+        "src/constraint/SwingLandingAlignmentConstraint.cpp",
+        "src/constraint/TerrainNonPenetrationConstraint.cpp",
         "src/initialization/CentroidalWeightCompInitializer.cpp",
+        # The tracking of an offline multi-contact plan (contact_schedule_source: "multi_contact_plan";
+        # humanoid_nmpc/docs/multi_contact_planning/README.md, section 7.2).
+        "src/multi_contact/MultiContactPlanSource.cpp",
+        "src/multi_contact/PlanClock.cpp",
+        "src/multi_contact/PlanContactOrder.cpp",
+        "src/multi_contact/PlanPlayback.cpp",
+        "src/multi_contact/PlannedMotion.cpp",
+        "src/multi_contact/PlannedMotionReferenceManager.cpp",
         "src/CentroidalMpcConfig.cpp",
+        "src/CentroidalContactSet.cpp",
         "src/CentroidalMpcInterface.cpp",
         "src/command/CentroidalMpcTargetTrajectoriesCalculator.cpp",
         "src/mrt/CentroidalMpcMrtJointController.cpp",
@@ -74,6 +85,13 @@ cc_library(
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//tools/nproto:nproto_runtime",
         "@protobuf",
+        # The scenario, contact set, terrain and plan file of a tracked multi-contact plan.
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set",
+        "//humanoid_nmpc/humanoid_multi_contact/plan:multi_contact_plan_nproto",
+        "//humanoid_nmpc/humanoid_multi_contact/plan:plan_file",
+        "//humanoid_nmpc/humanoid_multi_contact/scenarios",
+        "//humanoid_nmpc/humanoid_multi_contact/terrain",
+        "//robot_runtime/robot_core:resource_paths",
     ],
 )
 
@@ -310,6 +328,73 @@ cc_test(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
+    ],
+)
+
+# The runtime contact set's parity (humanoid_nmpc/docs/multi_contact_planning/README.md, milestone 2): every shipped
+# robot's assembled problem, and three variants that reach the terms the shipped files leave out, bit for bit as
+# recorded in test/golden/centroidal_contact_set_parity/ before the contact count became a runtime value. One shard per
+# variant, each of which generates its CppAD libraries.
+cc_test(
+    name = "testCentroidalContactSetParity",
+    size = "large",
+    srcs = ["test/testCentroidalContactSetParity.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = glob(["test/golden/centroidal_contact_set_parity/*.txt"]) + [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+        "//robot_models/engineai_sa01/engineai_sa01_description",
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
+        "//robot_models/unitree_r1/unitree_r1_description",
+    ],
+    shard_count = 7,
+    deps = [
+        ":humanoid_centroidal_mpc",
+        ":problem_fingerprint",
+        ":shipped_centroidal_robot",
+        ":typed_config_support",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:str_format",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The centroidal MPC on a mixed contact set (humanoid_nmpc/docs/multi_contact_planning/README.md, milestone 2): the DRC
+# Atlas's feet with a 3-DoF contact on each hand, from a task file written and read back. Its input dimension, its
+# dynamics against the hand-derived momentum rate, the mode bits, the point and patch-frame cones, the shared weight,
+# and the refusal of every selection written for two feet. Generates the CppAD libraries of the dynamics and of four
+# contact frames.
+cc_test(
+    name = "testMixedContactSet",
+    size = "large",
+    srcs = ["test/testMixedContactSet.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        ":typed_config_support",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_core",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/container:flat_hash_set",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+        "@pinocchio",
     ],
 )
 
@@ -1355,4 +1440,273 @@ cc_test(
     srcs = glob(["test/config/costs/*.cpp"]),
     copts = FIRST_PARTY_COPTS,
     deps = _CONFIG_TEST_DEPS,
+)
+
+# ==============================================================================
+# The tracking of an offline multi-contact plan (humanoid_nmpc/docs/multi_contact_planning/README.md, milestone 4)
+# ==============================================================================
+
+# The DRC Atlas's multi-contact files in the test's runfiles: its task file, reference file, contact set and URDF.
+cc_library(
+    name = "multi_contact_test_files",
+    testonly = True,
+    srcs = ["test/support/MultiContactTestFiles.cpp"],
+    hdrs = ["test/support/MultiContactTestFiles.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["test"],
+    deps = [
+        ":typed_config_support",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest",
+    ],
+)
+
+# The multi-contact task file against the contact set beside it: every candidate a contact of its kind, parent, offset,
+# pad frame and rectangle; the model's contact frames the stability model's pads at a configuration away from zero; the
+# feet last; the wrists unlocked. Builds no CppAD library.
+cc_test(
+    name = "test_multi_contact_task_file",
+    size = "small",
+    srcs = ["test/multi_contact/testMultiContactTaskFile.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":multi_contact_test_files",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:robot_stance_model",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The map between a plan's contact modes (contact-set order) and the MPC's mode numbers (MPC order), by name: the feet
+# are the biped's stance, a knee the most significant bit, every mode round-trips, and a contact one side lacks is
+# refused by name.
+cc_test(
+    name = "test_plan_contact_order",
+    size = "small",
+    srcs = ["test/multi_contact/testPlanContactOrder.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        ":multi_contact_test_files",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The clock of a tracked plan: it runs with the solves, holds before a contact change until the stance is reached, and
+# never skips a change.
+cc_test(
+    name = "test_plan_clock",
+    size = "small",
+    srcs = ["test/multi_contact/testPlanClock.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_centroidal_mpc",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The planned-motion reference manager on the multi-contact models (CreateControllerModels(), no CppAD) and milestone
+# 1's hand-written plan: the mode schedule by name, the targets, the force reference of the plan's wrenches, the refusal
+# of a plan of another scene, the clock hold, the swings and the patches; and the plans PlannedMotion refuses.
+cc_test(
+    name = "test_planned_motion_reference_manager",
+    size = "medium",
+    srcs = ["test/multi_contact/testPlannedMotionReferenceManager.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//humanoid_nmpc/humanoid_multi_contact/app:test_plans",
+        "//humanoid_nmpc/humanoid_multi_contact/scenarios:scenario_files",
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        ":multi_contact_test_files",
+        ":typed_config_support",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
+        "//humanoid_nmpc/humanoid_multi_contact/plan:multi_contact_plan_nproto",
+        "//lib/ocs2:ocs2_physical_constants",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The "forward_and_reverse" playback of a plan (humanoid_nmpc/docs/multi_contact_planning/README.md, section 7.3) on the
+# stairs scenario's shipped plan and the multi-contact models (CreateControllerModels(), no CppAD): the cycle mirrors
+# every knot in time with its velocities negated and certifies at every knot with the ascent's momentum rates; the
+# periodic motion looks every plan time up through the period - continuous at both seams, its modes a palindrome, its
+# reversed swings stepping down - and the reference manager's clock and schedules run across the wrap.
+cc_test(
+    name = "test_plan_playback",
+    size = "medium",
+    srcs = ["test/multi_contact/testPlanPlayback.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//humanoid_nmpc/humanoid_multi_contact/plans",
+        "//humanoid_nmpc/humanoid_multi_contact/scenarios:scenario_files",
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        ":multi_contact_test_files",
+        ":typed_config_support",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
+        "//humanoid_nmpc/humanoid_multi_contact/plan:multi_contact_plan_nproto",
+        "//humanoid_nmpc/humanoid_multi_contact/scenarios",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:certifier",
+        "//lib/ocs2:ocs2_core",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The hand-written test scenario of the stair step and its plan's builder: Atlas steps onto a 0.10 m stair on its feet,
+# the configurations solved by the legs' inverse kinematics on the multi-contact model.
+filegroup(
+    name = "multi_contact_test_scenarios",
+    testonly = True,
+    srcs = glob(["test/testdata/multi_contact/*.textproto"]),
+)
+
+cc_library(
+    name = "stair_step_plan",
+    testonly = True,
+    srcs = ["test/support/StairStepPlan.cpp"],
+    hdrs = ["test/support/StairStepPlan.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["test"],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_multi_contact/plan:multi_contact_plan_nproto",
+        "//humanoid_nmpc/humanoid_multi_contact/plan:plan_file",
+        "//humanoid_nmpc/humanoid_multi_contact/scenarios",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@pinocchio",
+    ],
+)
+
+# The hand-written stair-step plan certifies at every knot, ends on the step and loads against its scenario. Builds no
+# CppAD library.
+cc_test(
+    name = "test_stair_step_plan",
+    size = "medium",
+    srcs = ["test/multi_contact/testStairStepPlan.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        ":multi_contact_test_scenarios",
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        ":multi_contact_test_files",
+        ":stair_step_plan",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
+        "//humanoid_nmpc/humanoid_multi_contact/plan:plan_file",
+        "//humanoid_nmpc/humanoid_multi_contact/scenarios",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:certifier",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The centroidal MPC tracking a plan in a lockstep loop whose plant is the projected rollout of the policy, the dummy
+# simulator's.
+cc_library(
+    name = "multi_contact_plan_loop",
+    testonly = True,
+    srcs = ["test/support/MultiContactPlanLoop.cpp"],
+    hdrs = ["test/support/MultiContactPlanLoop.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["test"],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_oc",
+        "//lib/ocs2:ocs2_sqp",
+        "@abseil-cpp//absl/memory",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@pinocchio",
+    ],
+)
+
+# The end-to-end test of milestones 4 and 5: the multi-contact MPC (thirteen contacts, the wrists unlocked) tracking
+# milestone 1's hand-written sway, the hand-written stair step and the stairs and box_climb scenarios' shipped plans
+# (humanoid_multi_contact/plans/*.binpb) in the dummy simulator's loop, faster than real time, to the goal, with
+# the stability certifier passing on the tracked trajectory. Large: it generates the multi-contact model's
+# CppAD libraries on a cold cache (the dynamics of thirteen contacts, the kinematics of each, its terrain
+# non-penetration tapes), once for both cases.
+cc_test(
+    name = "test_multi_contact_plan_tracking",
+    size = "large",
+    timeout = "eternal",
+    srcs = ["test/multi_contact/testMultiContactPlanTracking.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        ":multi_contact_test_scenarios",
+        "//humanoid_nmpc/humanoid_multi_contact/app:test_plans",
+        "//humanoid_nmpc/humanoid_multi_contact/plans",
+        "//humanoid_nmpc/humanoid_multi_contact/scenarios:scenario_files",
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        ":multi_contact_plan_loop",
+        ":multi_contact_test_files",
+        ":stair_step_plan",
+        ":typed_config_support",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
+        "//humanoid_nmpc/humanoid_multi_contact/plan:plan_file",
+        "//humanoid_nmpc/humanoid_multi_contact/scenarios",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:certifier",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
 )

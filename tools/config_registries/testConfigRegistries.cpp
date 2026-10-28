@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
 
+#include "humanoid_centroidal_mpc/multi_contact/MultiContactPlanSource.h"
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
 #include "humanoid_common_mpc/common/ContactInputParameterization.h"
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
@@ -60,6 +61,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_config/config_registries.nproto.pb.h"
 #include "humanoid_mpc_config/contact_planning_file.nproto.h"
 #include "humanoid_mpc_config/model_settings_config.nproto.h"
+#include "humanoid_mpc_config/multi_contact_plan_config.nproto.h"
 #include "humanoid_mpc_config/rollout_settings_config.nproto.h"
 #include "humanoid_mpc_config/sqp_settings_config.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
@@ -208,6 +210,18 @@ absl::flat_hash_map<std::string, Accepts> acceptors() {
       {"locomotion_heuristic", &isLocomotionHeuristic},
       {"mpc_cost",
        [](const std::string& name) { return stringToMpcCostType(name).ok(); }},
+      {"multi_contact_force_reference",
+       [](const std::string& name) {
+         mpc_config::MultiContactPlanConfig config;
+         config.force_reference = name;
+         return plannedMotionSettingsFromConfig(config).ok();
+       }},
+      {"multi_contact_plan_playback",
+       [](const std::string& name) {
+         mpc_config::MultiContactPlanConfig config;
+         config.playback = name;
+         return plannedMotionSettingsFromConfig(config).ok();
+       }},
       {"projectile",
        [](const std::string& name) {
          return robot::mujoco_sim_interface::projectileFromName(name).ok();

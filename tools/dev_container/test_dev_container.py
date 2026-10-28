@@ -472,6 +472,147 @@ class HostNetworkTest(unittest.TestCase):
         self.assertRegex(override, r"(?m)^\s+dns:")
 
 
+# LINT.IfChange(dev_container_bazel_cache)
+class BazelCacheTest(unittest.TestCase):
+    """The dev container's Bazel caches live on the host, below the mounted checkout's grandparent."""
+
+    def test_compose_mounts_the_cache_rc_as_bazels_system_rc(self):
+        compose = _without_comment_lines(_read("docker-compose.yaml"))
+        self.assertRegex(
+            compose,
+            r"(?m)^      - \./\.devcontainer/bazel\.bazelrc:/etc/bazel\.bazelrc:"
+            r"cached,ro$",
+        )
+
+    def test_the_caches_are_on_the_mount_and_bounded(self):
+        rc = _without_comment_lines(_read(".devcontainer/bazel.bazelrc"))
+        mount = re.search(
+            r"(?m)^      - \.\./\.\.:(\S+):delegated$",
+            _read("docker-compose.yaml"),
+        )
+        assert mount is not None
+        for flag in ("disk_cache", "repository_cache"):
+            match = re.search(rf"(?m)^build --{flag}=(\S+)$", rc)
+            assert match is not None, flag
+            self.assertTrue(
+                match.group(1).startswith(f"{mount.group(1)}/.cache/"),
+                f"--{flag} must be on the host, below the mount",
+            )
+        self.assertRegex(
+            rc, r"(?m)^build --experimental_disk_cache_gc_max_size=\d+G$"
+        )
+
+    def test_the_container_resets_a_stale_cache_before_any_build(self):
+        compose = _read("docker-compose.yaml")
+        rc = _read(".devcontainer/bazel.bazelrc")
+        disk_cache = re.search(r"(?m)^build --disk_cache=(\S+)/bazel-disk$", rc)
+        assert disk_cache is not None
+        reset = compose.index(
+            "sh .devcontainer/reset_stale_bazel_cache.sh"
+            f" {disk_cache.group(1)};"
+        )
+        self.assertLess(reset, compose.index("tools.ide.compile_commands"))
+
+
+class ResetStaleBazelCacheTest(unittest.TestCase):
+    """reset_stale_bazel_cache.sh keeps the disk cache of the same image's packages and deletes any other's."""
+
+    def setUp(self):
+        # pylint: disable-next=consider-using-with  # tearDown() deletes it.
+        self.directory = tempfile.TemporaryDirectory()
+        self.root = os.path.join(self.directory.name, "cache")
+        self.bin = os.path.join(self.directory.name, "bin")
+        os.makedirs(self.bin)
+        self.packages = "gcc 13.3.0 amd64\nlibc6 2.39 amd64\n"
+        self.write_stand_in("uname", "echo x86_64")
+        self.write_stand_in(
+            "dpkg-query", f"cat {os.path.join(self.directory.name, 'dpkg')}"
+        )
+
+    def tearDown(self):
+        self.directory.cleanup()
+
+    def write_stand_in(self, name: str, body: str) -> None:
+        """Writes an executable stand-in for a command the script runs."""
+        path = os.path.join(self.bin, name)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(f"#!/bin/sh\n{body}\n")
+        os.chmod(path, 0o755)
+
+    def run_script(self) -> subprocess.CompletedProcess:
+        """Runs the script on the cache root with the stand-ins' packages."""
+        with open(
+            os.path.join(self.directory.name, "dpkg"), "w", encoding="utf-8"
+        ) as f:
+            f.write(self.packages)
+        environment = dict(os.environ)
+        environment["PATH"] = f"{self.bin}{os.pathsep}{environment['PATH']}"
+        return subprocess.run(
+            [
+                "sh",
+                _runfile(".devcontainer/reset_stale_bazel_cache.sh"),
+                self.root,
+            ],
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def fill_disk_cache(self) -> str:
+        """Puts an output in the disk cache and returns its path."""
+        output = os.path.join(self.root, "bazel-disk", "cas", "entry")
+        os.makedirs(os.path.dirname(output), exist_ok=True)
+        with open(output, "w", encoding="utf-8") as f:
+            f.write("object")
+        return output
+
+    def test_the_same_packages_keep_the_cache(self):
+        self.assertEqual(self.run_script().returncode, 0)
+        output = self.fill_disk_cache()
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(os.path.exists(output))
+
+    def test_a_changed_package_deletes_the_disk_cache_only(self):
+        self.assertEqual(self.run_script().returncode, 0)
+        output = self.fill_disk_cache()
+        downloads = os.path.join(self.root, "bazel-repository")
+        os.makedirs(downloads)
+        self.packages = "gcc 13.3.1 amd64\nlibc6 2.39 amd64\n"
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(os.path.exists(output))
+        self.assertTrue(os.path.isdir(downloads))
+        self.assertIn("deleting", result.stderr)
+        # The cache now belongs to the new packages.
+        output = self.fill_disk_cache()
+        self.assertEqual(self.run_script().returncode, 0)
+        self.assertTrue(os.path.exists(output))
+
+    def test_a_cache_without_a_fingerprint_is_deleted(self):
+        output = self.fill_disk_cache()
+        self.assertEqual(self.run_script().returncode, 0)
+        self.assertFalse(os.path.exists(output))
+
+    def test_the_package_order_does_not_matter(self):
+        self.assertEqual(self.run_script().returncode, 0)
+        output = self.fill_disk_cache()
+        self.packages = "libc6 2.39 amd64\ngcc 13.3.0 amd64\n"
+        self.assertEqual(self.run_script().returncode, 0)
+        self.assertTrue(os.path.exists(output))
+
+    def test_an_empty_root_is_refused(self):
+        result = subprocess.run(
+            ["sh", _runfile(".devcontainer/reset_stale_bazel_cache.sh"), ""],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 2)
+
+
+# LINT.ThenChange(//.devcontainer/bazel.bazelrc:dev_container_bazel_cache, //docker-compose.yaml:dev_container_bazel_rc)
 class RealtimePriorityTest(unittest.TestCase):
     """The container's non-root user may give the MPC's solver threads a realtime priority."""
 

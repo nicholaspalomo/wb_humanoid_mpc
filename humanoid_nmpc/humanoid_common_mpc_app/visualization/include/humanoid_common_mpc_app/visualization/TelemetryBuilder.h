@@ -274,6 +274,16 @@ class TelemetryBuilder {
     return robotModel_->modelSettings;
   }
 
+  /**
+   * The model's contact of the plots' foot `foot` (0 left, 1 right): the last
+   * two contacts of the contact set, which are the biped's two feet and, in a
+   * larger set, the feet listed last so that the biped's mode numbers keep
+   * their meaning (contactIsActiveInMode()).
+   */
+  size_t footContact(size_t foot) const {
+    return modelSettings().contactNames.size() - kNumContacts + foot;
+  }
+
   PinocchioInterface pinocchioInterface_;
   std::unique_ptr<MpcRobotModelBase<scalar_t>> robotModel_;
   // VisualizationModel::stateManifold, retained (Create() refuses a null one).

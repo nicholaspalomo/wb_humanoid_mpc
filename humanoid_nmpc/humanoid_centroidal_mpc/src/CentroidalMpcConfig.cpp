@@ -49,4 +49,12 @@ absl::StatusOr<CentroidalMpcConfig> loadCentroidalMpcConfig(
   return config;
 }
 
+void overrideMultiContactPlanFiles(const MultiContactPlanFiles& files,
+                                   CentroidalMpcConfig& config) {
+  mpc_config::MultiContactPlanConfig& block = config.task.multi_contact_plan;
+  if (!files.scenarioFile.empty()) block.scenario_file = files.scenarioFile;
+  if (!files.planFile.empty()) block.plan_file = files.planFile;
+  if (!files.playback.empty()) block.playback = files.playback;
+}
+
 }  // namespace ocs2::humanoid

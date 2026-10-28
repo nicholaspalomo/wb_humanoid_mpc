@@ -1,0 +1,89 @@
+# proto-file: humanoid_nmpc/humanoid_multi_contact/plan/multi_contact_plan.proto
+# proto-message: humanoid_multi_contact.MultiContactPlan
+# A hand-written plan for the box_climb scenario, for the tests of the certifier and of the plan playback: Atlas
+# stands on both feet in front of the box and sways its base 6 cm forward and back in one second. Every knot is
+# statically stable with the scenario's 3 cm margin and its momentum rate (about 40 N) lies in the contact wrench
+# cone. The hashes are those of Atlas's contact set and of box_climb's scene: the test that loads this file names
+# the hashes to write here when either changes.
+
+scenario: "box_climb"
+planner: "hand_written"
+contact_set_hash: 1180554330978557962
+terrain_scene_hash: 14847699634709746879
+joint_names: ["l_leg_hpy", "r_leg_hpy", "l_leg_kny", "r_leg_kny", "l_leg_aky", "r_leg_aky", "l_arm_shx", "r_arm_shx"]
+knots {
+  time: 0.0
+  base_position: [0.0, 0, 0.9232]
+  base_orientation_xyzw: [0, 0, 0, 1]
+  joint_positions: [-0.3, -0.3, 0.6, 0.6, -0.3, -0.3, -1.3, 1.3]
+  linear_momentum: [0.0, 0, 0]
+  angular_momentum: [0, 0, 0]
+  # foot_l_contact and foot_r_contact
+  active_contacts: 3
+  contact_wrenches { contact: "foot_l_contact" force: [0, 0, 783.3] torque: [0, 0, 0] }
+  contact_wrenches { contact: "foot_r_contact" force: [0, 0, 783.3] torque: [0, 0, 0] }
+}
+knots {
+  time: 0.25
+  base_position: [0.03, 0, 0.9232]
+  base_orientation_xyzw: [0, 0, 0, 1]
+  joint_positions: [-0.3, -0.3, 0.6, 0.6, -0.3, -0.3, -1.3, 1.3]
+  linear_momentum: [19.164, 0, 0]
+  angular_momentum: [0, 0, 0]
+  # foot_l_contact and foot_r_contact
+  active_contacts: 3
+  contact_wrenches { contact: "foot_l_contact" force: [0, 0, 783.3] torque: [0, 0, 0] }
+  contact_wrenches { contact: "foot_r_contact" force: [0, 0, 783.3] torque: [0, 0, 0] }
+}
+knots {
+  time: 0.5
+  base_position: [0.06, 0, 0.9232]
+  base_orientation_xyzw: [0, 0, 0, 1]
+  joint_positions: [-0.3, -0.3, 0.6, 0.6, -0.3, -0.3, -1.3, 1.3]
+  linear_momentum: [0.0, 0, 0]
+  angular_momentum: [0, 0, 0]
+  # foot_l_contact and foot_r_contact
+  active_contacts: 3
+  contact_wrenches { contact: "foot_l_contact" force: [0, 0, 783.3] torque: [0, 0, 0] }
+  contact_wrenches { contact: "foot_r_contact" force: [0, 0, 783.3] torque: [0, 0, 0] }
+}
+knots {
+  time: 0.75
+  base_position: [0.03, 0, 0.9232]
+  base_orientation_xyzw: [0, 0, 0, 1]
+  joint_positions: [-0.3, -0.3, 0.6, 0.6, -0.3, -0.3, -1.3, 1.3]
+  linear_momentum: [-19.164, 0, 0]
+  angular_momentum: [0, 0, 0]
+  # foot_l_contact and foot_r_contact
+  active_contacts: 3
+  contact_wrenches { contact: "foot_l_contact" force: [0, 0, 783.3] torque: [0, 0, 0] }
+  contact_wrenches { contact: "foot_r_contact" force: [0, 0, 783.3] torque: [0, 0, 0] }
+}
+knots {
+  time: 1.0
+  base_position: [0.0, 0, 0.9232]
+  base_orientation_xyzw: [0, 0, 0, 1]
+  joint_positions: [-0.3, -0.3, 0.6, 0.6, -0.3, -0.3, -1.3, 1.3]
+  linear_momentum: [0.0, 0, 0]
+  angular_momentum: [0, 0, 0]
+  # foot_l_contact and foot_r_contact
+  active_contacts: 3
+  contact_wrenches { contact: "foot_l_contact" force: [0, 0, 783.3] torque: [0, 0, 0] }
+  contact_wrenches { contact: "foot_r_contact" force: [0, 0, 783.3] torque: [0, 0, 0] }
+}
+phases {
+  contact: "foot_l_contact"
+  start_time: 0
+  end_time: 1
+  primitive: "ground"
+  face: 4
+  target_pad_pose: [0.028, 0.1115, 0, 0, 0, 1]
+}
+phases {
+  contact: "foot_r_contact"
+  start_time: 0
+  end_time: 1
+  primitive: "ground"
+  face: 4
+  target_pad_pose: [0.028, -0.1115, 0, 0, 0, 1]
+}

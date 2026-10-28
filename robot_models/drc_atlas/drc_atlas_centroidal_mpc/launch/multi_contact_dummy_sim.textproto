@@ -1,0 +1,95 @@
+# proto-file: tools/launch/proto/launch_file.proto
+# proto-message: launch_proto.LaunchFile
+#
+# The DRC Atlas, centroidal MPC tracking an offline multi-contact plan in the dummy simulator
+# (humanoid_nmpc/docs/multi_contact_planning/README.md, section 8.2): the MPC node on the multi-contact task file
+# (thirteen contact candidates, the wrists unlocked, contact_schedule_source: "multi_contact_plan"), the robot played by
+# the rollout of the MPC's own model from the plan's first state, and the Rerun bridge drawing the scenario's terrain
+# and the contact forces, all on the laptop. No GUI: the plan is the reference, not a velocity command.
+#
+#   make launch-drc-atlas-stairs-dummy-sim    # one target per scenario of the Makefile's MULTI_CONTACT_SCENARIOS
+#   bazel run //tools/launch -- robot_models/drc_atlas/drc_atlas_centroidal_mpc/launch/multi_contact_dummy_sim.textproto \
+#       --set scenario=box_climb --set plan_file=humanoid_nmpc/humanoid_multi_contact/app/testdata/box_climb_sway.textproto
+#   bazel run //tools/launch -- robot_models/drc_atlas/drc_atlas_centroidal_mpc/launch/multi_contact_dummy_sim.textproto \
+#       --set scenario=stairs --set playback=forward_and_reverse    # up the stairs and backward down, over and over
+
+variables { name: "bin_dir" value: ".bazel/bin" }
+variables { name: "robot_dir" value: "robot_models/drc_atlas" }
+variables { name: "config_dir" value: "{robot_dir}/drc_atlas_centroidal_mpc/config" }
+variables { name: "task_file" value: "{config_dir}/mpc/multi_contact/task.textproto" }
+variables { name: "reference_file" value: "{config_dir}/mpc/multi_contact/reference.textproto" }
+variables { name: "urdf_file" value: "{robot_dir}/drc_atlas_description/urdf/atlas.urdf" }
+variables { name: "gait_file" value: "humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto" }
+# The scenario by its file's name (humanoid_nmpc/humanoid_multi_contact/scenarios/config/<scenario>.textproto) and the
+# plan the MPC tracks: by default the one `make plan-drc-atlas-<scenario>` writes.
+# LINT.IfChange(multi_contact_plan_dir)
+variables { name: "scenario" value: "box_climb" }
+variables { name: "scenario_file" value: "humanoid_nmpc/humanoid_multi_contact/scenarios/config/{scenario}.textproto" }
+variables { name: "plan_dir" value: "humanoid_nmpc/humanoid_multi_contact/plans" }
+variables { name: "plan_file" value: "{plan_dir}/{scenario}.binpb" }
+# LINT.ThenChange(//Makefile:multi_contact_scenarios)
+# How the MPC plays the plan (the task file's multi_contact_plan.playback, design section 7.3): "once", or
+# "forward_and_reverse" - forward, standing at its end, backward in time to its start, standing there, over and over. The
+# stairs dummy sim plays forward_and_reverse (the Makefile's MULTI_CONTACT_PLAYBACK_stairs).
+# LINT.IfChange(multi_contact_playback)
+variables { name: "playback" value: "once" }
+# LINT.ThenChange(//Makefile:multi_contact_targets)
+# The bus's network file: the shipped one is every node on this machine (config/ipc/network.textproto).
+variables { name: "network_file" value: "config/ipc/network.textproto" }
+# The Rerun bridge's sink, by name (humanoid_nmpc/humanoid_rerun_viewer/README.md): spawn, connect, serve_web, save;
+# save writes the recording to rrd_path.
+variables { name: "rerun_sink" value: "serve_web" }
+variables { name: "rrd_path" value: "" }
+variables { name: "plot_config" value: "humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto" }
+
+# The processes: their binaries are those the Makefile's multi-contact launch targets build first.
+# LINT.IfChange(processes)
+processes {
+  name: "mpc"
+  machine: MACHINE_LAPTOP
+  command: [
+    "{bin_dir}/humanoid_nmpc/humanoid_centroidal_mpc_app/humanoid_centroidal_mpc_node",
+    "--robot_name=drc_atlas",
+    "--task_file={task_file}",
+    "--reference_file={reference_file}",
+    "--urdf_file={urdf_file}",
+    "--gait_file={gait_file}",
+    "--network_config={network_file}",
+    "--multi_contact_scenario={scenario_file}",
+    "--multi_contact_plan={plan_file}",
+    "--multi_contact_playback={playback}"
+  ]
+  required: true
+}
+
+processes {
+  name: "dummy_sim"
+  machine: MACHINE_LAPTOP
+  command: [
+    "{bin_dir}/humanoid_nmpc/humanoid_centroidal_mpc_app/humanoid_centroidal_mpc_dummy_sim",
+    "--robot_name=drc_atlas",
+    "--task_file={task_file}",
+    "--reference_file={reference_file}",
+    "--urdf_file={urdf_file}",
+    "--network_config={network_file}",
+    "--multi_contact_scenario={scenario_file}",
+    "--multi_contact_plan={plan_file}",
+    "--multi_contact_playback={playback}"
+  ]
+  required: true
+}
+
+processes {
+  name: "rerun"
+  machine: MACHINE_LAPTOP
+  command: [
+    "{bin_dir}/humanoid_nmpc/humanoid_rerun_viewer/humanoid_rerun_viewer",
+    "--urdf={urdf_file}",
+    "--network_config={network_file}",
+    "--rerun_sink={rerun_sink}",
+    "--rrd_path={rrd_path}",
+    "--plot_config={plot_config}",
+    "--multi_contact_scenario={scenario_file}"
+  ]
+}
+# LINT.ThenChange(//Makefile:launch_binaries)

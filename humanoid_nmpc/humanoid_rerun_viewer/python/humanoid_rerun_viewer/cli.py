@@ -64,6 +64,7 @@ from humanoid_rerun_viewer import bridge as bridge_module
 from humanoid_rerun_viewer import bus_bridge
 from humanoid_rerun_viewer import plot_config as plot_config_module
 from humanoid_rerun_viewer import rerun_sinks
+from humanoid_rerun_viewer import terrain_drawing
 from humanoid_rerun_viewer import urdf_model
 import robot_ipc
 
@@ -264,6 +265,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     # LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/README.md:sink_flags)
+    parser.add_argument(
+        "--multi_contact_scenario",
+        default="",
+        help=(
+            "a multi-contact scenario textproto whose terrain is drawn under"
+            " world/terrain, statically (the multi-contact dummy sims; default:"
+            " none)"
+        ),
+    )
     parser.add_argument(
         "--app_id",
         default=DEFAULT_APP_ID,
@@ -611,6 +621,19 @@ def run(
             "no --urdf given: the robot instances will not be drawn"
         )
 
+    static_scene = None
+    if args.multi_contact_scenario:
+        try:
+            terrain = terrain_drawing.load_scenario_terrain(
+                resolve_input_path(args.multi_contact_scenario)
+            )
+        except (OSError, ValueError) as error:
+            _LOGGER.error("cannot load the scenario's terrain: %s", error)
+            return RunResult(EXIT_USAGE)
+        static_scene = functools.partial(
+            terrain_drawing.log_terrain, scene=terrain
+        )
+
     recording = bridge_module.new_recording(args.app_id)
     plot_config: plot_config_module.PlotConfig | None = None
     plot_config_arg = args.plot_config
@@ -697,6 +720,7 @@ def run(
         new_run=functools.partial(_attach_new_run, sink, args.app_id),
         telemetry_rate=telemetry_rate,
         telemetry_selection=telemetry_selection,
+        static_scene=static_scene,
     )
     telemetry_enabled = plots and (
         plot_config is None

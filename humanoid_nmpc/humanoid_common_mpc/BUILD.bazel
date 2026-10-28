@@ -305,7 +305,11 @@ cc_library(
         "src/constraint/FrictionForceConeConstraint.cpp",
         "src/constraint/ContactMomentXYConstraintCppAd.cpp",
         "src/constraint/ContactWrenchConeConstraint.cpp",
+        "src/constraint/PointFrictionConeConstraint.cpp",
         "src/constraint/EndEffectorKinematicsLinearVelConstraint.cpp",
+        "src/constraint/ContactSwingConstraint.cpp",
+        "src/contact_swing/ContactSwingPlanner.cpp",
+        "src/contact_swing/ContactSwingTrajectory.cpp",
         "src/cost/TuningGaussNewton.cpp",
         "src/cost/TuningQuadraticStateInputCost.cpp",
         "src/cost/TuningQuadraticStateCost.cpp",
@@ -1168,6 +1172,34 @@ cc_test(
         ":humanoid_common_mpc",
         ":orientation",
         "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# Mode numbers as bitmasks of the contact set (humanoid_nmpc/docs/multi_contact_planning/README.md, section 3.1): the
+# biped's FLY, RF, LF and STANCE unchanged, the first contact the most significant bit. Builds no model.
+cc_test(
+    name = "testContactModeBits",
+    size = "small",
+    srcs = ["test/testContactModeBits.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_common_mpc_types",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The generalized swing planner of a tracked multi-contact plan (contact_swing/): a swing starts and ends at rest, leaves
+# and arrives along the surface normals, and raises its arc over a step's riser to keep its clearance. Builds no model.
+cc_test(
+    name = "testContactSwingTrajectory",
+    size = "small",
+    srcs = ["test/testContactSwingTrajectory.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        ":status_test_macros",
+        "@abseil-cpp//absl/status",
         "@googletest//:gtest_main",
     ],
 )

@@ -1,0 +1,13 @@
+# humanoid_multi_contact/plans - the shipped scenarios' plans, written by `make plan-drc-atlas-<scenario>`
+# (humanoid_nmpc/docs/multi_contact_planning/README.md, section 7.1): `<scenario>.binpb` beside its textproto summary.
+# The dummy sims track them; the tracking tests read them.
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "plans",
+    srcs = glob([
+        "*.binpb",
+        "*.summary.textproto",
+    ]),
+)

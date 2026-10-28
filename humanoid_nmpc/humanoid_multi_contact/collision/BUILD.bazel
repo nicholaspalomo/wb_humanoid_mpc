@@ -1,0 +1,107 @@
+load("@protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
+load("@protobuf//bazel:proto_library.bzl", "proto_library")
+load("@protobuf//bazel:py_proto_library.bzl", "py_proto_library")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("@rules_python//python:defs.bzl", "py_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
+load("//tools/nproto:nproto.bzl", "nproto_cc_library")
+
+# humanoid_multi_contact/collision - the environment collision model of a robot (humanoid_nmpc/docs/
+# multi_contact_planning/README.md, section 5.4): the CollisionModel schema of link geometries, and its spheres, their
+# clearance to the terrain outside the neighborhood of the active pads, and the self-collision pairs. The DRC Atlas's
+# model is robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/multi_contact/collision_model.textproto.
+
+package(default_visibility = ["//visibility:public"])
+
+proto_library(
+    name = "collision_model_proto",
+    srcs = ["collision_model.proto"],
+    strip_import_prefix = "/humanoid_nmpc",
+    deps = ["//tools/nproto:options_proto"],
+)
+
+cc_proto_library(
+    name = "collision_model_cc_proto",
+    deps = [":collision_model_proto"],
+)
+
+py_proto_library(
+    name = "collision_model_py_proto",
+    deps = [":collision_model_proto"],
+)
+
+nproto_cc_library(
+    name = "collision_model_nproto",
+    deps = [":collision_model_proto"],
+)
+
+cc_library(
+    name = "collision",
+    srcs = ["src/CollisionModel.cpp"],
+    hdrs = ["include/humanoid_multi_contact/collision/CollisionModel.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        ":collision_model_cc_proto",
+        ":collision_model_nproto",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:robot_stance_model",
+        "//humanoid_nmpc/humanoid_multi_contact/terrain",
+        "//lib/ocs2:ocs2_dimensions",
+        "//tools/nproto:nproto_runtime",
+        "@abseil-cpp//absl/container:flat_hash_map",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@eigen",
+        "@pinocchio",
+    ],
+)
+
+# The spheres of capsules, boxes and given spheres, the validation, the exemption near the active pads, and the
+# clearances of the DRC Atlas's model standing, kneeling and with crossed legs.
+cc_test(
+    name = "collision_model_test",
+    size = "small",
+    srcs = ["test/testCollisionModel.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":collision",
+        ":collision_model_nproto",
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set",
+        "//humanoid_nmpc/humanoid_multi_contact/stability:robot_stance_model",
+        "//humanoid_nmpc/humanoid_multi_contact/terrain",
+        "//humanoid_nmpc/humanoid_multi_contact/terrain:terrain_scene_nproto",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# Every link of the DRC Atlas's collision model is the collision geom of its MJCF body in atlas.xml, on the body of
+# its parent joint.
+py_test(
+    name = "test_collision_model_mjcf",
+    size = "small",
+    srcs = ["test/test_collision_model_mjcf.py"],
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    # The generated module shares the package humanoid_multi_contact with the other proto libraries.
+    legacy_create_init = False,
+    deps = [
+        ":collision_model_py_proto",
+        "//tools/nproto:nproto_textproto",
+    ],
+)

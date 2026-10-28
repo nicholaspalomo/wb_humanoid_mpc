@@ -348,6 +348,7 @@ class RerunBridge:
         new_run: Callable[[], rr.RecordingStream] | None = None,
         telemetry_rate: float = 0.0,
         telemetry_selection: Callable[[str], bool] | None = None,
+        static_scene: Callable[[rr.RecordingStream], object] | None = None,
     ) -> None:
         if not (
             max_scene_frequency >= 0.0 and math.isfinite(max_scene_frequency)
@@ -368,6 +369,9 @@ class RerunBridge:
         self._telemetry_interval: int | None = None
         self.recording = recording
         self._new_run = new_run
+        # Logs what the scene holds besides the robots into a recording (the terrain of a multi-contact scenario); None:
+        # nothing.
+        self._static_scene = static_scene
         self._max_pending_rows = max_pending_rows
         self.model = model
         self._meshes = (
@@ -445,12 +449,14 @@ class RerunBridge:
     # ------------------------------------------------------------------------------------------------------------------
 
     def log_static(self) -> None:
-        """Logs the world's axes (right-handed, z up) and the robot meshes of every instance of `instances`."""
+        """Logs the world's axes (right-handed, z up), the static scene and the robot meshes of every instance."""
         self.recording.log(
             scene_contract.WORLD_ROOT,
             rr.ViewCoordinates.RIGHT_HAND_Z_UP,
             static=True,
         )
+        if self._static_scene is not None:
+            self._static_scene(self.recording)
         for style in self._instances:
             self._log_instance_meshes(style)
 

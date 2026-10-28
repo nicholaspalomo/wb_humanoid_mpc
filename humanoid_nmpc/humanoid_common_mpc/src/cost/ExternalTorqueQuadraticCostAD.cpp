@@ -147,7 +147,7 @@ ExternalTorqueQuadraticCostAD::ExternalTorqueQuadraticCostAD(
 
 bool ExternalTorqueQuadraticCostAD::isActive(scalar_t time) const {
   if (!isActive_) return false;
-  return referenceManagerPtr_->getContactFlags(time)[contactPointIndex_];
+  return referenceManagerPtr_->isInContact(time, contactPointIndex_);
 }
 
 /******************************************************************************************************/

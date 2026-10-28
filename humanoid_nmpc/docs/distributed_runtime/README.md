@@ -402,12 +402,16 @@ entity paths and the telemetry groups the visualization publisher must send: the
 - **Command line** (Abseil flags): every binary takes `--robot_name --task_file --reference_file --gait_file
   --urdf_file --network_config --ipc_node` (the robot binaries and the dummy simulators accept `--gait_file` but do not
   read it); the MPC nodes have no flag of their own beyond these (their solver threads' priority is the task file's
-  `multiple_shooting.thread_priority`, their walking command timeout `interface.walking_command_timeout`); the robot
+  `multiple_shooting.thread_priority`, their walking command timeout `interface.walking_command_timeout`), but for the
+  multi-contact plan: the centroidal MPC's node and dummy simulator add `--multi_contact_scenario --multi_contact_plan
+  --multi_contact_playback` (the scenario and the plan tracked under `contact_schedule_source: "multi_contact_plan"`,
+  and how the plan plays, `once` or `forward_and_reverse`; empty: the task file's `multi_contact_plan` block,
+  [multi_contact_planning](../multi_contact_planning/README.md)); the robot
   binaries add `--mjcf_file
   --realtime_priority --backend --realtime_cores --backend_cores --viewer --plot_config --web_viewer_address
   --web_viewer_port --web_viewer_allowed_hosts --viewer_cores --config_store_dir --config_seed`
   ([`humanoid_common_mpc_app/robot`](../../humanoid_common_mpc_app/robot/README.md#the-command-line)).
-<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/node/src/MpcAppFlags.cpp:mpc_app_flags, //humanoid_nmpc/humanoid_centroidal_mpc_app/src/CentroidalMpcNodeMain.cpp:node_flags, //humanoid_nmpc/humanoid_centroidal_mpc_app/src/CentroidalMpcDummySimMain.cpp:dummy_sim_flags, //humanoid_nmpc/humanoid_common_mpc_app/robot/src/RobotAppFlags.cpp:robot_flags) -->
+<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/node/src/MpcAppFlags.cpp:mpc_app_flags, //humanoid_nmpc/humanoid_centroidal_mpc_app/src/CentroidalAppFlags.cpp:centroidal_app_flags, //humanoid_nmpc/humanoid_centroidal_mpc_app/src/CentroidalMpcNodeMain.cpp:node_flags, //humanoid_nmpc/humanoid_centroidal_mpc_app/src/CentroidalMpcDummySimMain.cpp:dummy_sim_flags, //humanoid_nmpc/humanoid_common_mpc_app/robot/src/RobotAppFlags.cpp:robot_flags) -->
 - **Task file** (`config/mpc/task.textproto`): `mpc_link.policy_timeout`, `telemetry_sinks` (the robot process's
   telemetry, by name: `bus` publishes `robot/state`), `telemetry_frequency`, `telemetry_frames`, `rerun_scene_frequency`,
   `rerun_plan_frames`, and the existing controller and simulator fields

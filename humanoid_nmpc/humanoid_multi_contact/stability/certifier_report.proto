@@ -1,0 +1,95 @@
+edition = "2023";
+
+package humanoid_multi_contact;
+
+import "nproto/options.proto";
+
+// What StabilityCertifier reports about a multi-contact plan, knot by knot (humanoid_nmpc/docs/multi_contact_planning/
+// README.md, sections 2 and 6). Condition 1 (static stability and torque feasibility) and condition 3 (contact changes)
+// are judged only when the scenario sets a static margin; condition 2 (dynamic feasibility) always, and the robot's
+// collision spheres against the terrain whenever the certifier has a collision model.
+// Next ID: 7
+message CertifierReport {
+  option (nproto.generate_struct) = "ocs2::humanoid::multi_contact::config::CertifierReport";
+
+  reserved 7 to max;
+
+  // [m] A point of the horizontal plane.
+  // Next ID: 3
+  message Point2 {
+    reserved 3 to max;
+
+    double x = 1 [default = 0.0];
+    double y = 2 [default = 0.0];
+  }
+
+  // One knot of the plan.
+  // Next ID: 22
+  message Knot {
+    reserved 22 to max;
+
+    // [s] The knot's time.
+    double time = 1 [default = 0.0];
+    // The active contacts, in contact-set order.
+    repeated string active_contacts = 2;
+    // [m] The center of mass of the knot's configuration.
+    repeated double com = 3;
+    // The static equilibrium polygon (design section 2), an inner approximation of the set of horizontal CoM positions
+    // in static equilibrium on the stance, counterclockwise; empty when no CoM position is.
+    repeated Point2 support_polygon = 4;
+    // [m] The signed distance of the CoM's horizontal projection to the boundary of support_polygon, positive inside: a
+    // lower bound on the true static margin rho_s. Absent when no CoM position is in static equilibrium.
+    double static_margin = 5;
+    // The smallest max_j |tau_j| / effort_limit_j over the contact forces that hold the stance statically at the
+    // knot's configuration, and the joint that has it. Absent when the knot's CoM is not in static equilibrium, and,
+    // under joint limits "position_only", where it is information only, when HPIPM cannot solve the torque LP.
+    double torque_utilization = 6;
+    string max_torque_joint = 7 [default = ""];
+    // Whether the planned centroidal momentum rate lies in the contact wrench cone of the stance, and the L1 norm of
+    // the smallest mismatch of the normalized wrench (force over the weight, moment over the weight in meters).
+    bool momentum_rate_feasible = 8 [default = false];
+    double momentum_rate_residual = 9 [default = 0.0];
+    // [m] The largest |signed distance| of an active contact's pad to the terrain.
+    double max_active_contact_distance = 10 [default = 0.0];
+    // [m] The smallest signed distance of an inactive candidate's pad geometry (a sphere of its geom radius) to the
+    // terrain, and the candidate that has it; absent when every candidate is active.
+    double min_inactive_clearance = 11;
+    string min_inactive_clearance_contact = 12 [default = ""];
+    // Condition 1: static_margin >= the scenario's margin and, under joint limits "position_and_effort",
+    // torque_utilization <= its torque margin. Absent when the scenario sets no static margin.
+    bool static_condition = 13;
+    // Condition 2: momentum_rate_feasible, with every active contact on the terrain.
+    bool dynamic_condition = 14 [default = false];
+    // Condition 3, at a knot whose stance differs from the previous knot's: the stances differ by one contact, and
+    // their common stance satisfies condition 1 at both knots. Absent at the first knot, where the stance does not
+    // change, and when the scenario sets no static margin.
+    bool transition_condition = 15;
+    // Whether the knot passes every condition that is judged.
+    bool passed = 16 [default = false];
+    // Why it fails, one line per failure.
+    repeated string failures = 17;
+    // The contact mode, bit i for candidate i of the contact set.
+    uint64 active_contact_mask = 18 [default = 0];
+    // [m] The smallest signed distance of a collision sphere of the robot (design section 5.4) to the terrain, outside
+    // the neighborhood of the active pads, and the link that has it; absent without a collision model.
+    double min_sphere_clearance = 19;
+    string min_sphere_clearance_link = 20 [default = ""];
+    // No collision sphere penetrates the terrain by more than the contact tolerance. Absent without a collision model.
+    bool collision_free = 21;
+  }
+
+  // Whether every knot passed.
+  bool passed = 1 [default = false];
+  // [m] The static margin the knots were judged with; absent when condition 1 was not judged.
+  double static_margin = 2;
+  // The scenario's joint limits, by name: under "position_and_effort" condition 1 judges the torques against
+  // torque_margin; under "position_only" the knots' torque_utilization is information only.
+  // LINT.IfChange(joint_limits_names)
+  string joint_limits = 6 [default = "position_and_effort"];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_multi_contact/stability/include/humanoid_multi_contact/stability/JointLimits.h:joint_limits_names)
+  // The fraction of the effort limits the torques may use; absent when the torques are not judged ("position_only").
+  double torque_margin = 3;
+  repeated Knot knots = 4;
+  // The number of knots that failed.
+  int32 failed_knots = 5 [default = 0];
+}

@@ -535,6 +535,88 @@ TEST_F(TwistConstraintTest, GroundPlaneNormalIsRespected) {
   EXPECT_GT(std::abs(spinning(5)), 1.0e-6);
 }
 
+// ==================== The patch frame ====================
+
+/** The rotation vector of `rotation`. */
+vector3_t rotationVectorOf(const matrix3_t& rotation) {
+  const Eigen::AngleAxis<scalar_t> angleAxis(rotation);
+  return angleAxis.angle() * angleAxis.axis();
+}
+
+TEST_F(TwistConstraintTest, PatchFrameRowsAreTheWorldRowsOfTheRotatedFoot) {
+  // A foot on a patch p_R_w reads, in the patch's frame, what the world-frame
+  // constraint reads of the same foot carried by p_R_w: its position, its
+  // orientation, its velocities and the patch's normal are all rotated, and
+  // the patch normal is carried onto the world z axis.
+  const matrix3_t worldToPatch =
+      rotationFromRotationVector(vector3_t(0.25, -0.4, 0.3));
+  EndEffectorKinematicsTwistConstraint::Config config = makeFootConfig();
+  config.b(2) = -0.3;
+  EndEffectorKinematicsTwistConstraint patched(kinematics_,
+                                               /*numConstraints=*/6, config);
+  patched.setConstrainYawRateAboutNormal(true);
+  patched.setWorldToPatchRotation(worldToPatch);
+  EndEffectorKinematicsTwistConstraint world(kinematics_,
+                                             /*numConstraints=*/6, config);
+  world.setConstrainYawRateAboutNormal(true);
+
+  const vector3_t position(0.1, -0.2, 0.35);
+  const vector3_t rotationVector(0.05, 0.1, -0.2);
+  const vector3_t linearVelocity(0.3, -0.1, 0.2);
+  const vector3_t angularVelocity(-0.2, 0.4, 0.1);
+  const vector_t state = makeState(position, rotationVector);
+  const vector_t input = makeInput(linearVelocity, angularVelocity);
+  const vector_t carriedState = makeState(
+      worldToPatch * position,
+      rotationVectorOf(worldToPatch *
+                       AnalyticEndEffectorKinematics::rotationOf(state)));
+  const vector_t carriedInput =
+      makeInput(worldToPatch * linearVelocity, worldToPatch * angularVelocity);
+
+  const vector_t value =
+      patched.getValue(/*time=*/0.0, state, input, PreComputation());
+  EXPECT_TRUE(value.isApprox(world.getValue(/*time=*/0.0, carriedState,
+                                            carriedInput, PreComputation()),
+                             kTol))
+      << value.transpose();
+
+  // The input Jacobian of the carried foot, pulled back through the input
+  // rotation blockdiag(p_R_w, p_R_w): the twist approximation is exact.
+  const VectorFunctionLinearApproximation patchedLinear =
+      patched.getLinearApproximation(/*time=*/0.0, state, input,
+                                     PreComputation());
+  const VectorFunctionLinearApproximation worldLinear =
+      world.getLinearApproximation(/*time=*/0.0, carriedState, carriedInput,
+                                   PreComputation());
+  EXPECT_TRUE(patchedLinear.f.isApprox(value, kTol));
+  matrix_t inputRotation = matrix_t::Zero(kInputDim, kInputDim);
+  inputRotation.topLeftCorner<3, 3>() = worldToPatch;
+  inputRotation.bottomRightCorner<3, 3>() = worldToPatch;
+  EXPECT_TRUE(
+      patchedLinear.dfdu.isApprox(worldLinear.dfdu * inputRotation, kTol));
+}
+
+TEST_F(TwistConstraintTest, TheIdentityPatchIsTheWorldFrame) {
+  EndEffectorKinematicsTwistConstraint patched(
+      kinematics_, /*numConstraints=*/6, makeFootConfig());
+  patched.setWorldToPatchRotation(matrix3_t::Identity());
+  EndEffectorKinematicsTwistConstraint world(kinematics_, /*numConstraints=*/6,
+                                             makeFootConfig());
+  const vector_t state =
+      makeState(vector3_t(0.1, 0.2, 0.05), vector3_t(0.1, -0.05, 0.2));
+  const vector_t input =
+      makeInput(vector3_t(0.2, 0.1, -0.3), vector3_t(0.3, -0.2, 0.1));
+  EXPECT_TRUE(patched.getValue(/*time=*/0.0, state, input, PreComputation())
+                  .isApprox(world.getValue(/*time=*/0.0, state, input,
+                                           PreComputation()),
+                            kTol));
+  // Cleared, it evaluates the world-frame rows again.
+  patched.clearWorldToPatchRotation();
+  EXPECT_FALSE(patched.getWorldToPatchRotation().has_value());
+  EXPECT_EQ(patched.getValue(/*time=*/0.0, state, input, PreComputation()),
+            world.getValue(/*time=*/0.0, state, input, PreComputation()));
+}
+
 // Both constraints act on one end effector; kinematics of two is a programming
 // error the constructors refuse with an ABSL_CHECK, which ends the process with
 // its message.

@@ -89,11 +89,50 @@ using google::protobuf::Reflection;
 constexpr std::array<absl::string_view, 2> kConfigurations = {"drc_atlas",
                                                               "unitree_g1_wb"};
 
+// The reason of the multi_contact_plan fields, which no dumped configuration
+// tracks a plan with.
+constexpr char kReadByThePlanSource[] =
+    "the plan tracking of the centroidal MPC: MultiContactPlanSource and "
+    "PlannedMotionReferenceManager read it (testMultiContactPlanTracking)";
+
 // The fields no conversion of the C++ stack reads, each with what does (by its
 // path, elements as [*]).
 const std::map<std::string, std::string>& notReadByTheConversions() {
   static const std::map<std::string, std::string>& kFields =
       *new std::map<std::string, std::string>{
+          {"TaskFile.contacts.surface_pads",
+           "the pads of 3-DoF contacts, which none of the dumped "
+           "configurations has: ContactsFromConfig reads them for the "
+           "multi-contact task (testMultiContactPlanTracking)"},
+          {"TaskFile.multi_contact_plan.clock_hold.com_tolerance",
+           kReadByThePlanSource},
+          {"TaskFile.multi_contact_plan.clock_hold.contact_tolerance",
+           kReadByThePlanSource},
+          {"TaskFile.multi_contact_plan.clock_hold.lead", kReadByThePlanSource},
+          {"TaskFile.multi_contact_plan.contact_swing.landing_alignment_weight",
+           kReadByThePlanSource},
+          {"TaskFile.multi_contact_plan.contact_swing.landing_window",
+           kReadByThePlanSource},
+          {"TaskFile.multi_contact_plan.contact_swing.position_gain",
+           kReadByThePlanSource},
+          {"TaskFile.multi_contact_plan.contact_swing.weight",
+           kReadByThePlanSource},
+          {"TaskFile.multi_contact_plan.arc_swing_duration_limit",
+           kReadByThePlanSource},
+          {"TaskFile.multi_contact_plan.force_reference", kReadByThePlanSource},
+          {"TaskFile.multi_contact_plan.plan_file", kReadByThePlanSource},
+          {"TaskFile.multi_contact_plan.playback", kReadByThePlanSource},
+          {"TaskFile.multi_contact_plan.playback_dwell", kReadByThePlanSource},
+          {"TaskFile.multi_contact_plan.scenario_file", kReadByThePlanSource},
+          {"TaskFile.multi_contact_plan.swing.clearance", kReadByThePlanSource},
+          {"TaskFile.multi_contact_plan.swing.lift_height",
+           kReadByThePlanSource},
+          {"TaskFile.multi_contact_plan.terrain_non_penetration.delta",
+           kReadByThePlanSource},
+          {"TaskFile.multi_contact_plan.terrain_non_penetration.margin",
+           kReadByThePlanSource},
+          {"TaskFile.multi_contact_plan.terrain_non_penetration.mu",
+           kReadByThePlanSource},
           {"TaskFile.enable_online_tuning",
            "the tuning GUI's own switch (consumer gui): "
            "remote_control/config_files.py reads it"},

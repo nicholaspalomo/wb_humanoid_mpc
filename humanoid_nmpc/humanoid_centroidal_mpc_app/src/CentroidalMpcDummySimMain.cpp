@@ -44,7 +44,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "ocs2_mpc/SystemObservation.h"
 
+#include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
+#include "humanoid_centroidal_mpc_app/CentroidalAppFlags.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc_app/node/DummySimLoop.h"
@@ -105,10 +107,20 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
     }
   }
 
-  // The plant: the rollout of the MPC's model.
+  // The plant: the rollout of the MPC's model, which tracks the launch's
+  // multi-contact plan in place of the task file's when it names one.
+  absl::StatusOr<ocs2::humanoid::CentroidalMpcConfig> mpcConfig =
+      ocs2::humanoid::loadCentroidalMpcConfig(files.taskFile,
+                                              files.referenceFile);
+  if (!mpcConfig.ok()) {
+    LOG(ERROR) << "The centroidal MPC's files: " << mpcConfig.status();
+    return ocs2::humanoid::node::kUsageErrorExitCode;
+  }
+  ocs2::humanoid::overrideMultiContactPlanFiles(
+      ocs2::humanoid::multiContactPlanFilesFromFlags(), *mpcConfig);
   absl::StatusOr<std::unique_ptr<ocs2::humanoid::CentroidalMpcInterface>>
       interface = ocs2::humanoid::CentroidalMpcInterface::Create(
-          files.taskFile, files.urdfFile, files.referenceFile);
+          *std::move(mpcConfig), files.urdfFile);
   if (!interface.ok()) {
     LOG(ERROR) << "The centroidal MPC model: " << interface.status();
     return 1;
@@ -128,9 +140,11 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   ocs2::humanoid::node::DummySimLoop::Config config;
   config.simulationFrequency = kSimulationFrequency;
   config.mpcDesiredFrequency = (*interface)->mpcSettings().mpcDesiredFrequency_;
-  config.link.dimensions = {.stateDim = effectiveModel.getStateDim(),
-                            .inputDim = effectiveModel.getInputDim(),
-                            .numModes = ocs2::humanoid::kNumModeNumbers};
+  config.link.dimensions = {
+      .stateDim = effectiveModel.getStateDim(),
+      .inputDim = effectiveModel.getInputDim(),
+      .numModes = ocs2::humanoid::numModeNumbersOf(
+          (*interface)->modelSettings().contactNames.size())};
   // The MPC's state manifold, on which the link decodes the node's
   // manifold-linear policies and interpolates their states.
   config.link.stateManifold = (*interface)->getStateManifold();
@@ -148,7 +162,14 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   initialObservation.time = 0.0;
   initialObservation.state = (*interface)->getInitialState();
   initialObservation.input = ocs2::vector_t::Zero(effectiveModel.getInputDim());
+  // Standing on both feet, or on the first stance of a tracked plan, from its
+  // first state (getInitialState()).
   initialObservation.mode = ocs2::humanoid::ModeNumber::kStance;
+  if (const std::shared_ptr<ocs2::humanoid::PlannedMotionReferenceManager>&
+          planned = (*interface)->getPlannedMotionReferenceManagerPtr();
+      planned != nullptr) {
+    initialObservation.mode = planned->plannedMotion().modeSequence().front();
+  }
   const absl::Status ran = (*loop)->run(initialObservation, []() {
     return ocs2::humanoid::node::shutdownRequested();
   });

@@ -1,0 +1,386 @@
+# proto-file: humanoid_nmpc/humanoid_mpc_config/task_file.proto
+# proto-message: humanoid_mpc_config.TaskFile
+# The DRC Atlas's centroidal MPC tracking an offline multi-contact plan (humanoid_nmpc/docs/multi_contact_planning/
+# README.md, section 7.2): the dummy sims of the multi-contact scenarios (make launch-drc-atlas-<scenario>-dummy-sim).
+# Every one of the thirteen contact candidates of contact_set.textproto beside this file is a contact of the model: the
+# eight point candidates are its 3-DoF contacts and the five surface candidates its 6-DoF contacts, the feet last so
+# that the biped's mode numbers keep their meaning. Their names, parent joints, offsets and pads are those of the contact
+# set; //humanoid_nmpc/humanoid_centroidal_mpc:test_multi_contact_task_file checks them. The wrists are unlocked (design
+# section 11, decision 2), so that a hand can turn to face a surface.
+#
+# The plan is the reference: its stances are the mode schedule, its states the targets, its contact phases the patches
+# of the cones and of the stance constraints, and the generalized swing planner moves every contact between them. The
+# scenario and the plan are the launch file's (--multi_contact_scenario, --multi_contact_plan); the files below are the
+# defaults.
+
+centroidal_model: "full_centroidal_dynamics"
+contact_input_parameterization: "wrench"
+# LINT.IfChange(multi_contact_plan_source)
+contact_schedule_source: "multi_contact_plan"
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/MpcFormulationConfig.h:contact_schedule_source_names)
+
+multi_contact_plan {
+  scenario_file: "humanoid_nmpc/humanoid_multi_contact/scenarios/config/box_climb.textproto"
+  plan_file: "humanoid_nmpc/humanoid_multi_contact/app/testdata/box_climb_sway.textproto"
+  # The plan's clock stops 0.1 s before a contact change until every contact of the stance touches its patch within
+  # 1 cm and the CoM is within 3 cm of the plan's.
+  clock_hold { lead: 0.1 contact_tolerance: 0.01 com_tolerance: 0.03 }
+  # A sole's pad is its center: its toe and heel keep 15 cm minus half its length (12 cm) off the terrain.
+  swing { lift_height: 0.1 clearance: 0.15 }
+  # A sole swings flat: its pad normal is held to the normal of the patch it lands on over the whole swing (a window
+  # longer than any), so that neither its heel nor its toe dips into the step it leaves or the one it climbs to.
+  contact_swing { weight: 1000 position_gain: 10 landing_alignment_weight: 3000 landing_window: 2.0 }
+  terrain_non_penetration { mu: 0.01 delta: 0.005 margin: 0.0 }
+  # The input costs pull every contact's force to the plan's, so that the MPC loads and unloads the contacts as the
+  # plan does (a contact that lifts off is unloaded first).
+  force_reference: "planned_wrenches"
+  # The plan plays once; the stairs dummy sim's launch plays it forward and in reverse, over and over
+  # (--multi_contact_playback=forward_and_reverse), standing 1.5 s at the top and at the bottom.
+  playback: "once"
+  playback_dwell: 1.5
+  # A swing longer than 2 s follows the plan's own pad from knot to knot instead of an arc: the stance graph's
+  # quasi-static plans hold a hand or a knee in the air for tens of seconds, on a path they checked against the
+  # terrain. Every swing of the stairs is shorter.
+  arc_swing_duration_limit: 2.0
+}
+
+telemetry_frequency: 100  # [Hz]
+rerun_scene_frequency: 30  # [Hz]
+telemetry_frames: "foot_l_contact"
+telemetry_frames: "foot_r_contact"
+telemetry_frames: "pelvis"
+telemetry_frames: "utorso"
+
+hard_constraints: "zero_wrench"
+hard_constraints: "zero_velocity"
+soft_constraints: "joint_limits"
+soft_constraints: "contact_wrench_cone"  # the wrench cone of a 6-DoF contact, the friction cone of a 3-DoF one
+soft_constraints: "contact_swing"
+soft_constraints: "terrain_non_penetration"
+costs: "state_quadratic_cost"
+costs: "input_quadratic_cost"
+costs: "terminal_cost"
+
+interface {
+  verbose: true
+}
+
+model_settings {
+  # Its own CppAD folder: the multi-contact model has other contacts and joints than the shipped Atlas's.
+  robot_name: "atlas_multi_contact"
+
+  foot_constraint {
+    position_error_gain_z: 5.0
+    orientation_error_gain: 0.1
+    linear_velocity_error_gain_z: 0.1
+    linear_velocity_error_gain_xy: 0.1
+    angular_velocity_error_gain: 0.01
+    linear_acceleration_error_gain_z: 0
+    linear_acceleration_error_gain_xy: 0
+    angular_acceleration_error_gain: 0
+    soft_constraint_weight: 250
+    normal_velocity_soft_constraint_weight: 500
+    stance_constraint: "position_and_orientation"
+  }
+
+  phase_transition_stance_time: 0
+  verbose_cpp_ad: true
+  recompile_libraries_cpp_ad: false
+
+  # No fixed joints: the wrists move.
+  # LINT.IfChange(multi_contact_candidates)
+  contacts_3dof { name: "knee_l_contact" parent_joint_name: "l_leg_kny" translation { x: 0.055 y: 0 z: -0.06 } }
+  contacts_3dof { name: "knee_r_contact" parent_joint_name: "r_leg_kny" translation { x: 0.055 y: 0 z: -0.06 } }
+  contacts_3dof { name: "hand_l_contact" parent_joint_name: "l_arm_wrx" translation { x: 0 y: 0.04 z: 0 } }
+  contacts_3dof { name: "hand_r_contact" parent_joint_name: "r_arm_wrx" translation { x: 0 y: -0.04 z: 0 } }
+  contacts_3dof { name: "forearm_l_contact" parent_joint_name: "l_arm_elx" translation { x: 0.04 y: 0.05 z: 0 } }
+  contacts_3dof { name: "forearm_r_contact" parent_joint_name: "r_arm_elx" translation { x: 0.04 y: -0.05 z: 0 } }
+  contacts_3dof { name: "thigh_l_contact" parent_joint_name: "l_leg_hpy" translation { x: -0.0845 y: 0 z: -0.177 } }
+  contacts_3dof { name: "thigh_r_contact" parent_joint_name: "r_leg_hpy" translation { x: -0.0845 y: 0 z: -0.177 } }
+
+  contact_names_6dof: "seat_contact"
+  contact_names_6dof: "torso_back_contact"
+  contact_names_6dof: "torso_front_contact"
+  contact_names_6dof: "foot_l_contact"
+  contact_names_6dof: "foot_r_contact"
+  contact_parent_joint_names: "root_joint"
+  contact_parent_joint_names: "back_bkx"
+  contact_parent_joint_names: "back_bkx"
+  contact_parent_joint_names: "l_leg_akx"
+  contact_parent_joint_names: "r_leg_akx"
+}
+
+contacts {
+  # The soles (foot_l_contact, foot_r_contact).
+  contact_frame_translation { x: 0.04 y: 0 z: -0.082 }
+  contact_rectangle { x_min: -0.12 x_max: 0.12 y_min: -0.055 y_max: 0.055 }
+  # The seat and the torso pads.
+  surface_pads {
+    contact: "seat_contact"
+    translation { x: -0.02 y: 0 z: -0.143 }
+    pad_normal { x: 0 y: 0 z: -1 }
+    pad_x_axis { x: 1 y: 0 z: 0 }
+    rectangle { x_min: -0.12 x_max: 0.12 y_min: -0.10 y_max: 0.10 }
+  }
+  surface_pads {
+    contact: "torso_back_contact"
+    translation { x: -0.22 y: 0 z: 0.30 }
+    pad_normal { x: -1 y: 0 z: 0 }
+    pad_x_axis { x: 0 y: 0 z: 1 }
+    rectangle { x_min: -0.18 x_max: 0.18 y_min: -0.15 y_max: 0.15 }
+  }
+  surface_pads {
+    contact: "torso_front_contact"
+    translation { x: 0.14 y: 0 z: 0.30 }
+    pad_normal { x: 1 y: 0 z: 0 }
+    pad_x_axis { x: 0 y: 0 z: 1 }
+    rectangle { x_min: -0.18 x_max: 0.18 y_min: -0.15 y_max: 0.15 }
+  }
+  # LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/multi_contact/contact_set.textproto)
+
+  contact_wrench_cone_soft_constraint {
+    friction_coefficient: 0.5
+    torsional_friction_coefficient: 0.05
+    min_normal_force: 5
+    gripper_force: 0
+    num_basis_vectors: 4
+    # Stiff: a softer barrier lets the CoP out of the sole by millimeters under a stair's single supports, outside the
+    # certifier's cone.
+    mu: 1
+    delta: 0.5
+  }
+  friction_force_cone_soft_constraint {
+    friction_coefficient: 0.5
+    mu: 0.2
+    delta: 5
+  }
+  contact_moment_xy_soft_constraint {
+    mu: 0.6
+    delta: 0.03
+  }
+}
+
+joint_limits {
+  mu: 1200
+  delta: 0.1
+}
+
+swing_trajectory_config {
+  lift_off_velocity: 0.05
+  touch_down_velocity: -0.05
+  swing_height: 0.08
+  touch_down_height_offset: 0.04
+  swing_time_scale: 0.25
+  impact_proximity_factor_lift_off_velocity: -0.15
+  impact_proximity_factor_touch_down_velocity: 0.3
+  impact_proximity_factor_mid_point_value: 0
+}
+
+multiple_shooting {
+  n_threads: 8
+  dt: 0.02
+  sqp_iteration: 1
+  delta_tol: 0.0001
+  g_max: 0.01
+  g_min: 1.0e-06
+  project_state_input_equality_constraints: true
+  print_solver_statistics: false
+  print_solver_status: false
+  print_linesearch: false
+  use_feedback_policy: true
+  integrator_type: "RK4"
+  thread_priority: 50
+}
+
+rollout {
+  abs_tol_ode: 5e-5
+  rel_tol_ode: 5e-3
+  time_step: 0.015
+  integrator_type: "ODE45"
+  max_num_steps_per_second: 10000
+  check_numerical_stability: false
+}
+
+mpc {
+  time_horizon: 1  # [s]
+  cold_start: false
+  debug_print: false
+  mpc_desired_frequency: 50  # [Hz]
+  mrt_desired_frequency: 100  # [Hz]
+}
+
+# The task file's start; the MPC starts from the plan's first knot instead.
+initial_state {
+  normalized_linear_momentum { x: 0 y: 0 z: 0 }
+  normalized_angular_momentum { x: 0 y: 0 z: 0 }
+  base_position { x: 0 y: 0 z: 0.8952 }
+  base_orientation { yaw: 0 pitch: 0 roll: 0 }
+  joint_positions { joint: "back_bkz" value: 0 }
+  joint_positions { joint: "back_bky" value: 0 }
+  joint_positions { joint: "back_bkx" value: 0 }
+  joint_positions { joint: "l_arm_shz" value: 0.3 }
+  joint_positions { joint: "l_arm_shx" value: -1.2 }
+  joint_positions { joint: "l_arm_ely" value: 2.2 }
+  joint_positions { joint: "l_arm_elx" value: 0.55 }
+  joint_positions { joint: "l_arm_wry" value: 0 }
+  joint_positions { joint: "l_arm_wrx" value: 0 }
+  joint_positions { joint: "neck_ry" value: 0 }
+  joint_positions { joint: "r_arm_shz" value: -0.3 }
+  joint_positions { joint: "r_arm_shx" value: 1.2 }
+  joint_positions { joint: "r_arm_ely" value: 2.2 }
+  joint_positions { joint: "r_arm_elx" value: -0.55 }
+  joint_positions { joint: "r_arm_wry" value: 0 }
+  joint_positions { joint: "r_arm_wrx" value: 0 }
+  joint_positions { joint: "l_leg_hpz" value: 0 }
+  joint_positions { joint: "l_leg_hpx" value: 0 }
+  joint_positions { joint: "l_leg_hpy" value: -0.42 }
+  joint_positions { joint: "l_leg_kny" value: 0.84 }
+  joint_positions { joint: "l_leg_aky" value: -0.42 }
+  joint_positions { joint: "l_leg_akx" value: 0 }
+  joint_positions { joint: "r_leg_hpz" value: 0 }
+  joint_positions { joint: "r_leg_hpx" value: 0 }
+  joint_positions { joint: "r_leg_hpy" value: -0.42 }
+  joint_positions { joint: "r_leg_kny" value: 0.84 }
+  joint_positions { joint: "r_leg_aky" value: -0.42 }
+  joint_positions { joint: "r_leg_akx" value: 0 }
+}
+
+# The base pose of the plan is tracked: its orientation weights are isotropic, so that nothing depends on the Euler map
+# near the pitch of 90 degrees of a robot lying down (design section 8.1, scenario 4).
+state_weights {
+  scaling: 85
+  normalized_linear_momentum { x: 10 y: 10 z: 15 }
+  normalized_angular_momentum { x: 20 y: 25 z: 5 }
+  base_position { x: 75 y: 75 z: 15 }
+  base_orientation { yaw: 30 pitch: 30 roll: 30 }
+  joint_positions { joint: "back_bkz" value: 5 }
+  joint_positions { joint: "back_bky" value: 5 }
+  joint_positions { joint: "back_bkx" value: 15 }
+  joint_positions { joint: "l_arm_shz" value: 1 }
+  joint_positions { joint: "l_arm_shx" value: 1 }
+  joint_positions { joint: "l_arm_ely" value: 1 }
+  joint_positions { joint: "l_arm_elx" value: 1 }
+  joint_positions { joint: "l_arm_wry" value: 1 }
+  joint_positions { joint: "l_arm_wrx" value: 1 }
+  joint_positions { joint: "neck_ry" value: 2 }
+  joint_positions { joint: "r_arm_shz" value: 1 }
+  joint_positions { joint: "r_arm_shx" value: 1 }
+  joint_positions { joint: "r_arm_ely" value: 1 }
+  joint_positions { joint: "r_arm_elx" value: 1 }
+  joint_positions { joint: "r_arm_wry" value: 1 }
+  joint_positions { joint: "r_arm_wrx" value: 1 }
+  joint_positions { joint: "l_leg_hpz" value: 10 }
+  joint_positions { joint: "l_leg_hpx" value: 25 }
+  joint_positions { joint: "l_leg_hpy" value: 1 }
+  joint_positions { joint: "l_leg_kny" value: 2 }
+  joint_positions { joint: "l_leg_aky" value: 5 }
+  joint_positions { joint: "l_leg_akx" value: 5 }
+  joint_positions { joint: "r_leg_hpz" value: 10 }
+  joint_positions { joint: "r_leg_hpx" value: 25 }
+  joint_positions { joint: "r_leg_hpy" value: 1 }
+  joint_positions { joint: "r_leg_kny" value: 2 }
+  joint_positions { joint: "r_leg_aky" value: 5 }
+  joint_positions { joint: "r_leg_akx" value: 5 }
+}
+
+terminal_cost_scaling: 4
+final_state_weights {
+  scaling: 85
+  normalized_linear_momentum { x: 10 y: 10 z: 15 }
+  normalized_angular_momentum { x: 5 y: 5 z: 2 }
+  base_position { x: 25 y: 25 z: 15 }
+  base_orientation { yaw: 30 pitch: 30 roll: 30 }
+  joint_positions { joint: "back_bkz" value: 5 }
+  joint_positions { joint: "back_bky" value: 5 }
+  joint_positions { joint: "back_bkx" value: 15 }
+  joint_positions { joint: "l_arm_shz" value: 1 }
+  joint_positions { joint: "l_arm_shx" value: 1 }
+  joint_positions { joint: "l_arm_ely" value: 1 }
+  joint_positions { joint: "l_arm_elx" value: 1 }
+  joint_positions { joint: "l_arm_wry" value: 1 }
+  joint_positions { joint: "l_arm_wrx" value: 1 }
+  joint_positions { joint: "neck_ry" value: 2 }
+  joint_positions { joint: "r_arm_shz" value: 1 }
+  joint_positions { joint: "r_arm_shx" value: 1 }
+  joint_positions { joint: "r_arm_ely" value: 1 }
+  joint_positions { joint: "r_arm_elx" value: 1 }
+  joint_positions { joint: "r_arm_wry" value: 1 }
+  joint_positions { joint: "r_arm_wrx" value: 1 }
+  joint_positions { joint: "l_leg_hpz" value: 10 }
+  joint_positions { joint: "l_leg_hpx" value: 25 }
+  joint_positions { joint: "l_leg_hpy" value: 1 }
+  joint_positions { joint: "l_leg_kny" value: 2 }
+  joint_positions { joint: "l_leg_aky" value: 5 }
+  joint_positions { joint: "l_leg_akx" value: 5 }
+  joint_positions { joint: "r_leg_hpz" value: 10 }
+  joint_positions { joint: "r_leg_hpx" value: 25 }
+  joint_positions { joint: "r_leg_hpy" value: 1 }
+  joint_positions { joint: "r_leg_kny" value: 2 }
+  joint_positions { joint: "r_leg_aky" value: 5 }
+  joint_positions { joint: "r_leg_akx" value: 5 }
+}
+
+input_weights {
+  scaling: 1
+  contact_wrenches { contact: "knee_l_contact" force { x: 1.0e-05 y: 1.0e-05 z: 5.0e-05 } }
+  contact_wrenches { contact: "knee_r_contact" force { x: 1.0e-05 y: 1.0e-05 z: 5.0e-05 } }
+  contact_wrenches { contact: "hand_l_contact" force { x: 1.0e-05 y: 1.0e-05 z: 5.0e-05 } }
+  contact_wrenches { contact: "hand_r_contact" force { x: 1.0e-05 y: 1.0e-05 z: 5.0e-05 } }
+  contact_wrenches { contact: "forearm_l_contact" force { x: 1.0e-05 y: 1.0e-05 z: 5.0e-05 } }
+  contact_wrenches { contact: "forearm_r_contact" force { x: 1.0e-05 y: 1.0e-05 z: 5.0e-05 } }
+  contact_wrenches { contact: "thigh_l_contact" force { x: 1.0e-05 y: 1.0e-05 z: 5.0e-05 } }
+  contact_wrenches { contact: "thigh_r_contact" force { x: 1.0e-05 y: 1.0e-05 z: 5.0e-05 } }
+  contact_wrenches {
+    contact: "seat_contact"
+    force { x: 1.0e-05 y: 2.0e-05 z: 5.0e-05 }
+    moment { x: 2.0e-05 y: 1.0e-05 z: 0.0002 }
+  }
+  contact_wrenches {
+    contact: "torso_back_contact"
+    force { x: 1.0e-05 y: 2.0e-05 z: 5.0e-05 }
+    moment { x: 2.0e-05 y: 1.0e-05 z: 0.0002 }
+  }
+  contact_wrenches {
+    contact: "torso_front_contact"
+    force { x: 1.0e-05 y: 2.0e-05 z: 5.0e-05 }
+    moment { x: 2.0e-05 y: 1.0e-05 z: 0.0002 }
+  }
+  contact_wrenches {
+    contact: "foot_l_contact"
+    force { x: 1.0e-05 y: 2.0e-05 z: 5.0e-05 }
+    moment { x: 2.0e-05 y: 1.0e-05 z: 0.0002 }
+  }
+  contact_wrenches {
+    contact: "foot_r_contact"
+    force { x: 1.0e-05 y: 2.0e-05 z: 5.0e-05 }
+    moment { x: 2.0e-05 y: 1.0e-05 z: 0.0002 }
+  }
+  joint_velocities { joint: "back_bkz" value: 1 }
+  joint_velocities { joint: "back_bky" value: 1 }
+  joint_velocities { joint: "back_bkx" value: 1 }
+  joint_velocities { joint: "l_arm_shz" value: 1 }
+  joint_velocities { joint: "l_arm_shx" value: 1 }
+  joint_velocities { joint: "l_arm_ely" value: 2 }
+  joint_velocities { joint: "l_arm_elx" value: 2 }
+  joint_velocities { joint: "l_arm_wry" value: 2 }
+  joint_velocities { joint: "l_arm_wrx" value: 2 }
+  joint_velocities { joint: "neck_ry" value: 100 }
+  joint_velocities { joint: "r_arm_shz" value: 1 }
+  joint_velocities { joint: "r_arm_shx" value: 1 }
+  joint_velocities { joint: "r_arm_ely" value: 2 }
+  joint_velocities { joint: "r_arm_elx" value: 2 }
+  joint_velocities { joint: "r_arm_wry" value: 2 }
+  joint_velocities { joint: "r_arm_wrx" value: 2 }
+  joint_velocities { joint: "l_leg_hpz" value: 500 }
+  joint_velocities { joint: "l_leg_hpx" value: 5 }
+  joint_velocities { joint: "l_leg_hpy" value: 0.001 }
+  joint_velocities { joint: "l_leg_kny" value: 1 }
+  joint_velocities { joint: "l_leg_aky" value: 5 }
+  joint_velocities { joint: "l_leg_akx" value: 50 }
+  joint_velocities { joint: "r_leg_hpz" value: 500 }
+  joint_velocities { joint: "r_leg_hpx" value: 5 }
+  joint_velocities { joint: "r_leg_hpy" value: 0.001 }
+  joint_velocities { joint: "r_leg_kny" value: 1 }
+  joint_velocities { joint: "r_leg_aky" value: 5 }
+  joint_velocities { joint: "r_leg_akx" value: 50 }
+}

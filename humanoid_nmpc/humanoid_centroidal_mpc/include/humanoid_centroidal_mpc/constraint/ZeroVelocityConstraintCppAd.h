@@ -48,14 +48,25 @@ namespace ocs2::humanoid {
  * foot in contact. Its rows are the 6 of a 6-DoF (surface) contact - the linear
  * velocity and the rate of the orientation error with respect to the ground
  * plane, with the yaw rate about the contact normal - or the first 3, the
- * translation alone (numConstraints). On every evaluation b_z is set to -Ax_zz
- * times the foot's reference height of the HumanoidPreComputation, so that the
- * z position gain pulls the sole to the ground the swing planner was built on.
- * The gains come from footTwistConfig() (ZeroVelocityGainsApplier.h). Not
- * thread-safe; the solver clones it per worker.
+ * translation alone (numConstraints), which is all a 3-DoF (point) contact
+ * has. The rows are written in the frame of the patch the contact touches
+ * (SwitchedModelReferenceManager::getContactPatchFrame(), a parameter of the
+ * contact phase read on every evaluation). On a world-aligned patch, b_z is
+ * set to -Ax_zz times the foot's reference height of the
+ * HumanoidPreComputation, so that the z position gain pulls the sole to the
+ * ground the swing planner was built on - the rows every shipped robot has
+ * always had; on any other patch, or for a contact the swing planner does not
+ * plan (a contact set other than the biped's), to -Ax_zz times the patch's
+ * normal offset. The gains come from footTwistConfig()
+ * (ZeroVelocityGainsApplier.h). Not thread-safe; the solver clones it per
+ * worker.
  */
 class ZeroVelocityConstraintCppAd final : public StateInputConstraint {
  public:
+  /** What the contact can be held by: the six rows of a surface (6-DoF)
+   * contact, or the three translation rows of a point (3-DoF) contact. */
+  enum class ContactKind { kSurface, kPoint };
+
   /**
    * Constructor
    * @param [in] referenceManager : Switched model ReferenceManager
@@ -66,6 +77,9 @@ class ZeroVelocityConstraintCppAd final : public StateInputConstraint {
    * @param [in] numConstraints : Number of constraint rows (3 =
    * translation-only, 6 = full pose of a 6-DoF contact, the default).
    * @param [in] config: The constraint coefficients
+   * @param [in] contactKind: A point contact keeps three rows whatever
+   * numConstraints and a reconfiguration ask for
+   * (configureZeroVelocityConstraint()).
    */
   ZeroVelocityConstraintCppAd(
       const SwitchedModelReferenceManager& referenceManager,
@@ -73,7 +87,10 @@ class ZeroVelocityConstraintCppAd final : public StateInputConstraint {
       size_t contactPointIndex,
       size_t numConstraints = kPoseTangentDim,
       EndEffectorKinematicsTwistConstraint::Config config =
-          EndEffectorKinematicsTwistConstraint::Config());
+          EndEffectorKinematicsTwistConstraint::Config(),
+      ContactKind contactKind = ContactKind::kSurface);
+
+  ContactKind getContactKind() const { return contactKind_; }
 
   ~ZeroVelocityConstraintCppAd() override = default;
   ZeroVelocityConstraintCppAd* absl_nonnull clone() const override {
@@ -111,9 +128,15 @@ class ZeroVelocityConstraintCppAd final : public StateInputConstraint {
  private:
   ZeroVelocityConstraintCppAd(const ZeroVelocityConstraintCppAd& rhs);
 
+  /** Puts the twist constraint on the patch contact `contactPointIndex_`
+   * touches at `time`, with b_z its reference height (the class comment). */
+  void configureForEvaluation(scalar_t time,
+                              const PreComputation& preComp) const;
+
   const SwitchedModelReferenceManager* absl_nonnull referenceManagerPtr_;
   std::unique_ptr<EndEffectorKinematicsTwistConstraint> eeTwistConstraintPtr_;
   const size_t contactPointIndex_;
+  const ContactKind contactKind_;
   bool isActive_ = true;
 };
 

@@ -58,6 +58,8 @@ exports_files([
     ".devcontainer/openbox_layout.py",
     ".devcontainer/post_create.sh",
     ".devcontainer/start_vnc.sh",
+    ".devcontainer/bazel.bazelrc",
+    ".devcontainer/reset_stale_bazel_cache.sh",
     "docker-compose.bridge.yaml",
     "docker-compose.gpu.yaml",
 ])

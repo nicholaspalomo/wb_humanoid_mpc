@@ -41,13 +41,36 @@ cc_library(
     ],
 )
 
+# The flags the centroidal node and dummy simulator add (CentroidalAppFlags.h): the multi-contact scenario and plan.
+cc_library(
+    name = "centroidal_app_flags",
+    srcs = ["src/CentroidalAppFlags.cpp"],
+    hdrs = ["include/humanoid_centroidal_mpc_app/CentroidalAppFlags.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        "//humanoid_nmpc/humanoid_centroidal_mpc",
+        "@abseil-cpp//absl/flags:flag",
+    ],
+)
+
+# The files a binary that tracks a multi-contact plan reads from its runfiles: the scenarios, the contact set and the
+# URDF (multi_contact::loadScenario()).
+_MULTI_CONTACT_DATA = [
+    "//humanoid_nmpc/humanoid_multi_contact/scenarios:scenario_files",
+    "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+    "//robot_models/drc_atlas/drc_atlas_description",
+]
+
 # LINT.IfChange(laptop_binaries)
 # bazel run //humanoid_nmpc/humanoid_centroidal_mpc_app:humanoid_centroidal_mpc_node -- --robot_name=... --task_file=...
 cc_binary(
     name = "humanoid_centroidal_mpc_node",
     srcs = ["src/CentroidalMpcNodeMain.cpp"],
     copts = FIRST_PARTY_COPTS,
+    data = _MULTI_CONTACT_DATA,
     deps = [
+        ":centroidal_app_flags",
         ":centroidal_mpc_node",
         "//humanoid_nmpc/humanoid_common_mpc",
         "//humanoid_nmpc/humanoid_common_mpc_app/node:exit_codes",
@@ -74,7 +97,9 @@ cc_binary(
     name = "humanoid_centroidal_mpc_dummy_sim",
     srcs = ["src/CentroidalMpcDummySimMain.cpp"],
     copts = FIRST_PARTY_COPTS,
+    data = _MULTI_CONTACT_DATA,
     deps = [
+        ":centroidal_app_flags",
         "//humanoid_nmpc/humanoid_centroidal_mpc",
         "//humanoid_nmpc/humanoid_common_mpc",
         "//humanoid_nmpc/humanoid_common_mpc_app/node:exit_codes",

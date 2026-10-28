@@ -134,6 +134,9 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
     return kBaseStateDim + this->modelSettings.mpc_joint_dim;
   };
   // LINT.IfChange(input_indices)
+  // The wrench of each of the biped's two feet: WBMpcInterface refuses any
+  // other contact set, so unlike the centroidal input there are no 3-DoF
+  // contacts here.
   size_t getJointAccelerationsStartindex() const {
     return kWrenchDim * kNumContacts;
   }

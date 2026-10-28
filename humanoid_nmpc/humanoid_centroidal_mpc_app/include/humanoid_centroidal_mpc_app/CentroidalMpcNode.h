@@ -97,6 +97,10 @@ class CentroidalMpcNode {
     /** node::MpcNodeRuntime::Config::walkingCommandTimeout: zero (the default)
      * keeps the last walking command. */
     absl::Duration walkingCommandTimeout = absl::ZeroDuration();
+    /** The scenario and the plan tracked under contact_schedule_source:
+     * "multi_contact_plan" in place of the task file's; empty: the task
+     * file's. */
+    MultiContactPlanFiles multiContactPlanFiles;
   };
 
   /**

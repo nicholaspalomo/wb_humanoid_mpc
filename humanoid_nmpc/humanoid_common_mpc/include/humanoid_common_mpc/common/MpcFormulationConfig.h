@@ -101,6 +101,16 @@ enum class MpcSoftConstraintType {
   kContactComplementarity,
   kForceWeightedSlip,
   kGroundPenetration,
+  // The swing servo of any contact on the generalized swing planner of a
+  // tracked multi-contact plan (ContactSwingConstraint): its frame's position
+  // and velocity held to the swing reference. Requires contact_schedule_source
+  // "multi_contact_plan".
+  kContactSwing,
+  // The collision sphere of every contact that is not in contact kept outside
+  // the terrain of a tracked multi-contact plan by a relaxed barrier
+  // (TerrainNonPenetrationConstraint). Requires contact_schedule_source
+  // "multi_contact_plan".
+  kTerrainNonPenetration,
 };
 
 /**
@@ -240,12 +250,22 @@ std::vector<std::string> mpcHardConstraintNames();
  * `planner.type` in the robot's contact_planning.textproto, the one source of
  * truth for it, next to the blocks that tune it. Centroidal MPC only: the
  * whole-body MPC refuses it.
+ *   multi_contact_plan  an offline multi-contact plan, the task file's
+ * multi_contact_plan block: the mode schedule, the target trajectories and the
+ * contact patches of the plan, the plan's clock held while the robot falls
+ * behind (PlannedMotionReferenceManager,
+ * humanoid_nmpc/docs/multi_contact_planning/README.md, section 7.2).
+ * Centroidal MPC only.
  *
  * The choice decides which reference manager the problem is built on, so it is
  * structural: it takes effect at start-up only. See
  * humanoid_nmpc/docs/README.md, section 2.
  */
-enum class ContactScheduleSource { kGaitSchedule, kContactPlanner };
+enum class ContactScheduleSource {
+  kGaitSchedule,
+  kContactPlanner,
+  kMultiContactPlan,
+};
 
 // LINT.IfChange(contact_schedule_source_names)
 /** The top-level task-file field that names the contact schedule source. */
@@ -255,6 +275,8 @@ inline constexpr absl::string_view kGaitScheduleContactScheduleSource =
     "gait_schedule";
 inline constexpr absl::string_view kContactPlannerContactScheduleSource =
     "contact_planner";
+inline constexpr absl::string_view kMultiContactPlanContactScheduleSource =
+    "multi_contact_plan";
 /**
  * The boolean the field replaced (true meant contact_planner). A task file that
  * still carries it is refused by the strict parser whatever its value (a

@@ -418,6 +418,22 @@ absl::StatusOr<std::unique_ptr<WBMpcInterface>> WBMpcInterface::build(
         fromFile(ModelSettings::Create(taskFile, urdfFile, "wb_mpc_",
                                        solverSettings.verbose),
                  sources.taskFile));
+    // The whole-body model and its terms are written for the biped's two
+    // 6-DoF feet; any other contact set is the centroidal MPC's
+    // (humanoid_nmpc/docs/multi_contact_planning/README.md, section 7.2).
+    if (!modelSettings.isBipedContactSet()) {
+      return fromFile(
+          absl::InvalidArgumentError(absl::StrCat(
+              "[WBMpcInterface] model_settings lists ",
+              modelSettings.contactNames3DoF.size(), " 3-DoF and ",
+              modelSettings.contactNames6DoF.size(),
+              " 6-DoF contacts, but the whole-body MPC runs on the biped's "
+              "two 6-DoF feet alone: list exactly two contact_names_6dof and "
+              "no contacts_3dof, or run the centroidal MPC, which takes any "
+              "contact set (humanoid_nmpc/docs/multi_contact_planning/"
+              "README.md, section 7.2).")),
+          sources.taskFile);
+    }
     // The mode schedule, the reference file's part of the models.
     ASSIGN_OR_RETURN(std::shared_ptr<GaitSchedule> gaitSchedule,
                      fromFile(GaitSchedule::Create(referenceFile, modelSettings,

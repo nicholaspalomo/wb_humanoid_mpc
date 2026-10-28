@@ -1,0 +1,148 @@
+# proto-file: humanoid_nmpc/humanoid_multi_contact/collision/collision_model.proto
+# proto-message: humanoid_multi_contact.CollisionModel
+# The environment collision model of the DRC Atlas for multi-contact planning (humanoid_nmpc/docs/
+# multi_contact_planning/README.md, section 5.4): the collision geoms of the pelvis, the torso, the head, the arms, the
+# legs and the soles of robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml, each in the frame of the joint of
+# its MJCF body (Atlas's body frames are its URDF joint frames). //humanoid_nmpc/humanoid_multi_contact/collision:
+# test_collision_model_mjcf compares every link with the geom of its mjcf_body.
+
+robot: "drc_atlas"
+
+links {
+  name: "pelvis"
+  parent_joint: "root_joint"
+  mjcf_body: "pelvis"
+  box { center: [-0.02, 0, 0.01] half_extents: [0.12, 0.15, 0.08] }
+}
+links {
+  name: "utorso"
+  parent_joint: "back_bkx"
+  mjcf_body: "utorso"
+  box { center: [-0.04, 0, 0.30] half_extents: [0.18, 0.22, 0.30] }
+}
+links {
+  name: "head"
+  parent_joint: "neck_ry"
+  mjcf_body: "head"
+  spheres { spheres { center: [-0.05, 0, 0.05] radius: 0.10 } }
+}
+
+# The arms: the upper arm, the long forearm segment (l_larm, which carries forearm_l_contact), the short segment after
+# the wrist's y joint, and the hand sphere (hand_l_contact).
+links {
+  name: "l_uarm"
+  parent_joint: "l_arm_ely"
+  mjcf_body: "l_uarm"
+  capsule { start: [0, 0, 0] end: [0, -0.13, 0] radius: 0.04 }
+}
+links {
+  name: "l_larm"
+  parent_joint: "l_arm_elx"
+  mjcf_body: "l_larm"
+  capsule { start: [0, 0, 0] end: [0, 0.10, 0] radius: 0.04 }
+}
+links {
+  name: "l_farm"
+  parent_joint: "l_arm_wry"
+  mjcf_body: "l_farm"
+  capsule { start: [0, 0, 0] end: [0, -0.10, 0] radius: 0.035 }
+}
+links {
+  name: "l_hand"
+  parent_joint: "l_arm_wrx"
+  mjcf_body: "l_hand"
+  spheres { spheres { center: [0, 0, 0] radius: 0.04 } }
+}
+links {
+  name: "r_uarm"
+  parent_joint: "r_arm_ely"
+  mjcf_body: "r_uarm"
+  capsule { start: [0, 0, 0] end: [0, 0.13, 0] radius: 0.04 }
+}
+links {
+  name: "r_larm"
+  parent_joint: "r_arm_elx"
+  mjcf_body: "r_larm"
+  capsule { start: [0, 0, 0] end: [0, -0.10, 0] radius: 0.04 }
+}
+links {
+  name: "r_farm"
+  parent_joint: "r_arm_wry"
+  mjcf_body: "r_farm"
+  capsule { start: [0, 0, 0] end: [0, 0.10, 0] radius: 0.035 }
+}
+links {
+  name: "r_hand"
+  parent_joint: "r_arm_wrx"
+  mjcf_body: "r_hand"
+  spheres { spheres { center: [0, 0, 0] radius: 0.04 } }
+}
+
+# The legs: the thigh (thigh_l_contact), the shin (knee_l_contact) and the four corner spheres of the sole.
+links {
+  name: "l_uleg"
+  parent_joint: "l_leg_hpy"
+  mjcf_body: "l_uleg"
+  capsule { start: [0, 0, 0] end: [-0.05, 0, -0.37] radius: 0.06 }
+}
+links {
+  name: "l_lleg"
+  parent_joint: "l_leg_kny"
+  mjcf_body: "l_lleg"
+  capsule { start: [0, 0, 0] end: [0, 0, -0.42] radius: 0.055 }
+}
+links {
+  name: "l_foot"
+  parent_joint: "l_leg_akx"
+  mjcf_body: "l_foot"
+  spheres {
+    spheres { center: [-0.08, 0.055, -0.07] radius: 0.012 }
+    spheres { center: [-0.08, -0.055, -0.07] radius: 0.012 }
+    spheres { center: [0.16, 0.055, -0.07] radius: 0.012 }
+    spheres { center: [0.16, -0.055, -0.07] radius: 0.012 }
+  }
+}
+links {
+  name: "r_uleg"
+  parent_joint: "r_leg_hpy"
+  mjcf_body: "r_uleg"
+  capsule { start: [0, 0, 0] end: [-0.05, 0, -0.37] radius: 0.06 }
+}
+links {
+  name: "r_lleg"
+  parent_joint: "r_leg_kny"
+  mjcf_body: "r_lleg"
+  capsule { start: [0, 0, 0] end: [0, 0, -0.42] radius: 0.055 }
+}
+links {
+  name: "r_foot"
+  parent_joint: "r_leg_akx"
+  mjcf_body: "r_foot"
+  spheres {
+    spheres { center: [-0.08, 0.055, -0.07] radius: 0.012 }
+    spheres { center: [-0.08, -0.055, -0.07] radius: 0.012 }
+    spheres { center: [0.16, 0.055, -0.07] radius: 0.012 }
+    spheres { center: [0.16, -0.055, -0.07] radius: 0.012 }
+  }
+}
+
+# The legs must not cross, and kneeling must not drive a forearm or a hand into the leg beside it.
+self_collision_pairs { first: "l_uleg" second: "r_uleg" }
+self_collision_pairs { first: "l_lleg" second: "r_lleg" }
+self_collision_pairs { first: "l_lleg" second: "r_uleg" }
+self_collision_pairs { first: "r_lleg" second: "l_uleg" }
+self_collision_pairs { first: "l_foot" second: "r_foot" }
+self_collision_pairs { first: "l_foot" second: "r_lleg" }
+self_collision_pairs { first: "r_foot" second: "l_lleg" }
+self_collision_pairs { first: "l_larm" second: "l_uleg" }
+self_collision_pairs { first: "l_larm" second: "l_lleg" }
+self_collision_pairs { first: "l_farm" second: "l_uleg" }
+self_collision_pairs { first: "l_farm" second: "l_lleg" }
+self_collision_pairs { first: "l_hand" second: "l_uleg" }
+self_collision_pairs { first: "l_hand" second: "l_lleg" }
+self_collision_pairs { first: "r_larm" second: "r_uleg" }
+self_collision_pairs { first: "r_larm" second: "r_lleg" }
+self_collision_pairs { first: "r_farm" second: "r_uleg" }
+self_collision_pairs { first: "r_farm" second: "r_lleg" }
+self_collision_pairs { first: "r_hand" second: "r_uleg" }
+self_collision_pairs { first: "r_hand" second: "r_lleg" }

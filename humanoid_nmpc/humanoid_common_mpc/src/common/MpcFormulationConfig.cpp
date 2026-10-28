@@ -170,6 +170,12 @@ const absl::NoDestructor<
         {"groundpenetration", MpcSoftConstraintType::kGroundPenetration},
         {"groundpenetrationconstraint",
          MpcSoftConstraintType::kGroundPenetration},
+        {"contactswing", MpcSoftConstraintType::kContactSwing},
+        {"contactswingconstraint", MpcSoftConstraintType::kContactSwing},
+        {"terrainnonpenetration",
+         MpcSoftConstraintType::kTerrainNonPenetration},
+        {"terrainnonpenetrationconstraint",
+         MpcSoftConstraintType::kTerrainNonPenetration},
     });
 // clang-format off
 // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto:contact_implicit_soft_constraints, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto:contact_implicit_soft_constraints, //humanoid_nmpc/docs/contact_implicit_mpc/README.md:contact_implicit_switch_on_lists, //humanoid_nmpc/humanoid_mpc_config/task_file.proto:soft_constraints)
@@ -290,6 +296,10 @@ absl::StatusOr<std::string> mpcSoftConstraintTypeToString(
       return "force_weighted_slip";
     case MpcSoftConstraintType::kGroundPenetration:
       return "ground_penetration";
+    case MpcSoftConstraintType::kContactSwing:
+      return "contact_swing";
+    case MpcSoftConstraintType::kTerrainNonPenetration:
+      return "terrain_non_penetration";
   }
   // Not a default: label, so that -Wswitch reports an enumerator added without
   // a name (ToTW #147).
@@ -397,12 +407,14 @@ struct ContactScheduleSourceEntry {
 
 // The single place a contact schedule source is added.
 // LINT.IfChange(contact_schedule_source_registry)
-constexpr std::array<ContactScheduleSourceEntry, 2>
+constexpr std::array<ContactScheduleSourceEntry, 3>
     kContactScheduleSourceRegistry = {{
         {.name = kGaitScheduleContactScheduleSource,
          .source = ContactScheduleSource::kGaitSchedule},
         {.name = kContactPlannerContactScheduleSource,
          .source = ContactScheduleSource::kContactPlanner},
+        {.name = kMultiContactPlanContactScheduleSource,
+         .source = ContactScheduleSource::kMultiContactPlan},
     }};
 // clang-format off
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/MpcFormulationConfig.h:contact_schedule_source_names)

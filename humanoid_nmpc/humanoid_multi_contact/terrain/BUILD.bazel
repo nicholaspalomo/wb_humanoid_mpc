@@ -1,0 +1,84 @@
+load("@protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
+load("@protobuf//bazel:proto_library.bzl", "proto_library")
+load("@protobuf//bazel:py_proto_library.bzl", "py_proto_library")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
+load("//tools/nproto:nproto.bzl", "nproto_cc_library")
+
+# humanoid_multi_contact/terrain - the terrain of the multi-contact scenarios (humanoid_nmpc/docs/multi_contact_planning/
+# README.md, section 3.2): the TerrainScene schema of boxes and capsules, and TerrainModel, its signed distance, nearest
+# point, normal, sphere distance and patch frames, templated on the scalar so that CppAD can record them.
+
+package(default_visibility = ["//visibility:public"])
+
+# Imported as "humanoid_multi_contact/terrain/terrain_scene.proto"; C++ includes
+# "humanoid_multi_contact/terrain/terrain_scene.pb.h", Python imports `from humanoid_multi_contact.terrain import
+# terrain_scene_pb2`.
+proto_library(
+    name = "terrain_scene_proto",
+    srcs = ["terrain_scene.proto"],
+    strip_import_prefix = "/humanoid_nmpc",
+    deps = ["//tools/nproto:options_proto"],
+)
+
+cc_proto_library(
+    name = "terrain_scene_cc_proto",
+    deps = [":terrain_scene_proto"],
+)
+
+py_proto_library(
+    name = "terrain_scene_py_proto",
+    deps = [":terrain_scene_proto"],
+)
+
+# The struct ocs2::humanoid::multi_contact::config::TerrainScene ("humanoid_multi_contact/terrain/terrain_scene.nproto.h").
+nproto_cc_library(
+    name = "terrain_scene_nproto",
+    deps = [":terrain_scene_proto"],
+)
+
+cc_library(
+    name = "terrain",
+    srcs = ["src/TerrainModel.cpp"],
+    hdrs = [
+        "include/humanoid_multi_contact/terrain/PatchFrame.h",
+        "include/humanoid_multi_contact/terrain/TerrainModel.h",
+        "include/humanoid_multi_contact/terrain/TerrainPrimitives.h",
+    ],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        ":terrain_scene_nproto",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_dimensions",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/container:flat_hash_map",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@eigen",
+    ],
+)
+
+# Closed-form distances, nearest points and normals of a box and a capsule (faces, edges, corners, inside), the smooth
+# minimum at an inside stair corner, the patch frames, the scene validation, and the CppAD tape's Jacobian against
+# central differences in every region, recorded at one point; the tape also runs on CppADCodeGen variables.
+cc_test(
+    name = "terrain_model_test",
+    size = "small",
+    srcs = ["test/testTerrainModel.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":terrain",
+        ":terrain_scene_nproto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_thirdparty",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)

@@ -234,6 +234,53 @@ absl::Status checkSoftTermWeight(absl::string_view field, double weight) {
   return absl::OkStatus();
 }
 
+// LINT.IfChange(contacts_3dof)
+/**
+ * The 3-DoF contacts of model_settings.contacts_3dof, each named, attached to a
+ * named parent and at a finite translation, or InvalidArgument naming the
+ * entry. `contactNames6DoF` are the 6-DoF contacts, which no 3-DoF contact may
+ * share a name with.
+ */
+absl::StatusOr<std::vector<ModelSettings::PointContact>>
+pointContactsFromConfig(
+    const std::vector<mpc_config::ModelSettingsConfig::PointContact>& config,
+    const std::vector<std::string>& contactNames6DoF) {
+  absl::flat_hash_set<std::string> names(contactNames6DoF.begin(),
+                                         contactNames6DoF.end());
+  std::vector<ModelSettings::PointContact> contacts;
+  contacts.reserve(config.size());
+  for (size_t i = 0; i < config.size(); ++i) {
+    const mpc_config::ModelSettingsConfig::PointContact& contact = config[i];
+    const std::string entry =
+        absl::StrCat("model_settings.contacts_3dof[", i, "]");
+    if (contact.name.empty() || contact.parent_joint_name.empty()) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[ModelSettings] ", entry,
+          " needs a name and a parent_joint_name: the frame of a 3-DoF "
+          "contact hangs from a joint of the robot model."));
+    }
+    if (!names.insert(contact.name).second) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[ModelSettings] ", entry, ".name is '", contact.name,
+          "', which another contact has: every contact of the MPC is a frame "
+          "of its own."));
+    }
+    RETURN_IF_ERROR(requireFinite(absl::StrCat(entry, ".translation.x"),
+                                  contact.translation.x));
+    RETURN_IF_ERROR(requireFinite(absl::StrCat(entry, ".translation.y"),
+                                  contact.translation.y));
+    RETURN_IF_ERROR(requireFinite(absl::StrCat(entry, ".translation.z"),
+                                  contact.translation.z));
+    contacts.push_back(ModelSettings::PointContact{
+        .name = contact.name,
+        .parentJointName = contact.parent_joint_name,
+        .translation = vector3_t(contact.translation.x, contact.translation.y,
+                                 contact.translation.z)});
+  }
+  return contacts;
+}
+// LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/model_settings_config.proto:contacts_3dof)
+
 }  // namespace
 
 std::vector<std::string> stanceConstraintNames() {
@@ -374,6 +421,12 @@ absl::StatusOr<ModelSettings> ModelSettings::Create(
   settings.fixedJointNames = config.fixed_joint_names;
   settings.contactNames6DoF = config.contact_names_6dof;
   settings.contactParentJointNames = config.contact_parent_joint_names;
+  ASSIGN_OR_RETURN(
+      settings.pointContacts,
+      pointContactsFromConfig(config.contacts_3dof, settings.contactNames6DoF));
+  for (const ModelSettings::PointContact& contact : settings.pointContacts) {
+    settings.contactNames3DoF.push_back(contact.name);
+  }
 
   // NOLINTNEXTLINE(exceptions): Pinocchio's URDF parser reports a file it cannot read by throwing; converted to a Status here, once.
   try {

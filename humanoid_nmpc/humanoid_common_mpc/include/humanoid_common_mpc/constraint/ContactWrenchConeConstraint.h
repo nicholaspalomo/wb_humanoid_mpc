@@ -86,6 +86,15 @@ namespace ocs2::humanoid {
  * no longer enters the rows (the online contact planner still reads it, capped
  * by torsionLimitsOfNormalForceAt()).
  *
+ * THE FRAME. The rows are written in the contact's own frame, not in the
+ * world's: the rectangle is the sole, and on a sole resting flat on a surface
+ * patch the contact frame is that patch's frame, whatever the patch's
+ * orientation. So this cone takes no patch rotation
+ * (SwitchedModelReferenceManager::getContactPatchFrame()), unlike the cones
+ * written about a world axis (FrictionForceConeConstraint,
+ * PointFrictionConeConstraint); see
+ * humanoid_nmpc/docs/multi_contact_planning/README.md, section 7.2.
+ *
  * The rows are linear in the LOCAL wrench, but the input stores the wrench in
  * the WORLD frame, so every row reads `l_R_w(q) * W_world`: the term depends on
  * the foot's orientation, and its state Jacobian is not zero. It used to be
@@ -450,6 +459,17 @@ std::array<vector2_t, ContactRectangle::kNumCorners> footprintCorners(
 matrix_t cornerContactWrenchGenerators(
     const ContactWrenchConeConstraint::Config& config,
     const ContactRectangle& contactRectangle);
+
+/**
+ * The first numBasisVectors + 1 rows of buildLocalWrenchConeRows(), which
+ * bound the force alone: the facets of the friction pyramid and the normal
+ * force bound, with A_tau zero. They are the whole cone of a 3-DoF contact
+ * (PointFrictionConeConstraint), which carries no moment. `config` must pass
+ * ContactWrenchConeConstraint::validateConfig(); one that does not CHECK-fails
+ * with its message.
+ */
+ContactWrenchConeRows buildFrictionPyramidRows(
+    const ContactWrenchConeConstraint::Config& config);
 
 /**
  * Builds the local-frame rows of the wrench cone. Shared by

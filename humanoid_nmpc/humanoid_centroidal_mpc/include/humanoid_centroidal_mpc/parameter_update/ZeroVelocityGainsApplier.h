@@ -79,7 +79,8 @@ EndEffectorKinematicsTwistConstraint::Config footTwistConfig(
 
 /**
  * Applies `gains` to the twist constraint of the zero_velocity term
- * `constraint`: its rows (6 with the orientation, 3 without), the yaw-rate row
+ * `constraint`: its rows (6 with the orientation, 3 without, and always 3 for
+ * a point contact), the yaw-rate row
  * about the contact normal and the error gains of `twistConfig`
  * (footTwistConfig(gains)).
  */

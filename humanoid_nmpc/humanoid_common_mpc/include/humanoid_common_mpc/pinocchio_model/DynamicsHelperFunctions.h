@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/types/span.h"
@@ -161,8 +162,11 @@ std::vector<VECTOR3_T<SCALAR_T>> getFramePositions(
 /// Above the mean foot height rather than above the world origin, so that it is
 /// the same number on a robot standing on a box as on one standing on the
 /// floor. The contact frames are the sole centers (createPinocchioModel adds
-/// them). Updates the center of mass and the frame placements of
-/// `pinocchioInterface`'s data.
+/// them). On a contact set that is not the biped's two feet
+/// (ModelSettings::isBipedContactSet()), whose first two contacts need not be
+/// feet, it is the height above the lowest contact frame of the set instead:
+/// the support of a robot standing, sitting or lying. Updates the center of
+/// mass and the frame placements of `pinocchioInterface`'s data.
 ///
 /// @param q Generalized coordinates
 /// (MpcRobotModelBase::getGeneralizedCoordinates of a state).
@@ -170,7 +174,7 @@ std::vector<VECTOR3_T<SCALAR_T>> getFramePositions(
 /// @param mpcRobotModel The MPC robot model, which names the contact frames.
 ///
 /// @return [m] the center of mass height above the mean height of the contact
-/// frames.
+/// frames (of the lowest one on a contact set other than the biped's).
 
 scalar_t computeComHeightAboveFeet(
     const vector_t& q,
@@ -243,6 +247,33 @@ inline vector_t weightCompensatingInput(
         mpcRobotModel.setContactForce(input, forceInInertialFrame, i);
       }
     }
+  }
+  return input;
+}
+
+/**
+ * weightCompensatingInput() of any contact set: the robot's weight, shared
+ * evenly by the contacts of `mpcRobotModel`'s set
+ * (ModelSettings::contactNames) that `isContactActive` says are active, as
+ * vertical forces through the input-only setter, and zero joint velocities.
+ * Zero when no contact is active. Not retained: `isContactActive` is called
+ * once per contact.
+ */
+inline vector_t weightCompensatingInputOfContacts(
+    const PinocchioInterface& pinocchioInterface,
+    absl::FunctionRef<bool(size_t)> isContactActive,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel) {
+  const scalar_t weight = computeRobotWeight(pinocchioInterface);
+  const size_t numContacts = mpcRobotModel.modelSettings.contactNames.size();
+  size_t numActive = 0;
+  for (size_t i = 0; i < numContacts; ++i) {
+    if (isContactActive(i)) ++numActive;
+  }
+  vector_t input = vector_t::Zero(mpcRobotModel.getInputDim());
+  if (numActive == 0) return input;
+  const vector3_t force(0.0, 0.0, weight / static_cast<scalar_t>(numActive));
+  for (size_t i = 0; i < numContacts; ++i) {
+    if (isContactActive(i)) mpcRobotModel.setContactForce(input, force, i);
   }
   return input;
 }

@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <memory>
+#include <optional>
 
 #include "absl/base/nullability.h"
 #include "ocs2_core/Dimensions.h"
@@ -161,6 +162,28 @@ class EndEffectorKinematicsTwistConstraint final : public StateInputConstraint {
   /** Gets the current ground contact plane normal. */
   const vector3_t& getGroundPlaneNormal() const { return ground_plane_normal_; }
 
+  /**
+   * Writes the rows in the frame of a contact patch, p_R_w =
+   * `worldToPatchRotation` (ContactPatchFrame.h): the position, the velocity,
+   * the orientation error and its rate are rotated into the patch frame before
+   * the gains apply, and the orientation error is taken with respect to the
+   * patch's plane, whose normal (the last row of p_R_w) replaces the ground
+   * plane normal. b then holds the patch-frame references, so b_z is minus the
+   * z gain times the patch's normal offset. The rotation is a parameter, set
+   * between evaluations: it is never recorded on the kinematics' tape.
+   */
+  void setWorldToPatchRotation(const matrix3_t& worldToPatchRotation) {
+    worldToPatchRotation_ = worldToPatchRotation;
+  }
+
+  /** Writes the rows in the world frame again, about the ground plane normal:
+   * the default. */
+  void clearWorldToPatchRotation() { worldToPatchRotation_.reset(); }
+
+  const std::optional<matrix3_t>& getWorldToPatchRotation() const {
+    return worldToPatchRotation_;
+  }
+
   /** Returns the end-effector kinematics the constraint evaluates, owned by the
    * constraint and valid for its lifetime. */
   const EndEffectorKinematics<scalar_t>& getEndEffectorKinematics() const {
@@ -214,7 +237,20 @@ class EndEffectorKinematicsTwistConstraint final : public StateInputConstraint {
   EndEffectorKinematicsTwistConstraint(
       const EndEffectorKinematicsTwistConstraint& rhs);
 
+  /** The normal the orientation error is taken about: the patch's when a
+   * patch rotation is set, the ground plane's otherwise. */
+  vector3_t planeNormal() const;
+
+  /**
+   * `gains` (rows of Ax or Av over the pose or twist [linear, angular]) times
+   * blockdiag(p_R_w, p_R_w): the gains of the world-frame quantities that the
+   * patch-frame rows apply to. Requires a patch rotation.
+   */
+  matrix_t inPatchFrame(const matrix_t& gains) const;
+
   vector3_t ground_plane_normal_;
+  // p_R_w of the patch the rows are written in; empty: the world frame.
+  std::optional<matrix3_t> worldToPatchRotation_;
   bool constrainYawRateAboutNormal_ = false;
   std::unique_ptr<EndEffectorKinematics<scalar_t>> endEffectorKinematicsPtr_;
   size_t numConstraints_;

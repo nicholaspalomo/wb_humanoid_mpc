@@ -105,7 +105,7 @@ bool BasisScalingNonNegativityConstraint::isActive(scalar_t time) const {
   // Otherwise only active when the foot is in contact — swing-phase λ are
   // already zeroed by the ZeroWrench hard equality constraint, which is what
   // makes the gate sound.
-  return referenceManagerPtr_->getContactFlags(time)[contactIndex_];
+  return referenceManagerPtr_->isInContact(time, contactIndex_);
 }
 
 /******************************************************************************************************/

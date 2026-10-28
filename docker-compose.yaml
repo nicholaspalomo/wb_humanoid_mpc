@@ -56,13 +56,15 @@ services:
     # Each start also refreshes compile_commands.json for the editor's clangd in the background (tools/ide/README.md).
     # A new container's Bazel output base is empty, so it first builds the C++ targets' compilation prerequisites: the
     # generated headers and the tools that generate them (protobuf's C++ generator, the nproto generator, MuJoCo's
-    # CMake build), but no first-party source. A build started meanwhile waits for it. Its log is in the container:
-    # `docker exec devcontainer-app-1 cat /tmp/compile_commands.log`.
+    # CMake build), but no first-party source; the host's disk cache (.devcontainer/bazel.bazelrc) usually has them. A build started meanwhile waits for it. Its log is in the container:
+    # `docker exec devcontainer-app-1 cat /tmp/compile_commands.log`. Before it, the disk cache of an image whose
+    # packages have changed since is deleted (.devcontainer/reset_stale_bazel_cache.sh).
     command: >
       bash -c "
       grep -q 'wb_humanoid_mpc.sh' ~/.bashrc 2>/dev/null || echo '[ -f /etc/profile.d/wb_humanoid_mpc.sh ] && source /etc/profile.d/wb_humanoid_mpc.sh' >> ~/.bashrc;
       if [ -d /tmp/host_ssh ]; then rm -rf ~/.ssh && ln -s /tmp/host_ssh ~/.ssh; fi;
       if [ -f /tmp/host.gitconfig ]; then cp /tmp/host.gitconfig ~/.gitconfig; fi;
+      sh .devcontainer/reset_stale_bazel_cache.sh /wb_humanoid_mpc_ws/.cache/wb_humanoid_mpc;
       (python3 -m tools.ide.compile_commands --build_headers --quiet > /tmp/compile_commands.log 2>&1 &);
       sleep infinity"
 
@@ -71,11 +73,15 @@ services:
       # launch targets docker exec into (tools/deploy/in_dev_container.sh).
       # LINT.IfChange(dev_container_mount)
       - ../..:/wb_humanoid_mpc_ws:delegated
-      # LINT.ThenChange(//tools/deploy/in_dev_container.sh:dev_container_mount, //tools/ide/clangd_in_dev_container.sh:dev_container_mount, //tools/ide/compile_commands.py:dev_container_mount)
+      # LINT.ThenChange(//.devcontainer/bazel.bazelrc:dev_container_bazel_cache, //tools/deploy/in_dev_container.sh:dev_container_mount, //tools/ide/clangd_in_dev_container.sh:dev_container_mount, //tools/ide/compile_commands.py:dev_container_mount)
       - ${HOME}/.gitconfig:/tmp/host.gitconfig:cached,ro
       - ${HOME}/.ssh:/tmp/host_ssh:cached,z
       # Shell init for tab completion (make, bazel, git) + auto-env setup
       - ./.devcontainer/shell_init.sh:/etc/profile.d/wb_humanoid_mpc.sh:cached,ro
+      # Bazel's system rc: the disk and repository caches on the host, which outlive the container.
+      # LINT.IfChange(dev_container_bazel_rc)
+      - ./.devcontainer/bazel.bazelrc:/etc/bazel.bazelrc:cached,ro
+      # LINT.ThenChange(//tools/dev_container/test_dev_container.py:dev_container_bazel_cache)
 
     environment:
       # VNC display (start with `make start-vnc`, view at http://localhost:6080/vnc.html)

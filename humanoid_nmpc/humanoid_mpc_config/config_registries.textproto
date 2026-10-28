@@ -103,6 +103,7 @@ registries {
   name: "contact_schedule_source"
   names: "gait_schedule"
   names: "contact_planner"
+  names: "multi_contact_plan"
 }
 
 registries {
@@ -154,6 +155,18 @@ registries {
 }
 
 registries {
+  name: "multi_contact_force_reference"
+  names: "weight_share"
+  names: "planned_wrenches"
+}
+
+registries {
+  name: "multi_contact_plan_playback"
+  names: "once"
+  names: "forward_and_reverse"
+}
+
+registries {
   name: "projectile"
   names: "dodgeball"
 }
@@ -187,6 +200,8 @@ registries {
   names: "contact_complementarity"
   names: "force_weighted_slip"
   names: "ground_penetration"
+  names: "contact_swing"
+  names: "terrain_non_penetration"
 }
 
 registries {

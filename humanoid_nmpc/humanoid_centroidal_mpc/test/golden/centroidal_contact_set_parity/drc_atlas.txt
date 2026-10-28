@@ -1,0 +1,75 @@
+costPtr: foot_l_contact_ExternalTorqueQuadraticCost foot_l_contact_TaskSpaceKinematicsCost foot_l_contact_basisNonNegativity foot_r_contact_ExternalTorqueQuadraticCost foot_r_contact_TaskSpaceKinematicsCost foot_r_contact_basisNonNegativity inputQuadraticCost stateQuadraticCost torso_TaskSpaceKinematicsCost	0x0	cbf29ce484222325
+stateCostPtr: comAndAcomTrackingCost	0x0	cbf29ce484222325
+finalCostPtr: dcmTerminalCost	0x0	cbf29ce484222325
+softConstraintPtr: FootCollisionCbfSoftConstraint	0x0	cbf29ce484222325
+stateSoftConstraintPtr: FootCollisionSoftConstraint jointLimits	0x0	cbf29ce484222325
+finalSoftConstraintPtr:	0x0	cbf29ce484222325
+equalityConstraintPtr: foot_l_contact_normalVelocity foot_l_contact_zeroVelocity foot_l_contact_zeroWrench foot_r_contact_normalVelocity foot_r_contact_zeroVelocity foot_r_contact_zeroWrench	0x0	cbf29ce484222325
+desiredState@0.05	37x1	23dedd4382cbf532
+cost.f@0.05	1x1	fb05b097c0344fcf
+cost.dfdx@0.05	37x1	a6b71dddd3aa6082
+cost.dfdu@0.05	46x1	e3915dca1ab57d95
+cost.dfdxx@0.05	37x37	c7ffc4f89c23172c
+cost.dfdux@0.05	46x37	87a21e1520609d5f
+cost.dfduu@0.05	46x46	8cd6d2aeaa130006
+dynamics.f@0.05	37x1	0aec0971fe0f05e8
+dynamics.dfdx@0.05	37x37	63c7016dbedad364
+dynamics.dfdu@0.05	37x46	48aff03d21d6c95c
+equality.f@0.05	12x1	65eee6abec2292a7
+equality.dfdx@0.05	12x37	9dda00d30ecd81a6
+equality.dfdu@0.05	12x46	bc496b888d37d92e
+desiredState@0.3	37x1	9fdf6b7a32e16851
+cost.f@0.3	1x1	14e97542a7de281a
+cost.dfdx@0.3	37x1	615a72cb6b5427ce
+cost.dfdu@0.3	46x1	942081c4c6da507c
+cost.dfdxx@0.3	37x37	44de47363e2a035c
+cost.dfdux@0.3	46x37	5a5dd32577c6e61d
+cost.dfduu@0.3	46x46	43f24c5dac8c9fec
+dynamics.f@0.3	37x1	60142e916aeb3f0a
+dynamics.dfdx@0.3	37x37	dfcc5fe4fa149ae8
+dynamics.dfdu@0.3	37x46	e95634dc39f37715
+equality.f@0.3	18x1	2b4f87d13c3d2f0c
+equality.dfdx@0.3	18x37	bd379a776c2548c4
+equality.dfdu@0.3	18x46	d34797f098572d82
+desiredState@0.6	37x1	333e294e20233fa1
+cost.f@0.6	1x1	f9ca44c9c6848e84
+cost.dfdx@0.6	37x1	c995154896bbdc00
+cost.dfdu@0.6	46x1	2e00ec9d684d3787
+cost.dfdxx@0.6	37x37	e0b3b47839fc8cc1
+cost.dfdux@0.6	46x37	78c4f3add8bfaf10
+cost.dfduu@0.6	46x46	f590d4bd6fcb8700
+dynamics.f@0.6	37x1	442a9b4172639963
+dynamics.dfdx@0.6	37x37	e697ed9fd5fe2450
+dynamics.dfdu@0.6	37x46	d57d8fc7a9f1a9e4
+equality.f@0.6	12x1	b9568b6867c19fd3
+equality.dfdx@0.6	12x37	8dbdb9c8daed21d3
+equality.dfdu@0.6	12x46	a5371d144fe4ff4c
+desiredState@0.8	37x1	10932d29264bea02
+cost.f@0.8	1x1	1d0aae28bb66262f
+cost.dfdx@0.8	37x1	ae8163ad5decd65f
+cost.dfdu@0.8	46x1	ad8c848a8f1281e6
+cost.dfdxx@0.8	37x37	fd47e7d4b9c49a43
+cost.dfdux@0.8	46x37	b6fdba727b6cf79a
+cost.dfduu@0.8	46x46	247b8144b3293b2b
+dynamics.f@0.8	37x1	ac9b7b88a446ec8b
+dynamics.dfdx@0.8	37x37	c05ad2d0ab04fcf3
+dynamics.dfdu@0.8	37x46	38a063e1c8bd8b87
+equality.f@0.8	18x1	b8f600d36ff66c82
+equality.dfdx@0.8	18x37	bec02009ef444077
+equality.dfdu@0.8	18x46	c92585242795d96f
+desiredState@1.2	37x1	007017fa946328d3
+cost.f@1.2	1x1	3f4b273c427c2f71
+cost.dfdx@1.2	37x1	5bd5f1d027734463
+cost.dfdu@1.2	46x1	492951d960e6cd71
+cost.dfdxx@1.2	37x37	588f19a280d7972d
+cost.dfdux@1.2	46x37	fd7713e330a52cf8
+cost.dfduu@1.2	46x46	6b840774452926dc
+dynamics.f@1.2	37x1	0b473277dce8bb43
+dynamics.dfdx@1.2	37x37	f8acb2c2ff6ac8a8
+dynamics.dfdu@1.2	37x46	2ce8875d857ed89e
+equality.f@1.2	18x1	3ae716bac1a7ee71
+equality.dfdx@1.2	18x37	f660d4833c6e0ef3
+equality.dfdu@1.2	18x46	46c0425fe1204108
+final.f	1x1	ec8acd144087cb2a
+final.dfdx	37x1	8b2c805c7197a3fa
+final.dfdxx	37x37	91d66a9ae88a7000

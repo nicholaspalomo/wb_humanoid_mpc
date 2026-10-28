@@ -1,0 +1,92 @@
+# proto-file: humanoid_nmpc/humanoid_multi_contact/scenarios/scenario.proto
+# proto-message: humanoid_multi_contact.Scenario
+# Getting up from lying on the back (design section 8.1, scenario 4), on the floor alone. Atlas lies on the back
+# face of its torso box, the knees drawn up and the soles flat on the floor: its collision boxes put the torso's
+# back 9 cm below the pelvis's and 20 cm below the backs of the thighs, so neither the seat pad nor the thighs touch
+# the floor when the back does. The expected sequence: sit up onto the seat and the hands, shift the weight onto
+# the feet and hands, and stand.
+
+name: "get_up_supine"
+robot: "drc_atlas"
+urdf_file: "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf"
+contact_set_file: "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/multi_contact/contact_set.textproto"
+collision_model_file: "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/multi_contact/collision_model.textproto"
+mpc_task_file: "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/multi_contact/task.textproto"
+mpc_reference_file: "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/multi_contact/reference.textproto"
+
+terrain_scene {
+  name: "floor"
+  # The floor: its top face is z = 0.
+  primitives {
+    name: "ground"
+    friction: 0.8
+    box { center: [0, 0, -0.5] half_extents: [20, 20, 0.5] }
+  }
+}
+
+initial_pose {
+  name: "lying_supine"
+  base_position: [0, 0, 0.2325]
+  base_orientation_xyzw: [0, -0.7071068, 0, 0.7071068]
+  joint_positions { joint: "l_leg_hpy" position: -0.679 }
+  joint_positions { joint: "r_leg_hpy" position: -0.679 }
+  joint_positions { joint: "l_leg_kny" position: 1.9 }
+  joint_positions { joint: "r_leg_kny" position: 1.9 }
+  joint_positions { joint: "l_leg_aky" position: 0.3498 }
+  joint_positions { joint: "r_leg_aky" position: 0.3498 }
+  joint_positions { joint: "l_arm_shx" position: -1.3 }
+  joint_positions { joint: "r_arm_shx" position: 1.3 }
+  active_contacts: "torso_back_contact"
+  active_contacts: "foot_l_contact"
+  active_contacts: "foot_r_contact"
+}
+
+goal {
+  contacts { contact: "foot_l_contact" primitive: "ground" }
+  contacts { contact: "foot_r_contact" primitive: "ground" }
+  base_region { center: [0, 0, 0.9232] half_extents: [0.6, 0.4, 0.15] }
+  pose {
+    name: "standing"
+    base_position: [0, 0, 0.9232]
+    base_orientation_xyzw: [0, 0, 0, 1]
+    joint_positions { joint: "l_leg_hpy" position: -0.3 }
+    joint_positions { joint: "r_leg_hpy" position: -0.3 }
+    joint_positions { joint: "l_leg_kny" position: 0.6 }
+    joint_positions { joint: "r_leg_kny" position: 0.6 }
+    joint_positions { joint: "l_leg_aky" position: -0.3 }
+    joint_positions { joint: "r_leg_aky" position: -0.3 }
+    joint_positions { joint: "l_arm_shx" position: -1.3 }
+    joint_positions { joint: "r_arm_shx" position: 1.3 }
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+  }
+}
+
+allowed_contacts: "foot_l_contact"
+allowed_contacts: "foot_r_contact"
+allowed_contacts: "knee_l_contact"
+allowed_contacts: "knee_r_contact"
+allowed_contacts: "hand_l_contact"
+allowed_contacts: "hand_r_contact"
+allowed_contacts: "forearm_l_contact"
+allowed_contacts: "forearm_r_contact"
+allowed_contacts: "seat_contact"
+allowed_contacts: "thigh_l_contact"
+allowed_contacts: "thigh_r_contact"
+allowed_contacts: "torso_back_contact"
+allowed_contacts: "torso_front_contact"
+
+planner: "stance_graph_then_contact_invariant"
+static_margin: 0.03
+# The plan respects the joint position limits only, not the effort limits (design section 11, decision 6): the
+# dummy sims show the contact sequences, and Atlas's arms (elbow 112 N m, shoulder 87-99 N m) cannot carry its body.
+joint_limits: "position_only"
+duration: 12
+
+# The robot starts lying, its base pitched by 90 degrees, which would trip the tilt catch at once: the
+# tilt catch and the gantry stay disarmed until it stands (design section 8.1, scenario 4).
+simulation_start {
+  tilt_catch_arming: "when_standing"
+  gantry_arming: "when_standing"
+  standing_base_height: 0.85
+}

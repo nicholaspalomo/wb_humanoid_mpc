@@ -323,9 +323,23 @@ class ModelSettings {
   std::vector<std::string> fullJointNames;
   std::vector<std::string> fixedJointNames;
 
+  /**
+   * A 3-DoF (point) contact of model_settings.contacts_3dof: the frame
+   * loadCustomPinocchioInterface() adds to the model at `translation` [m] from
+   * `parentJointName`, a joint of the MPC model or one it fixes.
+   */
+  struct PointContact {
+    std::string name;
+    std::string parentJointName;
+    vector3_t translation = vector3_t::Zero();
+  };
+
+  // The 6-DoF contacts, and the joints they hang from, one per contact in its
+  // order; the 3-DoF contacts, and their names in the same order.
   std::vector<std::string> contactNames6DoF;
   std::vector<std::string> contactNames3DoF{};
   std::vector<std::string> contactParentJointNames;
+  std::vector<PointContact> pointContacts;
 
   std::vector<std::string>
       mpcModelJointNames;  // Active joints (all joints except the fixed ones)
@@ -333,8 +347,25 @@ class ModelSettings {
       mpcModelToFullJointsIndices;  // an Array of indices mapping the active
                                     // joints to the full joints
   absl::flat_hash_map<std::string, size_t> jointIndexMap;
-  std::vector<std::string>
-      contactNames;  // containing all 3Dof and 6Dof contacts
+  // Every contact, the 3-DoF ones first and the 6-DoF ones after them: the
+  // contact set, in the order of the centroidal MPC's input and of a mode
+  // number's bits (gait/MotionPhaseDefinition.h, contactIsActiveInMode()).
+  std::vector<std::string> contactNames;
+
+  /** Whether contact `contactIndex` of contactNames is a 3-DoF one. */
+  bool isPointContact(size_t contactIndex) const {
+    return contactIndex < contactNames3DoF.size();
+  }
+
+  /**
+   * Whether the contact set is the biped's: two 6-DoF feet and nothing else,
+   * the set the terms written for a left and a right foot (kNumContacts)
+   * require. Every shipped robot's is.
+   */
+  bool isBipedContactSet() const {
+    return contactNames3DoF.empty() &&
+           contactNames6DoF.size() == static_cast<size_t>(kBipedFootCount);
+  }
 
   // The formulation choices are not flags here. Each is selected by name, and
   // read - and refused, with a message that names the key to change - by the

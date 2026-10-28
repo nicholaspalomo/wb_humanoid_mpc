@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -41,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/constraint/EndEffectorKinematicsLinearVelConstraint.h"
+#include "humanoid_common_mpc/contact_swing/ContactSwingPlanner.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
 namespace ocs2::humanoid {
@@ -72,6 +74,12 @@ class HumanoidPreComputation : public PreComputation {
   getEeNormalVelocityConstraintConfigs() const {
     return eeNormalVelConConfigs_;
   }
+  /** Whether the swing planner plans contact `contactIndex`: one of the
+   * biped's two feet, whose reference height and normal velocity configuration
+   * are here. */
+  bool hasFootReferenceHeight(size_t contactIndex) const {
+    return contactIndex < footHeightReferences_.size();
+  }
   scalar_t getFootReferenceHeight(size_t contactIndex) const {
     return footHeightReferences_[contactIndex];
   }
@@ -99,6 +107,27 @@ class HumanoidPreComputation : public PreComputation {
     return positionErrorGainZ_;
   }
 
+  /**
+   * Reads the swing references of every contact from `contactSwingPlanner`,
+   * the generalized swing planner of a reference manager that plans swings
+   * (SwitchedModelReferenceManager::getContactSwingPlanner()), retained: it
+   * must outlive this object and its clones. Null, the default, reads none.
+   * Called once, before the problem is solved.
+   */
+  void setContactSwingPlanner(
+      const ContactSwingPlanner* absl_nullable contactSwingPlanner);
+
+  /**
+   * The swing reference of contact `contactIndex` at the time of the last
+   * request(): std::nullopt when the contact does not swing then or no swing
+   * planner is set (setContactSwingPlanner()).
+   */
+  std::optional<ContactSwingReference> getContactSwingReference(
+      size_t contactIndex) const {
+    if (contactIndex >= contactSwingReferences_.size()) return std::nullopt;
+    return contactSwingReferences_[contactIndex];
+  }
+
   PinocchioInterface& getPinocchioInterface() { return pinocchioInterface_; }
   const PinocchioInterface& getPinocchioInterface() const {
     return pinocchioInterface_;
@@ -116,6 +145,12 @@ class HumanoidPreComputation : public PreComputation {
   std::vector<EndEffectorKinematicsLinearVelConstraint::Config>
       eeNormalVelConConfigs_;
   std::vector<scalar_t> footHeightReferences_;
+  // The generalized swing planner, or null (setContactSwingPlanner()), and
+  // its reference of every contact at the time of the last request(): one
+  // entry per contact of the model's contact set while it is set, none
+  // otherwise.
+  const ContactSwingPlanner* absl_nullable contactSwingPlannerPtr_ = nullptr;
+  std::vector<std::optional<ContactSwingReference>> contactSwingReferences_;
   /** Seeded from ModelSettings at construction; see
    * setNormalVelocityPositionErrorGain. */
   scalar_t positionErrorGainZ_;

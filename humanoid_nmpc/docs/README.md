@@ -8,6 +8,10 @@ robot's `config/mpc/task.textproto`:
 | `dcm_terminal_cost` in `costs` | The horizon ends with a Divergent Component of Motion (capture point) viability cost, in place of the quadratic terminal cost `terminal_cost` on `final_state_weights`. The two are alternative ends of the horizon, and start-up refuses a list that names both. |
 | `contact_schedule_source: "contact_planner"` | The contact sequence, the switching times and the footholds are planned online on a reduced model by the contact planner `planner.type` in `contact_planning.textproto` selects - the closed-form H-LIP stepper (`hlip`, both shipped robots) or the mixed-integer program of section 2 (`lip_miqp`) - and replace the clock-driven gait schedule. `gait_schedule`, the default and what every robot ships, is that gait schedule with the nominal footholds. |
 
+A third source, `contact_schedule_source: "multi_contact_plan"`, tracks an offline multi-contact plan instead
+(stairs, climbing onto a box, car egress, getting up): the plan's stances are the mode schedule and its states the
+targets ([multi_contact_planning](multi_contact_planning/README.md), section 7.2).
+
 The task file's schema retires the top-level booleans `use_dcm_terminal_cost` and `use_contact_planning`: a task file
 that carries either is refused when it is read, whatever its value, with a message that names the replacement, so that a
 stale file cannot silently run the other formulation. The whole-body MPC
@@ -71,6 +75,14 @@ One covers how both MPCs represent the attitude of the floating base:
   quaternion formulation by one layer (`humanoid_common_mpc/orientation`). It derives the formulation, gives the state
   layouts and the tuning map, lists the conversion points, the CppAD layout tag, the manifold policy on the bus and the
   Euler display in Rerun, and what to watch in MuJoCo.
+
+One covers planning for terrain that is not a flat floor, with more contacts than the feet:
+
+* [multi_contact_planning](multi_contact_planning/README.md) — the design (in progress) for climbing stairs, climbing
+  onto a box, getting out of a vehicle and getting up from the ground with the DRC Atlas, using its feet, knees, hands,
+  forearms and torso as contacts: Mordatch's contact-invariant optimization adapted to the centroidal SQP, a sampling-based stance-graph
+  planner beside it, the static and dynamic stability conditions both must certify, the terrain model, the runtime
+  contact set the centroidal MPC needs, and the four dummy sims.
 
 And the last covers how the controller runs as processes:
 

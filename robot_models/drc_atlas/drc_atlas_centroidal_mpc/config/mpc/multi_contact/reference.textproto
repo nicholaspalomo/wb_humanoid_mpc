@@ -1,0 +1,63 @@
+# proto-file: humanoid_nmpc/humanoid_mpc_config/reference_file.proto
+# proto-message: humanoid_mpc_config.ReferenceFile
+# The reference file of the DRC Atlas's multi-contact task file (task.textproto beside it), which tracks an offline plan
+# (contact_schedule_source: "multi_contact_plan"): the plan is the reference, so the velocity command, the command
+# limits and the gait schedule below are only read as the MPC's defaults. It is the shipped
+# ../../command/reference.textproto with the four wrist joints, which the multi-contact model unlocks (design section
+# 11, decision 2, humanoid_nmpc/docs/multi_contact_planning/README.md).
+target_displacement_velocity: 0.5
+target_rotation_velocity: 0.5
+
+max_displacement_velocity_x: 1.2
+max_displacement_velocity_y: 0.25
+max_delta_pelvis_height: 0.4
+max_rotation_velocity: 1.0
+max_linear_acceleration: 1.0  # [m/s^2]
+max_angular_acceleration: 2.0  # [rad/s^2]
+velocity_command_filter_break_frequency: 0.0  # [Hz] command low-pass filter, 0 = off
+target_joint_state_interpolation_time_constant: 2.0
+
+default_base_height: 0.8952
+# LINT.IfChange(default_joint_state)
+default_joint_state { joint: "back_bkz" value: 0.0 }
+default_joint_state { joint: "back_bky" value: 0.0 }
+default_joint_state { joint: "back_bkx" value: 0.0 }
+default_joint_state { joint: "l_arm_shz" value: 0.3 }
+default_joint_state { joint: "l_arm_shx" value: -1.2 }
+default_joint_state { joint: "l_arm_ely" value: 2.2 }
+default_joint_state { joint: "l_arm_elx" value: 0.55 }
+default_joint_state { joint: "l_arm_wry" value: 0.0 }
+default_joint_state { joint: "l_arm_wrx" value: 0.0 }
+default_joint_state { joint: "neck_ry" value: 0.0 }
+default_joint_state { joint: "r_arm_shz" value: -0.3 }
+default_joint_state { joint: "r_arm_shx" value: 1.2 }
+default_joint_state { joint: "r_arm_ely" value: 2.2 }
+default_joint_state { joint: "r_arm_elx" value: -0.55 }
+default_joint_state { joint: "r_arm_wry" value: 0.0 }
+default_joint_state { joint: "r_arm_wrx" value: 0.0 }
+default_joint_state { joint: "l_leg_hpz" value: 0.0 }
+default_joint_state { joint: "l_leg_hpx" value: 0.0 }
+default_joint_state { joint: "l_leg_hpy" value: -0.42 }
+default_joint_state { joint: "l_leg_kny" value: 0.84 }
+default_joint_state { joint: "l_leg_aky" value: -0.42 }
+default_joint_state { joint: "l_leg_akx" value: 0.0 }
+default_joint_state { joint: "r_leg_hpz" value: 0.0 }
+default_joint_state { joint: "r_leg_hpx" value: 0.0 }
+default_joint_state { joint: "r_leg_hpy" value: -0.42 }
+default_joint_state { joint: "r_leg_kny" value: 0.84 }
+default_joint_state { joint: "r_leg_aky" value: -0.42 }
+default_joint_state { joint: "r_leg_akx" value: 0.0 }
+# LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.textproto)
+
+# Both feet, the two last contacts of the multi-contact set, keep the biped's STANCE (mode 3) in any larger set.
+initial_mode_schedule {
+  mode_sequence: "STANCE"
+  mode_sequence: "STANCE"
+  event_times: 0.5
+}
+
+default_mode_sequence_template {
+  mode_sequence: "STANCE"
+  switching_times: 0.0
+  switching_times: 0.5
+}

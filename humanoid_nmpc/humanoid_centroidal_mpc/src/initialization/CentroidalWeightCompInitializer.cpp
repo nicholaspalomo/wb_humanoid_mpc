@@ -77,10 +77,19 @@ void CentroidalWeightCompInitializer::compute(scalar_t time,
                                               scalar_t /*nextTime*/,
                                               vector_t& input,
                                               vector_t& nextState) {
-  const contact_flag_t contactFlags =
-      referenceManagerPtr_->getContactFlags(time);
-  input =
-      weightCompensatingInput(info_, contactFlags, *mpcRobotModelPtr_, state);
+  if (mpcRobotModelPtr_->modelSettings.isBipedContactSet()) {
+    const contact_flag_t contactFlags =
+        referenceManagerPtr_->getContactFlags(time);
+    input =
+        weightCompensatingInput(info_, contactFlags, *mpcRobotModelPtr_, state);
+  } else {
+    input = weightCompensatingInputOfContacts(
+        info_,
+        [this, time](size_t contact) {
+          return referenceManagerPtr_->isInContact(time, contact);
+        },
+        *mpcRobotModelPtr_, state);
+  }
   nextState = state;
   if (!extendNormalizedMomentum_) {
     centroidal_model::getNormalizedMomentum(nextState, info_).setZero();

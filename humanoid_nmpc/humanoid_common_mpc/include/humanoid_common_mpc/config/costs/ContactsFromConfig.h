@@ -62,11 +62,14 @@ struct BasisRegularizationSettings {
 };
 
 /**
- * The center point of contact `contactIndex` of `modelSettings`, offset by
- * contacts.contact_frame_translation.
+ * The center point of contact `contactIndex` of `modelSettings`: its entry of
+ * contacts.surface_pads (its translation and the rotation of its pad axes)
+ * when it has one, otherwise offset by contacts.contact_frame_translation in
+ * the parent's orientation.
  *
  * @return InvalidArgument when `contactIndex` is not a contact of
- * `modelSettings`, or naming a translation that is not finite.
+ * `modelSettings`, or naming a translation that is not finite or a pad axis
+ * that is not unit or not orthogonal to the other.
  */
 absl::StatusOr<ContactCenterPoint> contactCenterPointFromConfig(
     const mpc_config::ContactsConfig& contacts,
@@ -83,12 +86,22 @@ absl::StatusOr<ContactRectangle> contactRectangleFromConfig(
 
 /**
  * The sole of contact `contactIndex` of `modelSettings`, around its center
- * point (contactCenterPointFromConfig()).
+ * point (contactCenterPointFromConfig()): its surface pad's rectangle when
+ * contacts.surface_pads lists it, otherwise contacts.contact_rectangle.
  */
 absl::StatusOr<ContactRectangle> contactRectangleFromConfig(
     const mpc_config::ContactsConfig& contacts,
     const ModelSettings& modelSettings,
     int contactIndex);
+
+/**
+ * Checks contacts.surface_pads against `modelSettings`: every entry names a
+ * 6-DoF contact of model_settings.contact_names_6dof, once. InvalidArgument
+ * naming the entry otherwise. The pads' axes and rectangles are checked where
+ * they are read (contactCenterPointFromConfig(), contactRectangleFromConfig()).
+ */
+absl::Status validateSurfacePads(const mpc_config::ContactsConfig& contacts,
+                                 const ModelSettings& modelSettings);
 
 /**
  * The ground of the whole-body contact constraints,

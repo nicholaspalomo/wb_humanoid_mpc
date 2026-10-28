@@ -1,0 +1,85 @@
+load("@protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
+load("@protobuf//bazel:proto_library.bzl", "proto_library")
+load("@protobuf//bazel:py_proto_library.bzl", "py_proto_library")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
+load("//tools/nproto:nproto.bzl", "nproto_cc_library")
+
+# humanoid_multi_contact/plan - the multi-contact plan (humanoid_nmpc/docs/multi_contact_planning/README.md, section
+# 7.1): its schema, and PlanFile, which writes a plan as a binary proto beside a textproto summary and refuses to load
+# one made for another contact set or terrain scene.
+
+package(default_visibility = ["//visibility:public"])
+
+proto_library(
+    name = "multi_contact_plan_proto",
+    srcs = ["multi_contact_plan.proto"],
+    strip_import_prefix = "/humanoid_nmpc",
+    deps = [
+        "//humanoid_nmpc/humanoid_multi_contact/stability:certifier_report_proto",
+        "//tools/nproto:options_proto",
+    ],
+)
+
+cc_proto_library(
+    name = "multi_contact_plan_cc_proto",
+    deps = [":multi_contact_plan_proto"],
+)
+
+py_proto_library(
+    name = "multi_contact_plan_py_proto",
+    deps = [":multi_contact_plan_proto"],
+)
+
+nproto_cc_library(
+    name = "multi_contact_plan_nproto",
+    deps = [":multi_contact_plan_proto"],
+)
+
+cc_library(
+    name = "plan_file",
+    srcs = ["src/PlanFile.cpp"],
+    hdrs = ["include/humanoid_multi_contact/plan/PlanFile.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        ":multi_contact_plan_cc_proto",
+        ":multi_contact_plan_nproto",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set:contact_set_cc_proto",
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set:contact_set_nproto",
+        "//humanoid_nmpc/humanoid_multi_contact/terrain:terrain_scene_cc_proto",
+        "//humanoid_nmpc/humanoid_multi_contact/terrain:terrain_scene_nproto",
+        "//tools/nproto:nproto_runtime",
+        "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@protobuf",
+    ],
+)
+
+# Save and load round trips (binary and summary), the hash's independence of how a file spells its defaults, and the
+# refusal of a plan made for another contact set or scene.
+cc_test(
+    name = "plan_file_test",
+    size = "small",
+    srcs = ["test/testPlanFile.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":multi_contact_plan_nproto",
+        ":plan_file",
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set:contact_set_nproto",
+        "//humanoid_nmpc/humanoid_multi_contact/terrain:terrain_scene_nproto",
+        "//humanoid_nmpc/humanoid_multi_contact/terrain:terrain_scene_cc_proto",
+        "//tools/nproto:nproto_runtime",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
