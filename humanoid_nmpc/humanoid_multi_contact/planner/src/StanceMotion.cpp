@@ -231,9 +231,11 @@ PadRegion padRegionOf(const ContactPlacement& placement,
 }
 
 PadRegion exemptRegionOf(const ContactPlacement& placement,
-                         const RobotStanceModel& model) {
+                         const RobotStanceModel& model,
+                         LinkAbove linkAbove) {
   PadRegion region = padRegionOf(placement, model.contactSet());
-  region.joints = exemptJointsOf(model, placement.candidate);
+  region.joints = exemptJointsOf(model, placement.candidate, linkAbove);
+  region.restingJoints = restingJointsOf(model, placement.candidate, linkAbove);
   return region;
 }
 
@@ -328,7 +330,8 @@ StanceIkProblem StanceMotion::holdingProblem(
                                              .position = placement.position,
                                              .normal = placement.normal,
                                              .xAxis = placement.xAxis});
-    problem.exemptPads.push_back(exemptRegionOf(placement, ik_->model()));
+    problem.exemptPads.push_back(
+        exemptRegionOf(placement, ik_->model(), ik_->collision().linkAbove()));
   }
   problem.comPolygon = std::move(polygon);
   problem.comMargin = options_.comMargin;
@@ -455,6 +458,40 @@ absl::StatusOr<std::optional<std::string>> StanceMotion::sweptClearance(
           "%.2f of the way between two knots, the CoM is %.4f m inside its "
           "polygon (needs %.4f m)",
           fraction, margin, comMargin));
+    }
+  }
+  return std::optional<std::string>();
+}
+
+absl::StatusOr<std::optional<std::string>> StanceMotion::jumpComDefect(
+    const Eigen::VectorXd& from,
+    const Eigen::VectorXd& to,
+    const StancePlacements& stance) {
+  if (!options_.sweep.has_value() || stance.empty()) {
+    return std::optional<std::string>();
+  }
+  const Eigen::VectorXd tangent =
+      pinocchio::difference(model().model(), from, to);
+  const double samples = std::max(
+      tangent.tail(tangent.size() - kPositionDim).lpNorm<Eigen::Infinity>() /
+          options_.sweep->joint,
+      tangent.head<kPositionDim>().norm() / options_.sweep->position);
+  const int intervals = std::max(options_.sweep->minIntervals,
+                                 static_cast<int>(std::ceil(samples)));
+  ASSIGN_OR_RETURN(const std::vector<Eigen::Vector2d> polygon,
+                   polygonOf(stance));
+  if (polygon.size() < kMinPolygonVertices) return std::optional<std::string>();
+  for (int i = 1; i < intervals; ++i) {
+    const double fraction = static_cast<double>(i) / intervals;
+    RETURN_IF_ERROR(
+        model().setGeneralizedPosition(knotInterpolation(from, to, fraction)));
+    const double margin = signedDistanceToConvexPolygon(
+        polygon, model().centerOfMass().head<kHorizontalPositionDim>());
+    if (margin < options_.comMargin) {
+      return std::optional<std::string>(absl::StrFormat(
+          "%.2f of the way through a jump, the CoM is %.4f m inside its "
+          "polygon (needs %.4f m)",
+          fraction, margin, options_.comMargin));
     }
   }
   return std::optional<std::string>();
@@ -688,6 +725,10 @@ struct Swing {
   // The normal a touchdown's sole is held level with
   // (SegmentContacts::levelTouchdownSole); std::nullopt: it turns freely.
   std::optional<Eigen::Vector3d> levelNormal;
+  // The surface normal the pad is level with at the start (its pad frame's
+  // z): a sole's levelNormal is reached from it over the first half of the
+  // swing, and a point pad that lifts off keeps it while it lifts.
+  Eigen::Vector3d startLevel = Eigen::Vector3d::UnitZ();
   // The fraction of the segment its motion spans.
   double span = 1.0;
   // [m] How far it lifts off.
@@ -730,11 +771,13 @@ double padExtent(const ContactCandidate& candidate) {
                         std::hypot(rectangle.xMax, rectangle.yMax))));
 }
 
-/** The swing of `candidate` from where `robot` has its pad. */
+/** The swing of `candidate` from where `robot` has its pad, its start region
+ * exempting as `linkAbove` says. */
 Swing swingFrom(const RobotStanceModel& robot,
                 const TerrainModel& terrain,
                 int candidate,
-                const StanceMotionOptions& options) {
+                const StanceMotionOptions& options,
+                LinkAbove linkAbove) {
   Swing swing;
   swing.candidate = candidate;
   swing.start = robot.padPosition(candidate);
@@ -745,7 +788,9 @@ Swing swingFrom(const RobotStanceModel& robot,
       PadRegion{.center = swing.start,
                 .rotation = robot.padRotation(candidate),
                 .rectangle = robot.contactSet().candidate(candidate).rectangle,
-                .joints = exemptJointsOf(robot, candidate)};
+                .joints = exemptJointsOf(robot, candidate, linkAbove),
+                .restingJoints = restingJointsOf(robot, candidate, linkAbove)};
+  swing.startLevel = robot.padRotation(candidate).col(kZAxisIndex);
   swing.clearance = options.swingClearance;
   swing.surface =
       robot.contactSet().candidate(candidate).kind == ContactKind::kSurface;
@@ -773,6 +818,26 @@ struct SegmentPath {
 /** The progress of `path`'s posture reference at fraction `s` of it. */
 double postureProgress(const SegmentPath& path, double s) {
   return std::min(1.0, s / path.postureLead);
+}
+
+/** The normal a sole held level (Swing::levelNormal) is held to at
+ * `fraction` of its swing: turned from where it starts toward the level over
+ * the first half of the swing, so that a sole that starts tilted (a foot
+ * whose toes rest on the floor behind a kneeling robot) turns level while it
+ * swings instead of flipping its ankle at the first knot; the level itself
+ * from the start when it starts within 1e-6 rad of it. */
+Eigen::Vector3d levelNormalAt(const Swing& swing, double fraction) {
+  constexpr double kLevelTurnEnd = 0.5;
+  constexpr double kLevelAlready = 1.0e-6;
+  const Eigen::Vector3d& level = *swing.levelNormal;
+  if (std::acos(std::clamp(swing.startLevel.dot(level), -1.0, 1.0)) <
+      kLevelAlready) {
+    return level;
+  }
+  const double share = std::clamp(fraction / kLevelTurnEnd, 0.0, 1.0);
+  const Eigen::Quaterniond turn =
+      Eigen::Quaterniond::FromTwoVectors(swing.startLevel, level);
+  return Eigen::Quaterniond::Identity().slerp(share, turn) * swing.startLevel;
 }
 
 /** Sets `problem` to the knot at fraction `s` of `path`, after the knot
@@ -809,7 +874,16 @@ void configureKnot(const pinocchio::Model& model,
         (!swing.end.has_value() || fraction <= 1.0)) {
       target.normal = swing.startNormal;
     }
-    if (swing.levelNormal.has_value()) target.normal = swing.levelNormal;
+    // A point pad that lifts off keeps facing the surface it left while it
+    // lifts, so that its link rises with it: a knee that turned while it
+    // lifted pressed the end of its thigh 8 mm into the floor.
+    if (swing.lifts && !swing.path.has_value() && !swing.surface &&
+        fraction <= 1.0) {
+      target.normal = swing.startLevel;
+    }
+    if (swing.levelNormal.has_value()) {
+      target.normal = levelNormalAt(swing, fraction);
+    }
     problem.padTargets.push_back(target);
     if (swing.lifts && fraction <= swing.liftEnd()) {
       problem.exemptPads.push_back(swing.startRegion);
@@ -937,7 +1011,20 @@ absl::StatusOr<Bridge> bridge(StanceMotion& motion,
   // feasible is a fast motion, not a change of branch: the timing law slows
   // the motion down to it. A sweep through the terrain is a collision the MPC
   // would track.
-  if (!defect.any() || (depth == 0 && !defect.sweep.has_value())) {
+  if (!defect.any()) {
+    result.feasible = true;
+    result.knots.push_back(toKnot);
+    return result;
+  }
+  if (depth == 0 && !defect.sweep.has_value()) {
+    // A jump the timing law slows down keeps the CoM the full margin inside
+    // the polygon: the MPC tracks a fast swing of a limb less closely.
+    ASSIGN_OR_RETURN(const std::optional<std::string> jumpDefect,
+                     motion.jumpComDefect(fromKnot, toKnot, stance));
+    if (jumpDefect.has_value()) {
+      result.failure = absl::StrFormat("s = %.4f: %s", toS, *jumpDefect);
+      return result;
+    }
     result.feasible = true;
     result.knots.push_back(toKnot);
     return result;
@@ -1024,8 +1111,8 @@ absl::StatusOr<SegmentCheck> StanceMotion::segment(
   RETURN_IF_ERROR(robot.setGeneralizedPosition(from));
   SegmentPath path{.from = from, .to = to, .comFrom = robot.centerOfMass()};
   if (contacts.touchdown.has_value()) {
-    Swing swing =
-        swingFrom(robot, terrain, contacts.touchdown->candidate, options_);
+    Swing swing = swingFrom(robot, terrain, contacts.touchdown->candidate,
+                            options_, ik_->collision().linkAbove());
     swing.path = SwingPath::Create(
         SwingEnds{.start = swing.start,
                   .startNormal = swing.startNormal,
@@ -1035,9 +1122,12 @@ absl::StatusOr<SegmentCheck> StanceMotion::segment(
                   .extent = padExtent(robot.contactSet().candidate(
                       contacts.touchdown->candidate))},
         options_.swingClearance, terrain);
-    swing.targetRegion = exemptRegionOf(*contacts.touchdown, robot);
+    swing.targetRegion = exemptRegionOf(*contacts.touchdown, robot,
+                                        ik_->collision().linkAbove());
     if (contacts.levelTouchdownSole && swing.surface) {
       swing.levelNormal = contacts.touchdown->normal;
+      swing.startLevel =
+          robot.padRotation(contacts.touchdown->candidate).col(kZAxisIndex);
     }
     if (!swing.surface) path.postureLead = options_.pointTouchdownPostureLead;
     path.swings.push_back(std::move(swing));
@@ -1045,7 +1135,8 @@ absl::StatusOr<SegmentCheck> StanceMotion::segment(
   if (contacts.liftOff.has_value() &&
       (!contacts.touchdown.has_value() ||
        contacts.touchdown->candidate != *contacts.liftOff)) {
-    Swing swing = swingFrom(robot, terrain, *contacts.liftOff, options_);
+    Swing swing = swingFrom(robot, terrain, *contacts.liftOff, options_,
+                            ik_->collision().linkAbove());
     swing.span = kLiftOffFraction;
     if (swing.lifts) path.swings.push_back(std::move(swing));
   }
@@ -1200,9 +1291,12 @@ absl::StatusOr<SegmentCheck> StanceMotion::segment(
       ASSIGN_OR_RETURN(std::optional<Eigen::VectorXd> early,
                        endOnReach(*this, stance, path, contacts, q));
       if (early.has_value()) {
-        // An end where the knot is replaces it, as at the segment's end.
-        if (pinocchio::difference(robot.model(), q, *early)
-                .lpNorm<Eigen::Infinity>() < kSameKnot) {
+        // An end where the knot is replaces it, as at the segment's end. The
+        // knot may be the segment's start, which added none (a first step
+        // that did not move): then the end is the segment's only knot.
+        if (!check.knots.empty() &&
+            pinocchio::difference(robot.model(), q, *early)
+                    .lpNorm<Eigen::Infinity>() < kSameKnot) {
           check.knots.back() = *std::move(early);
         } else {
           check.knots.push_back(*std::move(early));

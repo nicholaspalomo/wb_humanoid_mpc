@@ -8,11 +8,11 @@ import "nproto/options.proto";
 // A multi-contact scenario (humanoid_nmpc/docs/multi_contact_planning/README.md, section 8.1): the robot, the terrain,
 // where the robot starts and where it must end, which contacts it may use, the planner, and the stability margins its
 // plan is certified with. Every number of a shipped scenario is an initial value, expected to be tuned.
-// Next ID: 20
+// Next ID: 23
 message Scenario {
   option (nproto.generate_struct) = "ocs2::humanoid::multi_contact::config::Scenario";
 
-  reserved 20 to max;
+  reserved 23 to max;
 
   // The position of one joint, by its URDF name.
   // Next ID: 3
@@ -143,6 +143,24 @@ message Scenario {
   // [rad] How far past each side of the URDF's position limits a joint may go under joint_limits "relaxed_position",
   // in (0, 0.3]; 0 under the others.
   double joint_limit_relaxation = 19 [default = 0.0];
+  // What a point pad does to the spheres of the link above it within its neighborhood (the end of the thigh at a
+  // kneeling knee), for the stance graph planner and the certifier, by name (design section 5.4): "exempt" (they do
+  // not count) or "rests" (they may lie up to 6 mm in the terrain and no deeper).
+  // LINT.IfChange(point_pad_link_above_names)
+  string point_pad_link_above = 20 [default = "exempt"];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_multi_contact/collision/include/humanoid_multi_contact/collision/CollisionModel.h:link_above_names)
+  // How the stance graph planner and the certifier approximate the static equilibrium polygon of condition 1, by name
+  // (design section 2): "sampled" (the hull of its support points along 16 directions) or "refined" (that hull grown
+  // along the outward normals of its edges, which contains it and keeps a thin polygon's corner between two
+  // directions: the get-up from the back's roll on two pads along the torso's edge). Planner A keeps the sampled hull.
+  // LINT.IfChange(support_polygon_names)
+  string support_polygon = 21 [default = "sampled"];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_multi_contact/stability/include/humanoid_multi_contact/stability/StaticEquilibrium.h:support_polygon_names)
+  // [m] How far the stance graph planner keeps the collision spheres outside the pad neighborhoods from the terrain,
+  // positive; absent: its own 1 cm (StanceIkOptions::terrainClearance). The MPC, which has no collision spheres on its
+  // links, tracks a link that the plan holds at that clearance up to about 2 cm lower (the get-up from the back's
+  // forearm beside its hand on the floor).
+  double sphere_clearance = 22;
   // [s] The motion's length, positive.
   double duration = 12 [default = 0.0];
   SimulationStart simulation_start = 13;

@@ -216,12 +216,12 @@ py_test(
 # stance-graph planner on every scenario, planner A (contact_invariant) on every scenario, and the combined planner on
 # the scenarios that name it. The scenarios a planner does not plan yet (design section 5.5, "Status") are tagged
 # manual: they run with `bazel test //humanoid_nmpc/humanoid_multi_contact/app:<planner>_<scenario>_test` and fail
-# with what stopped the planner, and lose the tag when they plan. The box_climb scenario plans with the stance graph
-# through its waypoints (design section 5.5) within position limits relaxed by 0.1 rad (decision 8); the others plan
-# within the joint position limits only (joint_limits "position_only", design section 11, decision 6), which did not
-# unblock them:
+# with what stopped the planner, and lose the tag when they plan. The box_climb, get_up_supine and get_up_prone
+# scenarios plan with the stance graph through their waypoints (design section 5.5) within position limits relaxed by
+# 0.1 rad, 0.05 rad from the back (decisions 8 and 11); the others plan within the joint position limits only
+# (joint_limits "position_only", design section 11, decision 6), which did not unblock them:
 #  - stance_graph: the 40 min budget ends with the IK changing branch or stalling on the large changes (a hand onto the
-#    steep stairs' landing, the thigh off the car seat, the seat pad onto the floor from the back);
+#    steep stairs' landing, the thigh off the car seat);
 #  - contact_invariant: solve 2 thresholds to seconds-long single-point stances (a hand or a knee alone on the box) that
 #    the inactive candidates' leaked force held up, and solve 3 fails 300-500 knots;
 #  - stance_graph_then_contact_invariant: planner B finds no sequence.
@@ -232,8 +232,8 @@ _STANCE_GRAPH_SCENARIOS = {
     "box_climb": [],
     "box_climb_high": ["manual"],
     "car_egress": ["manual"],
-    "get_up_supine": ["manual"],
-    "get_up_prone": ["manual"],
+    "get_up_supine": [],
+    "get_up_prone": [],
 }
 
 _CONTACT_INVARIANT_SCENARIOS = {
@@ -250,8 +250,6 @@ _STANCE_GRAPH_THEN_CONTACT_INVARIANT_SCENARIOS = {
     "stairs": [],
     "box_climb_high": ["manual"],
     "car_egress": ["manual"],
-    "get_up_supine": ["manual"],
-    "get_up_prone": ["manual"],
 }
 # LINT.ThenChange(//Makefile:multi_contact_scenarios, //humanoid_nmpc/docs/multi_contact_planning/README.md:planner_status, //humanoid_nmpc/docs/multi_contact_planning/README.md:contact_invariant_status)
 

@@ -51,6 +51,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_multi_contact/stability/JointLimits.h"
 #include "humanoid_multi_contact/stability/RobotStanceModel.h"
 #include "humanoid_multi_contact/stability/StabilityCertifier.h"
+#include "humanoid_multi_contact/stability/StaticEquilibrium.h"
 #include "humanoid_multi_contact/stability/certifier_report.nproto.h"
 #include "humanoid_multi_contact/terrain/TerrainModel.h"
 #include "robot_core/ResourcePaths.h"
@@ -138,10 +139,14 @@ TEST(ScenariosTest, EveryScenarioParsesAndReferencesItsContactsAndTerrain) {
     EXPECT_EQ(loaded->scenario.static_margin, expected.staticMargin);
     EXPECT_GT(loaded->scenario.torque_margin, 0.0);
     // Every shipped scenario plans within the position limits only (design
-    // section 11, decision 6), the box climb's widened by 0.1 rad (decision 8).
-    if (expected.name == "box_climb") {
+    // section 11, decision 6), the box climb's and the get-up from the front's
+    // widened by 0.1 rad (decision 8), the get-up from the back's by 0.05 rad
+    // (decision 11).
+    if (expected.name == "box_climb" || expected.name == "get_up_prone" ||
+        expected.name == "get_up_supine") {
       EXPECT_EQ(loaded->scenario.joint_limits, "relaxed_position");
-      EXPECT_EQ(loaded->scenario.joint_limit_relaxation, 0.1);
+      EXPECT_EQ(loaded->scenario.joint_limit_relaxation,
+                expected.name == "get_up_supine" ? 0.05 : 0.1);
     } else {
       EXPECT_EQ(loaded->scenario.joint_limits, "position_only");
       EXPECT_EQ(*jointLimitsOf(loaded->scenario.joint_limits),
@@ -149,6 +154,22 @@ TEST(ScenariosTest, EveryScenarioParsesAndReferencesItsContactsAndTerrain) {
     }
     EXPECT_FALSE(
         enforcesEffortLimits(*jointLimitsOf(loaded->scenario.joint_limits)));
+    // The kneels on the floor let the thigh's end rest; every other scenario
+    // exempts it (design section 5.4).
+    EXPECT_EQ(loaded->scenario.point_pad_link_above,
+              absl::StartsWith(expected.name, "get_up_") ? "rests" : "exempt");
+    // Only the roll on the torso's edge needs the refined polygon.
+    EXPECT_EQ(loaded->scenario.support_polygon,
+              expected.name == "get_up_supine" ? "refined" : "sampled");
+    // Only the get-up from the back keeps the spheres farther off the floor
+    // than the planner's own 1 cm.
+    EXPECT_EQ(loaded->scenario.sphere_clearance.has_value(),
+              expected.name == "get_up_supine");
+    // The roll's contacts are the get-up from the back's alone.
+    for (const std::string& contact : loaded->scenario.allowed_contacts) {
+      const bool roll = absl::StartsWith(contact, "torso_edge_");
+      EXPECT_TRUE(!roll || expected.name == "get_up_supine") << contact;
+    }
   }
 }
 
@@ -171,6 +192,20 @@ TEST(ScenariosTest, TheJointLimitsDefaultToEnforcingTheEffortLimits) {
             absl::StatusCode::kInvalidArgument);
 }
 
+TEST(ScenariosTest, TheCertifierTakesTheScenariosSupportPolygon) {
+  config::Scenario scenario;
+  const absl::StatusOr<CertifierOptions> sampled = certifierOptionsOf(scenario);
+  ASSERT_TRUE(sampled.ok()) << sampled.status();
+  EXPECT_EQ(sampled->equilibrium.supportPolygon, SupportPolygon::kSampled);
+  scenario.support_polygon = "refined";
+  const absl::StatusOr<CertifierOptions> refined = certifierOptionsOf(scenario);
+  ASSERT_TRUE(refined.ok()) << refined.status();
+  EXPECT_EQ(refined->equilibrium.supportPolygon, SupportPolygon::kRefined);
+  scenario.support_polygon = "exact";
+  EXPECT_EQ(certifierOptionsOf(scenario).status().code(),
+            absl::StatusCode::kInvalidArgument);
+}
+
 TEST(ScenariosTest, TheAllowedContactsAreTheDesigns) {
   const absl::StatusOr<LoadedScenario> egress = loadNamedScenario("car_egress");
   ASSERT_TRUE(egress.ok()) << egress.status();
@@ -179,12 +214,18 @@ TEST(ScenariosTest, TheAllowedContactsAreTheDesigns) {
   for (const std::string& contact : egress->scenario.allowed_contacts) {
     EXPECT_FALSE(absl::StartsWith(contact, "torso_")) << contact;
   }
+  // The get-up from the back may use every candidate, the roll's included;
+  // every other scenario none of the roll's (the thirteen candidates before
+  // them).
+  constexpr int kRollContacts = 4;
   for (const std::string& name :
        std::vector<std::string>{"get_up_supine", "get_up_prone"}) {
     const absl::StatusOr<LoadedScenario> getUp = loadNamedScenario(name);
     ASSERT_TRUE(getUp.ok()) << getUp.status();
     EXPECT_EQ(static_cast<int>(getUp->scenario.allowed_contacts.size()),
-              getUp->contactSet.size());
+              name == "get_up_supine"
+                  ? getUp->contactSet.size()
+                  : getUp->contactSet.size() - kRollContacts);
     EXPECT_EQ(getUp->scenario.simulation_start.tilt_catch_arming,
               "when_standing");
     EXPECT_EQ(getUp->scenario.simulation_start.gantry_arming, "when_standing");
@@ -274,6 +315,16 @@ TEST(ScenariosTest, ValidationRefusesBadScenarios) {
   config::Scenario planner = loaded->scenario;
   planner.planner = "teleportation";
   expectRefused(*loaded, planner, "unknown planner");
+
+  config::Scenario linkAbove = loaded->scenario;
+  linkAbove.point_pad_link_above = "whole";
+  expectRefused(*loaded, linkAbove, "unknown point_pad_link_above");
+  config::Scenario clearance = loaded->scenario;
+  clearance.sphere_clearance = 0.0;
+  expectRefused(*loaded, clearance, "sphere_clearance must be positive");
+  config::Scenario polygon = loaded->scenario;
+  polygon.support_polygon = "exact";
+  expectRefused(*loaded, polygon, "unknown support_polygon");
   config::Scenario contact = loaded->scenario;
   contact.allowed_contacts.push_back("tail_contact");
   expectRefused(*loaded, contact, "not a candidate");

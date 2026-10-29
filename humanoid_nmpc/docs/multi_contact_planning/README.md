@@ -99,6 +99,15 @@ polygon.
 - It is positive inside, negative outside, and its sign flips where `c` crosses the hull's boundary. One more LP first
   tests whether any CoM position is in equilibrium; when none is (a hand on a wall alone), the margin is absent.
 - The hull is also the polygon the playback draws, and planner A's solve 3 constrains the CoM to it (section 4.3).
+- A scenario's `support_polygon: "refined"` (`"sampled"` by default) has the certifier and planner B grow that hull: one
+  more LP along the outward normal of each edge, until no support point lies more than 0.1 mm beyond its edge or 32 more
+  points were added (`SupportPolygon::kRefined`, Bretl and Lall's projection). The refined hull contains the sampled one
+  and is still inside the polygon. It matters for a thin polygon whose corner lies between two of the 16 directions: on
+  the get-up from the back's roll (two pads along the torso box's edge, parallel to x, and a sole far ahead), the corner
+  at the inner pad is a support point only along -y, where the LP's tie between the two pads decides whether the hull
+  keeps it. The plan's knots kept it; the tracked trajectory, its edge a few milliradians off x, lost it, and the margin
+  of a CoM the MPC held within 1 cm of the plan's fell from 0.05 m to -0.045 m. Planner A keeps the sampled hull, which
+  lies inside the refined one.
 
 **Torque feasibility.** For a configuration `q`, the joint torques that hold the stance are
 `tau_joints = g(q) - sum_i J_i(q)^T f_i`. Under a scenario's `joint_limits: "position_and_effort"` (the default) they
@@ -158,6 +167,7 @@ For the DRC Atlas, from the link names in `atlas.urdf` and the collision geoms o
 | `thigh_l_contact`, `thigh_r_contact` | point | `l_leg_hpy`, `r_leg_hpy` (on `l_uleg`) | back of the thigh capsule (r 0.06 m) | egress |
 | `torso_back_contact` | surface, about 0.36 x 0.30 m | `back_bkx` (on `utorso`) | the back face of the `utorso` collision box (x = -0.22 m in its frame) | getting up |
 | `torso_front_contact` | surface, about 0.36 x 0.30 m | `back_bkx` (on `utorso`) | the chest face of the `utorso` collision box (x = +0.14 m) | getting up |
+| `torso_edge_r_low_25_contact`, `torso_edge_r_high_25_contact`, `torso_edge_r_low_65_contact`, `torso_edge_r_high_65_contact` | point (geom r 0.001 m) | `back_bkx` (on `utorso`) | the back-right edge of the `utorso` collision box (x = y = -0.22 m), near its two ends, with normals 25 and 65 degrees from the back face toward the right side | getting up from the back |
 
 Notes:
 - Atlas's old DRC naming puts `l_larm` after the elbow and `l_farm` after the wrist's y joint. The forearm contact is
@@ -179,10 +189,15 @@ Notes:
   normal.
 - A forearm resting along a box edge is closer to a line contact. Version 1 uses one point. Two points per forearm,
   which give it a moment, are a later option that needs no new kind.
+- The torso edge pads let the robot roll from its back onto its right side: a box edge is a line contact, so each
+  roll angle has two points, one near each end of the edge. The two angles' points sit at different heights along the
+  edge, because the planner drops a pad that coincides with another active pad as overlapping. The pads lie on the
+  edge itself, so their geom radius is a token 1 mm.
 - A scenario lists which candidates it allows. Stairs allow the feet, optionally the hands. The box allows feet, knees,
-  hands and forearms. Egress allows all but the torso contacts. Getting up allows all thirteen.
+  hands and forearms. Egress allows all but the torso contacts. Getting up from the front allows all but the four torso
+  edge pads, and getting up from the back allows all seventeen.
 
-With thirteen candidates there are 2^13 = 8192 contact modes. A mode number is the bitmask of the active contacts in
+With seventeen candidates there are 2^17 = 131072 contact modes. A mode number is the bitmask of the active contacts in
 contact-set order, which OCS2's `ModeSchedule` already carries. The biped's `FLY` / `RF` / `LF` / `STANCE` names remain
 the biped's.
 
@@ -390,7 +405,7 @@ planner, from `plan_multi_contact --v=1`:
 | Scenario | Planner | Plans | Where it stops |
 | --- | --- | --- | --- |
 | `stairs` | `contact_invariant` | yes: 13 stances, feet only, 8.0 s, certified at all 321 knots, torque utilization <= 0.42 (`back_bky`), smallest static margin -0.31 m (a dynamic gait: the right foot skips step 1, and the left lifts off the floor with the CoM 0.3 m behind the stance foot), smallest sphere clearance -4.7 mm; 30 s | tracked in the dummy sim's loop (not the shipped plan), 14 of 452 samples fail the certifier: the momentum rate outside the cone (residual <= 0.03) in the 0.1 s after the two lift-offs where the CoM is far behind the stance foot, the MPC's CoP at the heel's edge, and three touch-downs 5-12 mm above the step; the base 5.1 cm off the plan's |
-| `stairs` | `stance_graph_then_contact_invariant` (the scenario's) | yes: 11 stances, feet only, 8.0 s, certified at all 321 knots, torque utilization <= 0.70 (`back_bkz`, reported only), smallest static margin -0.035 m, smallest sphere clearance -2.9 mm; 48 s | the shipped plan, tracked to the goal, the certifier passing at every sample, the base within 4.7 cm of the plan's (`climbsTheStairsOfTheShippedPlan`) |
+| `stairs` | `stance_graph_then_contact_invariant` (the scenario's) | yes: 11 stances, feet only, 8.0 s, certified at all 321 knots, torque utilization <= 0.70 (`back_bkz`, reported only), smallest static margin -0.035 m, smallest sphere clearance -3.0 mm; 52 s | the shipped plan, tracked to the goal, the certifier passing at every sample, the base within 4.7 cm of the plan's (`climbsTheStairsOfTheShippedPlan`) |
 | `stairs_steep` | `contact_invariant` | no | solve 2 thresholds to one 8.3 s stance on the left foot (1.3-9.6 s); solve 3: 316 of 401 knots fail, first a sphere of `l_lleg` 14 mm into a step and the landing pads 24-55 mm off it |
 | `box_climb` | `contact_invariant` | no | solves 1-2 find hand, knee, knees, foot (left hand on the box at 0.5 s, left knee on the top at 2.6 s, both knees at 5.0 s, the right foot at 8.7 s), but the thresholded sequence holds the robot on one point for seconds (the hand alone 0.8-2.6 s, the left knee alone 2.9-5.0 s and 7.5-8.7 s), which the inactive candidates' leaked force (0.04-0.37 of the weight each) held up in solve 2; solve 3: 446 of 481 knots fail, first condition 1 at the first lift-off (static margin 21 mm against 30 mm) |
 | `box_climb_high` | `contact_invariant` | no | the same single-point stances (the right hand alone 0.8-5.9 s); the certifier's equilibrium LP on such a stance fails (HPIPM MAX_ITER, 52 variables), which ends the plan with Internal |
@@ -398,7 +413,7 @@ planner, from `plan_multi_contact --v=1`:
 | `get_up_supine` | `contact_invariant` | no | the thresholded sequence stands on the left foot alone from 0.5 s to 12 s; solve 3: 301 of 481 knots fail, first the soles 6-10 mm off the floor and a sphere of `r_hand` 17 mm into it |
 | `get_up_prone` | `contact_invariant` | no | the thresholded sequence kneels on the right knee alone (1.1-8.9 s); solve 3: 378 of 481 knots fail condition 1, first the margin of the knees and a hand -4.9 mm against 30 mm |
 | `box_climb` | `stance_graph_then_contact_invariant` | no (the scenario now names `stance_graph`) | planner B's waypoint sequence (section 5.5, its earlier 31 stances) retimed to 12 s: solve 3 fails 184 of 481 knots, first a sphere of `r_hand` 5.7 mm into the box; to 60 s: 868 of 2401 knots, the hand and sole spheres and the static margin (0.024 m) at the single-foot stances |
-| `box_climb_high`, `car_egress`, `get_up_supine`, `get_up_prone` | `stance_graph_then_contact_invariant` | no | planner B finds no sequence (section 5.5) |
+| `box_climb_high`, `car_egress` | `stance_graph_then_contact_invariant` | no | planner B finds no sequence (section 5.5) |
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_multi_contact/app/BUILD.bazel:planner_scenarios) -->
 
 What stops planner A on the static scenarios is solve 3 inheriting a solve-2 motion that is not quasi-static: with
@@ -517,16 +532,20 @@ segments and the hands, the thighs, the shins and the four corner spheres of eac
 spheres of its radius at most one radius apart; a box is filled with spheres of its smallest half extent on a grid of
 its other two axes, inside the box. A sphere is exempt when its center is closer than its radius plus 5 cm to an active
 pad's region (the pad's point, or a surface pad's rectangle), so a torso lying on its back face is exempt over the
-whole face. A point pad exempts only the spheres of its own link, the links below it and the link above it
-(`exemptJointsOf()`), and of those only the ones within the neighborhood: a knee on a box exempts the shin, the foot
-and the end of the thigh at the knee joint, not the rest of the thigh, the other leg or the arms. Exempting every link
-near the knee let the planned kneels press the thigh 1-2 cm into the box, and the first knot after the knee lifted off
-failed the certifier; exempting none of the thigh made a kneel on a flat top impossible within the planner's
-tolerance, since the thigh's capsule ends at the knee joint with a larger radius than the shin's and a kneel with the
-shin level keeps that last sphere about 5 mm into the surface (`get_up_prone`'s hands-and-knees pose was solved again
-for it, 4.8 mm). A pad whose contact the plan does not count but which still rests on the terrain (its center within
-the 5 mm contact tolerance) exempts the same spheres, a sole its foot only: at the knot that breaks a knee's contact
-the knee has not moved, and its tilted shin and the end of its thigh rest on the box beside it as they did a knot
+whole face. A point pad exempts only the spheres of its own link and the links below it (`exemptJointsOf()`): a knee
+exempts the shin and the foot, not the other leg or the arms. What it does to the spheres of the link above it, within
+the neighborhood - the end of the thigh at the knee joint, whose capsule has a larger radius than the shin's, so that a
+kneel on a flat top with the shin level keeps it about 5 mm in the surface - the scenario names
+(`point_pad_link_above`, `LinkAbove`): `"exempt"` (the default, the box climb's kneels on the box's edge, which the
+thigh's end crosses) exempts them too; `"rests"` (the get-ups) lets them lie up to 6 mm in the terrain
+(`kRestingLinkDepth`) and no deeper, by adding 6 mm to their clearance (`restingJointsOf()`,
+`CollisionModel::restingAllowance()`, in the certifier, the planner's checks and the stance IK alike). Exempting
+every link near the knee once let the planned kneels press the thigh 1-2 cm into the box; on the floor, the exempt
+thigh's end sank 1.2 cm under a kneel and lifting the knee then swept it 9 mm through the floor between two knots,
+which under `"rests"` cannot happen; counting it whole left no kneel on a flat top within the planner's tolerance.
+A pad whose contact the plan does not count but which still rests on the terrain (its center within the 5 mm contact
+tolerance) treats the spheres as an active pad does, a sole exempting its foot only: at the knot that breaks a knee's
+contact the knee has not moved, and its tilted shin and the end of its thigh rest beside it as they did a knot
 before. The self-collision pairs are the legs (thigh and shin against the other leg's, the soles) and each arm's
 forearm segments and hand against the same side's thigh and shin; the stance IK keeps them 1 cm apart. The certifier
 reports the smallest sphere clearance at every knot and fails a knot whose spheres penetrate the terrain by more than
@@ -636,7 +655,15 @@ these choices:
     A step whose sweep fails is treated like a jump: halved down to 1/48 of the segment, then bridged by knots solved
     in between, and the segment fails when a sweep still fails at the deepest halving. The knots alone missed what the
     MPC then tracked: the box climb's first plan put its knots a second apart around a knee's swing onto the box, and
-    the thigh and the shin went up to 4.5 cm through the box's edge between them;
+    the thigh and the shin went up to 4.5 cm through the box's edge between them. A jump that remains at the deepest
+    halving, between knots that are all feasible, is a fast motion the timing law slows down, and is kept only when
+    its CoM keeps the full CoM margin, without the sweep's slack (`StanceMotion::jumpComDefect()`): the box climb's
+    replan for seventeen candidates swung the free leg 1.2 rad in one such step, its CoM within the slack of the
+    margin, and the MPC tracked it to 0.029 m, under the certified 0.03 m;
+  - a knee that lifts off keeps facing the floor while it lifts, so that its shin and the end of its thigh rise with
+    it, and a sole held level for its touch-down that starts tilted (a foot whose toes rest on the floor behind a
+    kneeling robot) turns level over the first half of its swing instead of at the first knot, where its ankle
+    flipped 1.1 rad;
   - a segment that sets a knee down brings the posture to its end's by half of the segment
     (`pointTouchdownPostureLead`, 1 for the seed), so the leg folds before the knee reaches the box's edge, and the foot
     below that knee, whose contact the segment broke, follows the leg to the end's position instead of staying by the
@@ -664,10 +691,10 @@ these choices:
   (the transition or the motion, the knot and the condition), and a plan the certifier refuses FailedPrecondition
   naming its first failing knots.
 
-**Status (milestone 3, every scenario at `joint_limits: "position_only"` but the box climb's `"relaxed_position"`,
-section 11, decisions 6 and 8).** Planner B plans the stairs, and the box climb through its waypoints; it does not yet
-plan the other five scenarios within its budget, and lifting the effort limits did not change that: the searches now
-reach stances the arms could not hold (a foot on the box with a hand on its top), and stop on the IK. What the searches
+**Status (milestone 3, every scenario at `joint_limits: "position_only"` but the box climb's and the get-ups'
+`"relaxed_position"`, section 11, decisions 6 and 8).** Planner B plans the stairs, and the box climb and both get-ups
+through their waypoints; it does not yet plan the other three scenarios within its budget, and lifting the effort
+limits did not change that: the searches now reach stances the arms could not hold (a foot on the box with a hand on its top), and stop on the IK. What the searches
 reach and where they stop, from the planner's own failure reports (`--v=1`):
 
 <!-- LINT.IfChange(planner_status) -->
@@ -675,17 +702,17 @@ reach and where they stop, from the planner's own failure reports (`--v=1`):
 | --- | --- | --- |
 | `stairs` | yes: 9 stances, feet only, certified (static margin >= 2 cm, torque <= 1.01 at `back_bkz`, reported only), 133 knots, 135 s of motion, 14 s (44 validations); the shipped plan is the combined planner's (section 4.4) | |
 | `stairs_steep` | no (40 min, 1851 validations) | nearest the goal: the right foot on step 1; adding a hand on the landing makes the IK change branch (the other hand's pad jumps 0.43-0.45 m between two knots, and no bridge continues it) |
-| `box_climb` | yes, through its seven waypoints (the plan of `make plan-drc-atlas-box-climb`, `plans/box_climb.binpb`): 39 stances (the hands on the box, the right foot a step forward, the left knee and then the right on the box's top 5 cm behind its edge, the hands forward, the right foot and then the left on the box, the hands off, a step forward), feet, knees and hands, 479 knots, 376 s of motion, certified at every knot and clear of the terrain between them (static margin >= 0.049 m, sphere clearance >= -2.0 mm, torque 2.8 at the elbow, reported only), the position limits relaxed by 0.1 rad (`back_bky` 0.100, `l_arm_shz` 0.095, `r_leg_hpy` 0.089 past their ranges), 758 validations, 12 min | tracked in the dummy sim's loop to the top, every sample certified (section 9) |
+| `box_climb` | yes, through its seven waypoints (the plan of `make plan-drc-atlas-box-climb`, `plans/box_climb.binpb`): 51 stances (the hands on the box, the right foot a step forward, the left knee and then the right on the box's top 5 cm behind its edge, the hands forward, the right foot and then the left on the box, the hands off, a step forward), feet, knees and hands, 594 knots, 455 s of motion, certified at every knot and clear of the terrain between them (static margin >= 0.049 m, sphere clearance >= -0.2 mm, torque 2.8 at `l_arm_elx`, reported only), the position limits relaxed by 0.1 rad (`r_leg_hpy`, `l_arm_shz` and `back_bky` 0.100 past their ranges), 1198 validations, 13 min | tracked in the dummy sim's loop to the top, every sample certified (section 9) |
 | `box_climb_high` | no (40 min, 1764 validations) | stances with a knee or both hands on the box are reached; nearest the goal stays the floor stance |
 | `car_egress` | no (40 min, 1525 validations) | nearest the goal: the right foot on the pan and the left thigh on the cushion; lifting the thigh leaves the CoM 1-2 cm inside a polygon that needs 4 cm, and a foot onto the ground beside the vehicle stalls the IK 0.23 m from its target with the foot 13 cm into the terrain |
-| `get_up_supine` | no (40 min, 2769 validations) | nearest the goal: a foot, a hand and the torso's back on the floor; the seat pad or a thigh never reaches the floor (the IK stalls 0.17-0.20 m away, tilted 1.3 rad, a sole 7 cm into the floor) |
-| `get_up_prone` | no (40 min, 2187 validations) | nearest the goal: a knee and both hands; bringing a thigh or a foot under the hips stalls the IK with the CoM outside the polygon and a sole 0.33-0.42 m into the floor |
+| `get_up_supine` | yes, through its twelve waypoints (the plan of `make plan-drc-atlas-get-up-supine`, `plans/get_up_supine.binpb`): 36 stances (the right arm along the head, the right foot off and the back-right edge of the torso box down beside the back, the back off onto that edge, the roll on to its 65-degree pads, the right foot set down behind, the right hand down past the head, the right foot in front of the hips, the edge off and the left hand down, on the feet and the hands, the feet and the hands walked toward the goal, the hands off, up), the feet, the hands, the torso's back and its four edge pads, 426 knots, 302 s of motion, certified at every knot (static margin >= 0.050 m on the refined polygon, sphere clearance >= +5.1 mm, torque 3.5 at `r_arm_shx`, reported only), the position limits relaxed by 0.05 rad (both hips' pitch, `r_leg_aky`, `l_arm_shz` and `back_bky` 0.050 past their ranges), the spheres 2 cm off the floor, 327 validations, 8 min. Its waypoints hold each planted sole's yaw, as the stance IK does, and each holds its CoM in the polygon of the stance it shares with a neighbor one change away; without them the search's seeds missed by 11 cm (a sole turned 25 degrees on the floor) or found no CoM position | tracked in the dummy sim's loop to standing, every sample certified (section 9) |
+| `get_up_prone` | yes, through its four waypoints (the plan of `make plan-drc-atlas-get-up-prone`, `plans/get_up_prone.binpb`): 9 stances (the left knee off and the left foot forward between the knees and the hands, the left hand off, the right knee off and the right foot beside it, a squat on the hands, the left hand set down again and off, the right hand off, up), 104 knots, 79 s of motion, certified at every knot and clear of the floor between them (static margin >= 0.050 m, sphere clearance >= +0.7 mm, torque 1.38 at the right elbow, reported only), the position limits relaxed by 0.1 rad (`back_bky` 0.099, `l_leg_aky` 0.054) and the thigh's end beside a knee resting (`point_pad_link_above: "rests"`), 19 validations, 19 s | tracked in the dummy sim's loop to standing, every sample certified (section 9) |
 
 Without its waypoints, and with a 3 h budget (an experiment, not the shipped 40 min), the box climb's search got
 closer and still found no plan (8919 validations): it reached the left foot and the right hand on the box, where a
 forearm onto the box stalled the IK 0.3-0.5 m from its target. With the same budget `stairs_steep` (6923) reaches the left foot on the landing and the right on step 2,
 where lifting the right foot needs the CoM 22 cm over, which the IK does not find; `box_climb_high` (6939) and
-`get_up_prone` (9652) stop where they did in 40 min.
+`get_up_prone` without its waypoints (9652) stop where they did in 40 min.
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_multi_contact/app/BUILD.bazel:planner_scenarios) -->
 
 These are limits of the local IK and of the search, not proofs that the scenarios cannot be done: the transitions they
@@ -694,7 +721,7 @@ which a projection from the previous configuration does not find. The arms of th
 body (`l_arm_ely` 63 N m, `l_arm_shx` 99 N m), which the shipped scenarios now disregard (section 11, decision 6).
 Planner A (milestone 5, section 4.4), which optimizes the whole motion at once, plans the stairs in 8 s; posture seeds
 for the IK per kind of change are the next step for planner B; the box climb's waypoints are such seeds, written in
-the scenario. The five other planning tests are tagged `manual` until their scenarios plan.
+the scenario. The three other planning tests are tagged `manual` until their scenarios plan.
 
 ## 6. The stability certifier
 
@@ -729,8 +756,8 @@ holds by IK at the knots only, drift off their patches in between, and those fai
 - The forces are combinations `lambda >= 0` of the edges of linearized friction pyramids, eight per cone, inscribed
   (`mu cos(pi / 8)`), in units of the robot's weight, with moments about the mean of the contact positions.
 - A surface contact contributes a pyramid at each corner of its rectangle, which spans its contact wrench cone exactly
-  (friction, center of pressure and torsion). With 13 candidates, 5 of them surfaces, that is at most
-  (8 + 5 × 4) × 8 = 224 variables.
+  (friction, center of pressure and torsion). With 17 candidates, 5 of them surfaces, that is at most
+  (12 + 5 × 4) × 8 = 256 variables.
 - A feasibility test (is this wrench in the cone?) minimizes the L1 norm of slack on the six wrench rows, so it always
   has a solution, and its value says by how much a knot fails (feasible below 1e-6).
 - The support-point LPs of the margin and the torque LP use the equalities exactly, with their linearly dependent rows
@@ -850,8 +877,9 @@ of the plan's.
      task file sets it, milestone 5) every 6-DoF contact also lands flat: over the last `landing_window` seconds of a
      swing, `z_c x n = 0` for its frame's z axis and the normal of the patch it lands on, under a quadratic penalty
      (`SwingLandingAlignmentConstraint`). Without it the Atlas's soles reached the stairs' steps pitched by up to 30
-     degrees, a heel or toe sphere first; its task file holds them flat over the whole swing (weight 3000, a 2 s
-     window), with 15 cm of swing clearance, the wrench cones' barrier `(1, 0.5 N)` and base position weights of 75
+     degrees, a heel or toe sphere first; its task file holds them flat over the whole swing (weight 3000, a 3 s
+     window: the stairs' swings are shorter, and the get-up from prone's sole spends 2.9 s on its last step before it
+     lands, where a 2 s window let its heel dip 6.5 mm into the floor), with 15 cm of swing clearance, the wrench cones' barrier `(1, 0.5 N)` and base position weights of 75
      along x and y, the settings with which the stairs plan's tracked trajectory certifies (section 9). With
      `multi_contact_plan.arc_swing_duration_limit` positive (0, every swing on an arc, by default; the Atlas's
      multi-contact task file sets 2 s, longer than every swing of the stairs) a contact out of contact for longer
@@ -1012,7 +1040,7 @@ MuJoCo gantry and tilt catch (`sim_max_base_tilt_angle`) to be configured for a 
 
 **4. Getting up from the ground** (`get_up_supine.textproto`, `get_up_prone.textproto`).
 - **Scene:** the floor only.
-- **Allowed contacts:** all thirteen.
+- **Allowed contacts:** all seventeen on the back, all but the four torso edge pads face down.
 - **Initial pose:** lying on the back or face down, with the arms at the sides:
   - on the back: `torso_back_contact` and both soles flat on the floor, the knees drawn up. Atlas's collision boxes put
     the back face of the torso 9 cm below the pelvis's and 20 cm below the backs of the thighs, so neither the seat
@@ -1148,11 +1176,19 @@ the momentum rate of a sample is the forward difference of the momenta over the 
 its stance the mode schedule's in the middle of that step: the mean rate of a rollout in one mode, since the plans'
 stances change at multiples of the loop's period (a central difference would average two modes at every change).
 `test_multi_contact_plan_tracking` tracks the sway, the hand-written stair step and the stairs scenario's shipped plan
-this way, and the stairs plan played `forward_and_reverse` for three periods (57 s), its base within 5 cm of the plan's
+this way, and the stairs plan played `forward_and_reverse` for three periods (58 s), its base within 5 cm of the plan's
 throughout, on the top step and back at the bottom in each period, and every tracked sample certified. It tracks the
-box climb's shipped plan the same way (`climbsOntoTheBoxOfTheShippedPlan`): every sample of its 376 s certifies,
+box climb's shipped plan the same way (`climbsOntoTheBoxOfTheShippedPlan`): every sample of its 455 s certifies,
 the base within 2.7 cm of the plan's, every active pad within 1.2 mm of its patch, the momentum rate in the cone
-(residual 8e-10) and the static margin at least 0.037 m, with no hold of the plan's clock. The plan before it, whose
+(residual 6e-10) and the static margin at least 0.034 m, with no hold of the plan's clock; and the get-up from prone's
+(`getsUpFromProneOfTheShippedPlan`): every sample of its 79 s certifies, the base within 1.9 cm of the plan's, every
+active pad within 2.3 mm of its patch, the momentum rate in the cone (residual 5e-10) and the static margin at least
+0.042 m, with no hold. And the get-up from the back's (`getsUpFromSupineOfTheShippedPlan`): every sample of its 302 s
+certifies, the base within 3.6 cm of the plan's, every active pad within 1.1 mm of its patch, the momentum rate in the
+cone (residual 6e-10) and the static margin, on the refined polygon, at least 0.040 m, with no hold. Its earlier
+plans failed in three ways, each fixed in the scenario (decision 11): the sampled polygon lost the corner of the
+roll's stance (298 samples, the margin down to -0.045 m), the right forearm went up to 1.8 cm into the floor beside
+the hand (1093 samples), and with the hips 0.1 rad past their ranges the MPC diverged. The plan before it, whose
 knots alone planner B checked, failed 593 of 25284 samples: as a knee swung onto the box the reference's
 interpolation between two knots a second apart swept a thigh or a shin up to 4.5 cm into the box's edge, the static
 margin fell to 0.019 m on the stance of one foot and one hand, and HPIPM stopped on a few wrench cone LPs; with the
@@ -1197,8 +1233,8 @@ robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/multi_contact/   cont
    **Landed:** `humanoid_centroidal_mpc/multi_contact/` (`PlanContactOrder`, `PlannedMotion`, `PlanClock`,
    `PlannedMotionReferenceManager`), `humanoid_common_mpc/contact_swing/` and the `contact_swing` and
    `terrain_non_penetration` terms; the multi-contact task file of the Atlas
-   (`robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/multi_contact/task.textproto`: the thirteen
-   candidates, 6-DoF pads of their own frames through `contacts.surface_pads`, the wrists unlocked), checked against
+   (`robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/multi_contact/task.textproto`: the
+   seventeen candidates, 6-DoF pads of their own frames through `contacts.surface_pads`, the wrists unlocked), checked against
    the contact set; the launch file `multi_contact_dummy_sim.textproto` and `make launch-drc-atlas-<scenario>-dummy-sim`
    for every scenario, whose Rerun bridge draws the terrain (`--multi_contact_scenario`) and the contact force of every
    contact. `test_multi_contact_plan_tracking` runs the dummy simulator's loop faster than real time on milestone 1's
@@ -1260,7 +1296,11 @@ Settled by the owner (2026-10-27):
    0.1 rad: setting the second foot onto the box from a kneel, with the CoM inside the polygon of the first foot and
    the hands, takes the hips, the knees and the back's pitch up to 0.1 rad past their range; within the range the
    search did not find that change in 20 minutes. The plan that also keeps clear of the terrain between its knots
-   uses the margin more widely (back_bky 0.100, l_arm_shz 0.095, r_leg_hpy 0.089, l_leg_kny 0.064, r_leg_kny 0.039).
+   uses the margin more widely (r_leg_hpy, l_arm_shz and back_bky 0.100, r_arm_shz 0.059). The get-up from
+   prone uses 0.1 rad too (back_bky 0.099, l_leg_aky 0.054): its squat on the hands folds the back,
+   the ankles and the hips to the ends of their ranges. The get-up from the back uses 0.05 rad (both hips' pitch,
+   r_leg_aky, l_arm_shz and back_bky 0.050): at 0.1 rad its plans held both hips at the widened limit with a foot in
+   the air, where the MPC diverged (decision 11).
    The certifier does not judge the position limits, and the tracking MPC keeps its own joint-limit barrier at the
    URDF's range, which the tracked plan touches only there. Planner A's solves read the MPC's limits under every name.
 9. **What planner B plans alone is checked between its knots as the MPC tracks it** (2026-10-27). The knots of a
@@ -1271,6 +1311,26 @@ Settled by the owner (2026-10-27):
    kneeling on a flat top keeps the end of the thigh a few millimeters in the box beside the knee, and 0 mm left no
    kneel. Only planner B alone checks them; as planner A's seed it keeps the knots-only checks, which solve 3
    re-solves, so the stairs plan bit for bit as before.
+10. **The end of the thigh at a kneeling knee is named per scenario** (2026-10-28). `point_pad_link_above: "exempt"`
+    (the default) keeps the box climb's kneels on the box's edge as they were planned and tracked; `"rests"` lets the
+    sphere lie 6 mm in the terrain and no deeper, which the get-up from prone's kneels on the flat floor need (exempt,
+    a lifting knee swept the thigh 9 mm through the floor between two knots). The get-up from the back rests too.
+11. **The get-up from the back rolls over on the torso's edge** (2026-10-28). The contact set had no contact on the
+    body's side, and from the crab on the feet and the hands no quasi-static way led onto the feet within 0.3 rad past
+    the joint ranges. Of the two ways on, a side contact or a start that is not flat on the back, the user chose the
+    side contact: four point pads on the back-right edge of the torso box (section 3.1), allowed only in
+    `get_up_supine`, whose plan rolls onto them, puts the right foot and hand down and comes up over the feet and the
+    hands (section 5.5). The MuJoCo foot model stays four corner spheres, and the planner keeps its usual 2 cm beyond
+    the certified 0.03 m margin: a buffer of 5 mm found a plan, which the MPC then tracked below the margin. Three
+    settings of that scenario alone made its plan track: `support_polygon: "refined"` (section 2), `sphere_clearance:
+    0.02` (the MPC, with no collision spheres on its links, tracked the forearm beside a hand on the floor up to 2 cm
+    below the plan's 1 cm) and `joint_limit_relaxation: 0.05` (the MPC, whose joint limits are a soft barrier at the
+    URDF's ranges, diverged where the plan held both hips 0.1 rad past them with a foot in the air).
+    The four pads are candidates of the one Atlas contact set and its one multi-contact task file, which every
+    scenario shares. That changed the other plans, not only their hashes: planner B caps the speed of every
+    candidate's pad and planner A solves on the MPC model of all seventeen, so the stairs, the box climb and the
+    get-up from the front were planned again and their tracking checked again (the user's choice, 2026-10-29, over a
+    contact set and a task file of the get-up from the back's own).
 
 ## References
 

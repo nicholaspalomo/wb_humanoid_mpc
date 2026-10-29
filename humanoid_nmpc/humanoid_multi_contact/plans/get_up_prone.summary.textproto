@@ -1,0 +1,4290 @@
+# proto-file: humanoid_nmpc/humanoid_multi_contact/plan/multi_contact_plan.proto
+# proto-message: humanoid_multi_contact.MultiContactPlan
+scenario: "get_up_prone"
+contact_set_hash: 12950719232766472735
+terrain_scene_hash: 9995745260341776878
+joint_names: "back_bkz"
+joint_names: "back_bky"
+joint_names: "back_bkx"
+joint_names: "l_arm_shz"
+joint_names: "l_arm_shx"
+joint_names: "l_arm_ely"
+joint_names: "l_arm_elx"
+joint_names: "l_arm_wry"
+joint_names: "l_arm_wrx"
+joint_names: "neck_ry"
+joint_names: "r_arm_shz"
+joint_names: "r_arm_shx"
+joint_names: "r_arm_ely"
+joint_names: "r_arm_elx"
+joint_names: "r_arm_wry"
+joint_names: "r_arm_wrx"
+joint_names: "l_leg_hpz"
+joint_names: "l_leg_hpx"
+joint_names: "l_leg_hpy"
+joint_names: "l_leg_kny"
+joint_names: "l_leg_aky"
+joint_names: "l_leg_akx"
+joint_names: "r_leg_hpz"
+joint_names: "r_leg_hpx"
+joint_names: "r_leg_hpy"
+joint_names: "r_leg_kny"
+joint_names: "r_leg_aky"
+joint_names: "r_leg_akx"
+phases {
+  contact: "knee_l_contact"
+  start_time: 0
+  end_time: 1.7431505135488568
+  primitive: "ground"
+  face: 4
+  target_pad_pose: [-0.17639897202942473, 0.11160456144329346, 0.002310863738251602, 0, 0, 1]
+}
+phases {
+  contact: "knee_r_contact"
+  start_time: 0
+  end_time: 23.682504089475543
+  primitive: "ground"
+  face: 4
+  target_pad_pose: [-0.17635714295287239, -0.11141837956911416, 0.0023111645035755815, 0, 0, 1]
+}
+phases {
+  contact: "hand_l_contact"
+  start_time: 0
+  end_time: 16.158159089276914
+  primitive: "ground"
+  face: 4
+  target_pad_pose: [0.46362045672158136, 0.33130747469942606, 3.780906543717627e-05, 0, 0, 1]
+}
+phases {
+  contact: "hand_r_contact"
+  start_time: 0
+  end_time: 67.360654257869712
+  primitive: "ground"
+  face: 4
+  target_pad_pose: [0.46363792722069325, -0.33088862099659505, 3.0724959554737086e-05, 0, 0, 1]
+}
+phases {
+  contact: "foot_l_contact"
+  start_time: 13.946146518279587
+  end_time: 78.595021420080329
+  primitive: "ground"
+  face: 4
+  target_pad_pose: [0.1000493830624555, 0.14997309993331781, 0, 0, 0, 1]
+}
+phases {
+  contact: "foot_r_contact"
+  start_time: 47.254719273089314
+  end_time: 78.595021420080329
+  primitive: "ground"
+  face: 4
+  target_pad_pose: [0.099947982180147971, -0.15003573902149372, 0, 0, 0, 1]
+}
+phases {
+  contact: "hand_l_contact"
+  start_time: 63.458806217100772
+  end_time: 65.058806217100781
+  primitive: "ground"
+  face: 4
+  target_pad_pose: [0.46359862033419169, 0.33125498822450933, 0, 0, 0, 1]
+}
+report {
+  passed: true
+  static_margin: 0.03
+  knots {
+    time: 0
+    active_contacts: "knee_l_contact"
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.085585013210232722, -4.3201380968337547e-05, 0.57911850691538891]
+    support_polygon {
+      x: -0.17639897202914395
+      y: 0.11160456139387785
+    }
+    support_polygon {
+      x: -0.17635714295228455
+      y: -0.11141837956864004
+    }
+    support_polygon {
+      x: 0.46363792722009139
+      y: -0.33088862099623528
+    }
+    support_polygon {
+      x: 0.46362045672098295
+      y: 0.33130747469906763
+    }
+    static_margin: 0.19032194232925617
+    torque_utilization: 0.1375189718233453
+    max_torque_joint: "back_bky"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 9.06613294336771e-12
+    max_active_contact_distance: 0.0023111645035756023
+    min_inactive_clearance: 0.12023787200070291
+    min_inactive_clearance_contact: "foot_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 60
+    min_sphere_clearance: 0.0012749716442158002
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 0.88316793288472939
+    active_contacts: "knee_l_contact"
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.11948453452314926, -0.00534672704861066, 0.585996684375497]
+    support_polygon {
+      x: -0.17639897202922944
+      y: 0.11160456140857593
+    }
+    support_polygon {
+      x: -0.1763571429524175
+      y: -0.1114183795686772
+    }
+    support_polygon {
+      x: 0.4636379272200713
+      y: -0.33088862099623129
+    }
+    support_polygon {
+      x: 0.46362045672097962
+      y: 0.33130747469906152
+    }
+    static_margin: 0.19630158134372286
+    torque_utilization: 0.081107425946566669
+    max_torque_joint: "back_bky"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 3.1968186667664693e-13
+    max_active_contact_distance: 0.0023111645036191231
+    min_inactive_clearance: 0.11568037958763044
+    min_inactive_clearance_contact: "foot_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 60
+    min_sphere_clearance: 0.0022654562621296451
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 1.3431505135488568
+    active_contacts: "knee_l_contact"
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.13051279604801766, -0.0095959612190646831, 0.587165172130733]
+    support_polygon {
+      x: -0.17639897202923277
+      y: 0.11160456141333279
+    }
+    support_polygon {
+      x: -0.17635714295251226
+      y: -0.1114183795687345
+    }
+    support_polygon {
+      x: 0.46363792722005365
+      y: -0.33088862099621047
+    }
+    support_polygon {
+      x: 0.46362045672096058
+      y: 0.3313074746990245
+    }
+    static_margin: 0.19585948495094896
+    torque_utilization: 0.070634297346913469
+    max_torque_joint: "back_bky"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 4.7418576690978224e-13
+    max_active_contact_distance: 0.0023111645036072437
+    min_inactive_clearance: 0.11568134999381019
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 60
+    min_sphere_clearance: 0.0022763898285740828
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 1.7431505135488568
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.13051279604801766, -0.0095959612190646831, 0.587165172130733]
+    support_polygon {
+      x: -0.17635714295269306
+      y: -0.1114183795691201
+    }
+    support_polygon {
+      x: 0.46363792700236195
+      y: -0.33088862082101989
+    }
+    support_polygon {
+      x: 0.46362045649090289
+      y: 0.33130747443631442
+    }
+    static_margin: 0.0908458286619185
+    torque_utilization: 0.16327092786065195
+    max_torque_joint: "l_arm_shx"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 1.8932583667176589e-10
+    max_active_contact_distance: 0.0023111645036072437
+    min_inactive_clearance: 0.0021309423336957553
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    transition_condition: true
+    passed: true
+    active_contact_mask: 56
+    min_sphere_clearance: 0.0022763898285740828
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 4.7463178373714232
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.13852590966275, -0.014226869413430239, 0.59418351056376439]
+    support_polygon {
+      x: -0.17635714295267152
+      y: -0.11141837956911982
+    }
+    support_polygon {
+      x: 0.46363792700401829
+      y: -0.33088862082501885
+    }
+    support_polygon {
+      x: 0.46362045649250655
+      y: 0.33130747443259717
+    }
+    static_margin: 0.0992130676702393
+    torque_utilization: 0.12095536498252947
+    max_torque_joint: "back_bkz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 9.31975355802026e-11
+    max_active_contact_distance: 0.0023111645036405504
+    min_inactive_clearance: 0.033703498928352608
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 56
+    min_sphere_clearance: 0.002279109100271454
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 5.72552423227805
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.14173254193673818, -0.019296486316341347, 0.59998992970146126]
+    support_polygon {
+      x: -0.17635714295266453
+      y: -0.11141837956909345
+    }
+    support_polygon {
+      x: 0.46363792700688466
+      y: -0.33088862083238879
+    }
+    support_polygon {
+      x: 0.4636204564950267
+      y: 0.33130747443010827
+    }
+    static_margin: 0.10520660216647425
+    torque_utilization: 0.090903984584517664
+    max_torque_joint: "r_arm_elx"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 7.773626136464625e-11
+    max_active_contact_distance: 0.0023111645036474338
+    min_inactive_clearance: 0.067813173255124426
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 56
+    min_sphere_clearance: 0.0022789819592369757
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 6.5201872613815564
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.14435569883784991, -0.044436169191856535, 0.60163100118280144]
+    support_polygon {
+      x: -0.17635714295247967
+      y: -0.11141837956890825
+    }
+    support_polygon {
+      x: 0.46363792700689482
+      y: -0.33088862083037446
+    }
+    support_polygon {
+      x: 0.46362045649508432
+      y: 0.33130747443301373
+    }
+    static_margin: 0.12737368749841854
+    torque_utilization: 0.1733673921222407
+    max_torque_joint: "l_arm_shx"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 5.9748983248869244e-11
+    max_active_contact_distance: 0.0023111645039307627
+    min_inactive_clearance: 0.095395491016972034
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 56
+    min_sphere_clearance: 0.0022654085451033149
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 7.2483432880795515
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.14890486299319136, -0.077110403553609277, 0.593313798524869]
+    support_polygon {
+      x: -0.17635714295268728
+      y: -0.11141837956912051
+    }
+    support_polygon {
+      x: 0.46363792700163092
+      y: -0.3308886208258604
+    }
+    support_polygon {
+      x: 0.46362045649184047
+      y: 0.3313074744386959
+    }
+    static_margin: 0.13796184883883769
+    torque_utilization: 0.35453660976008372
+    max_torque_joint: "l_arm_shx"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 1.5502667847734012e-10
+    max_active_contact_distance: 0.0023111645035828188
+    min_inactive_clearance: 0.11536000980516076
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 56
+    min_sphere_clearance: 0.0021932603825541245
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 7.36421244549243
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.15906699553465314, -0.08850829253474074, 0.59216589720208568]
+    support_polygon {
+      x: -0.17635714295269439
+      y: -0.11141837956911621
+    }
+    support_polygon {
+      x: 0.4636379270015234
+      y: -0.33088862082797915
+    }
+    support_polygon {
+      x: 0.46362045649237194
+      y: 0.33130747444126585
+    }
+    static_margin: 0.13047669560815589
+    torque_utilization: 0.41755425692080173
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 1.0857211367433655e-10
+    max_active_contact_distance: 0.0023111645035923667
+    min_inactive_clearance: 0.11575002294793579
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 56
+    min_sphere_clearance: 0.00223672737129626
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 7.8796379776474978
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.18337871282265741, -0.12799428119019146, 0.58026654247740217]
+    support_polygon {
+      x: -0.17635709938915461
+      y: -0.11141835018321392
+    }
+    support_polygon {
+      x: 0.4636379135844938
+      y: -0.33088868248742809
+    }
+    support_polygon {
+      x: 0.4636204442132289
+      y: 0.33130745844078019
+    }
+    static_margin: 0.10101214810561807
+    torque_utilization: 0.61018346135836676
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 1.8908581594399908e-10
+    max_active_contact_distance: 0.0023111829433090092
+    min_inactive_clearance: 0.11573010250330662
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 56
+    min_sphere_clearance: 0.0022564255306163853
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 7.9914135205111663
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.19986652903349367, -0.12896149077481095, 0.58007556956357975]
+    support_polygon {
+      x: -0.17635714295271004
+      y: -0.11141837956911052
+    }
+    support_polygon {
+      x: 0.4636379270036487
+      y: -0.33088862083398229
+    }
+    support_polygon {
+      x: 0.46362045649414807
+      y: 0.33130747443117653
+    }
+    static_margin: 0.10544557298140476
+    torque_utilization: 0.65776003459583787
+    max_torque_joint: "r_arm_elx"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 1.4867634817784471e-11
+    max_active_contact_distance: 0.0023111645035893691
+    min_inactive_clearance: 0.11567668405936682
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 56
+    min_sphere_clearance: 0.0022801633600912311
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 8.1045006091919838
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.21659758509160132, -0.13110227593957638, 0.57868785509049026]
+    support_polygon {
+      x: -0.17635707143539081
+      y: -0.11141832970978674
+    }
+    support_polygon {
+      x: 0.4636379296438965
+      y: -0.33088860130508529
+    }
+    support_polygon {
+      x: 0.46362044695844928
+      y: 0.33130745201923106
+    }
+    static_margin: 0.10884775408708432
+    torque_utilization: 0.71674711720634476
+    max_torque_joint: "r_arm_elx"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 5.8715422788937712e-11
+    max_active_contact_distance: 0.0023111914515534515
+    min_inactive_clearance: 0.1156811676486218
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 56
+    min_sphere_clearance: 0.0022768823848283107
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 8.2531743196285667
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.23405492624788554, -0.13468748574074493, 0.57558593118651635]
+    support_polygon {
+      x: -0.17635708896484559
+      y: -0.11141836437440825
+    }
+    support_polygon {
+      x: 0.46363795518672074
+      y: -0.33088860641857043
+    }
+    support_polygon {
+      x: 0.4636204726167153
+      y: 0.33130746715211462
+    }
+    static_margin: 0.11111926666791248
+    torque_utilization: 0.78136621958399866
+    max_torque_joint: "r_arm_elx"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 5.9067529403710562e-11
+    max_active_contact_distance: 0.0023111940790115915
+    min_inactive_clearance: 0.11568281753914023
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 56
+    min_sphere_clearance: 0.0022581567611222268
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 8.4638865972191475
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.25768161480140556, -0.14454771892162874, 0.56918262865193125]
+    support_polygon {
+      x: -0.17635714295263216
+      y: -0.11141837956906396
+    }
+    support_polygon {
+      x: 0.46363792700106943
+      y: -0.33088862084041304
+    }
+    support_polygon {
+      x: 0.463620456496057
+      y: 0.33130747442892422
+    }
+    static_margin: 0.10945630419683113
+    torque_utilization: 0.88811119343748113
+    max_torque_joint: "r_arm_ely"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 2.08558777158589e-10
+    max_active_contact_distance: 0.0023111645037712236
+    min_inactive_clearance: 0.11568287183110793
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 56
+    min_sphere_clearance: 0.0022083133949029558
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 8.6858980222382058
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.27817341746091423, -0.15687766084700425, 0.5603870699709822]
+    support_polygon {
+      x: -0.17635714295259708
+      y: -0.11141837956903061
+    }
+    support_polygon {
+      x: 0.46363792699766754
+      y: -0.33088862083689918
+    }
+    support_polygon {
+      x: 0.4636204564971752
+      y: 0.33130747442713132
+    }
+    static_margin: 0.10444025322906121
+    torque_utilization: 1.0073964795218378
+    max_torque_joint: "r_arm_elx"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 5.2446203063069138e-12
+    max_active_contact_distance: 0.0023111645037372508
+    min_inactive_clearance: 0.11568212320110605
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 56
+    min_sphere_clearance: 0.002126821400652729
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 8.9982499290468265
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.28443652777104084, -0.17592009652724644, 0.54718806866445735]
+    support_polygon {
+      x: -0.17635713736864961
+      y: -0.1114183595267712
+    }
+    support_polygon {
+      x: 0.46363793714332335
+      y: -0.33088861930749597
+    }
+    support_polygon {
+      x: 0.4636204468668822
+      y: 0.33130746445139636
+    }
+    static_margin: 0.088459141068018582
+    torque_utilization: 1.2293501536842091
+    max_torque_joint: "r_arm_elx"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 2.3531674601501878e-12
+    max_active_contact_distance: 0.0023111808504246989
+    min_inactive_clearance: 0.11576193123253664
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 56
+    min_sphere_clearance: 0.0020080113941086056
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 9.2417776088093415
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.29776606769993341, -0.19051141149628517, 0.53535529896722323]
+    support_polygon {
+      x: -0.17635714293326227
+      y: -0.11141837958873191
+    }
+    support_polygon {
+      x: 0.46363792701188766
+      y: -0.33088862082971121
+    }
+    support_polygon {
+      x: 0.46362045650630634
+      y: 0.33130747439357777
+    }
+    static_margin: 0.07898070110160571
+    torque_utilization: 1.3731089896866375
+    max_torque_joint: "r_arm_elx"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 1.7290484010486085e-11
+    max_active_contact_distance: 0.0023111645081375087
+    min_inactive_clearance: 0.11613240939575431
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 56
+    min_sphere_clearance: 0.0017479861064837957
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 9.44856623543553
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.29608615801744165, -0.19417290446418209, 0.53584157529084553]
+    support_polygon {
+      x: -0.17635714295248928
+      y: -0.11141837956922955
+    }
+    support_polygon {
+      x: 0.46363792700343315
+      y: -0.33088862082442028
+    }
+    support_polygon {
+      x: 0.46362045649633654
+      y: 0.33130747442371844
+    }
+    static_margin: 0.074972266756191147
+    torque_utilization: 1.3842545769879953
+    max_torque_joint: "r_arm_elx"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 6.7121093115096121e-12
+    max_active_contact_distance: 0.0023111645036562045
+    min_inactive_clearance: 0.11591684576999184
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 56
+    min_sphere_clearance: 0.0017581776520323947
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 9.6450151340754946
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.29592692462154951, -0.19645695478573813, 0.53607351742331566]
+    support_polygon {
+      x: -0.176357142952639
+      y: -0.11141837956916203
+    }
+    support_polygon {
+      x: 0.46363792700350248
+      y: -0.33088862082303044
+    }
+    support_polygon {
+      x: 0.4636204564945
+      y: 0.3313074744223285
+    }
+    static_margin: 0.072760071130253359
+    torque_utilization: 1.3769272357295186
+    max_torque_joint: "r_arm_elx"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 4.4233766805444634e-12
+    max_active_contact_distance: 0.002311164503748353
+    min_inactive_clearance: 0.11575322570261137
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 56
+    min_sphere_clearance: 0.0018002326181021881
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 9.9868618361873231
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.28693610598630814, -0.19988422826199395, 0.53706891225209707]
+    support_polygon {
+      x: -0.17635714295228827
+      y: -0.1114183795694953
+    }
+    support_polygon {
+      x: 0.46363792700253437
+      y: -0.33088862082017684
+    }
+    support_polygon {
+      x: 0.46362045649360767
+      y: 0.33130747442245051
+    }
+    static_margin: 0.066601666307545826
+    torque_utilization: 1.3686014023491075
+    max_torque_joint: "r_arm_elx"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 1.8218073373850671e-12
+    max_active_contact_distance: 0.0023111645038987882
+    min_inactive_clearance: 0.11601905294097692
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 56
+    min_sphere_clearance: 0.0016763508835957956
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 10.371096449293541
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.25437300301561577, -0.20198676772351737, 0.5406255609674474]
+    support_polygon {
+      x: -0.17635714295265209
+      y: -0.11141837956910255
+    }
+    support_polygon {
+      x: 0.46363792700046397
+      y: -0.33088862082075238
+    }
+    support_polygon {
+      x: 0.463620456492625
+      y: 0.33130747442537845
+    }
+    static_margin: 0.054049945255085205
+    torque_utilization: 1.3093904441442905
+    max_torque_joint: "r_arm_elx"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 3.7514543378038756e-13
+    max_active_contact_distance: 0.0023111645036008044
+    min_inactive_clearance: 0.082548878045761276
+    min_inactive_clearance_contact: "foot_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 56
+    min_sphere_clearance: 0.0011006638778694958
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 10.725550783858804
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.23924082366264557, -0.19575296779280041, 0.54497719485712115]
+    support_polygon {
+      x: -0.1763571291069933
+      y: -0.11141840529005599
+    }
+    support_polygon {
+      x: 0.46363793333071157
+      y: -0.33088857643972425
+    }
+    support_polygon {
+      x: 0.46362044724870177
+      y: 0.33130746879210121
+    }
+    static_margin: 0.055038038986772814
+    torque_utilization: 1.1406140936606375
+    max_torque_joint: "r_arm_elx"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 8.6616466100874026e-13
+    max_active_contact_distance: 0.0023111845491686767
+    min_inactive_clearance: 0.040846026880767994
+    min_inactive_clearance_contact: "foot_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 56
+    min_sphere_clearance: 0.0009922515665930446
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 11.088763417450362
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.22580226255740235, -0.18225715654018124, 0.55419657982862991]
+    support_polygon {
+      x: -0.1763571429526804
+      y: -0.11141837956912232
+    }
+    support_polygon {
+      x: 0.46363792700000728
+      y: -0.33088862081918174
+    }
+    support_polygon {
+      x: 0.46362045649186134
+      y: 0.3313074744204309
+    }
+    static_margin: 0.063444878522032691
+    torque_utilization: 0.9477787375237321
+    max_torque_joint: "r_arm_elx"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 4.8571599510480833e-13
+    max_active_contact_distance: 0.0023111645035880368
+    min_inactive_clearance: 0.012553302994055437
+    min_inactive_clearance_contact: "foot_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 56
+    min_sphere_clearance: 0.0014956325214073255
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 13.946146518279587
+    active_contacts: "foot_l_contact"
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.19392340373349845, -0.16208304130288539, 0.56720305393035164]
+    support_polygon {
+      x: -0.17635714294877419
+      y: -0.111418379566531
+    }
+    support_polygon {
+      x: 0.46363792721785896
+      y: -0.330888620993767
+    }
+    support_polygon {
+      x: 0.46362045667086738
+      y: 0.33130747467312605
+    }
+    support_polygon {
+      x: 0.029372448974502585
+      y: 0.26146198270280219
+    }
+    static_margin: 0.07218718694731853
+    torque_utilization: 0.55255011496780748
+    max_torque_joint: "r_arm_elx"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 2.5391224747997389e-11
+    max_active_contact_distance: 0.0023111645035873707
+    min_inactive_clearance: 0.12002455457183869
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    transition_condition: true
+    passed: true
+    active_contact_mask: 57
+    min_sphere_clearance: 0.00072043766839352021
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 14.346146518279587
+    active_contacts: "foot_l_contact"
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.19392340373349845, -0.16208304130288539, 0.56720305393035164]
+    support_polygon {
+      x: -0.17635714294877419
+      y: -0.111418379566531
+    }
+    support_polygon {
+      x: 0.46363792721785896
+      y: -0.330888620993767
+    }
+    support_polygon {
+      x: 0.46362045667086738
+      y: 0.33130747467312605
+    }
+    support_polygon {
+      x: 0.029372448974502585
+      y: 0.26146198270280219
+    }
+    static_margin: 0.07218718694731853
+    torque_utilization: 0.55255011496780748
+    max_torque_joint: "r_arm_elx"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 2.2274830939175466e-12
+    max_active_contact_distance: 0.0023111645035873707
+    min_inactive_clearance: 0.12002455457183869
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 57
+    min_sphere_clearance: 0.00072043766839352021
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 14.447544728895542
+    active_contacts: "foot_l_contact"
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.19392484068623309, -0.16187375855350938, 0.56730393984112171]
+    support_polygon {
+      x: -0.17635714294876953
+      y: -0.11141837956652918
+    }
+    support_polygon {
+      x: 0.46363792721785896
+      y: -0.33088862099376692
+    }
+    support_polygon {
+      x: 0.463620456670866
+      y: 0.33130747467312538
+    }
+    support_polygon {
+      x: 0.029372448974502086
+      y: 0.26146198270280252
+    }
+    static_margin: 0.072385619121583492
+    torque_utilization: 0.55129972477009415
+    max_torque_joint: "r_arm_elx"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 2.5209087498773785e-11
+    max_active_contact_distance: 0.0023111645035869266
+    min_inactive_clearance: 0.11995517393973132
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 57
+    min_sphere_clearance: 0.00073360470364141651
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 15.758159089276914
+    active_contacts: "foot_l_contact"
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.2015534817861861, -0.11552057017126509, 0.58857365312326249]
+    support_polygon {
+      x: -0.17635714294843874
+      y: -0.11141837956649223
+    }
+    support_polygon {
+      x: 0.46363792721784874
+      y: -0.33088862099379751
+    }
+    support_polygon {
+      x: 0.46362045667038448
+      y: 0.33130747467283334
+    }
+    support_polygon {
+      x: 0.029372448974499255
+      y: 0.26146198270280574
+    }
+    static_margin: 0.11870690963614178
+    torque_utilization: 0.32180390641154577
+    max_torque_joint: "r_arm_elx"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 5.6372863871118669e-12
+    max_active_contact_distance: 0.0023111645035928108
+    min_inactive_clearance: 0.1156774921924002
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 57
+    min_sphere_clearance: 0.002239650508646435
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 16.158159089276914
+    active_contacts: "foot_l_contact"
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.2015534817861861, -0.11552057017126509, 0.58857365312326249]
+    support_polygon {
+      x: -0.176357142950324
+      y: -0.11141837956755432
+    }
+    support_polygon {
+      x: 0.46363792720418462
+      y: -0.3308886209726421
+    }
+    support_polygon {
+      x: 0.23064355110501256
+      y: 0.13073347229342736
+    }
+    support_polygon {
+      x: 0.029372448943255122
+      y: 0.26146198266107973
+    }
+    static_margin: 0.11870690962863893
+    torque_utilization: 0.51133500534225651
+    max_torque_joint: "r_arm_elx"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 5.7986278805109994e-12
+    max_active_contact_distance: 0.0023111645035928108
+    min_inactive_clearance: -0.0034429490193230369
+    min_inactive_clearance_contact: "hand_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    transition_condition: true
+    passed: true
+    active_contact_mask: 41
+    min_sphere_clearance: 0.002239650508646435
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 17.295213182390878
+    active_contacts: "foot_l_contact"
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.19886712630280209, -0.11589979021361899, 0.59868811154332824]
+    support_polygon {
+      x: -0.1763571429503141
+      y: -0.1114183795675768
+    }
+    support_polygon {
+      x: 0.4636379272042257
+      y: -0.33088862097263427
+    }
+    support_polygon {
+      x: 0.23064355110500778
+      y: 0.13073347229341611
+    }
+    support_polygon {
+      x: 0.029372448943242979
+      y: 0.26146198266103893
+    }
+    static_margin: 0.11747679094593404
+    torque_utilization: 0.48038500027370329
+    max_torque_joint: "r_arm_elx"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 5.5655617129854627e-12
+    max_active_contact_distance: 0.0023111645035911454
+    min_inactive_clearance: 0.020403229614266029
+    min_inactive_clearance_contact: "hand_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 41
+    min_sphere_clearance: 0.0022620614670056331
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 17.816191614003813
+    active_contacts: "foot_l_contact"
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.19535107154893186, -0.11429972255259743, 0.60929708202003585]
+    support_polygon {
+      x: -0.17635714295040231
+      y: -0.11141837956753567
+    }
+    support_polygon {
+      x: 0.46363792720425423
+      y: -0.33088862097270783
+    }
+    support_polygon {
+      x: 0.23064355110501408
+      y: 0.13073347229342658
+    }
+    support_polygon {
+      x: 0.02937244894328081
+      y: 0.26146198266117815
+    }
+    static_margin: 0.11784979328790933
+    torque_utilization: 0.42990908182722143
+    max_torque_joint: "r_arm_elx"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 5.3508883151644294e-12
+    max_active_contact_distance: 0.0023111645035959194
+    min_inactive_clearance: 0.04479561398087898
+    min_inactive_clearance_contact: "hand_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 41
+    min_sphere_clearance: 0.0022753485692524281
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 18.236110277915166
+    active_contacts: "foot_l_contact"
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.19462919339520837, -0.10673564166315608, 0.62180546680440951]
+    support_polygon {
+      x: -0.17635714294958563
+      y: -0.11141837956767923
+    }
+    support_polygon {
+      x: 0.46363792720477415
+      y: -0.33088862097272542
+    }
+    support_polygon {
+      x: 0.23064355110726192
+      y: 0.130733472294927
+    }
+    support_polygon {
+      x: 0.029372448945767279
+      y: 0.26146198266312903
+    }
+    static_margin: 0.12477069216420494
+    torque_utilization: 0.34563123344858326
+    max_torque_joint: "r_arm_elx"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 4.3509670458394923e-12
+    max_active_contact_distance: 0.002311164503504104
+    min_inactive_clearance: 0.095882189830288317
+    min_inactive_clearance_contact: "hand_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 41
+    min_sphere_clearance: 0.0022795114593450686
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 18.701100941177778
+    active_contacts: "foot_l_contact"
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.196098054116511, -0.098247754679131452, 0.631502671981344]
+    support_polygon {
+      x: -0.17635714295119909
+      y: -0.11141837956784194
+    }
+    support_polygon {
+      x: 0.46363792720428976
+      y: -0.33088862097276095
+    }
+    support_polygon {
+      x: 0.23064355110501317
+      y: 0.13073347229342624
+    }
+    support_polygon {
+      x: 0.029372448943266405
+      y: 0.26146198266112186
+    }
+    static_margin: 0.13327607904067537
+    torque_utilization: 0.28538963307951859
+    max_torque_joint: "back_bkz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 3.5264439638016736e-12
+    max_active_contact_distance: 0.0023111645035946982
+    min_inactive_clearance: 0.115682507896126
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 41
+    min_sphere_clearance: 0.0022812547725757307
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 19.099947563199287
+    active_contacts: "foot_l_contact"
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.19791509569343166, -0.092645043771735561, 0.63650754120234188]
+    support_polygon {
+      x: -0.17635714295065072
+      y: -0.11141837956760609
+    }
+    support_polygon {
+      x: 0.46363792720430186
+      y: -0.3308886209727846
+    }
+    support_polygon {
+      x: 0.23064355110502352
+      y: 0.13073347229342491
+    }
+    support_polygon {
+      x: 0.029372448943250515
+      y: 0.26146198266101228
+    }
+    static_margin: 0.12986947722907619
+    torque_utilization: 0.28390236065461172
+    max_torque_joint: "back_bkz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 3.2298973769128434e-12
+    max_active_contact_distance: 0.0023111645036353323
+    min_inactive_clearance: 0.11568258172245915
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 41
+    min_sphere_clearance: 0.0022815557043665505
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 19.468073534972522
+    active_contacts: "foot_l_contact"
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.200045158514309, -0.085798337087839724, 0.63751993352480485]
+    support_polygon {
+      x: -0.17635714295025556
+      y: -0.11141837956754519
+    }
+    support_polygon {
+      x: 0.46363792720051034
+      y: -0.33088862097387972
+    }
+    support_polygon {
+      x: 0.23064355110502005
+      y: 0.13073347229330989
+    }
+    support_polygon {
+      x: 0.029372448943240911
+      y: 0.26146198266085069
+    }
+    static_margin: 0.12488285644797391
+    torque_utilization: 0.30614318367085946
+    max_torque_joint: "back_bkx"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 3.391535107160875e-12
+    max_active_contact_distance: 0.0023111645036930639
+    min_inactive_clearance: 0.1156833165568204
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 41
+    min_sphere_clearance: 0.0022819808147408974
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 19.820981599689755
+    active_contacts: "foot_l_contact"
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.19750555104181527, -0.068132670429193187, 0.63644820945786473]
+    support_polygon {
+      x: -0.17635714295025035
+      y: -0.11141837956753349
+    }
+    support_polygon {
+      x: 0.46363792720422076
+      y: -0.3308886209726678
+    }
+    support_polygon {
+      x: 0.23064355110502582
+      y: 0.13073347229343385
+    }
+    support_polygon {
+      x: 0.029372448943227311
+      y: 0.26146198266091331
+    }
+    static_margin: 0.11919010259154136
+    torque_utilization: 0.34853402822561191
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 3.7023184212268421e-12
+    max_active_contact_distance: 0.0023111645036892892
+    min_inactive_clearance: 0.1156817821989875
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 41
+    min_sphere_clearance: 0.0022821360151890572
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 20.091352963667344
+    active_contacts: "foot_l_contact"
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.19351242577103936, -0.050090008077334637, 0.63423945758769751]
+    support_polygon {
+      x: -0.17635714295034835
+      y: -0.11141837956762077
+    }
+    support_polygon {
+      x: 0.46363792720418862
+      y: -0.33088862097263405
+    }
+    support_polygon {
+      x: 0.23064355110502
+      y: 0.13073347229342397
+    }
+    support_polygon {
+      x: 0.029372448943218735
+      y: 0.26146198266089615
+    }
+    static_margin: 0.1146250805605299
+    torque_utilization: 0.36162817865610847
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 2.7313076658231737e-12
+    max_active_contact_distance: 0.0023111645036174577
+    min_inactive_clearance: 0.11567975701827837
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 41
+    min_sphere_clearance: 0.0022812071074649835
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 20.217412408356829
+    active_contacts: "foot_l_contact"
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.19194334171241931, -0.037377911110845492, 0.63289389234351479]
+    support_polygon {
+      x: -0.17635714295052085
+      y: -0.11141837956773128
+    }
+    support_polygon {
+      x: 0.46363792720407176
+      y: -0.33088862097259863
+    }
+    support_polygon {
+      x: 0.23064355110501261
+      y: 0.13073347229342824
+    }
+    support_polygon {
+      x: 0.02937244894321607
+      y: 0.26146198266091869
+    }
+    static_margin: 0.11029792997553
+    torque_utilization: 0.35539189059391257
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 6.8925435705295675e-12
+    max_active_contact_distance: 0.00231116450356339
+    min_inactive_clearance: 0.11568017183974888
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 41
+    min_sphere_clearance: 0.0022814432446603364
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 20.30501985216852
+    active_contacts: "foot_l_contact"
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.19136330602844323, -0.030783742628470549, 0.632003559533038]
+    support_polygon {
+      x: -0.17635714295053942
+      y: -0.11141837956769939
+    }
+    support_polygon {
+      x: 0.46363792720246222
+      y: -0.33088862097225569
+    }
+    support_polygon {
+      x: 0.23064355110502432
+      y: 0.13073347229343507
+    }
+    support_polygon {
+      x: 0.029372448943238871
+      y: 0.26146198266095588
+    }
+    static_margin: 0.1078444912683079
+    torque_utilization: 0.35596475670598787
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 8.1746142189386786e-12
+    max_active_contact_distance: 0.00231116450347546
+    min_inactive_clearance: 0.11567959725012744
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 41
+    min_sphere_clearance: 0.0022810895279068936
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 20.395353081035132
+    active_contacts: "foot_l_contact"
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.19675447920009315, -0.031496950015426059, 0.63131375417006785]
+    support_polygon {
+      x: -0.17635714295052995
+      y: -0.11141837956773472
+    }
+    support_polygon {
+      x: 0.4636379272041864
+      y: -0.33088862097262917
+    }
+    support_polygon {
+      x: 0.23064355110501933
+      y: 0.1307334722934268
+    }
+    support_polygon {
+      x: 0.029372448943227131
+      y: 0.26146198266093623
+    }
+    static_margin: 0.10335298202880633
+    torque_utilization: 0.35728991825497891
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 3.1177513342956728e-11
+    max_active_contact_distance: 0.0023111645036193451
+    min_inactive_clearance: 0.11567903619877029
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 41
+    min_sphere_clearance: 0.0022796376922842813
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 20.45811969299665
+    active_contacts: "foot_l_contact"
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.19983066481529208, -0.031397608100561573, 0.63118412376126176]
+    support_polygon {
+      x: -0.17635714295049532
+      y: -0.11141837956770494
+    }
+    support_polygon {
+      x: 0.46363792720419295
+      y: -0.33088862097264665
+    }
+    support_polygon {
+      x: 0.23064355110501961
+      y: 0.13073347229342513
+    }
+    support_polygon {
+      x: 0.029372448943228796
+      y: 0.26146198266094023
+    }
+    static_margin: 0.10056201077542896
+    torque_utilization: 0.3534631782352583
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 4.0662894489228757e-12
+    max_active_contact_distance: 0.0023111645036222317
+    min_inactive_clearance: 0.1156807134019151
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 41
+    min_sphere_clearance: 0.0022797956504390596
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 20.49214041340743
+    active_contacts: "foot_l_contact"
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.20148135766476771, -0.031637022962571218, 0.63113574652404969]
+    support_polygon {
+      x: -0.17635714295048613
+      y: -0.1114183795676964
+    }
+    support_polygon {
+      x: 0.46363792720419694
+      y: -0.33088862097265126
+    }
+    support_polygon {
+      x: 0.23064355110501966
+      y: 0.13073347229342513
+    }
+    support_polygon {
+      x: 0.029372448943229476
+      y: 0.26146198266094289
+    }
+    static_margin: 0.099196262185137163
+    torque_utilization: 0.35247997939222087
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 9.5157657130710249e-11
+    max_active_contact_distance: 0.002311164503618568
+    min_inactive_clearance: 0.1156810906239879
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 41
+    min_sphere_clearance: 0.0022794433363482695
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 20.506240709133543
+    active_contacts: "foot_l_contact"
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.20226389447417148, -0.032046994972676233, 0.63113907814564318]
+    support_polygon {
+      x: -0.17635714295048402
+      y: -0.11141837956769531
+    }
+    support_polygon {
+      x: 0.46363792720419839
+      y: -0.33088862097265176
+    }
+    support_polygon {
+      x: 0.2306435511050198
+      y: 0.13073347229342533
+    }
+    support_polygon {
+      x: 0.029372448943229629
+      y: 0.26146198266094367
+    }
+    static_margin: 0.098682395216275046
+    torque_utilization: 0.353471975848954
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 6.3647182355032972e-12
+    max_active_contact_distance: 0.0023111645036195672
+    min_inactive_clearance: 0.1156808691291874
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 41
+    min_sphere_clearance: 0.0022789974851114506
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 23.282504089475545
+    active_contacts: "foot_l_contact"
+    active_contacts: "knee_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.18700731848231009, 0.020190342217711498, 0.63962740535295481]
+    support_polygon {
+      x: -0.176357142950526
+      y: -0.11141837956774854
+    }
+    support_polygon {
+      x: 0.46363792720414632
+      y: -0.3308886209725912
+    }
+    support_polygon {
+      x: 0.23064355110500023
+      y: 0.130733472293431
+    }
+    support_polygon {
+      x: 0.029372448943205606
+      y: 0.26146198266092818
+    }
+    static_margin: 0.088764894858048685
+    torque_utilization: 0.34577126808215936
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 1.6794030461122524e-12
+    max_active_contact_distance: 0.0023111645036283379
+    min_inactive_clearance: 0.1156803691431123
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 41
+    min_sphere_clearance: 0.0022811105593332718
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 23.682504089475543
+    active_contacts: "foot_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.18700731848231009, 0.020190342217711498, 0.63962740535295481]
+    support_polygon {
+      x: -0.030544784986115625
+      y: 0.16921272757272438
+    }
+    support_polygon {
+      x: 0.46363792677464211
+      y: -0.33088862044515327
+    }
+    support_polygon {
+      x: 0.23064355111100854
+      y: 0.1307334722939173
+    }
+    support_polygon {
+      x: 0.029372448961094977
+      y: 0.26146198272281318
+    }
+    static_margin: 0.049999915853381371
+    torque_utilization: 0.35844394055342804
+    max_torque_joint: "r_arm_shx"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 6.8571256649415728e-13
+    max_active_contact_distance: 3.0724959565242571e-05
+    min_inactive_clearance: 0.0021293276823815474
+    min_inactive_clearance_contact: "knee_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    transition_condition: true
+    passed: true
+    active_contact_mask: 33
+    min_sphere_clearance: 0.0022811105593332718
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 28.167432602926759
+    active_contacts: "foot_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.19945941315880525, 0.020597706531588208, 0.6515528946737954]
+    support_polygon {
+      x: -0.030544784986106022
+      y: 0.16921272757272071
+    }
+    support_polygon {
+      x: 0.46363792677458271
+      y: -0.33088862044507172
+    }
+    support_polygon {
+      x: 0.2306435511110182
+      y: 0.13073347229391602
+    }
+    support_polygon {
+      x: 0.029372448961103415
+      y: 0.26146198272281029
+    }
+    static_margin: 0.059143462796004839
+    torque_utilization: 0.36800533464355067
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 1.2110074006863755e-12
+    max_active_contact_distance: 3.0724959555583631e-05
+    min_inactive_clearance: 0.036497587369988808
+    min_inactive_clearance_contact: "knee_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 33
+    min_sphere_clearance: 0.024812556706178379
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 29.549705770478763
+    active_contacts: "foot_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.20629895456411987, 0.020831996662605733, 0.66107167463610139]
+    support_polygon {
+      x: -0.030544784986105467
+      y: 0.16921272757271519
+    }
+    support_polygon {
+      x: 0.46363792677435461
+      y: -0.33088862044480094
+    }
+    support_polygon {
+      x: 0.2306435511110187
+      y: 0.13073347229390803
+    }
+    support_polygon {
+      x: 0.029372448961105191
+      y: 0.26146198272280374
+    }
+    static_margin: 0.064173130540913823
+    torque_utilization: 0.38389225803750604
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 1.0112953740466878e-12
+    max_active_contact_distance: 3.07249595877801e-05
+    min_inactive_clearance: 0.0717000944408765
+    min_inactive_clearance_contact: "knee_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 33
+    min_sphere_clearance: 0.054259601567129445
+    min_sphere_clearance_link: "r_uleg"
+    collision_free: true
+  }
+  knots {
+    time: 30.592061557880747
+    active_contacts: "foot_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.21534548453421412, 0.012874160698937931, 0.67552529224483848]
+    support_polygon {
+      x: -0.030544784986089035
+      y: 0.16921272757271338
+    }
+    support_polygon {
+      x: 0.46363792677383964
+      y: -0.33088862044420136
+    }
+    support_polygon {
+      x: 0.23064355111103568
+      y: 0.13073347229390725
+    }
+    support_polygon {
+      x: 0.029372448961121456
+      y: 0.26146198272280263
+    }
+    static_margin: 0.065014512767772939
+    torque_utilization: 0.40929456207888271
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 1.8252771655728294e-12
+    max_active_contact_distance: 3.0724959569128352e-05
+    min_inactive_clearance: 0.10695966652326777
+    min_inactive_clearance_contact: "knee_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 33
+    min_sphere_clearance: 0.059286814969354777
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 31.473848501730728
+    active_contacts: "foot_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.2243465363512907, 0.0038759107842858288, 0.68903324121267828]
+    support_polygon {
+      x: -0.03054478498599833
+      y: 0.16921272757271222
+    }
+    support_polygon {
+      x: 0.46363792677328697
+      y: -0.33088862044367462
+    }
+    support_polygon {
+      x: 0.23064355111112508
+      y: 0.13073347229389809
+    }
+    support_polygon {
+      x: 0.029372448961214714
+      y: 0.26146198272279952
+    }
+    static_margin: 0.062782076508470078
+    torque_utilization: 0.43068742811015653
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 7.581418920986945e-12
+    max_active_contact_distance: 3.0724959605765712e-05
+    min_inactive_clearance: 0.1430772030145821
+    min_inactive_clearance_contact: "knee_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 33
+    min_sphere_clearance: 0.061292529579605119
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 32.271310503234346
+    active_contacts: "foot_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.23173316284736056, -0.0047927224349491636, 0.70185928228836747]
+    support_polygon {
+      x: -0.030544784985673534
+      y: 0.16921272757279521
+    }
+    support_polygon {
+      x: 0.46363792677272286
+      y: -0.33088862044339573
+    }
+    support_polygon {
+      x: 0.23064355111144683
+      y: 0.13073347229396093
+    }
+    support_polygon {
+      x: 0.029372448961546949
+      y: 0.26146198272287813
+    }
+    static_margin: 0.060093784140298361
+    torque_utilization: 0.44369149864604968
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 1.1686777756544023e-10
+    max_active_contact_distance: 3.0724959947936448e-05
+    min_inactive_clearance: 0.17907277514043579
+    min_inactive_clearance_contact: "knee_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 33
+    min_sphere_clearance: 0.063449238243035555
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 33.143146981677639
+    active_contacts: "foot_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.24963397621957512, -0.043186286110211622, 0.70497698447035351]
+    support_polygon {
+      x: -0.030544784986107132
+      y: 0.16921272757272049
+    }
+    support_polygon {
+      x: 0.46363792677427146
+      y: -0.33088862044464451
+    }
+    support_polygon {
+      x: 0.2306435511110172
+      y: 0.13073347229391552
+    }
+    support_polygon {
+      x: 0.029372448961102526
+      y: 0.26146198272281
+    }
+    static_margin: 0.049999975458307519
+    torque_utilization: 0.44869756076762612
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 2.4188520381595291e-11
+    max_active_contact_distance: 3.0724959559691456e-05
+    min_inactive_clearance: 0.18161632698335956
+    min_inactive_clearance_contact: "knee_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 33
+    min_sphere_clearance: 0.058676268281235892
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 33.9746011233103
+    active_contacts: "foot_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.27576546481789921, -0.069630845226581264, 0.72661784038678578]
+    support_polygon {
+      x: -0.030544784986101914
+      y: 0.16921272757272338
+    }
+    support_polygon {
+      x: 0.46363792677282378
+      y: -0.3308886204429568
+    }
+    support_polygon {
+      x: 0.23064355111102128
+      y: 0.13073347229390875
+    }
+    support_polygon {
+      x: 0.029372448961111242
+      y: 0.26146198272281079
+    }
+    static_margin: 0.04999990254774199
+    torque_utilization: 0.547057179926597
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 3.5841600931223644e-12
+    max_active_contact_distance: 3.072495962208599e-05
+    min_inactive_clearance: 0.22752037126698993
+    min_inactive_clearance_contact: "knee_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 33
+    min_sphere_clearance: 0.059479792454877826
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 34.758687263651986
+    active_contacts: "foot_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.27576546167731469, -0.069630795340260829, 0.771061140776819]
+    support_polygon {
+      x: -0.030544784986105022
+      y: 0.16921272757271985
+    }
+    support_polygon {
+      x: 0.46363792677522586
+      y: -0.33088862044580458
+    }
+    support_polygon {
+      x: 0.23064355111101911
+      y: 0.13073347229391125
+    }
+    support_polygon {
+      x: 0.029372448961106412
+      y: 0.26146198272280863
+    }
+    static_margin: 0.049999935378350735
+    torque_utilization: 0.61167636504696088
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 3.4766581195757756e-12
+    max_active_contact_distance: 3.0724959599881529e-05
+    min_inactive_clearance: 0.25129962184237603
+    min_inactive_clearance_contact: "forearm_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 33
+    min_sphere_clearance: 0.067192626728028892
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 35.404993809364193
+    active_contacts: "foot_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.275765459657847, -0.069630696913674087, 0.79555845531162472]
+    support_polygon {
+      x: -0.030544784986107909
+      y: 0.16921272757272132
+    }
+    support_polygon {
+      x: 0.46363792677467369
+      y: -0.33088862044519213
+    }
+    support_polygon {
+      x: 0.23064355111101673
+      y: 0.13073347229391635
+    }
+    support_polygon {
+      x: 0.029372448961102138
+      y: 0.26146198272281113
+    }
+    static_margin: 0.049999980801925713
+    torque_utilization: 0.62255074822475642
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 3.27832189055187e-12
+    max_active_contact_distance: 3.0724959585337608e-05
+    min_inactive_clearance: 0.249118754350957
+    min_inactive_clearance_contact: "forearm_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 33
+    min_sphere_clearance: 0.072894979604491372
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 35.983590984513455
+    active_contacts: "foot_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.27576539465381089, -0.069630671945947839, 0.79513144228834765]
+    support_polygon {
+      x: -0.030544784986107354
+      y: 0.16921272757271733
+    }
+    support_polygon {
+      x: 0.4636379267745524
+      y: -0.33088862044503231
+    }
+    support_polygon {
+      x: 0.23064355111101709
+      y: 0.13073347229391238
+    }
+    support_polygon {
+      x: 0.029372448961102415
+      y: 0.26146198272280718
+    }
+    static_margin: 0.049999974436306376
+    torque_utilization: 0.56892457997694179
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 5.513312654631423e-12
+    max_active_contact_distance: 3.0724959559025322e-05
+    min_inactive_clearance: 0.24780422681162587
+    min_inactive_clearance_contact: "forearm_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 33
+    min_sphere_clearance: 0.074455404904710976
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 36.826826466510269
+    active_contacts: "foot_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.27576557546993397, -0.069630906754134525, 0.77934610471553134]
+    support_polygon {
+      x: -0.030544784986105855
+      y: 0.16921272757272418
+    }
+    support_polygon {
+      x: 0.46363792677253468
+      y: -0.33088862044260381
+    }
+    support_polygon {
+      x: 0.23064355111101717
+      y: 0.13073347229391044
+    }
+    support_polygon {
+      x: 0.029372448961106912
+      y: 0.26146198272281185
+    }
+    static_margin: 0.049999938008078108
+    torque_utilization: 0.40295418902603325
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 1.4462039143481316e-11
+    max_active_contact_distance: 3.0724959566463816e-05
+    min_inactive_clearance: 0.24566236276117939
+    min_inactive_clearance_contact: "forearm_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 33
+    min_sphere_clearance: 0.072606755758471919
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 37.369525632846852
+    active_contacts: "foot_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.27576558808801138, -0.069630870510603127, 0.76424456450799316]
+    support_polygon {
+      x: -0.030544784986101248
+      y: 0.16921272757271535
+    }
+    support_polygon {
+      x: 0.46363792677207183
+      y: -0.3308886204420024
+    }
+    support_polygon {
+      x: 0.23064355111102197
+      y: 0.13073347229390037
+    }
+    support_polygon {
+      x: 0.029372448961112185
+      y: 0.26146198272280274
+    }
+    static_margin: 0.049999944368623629
+    torque_utilization: 0.27010844641923709
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 9.850137327291062e-12
+    max_active_contact_distance: 3.0724959550920694e-05
+    min_inactive_clearance: 0.24416204831880187
+    min_inactive_clearance_contact: "forearm_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 33
+    min_sphere_clearance: 0.069914667182133516
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 37.674878110303965
+    active_contacts: "foot_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.2757670331408944, -0.06963232309430728, 0.76202855348534337]
+    support_polygon {
+      x: -0.030544784985944651
+      y: 0.16921272757264313
+    }
+    support_polygon {
+      x: 0.46363792676692972
+      y: -0.33088862043454392
+    }
+    support_polygon {
+      x: 0.23064355111111257
+      y: 0.13073347229338014
+    }
+    support_polygon {
+      x: 0.029372448961427267
+      y: 0.26146198272262755
+    }
+    static_margin: 0.04999930884048219
+    torque_utilization: 0.26990708838963279
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 3.3157155250284753e-12
+    max_active_contact_distance: 3.0724961782579996e-05
+    min_inactive_clearance: 0.24454421715582633
+    min_inactive_clearance_contact: "forearm_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 33
+    min_sphere_clearance: 0.069035393397094358
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 38.346349507082209
+    active_contacts: "foot_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.27576584427578765, -0.069631194547116637, 0.75303818075978091]
+    support_polygon {
+      x: -0.030544784986064166
+      y: 0.16921272757267491
+    }
+    support_polygon {
+      x: 0.46363792677267068
+      y: -0.33088862044266809
+    }
+    support_polygon {
+      x: 0.23064355111105264
+      y: 0.13073347229381849
+    }
+    support_polygon {
+      x: 0.029372448961163977
+      y: 0.261461982722753
+    }
+    static_margin: 0.049999861668770386
+    torque_utilization: 0.30645580439028081
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 3.4492179468457609e-12
+    max_active_contact_distance: 3.0724959433792165e-05
+    min_inactive_clearance: 0.23270651571748768
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 33
+    min_sphere_clearance: 0.066587626330807337
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 39.24806142460352
+    active_contacts: "foot_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.27576525023374321, -0.069630566732948734, 0.74088585688378894]
+    support_polygon {
+      x: -0.030544784986112961
+      y: 0.16921272757271622
+    }
+    support_polygon {
+      x: 0.46363792677383286
+      y: -0.33088862044411965
+    }
+    support_polygon {
+      x: 0.23064355111101131
+      y: 0.13073347229391089
+    }
+    support_polygon {
+      x: 0.029372448961096864
+      y: 0.26146198272280552
+    }
+    static_margin: 0.049999945662415925
+    torque_utilization: 0.35923779332176481
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 3.4993165601414109e-12
+    max_active_contact_distance: 3.0724959558359188e-05
+    min_inactive_clearance: 0.18898865158361544
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 33
+    min_sphere_clearance: 0.063241841201823579
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 40.196330027404159
+    active_contacts: "foot_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.26782151292572848, -0.061591756692723605, 0.72656148766381012]
+    support_polygon {
+      x: -0.030544784986125284
+      y: 0.16921272757271741
+    }
+    support_polygon {
+      x: 0.46363792677423776
+      y: -0.33088862044463574
+    }
+    support_polygon {
+      x: 0.23064355111099955
+      y: 0.13073347229391485
+    }
+    support_polygon {
+      x: 0.029372448961083542
+      y: 0.26146198272280741
+    }
+    static_margin: 0.049999899023176669
+    torque_utilization: 0.40866058174864683
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 2.10916207441976e-12
+    max_active_contact_distance: 3.0724959607875135e-05
+    min_inactive_clearance: 0.14851391700277472
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 33
+    min_sphere_clearance: 0.060299188013767928
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 41.13050046910368
+    active_contacts: "foot_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.25769662248353037, -0.039853699512278011, 0.70703324693925074]
+    support_polygon {
+      x: -0.03054478498610963
+      y: 0.16921272757271688
+    }
+    support_polygon {
+      x: 0.46363792677397087
+      y: -0.33088862044428591
+    }
+    support_polygon {
+      x: 0.23064355111101492
+      y: 0.13073347229391244
+    }
+    support_polygon {
+      x: 0.02937244896110025
+      y: 0.26146198272280641
+    }
+    static_margin: 0.05271344157855596
+    torque_utilization: 0.43284777775303052
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 2.1797263429923293e-10
+    max_active_contact_distance: 3.0724959560690657e-05
+    min_inactive_clearance: 0.11081587185332242
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 33
+    min_sphere_clearance: 0.0575942985961349
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 42.685943595928762
+    active_contacts: "foot_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.24852595647235917, -0.01566227561104537, 0.68770955276715384]
+    support_polygon {
+      x: -0.030544784986109297
+      y: 0.16921272757272149
+    }
+    support_polygon {
+      x: 0.46363792677369486
+      y: -0.33088862044394807
+    }
+    support_polygon {
+      x: 0.23064355111101553
+      y: 0.13073347229391713
+    }
+    support_polygon {
+      x: 0.029372448961100639
+      y: 0.26146198272281079
+    }
+    static_margin: 0.050000015300136876
+    torque_utilization: 0.42892697670663577
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 5.9401476957594963e-11
+    max_active_contact_distance: 3.0724959559358389e-05
+    min_inactive_clearance: 0.05602390204248997
+    min_inactive_clearance_contact: "foot_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 33
+    min_sphere_clearance: 0.05158150549081976
+    min_sphere_clearance_link: "r_foot"
+    collision_free: true
+  }
+  knots {
+    time: 47.254719273089314
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.25370630674050043, -0.025925985134436398, 0.690072885956834]
+    support_polygon {
+      x: -0.030544784984765982
+      y: 0.16921272756858757
+    }
+    support_polygon {
+      x: -0.00037848821227923213
+      y: -0.064247632225823109
+    }
+    support_polygon {
+      x: 0.1004536118461288
+      y: -0.28203855847433479
+    }
+    support_polygon {
+      x: 0.46363792703161755
+      y: -0.33088862121816581
+    }
+    support_polygon {
+      x: 0.23064355111381762
+      y: 0.13073347229971916
+    }
+    support_polygon {
+      x: 0.029372448959145314
+      y: 0.26146198272280963
+    }
+    static_margin: 0.0500000587056941
+    torque_utilization: 0.4228195722637007
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 5.7476364267436784e-12
+    max_active_contact_distance: 3.0724975136009469e-05
+    min_inactive_clearance: 0.23774170676390577
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    transition_condition: true
+    passed: true
+    active_contact_mask: 35
+    min_sphere_clearance: 0.05872768789539811
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 47.654719273089313
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.25370630674050043, -0.025925985134436398, 0.690072885956834]
+    support_polygon {
+      x: -0.030544784984765982
+      y: 0.16921272756858757
+    }
+    support_polygon {
+      x: -0.00037848821227923213
+      y: -0.064247632225823109
+    }
+    support_polygon {
+      x: 0.1004536118461288
+      y: -0.28203855847433479
+    }
+    support_polygon {
+      x: 0.46363792703161755
+      y: -0.33088862121816581
+    }
+    support_polygon {
+      x: 0.23064355111381762
+      y: 0.13073347229971916
+    }
+    support_polygon {
+      x: 0.029372448959145314
+      y: 0.26146198272280963
+    }
+    static_margin: 0.0500000587056941
+    torque_utilization: 0.4228195722637007
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 6.0989138888855426e-12
+    max_active_contact_distance: 3.0724975136009469e-05
+    min_inactive_clearance: 0.23774170676390577
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 35
+    min_sphere_clearance: 0.05872768789539811
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 50.233444749161627
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.23827799419698148, -0.033958419417900704, 0.69204743773495458]
+    support_polygon {
+      x: -0.030544784986145379
+      y: 0.16921272757272005
+    }
+    support_polygon {
+      x: -0.00037848819902230879
+      y: -0.064247632210742353
+    }
+    support_polygon {
+      x: 0.10045361186662367
+      y: -0.2820385584559027
+    }
+    support_polygon {
+      x: 0.46363792722004071
+      y: -0.33088862099604527
+    }
+    support_polygon {
+      x: 0.23064355111097587
+      y: 0.13073347229392573
+    }
+    support_polygon {
+      x: 0.029372448961271586
+      y: 0.26146198272466542
+    }
+    static_margin: 0.0673927259247582
+    torque_utilization: 0.4031041317614385
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 3.680933664324301e-11
+    max_active_contact_distance: 3.0724960530359446e-05
+    min_inactive_clearance: 0.23772017310112387
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 35
+    min_sphere_clearance: 0.058724445950352581
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 51.2414319243356
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.23533097516150375, -0.032914968526927886, 0.68998763831437393]
+    support_polygon {
+      x: -0.03054478498611754
+      y: 0.16921272757277034
+    }
+    support_polygon {
+      x: -0.00037848819898994579
+      y: -0.064247632210769165
+    }
+    support_polygon {
+      x: 0.10045361186663676
+      y: -0.2820385584559385
+    }
+    support_polygon {
+      x: 0.46363792721967034
+      y: -0.33088862099574518
+    }
+    support_polygon {
+      x: 0.23064355111100265
+      y: 0.130733472293967
+    }
+    support_polygon {
+      x: 0.0293724489613027
+      y: 0.26146198272471322
+    }
+    static_margin: 0.06955345700775338
+    torque_utilization: 0.35961199205578515
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 4.6767392475286688e-12
+    max_active_contact_distance: 3.072496147371595e-05
+    min_inactive_clearance: 0.23280495058760281
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 35
+    min_sphere_clearance: 0.05798444698087573
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 51.891498745882714
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.23724544173201365, -0.030249656666343949, 0.6858287871005817]
+    support_polygon {
+      x: -0.030544785015800907
+      y: 0.16921272750961708
+    }
+    support_polygon {
+      x: -0.00037848822051117503
+      y: -0.064247631838125041
+    }
+    support_polygon {
+      x: 0.10045361189262401
+      y: -0.28203855806129841
+    }
+    support_polygon {
+      x: 0.46363792718155261
+      y: -0.33088862065662927
+    }
+    support_polygon {
+      x: 0.23064355107965862
+      y: 0.13073347221954643
+    }
+    support_polygon {
+      x: 0.029372448935598705
+      y: 0.26146198265897547
+    }
+    static_margin: 0.0666433933738862
+    torque_utilization: 0.31504088947821318
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 5.7750538020907709e-11
+    max_active_contact_distance: 3.0725238103768149e-05
+    min_inactive_clearance: 0.22412666996500968
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 35
+    min_sphere_clearance: 0.056677910242171219
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 52.31405545790647
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.23772605792170076, -0.027916104477722498, 0.68370314244831509]
+    support_polygon {
+      x: -0.030544784990901769
+      y: 0.16921272758034828
+    }
+    support_polygon {
+      x: -0.00037848819902441821
+      y: -0.064247632206143546
+    }
+    support_polygon {
+      x: 0.10045361186689082
+      y: -0.28203855845117903
+    }
+    support_polygon {
+      x: 0.46363792721811392
+      y: -0.33088862099438837
+    }
+    support_polygon {
+      x: 0.23064355110599141
+      y: 0.13073347230000321
+    }
+    support_polygon {
+      x: 0.029372448957063202
+      y: 0.26146198273193738
+    }
+    static_margin: 0.065162860718274984
+    torque_utilization: 0.30756153808205972
+    max_torque_joint: "l_arm_shx"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 5.2434300562698421e-11
+    max_active_contact_distance: 3.0724960693673253e-05
+    min_inactive_clearance: 0.21949974079989437
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 35
+    min_sphere_clearance: 0.055981314570848588
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 52.828436709626828
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.23218235211136651, -0.02804277676150874, 0.68433667515811936]
+    support_polygon {
+      x: -0.030544784986102552
+      y: 0.16921272757271755
+    }
+    support_polygon {
+      x: -0.00037848819904734432
+      y: -0.0642476322106967
+    }
+    support_polygon {
+      x: 0.10045361186661769
+      y: -0.28203855845584835
+    }
+    support_polygon {
+      x: 0.463637927220421
+      y: -0.33088862099633626
+    }
+    support_polygon {
+      x: 0.23064355111101711
+      y: 0.13073347229391255
+    }
+    support_polygon {
+      x: 0.02937244896131827
+      y: 0.26146198272466026
+    }
+    static_margin: 0.070168980646420992
+    torque_utilization: 0.29284537261521659
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 4.0126061539708733e-11
+    max_active_contact_distance: 3.0724959565020526e-05
+    min_inactive_clearance: 0.21932417608829485
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 35
+    min_sphere_clearance: 0.055954882864119919
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 53.478004982323327
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.22670394672284894, -0.026539840206508066, 0.68303500640013171]
+    support_polygon {
+      x: -0.030544784986083096
+      y: 0.16921272757272182
+    }
+    support_polygon {
+      x: -0.00037848819944735768
+      y: -0.064247632210693739
+    }
+    support_polygon {
+      x: 0.10045361186615925
+      y: -0.28203855845587233
+    }
+    support_polygon {
+      x: 0.46363792721932706
+      y: -0.33088862099672378
+    }
+    support_polygon {
+      x: 0.23064355111104379
+      y: 0.13073347229396498
+    }
+    support_polygon {
+      x: 0.029372448961320685
+      y: 0.26146198272467563
+    }
+    static_margin: 0.074382522157078634
+    torque_utilization: 0.29275819941413056
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 9.9158438098910626e-11
+    max_active_contact_distance: 3.0724960234596033e-05
+    min_inactive_clearance: 0.21918708199958553
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 35
+    min_sphere_clearance: 0.055934243008190325
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 54.132895507997965
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.22322117359279262, -0.025262441273337426, 0.67906956684717612]
+    support_polygon {
+      x: -0.030544784986101442
+      y: 0.16921272757271416
+    }
+    support_polygon {
+      x: -0.00037848819904726105
+      y: -0.064247632210696515
+    }
+    support_polygon {
+      x: 0.10045361186661769
+      y: -0.28203855845584824
+    }
+    support_polygon {
+      x: 0.4636379272204042
+      y: -0.33088862099633842
+    }
+    support_polygon {
+      x: 0.23064355111101822
+      y: 0.13073347229390828
+    }
+    support_polygon {
+      x: 0.029372448961319797
+      y: 0.26146198272465659
+    }
+    static_margin: 0.076916123750991328
+    torque_utilization: 0.28288097591030742
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 5.5333021939343212e-11
+    max_active_contact_distance: 3.0724959572792088e-05
+    min_inactive_clearance: 0.21901369446230873
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 35
+    min_sphere_clearance: 0.055908139083411239
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 54.645207145766193
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.21934280517968988, -0.028887692827116934, 0.67621061222500112]
+    support_polygon {
+      x: -0.030544784986099666
+      y: 0.1692127275727115
+    }
+    support_polygon {
+      x: -0.00037848819904579
+      y: -0.064247632210700956
+    }
+    support_polygon {
+      x: 0.10045361186661853
+      y: -0.282038558455853
+    }
+    support_polygon {
+      x: 0.46363792722033237
+      y: -0.3308886209963563
+    }
+    support_polygon {
+      x: 0.23064355111101939
+      y: 0.13073347229390331
+    }
+    support_polygon {
+      x: 0.029372448961322073
+      y: 0.26146198272465382
+    }
+    static_margin: 0.082011962725322893
+    torque_utilization: 0.27156109745868939
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 1.9554307712345543e-11
+    max_active_contact_distance: 3.0724959610872737e-05
+    min_inactive_clearance: 0.218805634821498
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 35
+    min_sphere_clearance: 0.055876815187209709
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 55.17018954541367
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.2088427906258401, -0.044192220769197724, 0.67523936119661454]
+    support_polygon {
+      x: -0.030544784986100942
+      y: 0.16921272757271361
+    }
+    support_polygon {
+      x: -0.00037848819904678921
+      y: -0.064247632210697181
+    }
+    support_polygon {
+      x: 0.1004536118666178
+      y: -0.282038558455849
+    }
+    support_polygon {
+      x: 0.4636379272203886
+      y: -0.33088862099634303
+    }
+    support_polygon {
+      x: 0.2306435511110185
+      y: 0.13073347229390736
+    }
+    support_polygon {
+      x: 0.029372448961320269
+      y: 0.26146198272465587
+    }
+    static_margin: 0.098281701358740134
+    torque_utilization: 0.26658604304503819
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 4.5275911618620252e-12
+    max_active_contact_distance: 3.0724959581007738e-05
+    min_inactive_clearance: 0.2176850334169555
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 35
+    min_sphere_clearance: 0.0557081058597319
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 55.552527354407609
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.19763206055658458, -0.069775658117607331, 0.67679902261680247]
+    support_polygon {
+      x: -0.030544784986102302
+      y: 0.16921272757271516
+    }
+    support_polygon {
+      x: -0.00037848819904770514
+      y: -0.064247632210695543
+    }
+    support_polygon {
+      x: 0.10045361186661698
+      y: -0.28203855845584724
+    }
+    support_polygon {
+      x: 0.46363792722041486
+      y: -0.3308886209963377
+    }
+    support_polygon {
+      x: 0.23064355111101745
+      y: 0.13073347229390986
+    }
+    support_polygon {
+      x: 0.029372448961318798
+      y: 0.26146198272465782
+    }
+    static_margin: 0.11981747452081307
+    torque_utilization: 0.27006494096454431
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 1.8735172480230209e-12
+    max_active_contact_distance: 3.0724959566019727e-05
+    min_inactive_clearance: 0.21555644892183085
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 35
+    min_sphere_clearance: 0.05538764217193131
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 55.990770888508749
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.2304791824985481, -0.023767137450644266, 0.67412539339896393]
+    support_polygon {
+      x: -0.030544784986099527
+      y: 0.16921272757271943
+    }
+    support_polygon {
+      x: -0.00037848819905111908
+      y: -0.064247632210697847
+    }
+    support_polygon {
+      x: 0.10045361186661378
+      y: -0.28203855845584935
+    }
+    support_polygon {
+      x: 0.46363792722042729
+      y: -0.3308886209963392
+    }
+    support_polygon {
+      x: 0.23064355111102014
+      y: 0.13073347229391388
+    }
+    support_polygon {
+      x: 0.02937244896132149
+      y: 0.26146198272466209
+    }
+    static_margin: 0.069762901474232628
+    torque_utilization: 0.21822368514816132
+    max_torque_joint: "back_bky"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 3.537432354773284e-11
+    max_active_contact_distance: 3.0724959553807274e-05
+    min_inactive_clearance: 0.21973823310159685
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 35
+    min_sphere_clearance: 0.056017220176902187
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 56.330144881887982
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.23854045366062962, -0.011218621978198024, 0.67109890122149574]
+    support_polygon {
+      x: -0.030544784987759116
+      y: 0.16921272759448669
+    }
+    support_polygon {
+      x: -0.00037848819762165142
+      y: -0.0642476321985904
+    }
+    support_polygon {
+      x: 0.10045361186602422
+      y: -0.28203855844467685
+    }
+    support_polygon {
+      x: 0.4636379272346452
+      y: -0.33088862100407468
+    }
+    support_polygon {
+      x: 0.23064355110817672
+      y: 0.13073347230764526
+    }
+    support_polygon {
+      x: 0.029372448962500297
+      y: 0.261461982744586
+    }
+    static_margin: 0.056912133730425918
+    torque_utilization: 0.2242649134707832
+    max_torque_joint: "back_bky"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 1.3827719617575069e-11
+    max_active_contact_distance: 3.0724957845729151e-05
+    min_inactive_clearance: 0.22060678290085128
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 35
+    min_sphere_clearance: 0.056147982513401855
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 56.594425364983117
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.24082131179567554, -0.0065495387208869557, 0.66834316014988593]
+    support_polygon {
+      x: -0.030544784985764378
+      y: 0.16921272757350675
+    }
+    support_polygon {
+      x: -0.0003784881978712018
+      y: -0.064247632211513417
+    }
+    support_polygon {
+      x: 0.10045361186717611
+      y: -0.28203855845695097
+    }
+    support_polygon {
+      x: 0.46363792708608764
+      y: -0.33088862099533212
+    }
+    support_polygon {
+      x: 0.23064355111073989
+      y: 0.13073347229052368
+    }
+    support_polygon {
+      x: 0.029372448963132208
+      y: 0.26146198272449112
+    }
+    static_margin: 0.052772104730973241
+    torque_utilization: 0.22475408838298155
+    max_torque_joint: "back_bky"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 6.22155675789101e-11
+    max_active_contact_distance: 3.0725049975255381e-05
+    min_inactive_clearance: 0.22094737646667012
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 35
+    min_sphere_clearance: 0.056199259713268716
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 56.9330061280325
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.24189627697123248, -0.0038175638833006522, 0.66480581959558993]
+    support_polygon {
+      x: -0.030544784985769485
+      y: 0.16921272757796879
+    }
+    support_polygon {
+      x: -0.00037848819665009525
+      y: -0.064247632210649663
+    }
+    support_polygon {
+      x: 0.100453611867616
+      y: -0.282038558456449
+    }
+    support_polygon {
+      x: 0.46363792690845529
+      y: -0.33088862098962057
+    }
+    support_polygon {
+      x: 0.23064355111037832
+      y: 0.13073347229256535
+    }
+    support_polygon {
+      x: 0.029372448963982334
+      y: 0.26146198272839727
+    }
+    static_margin: 0.050581453168264894
+    torque_utilization: 0.22593551149640906
+    max_torque_joint: "back_bky"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 5.1444408743743412e-12
+    max_active_contact_distance: 3.0725259861030807e-05
+    min_inactive_clearance: 0.22119701551453302
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 35
+    min_sphere_clearance: 0.056236843487120707
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 57.349426976960657
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.24171131690588726, -0.0021625423320363211, 0.66007397630604769]
+    support_polygon {
+      x: -0.030544784984746859
+      y: 0.1692127275824889
+    }
+    support_polygon {
+      x: -0.00037848819499147757
+      y: -0.064247632210604533
+    }
+    support_polygon {
+      x: 0.1004536118696237
+      y: -0.28203855845624193
+    }
+    support_polygon {
+      x: 0.46363792686266053
+      y: -0.330888620962498
+    }
+    support_polygon {
+      x: 0.23064355111177037
+      y: 0.13073347229959548
+    }
+    support_polygon {
+      x: 0.029372448964118003
+      y: 0.26146198273349353
+    }
+    static_margin: 0.050000839593320322
+    torque_utilization: 0.22712605713097211
+    max_torque_joint: "l_leg_kny"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 9.7262174324808452e-12
+    max_active_contact_distance: 3.072545153293138e-05
+    min_inactive_clearance: 0.22136017612726827
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 35
+    min_sphere_clearance: 0.056261407721334637
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 57.877620417131595
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.24096136367751389, -0.00067493027174034585, 0.65360857605935474]
+    support_polygon {
+      x: -0.03054478498610555
+      y: 0.16921272757271733
+    }
+    support_polygon {
+      x: -0.00037848819903490982
+      y: -0.0642476322106915
+    }
+    support_polygon {
+      x: 0.10045361186662581
+      y: -0.28203855845584508
+    }
+    support_polygon {
+      x: 0.46363792721892222
+      y: -0.3308886209961982
+    }
+    support_polygon {
+      x: 0.23064355111101151
+      y: 0.13073347229389312
+    }
+    support_polygon {
+      x: 0.029372448961322184
+      y: 0.26146198272465537
+    }
+    static_margin: 0.050000046251494318
+    torque_utilization: 0.22846668951196217
+    max_torque_joint: "back_bky"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 2.1628478634587344e-11
+    max_active_contact_distance: 3.0724961456729538e-05
+    min_inactive_clearance: 0.22132809409604273
+    min_inactive_clearance_contact: "hand_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 35
+    min_sphere_clearance: 0.056264276349928304
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 58.593533329936314
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.24125517405248051, -0.0012569420239849209, 0.64572036291181545]
+    support_polygon {
+      x: -0.030544784986103163
+      y: 0.16921272757271644
+    }
+    support_polygon {
+      x: -0.00037848819904887088
+      y: -0.064247632210693767
+    }
+    support_polygon {
+      x: 0.10045361186661596
+      y: -0.28203855845584547
+    }
+    support_polygon {
+      x: 0.46363792722190822
+      y: -0.33088862096601435
+    }
+    support_polygon {
+      x: 0.2306435511110165
+      y: 0.13073347229391158
+    }
+    support_polygon {
+      x: 0.02937244896131766
+      y: 0.2614619827246592
+    }
+    static_margin: 0.050000000044346772
+    torque_utilization: 0.22953343668091886
+    max_torque_joint: "back_bky"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 3.0039222956550708e-11
+    max_active_contact_distance: 3.0724956897598688e-05
+    min_inactive_clearance: 0.15085799983593653
+    min_inactive_clearance_contact: "hand_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 35
+    min_sphere_clearance: 0.056025455870436218
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 60.2477498809709
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.24392221380411994, -0.006541166304514648, 0.642284537700182]
+    support_polygon {
+      x: -0.030544784986104856
+      y: 0.16921272757271077
+    }
+    support_polygon {
+      x: -0.00037848819904198749
+      y: -0.064247632210688216
+    }
+    support_polygon {
+      x: 0.10045361186662174
+      y: -0.28203855845584042
+    }
+    support_polygon {
+      x: 0.46363792721970953
+      y: -0.33088862099628247
+    }
+    support_polygon {
+      x: 0.23064355111101431
+      y: 0.13073347229390131
+    }
+    support_polygon {
+      x: 0.029372448961317577
+      y: 0.2614619827246526
+    }
+    static_margin: 0.050000058186152087
+    torque_utilization: 0.22606661564224623
+    max_torque_joint: "back_bky"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 1.5527412866936544e-11
+    max_active_contact_distance: 3.0724960575545524e-05
+    min_inactive_clearance: 0.0820755184022968
+    min_inactive_clearance_contact: "hand_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 35
+    min_sphere_clearance: 0.055928721280165954
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 63.458806217100772
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.2455408620575367, -0.0097479890830786623, 0.61778836712842944]
+    support_polygon {
+      x: -0.030544784986103746
+      y: 0.16921272757271866
+    }
+    support_polygon {
+      x: -0.00037848865008860422
+      y: -0.064247632323975956
+    }
+    support_polygon {
+      x: 0.10045361186661703
+      y: -0.28203855845584447
+    }
+    support_polygon {
+      x: 0.46363792572132678
+      y: -0.33088861934926894
+    }
+    support_polygon {
+      x: 0.463598620146357
+      y: 0.33125498801499481
+    }
+    support_polygon {
+      x: 0.029372448961319464
+      y: 0.2614619827246587
+    }
+    static_margin: 0.21807800001748948
+    torque_utilization: 0.10435135380407509
+    max_torque_joint: "l_leg_kny"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 1.5088531726433537e-12
+    max_active_contact_distance: 3.0724959569572441e-05
+    min_inactive_clearance: 0.20453023777065654
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    transition_condition: true
+    passed: true
+    active_contact_mask: 51
+    min_sphere_clearance: 0.053727618669889891
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 63.858806217100771
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.2455408620575367, -0.0097479890830786623, 0.61778836712842944]
+    support_polygon {
+      x: -0.030544784986103746
+      y: 0.16921272757271866
+    }
+    support_polygon {
+      x: -0.00037848865008860422
+      y: -0.064247632323975956
+    }
+    support_polygon {
+      x: 0.10045361186661703
+      y: -0.28203855845584447
+    }
+    support_polygon {
+      x: 0.46363792572132678
+      y: -0.33088861934926894
+    }
+    support_polygon {
+      x: 0.463598620146357
+      y: 0.33125498801499481
+    }
+    support_polygon {
+      x: 0.029372448961319464
+      y: 0.2614619827246587
+    }
+    static_margin: 0.21807800001748948
+    torque_utilization: 0.10435135380407509
+    max_torque_joint: "l_leg_kny"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 1.6138724064028505e-12
+    max_active_contact_distance: 3.0724959569572441e-05
+    min_inactive_clearance: 0.20453023777065654
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 51
+    min_sphere_clearance: 0.053727618669889891
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 64.240034440954361
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.24507266842775294, -0.0087949554040588351, 0.61793792680594206]
+    support_polygon {
+      x: -0.030544784974813721
+      y: 0.16921272755059141
+    }
+    support_polygon {
+      x: -0.00037848864611050859
+      y: -0.064247632332046251
+    }
+    support_polygon {
+      x: 0.10045361186938795
+      y: -0.2820385584644739
+    }
+    support_polygon {
+      x: 0.46363792556028294
+      y: -0.33088861928818586
+    }
+    support_polygon {
+      x: 0.46359861961255922
+      y: 0.33125498792375474
+    }
+    support_polygon {
+      x: 0.029372448974855914
+      y: 0.26146198270107235
+    }
+    static_margin: 0.21854613673094331
+    torque_utilization: 0.10399558303882171
+    max_torque_joint: "l_leg_kny"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 1.7918618401768698e-12
+    max_active_contact_distance: 3.072503514789382e-05
+    min_inactive_clearance: 0.20489474539482283
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 51
+    min_sphere_clearance: 0.053782496205089507
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 64.658806217100775
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    active_contacts: "hand_l_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.24465168268963672, -0.0080144791525524461, 0.6180983613066775]
+    support_polygon {
+      x: -0.03054478498610258
+      y: 0.16921272757272071
+    }
+    support_polygon {
+      x: -0.00037848865008754951
+      y: -0.064247632323974888
+    }
+    support_polygon {
+      x: 0.10045361186661789
+      y: -0.28203855845584369
+    }
+    support_polygon {
+      x: 0.46363792572159973
+      y: -0.33088861934942415
+    }
+    support_polygon {
+      x: 0.46359862014635839
+      y: 0.33125498801498815
+    }
+    support_polygon {
+      x: 0.029372448961320241
+      y: 0.2614619827246607
+    }
+    static_margin: 0.21896707648090177
+    torque_utilization: 0.10344365741593893
+    max_torque_joint: "l_leg_kny"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 4.0801910295458712e-12
+    max_active_contact_distance: 3.0724959548478203e-05
+    min_inactive_clearance: 0.20518078044558702
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 51
+    min_sphere_clearance: 0.05382555948697048
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 65.058806217100781
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.24465168268963672, -0.0080144791525524461, 0.6180983613066775]
+    support_polygon {
+      x: -0.030544784986102358
+      y: 0.16921272757271894
+    }
+    support_polygon {
+      x: -0.00037848819904734432
+      y: -0.064247632210692657
+    }
+    support_polygon {
+      x: 0.10045361186661746
+      y: -0.28203855845584436
+    }
+    support_polygon {
+      x: 0.46363792722042596
+      y: -0.33088862099633748
+    }
+    support_polygon {
+      x: 0.2306435511110175
+      y: 0.13073347229391374
+    }
+    support_polygon {
+      x: 0.029372448961318687
+      y: 0.26146198272466137
+    }
+    static_margin: 0.050012695566385212
+    torque_utilization: 0.25783823578034204
+    max_torque_joint: "back_bkx"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 4.489410096955401e-11
+    max_active_contact_distance: 3.0724959548478203e-05
+    min_inactive_clearance: -0.00057277734795554286
+    min_inactive_clearance_contact: "hand_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    transition_condition: true
+    passed: true
+    active_contact_mask: 35
+    min_sphere_clearance: 0.05382555948697048
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 65.926175928401051
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.21574570935724649, -0.026760697520557979, 0.63132883157383923]
+    support_polygon {
+      x: -0.030544784989964574
+      y: 0.1692127275682716
+    }
+    support_polygon {
+      x: -0.00037848820130284566
+      y: -0.064247632207357463
+    }
+    support_polygon {
+      x: 0.10045361186194464
+      y: -0.28203855845362835
+    }
+    support_polygon {
+      x: 0.46363792703920126
+      y: -0.33088862098278993
+    }
+    support_polygon {
+      x: 0.23064355110716558
+      y: 0.13073347228953691
+    }
+    support_polygon {
+      x: 0.029372448957431657
+      y: 0.26146198272022997
+    }
+    static_margin: 0.084264805615528113
+    torque_utilization: 0.2107795425248436
+    max_torque_joint: "back_bkx"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 2.0172248321857991e-11
+    max_active_contact_distance: 3.072516458779706e-05
+    min_inactive_clearance: 0.060975165881994066
+    min_inactive_clearance_contact: "hand_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 35
+    min_sphere_clearance: 0.055236084183513494
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 66.134288644075539
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.19608577691070608, -0.032254352968420358, 0.63433204250967123]
+    support_polygon {
+      x: -0.030544784986442031
+      y: 0.16921272757249217
+    }
+    support_polygon {
+      x: -0.00037848819928737454
+      y: -0.064247632210439776
+    }
+    support_polygon {
+      x: 0.10045361186617123
+      y: -0.28203855845568704
+    }
+    support_polygon {
+      x: 0.46363792721528496
+      y: -0.33088862099574468
+    }
+    support_polygon {
+      x: 0.23064355111069193
+      y: 0.13073347229378396
+    }
+    support_polygon {
+      x: 0.029372448960944542
+      y: 0.26146198272445736
+    }
+    static_margin: 0.10429123077655972
+    torque_utilization: 0.19910587947787828
+    max_torque_joint: "back_bky"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 5.1969519477867994e-12
+    max_active_contact_distance: 3.0724964233841412e-05
+    min_inactive_clearance: 0.091290272546867973
+    min_inactive_clearance_contact: "hand_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 35
+    min_sphere_clearance: 0.056437225068956036
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 66.9606542578697
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    active_contacts: "hand_r_contact"
+    com: [0.16535025182313981, -0.051772592442198229, 0.63569382075242753]
+    support_polygon {
+      x: -0.030544784986111823
+      y: 0.16921272757271566
+    }
+    support_polygon {
+      x: -0.00037848819906247111
+      y: -0.064247632210682
+    }
+    support_polygon {
+      x: 0.10045361186659579
+      y: -0.2820385584558367
+    }
+    support_polygon {
+      x: 0.46363792722025943
+      y: -0.33088862099620886
+    }
+    support_polygon {
+      x: 0.23064355111100848
+      y: 0.13073347229391388
+    }
+    support_polygon {
+      x: 0.029372448961308
+      y: 0.2614619827246592
+    }
+    static_margin: 0.14052450370327563
+    torque_utilization: 0.22359982486284408
+    max_torque_joint: "l_arm_shz"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 1.2874594061246914e-11
+    max_active_contact_distance: 3.0724959795280782e-05
+    min_inactive_clearance: 0.14703790644990103
+    min_inactive_clearance_contact: "hand_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 35
+    min_sphere_clearance: 0.05757719452612247
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 67.360654257869712
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    com: [0.16535025182313981, -0.051772592442198229, 0.63569382075242753]
+    support_polygon {
+      x: -0.030544784957566282
+      y: 0.16921272752978112
+    }
+    support_polygon {
+      x: -0.0003784886501045498
+      y: -0.064247632323964077
+    }
+    support_polygon {
+      x: 0.10045361186659449
+      y: -0.28203855845583647
+    }
+    support_polygon {
+      x: 0.20027445290032561
+      y: -0.23582384545452204
+    }
+    support_polygon {
+      x: 0.23064355108253637
+      y: 0.1307334722521637
+    }
+    support_polygon {
+      x: 0.02937244760096297
+      y: 0.26146197986139197
+    }
+    static_margin: 0.050001446652660889
+    torque_utilization: 0.63543608308018573
+    max_torque_joint: "back_bky"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 1.7853173556895403e-10
+    max_active_contact_distance: 6.6058269965196814e-15
+    min_inactive_clearance: -0.0010802375642548698
+    min_inactive_clearance_contact: "hand_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    transition_condition: true
+    passed: true
+    active_contact_mask: 3
+    min_sphere_clearance: 0.05757719452612247
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 70.095326155423123
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    com: [0.16480844417541859, -0.051021071386074562, 0.66823724371938575]
+    support_polygon {
+      x: -0.030544784957579646
+      y: 0.16921272752892952
+    }
+    support_polygon {
+      x: -0.00037848864972926666
+      y: -0.064247632324889545
+    }
+    support_polygon {
+      x: 0.10045361186695621
+      y: -0.28203855845676817
+    }
+    support_polygon {
+      x: 0.20027445290069007
+      y: -0.23582384545545962
+    }
+    support_polygon {
+      x: 0.230643551082517
+      y: 0.13073347225127427
+    }
+    support_polygon {
+      x: 0.029372447600963095
+      y: 0.26146197986053132
+    }
+    static_margin: 0.050603454888233458
+    torque_utilization: 0.617792217244028
+    max_torque_joint: "back_bky"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 1.2545014540313882e-10
+    max_active_contact_distance: 0
+    min_inactive_clearance: 0.016631810371244095
+    min_inactive_clearance_contact: "hand_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 3
+    min_sphere_clearance: 0.016631810371244095
+    min_sphere_clearance_link: "r_hand"
+    collision_free: true
+  }
+  knots {
+    time: 71.066023523919142
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    com: [0.16175162882091881, -0.048753423380393061, 0.70139320612738965]
+    support_polygon {
+      x: -0.030544784956617402
+      y: 0.16921272752764169
+    }
+    support_polygon {
+      x: -0.00037848864917428005
+      y: -0.064247632326238466
+    }
+    support_polygon {
+      x: 0.10045361186746812
+      y: -0.28203855845813719
+    }
+    support_polygon {
+      x: 0.20027445290121121
+      y: -0.23582384545684842
+    }
+    support_polygon {
+      x: 0.23064355108347173
+      y: 0.13073347224993384
+    }
+    support_polygon {
+      x: 0.029372447601943907
+      y: 0.2614619798592317
+    }
+    static_margin: 0.053837064954019576
+    torque_utilization: 0.59017659429283875
+    max_torque_joint: "back_bky"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 2.506668715865459e-11
+    max_active_contact_distance: 0
+    min_inactive_clearance: 0.033896876038184511
+    min_inactive_clearance_contact: "hand_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 3
+    min_sphere_clearance: 0.033896876038184511
+    min_sphere_clearance_link: "r_hand"
+    collision_free: true
+  }
+  knots {
+    time: 71.853828985051592
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    com: [0.15831616464932852, -0.046199481472204096, 0.73448174187764581]
+    support_polygon {
+      x: -0.030544784957558635
+      y: 0.16921272752978472
+    }
+    support_polygon {
+      x: -0.00037848865009187938
+      y: -0.064247632323967338
+    }
+    support_polygon {
+      x: 0.10045361186661395
+      y: -0.28203855845583681
+    }
+    support_polygon {
+      x: 0.20027445290034362
+      y: -0.23582384545451907
+    }
+    support_polygon {
+      x: 0.23064355108254317
+      y: 0.13073347225216436
+    }
+    support_polygon {
+      x: 0.029372447600971491
+      y: 0.26146197986139424
+    }
+    static_margin: 0.05747166928023334
+    torque_utilization: 0.55290161702856155
+    max_torque_joint: "back_bky"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 8.7483507591204886e-12
+    max_active_contact_distance: 0
+    min_inactive_clearance: 0.0511091287402177
+    min_inactive_clearance_contact: "hand_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 3
+    min_sphere_clearance: 0.0511091287402177
+    min_sphere_clearance_link: "r_hand"
+    collision_free: true
+  }
+  knots {
+    time: 72.398143338280931
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    com: [0.15032400230884438, -0.031883864376181771, 0.779302511456846]
+    support_polygon {
+      x: -0.030544784965969907
+      y: 0.16921272751819527
+    }
+    support_polygon {
+      x: -0.00037848865021497535
+      y: -0.064247632323128051
+    }
+    support_polygon {
+      x: 0.10045361186677969
+      y: -0.28203855845486353
+    }
+    support_polygon {
+      x: 0.20027445290044799
+      y: -0.23582384545341323
+    }
+    support_polygon {
+      x: 0.2306435510741501
+      y: 0.1307334722406967
+    }
+    support_polygon {
+      x: 0.02937244759251785
+      y: 0.26146197984983327
+    }
+    static_margin: 0.066618535080246
+    torque_utilization: 0.52255475100430793
+    max_torque_joint: "back_bky"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 8.2425751011062432e-13
+    max_active_contact_distance: 3.269606807521086e-13
+    min_inactive_clearance: 0.093233457167220229
+    min_inactive_clearance_contact: "hand_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 3
+    min_sphere_clearance: 0.066581663486023179
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 72.797414608388792
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    com: [0.13764301688775038, -0.017513705793207723, 0.835847248992378]
+    support_polygon {
+      x: -0.030544784954616433
+      y: 0.16921272752917949
+    }
+    support_polygon {
+      x: -0.00037848865681017196
+      y: -0.064247632323881032
+    }
+    support_polygon {
+      x: 0.10045361186065757
+      y: -0.28203855845539755
+    }
+    support_polygon {
+      x: 0.20027445289422563
+      y: -0.23582384545373064
+    }
+    support_polygon {
+      x: 0.23064355108547824
+      y: 0.13073347225150933
+    }
+    support_polygon {
+      x: 0.029372447603931581
+      y: 0.26146197986077813
+    }
+    static_margin: 0.080442717504969813
+    torque_utilization: 0.48783442509474867
+    max_torque_joint: "back_bky"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 2.097295268301273e-13
+    max_active_contact_distance: 0
+    min_inactive_clearance: 0.17458582163252404
+    min_inactive_clearance_contact: "hand_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 3
+    min_sphere_clearance: 0.068186868854429761
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 73.160781932873817
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    com: [0.1320171796954733, -0.0087325804836162566, 0.88129380192945772]
+    support_polygon {
+      x: -0.030544784961628796
+      y: 0.16921272752648997
+    }
+    support_polygon {
+      x: -0.0003784886519674624
+      y: -0.064247632325572679
+    }
+    support_polygon {
+      x: 0.1004536118645985
+      y: -0.2820385584575068
+    }
+    support_polygon {
+      x: 0.20027445289835788
+      y: -0.23582384545625285
+    }
+    support_polygon {
+      x: 0.2306435510783445
+      y: 0.13073347224799797
+    }
+    support_polygon {
+      x: 0.029372447597209486
+      y: 0.2614619798579001
+    }
+    static_margin: 0.08677437350283343
+    torque_utilization: 0.44672094431283105
+    max_torque_joint: "back_bky"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 1.6285451148287525e-13
+    max_active_contact_distance: 0
+    min_inactive_clearance: 0.25711671525124397
+    min_inactive_clearance_contact: "hand_r_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 3
+    min_sphere_clearance: 0.068621480725262474
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 73.5218141873913
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    com: [0.12776279622424097, -0.0025113193025335222, 0.92024947500100052]
+    support_polygon {
+      x: -0.030544784957481363
+      y: 0.16921272752969624
+    }
+    support_polygon {
+      x: -0.00037848865007050758
+      y: -0.064247632323857051
+    }
+    support_polygon {
+      x: 0.10045361186663251
+      y: -0.28203855845572795
+    }
+    support_polygon {
+      x: 0.20027445290036283
+      y: -0.23582384545441115
+    }
+    support_polygon {
+      x: 0.23064355108262136
+      y: 0.13073347225207888
+    }
+    support_polygon {
+      x: 0.029372447601048096
+      y: 0.26146197986130731
+    }
+    static_margin: 0.091527899182932609
+    torque_utilization: 0.39834537442133816
+    max_torque_joint: "back_bky"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 1.5397112411516054e-13
+    max_active_contact_distance: 0
+    min_inactive_clearance: 0.30585248960524453
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 3
+    min_sphere_clearance: 0.068981935589762344
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 73.896751728173911
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    com: [0.12315545458568257, 0.0032696765334279758, 0.95741870358157888]
+    support_polygon {
+      x: -0.030544784957814236
+      y: 0.16921272752942307
+    }
+    support_polygon {
+      x: -0.00037848864996480047
+      y: -0.064247632324058043
+    }
+    support_polygon {
+      x: 0.10045361186662187
+      y: -0.28203855845598252
+    }
+    support_polygon {
+      x: 0.20027445290037676
+      y: -0.23582384545471941
+    }
+    support_polygon {
+      x: 0.23064355108228435
+      y: 0.13073347225177995
+    }
+    support_polygon {
+      x: 0.029372447600724119
+      y: 0.261461979861028
+    }
+    static_margin: 0.096596826639602479
+    torque_utilization: 0.34495214074162867
+    max_torque_joint: "back_bky"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 1.9718992281199e-13
+    max_active_contact_distance: 1.2756462552943049e-13
+    min_inactive_clearance: 0.3108861640432547
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 3
+    min_sphere_clearance: 0.069739767790934992
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 74.29560663826166
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    com: [0.11821906865897899, 0.0088112271781658844, 0.99426443618197236]
+    support_polygon {
+      x: -0.030544784959679022
+      y: 0.16921272752358424
+    }
+    support_polygon {
+      x: -0.00037848865051801073
+      y: -0.064247632326990947
+    }
+    support_polygon {
+      x: 0.10045361186545734
+      y: -0.28203855845919862
+    }
+    support_polygon {
+      x: 0.20027445289934198
+      y: -0.23582384545821555
+    }
+    support_polygon {
+      x: 0.23064355108037959
+      y: 0.13073347224566989
+    }
+    support_polygon {
+      x: 0.029372447598955284
+      y: 0.26146197985512665
+    }
+    static_margin: 0.1019739046931586
+    torque_utilization: 0.28662958929101273
+    max_torque_joint: "back_bky"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 3.68574743147672e-13
+    max_active_contact_distance: 1.2920220449075259e-12
+    min_inactive_clearance: 0.31872943562100614
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 3
+    min_sphere_clearance: 0.070920591825814838
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 74.736706349725026
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    com: [0.11295144179101199, 0.014520963152958052, 1.0312250943261165]
+    support_polygon {
+      x: -0.030544784990816823
+      y: 0.16921272744050028
+    }
+    support_polygon {
+      x: -0.00037848865962750167
+      y: -0.0642476323591687
+    }
+    support_polygon {
+      x: 0.10045361185548596
+      y: -0.28203855849177534
+    }
+    support_polygon {
+      x: 0.20027445288955337
+      y: -0.23582384549118693
+    }
+    support_polygon {
+      x: 0.23064355104819495
+      y: 0.13073347215548134
+    }
+    support_polygon {
+      x: 0.029372447570326934
+      y: 0.26146197977041297
+    }
+    static_margin: 0.10769497916037336
+    torque_utilization: 0.21949864989392343
+    max_torque_joint: "back_bky"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 1.9782925950082602e-13
+    max_active_contact_distance: 1.1159129176263605e-11
+    min_inactive_clearance: 0.32948126692788487
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 3
+    min_sphere_clearance: 0.072539306751927268
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 75.422144480030425
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    com: [0.10747443817578052, 0.020493007494964702, 1.0676299213163274]
+    support_polygon {
+      x: -0.030544784957559329
+      y: 0.169212727529773
+    }
+    support_polygon {
+      x: -0.00037848865008907606
+      y: -0.064247632323979731
+    }
+    support_polygon {
+      x: 0.10045361186661692
+      y: -0.28203855845584913
+    }
+    support_polygon {
+      x: 0.20027445290034651
+      y: -0.23582384545453094
+    }
+    support_polygon {
+      x: 0.23064355108254286
+      y: 0.13073347225215309
+    }
+    support_polygon {
+      x: 0.029372447600970936
+      y: 0.26146197986138364
+    }
+    static_margin: 0.11364637342541507
+    torque_utilization: 0.19923308331604983
+    max_torque_joint: "neck_ry"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 9.5323538744710391e-14
+    max_active_contact_distance: 1.2601031329495527e-14
+    min_inactive_clearance: 0.34356702692995794
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 3
+    min_sphere_clearance: 0.074659952949408137
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 78.195021420080323
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    com: [0.10217113020397997, 0.027377423370256303, 1.0998077446804717]
+    support_polygon {
+      x: -0.030544784957534182
+      y: 0.16921272752989047
+    }
+    support_polygon {
+      x: -0.00037848865019397826
+      y: -0.06424763232342956
+    }
+    support_polygon {
+      x: 0.10045361186651908
+      y: -0.28203855845529552
+    }
+    support_polygon {
+      x: 0.20027445290024712
+      y: -0.23582384545397433
+    }
+    support_polygon {
+      x: 0.23064355108256826
+      y: 0.13073347225227266
+    }
+    support_polygon {
+      x: 0.029372447600995513
+      y: 0.26146197986150105
+    }
+    static_margin: 0.11344570315604222
+    torque_utilization: 0.21008430456401003
+    max_torque_joint: "neck_ry"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 2.7142304682700849e-13
+    max_active_contact_distance: 7.6716411001598317e-14
+    min_inactive_clearance: 0.36228101587111278
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 3
+    min_sphere_clearance: 0.0774773905110146
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  knots {
+    time: 78.595021420080329
+    active_contacts: "foot_l_contact"
+    active_contacts: "foot_r_contact"
+    com: [0.10217113020397997, 0.027377423370256303, 1.0998077446804717]
+    support_polygon {
+      x: -0.030544784957534182
+      y: 0.16921272752989047
+    }
+    support_polygon {
+      x: -0.00037848865019397826
+      y: -0.06424763232342956
+    }
+    support_polygon {
+      x: 0.10045361186651908
+      y: -0.28203855845529552
+    }
+    support_polygon {
+      x: 0.20027445290024712
+      y: -0.23582384545397433
+    }
+    support_polygon {
+      x: 0.23064355108256826
+      y: 0.13073347225227266
+    }
+    support_polygon {
+      x: 0.029372447600995513
+      y: 0.26146197986150105
+    }
+    static_margin: 0.11344570315604222
+    torque_utilization: 0.21008430456401003
+    max_torque_joint: "neck_ry"
+    momentum_rate_feasible: true
+    momentum_rate_residual: 2.55303578108323e-13
+    max_active_contact_distance: 7.6716411001598317e-14
+    min_inactive_clearance: 0.36228101587111278
+    min_inactive_clearance_contact: "knee_l_contact"
+    static_condition: true
+    dynamic_condition: true
+    passed: true
+    active_contact_mask: 3
+    min_sphere_clearance: 0.0774773905110146
+    min_sphere_clearance_link: "l_lleg"
+    collision_free: true
+  }
+  failed_knots: 0
+  joint_limits: "relaxed_position"
+}
+planner: "stance_graph"

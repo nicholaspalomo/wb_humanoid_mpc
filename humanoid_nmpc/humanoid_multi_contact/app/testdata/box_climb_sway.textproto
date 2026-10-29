@@ -8,7 +8,7 @@
 
 scenario: "box_climb"
 planner: "hand_written"
-contact_set_hash: 1180554330978557962
+contact_set_hash: 12950719232766472735
 terrain_scene_hash: 14847699634709746879
 joint_names: ["l_leg_hpy", "r_leg_hpy", "l_leg_kny", "r_leg_kny", "l_leg_aky", "r_leg_aky", "l_arm_shx", "r_arm_shx"]
 knots {

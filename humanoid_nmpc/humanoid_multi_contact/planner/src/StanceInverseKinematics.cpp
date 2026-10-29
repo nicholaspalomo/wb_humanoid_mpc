@@ -380,7 +380,10 @@ void addCollisions(const RobotStanceModel& model,
         kExemptionRamp *
         std::max(0.0, spheres[i].radius + options.padNeighborhood - nearestPad);
     const double distance =
-        terrain.sphereDistance(centers[i], spheres[i].radius);
+        terrain.sphereDistance(centers[i], spheres[i].radius) +
+        CollisionModel::restingAllowance(problem.exemptPads, spheres[i].joint,
+                                         centers[i], spheres[i].radius,
+                                         options.padNeighborhood);
     const double bound = options.terrainClearance - relaxed - distance;
     if (bound < -options.activationDistance) continue;
     addInequality(
@@ -717,7 +720,11 @@ absl::StatusOr<StanceIkResult> StanceInverseKinematics::evaluate(
                                  spheres[i].radius, options_.padNeighborhood)) {
       continue;
     }
-    const double clearance = terrain_.sphereDistance(center, spheres[i].radius);
+    const double clearance =
+        terrain_.sphereDistance(center, spheres[i].radius) +
+        CollisionModel::restingAllowance(problem.exemptPads, spheres[i].joint,
+                                         center, spheres[i].radius,
+                                         options_.padNeighborhood);
     if (!result.terrainClearance.has_value() ||
         clearance < *result.terrainClearance) {
       result.terrainClearance = clearance;

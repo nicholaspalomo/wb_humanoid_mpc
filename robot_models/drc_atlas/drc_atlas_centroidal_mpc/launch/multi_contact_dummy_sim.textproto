@@ -3,7 +3,7 @@
 #
 # The DRC Atlas, centroidal MPC tracking an offline multi-contact plan in the dummy simulator
 # (humanoid_nmpc/docs/multi_contact_planning/README.md, section 8.2): the MPC node on the multi-contact task file
-# (thirteen contact candidates, the wrists unlocked, contact_schedule_source: "multi_contact_plan"), the robot played by
+# (seventeen contact candidates, the wrists unlocked, contact_schedule_source: "multi_contact_plan"), the robot played by
 # the rollout of the MPC's own model from the plan's first state, and the Rerun bridge drawing the scenario's terrain
 # and the contact forces, all on the laptop. No GUI: the plan is the reference, not a velocity command.
 #

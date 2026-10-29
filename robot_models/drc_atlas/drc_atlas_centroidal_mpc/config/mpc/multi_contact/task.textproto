@@ -2,8 +2,8 @@
 # proto-message: humanoid_mpc_config.TaskFile
 # The DRC Atlas's centroidal MPC tracking an offline multi-contact plan (humanoid_nmpc/docs/multi_contact_planning/
 # README.md, section 7.2): the dummy sims of the multi-contact scenarios (make launch-drc-atlas-<scenario>-dummy-sim).
-# Every one of the thirteen contact candidates of contact_set.textproto beside this file is a contact of the model: the
-# eight point candidates are its 3-DoF contacts and the five surface candidates its 6-DoF contacts, the feet last so
+# Every one of the seventeen contact candidates of contact_set.textproto beside this file is a contact of the model: the
+# twelve point candidates are its 3-DoF contacts and the five surface candidates its 6-DoF contacts, the feet last so
 # that the biped's mode numbers keep their meaning. Their names, parent joints, offsets and pads are those of the contact
 # set; //humanoid_nmpc/humanoid_centroidal_mpc:test_multi_contact_task_file checks them. The wrists are unlocked (design
 # section 11, decision 2), so that a hand can turn to face a surface.
@@ -27,9 +27,10 @@ multi_contact_plan {
   clock_hold { lead: 0.1 contact_tolerance: 0.01 com_tolerance: 0.03 }
   # A sole's pad is its center: its toe and heel keep 15 cm minus half its length (12 cm) off the terrain.
   swing { lift_height: 0.1 clearance: 0.15 }
-  # A sole swings flat: its pad normal is held to the normal of the patch it lands on over the whole swing (a window
-  # longer than any), so that neither its heel nor its toe dips into the step it leaves or the one it climbs to.
-  contact_swing { weight: 1000 position_gain: 10 landing_alignment_weight: 3000 landing_window: 2.0 }
+  # A sole swings flat: its pad normal is held to the normal of the patch it lands on over the last 3 s of its swing (the
+  # whole of every stairs swing, and the last step of the get-up from prone's, 2.9 s long), so that neither its heel
+  # nor its toe dips into the step it leaves, the one it climbs to or the floor.
+  contact_swing { weight: 1000 position_gain: 10 landing_alignment_weight: 3000 landing_window: 3.0 }
   terrain_non_penetration { mu: 0.01 delta: 0.005 margin: 0.0 }
   # The input costs pull every contact's force to the plan's, so that the MPC loads and unloads the contacts as the
   # plan does (a contact that lifts off is unloaded first).
@@ -97,6 +98,10 @@ model_settings {
   contacts_3dof { name: "forearm_r_contact" parent_joint_name: "r_arm_elx" translation { x: 0.04 y: -0.05 z: 0 } }
   contacts_3dof { name: "thigh_l_contact" parent_joint_name: "l_leg_hpy" translation { x: -0.0845 y: 0 z: -0.177 } }
   contacts_3dof { name: "thigh_r_contact" parent_joint_name: "r_leg_hpy" translation { x: -0.0845 y: 0 z: -0.177 } }
+  contacts_3dof { name: "torso_edge_r_low_25_contact" parent_joint_name: "back_bkx" translation { x: -0.22 y: -0.22 z: 0.10 } }
+  contacts_3dof { name: "torso_edge_r_high_25_contact" parent_joint_name: "back_bkx" translation { x: -0.22 y: -0.22 z: 0.50 } }
+  contacts_3dof { name: "torso_edge_r_low_65_contact" parent_joint_name: "back_bkx" translation { x: -0.22 y: -0.22 z: 0.03 } }
+  contacts_3dof { name: "torso_edge_r_high_65_contact" parent_joint_name: "back_bkx" translation { x: -0.22 y: -0.22 z: 0.57 } }
 
   contact_names_6dof: "seat_contact"
   contact_names_6dof: "torso_back_contact"
@@ -330,6 +335,10 @@ input_weights {
   contact_wrenches { contact: "forearm_r_contact" force { x: 1.0e-05 y: 1.0e-05 z: 5.0e-05 } }
   contact_wrenches { contact: "thigh_l_contact" force { x: 1.0e-05 y: 1.0e-05 z: 5.0e-05 } }
   contact_wrenches { contact: "thigh_r_contact" force { x: 1.0e-05 y: 1.0e-05 z: 5.0e-05 } }
+  contact_wrenches { contact: "torso_edge_r_low_25_contact" force { x: 1.0e-05 y: 1.0e-05 z: 5.0e-05 } }
+  contact_wrenches { contact: "torso_edge_r_high_25_contact" force { x: 1.0e-05 y: 1.0e-05 z: 5.0e-05 } }
+  contact_wrenches { contact: "torso_edge_r_low_65_contact" force { x: 1.0e-05 y: 1.0e-05 z: 5.0e-05 } }
+  contact_wrenches { contact: "torso_edge_r_high_65_contact" force { x: 1.0e-05 y: 1.0e-05 z: 5.0e-05 } }
   contact_wrenches {
     contact: "seat_contact"
     force { x: 1.0e-05 y: 2.0e-05 z: 5.0e-05 }

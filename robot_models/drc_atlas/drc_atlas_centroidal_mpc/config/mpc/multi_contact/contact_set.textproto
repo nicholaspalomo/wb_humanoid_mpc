@@ -145,4 +145,45 @@ candidates {
   pad_x_axis: [0, 0, 1]
   rectangle { x_min: -0.18 x_max: 0.18 y_min: -0.15 y_max: 0.15 }
 }
+# The right-side roll of the get-up from the back (design section 8.1, scenario 4; only get_up_supine allows them).
+# Atlas's torso is a box, so it rolls quasi-statically on the back-right edge of the utorso box (x = -0.22, y = -0.22
+# in the back_bkx frame): on pads whose normals lie 25 degrees (at z = 0.10 and 0.50) and 65 degrees (at z = 0.03 and
+# 0.57, the ends of the edge: apart from the others, as the planner keeps the pads of one surface apart, and as far
+# apart as the edge allows, since on them and the left foot alone the CoM must stay over the line between them) from
+# the back face's toward the side face's, so that within their 30 degree cones they carry the roll from the back to
+# about 45 degrees, where the right hand, the arm raised along the head, and then the right foot in front hold the
+# robot. The pads are corners of the box: their geometry is a point (a 1 mm sphere), which rests on the floor where
+# the box does.
+candidates {
+  name: "torso_edge_r_low_25_contact"
+  kind: KIND_POINT
+  parent_joint: "back_bkx"
+  offset: [-0.22, -0.22, 0.10]
+  pad_normal: [-0.90631, -0.42262, 0]
+  geom_radius: 0.001
+}
+candidates {
+  name: "torso_edge_r_high_25_contact"
+  kind: KIND_POINT
+  parent_joint: "back_bkx"
+  offset: [-0.22, -0.22, 0.50]
+  pad_normal: [-0.90631, -0.42262, 0]
+  geom_radius: 0.001
+}
+candidates {
+  name: "torso_edge_r_low_65_contact"
+  kind: KIND_POINT
+  parent_joint: "back_bkx"
+  offset: [-0.22, -0.22, 0.03]
+  pad_normal: [-0.42262, -0.90631, 0]
+  geom_radius: 0.001
+}
+candidates {
+  name: "torso_edge_r_high_65_contact"
+  kind: KIND_POINT
+  parent_joint: "back_bkx"
+  offset: [-0.22, -0.22, 0.57]
+  pad_normal: [-0.42262, -0.90631, 0]
+  geom_radius: 0.001
+}
 # LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/multi_contact/task.textproto:multi_contact_candidates)

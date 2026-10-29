@@ -33,6 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -41,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
 #include "ocs2_core/Dimensions.h"
 
@@ -239,20 +242,53 @@ bool exemptsJoint(const PadRegion& pad, pinocchio::JointIndex joint) {
                                          joint) != pad.joints.end();
 }
 
+absl::StatusOr<LinkAbove> linkAboveOf(absl::string_view name) {
+  for (size_t i = 0; i < kLinkAboveNames.size(); ++i) {
+    if (kLinkAboveNames[i] == name) return static_cast<LinkAbove>(i);
+  }
+  return absl::InvalidArgumentError(
+      absl::StrCat("unknown point_pad_link_above '", name,
+                   "' (known: ", absl::StrJoin(kLinkAboveNames, ", "), ")"));
+}
+
+namespace {
+
+/** The joint of the link above the pad of candidate `index`; std::nullopt
+ * when the pad's joint is the root's. */
+std::optional<pinocchio::JointIndex> jointAbove(const RobotStanceModel& model,
+                                                int index) {
+  const pinocchio::JointIndex parent =
+      model.model().parents[model.padJoint(index)];
+  if (parent == 0) return std::nullopt;
+  return parent;
+}
+
+}  // namespace
+
 std::vector<pinocchio::JointIndex> exemptJointsOf(const RobotStanceModel& model,
-                                                  int index) {
+                                                  int index,
+                                                  LinkAbove linkAbove) {
   if (model.contactSet().candidate(index).kind == ContactKind::kSurface) {
     return {};
   }
-  // The link above the pad's too: kneeling on a flat top puts the end of the
-  // thigh, at the knee, on the surface beside the pad (its sphere about 5 mm
-  // into it). Only its spheres within the neighborhood are exempt, the one at
-  // the joint, so the rest of the thigh still counts.
   std::vector<pinocchio::JointIndex> joints = ownJointsOf(model, index);
-  const pinocchio::JointIndex parent =
-      model.model().parents[model.padJoint(index)];
-  if (parent > 0) joints.push_back(parent);
+  if (const std::optional<pinocchio::JointIndex> above =
+          jointAbove(model, index);
+      linkAbove == LinkAbove::kExempt && above.has_value()) {
+    joints.push_back(*above);
+  }
   return joints;
+}
+
+std::vector<pinocchio::JointIndex> restingJointsOf(
+    const RobotStanceModel& model, int index, LinkAbove linkAbove) {
+  if (model.contactSet().candidate(index).kind == ContactKind::kSurface ||
+      linkAbove != LinkAbove::kRests) {
+    return {};
+  }
+  const std::optional<pinocchio::JointIndex> above = jointAbove(model, index);
+  if (!above.has_value()) return {};
+  return {*above};
 }
 
 std::vector<pinocchio::JointIndex> ownJointsOf(const RobotStanceModel& model,
@@ -329,7 +365,7 @@ Eigen::Vector3d CollisionModel::worldCenter(const RobotStanceModel& model,
 }
 
 std::vector<PadRegion> CollisionModel::activePadRegions(
-    const RobotStanceModel& model, ContactMask mask) {
+    const RobotStanceModel& model, ContactMask mask, LinkAbove linkAbove) {
   std::vector<PadRegion> pads;
   for (int index = 0; index < model.contactSet().size(); ++index) {
     if (!isContactActive(mask, index)) continue;
@@ -337,7 +373,8 @@ std::vector<PadRegion> CollisionModel::activePadRegions(
         PadRegion{.center = model.padPosition(index),
                   .rotation = model.padRotation(index),
                   .rectangle = model.contactSet().candidate(index).rectangle,
-                  .joints = exemptJointsOf(model, index)});
+                  .joints = exemptJointsOf(model, index, linkAbove),
+                  .restingJoints = restingJointsOf(model, index, linkAbove)});
   }
   return pads;
 }
@@ -356,29 +393,45 @@ bool CollisionModel::isExempt(const std::vector<PadRegion>& pads,
   return false;
 }
 
+double CollisionModel::restingAllowance(const std::vector<PadRegion>& pads,
+                                        pinocchio::JointIndex joint,
+                                        const Eigen::Vector3d& worldCenter,
+                                        double radius,
+                                        double neighborhood) {
+  for (const PadRegion& pad : pads) {
+    if (std::find(pad.restingJoints.begin(), pad.restingJoints.end(), joint) !=
+            pad.restingJoints.end() &&
+        distanceToPad(pad, worldCenter) < radius + neighborhood) {
+      return kRestingLinkDepth;
+    }
+  }
+  return 0.0;
+}
+
 SphereClearance CollisionModel::terrainClearance(
     const RobotStanceModel& model,
     const TerrainModel& terrain,
     ContactMask mask,
     double neighborhood,
     std::optional<double> restingTolerance) const {
-  std::vector<PadRegion> pads = activePadRegions(model, mask);
+  std::vector<PadRegion> pads = activePadRegions(model, mask, linkAbove_);
   if (restingTolerance.has_value()) {
     for (int index = 0; index < model.contactSet().size(); ++index) {
       if (isContactActive(mask, index)) continue;
       const Eigen::Vector3d pad = model.padPosition(index);
       if (std::abs(terrain.signedDistance(pad)) > *restingTolerance) continue;
-      // A resting sole exempts its foot; a resting point pad what it exempts
-      // in contact (exemptJointsOf()): a knee settling onto a box exempts the
-      // end of the thigh beside it too.
+      // A resting pad exempts its own link and those below, and treats the
+      // end of a point pad's link above as an active one does: a knee
+      // settling onto a box.
       const bool surface =
           model.contactSet().candidate(index).kind == ContactKind::kSurface;
-      pads.push_back(
-          PadRegion{.center = pad,
-                    .rotation = model.padRotation(index),
-                    .rectangle = model.contactSet().candidate(index).rectangle,
-                    .joints = surface ? ownJointsOf(model, index)
-                                      : exemptJointsOf(model, index)});
+      pads.push_back(PadRegion{
+          .center = pad,
+          .rotation = model.padRotation(index),
+          .rectangle = model.contactSet().candidate(index).rectangle,
+          .joints = surface ? ownJointsOf(model, index)
+                            : exemptJointsOf(model, index, linkAbove_),
+          .restingJoints = restingJointsOf(model, index, linkAbove_)});
     }
   }
   SphereClearance result;
@@ -388,7 +441,9 @@ SphereClearance CollisionModel::terrainClearance(
     if (isExempt(pads, spheres_[index].joint, center, radius, neighborhood)) {
       continue;
     }
-    const double clearance = terrain.sphereDistance(center, radius);
+    const double clearance = terrain.sphereDistance(center, radius) +
+                             restingAllowance(pads, spheres_[index].joint,
+                                              center, radius, neighborhood);
     if (!result.clearance.has_value() || clearance < *result.clearance) {
       result.clearance = clearance;
       result.sphere = index;

@@ -306,6 +306,19 @@ class StanceMotion {
       const Eigen::VectorXd& to,
       const StancePlacements& stance);
 
+  /** Why the CoM at a configuration between the knots `from` and `to` (as
+   * sweptClearance() samples them) keeps less than the full CoM margin,
+   * without the sweep's slack, inside `stance`'s polygon, or std::nullopt
+   * when it never does or the options set no sweep: the check of a step that
+   * jumps between knots, which a segment accepts as a fast motion at its last
+   * halving (design section 5.5). Such a step of the box climb's swing leg
+   * took the CoM within the slack of the margin, and the MPC tracked it out of
+   * the certified 3 cm. Sets the model's configuration. */
+  absl::StatusOr<std::optional<std::string>> jumpComDefect(
+      const Eigen::VectorXd& from,
+      const Eigen::VectorXd& to,
+      const StancePlacements& stance);
+
   /** Why the pad of a candidate of StanceMotionOptions::clearedPads that
    * `held` does not hold is inside the terrain at `q`, or std::nullopt when
    * none is. Sets the model's configuration. */
@@ -392,8 +405,10 @@ PadRegion padRegionOf(const ContactPlacement& placement,
                       const ContactSet& contactSet);
 
 /** The pad region of `placement` with the joints whose spheres it exempts
- * (exemptJointsOf()), for the IK's clearance. */
+ * and lets rest under `linkAbove` (exemptJointsOf(), restingJointsOf()), for
+ * the IK's clearance. */
 PadRegion exemptRegionOf(const ContactPlacement& placement,
-                         const RobotStanceModel& model);
+                         const RobotStanceModel& model,
+                         LinkAbove linkAbove);
 
 }  // namespace ocs2::humanoid::multi_contact

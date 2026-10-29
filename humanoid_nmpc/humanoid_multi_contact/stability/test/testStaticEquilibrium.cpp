@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Eigen/Geometry"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/match.h"
 #include "gtest/gtest.h"
 
 #include "humanoid_multi_contact/stability/ContactWrenchConeCheck.h"
@@ -275,6 +276,47 @@ TEST(StaticEquilibriumTest, OnePointHoldsOnlyTheCenterOfMassAboveIt) {
         *staticMargin(polygon, Eigen::Vector2d(above.x() + 0.01, above.y())),
         -0.01, 1.0e-5);
   }
+}
+
+TEST(StaticEquilibriumTest, TheRefinedPolygonKeepsACornerBetweenTwoDirections) {
+  // The roll of the get-up from the back: two points along the edge of the
+  // torso box, a little off the world's x axis, and a sole far ahead. The
+  // corner at the inner point lies between two of the sixteen margin
+  // directions, so the sampled hull cuts it off; the refined one keeps it.
+  constexpr double kYaw = 0.01;
+  const Eigen::Vector3d edge(std::cos(kYaw), std::sin(kYaw), 0.0);
+  const Eigen::Vector3d outer(-0.78, -0.22, 0.0);
+  const Eigen::Vector3d inner = outer + 0.54 * edge;
+  StanceContact sole = foot("foot", kFootY);
+  sole.position = Eigen::Vector3d(0.573, 0.111, 0.0);
+  const Stance stance = {point("outer", outer, Eigen::Vector3d::UnitZ()),
+                         point("inner", inner, Eigen::Vector3d::UnitZ()), sole};
+  const std::vector<Eigen::Vector2d> sampled = polygonOf(stance);
+  StaticEquilibriumOptions options;
+  options.supportPolygon = SupportPolygon::kRefined;
+  const absl::StatusOr<StaticEquilibrium> equilibrium =
+      StaticEquilibrium::Create(stance, options);
+  ASSERT_TRUE(equilibrium.ok()) << equilibrium.status();
+  const absl::StatusOr<std::vector<Eigen::Vector2d>> refined =
+      equilibrium->supportPolygon();
+  ASSERT_TRUE(refined.ok()) << refined.status();
+  const Eigen::Vector2d corner = inner.head<2>();
+  EXPECT_LT(*staticMargin(sampled, corner), -0.01);
+  EXPECT_GT(*staticMargin(*refined, corner), -kRefinementTolerance);
+  EXPECT_GT(polygonArea(*refined), polygonArea(sampled));
+  // Every refined vertex is in equilibrium: the hull is still inside.
+  for (const Eigen::Vector2d& vertex : *refined) {
+    EXPECT_LT(*equilibrium->equilibriumResidual(vertex), 1.0e-6);
+  }
+}
+
+TEST(StaticEquilibriumTest, TheSupportPolygonIsSelectedByName) {
+  EXPECT_EQ(*supportPolygonOf("sampled"), SupportPolygon::kSampled);
+  EXPECT_EQ(*supportPolygonOf("refined"), SupportPolygon::kRefined);
+  const absl::StatusOr<SupportPolygon> unknown = supportPolygonOf("exact");
+  EXPECT_EQ(unknown.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_TRUE(absl::StrContains(unknown.status().message(), "sampled, refined"))
+      << unknown.status();
 }
 
 TEST(StaticEquilibriumTest, AWallAloneHoldsNothing) {

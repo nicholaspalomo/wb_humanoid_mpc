@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // validation of a model, the neighborhood of the active pads, and the terrain
 // and self clearances of the DRC Atlas's model.
 
+#include <algorithm>
 #include <iostream>
 #include <memory>
 #include <optional>
@@ -295,7 +296,7 @@ TEST(CollisionModel, AtlasStandingClearsTheFloor) {
   EXPECT_NEAR(*sunk.clearance, -0.02, 0.002);
 }
 
-TEST(CollisionModel, APointPadExemptsItsLegNearItOnly) {
+TEST(CollisionModel, APointPadExemptsItsLegBelowAndTheLinkAboveAsNamed) {
   const std::unique_ptr<RobotStanceModel> model = atlasModel();
   const ContactSet& contacts = model->contactSet();
   const int knee = *contacts.indexOf("knee_l_contact");
@@ -304,36 +305,55 @@ TEST(CollisionModel, APointPadExemptsItsLegNearItOnly) {
   const pinocchio::JointIndex ankle = *model->jointIndex("l_leg_akx");
   const pinocchio::JointIndex thigh = *model->jointIndex("l_leg_hpy");
   const pinocchio::JointIndex otherShin = *model->jointIndex("r_leg_kny");
-  const pinocchio::JointIndex pelvisSide = *model->jointIndex("l_leg_hpx");
-  // The knee: the shin and the foot below it and the thigh above, not the
-  // other leg or the hip.
-  const std::vector<pinocchio::JointIndex> kneeJoints =
-      exemptJointsOf(*model, knee);
-  const PadRegion kneeRegion{.joints = kneeJoints};
+  // The knee: the shin and the foot below it, not the thigh above, whose
+  // spheres beside the pad may rest kRestingLinkDepth in the terrain.
+  const PadRegion kneeRegion{
+      .joints = exemptJointsOf(*model, knee, LinkAbove::kRests),
+      .restingJoints = restingJointsOf(*model, knee, LinkAbove::kRests)};
   EXPECT_TRUE(exemptsJoint(kneeRegion, shin));
   EXPECT_TRUE(exemptsJoint(kneeRegion, ankle));
-  EXPECT_TRUE(exemptsJoint(kneeRegion, thigh));
+  EXPECT_FALSE(exemptsJoint(kneeRegion, thigh));
   EXPECT_FALSE(exemptsJoint(kneeRegion, otherShin));
-  EXPECT_FALSE(exemptsJoint(kneeRegion, pelvisSide));
+  EXPECT_EQ(kneeRegion.restingJoints,
+            std::vector<pinocchio::JointIndex>{thigh});
   // A sole exempts every link near its rectangle; its own joints are the
-  // foot's.
-  EXPECT_TRUE(exemptJointsOf(*model, foot).empty());
+  // foot's, and none rests.
+  EXPECT_TRUE(exemptJointsOf(*model, foot, LinkAbove::kRests).empty());
+  EXPECT_TRUE(restingJointsOf(*model, foot, LinkAbove::kRests).empty());
+  // Under kExempt the knee exempts the thigh's end beside it, and none rests.
+  const std::vector<pinocchio::JointIndex> exempting =
+      exemptJointsOf(*model, knee, LinkAbove::kExempt);
+  EXPECT_NE(std::find(exempting.begin(), exempting.end(), thigh),
+            exempting.end());
+  EXPECT_TRUE(restingJointsOf(*model, knee, LinkAbove::kExempt).empty());
+  EXPECT_EQ(*linkAboveOf("rests"), LinkAbove::kRests);
+  EXPECT_EQ(linkAboveOf("whole").status().code(),
+            absl::StatusCode::kInvalidArgument);
   EXPECT_TRUE(exemptsJoint(PadRegion{}, thigh));
   const std::vector<pinocchio::JointIndex> footJoints =
       ownJointsOf(*model, foot);
   EXPECT_EQ(footJoints, std::vector<pinocchio::JointIndex>{ankle});
-  // A sphere of the thigh beside the knee's pad is exempt, one up the thigh
-  // and one of the other leg beside it count.
+  // A sphere of the thigh beside the knee's pad counts, but may rest: one up
+  // the thigh may not, nor one of the other leg beside it.
   const Eigen::Vector3d nearPad = Eigen::Vector3d::Zero();
-  EXPECT_TRUE(CollisionModel::isExempt({kneeRegion}, thigh, nearPad,
-                                       /*radius=*/0.06,
-                                       kDefaultPadNeighborhood));
-  EXPECT_FALSE(CollisionModel::isExempt(
-      {kneeRegion}, thigh, Eigen::Vector3d(0.0, 0.0, 0.15),
-      /*radius=*/0.06, kDefaultPadNeighborhood));
-  EXPECT_FALSE(CollisionModel::isExempt({kneeRegion}, otherShin, nearPad,
+  EXPECT_FALSE(CollisionModel::isExempt({kneeRegion}, thigh, nearPad,
                                         /*radius=*/0.06,
                                         kDefaultPadNeighborhood));
+  EXPECT_EQ(CollisionModel::restingAllowance({kneeRegion}, thigh, nearPad,
+                                             /*radius=*/0.06,
+                                             kDefaultPadNeighborhood),
+            kRestingLinkDepth);
+  EXPECT_EQ(CollisionModel::restingAllowance(
+                {kneeRegion}, thigh, Eigen::Vector3d(0.0, 0.0, 0.15),
+                /*radius=*/0.06, kDefaultPadNeighborhood),
+            0.0);
+  EXPECT_EQ(CollisionModel::restingAllowance({kneeRegion}, otherShin, nearPad,
+                                             /*radius=*/0.06,
+                                             kDefaultPadNeighborhood),
+            0.0);
+  EXPECT_TRUE(CollisionModel::isExempt({kneeRegion}, shin, nearPad,
+                                       /*radius=*/0.06,
+                                       kDefaultPadNeighborhood));
 }
 
 TEST(CollisionModel, CrossedLegsCollide) {

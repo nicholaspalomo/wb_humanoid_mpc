@@ -68,10 +68,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * The centroidal MPC tracking an offline multi-contact plan in the dummy
  * simulator's loop, faster than real time (design sections 8.2 and 9,
  * "Dummy sim", humanoid_nmpc/docs/multi_contact_planning/README.md): the DRC
- * Atlas's multi-contact task file - all thirteen contact candidates, the wrists
- * unlocked - on the planned-motion reference manager, with the generalized
- * swing planner's contact_swing terms, the terrain non-penetration barrier and
- * the patch-frame cones, its plant the projected rollout of the policy.
+ * Atlas's multi-contact task file - all seventeen contact candidates, the
+ * wrists unlocked - on the planned-motion reference manager, with the
+ * generalized swing planner's contact_swing terms, the terrain non-penetration
+ * barrier and the patch-frame cones, its plant the projected rollout of the
+ * policy.
  *
  * For every plan it tracks to the end: every solve succeeds, the robot ends on
  * the plan's final stance with every pad on its target patch, its base where
@@ -102,6 +103,16 @@ constexpr char kStairsPlan[] =
     "humanoid_nmpc/humanoid_multi_contact/plans/stairs.binpb";
 constexpr char kBoxClimbPlan[] =
     "humanoid_nmpc/humanoid_multi_contact/plans/box_climb.binpb";
+constexpr char kGetUpSupineScenario[] =
+    "humanoid_nmpc/humanoid_multi_contact/scenarios/config/"
+    "get_up_supine.textproto";
+constexpr char kGetUpSupinePlan[] =
+    "humanoid_nmpc/humanoid_multi_contact/plans/get_up_supine.binpb";
+constexpr char kGetUpProneScenario[] =
+    "humanoid_nmpc/humanoid_multi_contact/scenarios/config/"
+    "get_up_prone.textproto";
+constexpr char kGetUpPronePlan[] =
+    "humanoid_nmpc/humanoid_multi_contact/plans/get_up_prone.binpb";
 constexpr char kStairStepScenario[] =
     "humanoid_nmpc/humanoid_centroidal_mpc/test/testdata/multi_contact/"
     "stair_step_scenario.textproto";
@@ -457,6 +468,35 @@ TEST(MultiContactPlanTracking, climbsOntoTheBoxOfTheShippedPlan) {
   expectTheGoalIsReached(*loop, run);
   expectTheTrackedTrajectoryCertifies(run, loop->interface(),
                                       kBoxClimbScenario);
+}
+
+TEST(MultiContactPlanTracking, getsUpFromSupineOfTheShippedPlan) {
+  // The get_up_supine scenario's own plan (make plan-drc-atlas-get-up-supine):
+  // from the back, a roll onto the right edge of the torso, the right foot and
+  // hand down, onto the feet and the hands, a squat, up.
+  HUMANOID_ASSERT_OK_AND_ASSIGN(
+      std::unique_ptr<MultiContactPlanLoop> loop,
+      MultiContactPlanLoop::Create(
+          trackingConfig(kGetUpSupineScenario, kGetUpSupinePlan),
+          atlasMultiContactFiles().urdfFile));
+  const TrackingRun run = runToTheEnd(*loop);
+  expectTheGoalIsReached(*loop, run);
+  expectTheTrackedTrajectoryCertifies(run, loop->interface(),
+                                      kGetUpSupineScenario);
+}
+
+TEST(MultiContactPlanTracking, getsUpFromProneOfTheShippedPlan) {
+  // The get_up_prone scenario's own plan (make plan-drc-atlas-get-up-prone):
+  // from the hands and knees, a foot forward, the other, the hands off, up.
+  HUMANOID_ASSERT_OK_AND_ASSIGN(
+      std::unique_ptr<MultiContactPlanLoop> loop,
+      MultiContactPlanLoop::Create(
+          trackingConfig(kGetUpProneScenario, kGetUpPronePlan),
+          atlasMultiContactFiles().urdfFile));
+  const TrackingRun run = runToTheEnd(*loop);
+  expectTheGoalIsReached(*loop, run);
+  expectTheTrackedTrajectoryCertifies(run, loop->interface(),
+                                      kGetUpProneScenario);
 }
 
 TEST(MultiContactPlanTracking, aNonPenetrationTermIsItsSpheresTerrainDistance) {

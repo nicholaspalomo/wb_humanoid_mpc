@@ -56,7 +56,7 @@ cc_library(
     ],
 )
 
-# The validation of a set, masks and names, and the shipped DRC Atlas set: thirteen candidates with the pads of the
+# The validation of a set, masks and names, and the shipped DRC Atlas set: seventeen candidates with the pads of the
 # design's table.
 cc_test(
     name = "contact_set_test",

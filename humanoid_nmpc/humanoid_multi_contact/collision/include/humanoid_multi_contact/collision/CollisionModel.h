@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
+#include <array>
 #include <optional>
 #include <string>
 #include <vector>
@@ -52,6 +53,33 @@ namespace ocs2::humanoid::multi_contact {
  * collide with the surface it rests on.
  */
 inline constexpr double kDefaultPadNeighborhood = 0.05;
+/** What a point pad does to the spheres of the link above it within its
+ * neighborhood - the end of the thigh at a kneeling knee - selected by name
+ * (Scenario::point_pad_link_above, kLinkAboveNames). */
+enum class LinkAbove {
+  // Exempt, as the link and those below (the box climb's kneels on the box's
+  // edge, which the thigh's end crosses).
+  kExempt,
+  // Resting: they may lie kRestingLinkDepth in the terrain and no deeper
+  // (PadRegion::restingJoints), so that a kneel on a flat floor cannot press
+  // the thigh's end in and lift it out through the floor (the get-ups).
+  kRests,
+};
+
+/** The names of LinkAbove's values, in their order. */
+// LINT.IfChange(link_above_names)
+inline constexpr std::array<absl::string_view, 2> kLinkAboveNames = {"exempt",
+                                                                     "rests"};
+// LINT.ThenChange(//humanoid_nmpc/humanoid_multi_contact/scenarios/scenario.proto:point_pad_link_above_names)
+
+/** The LinkAbove named `name`; InvalidArgument listing kLinkAboveNames for
+ * another name. */
+absl::StatusOr<LinkAbove> linkAboveOf(absl::string_view name);
+
+/** [m] How far a sphere of the link above a point pad may rest in the terrain
+ * within the pad's neighborhood (PadRegion::restingJoints): kneeling on a flat
+ * top puts the thigh's last sphere, at the knee joint, about 5 mm into it. */
+inline constexpr double kRestingLinkDepth = 0.006;
 
 /** One collision sphere, fixed to the link of a joint. Passive data. */
 struct CollisionSphere {
@@ -78,12 +106,19 @@ struct PadRegion {
   Eigen::Matrix3d rotation = Eigen::Matrix3d::Identity();
   std::optional<ContactRectangle> rectangle;
   // The joints whose links' spheres the pad exempts: of a point pad, its
-  // link's joint, every joint below it and the joint of the link above
-  // (exemptJointsOf()), so that a knee on a box exempts the shin, the foot and
-  // the end of the thigh at the knee but not the other leg or the arms;
-  // empty: the spheres of every link (a surface pad, whose region the
-  // neighboring links rest on too: the thighs beside the seat).
+  // link's joint, every joint below it and, under LinkAbove::kExempt, the
+  // joint of the link above (exemptJointsOf()), so that a knee on a box
+  // exempts the shin, the foot and at most the end of the thigh; empty: the
+  // spheres of every link (a surface pad, whose region the neighboring links
+  // rest on too: the thighs beside the seat).
   std::vector<pinocchio::JointIndex> joints;
+  // The joints whose links' spheres within the neighborhood may rest up to
+  // kRestingLinkDepth in the terrain, and no deeper (restingJointsOf()): of a
+  // point pad under LinkAbove::kRests, the joint of the link above, the
+  // thigh's end at a kneeling knee. Exempting it let the planned kneels press
+  // the thigh 1-2 cm into the floor; counting it whole left no kneel on a flat
+  // top.
+  std::vector<pinocchio::JointIndex> restingJoints;
 };
 
 /** [m] The distance of `point` to the pad region: to its center for a point
@@ -100,10 +135,17 @@ std::vector<pinocchio::JointIndex> ownJointsOf(const RobotStanceModel& model,
                                                int index);
 
 /** The joints whose spheres the pad of candidate `index` of `model` exempts
- * (PadRegion::joints): none listed for a surface pad, ownJointsOf() and the
- * joint of the link above for a point pad. */
+ * (PadRegion::joints): none listed for a surface pad, ownJointsOf() for a
+ * point pad, and the joint of the link above under LinkAbove::kExempt. */
 std::vector<pinocchio::JointIndex> exemptJointsOf(const RobotStanceModel& model,
-                                                  int index);
+                                                  int index,
+                                                  LinkAbove linkAbove);
+
+/** The joints whose spheres may rest kRestingLinkDepth in the terrain near
+ * the pad of candidate `index` (PadRegion::restingJoints): the joint of the
+ * link above a point pad under LinkAbove::kRests, else none. */
+std::vector<pinocchio::JointIndex> restingJointsOf(
+    const RobotStanceModel& model, int index, LinkAbove linkAbove);
 
 /** The smallest clearance among some spheres, and where. Passive data. */
 struct SphereClearance {
@@ -156,9 +198,15 @@ class CollisionModel {
    * requires 0 <= index < spheres().size(). */
   Eigen::Vector3d worldCenter(const RobotStanceModel& model, int index) const;
 
-  /** The regions of the active pads of `mask` at `model`'s configuration. */
+  /** What the point pads do to the link above them; kExempt unless set. */
+  LinkAbove linkAbove() const { return linkAbove_; }
+  void setLinkAbove(LinkAbove linkAbove) { linkAbove_ = linkAbove; }
+
+  /** The regions of the active pads of `mask` at `model`'s configuration,
+   * with `linkAbove`'s exemptions. */
   static std::vector<PadRegion> activePadRegions(const RobotStanceModel& model,
-                                                 ContactMask mask);
+                                                 ContactMask mask,
+                                                 LinkAbove linkAbove);
 
   /** Whether a sphere on the link of `joint` at `worldCenter` of `radius`
    * lies within `neighborhood` of one of `pads` that exempts that link. */
@@ -168,14 +216,26 @@ class CollisionModel {
                        double radius,
                        double neighborhood);
 
+  /** [m] What `pads` allow a sphere of the link of `joint` at `worldCenter`
+   * of `radius` to rest in the terrain: kRestingLinkDepth when one of them
+   * lists the joint among its restingJoints and the sphere is within
+   * `neighborhood` of it, else 0. */
+  static double restingAllowance(const std::vector<PadRegion>& pads,
+                                 pinocchio::JointIndex joint,
+                                 const Eigen::Vector3d& worldCenter,
+                                 double radius,
+                                 double neighborhood);
+
   /** The smallest terrain clearance (TerrainModel::sphereDistance()) of the
    * spheres that are not exempt for the active pads of `mask`, at `model`'s
    * configuration. With `restingTolerance`, a pad outside `mask` whose center
    * is within that distance of the terrain [m] still rests on it, and exempts
    * the spheres of its own link and those below (ownJointsOf()), a point
-   * pad's also those of the link above (exemptJointsOf()): a knee whose
-   * contact the plan has just broken has not moved off the box yet, and its
-   * shin and the end of its thigh rest there with it. */
+   * pad's treating those of the link above as an active one does
+   * (linkAbove()): a knee whose contact the plan has just broken has not
+   * moved off the box yet, and its shin and the end of its thigh rest there
+   * with it. A sphere that may rest (PadRegion::restingJoints) counts with
+   * kRestingLinkDepth added to its clearance. */
   SphereClearance terrainClearance(
       const RobotStanceModel& model,
       const TerrainModel& terrain,
@@ -194,6 +254,7 @@ class CollisionModel {
   std::vector<std::string> linkNames_;
   std::vector<CollisionSphere> spheres_;
   std::vector<SpherePair> selfCollisionPairs_;
+  LinkAbove linkAbove_ = LinkAbove::kExempt;
 };
 
 /** Reads the collision-model textproto at `path` (its header names

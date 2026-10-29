@@ -831,6 +831,16 @@ int StanceGraphSearch::nearestToGoal() {
   return best;
 }
 
+/** `options` with the scenario's sphere clearance, when it sets one. */
+StanceIkOptions ikOptionsOf(const config::Scenario& scenario,
+                            const StanceIkOptions& options) {
+  StanceIkOptions result = options;
+  if (scenario.sphere_clearance.has_value()) {
+    result.terrainClearance = *scenario.sphere_clearance;
+  }
+  return result;
+}
+
 /** The planning context of `loaded`. */
 absl::StatusOr<PlanningContext> contextOf(
     const LoadedScenario& loaded, const StanceGraphPlannerOptions& options) {
@@ -845,6 +855,9 @@ absl::StatusOr<PlanningContext> contextOf(
   ASSIGN_OR_RETURN(
       CollisionModel collision,
       CollisionModel::Create(*loaded.collisionModelConfig, *model));
+  ASSIGN_OR_RETURN(const LinkAbove linkAbove,
+                   linkAboveOf(loaded.scenario.point_pad_link_above));
+  collision.setLinkAbove(linkAbove);
   ASSIGN_OR_RETURN(const JointLimits jointLimits,
                    jointLimitsOf(loaded.scenario.joint_limits));
   if (relaxesPositionLimits(jointLimits)) {
@@ -868,10 +881,10 @@ absl::StatusOr<PlanningContext> contextOf(
     context.allowed.push_back(index);
   }
   std::sort(context.allowed.begin(), context.allowed.end());
-  ASSIGN_OR_RETURN(
-      std::unique_ptr<StanceInverseKinematics> ik,
-      StanceInverseKinematics::Create(std::move(model), loaded.terrain,
-                                      std::move(collision), options.ik));
+  ASSIGN_OR_RETURN(std::unique_ptr<StanceInverseKinematics> ik,
+                   StanceInverseKinematics::Create(
+                       std::move(model), loaded.terrain, std::move(collision),
+                       ikOptionsOf(loaded.scenario, options.ik)));
   StanceMotionOptions motion = options.motion;
   // Under the scenario's "position_and_effort", every planned configuration
   // holds its stance within the torque margin, with or without a static
@@ -887,6 +900,8 @@ absl::StatusOr<PlanningContext> contextOf(
     motion.exactStaticMargin = std::nullopt;
   }
   motion.torqueMargin = loaded.scenario.torque_margin;
+  ASSIGN_OR_RETURN(motion.equilibrium.supportPolygon,
+                   supportPolygonOf(loaded.scenario.support_polygon));
   motion.clearedPads = context.allowed;
   ASSIGN_OR_RETURN(context.motion, StanceMotion::Create(std::move(ik), motion));
   return context;

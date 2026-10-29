@@ -1672,12 +1672,12 @@ cc_library(
     ],
 )
 
-# The end-to-end test of milestones 4 and 5: the multi-contact MPC (thirteen contacts, the wrists unlocked) tracking
-# milestone 1's hand-written sway, the hand-written stair step and the stairs and box_climb scenarios' shipped plans
-# (humanoid_multi_contact/plans/*.binpb) in the dummy simulator's loop, faster than real time, to the goal, with
-# the stability certifier passing on the tracked trajectory. Large: it generates the multi-contact model's
-# CppAD libraries on a cold cache (the dynamics of thirteen contacts, the kinematics of each, its terrain
-# non-penetration tapes), once for both cases.
+# The end-to-end test of milestones 4 and 5: the multi-contact MPC (seventeen contacts, the wrists unlocked) tracking
+# milestone 1's hand-written sway, the hand-written stair step and the stairs, box_climb, get_up_supine and
+# get_up_prone scenarios' shipped plans (humanoid_multi_contact/plans/*.binpb) in the dummy simulator's loop, faster
+# than real time, to the goal, with the stability certifier passing on the tracked trajectory. Large: it generates the
+# multi-contact model's CppAD libraries on a cold cache (the dynamics of seventeen contacts, the kinematics of each,
+# its terrain non-penetration tapes), once for all cases.
 cc_test(
     name = "test_multi_contact_plan_tracking",
     size = "large",

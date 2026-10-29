@@ -166,13 +166,24 @@ TEST(ContactSetTest, AtlasContactSet) {
   ASSERT_TRUE(config.ok()) << config.status();
   const absl::StatusOr<ContactSet> set = ContactSet::Create(*config);
   ASSERT_TRUE(set.ok()) << set.status();
-  // The thirteen candidates of the design's table, in its order.
-  const std::vector<std::string> expected = {
-      "foot_l_contact",     "foot_r_contact",    "knee_l_contact",
-      "knee_r_contact",     "hand_l_contact",    "hand_r_contact",
-      "forearm_l_contact",  "forearm_r_contact", "seat_contact",
-      "thigh_l_contact",    "thigh_r_contact",   "torso_back_contact",
-      "torso_front_contact"};
+  // The seventeen candidates of the design's table, in its order.
+  const std::vector<std::string> expected = {"foot_l_contact",
+                                             "foot_r_contact",
+                                             "knee_l_contact",
+                                             "knee_r_contact",
+                                             "hand_l_contact",
+                                             "hand_r_contact",
+                                             "forearm_l_contact",
+                                             "forearm_r_contact",
+                                             "seat_contact",
+                                             "thigh_l_contact",
+                                             "thigh_r_contact",
+                                             "torso_back_contact",
+                                             "torso_front_contact",
+                                             "torso_edge_r_low_25_contact",
+                                             "torso_edge_r_high_25_contact",
+                                             "torso_edge_r_low_65_contact",
+                                             "torso_edge_r_high_65_contact"};
   ASSERT_EQ(set->size(), static_cast<int>(expected.size()));
   int surfaces = 0;
   for (int index = 0; index < set->size(); ++index) {

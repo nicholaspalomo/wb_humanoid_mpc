@@ -39,6 +39,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 
@@ -222,7 +224,42 @@ absl::StatusOr<std::vector<Eigen::Vector2d>> StaticEquilibrium::supportPolygon()
         supportPoint(Eigen::Vector2d(std::cos(angle), std::sin(angle))));
     points.push_back(reference + offset);
   }
-  return convexHull(points, kHullTolerance);
+  switch (options_.supportPolygon) {
+    case SupportPolygon::kSampled:
+      return convexHull(points, kHullTolerance);
+    case SupportPolygon::kRefined:
+      return refinedHull(std::move(points));
+  }
+  return absl::InternalError("unknown SupportPolygon");
+}
+
+absl::StatusOr<std::vector<Eigen::Vector2d>> StaticEquilibrium::refinedHull(
+    std::vector<Eigen::Vector2d> points) const {
+  const Eigen::Vector2d reference =
+      generators_.reference.head<kHorizontalPositionDim>();
+  std::vector<Eigen::Vector2d> hull = convexHull(points, kHullTolerance);
+  int added = 0;
+  bool grew = true;
+  while (grew && added < kMaxRefinementPoints) {
+    grew = false;
+    for (size_t i = 0; i < hull.size() && added < kMaxRefinementPoints; ++i) {
+      const Eigen::Vector2d& from = hull[i];
+      const Eigen::Vector2d edge = hull[(i + 1) % hull.size()] - from;
+      if (edge.norm() <= kHullTolerance) continue;
+      // Counterclockwise: the outside is on the edge's right.
+      const Eigen::Vector2d outward =
+          Eigen::Vector2d(edge.y(), -edge.x()).normalized();
+      ASSIGN_OR_RETURN(const Eigen::Vector2d offset, supportPoint(outward));
+      const Eigen::Vector2d point = reference + offset;
+      if (outward.dot(point - from) > kRefinementTolerance) {
+        points.push_back(point);
+        ++added;
+        grew = true;
+      }
+    }
+    if (grew) hull = convexHull(points, kHullTolerance);
+  }
+  return hull;
 }
 
 absl::StatusOr<Eigen::VectorXd> StaticEquilibrium::solveWithExtraVariables(
@@ -252,6 +289,15 @@ absl::StatusOr<Eigen::VectorXd> StaticEquilibrium::solveWithExtraVariables(
   ASSIGN_OR_RETURN(const LinearProgramSolution solution,
                    solveBoundedOnFailure(std::move(program), generators));
   return solution.x;
+}
+
+absl::StatusOr<SupportPolygon> supportPolygonOf(absl::string_view name) {
+  for (size_t i = 0; i < kSupportPolygonNames.size(); ++i) {
+    if (kSupportPolygonNames[i] == name) return static_cast<SupportPolygon>(i);
+  }
+  return absl::InvalidArgumentError(absl::StrCat(
+      "unknown support_polygon '", name,
+      "' (known: ", absl::StrJoin(kSupportPolygonNames, ", "), ")"));
 }
 
 std::optional<double> staticMargin(absl::Span<const Eigen::Vector2d> polygon,

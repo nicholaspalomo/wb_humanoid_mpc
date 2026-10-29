@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Eigen/Geometry"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/match.h"
 #include "gtest/gtest.h"
 
 #include "humanoid_multi_contact/collision/CollisionModel.h"
@@ -430,6 +431,37 @@ TEST(StanceMotion, ASegmentsStepsClearTheTerrainBetweenItsKnots) {
     EXPECT_FALSE(swept->has_value()) << swept->value_or("");
     previous = knot;
   }
+}
+
+TEST(StanceMotion, AJumpThatTakesTheCoMIntoTheMarginIsFound) {
+  // From standing over both feet to the weight on the right foot: on the
+  // right foot alone, the CoM between the two knots is outside the margin
+  // until the end; over both feet it keeps it.
+  StanceMotionOptions options = defaultOptions();
+  options.sweep = SweepResolution();
+  std::unique_ptr<StanceMotion> motion = atlasMotion(options);
+  RobotStanceModel& model = motion->model();
+  const Eigen::VectorXd q0 = standing(model);
+  ASSERT_TRUE(model.setGeneralizedPosition(q0).ok());
+  const int left = *model.contactSet().indexOf("foot_l_contact");
+  const int right = *model.contactSet().indexOf("foot_r_contact");
+  const StancePlacements both = {onFloor(left, model.padPosition(left)),
+                                 onFloor(right, model.padPosition(right))};
+  const StancePlacements rightOnly = withoutCandidate(both, left);
+  const absl::StatusOr<MotionCheck> shifted =
+      motion->transition(both, rightOnly, q0, {q0});
+  ASSERT_TRUE(shifted.ok()) << shifted.status();
+  ASSERT_TRUE(shifted->feasible) << shifted->failure;
+  const absl::StatusOr<std::optional<std::string>> outside =
+      motion->jumpComDefect(q0, shifted->q, rightOnly);
+  ASSERT_TRUE(outside.ok()) << outside.status();
+  ASSERT_TRUE(outside->has_value());
+  EXPECT_TRUE(absl::StrContains(**outside, "through a jump, the CoM"))
+      << **outside;
+  const absl::StatusOr<std::optional<std::string>> inside =
+      motion->jumpComDefect(q0, shifted->q, both);
+  ASSERT_TRUE(inside.ok()) << inside.status();
+  EXPECT_FALSE(inside->has_value()) << inside->value_or("");
 }
 
 TEST(StanceMotion, PadsOverlap) {

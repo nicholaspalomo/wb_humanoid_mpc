@@ -49,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_multi_contact/scenarios/scenario.nproto.pb.h"
 #include "humanoid_multi_contact/scenarios/scenario.pb.h"
+#include "humanoid_multi_contact/stability/StaticEquilibrium.h"
 #include "nproto/Textproto.h"
 #include "robot_core/ResourcePaths.h"
 
@@ -147,6 +148,20 @@ absl::Status checkMargins(const config::Scenario& scenario) {
                                       kMaxJointLimitRelaxation,
                                       "] under \"relaxed_position\" and be 0 "
                                       "otherwise"));
+  }
+  if (const absl::StatusOr<LinkAbove> linkAbove =
+          linkAboveOf(scenario.point_pad_link_above);
+      !linkAbove.ok()) {
+    return scenarioError(scenario, linkAbove.status().message());
+  }
+  if (scenario.sphere_clearance.has_value() &&
+      !(*scenario.sphere_clearance > 0.0)) {
+    return scenarioError(scenario, "sphere_clearance must be positive");
+  }
+  if (const absl::StatusOr<SupportPolygon> polygon =
+          supportPolygonOf(scenario.support_polygon);
+      !polygon.ok()) {
+    return scenarioError(scenario, polygon.status().message());
   }
   if (!(scenario.duration > 0.0) || !std::isfinite(scenario.duration)) {
     return scenarioError(scenario, "duration must be positive");
@@ -280,6 +295,8 @@ absl::StatusOr<CertifierOptions> certifierOptionsOf(
   options.staticMargin = scenario.static_margin;
   ASSIGN_OR_RETURN(options.jointLimits, jointLimitsOf(scenario.joint_limits));
   options.torqueMargin = scenario.torque_margin;
+  ASSIGN_OR_RETURN(options.equilibrium.supportPolygon,
+                   supportPolygonOf(scenario.support_polygon));
   return options;
 }
 
@@ -320,6 +337,9 @@ absl::StatusOr<std::unique_ptr<StabilityCertifier>> makeCertifier(
   if (loaded.collisionModelConfig.has_value()) {
     ASSIGN_OR_RETURN(collisionModel, CollisionModel::Create(
                                          *loaded.collisionModelConfig, *model));
+    ASSIGN_OR_RETURN(const LinkAbove linkAbove,
+                     linkAboveOf(loaded.scenario.point_pad_link_above));
+    collisionModel->setLinkAbove(linkAbove);
   }
   ASSIGN_OR_RETURN(const CertifierOptions options,
                    certifierOptionsOf(loaded.scenario));
