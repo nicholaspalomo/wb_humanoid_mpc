@@ -137,8 +137,10 @@ LinearProgram LinearProgram::Unconstrained(int variables) {
 
 namespace {
 
-/** Solves `program` with the Hessian `hessian` (checked by the callers), in
- * HPIPM's ROBUST mode with `settings`. */  // NOLINT(claudisms): HPIPM mode enumerator
+/**
+ * Solves `program` with the Hessian `hessian` (checked by the callers) using
+ * HPIPM with `settings`.
+ */
 absl::StatusOr<LinearProgramSolution> solveDenseQp(
     const Eigen::MatrixXd& hessianIn,
     const LinearProgram& program,
