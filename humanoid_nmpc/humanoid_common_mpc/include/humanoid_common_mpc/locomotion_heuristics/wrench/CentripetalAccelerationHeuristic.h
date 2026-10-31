@@ -57,7 +57,7 @@ namespace ocs2::humanoid {
  * is the only one whose expression depends on the foot's orientation. Under
  * `contactInputParameterization: basis_vectors` the input is parameterized in
  * the local contact frame, so the layer has to route the whole reference
- * through the state-aware setContactForceInWorldFrame() and pay a
+ * through the state-aware setForceContactEwrtWorld() and pay a
  * forward-kinematics pass per shooting node. The layer switches paths by itself
  * when this is listed; the cost is real and is the reason the other nine do not
  * pay it.

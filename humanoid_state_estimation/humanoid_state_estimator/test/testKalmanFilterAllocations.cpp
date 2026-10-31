@@ -99,11 +99,11 @@ class KalmanFilterAllocationTest : public ::testing::Test {
     matrix_t e_z = matrix_t::Zero(1, 3);
     e_z(0, 2) = 1.0;
     for (const std::string foot : {"left_foot", "right_foot"}) {
-      const std::string position = absl::StrCat(foot, "_position");
+      const std::string foot_state_name = absl::StrCat(foot, "_position");
       double_support_.push_back(
           {.name = absl::StrCat(foot, "_relative_position"),
            .measurement = vector_t::Zero(3),
-           .measurementModel = {{position, identity(3)},
+           .measurementModel = {{foot_state_name, identity(3)},
                                 {"base_position", -identity(3)}},
            .measurementNoiseCovariance = 1.0e-6 * identity(3)});
       double_support_.push_back(
@@ -114,14 +114,16 @@ class KalmanFilterAllocationTest : public ::testing::Test {
       double_support_.push_back(
           {.name = absl::StrCat(foot, "_height"),
            .measurement = vector_t::Zero(1),
-           .measurementModel = {{position, e_z}},
+           .measurementModel = {{foot_state_name, e_z}},
            .measurementNoiseCovariance = 1.0e-6 * identity(1)});
     }
     left_support_.assign(double_support_.begin(), double_support_.begin() + 3);
 
     // Read once, so that the caller's KalmanFilterState already owns storage of
     // the right size.
-    ASSERT_TRUE(filter_->getState("base_velocity", base_velocity_).ok());
+    ASSERT_TRUE(
+        filter_->getState("base_velocity", est_linvel_base_rt_world_ewrt_world_)
+            .ok());
   }
 
   /// One control tick: fresh sensor values written in place, then predict,
@@ -132,7 +134,9 @@ class KalmanFilterAllocationTest : public ::testing::Test {
     measurements[0].measurementModel.at("base_position") = -identity_;
     return filter_->predict(process_model_, inputs_).ok() &&
            filter_->correct(measurements).ok() &&
-           filter_->getState("base_velocity", base_velocity_).ok();
+           filter_
+               ->getState("base_velocity", est_linvel_base_rt_world_ewrt_world_)
+               .ok();
   }
 
   std::unique_ptr<KalmanFilter> filter_;
@@ -140,7 +144,7 @@ class KalmanFilterAllocationTest : public ::testing::Test {
   std::vector<KalmanFilterInput> inputs_;
   std::vector<KalmanFilterMeasurement> double_support_;
   std::vector<KalmanFilterMeasurement> left_support_;
-  KalmanFilterState base_velocity_;
+  KalmanFilterState est_linvel_base_rt_world_ewrt_world_;
   const matrix_t identity_ = identity(3);
 };
 

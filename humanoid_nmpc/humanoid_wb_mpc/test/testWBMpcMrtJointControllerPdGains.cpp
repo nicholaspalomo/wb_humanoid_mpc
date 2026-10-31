@@ -149,10 +149,10 @@ class WholeBodyPdGainsHarness {
         description_.getJointIndices(modelSettings_.mpcModelJointNames);
     otherJointIndices_ =
         description_.getJointIndices(modelSettings_.fixedJointNames);
-    robotState_.setRootPositionInWorldFrame(
-        model_.getBasePosition(initialState));
-    robotState_.setRootRotationLocalToWorldFrame(
-        quaternion_t(model_.getBaseOrientation(initialState)));
+    robotState_.setPosBaseRtWorldEwrtWorld(
+        model_.getPosBaseRtWorldEwrtWorld(initialState));
+    robotState_.setQuatBaseRtWorld(
+        quaternion_t(model_.getQuatBaseRtWorldXyzw(initialState)));
     const vector_t joints = model_.getJointAngles(initialState);
     for (size_t i = 0; i < mpcJointIndices_.size(); ++i)
       robotState_.setJointPosition(mpcJointIndices_[i], joints[i]);
@@ -227,11 +227,11 @@ mpc_config::JointPdGainsFile gainsFile(scalar_t kp,
   mpc_config::JointPdGainsFile file;
   file.default_gains.kp = kp;
   file.default_gains.kd = 3.0;
-  file.default_gains.torque_limit = 1000.0;
+  file.default_gains.max_joint_torque = 1000.0;
   file.joint_gains.push_back({.joint = firstJoint,
                               .kp = firstJointKp,
                               .kd = std::nullopt,
-                              .torque_limit = std::nullopt});
+                              .max_joint_torque = std::nullopt});
   return file;
 }
 
@@ -241,7 +241,7 @@ std::string gainsText(scalar_t kp,
                       scalar_t firstJointKp) {
   return absl::StrCat(
       "default_gains {\n  kp: ", kp,
-      "\n  kd: 3.0\n  torque_limit: 1000.0\n}\njoint_gains { joint: \"",
+      "\n  kd: 3.0\n  max_joint_torque: 1000.0\n}\njoint_gains { joint: \"",
       firstJoint, "\" kp: ", firstJointKp, " }\n");
 }
 
@@ -325,7 +325,7 @@ TEST(WBMpcMrtJointControllerPdGains,
   refused[3].joint_gains.front().joint.clear();  // an entry that names no joint
   // refused[4] sets nothing: the controller has no gains of its own to fill it
   // in with.
-  refused[5].default_gains.torque_limit.reset();
+  refused[5].default_gains.max_joint_torque.reset();
   for (size_t k = 0; k < refused.size(); ++k) {
     const absl::Status status =
         setFromAnotherThread(harness.controller(), refused[k]);
@@ -345,9 +345,9 @@ TEST(WBMpcMrtJointControllerPdGains,
      TheGainsFileIsWatchedByPollPdGainsFileAndNotByTheControlCycle) {
   const std::string file =
       absl::StrCat(::testing::TempDir(), "/wb_joint_pd_gains.textproto");
-  writeFile(
-      file,
-      "default_gains {\n  kp: 111.0\n  kd: 3.0\n  torque_limit: 1000.0\n}\n");
+  writeFile(file,
+            "default_gains {\n  kp: 111.0\n  kd: 3.0\n  max_joint_torque: "
+            "1000.0\n}\n");
   WholeBodyPdGainsHarness harness(file);
   harness.controller().setControlMode("JOINT_PD");
   EXPECT_EQ(actionOf(harness.cycle(), harness.mpcJointIndices()[1]).kp, 111.0)
@@ -390,9 +390,9 @@ TEST(WBMpcMrtJointControllerPdGains,
      AGainsFileSavedBeforeTheNewestLiveGainsDoesNotUndoThem) {
   const std::string file = absl::StrCat(
       ::testing::TempDir(), "/wb_superseded_joint_pd_gains.textproto");
-  writeFile(
-      file,
-      "default_gains {\n  kp: 111.0\n  kd: 3.0\n  torque_limit: 1000.0\n}\n");
+  writeFile(file,
+            "default_gains {\n  kp: 111.0\n  kd: 3.0\n  max_joint_torque: "
+            "1000.0\n}\n");
   WholeBodyPdGainsHarness harness(file);
   harness.controller().setControlMode("JOINT_PD");
   const std::string firstJoint = harness.mpcJointNames().front();
@@ -424,7 +424,7 @@ TEST(WBMpcMrtJointControllerPdGains,
   const std::string file = absl::StrCat(::testing::TempDir(),
                                         "/wb_refused_joint_pd_gains.textproto");
   writeFile(file,
-            "default_gains { kp: 150.0 kd: 8.0 torque_limit: 100.0 "
+            "default_gains { kp: 150.0 kd: 8.0 max_joint_torque: 100.0 "
             "}\njoint_gains { joint: \"left_knee_joint\" kd: -1.0 }\n");
   const WholeBodyPdGainsHarness harness(file);
   const absl::Status& refused = harness.creationStatus();
@@ -458,13 +458,13 @@ TEST(WBMpcMrtJointControllerPdGains,
   writeFile(partial, "default_gains { kp: 150.0 kd: 8.0 }\n");
   const WholeBodyPdGainsHarness partialFile(partial);
   EXPECT_TRUE(absl::StrContains(partialFile.creationStatus().message(),
-                                "default_gains.torque_limit is not set"))
+                                "default_gains.max_joint_torque is not set"))
       << partialFile.creationStatus();
   std::filesystem::remove(partial);
 }
 
-// torque_limit means what it means in the centroidal controller: the bound of
-// every feedforward torque the controller commands, here in JOINT_PD and
+// max_joint_torque means what it means in the centroidal controller: the bound
+// of every feedforward torque the controller commands, here in JOINT_PD and
 // GRAVITY_COMP (gravity compensation) - it used to be ignored by this
 // controller.
 TEST(WBMpcMrtJointControllerPdGains,
@@ -473,7 +473,7 @@ TEST(WBMpcMrtJointControllerPdGains,
                                 // G1's legs at its initial posture
   mpc_config::JointPdGainsFile limited = gainsFile(
       /*kp=*/100.0, /*firstJoint=*/"left_knee_joint", /*firstJointKp=*/100.0);
-  limited.default_gains.torque_limit = limit;
+  limited.default_gains.max_joint_torque = limit;
   WholeBodyPdGainsHarness harness;
   for (const char* absl_nonnull mode : {"JOINT_PD", "GRAVITY_COMP"}) {
     harness.controller().setControlMode(mode);

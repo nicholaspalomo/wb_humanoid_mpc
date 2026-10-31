@@ -54,9 +54,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * step, landing each foot on its target, against a body that moves at the
  * command;
  *  - the angular velocity the base-pose seam gives a shaped attitude
- * (shapedBodyAngularVelocity(), tiltAngularVelocityInWorld()) is the derivative
- * of that attitude, against a central difference of rotation matrices built
- * from elementary rotations, independent of the Euler-boundary code under test.
+ * (computeShapedAngvelBaseRtWorldEwrtBase(),
+ * computeTiltAngvelBaseRtWorldEwrtWorld()) is the derivative of that attitude,
+ * against a central difference of rotation matrices built from elementary
+ * rotations, independent of the Euler-boundary code under test.
  */
 
 namespace ocs2::humanoid {
@@ -263,7 +264,7 @@ TEST(LocomotionHeuristicSeams,
   // delta(t) tilts it in pitch and roll at gait frequency. The shaped attitude
   // Theta_n + delta must rotate at w_B = vee(R' dR/dt), measured by a central
   // difference of R_z R_y R_x - and its world rate must exceed the nominal's by
-  // tiltAngularVelocityInWorld() wherever the nominal does not roll.
+  // computeTiltAngvelBaseRtWorldEwrtWorld() wherever the nominal does not roll.
   const scalar_t step = 1.0e-6;
   const std::vector<EulerTrajectory> nominals = {
       {.constant = vector3_t(0.3, 0.05, -0.04),
@@ -291,7 +292,7 @@ TEST(LocomotionHeuristicSeams,
       const vector3_t nominalBodyRate = localAngularVelocityFromEulerZyxRates(
           nominalAngles, nominal.rateAt(time));
       const vector3_t shaped =
-          SwitchedModelReferenceManager::shapedBodyAngularVelocity(
+          SwitchedModelReferenceManager::computeShapedAngvelBaseRtWorldEwrtBase(
               nominalAngles, nominalBodyRate, shapedAngles,
               offset.rateAt(time));
 
@@ -316,9 +317,9 @@ TEST(LocomotionHeuristicSeams,
             vee(nominalRotationRate * rotationOf(nominalAngles).transpose());
         const vector3_t shapedWorldRate =
             vee(rotationRate * rotation.transpose());
-        const vector3_t tilt =
-            SwitchedModelReferenceManager::tiltAngularVelocityInWorld(
-                shapedAngles, offset.rateAt(time));
+        const vector3_t tilt = SwitchedModelReferenceManager::
+            computeTiltAngvelBaseRtWorldEwrtWorld(shapedAngles,
+                                                  offset.rateAt(time));
         EXPECT_LT((tilt - (shapedWorldRate - nominalWorldRate)).norm(), 1.0e-8)
             << "nominal " << index << ", t " << time;
       }
@@ -337,14 +338,15 @@ TEST(LocomotionHeuristicSeams, AConstantTiltKeepsTheNominalsTurnInTheWorld) {
       nominalAngles, vector3_t(yawRate, 0.0, 0.0));
   const vector3_t shapedAngles(0.9, 0.08, -0.05);
   const vector3_t shaped =
-      SwitchedModelReferenceManager::shapedBodyAngularVelocity(
+      SwitchedModelReferenceManager::computeShapedAngvelBaseRtWorldEwrtBase(
           nominalAngles, nominalBodyRate, shapedAngles, vector3_t::Zero());
   EXPECT_LT(
       (rotationOf(shapedAngles) * shaped - vector3_t(0.0, 0.0, yawRate)).norm(),
       1.0e-15);
-  EXPECT_TRUE(SwitchedModelReferenceManager::tiltAngularVelocityInWorld(
-                  shapedAngles, vector3_t::Zero())
-                  .isZero(0.0));
+  EXPECT_TRUE(
+      SwitchedModelReferenceManager::computeTiltAngvelBaseRtWorldEwrtWorld(
+          shapedAngles, vector3_t::Zero())
+          .isZero(0.0));
 }
 
 }  // namespace

@@ -825,10 +825,10 @@ class RerunBridge:
             and name not in self._allowed_instances
         ):
             return
-        if len(robot.link_names) != len(robot.link_poses):
+        if len(robot.link_names) != len(robot.pose_links_rt_world):
             raise MalformedMessageError(
                 f"robot '{name}' has {len(robot.link_names)} link names but"
-                f" {len(robot.link_poses)} poses"
+                f" {len(robot.pose_links_rt_world)} poses"
             )
         if self._meshes is None:
             self._warn_once(
@@ -848,7 +848,7 @@ class RerunBridge:
             self._log_instance_meshes(style)
         self._check_link_names(robot)
 
-        for link, pose in zip(robot.link_names, robot.link_poses):
+        for link, pose in zip(robot.link_names, robot.pose_links_rt_world):
             if link not in self._links_with_visuals:
                 continue
             position = pose.position

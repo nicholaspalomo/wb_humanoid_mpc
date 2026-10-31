@@ -192,8 +192,7 @@ int printModels() {
       customInterface.getModel(), /*baseHeight=*/0.68);
   computeForwardKinematics(customInterface, q);
 
-  LOG(INFO)
-      << "\n✅ Unitree R1 Pinocchio Interface test completed successfully.";
+  LOG(INFO) << "\nUnitree R1 Pinocchio Interface test completed successfully.";
   return 0;
 }
 

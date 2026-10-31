@@ -114,12 +114,12 @@ class G1Model {
     observation.state = initialState_;
     // Moved along x, turned by 0.4 rad and tilted, through the robot model's
     // accessors: the state stores a quaternion.
-    vector6_t basePose = model_.getBasePoseEulerZyx(initialState_);
+    vector6_t basePose = model_.getPoseeulerzyxBaseRtWorld(initialState_);
     basePose(0) += 0.3;
     basePose(3) += 0.4;
     basePose(4) = 0.05;
     basePose(5) = -0.03;
-    model_.setBasePoseEulerZyx(observation.state, basePose);
+    model_.setPoseeulerzyxBaseRtWorld(observation.state, basePose);
     observation.state.tail(model_.getVelocityDim()).setConstant(0.2);
     observation.input = vector_t::Zero(model_.getInputDim());
     observation.mode = ModeNumber::kStance;
@@ -168,23 +168,23 @@ TEST(WBMpcResetTarget,
   EXPECT_TRUE(state.tail(g1.model().getVelocityDim()).isZero(0.0));
   // Upright at the observed heading, the twist of the observed attitude (design
   // decision D9).
-  const vector3_t eulerZyx = g1.model().getBaseOrientationEulerZyx(state);
-  EXPECT_NEAR(eulerZyx(0), g1.model().getBaseHeading(observation.state),
+  const vector3_t eulerZyx = g1.model().getEulerzyxBaseRtWorld(state);
+  EXPECT_NEAR(eulerZyx(0), g1.model().getYawBaseRtWorld(observation.state),
               1.0e-12);
   EXPECT_EQ(eulerZyx(1), 0.0);
   EXPECT_EQ(eulerZyx(2), 0.0);
   // The rest of the configuration is observed: the position and the joints.
-  EXPECT_EQ(g1.model().getBasePosition(state),
-            g1.model().getBasePosition(observation.state));
+  EXPECT_EQ(g1.model().getPosBaseRtWorldEwrtWorld(state),
+            g1.model().getPosBaseRtWorldEwrtWorld(observation.state));
   EXPECT_EQ(g1.model().getJointAngles(state),
             g1.model().getJointAngles(observation.state));
 
   // The robot's weight, carried by both feet in the world frame.
   const vector_t& input = target.inputTrajectory.front();
   const vector3_t left =
-      g1.model().getContactForceInWorldFrame(state, input, /*contactIndex=*/0);
+      g1.model().getForceContactEwrtWorld(state, input, /*contactIndex=*/0);
   const vector3_t right =
-      g1.model().getContactForceInWorldFrame(state, input, /*contactIndex=*/1);
+      g1.model().getForceContactEwrtWorld(state, input, /*contactIndex=*/1);
   const scalar_t weight = computeRobotWeight(g1.pinocchioInterface());
   EXPECT_NEAR(left.z() + right.z(), weight, 1.0e-9 * weight);
   EXPECT_NEAR(left.z(), right.z(), 1.0e-9 * weight);
@@ -202,18 +202,18 @@ TEST(WBMpcResetTarget, IsUprightAtTheTwistHeadingOfTheObservedAttitude) {
         vector3_t(7.0, 0.05, -0.3)}) {
     SCOPED_TRACE(eulerZyx.transpose());
     SystemObservation observation = g1.movingObservation(/*time=*/1.0);
-    model.setBaseOrientationEulerZyx(observation.state, eulerZyx);
+    model.setEulerzyxBaseRtWorld(observation.state, eulerZyx);
     const vector_t target = wbMpcResetTargetTrajectories(
                                 observation, model, g1.pinocchioInterface())
                                 .stateTrajectory.front();
 
-    const scalar_t heading = model.getBaseHeading(observation.state);
+    const scalar_t heading = model.getYawBaseRtWorld(observation.state);
     const scalar_t expectedHeading = std::remainder(
         eulerZyx(0) - 2.0 * std::atan(std::tan(eulerZyx(1) / 2.0) *
                                       std::tan(eulerZyx(2) / 2.0)),
         2.0 * M_PI);
     EXPECT_NEAR(heading, expectedHeading, 1.0e-12);
-    const vector3_t targetEulerZyx = model.getBaseOrientationEulerZyx(target);
+    const vector3_t targetEulerZyx = model.getEulerzyxBaseRtWorld(target);
     EXPECT_NEAR(targetEulerZyx(0), heading, 1.0e-12);
     EXPECT_GT(targetEulerZyx(0), -M_PI);
     EXPECT_LE(targetEulerZyx(0), M_PI);
@@ -221,10 +221,10 @@ TEST(WBMpcResetTarget, IsUprightAtTheTwistHeadingOfTheObservedAttitude) {
     EXPECT_EQ(targetEulerZyx(2), 0.0);
     // Its attitude is the heading quaternion of the observed one, up to the
     // sign of the quaternion.
-    const vector4_t expected =
-        headingQuaternion(model.getBaseOrientation(observation.state));
-    EXPECT_NEAR(std::abs(model.getBaseOrientation(target).dot(expected)), 1.0,
-                1.0e-15);
+    const vector4_t expected = verticalTwistFromQuaternion(
+        model.getQuatBaseRtWorldXyzw(observation.state));
+    EXPECT_NEAR(std::abs(model.getQuatBaseRtWorldXyzw(target).dot(expected)),
+                1.0, 1.0e-15);
   }
 }
 
@@ -265,10 +265,10 @@ TEST(WBMpcResetTarget, IsWhatTheInProcessLinkResetsTheMpcTo) {
   robot::model::RobotState robotState(g1.description());
   const vector_t& initialState = g1.initialState();
   robotState.setTime(2.0);
-  robotState.setRootPositionInWorldFrame(
-      g1.model().getBasePosition(initialState));
-  robotState.setRootRotationLocalToWorldFrame(
-      quaternion_t(g1.model().getBaseOrientation(initialState)));
+  robotState.setPosBaseRtWorldEwrtWorld(
+      g1.model().getPosBaseRtWorldEwrtWorld(initialState));
+  robotState.setQuatBaseRtWorld(
+      quaternion_t(g1.model().getQuatBaseRtWorldXyzw(initialState)));
   const std::vector<size_t> jointIndices =
       g1.description().getJointIndices(g1.modelSettings().mpcModelJointNames);
   const vector_t joints = g1.model().getJointAngles(initialState);

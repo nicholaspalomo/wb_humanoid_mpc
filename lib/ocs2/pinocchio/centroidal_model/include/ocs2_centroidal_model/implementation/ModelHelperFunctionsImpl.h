@@ -70,11 +70,11 @@ Eigen::Matrix<SCALAR_T, Eigen::Dynamic, 1> computeConfigurationDerivative(const 
                                                                           const Eigen::Matrix<SCALAR_T, Eigen::Dynamic, 1>& vPinocchio) {
   assert(state.rows() == info.stateDim);
   assert(vPinocchio.rows() == info.velocityDim);
-  const quaternion_coeffs_t<SCALAR_T> xi = centroidal_model::getBaseQuaternion(state, info);
+  const quaternion_coeffs_t<SCALAR_T> xi = centroidal_model::getQuatBaseRtWorldXyzw(state, info);
   Eigen::Matrix<SCALAR_T, Eigen::Dynamic, 1> configurationRate(info.configurationDim);
   configurationRate.template head<kPositionDim>() = vPinocchio.template head<kPositionDim>();
   configurationRate.template segment<kQuaternionCoefficients>(centroidal_model::kBaseQuaternionStartInConfiguration).noalias() =
-      SCALAR_T(kQuaternionHalfAngleFactor) *  // d/dt xi = 1/2 G(xi) w_B
+      SCALAR_T(kUnitQuaternionHalfAngleFactor) *  // d/dt xi = 1/2 G(xi) w_B
       (quaternionRateMatrix(xi) * vPinocchio.template segment<kRotationTangentDim>(centroidal_model::kBaseAngularVelocityStartInVelocity));
   configurationRate.tail(info.actuatedDofNum) = vPinocchio.tail(info.actuatedDofNum);
   return configurationRate;

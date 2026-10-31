@@ -57,7 +57,7 @@ namespace ocs2::humanoid::validation {
 /**
  * Returns the term indices, in `constraints` (an optimal control problem's
  * equalityConstraintPtr), of the hard normal-velocity constraints of
- * `contactNames` (registered under contact_term::kNormalVelocity), in their
+ * `contactNames` (registered under contact_term::kNormalVelocityName), in their
  * order; a contact without one is left out, so a problem without the hard rows
  * gives none.
  */

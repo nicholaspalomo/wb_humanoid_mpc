@@ -133,8 +133,8 @@ def export_csv_to_h5(
     except ImportError:
         h5py = None
         print(
-            "⚠️ h5py is not installed in the current environment. Saving as npz"
-            " instead."
+            "Warning: h5py is not installed in the current environment. Saving"
+            " as npz instead."
         )
         output_path = output_path.replace(".h5", ".npz")
 
@@ -165,7 +165,7 @@ def export_csv_to_h5(
             all_times.append(values[:, header.index(TIME_COLUMN)])
 
     if not all_obs:
-        print("⚠️ No data found to export.")
+        print("Warning: No data found to export.")
         return None
 
     merged_obs = np.concatenate(all_obs, axis=0)
@@ -193,7 +193,7 @@ def export_csv_to_h5(
         )
 
     print("=" * 60)
-    print(f"✅ Successfully exported MPC demonstrations to: {output_path}")
+    print(f"Successfully exported MPC demonstrations to: {output_path}")
     print(f"   Samples:      {merged_obs.shape[0]}")
     print(f"   Obs shape:    {merged_obs.shape}")
     print(f"   Action shape: {merged_acts.shape}")
@@ -217,7 +217,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     csv_files = find_csv_files(args.input_path)
 
     if not csv_files:
-        print(f"ℹ️ No CSV log files found at {args.input_path}.")
+        print(f"No CSV log files found at {args.input_path}.")
         print(
             "Generating synthetic demonstration dataset for imitation"
             " pretraining..."
@@ -246,7 +246,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 observations=synthetic_obs,
                 actions=synthetic_act,
             )
-        print(f"✅ Synthetic MPC demo dataset saved to: {args.output_path}")
+        print(f"Synthetic MPC demo dataset saved to: {args.output_path}")
         return
 
     export_csv_to_h5(csv_files, args.output_path, args.obs_cols, args.act_cols)

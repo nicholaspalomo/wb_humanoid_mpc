@@ -138,11 +138,11 @@ void dumpTargets(ValueDump& dump,
   dumpTargetTrajectories(
       dump, "target_trajectories.velocity_command",
       // The shipped initial state is at rest: no measured motion.
-      calculator.commandedVelocityToTargetTrajectories(
+      calculator.velocityCommandToTargetTrajectories(
           saturatingVelocityCommand(), /*initTime=*/0.0, initialState,
           /*measuredMotion=*/BasePlanarMotion{}));
   dumpTargetTrajectories(dump, "target_trajectories.position_command",
-                         calculator.commandedPositionToTargetTrajectories(
+                         calculator.poseCommandToTargetTrajectories(
                              poseCommand(), /*initTime=*/0.0, initialState));
 }
 
@@ -158,9 +158,9 @@ absl::Status dumpMotionManager(
   dump.addSection("motion_manager");
   dumpGaitMap(dump, "motion_manager.gaits", motionManager->gaitMap());
   dump.addDouble("motion_manager.maxLinearAcceleration",
-                 motionManager->getMaxLinearAcceleration());
+                 motionManager->getCmdMaxLinaccBaseRtWorldEwrtHeadingXy());
   dump.addDouble("motion_manager.maxAngularAcceleration",
-                 motionManager->getMaxAngularAcceleration());
+                 motionManager->getCmdMaxAngaccBaseRtWorldEwrtWorldZ());
   dump.addDouble("motion_manager.velocityCommandFilterBreakFrequency",
                  motionManager->getVelocityCommandFilterBreakFrequency());
   return absl::OkStatus();

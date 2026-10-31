@@ -49,9 +49,9 @@ struct Rollout {
 };
 
 Rollout rollOut(TimeTriggeredRollout& rollout, ModeSchedule modeSchedule) {
-  vector_t torque(3);
-  torque << 0.4, -0.3, 0.8;
-  FeedforwardController controller({0.0, 10.0}, {torque, torque});
+  vector_t torqueBaseEwrtBase(3);
+  torqueBaseEwrtBase << 0.4, -0.3, 0.8;
+  FeedforwardController controller({0.0, 10.0}, {torqueBaseEwrtBase, torqueBaseEwrtBase});
   vector_t initState(7);
   initState << 0.1, -0.2, 0.3, 0.9, 2.0, -1.0, 3.0;  // a fast spin, so the integrator's norm drift is visible
   initState.head<4>().normalize();
@@ -62,7 +62,7 @@ Rollout rollOut(TimeTriggeredRollout& rollout, ModeSchedule modeSchedule) {
 }
 
 TEST(TimeTriggeredRolloutManifold, ProjectsEveryOutputState) {
-  const RigidBodyAttitudeDynamics dynamics(/*withPosition=*/false);
+  const RigidBodyAttitudeDynamics dynamics(/*withTranslation=*/false);
   rollout::Settings settings;
   settings.integratorType = IntegratorType::RK4;
   settings.timeStep = 0.05;
@@ -86,7 +86,7 @@ TEST(TimeTriggeredRolloutManifold, ProjectsEveryOutputState) {
 }
 
 TEST(TimeTriggeredRolloutManifold, ProjectsAcrossEventsAndKeepsTheManifoldWhenCloned) {
-  const RigidBodyAttitudeDynamics dynamics(/*withPosition=*/false);
+  const RigidBodyAttitudeDynamics dynamics(/*withTranslation=*/false);
   TimeTriggeredRollout rollout(dynamics);
   rollout.setStateManifold(dynamics.getStateManifold());
   std::unique_ptr<RolloutBase> clone(rollout.clone());

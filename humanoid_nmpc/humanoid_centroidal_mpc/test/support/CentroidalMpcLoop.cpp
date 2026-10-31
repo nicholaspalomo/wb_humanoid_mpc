@@ -76,9 +76,9 @@ absl::StatusOr<std::unique_ptr<CentroidalMpcLoop>> CentroidalMpcLoop::Create(
     for (mpc_config::StateWeights* absl_nonnull weights :
          {&config.task.state_weights, &config.task.final_state_weights}) {
       mpc_config::YawPitchRoll orientation =
-          weights->base_orientation.value_or(mpc_config::YawPitchRoll{});
+          weights->eulerzyx_base_rt_world.value_or(mpc_config::YawPitchRoll{});
       orientation.yaw = *options.baseYawWeight;
-      weights->base_orientation = orientation;
+      weights->eulerzyx_base_rt_world = orientation;
     }
   }
   const mpc_config::ReferenceFile reference = config.reference;
@@ -114,7 +114,7 @@ absl::StatusOr<std::unique_ptr<CentroidalMpcLoop>> CentroidalMpcLoop::Create(
           [calculator](const vector4_t& velocity, scalar_t initTime,
                        scalar_t /*finalTime*/, const vector_t& initState,
                        const BasePlanarMotion& measuredMotion) {
-            return calculator->commandedVelocityToTargetTrajectories(
+            return calculator->velocityCommandToTargetTrajectories(
                 velocity, initTime, initState, measuredMotion);
           }));
   loop->motionManager_->setResetHook([calculator]() { calculator->reset(); });
@@ -122,11 +122,11 @@ absl::StatusOr<std::unique_ptr<CentroidalMpcLoop>> CentroidalMpcLoop::Create(
   // m/s and rad/s is the scaled one.
   ASSIGN_OR_RETURN(ReferenceSettings settings,
                    referenceSettingsFromConfig(reference));
-  settings.maxDisplacementVelocityX = 1.0;
-  settings.maxDisplacementVelocityY = 1.0;
-  settings.maxRotationVelocity = 1.0;
-  settings.maxLinearAcceleration = 0.0;
-  settings.maxAngularAcceleration = 0.0;
+  settings.cmdMaxLinvelBaseRtWorldEwrtHeadingX = 1.0;
+  settings.cmdMaxLinvelBaseRtWorldEwrtHeadingY = 1.0;
+  settings.cmdMaxAngvelBaseRtWorldEwrtWorldZ = 1.0;
+  settings.cmdMaxLinaccBaseRtWorldEwrtHeadingXy = 0.0;
+  settings.cmdMaxAngaccBaseRtWorldEwrtWorldZ = 0.0;
   settings.velocityCommandFilterBreakFrequency = 0.0;
   RETURN_IF_ERROR(loop->motionManager_->applyCommandLimits(settings));
   loop->mpc_->getSolverPtr()->setReferenceManager(
@@ -172,7 +172,7 @@ absl::StatusOr<CentroidalMpcLoopStep> CentroidalMpcLoop::step() {
     const PrimalSolution& previous = mrt_->getPolicy();
     const vector_t planned = model.interpolateStateTrajectory(
         observation_.time, previous.timeTrajectory_, previous.stateTrajectory_);
-    record.initialGapRotation = manifold.getMaximumRotationAngle(
+    record.initialGapRotation = manifold.getMaximumTangentAngle(
         manifold.difference(planned, observation_.state));
   }
   mrt_->setCurrentObservation(observation_);

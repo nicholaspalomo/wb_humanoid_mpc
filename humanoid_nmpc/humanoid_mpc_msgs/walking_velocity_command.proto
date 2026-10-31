@@ -12,10 +12,10 @@ message WalkingVelocityCommand {
   reserved 5 to max;
 
   // Normalized to [-1, 1]; the MPC scales them by the limits in reference.textproto.
-  double linear_velocity_x = 1;
-  double linear_velocity_y = 2;
+  double cmd_linvel_base_rt_world_ewrt_heading_x = 1;
+  double cmd_linvel_base_rt_world_ewrt_heading_y = 2;
   // Absolute height of the pelvis above the ground [m].
-  double desired_pelvis_height = 3;
+  double cmd_pos_base_rt_world_ewrt_world_z = 3;
   // Normalized to [-1, 1].
-  double angular_velocity_z = 4;
+  double cmd_angvel_base_rt_world_ewrt_world_z = 4;
 }

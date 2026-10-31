@@ -47,11 +47,11 @@ namespace ocs2::humanoid {
  *  - the state is the observation's, with the normalized linear and angular
  * momentum zeroed and the base upright at the observed heading: the attitude is
  * the heading quaternion of the observed one (its twist about the world z axis,
- *    headingQuaternion()), so the yaw is the observation's getBaseHeading(),
- * wrapped into (-pi, pi], and the pitch and roll are zero; the joint positions
- * are the observed ones (the nominal ones would make a kinematically
- * inconsistent target - the current base height with the nominal joint angles -
- * that the MPC tries to "correct" by shooting the base upward);
+ *    verticalTwistFromQuaternion()), so the yaw is the observation's
+ * getYawBaseRtWorld(), wrapped into (-pi, pi], and the pitch and roll are zero;
+ * the joint positions are the observed ones (the nominal ones would make a
+ * kinematically inconsistent target - the current base height with the nominal
+ * joint angles - that the MPC tries to "correct" by shooting the base upward);
  *  - the input carries the robot's weight evenly on both feet in the effective
  * model's input parameterization at that state (weightCompensatingInput());
  *  - two nodes, at the observation time and 2 s later, so that the target holds

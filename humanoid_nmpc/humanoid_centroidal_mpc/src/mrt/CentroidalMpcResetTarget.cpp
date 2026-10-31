@@ -48,15 +48,16 @@ TargetTrajectories centroidalMpcResetTargetTrajectories(
 
   // Zero out the normalized momentum (linear and angular momentum: the first 6
   // entries).
-  centroidal_model::getNormalizedMomentum(targetState, info).setZero();
+  centroidal_model::getMnormCmomComRtWorldEwrtWorld(targetState, info)
+      .setZero();
 
   // The base upright at the observed heading: the heading quaternion of the
   // observed attitude, its twist about the world z axis with the tilt dropped
   // (design decision D9). A measured attitude, so it is written as one
-  // (setBaseOrientation).
-  effectiveModel.setBaseOrientation(
-      targetState,
-      headingQuaternion(effectiveModel.getBaseOrientation(targetState)));
+  // (setQuatBaseRtWorldXyzw).
+  effectiveModel.setQuatBaseRtWorldXyzw(
+      targetState, verticalTwistFromQuaternion(
+                       effectiveModel.getQuatBaseRtWorldXyzw(targetState)));
 
   // Weight-compensating vertical contact forces (mg/2 per foot in stance). The
   // state-aware overload expresses the world-frame force in the effective

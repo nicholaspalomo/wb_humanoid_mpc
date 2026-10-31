@@ -97,10 +97,10 @@ cc_binary(
 )
 # LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc_app/README.md:laptop_binaries, //humanoid_nmpc/docs/distributed_runtime/README.md:process_table)
 
-# The node on the Unitree G1 whole-body task file with the real SQP solver, over loopback buses: a scripted robot and
+# The node on the Unitree G1 whole-body task file with the SQP solver, over loopback buses: a scripted robot and
 # operator (observation in, policy out, resets through the observation's counters, the velocity command reaching the
 # motion manager, an MPC parameter update applied before the next solve and one of another configuration refused, the
-# updater applying the whole-body hot fields), the reset target the controller hands its in-process link, and the dummy
+# updater applying the whole-body hot fields), the reset target the controller gives its in-process link, and the dummy
 # simulator standing on the node's policies for a few seconds without a reset. Large: it builds the G1 whole-body MPC's CppAD libraries on a cold
 # cache. That took 520-575 s of the 900 s a large test gets on a 20-core workstation, and CI's 4-vCPU runner starts with
 # no CppAD cache at all: the timeout is the longest Bazel has (3600 s), not the size's.

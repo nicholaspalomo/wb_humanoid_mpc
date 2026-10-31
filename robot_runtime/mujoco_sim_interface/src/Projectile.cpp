@@ -167,25 +167,28 @@ ProjectileLaunch alongPath(const ProjectileLaunch& launch,
                            double gravity) {
   ProjectileLaunch shifted = launch;
   for (int axis = 0; axis < kPositionDim; ++axis) {
-    shifted.position[axis] =
-        launch.position[axis] + launch.velocity[axis] * tau;
+    shifted.posBallRtWorldEwrtWorld[axis] =
+        launch.posBallRtWorldEwrtWorld[axis] +
+        launch.linvelBallRtWorldEwrtWorld[axis] * tau;
   }
-  shifted.position[kZAxisIndex] -= 0.5 * gravity * tau * tau;
-  shifted.velocity[kZAxisIndex] -= gravity * tau;
+  shifted.posBallRtWorldEwrtWorld[kZAxisIndex] -= 0.5 * gravity * tau * tau;
+  shifted.linvelBallRtWorldEwrtWorld[kZAxisIndex] -= gravity * tau;
   shifted.flightTime = launch.flightTime - tau;
   return shifted;
 }
 
 /** True when a ball centered at `position` is at least
  * kProjectileSpawnClearance from every geom it could collide with. */
-bool isClearAt(const mjModel* absl_nonnull model,
-               mjData* absl_nonnull data,
-               int ballGeom,
-               const std::array<double, kPositionDim>& position) {
+bool isClearAt(
+    const mjModel* absl_nonnull model,
+    mjData* absl_nonnull data,
+    int ballGeom,
+    const std::array<double, kPositionDim>& posBallRtWorldEwrtWorld) {
   const int ballBody = model->geom_bodyid[ballGeom];
   const double radius = model->geom_size[kMjGeomSizeParameters * ballGeom];
   for (int axis = 0; axis < kPositionDim; ++axis) {
-    data->geom_xpos[kPositionDim * ballGeom + axis] = position[axis];
+    data->geom_xpos[kPositionDim * ballGeom + axis] =
+        posBallRtWorldEwrtWorld[axis];
   }
   for (int entry = 0; entry < kMjMatrixSize; ++entry) {
     data->geom_xmat[kMjMatrixSize * ballGeom + entry] =
@@ -204,10 +207,10 @@ bool isClearAt(const mjModel* absl_nonnull model,
     const double bound = model->geom_rbound[geom];
     if (bound > 0.0) {
       const mjtNum* absl_nonnull center = &data->geom_xpos[kPositionDim * geom];
-      const double separation =
-          std::hypot(position[kXAxisIndex] - center[kXAxisIndex],
-                     position[kYAxisIndex] - center[kYAxisIndex],
-                     position[kZAxisIndex] - center[kZAxisIndex]);
+      const double separation = std::hypot(
+          posBallRtWorldEwrtWorld[kXAxisIndex] - center[kXAxisIndex],
+          posBallRtWorldEwrtWorld[kYAxisIndex] - center[kYAxisIndex],
+          posBallRtWorldEwrtWorld[kZAxisIndex] - center[kZAxisIndex]);
       if (separation - bound - radius > kProjectileSpawnClearance) continue;
     }
     mjtNum fromTo[kGeomDistanceFromToSize];
@@ -325,7 +328,8 @@ absl::Status addProjectileToSpec(mjSpec* absl_nullable spec,
   const std::string name(bodyName);
   mjs_setName(ball->element, name.c_str());
   for (int axis = 0; axis < kPositionDim; ++axis) {
-    ball->pos[axis] = kProjectileParkPosition[axis];
+    ball->pos[axis] =  // NOLINT(frame-naming): MuJoCo's mjsBody::pos
+        kParkPosBallRtWorldEwrtWorld[axis];
   }
   // Compiled in, so that mjModel::ngravcomp counts this body; see the header.
   // The simulator switches it off on a throw and back on when it parks the
@@ -477,7 +481,8 @@ absl::StatusOr<ProjectileLaunch> clearProjectileLaunch(
   if (data == nullptr)
     return absl::InvalidArgumentError(
         "clearProjectileLaunch: the data is null.");
-  if (!isFinite(requested.position) || !isFinite(requested.velocity) ||
+  if (!isFinite(requested.posBallRtWorldEwrtWorld) ||
+      !isFinite(requested.linvelBallRtWorldEwrtWorld) ||
       !std::isfinite(requested.flightTime) || !std::isfinite(gravity)) {
     return absl::InvalidArgumentError(
         "clearProjectileLaunch: the requested throw is not finite.");
@@ -496,7 +501,7 @@ absl::StatusOr<ProjectileLaunch> clearProjectileLaunch(
       const double tau = direction * step * kClearanceSearchStep;
       if (tau < -kClearanceSearchBackward || tau > maxForward) continue;
       const ProjectileLaunch candidate = alongPath(requested, tau, gravity);
-      if (isClearAt(model, data, ballGeom, candidate.position))
+      if (isClearAt(model, data, ballGeom, candidate.posBallRtWorldEwrtWorld))
         return candidate;
     }
   }
@@ -508,12 +513,14 @@ absl::StatusOr<ProjectileLaunch> clearProjectileLaunch(
       "elevation, on the GUI's Dodgeball tab."));
 }
 
-std::array<double, kPositionDim> projectileArrivalVelocity(
-    const std::array<double, kPositionDim>& launchVelocity,
+std::array<double, kPositionDim> computeArrivalLinvelBallRtWorldEwrtWorld(
+    const std::array<double, kPositionDim>& launchLinvelBallRtWorldEwrtWorld,
     double flightTime,
     double gravity) {
-  return {{launchVelocity[kXAxisIndex], launchVelocity[kYAxisIndex],
-           launchVelocity[kZAxisIndex] - gravity * flightTime}};
+  return {
+      {launchLinvelBallRtWorldEwrtWorld[kXAxisIndex],
+       launchLinvelBallRtWorldEwrtWorld[kYAxisIndex],
+       launchLinvelBallRtWorldEwrtWorld[kZAxisIndex] - gravity * flightTime}};
 }
 
 double projectileImpactImpulse(double ballMass,

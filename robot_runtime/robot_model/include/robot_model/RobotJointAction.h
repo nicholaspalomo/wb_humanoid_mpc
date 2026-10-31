@@ -43,7 +43,7 @@ struct JointAction {
   scalar_t kd = 0;
   scalar_t feed_forward_effort = 0;
 
-  scalar_t getTotalFeedbackTorque(scalar_t q, scalar_t qd) const {
+  scalar_t getTotalFeedbackJointTorque(scalar_t q, scalar_t qd) const {
     return kp * (q_des - q) + kd * (qd_des - qd) + feed_forward_effort;
   }
 };

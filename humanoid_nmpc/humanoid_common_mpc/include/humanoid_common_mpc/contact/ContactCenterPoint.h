@@ -44,28 +44,28 @@ namespace ocs2::humanoid {
 struct ContactCenterPoint {
   const std::string frameName;
   const std::string parentJointName;
-  const vector3_t translationFromParent;
+  const vector3_t posContactRtLinkEwrtLink;
   // parent_R_contact: a rotation matrix.
-  const matrix3_t rotationFromParent;
+  const matrix3_t rotmatContactRtLink;
 
   /** A contact frame of the parent's orientation, as every sole's. */
   ContactCenterPoint(std::string frameName,
                      std::string parentJointName,
-                     const vector3_t& translationFromParent)
+                     const vector3_t& posContactRtLinkEwrtLink)
       : ContactCenterPoint(std::move(frameName),
                            std::move(parentJointName),
-                           translationFromParent,
+                           posContactRtLinkEwrtLink,
                            matrix3_t::Identity()) {}
 
-  /** A contact frame rotated by `rotationFromParent` (parent_R_contact). */
+  /** A contact frame rotated by `rotmatContactRtLink` (parent_R_contact). */
   ContactCenterPoint(std::string frameName,
                      std::string parentJointName,
-                     const vector3_t& translationFromParent,
-                     const matrix3_t& rotationFromParent)
+                     const vector3_t& posContactRtLinkEwrtLink,
+                     const matrix3_t& rotmatContactRtLink)
       : frameName(std::move(frameName)),
         parentJointName(std::move(parentJointName)),
-        translationFromParent(translationFromParent),
-        rotationFromParent(rotationFromParent) {}
+        posContactRtLinkEwrtLink(posContactRtLinkEwrtLink),
+        rotmatContactRtLink(rotmatContactRtLink) {}
 };
 
 }  // namespace ocs2::humanoid

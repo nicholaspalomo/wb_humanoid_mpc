@@ -62,7 +62,7 @@ ModeSchedule singleSwingSchedule() {
 SwingTrajectoryPlanner::Config pitchedConfig(scalar_t angle) {
   SwingTrajectoryPlanner::Config config;
   config.swingHeight = 0.12;
-  config.touchDownVelocity = -0.1;
+  config.touchdownLinvelFootRtWorldEwrtWorldZ = -0.1;
   config.swingTimeScale = 0.4;
   config.swingPitchAngle = angle;
   config.swingPitchRiseFraction = 0.25;
@@ -155,7 +155,7 @@ TEST(SwingPitchReference, monotoneRampsWithNoPlateauOvershoot) {
 }
 
 /**
- * The point of the whole thing: through the part of the descent where the sole
+ * Through the part of the descent where the sole
  * center is within a centimeter of the ground, the toe must still be clear of
  * it. Atlas' toe contact points are 0.12 m ahead of the tracked sole center.
  */
@@ -168,7 +168,8 @@ TEST(SwingPitchReference, keepsTheToeAboveGroundThroughTheLateDescent) {
   bool sawLowSoleCenter = false;
   for (scalar_t tau = 0.5; tau < 1.0; tau += 0.005) {
     const scalar_t time = kLiftOff + tau * (kTouchDown - kLiftOff);
-    const scalar_t soleCenter = planner.getZpositionConstraint(/*leg=*/0, time);
+    const scalar_t soleCenter =
+        planner.getDesPosFootRtWorldEwrtWorldZ(/*leg=*/0, time);
     if (soleCenter > 0.01) continue;
     sawLowSoleCenter = true;
     const scalar_t toe =

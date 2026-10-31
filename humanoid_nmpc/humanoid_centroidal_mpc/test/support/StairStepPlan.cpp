@@ -339,9 +339,9 @@ absl::StatusOr<multi_contact::config::MultiContactPlan> makeStairStepPlan(
       const ContactSwingTrajectory leftSwing,
       ContactSwingTrajectory::Create(
           StairStepTimes::kLeftLiftOff, StairStepTimes::kLeftTouchDown,
-          ContactSwingEndpoint{.position = leftPad,
+          ContactSwingEndpoint{.posContactRtWorldEwrtWorld = leftPad,
                                .normal = vector3_t::UnitZ()},
-          ContactSwingEndpoint{.position = leftTarget,
+          ContactSwingEndpoint{.posContactRtWorldEwrtWorld = leftTarget,
                                .normal = vector3_t::UnitZ()},
           swingSettings, [&terrain](const vector3_t& point) {
             return terrain.signedDistance<scalar_t>(point);
@@ -350,9 +350,9 @@ absl::StatusOr<multi_contact::config::MultiContactPlan> makeStairStepPlan(
       const ContactSwingTrajectory rightSwing,
       ContactSwingTrajectory::Create(
           StairStepTimes::kRightLiftOff, StairStepTimes::kRightTouchDown,
-          ContactSwingEndpoint{.position = rightPad,
+          ContactSwingEndpoint{.posContactRtWorldEwrtWorld = rightPad,
                                .normal = vector3_t::UnitZ()},
-          ContactSwingEndpoint{.position = rightTarget,
+          ContactSwingEndpoint{.posContactRtWorldEwrtWorld = rightTarget,
                                .normal = vector3_t::UnitZ()},
           swingSettings, [&terrain](const vector3_t& point) {
             return terrain.signedDistance<scalar_t>(point);
@@ -376,12 +376,14 @@ absl::StatusOr<multi_contact::config::MultiContactPlan> makeStairStepPlan(
       q.head<kPositionDim>() =
           segment.from + blend * (segment.to - segment.from);
     }
-    const vector3_t leftFoot = t < StairStepTimes::kLeftLiftOff
-                                   ? leftPad
-                                   : leftSwing.reference(t).position;
-    const vector3_t rightFoot = t < StairStepTimes::kRightLiftOff
-                                    ? rightPad
-                                    : rightSwing.reference(t).position;
+    const vector3_t leftFoot =
+        t < StairStepTimes::kLeftLiftOff
+            ? leftPad
+            : leftSwing.reference(t).posContactRtWorldEwrtWorld;
+    const vector3_t rightFoot =
+        t < StairStepTimes::kRightLiftOff
+            ? rightPad
+            : rightSwing.reference(t).posContactRtWorldEwrtWorld;
     RETURN_IF_ERROR(solveFeet(solver, leftFoot, rightFoot, q));
     multi_contact::ContactMask mask = 0;
     if (t < StairStepTimes::kLeftLiftOff - kComTolerance ||
@@ -403,7 +405,7 @@ absl::StatusOr<multi_contact::config::MultiContactPlan> makeStairStepPlan(
   plan.planner = "hand_written";
   plan.joint_names = joints;
   const scalar_t weight =
-      pinocchio::computeTotalMass(pinocchioModel) * kGravitationalAcceleration;
+      pinocchio::computeTotalMass(pinocchioModel) * kGravityMagnitude;
   for (size_t k = 0; k < configurations.size(); ++k) {
     const size_t previous = k == 0 ? k : k - 1;
     const size_t next = std::min(k + 1, configurations.size() - 1);

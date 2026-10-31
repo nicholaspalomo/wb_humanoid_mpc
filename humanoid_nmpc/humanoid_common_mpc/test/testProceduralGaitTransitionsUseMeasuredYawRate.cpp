@@ -54,12 +54,12 @@ namespace {
 ProceduralMpcMotionManager::GaitModeStateConfig slowWalk() {
   return ProceduralMpcMotionManager::GaitModeStateConfig{
       .gaitCommand = "slow_walk",
-      .minLinVelCmd = 0.05,
-      .maxLinVelCmd = 0.3,
-      .minAngVelCmd = 0.05,
-      .maxAngVelCmd = 0.2,
-      .linVelErrorThresh = 0.05,
-      .angVelErrorThresh = 0.05};
+      .cmdMinLinvelBaseRtWorldEwrtHeadingXy = 0.05,
+      .cmdMaxLinvelBaseRtWorldEwrtHeadingXy = 0.3,
+      .cmdMinAngvelBaseRtWorldEwrtWorldZ = 0.05,
+      .cmdMaxAngvelBaseRtWorldEwrtWorldZ = 0.2,
+      .maxErrLinvelBaseRtWorldEwrtHeadingXy = 0.05,
+      .maxErrAngvelBaseRtWorldEwrtWorldZ = 0.05};
 }
 
 /** The thresholds of the shipped "stance", whose error thresholds let it go on
@@ -67,12 +67,12 @@ ProceduralMpcMotionManager::GaitModeStateConfig slowWalk() {
 ProceduralMpcMotionManager::GaitModeStateConfig stance() {
   return ProceduralMpcMotionManager::GaitModeStateConfig{
       .gaitCommand = "stance",
-      .minLinVelCmd = -0.1,
-      .maxLinVelCmd = 0.1,
-      .minAngVelCmd = -0.1,
-      .maxAngVelCmd = 0.1,
-      .linVelErrorThresh = 10.0,
-      .angVelErrorThresh = 10.0};
+      .cmdMinLinvelBaseRtWorldEwrtHeadingXy = -0.1,
+      .cmdMaxLinvelBaseRtWorldEwrtHeadingXy = 0.1,
+      .cmdMinAngvelBaseRtWorldEwrtWorldZ = -0.1,
+      .cmdMaxAngvelBaseRtWorldEwrtWorldZ = 0.1,
+      .maxErrLinvelBaseRtWorldEwrtHeadingXy = 10.0,
+      .maxErrAngvelBaseRtWorldEwrtWorldZ = 10.0};
 }
 
 /** A command [v_x, v_y, pelvis height, yaw rate] that only turns, at `yawRate`.
@@ -83,15 +83,16 @@ vector4_t turnCommand(scalar_t yawRate) {
 
 /** The stride-mean motion of a robot turning on the spot at `yawRate`. */
 BasePlanarMotion turningOnTheSpot(scalar_t yawRate) {
-  return BasePlanarMotion{.velocityInHeadingFrame = vector2_t::Zero(),
-                          .headingRate = yawRate};
+  return BasePlanarMotion{.linvelBaseRtWorldEwrtHeadingXy = vector2_t::Zero(),
+                          .rateYawBaseRtWorld = yawRate};
 }
 
 /** The stride-mean motion of a robot walking at (forward, lateral) in its
  * heading frame without turning. */
 BasePlanarMotion walking(scalar_t forward, scalar_t lateral) {
-  return BasePlanarMotion{.velocityInHeadingFrame = vector2_t(forward, lateral),
-                          .headingRate = 0.0};
+  return BasePlanarMotion{
+      .linvelBaseRtWorldEwrtHeadingXy = vector2_t(forward, lateral),
+      .rateYawBaseRtWorld = 0.0};
 }
 
 bool faster(const vector4_t& command,

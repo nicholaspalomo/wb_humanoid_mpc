@@ -110,8 +110,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * xi / 2, 2 xi and a zero quaternion. Each tape is also checked to record no
  * comparison between variables - the reason the repository never calls Eigen's
  * normalized() on an AD scalar (DynamicsHelperFunctions.cpp,
- * computeBaseAcceleration): CppADCodeGen cannot generate code for one. The
- * model itself is checked against the production model,
+ * computeBaseGeneralizedAcceleration): CppADCodeGen cannot generate code for
+ * one. The model itself is checked against the production model,
  * loadCustomPinocchioInterface's (the same root joint, joints, mass, contact
  * frames and centroidal momentum at the same q and v), and for the premises of
  * decision D1: v_base = [pd_W, w_B], A_b = [m I, *; 0, I_G R], and 1/2 G(xi)
@@ -392,7 +392,7 @@ VECTOR_T<Scalar> centroidalCompositeRigidBody(
  * tapes them for the whole-body MPC.
  */
 template <typename Scalar>
-VECTOR_T<Scalar> frameVelocitiesAndAccelerations(
+VECTOR_T<Scalar> computeFrameMotions(
     const pinocchio::ModelTpl<Scalar>& model,
     pinocchio::DataTpl<Scalar>& data,
     const VECTOR_T<Scalar>& q,
@@ -471,20 +471,23 @@ class G1Models {
       quaternionModel.addFrame(pinocchio::Frame(
           center.frameName, quaternionModel.getJointId(center.parentJointName),
           quaternionModel.getFrameId(center.parentJointName),
-          pinocchio::SE3(matrix3_t::Identity(), center.translationFromParent),
+          pinocchio::SE3(matrix3_t::Identity(),
+                         center.posContactRtLinkEwrtLink),
           pinocchio::FIXED_JOINT));
       contactFrames_.push_back(quaternionModel.getFrameId(center.frameName));
     }
-    quaternionRoot_ = std::make_unique<PinocchioInterface>(quaternionModel);
-    quaternionRootAd_ = std::make_shared<const PinocchioInterfaceCppAd>(
-        quaternionRoot_->toCppAd());
+    unitQuaternionRoot_ = std::make_unique<PinocchioInterface>(quaternionModel);
+    unitQuaternionRootAd_ = std::make_shared<const PinocchioInterfaceCppAd>(
+        unitQuaternionRoot_->toCppAd());
 
     productionRoot_ = std::make_unique<PinocchioInterface>(checkedValue(
         loadCustomPinocchioInterface(task_, urdfFile_, *settings_)));
-    mass_ = pinocchio::computeTotalMass(quaternionRoot_->getModel());
+    mass_ = pinocchio::computeTotalMass(unitQuaternionRoot_->getModel());
   }
 
-  const pinocchio::Model& model() const { return quaternionRoot_->getModel(); }
+  const pinocchio::Model& model() const {
+    return unitQuaternionRoot_->getModel();
+  }
   const pinocchio::Model& productionModel() const {
     return productionRoot_->getModel();
   }
@@ -498,7 +501,7 @@ class G1Models {
 
   /** The quaternion root's functions, reading the quaternion through `guard`.
    */
-  std::vector<PinocchioFunction> quaternionRootFunctions(
+  std::vector<PinocchioFunction> unitQuaternionRootFunctions(
       NormGuard guard) const {
     const AdConfigurationMap toConfiguration =
         [guard](const ad_vector_t& ambient) {
@@ -508,15 +511,16 @@ class G1Models {
         [](const vector_t& ambient) {
           return safelyNormalizedConfiguration(ambient);
         };
-    return functions(quaternionRootAd_, quaternionRoot_->getModel(),
+    return functions(unitQuaternionRootAd_, unitQuaternionRoot_->getModel(),
                      toConfiguration, toReferenceConfiguration);
   }
 
   /** The function of the quaternion root called `name`, reading the quaternion
    * through `guard`. */
-  PinocchioFunction quaternionRootFunction(
+  PinocchioFunction unitQuaternionRootFunction(
       absl::string_view name, NormGuard guard = NormGuard::kOnTheNorm) const {
-    for (const PinocchioFunction& function : quaternionRootFunctions(guard)) {
+    for (const PinocchioFunction& function :
+         unitQuaternionRootFunctions(guard)) {
       if (function.name == name) return function;
     }
     LOG(FATAL) << "no function named " << name;
@@ -626,7 +630,7 @@ class G1Models {
             [adInterface, toConfiguration, frames, nq, nv](const ad_vector_t& x,
                                                            ad_vector_t& y) {
               AdData data(adInterface->getModel());
-              y = frameVelocitiesAndAccelerations<ad_scalar_t>(
+              y = computeFrameMotions<ad_scalar_t>(
                   adInterface->getModel(), data, toConfiguration(x.head(nq)),
                   x.segment(nq, nv), x.segment(nq + nv, nv), frames);
             },
@@ -634,7 +638,7 @@ class G1Models {
             [&model, toReferenceConfiguration, frames, nq,
              nv](const vector_t& x) {
               pinocchio::Data data(model);
-              return frameVelocitiesAndAccelerations<scalar_t>(
+              return computeFrameMotions<scalar_t>(
                   model, data, toReferenceConfiguration(x.head(nq)),
                   x.segment(nq, nv), x.segment(nq + nv, nv), frames);
             },
@@ -661,17 +665,18 @@ class G1Models {
               const ad_matrix6_t baseBlockInverse =
                   computeFloatingBaseCentroidalMomentumMatrixInverse<
                       ad_scalar_t>(baseBlock);
-              const ad_vector6_t baseVelocity =
+              const ad_vector6_t baseGeneralizedVelocity =
                   baseBlockInverse *
                   (ad_scalar_t(mass) * x.head<kMomentumDim>() -
                    centroidalMap.rightCols(nj) * x.tail(nj));
               y.resize(kMomentumInversePathOutputDim);
-              y.head<6>() = baseVelocity;
-              const ad_vector4_t rawQuaternion =
+              y.head<6>() = baseGeneralizedVelocity;
+              const ad_vector4_t rawQuatBaseRtWorldXyzw =
                   x.segment<4>(kMomentumDim + kQuaternionStart);
-              y.tail<4>() = ad_scalar_t(0.5) *
-                            quaternionRateMatrix<ad_scalar_t>(rawQuaternion) *
-                            baseVelocity.tail<3>();
+              y.tail<4>() =
+                  ad_scalar_t(0.5) *
+                  quaternionRateMatrix<ad_scalar_t>(rawQuatBaseRtWorldXyzw) *
+                  baseGeneralizedVelocity.tail<3>();
             },
         .reference =
             [&model, toReferenceConfiguration, nq, nj,
@@ -682,16 +687,17 @@ class G1Models {
               const pinocchio::Data::Matrix6x& centroidalMap =
                   pinocchio::computeCentroidalMap(model, data, q);
               const matrix6_t baseBlock = centroidalMap.leftCols<6>();
-              const vector6_t baseVelocity = baseBlock.partialPivLu().solve(
-                  mass * x.head<kMomentumDim>() -
-                  centroidalMap.rightCols(nj) * x.tail(nj));
+              const vector6_t baseGeneralizedVelocity =
+                  baseBlock.partialPivLu().solve(mass * x.head<kMomentumDim>() -
+                                                 centroidalMap.rightCols(nj) *
+                                                     x.tail(nj));
               vector_t y(kMomentumInversePathOutputDim);
-              y.head<6>() = baseVelocity;
-              const vector4_t rawQuaternion =
+              y.head<6>() = baseGeneralizedVelocity;
+              const vector4_t rawQuatBaseRtWorldXyzw =
                   x.segment<4>(kMomentumDim + kQuaternionStart);
-              y.tail<4>() = 0.5 *
-                            quaternionRateMatrix<scalar_t>(rawQuaternion) *
-                            baseVelocity.tail<3>();
+              y.tail<4>() =
+                  0.5 * quaternionRateMatrix<scalar_t>(rawQuatBaseRtWorldXyzw) *
+                  baseGeneralizedVelocity.tail<3>();
               return y;
             },
     });
@@ -702,8 +708,8 @@ class G1Models {
   std::string urdfFile_;
   std::unique_ptr<ModelSettings> settings_;
   std::vector<pinocchio::FrameIndex> contactFrames_;
-  std::unique_ptr<PinocchioInterface> quaternionRoot_;
-  std::shared_ptr<const PinocchioInterfaceCppAd> quaternionRootAd_;
+  std::unique_ptr<PinocchioInterface> unitQuaternionRoot_;
+  std::shared_ptr<const PinocchioInterfaceCppAd> unitQuaternionRootAd_;
   // loadCustomPinocchioInterface()'s model of the same files.
   std::unique_ptr<PinocchioInterface> productionRoot_;
   scalar_t mass_ = 0.0;
@@ -725,7 +731,9 @@ struct Attitude {
   vector4_t coefficients;  // (x, y, z, w), unit norm
 };
 
-vector4_t eulerZyxQuaternion(scalar_t yaw, scalar_t pitch, scalar_t roll) {
+vector4_t unitQuaternionFromEulerZyx(scalar_t yaw,
+                                     scalar_t pitch,
+                                     scalar_t roll) {
   return getQuaternionFromEulerAnglesZyx<scalar_t>(vector3_t(yaw, pitch, roll))
       .coeffs();
 }
@@ -747,11 +755,13 @@ std::vector<Attitude> testAttitudes() {
     const scalar_t pitch = pitchDegrees * M_PI / 180.0;
     attitudes.push_back(Attitude{
         .label = absl::StrCat("pitch ", pitchDegrees, " deg"),
-        .coefficients = eulerZyxQuaternion(/*yaw=*/0.0, pitch, /*roll=*/0.0)});
+        .coefficients =
+            unitQuaternionFromEulerZyx(/*yaw=*/0.0, pitch, /*roll=*/0.0)});
     attitudes.push_back(Attitude{
         .label =
             absl::StrCat("yaw 0.7, pitch ", pitchDegrees, " deg, roll -0.4"),
-        .coefficients = eulerZyxQuaternion(/*yaw=*/0.7, pitch, /*roll=*/-0.4)});
+        .coefficients =
+            unitQuaternionFromEulerZyx(/*yaw=*/0.7, pitch, /*roll=*/-0.4)});
   }
   attitudes.push_back(Attitude{.label = "identity",
                                .coefficients = vector4_t(0.0, 0.0, 0.0, 1.0)});
@@ -777,9 +787,9 @@ vector_t randomInput(const PinocchioFunction& function,
   return x;
 }
 
-vector_t withQuaternion(const vector_t& x,
-                        Eigen::Index quaternionStart,
-                        const vector4_t& coefficients) {
+vector_t withQuaternionCoefficients(const vector_t& x,
+                                    Eigen::Index quaternionStart,
+                                    const vector4_t& coefficients) {
   vector_t result = x;
   result.segment<4>(quaternionStart) = coefficients;
   return result;
@@ -899,14 +909,15 @@ void expectGeneratedMatchesPinocchio(const PinocchioFunction& function,
                                      const CppAdInterface& library) {
   std::mt19937 generator(5);
   for (const Attitude& attitude : testAttitudes()) {
-    const vector_t x =
-        withQuaternion(randomInput(function, generator),
-                       function.quaternionStart, attitude.coefficients);
+    const vector_t x = withQuaternionCoefficients(
+        randomInput(function, generator), function.quaternionStart,
+        attitude.coefficients);
     const vector_t expected = function.reference(x);
     ASSERT_TRUE(expected.allFinite()) << attitude.label;
     for (const scalar_t scale : {1.0, -1.0, 0.5, 2.0}) {
-      const vector_t generated = library.getFunctionValue(withQuaternion(
-          x, function.quaternionStart, scale * attitude.coefficients));
+      const vector_t generated =
+          library.getFunctionValue(withQuaternionCoefficients(
+              x, function.quaternionStart, scale * attitude.coefficients));
       ASSERT_TRUE(generated.allFinite())
           << function.name << ", " << attitude.label
           << ", quaternion scaled by " << scale;
@@ -914,9 +925,9 @@ void expectGeneratedMatchesPinocchio(const PinocchioFunction& function,
           << function.name << ", " << attitude.label
           << ", quaternion scaled by " << scale;
     }
-    const vector_t atZero = library.getFunctionValue(
-        withQuaternion(x, function.quaternionStart, vector4_t::Zero()));
-    const vector_t atIdentity = function.reference(withQuaternion(
+    const vector_t atZero = library.getFunctionValue(withQuaternionCoefficients(
+        x, function.quaternionStart, vector4_t::Zero()));
+    const vector_t atIdentity = function.reference(withQuaternionCoefficients(
         x, function.quaternionStart, vector4_t(0.0, 0.0, 0.0, 1.0)));
     ASSERT_TRUE(atZero.allFinite()) << function.name << ": a zero quaternion";
     EXPECT_LE(relativeError(atZero, atIdentity), kValueTolerance)
@@ -929,15 +940,15 @@ void expectGeneratedMatchesPinocchio(const PinocchioFunction& function,
  * per guard for the whole test program (never destroyed, as a function-local
  * static). The Jacobian is generated in reverse mode (10 outputs of 59 inputs).
  */
-const CppAdInterface& momentumPathLibrary(NormGuard guard) {
+const CppAdInterface& momentumInversePathModel(NormGuard guard) {
   static const CppAdInterface* absl_nonnull const kNormGuardLibrary =
-      generate(g1().quaternionRootFunction("momentum_inverse_path",
-                                           NormGuard::kOnTheNorm),
+      generate(g1().unitQuaternionRootFunction("momentum_inverse_path",
+                                               NormGuard::kOnTheNorm),
                CppAdInterface::ApproximationOrder::First)
           .release();
   static const CppAdInterface* absl_nonnull const kSquaredNormGuardLibrary =
-      generate(g1().quaternionRootFunction("momentum_inverse_path",
-                                           NormGuard::kOnTheSquaredNorm),
+      generate(g1().unitQuaternionRootFunction("momentum_inverse_path",
+                                               NormGuard::kOnTheSquaredNorm),
                CppAdInterface::ApproximationOrder::First)
           .release();
   return guard == NormGuard::kOnTheNorm ? *kNormGuardLibrary
@@ -999,12 +1010,13 @@ TEST(QuaternionRootJointModel, IsTheProductionRobotWithAQuaternionRoot) {
                 1.0e-12)
           << model.frames[frame].name << ", " << attitude.label;
     }
-    const vector6_t momentum =
+    const vector6_t cmomComRtWorldEwrtWorld =
         pinocchio::computeCentroidalMap(model, data, q) * v;
-    const vector6_t productionMomentum =
+    const vector6_t productionCmomComRtWorldEwrtWorld =
         pinocchio::computeCentroidalMap(productionModel, productionData, q) * v;
-    EXPECT_LE((momentum - productionMomentum).norm(),
-              1.0e-12 * std::max(1.0, productionMomentum.norm()))
+    EXPECT_LE(
+        (cmomComRtWorldEwrtWorld - productionCmomComRtWorldEwrtWorld).norm(),
+        1.0e-12 * std::max(1.0, productionCmomComRtWorldEwrtWorld.norm()))
         << attitude.label;
   }
 }
@@ -1029,19 +1041,21 @@ TEST(QuaternionRootJointModel, RootVelocityIsWorldLinearAndBodyAngular) {
     EXPECT_LE((data.v[kRootJoint].angular() - v.segment<3>(3)).norm(), 1.0e-12)
         << attitude.label;
 
-    vector_t baseRotation = vector_t::Zero(model.nv);
-    baseRotation.segment<3>(3) = v.segment<3>(3);
-    const vector_t forward =
-        pinocchio::integrate(model, q, kFiniteDifferenceStep * baseRotation);
-    const vector_t backward =
-        pinocchio::integrate(model, q, -kFiniteDifferenceStep * baseRotation);
-    const vector4_t quaternionRate = (forward.segment<4>(kQuaternionStart) -
-                                      backward.segment<4>(kQuaternionStart)) /
-                                     (2.0 * kFiniteDifferenceStep);
+    vector_t baseAttitudeStep = vector_t::Zero(model.nv);
+    baseAttitudeStep.segment<3>(3) = v.segment<3>(3);
+    const vector_t forward = pinocchio::integrate(
+        model, q, kFiniteDifferenceStep * baseAttitudeStep);
+    const vector_t backward = pinocchio::integrate(
+        model, q, -kFiniteDifferenceStep * baseAttitudeStep);
+    const vector4_t rateQuatBaseRtWorldXyzw =
+        (forward.segment<4>(kQuaternionStart) -
+         backward.segment<4>(kQuaternionStart)) /
+        (2.0 * kFiniteDifferenceStep);
     const vector4_t expected =
         0.5 * quaternionRateMatrix<scalar_t>(attitude.coefficients) *
         v.segment<3>(3);
-    EXPECT_LE((quaternionRate - expected).norm(), 1.0e-8) << attitude.label;
+    EXPECT_LE((rateQuatBaseRtWorldXyzw - expected).norm(), 1.0e-8)
+        << attitude.label;
   }
 }
 
@@ -1061,12 +1075,12 @@ TEST(QuaternionRootJointModel,
     pinocchio::ccrba(model, data, q, v);
     const matrix6_t baseBlock = data.Ag.leftCols<6>();
     const matrix3_t translationalBlock = baseBlock.topLeftCorner<3, 3>();
-    const matrix3_t momentOfTranslationBlock =
+    const matrix3_t angularRowsOfTranslationalBlock =
         baseBlock.bottomLeftCorner<3, 3>();
     EXPECT_LE((translationalBlock - g1().mass() * matrix3_t::Identity()).norm(),
               1.0e-9 * g1().mass())
         << attitude.label;
-    EXPECT_LE(momentOfTranslationBlock.norm(), 1.0e-9) << attitude.label;
+    EXPECT_LE(angularRowsOfTranslationalBlock.norm(), 1.0e-9) << attitude.label;
     const vector3_t singularValues =
         Eigen::JacobiSVD<matrix3_t>(baseBlock.bottomRightCorner<3, 3>())
             .singularValues();
@@ -1095,7 +1109,7 @@ TEST(QuaternionRootJointCppAd, TapesRecordNoComparisonBetweenVariables) {
   for (const NormGuard guard :
        {NormGuard::kOnTheNorm, NormGuard::kOnTheSquaredNorm}) {
     for (const PinocchioFunction& function :
-         g1().quaternionRootFunctions(guard)) {
+         g1().unitQuaternionRootFunctions(guard)) {
       EXPECT_EQ(recordedComparisons(function.taped, function.variableDim), 0u)
           << function.name << ", " << guardName(guard);
       EXPECT_EQ(codeGenerationError(function.taped, function.variableDim), "")
@@ -1105,7 +1119,7 @@ TEST(QuaternionRootJointCppAd, TapesRecordNoComparisonBetweenVariables) {
 
   // The tape sizes, for the real-time budget (design risk R12).
   for (const PinocchioFunction& function :
-       g1().quaternionRootFunctions(NormGuard::kOnTheNorm)) {
+       g1().unitQuaternionRootFunctions(NormGuard::kOnTheNorm)) {
     const TapeSize size =
         tape(function.taped, function.variableDim, /*recordCompare=*/true);
     LOG(INFO) << "[tape] " << function.name << ": Translation+Spherical "
@@ -1116,14 +1130,14 @@ TEST(QuaternionRootJointCppAd, TapesRecordNoComparisonBetweenVariables) {
 
 TEST(QuaternionRootJointCppAd, GeneratedCentroidalMapAndFramesMatchPinocchio) {
   const PinocchioFunction function =
-      g1().quaternionRootFunction("centroidal_map_and_frames");
+      g1().unitQuaternionRootFunction("centroidal_map_and_frames");
   const std::unique_ptr<CppAdInterface> library =
       generate(function, CppAdInterface::ApproximationOrder::Zero);
   expectGeneratedMatchesPinocchio(function, *library);
 }
 
 TEST(QuaternionRootJointCppAd, GeneratedCrbaMatchesPinocchio) {
-  const PinocchioFunction function = g1().quaternionRootFunction("crba");
+  const PinocchioFunction function = g1().unitQuaternionRootFunction("crba");
   const std::unique_ptr<CppAdInterface> library =
       generate(function, CppAdInterface::ApproximationOrder::Zero);
   expectGeneratedMatchesPinocchio(function, *library);
@@ -1131,14 +1145,14 @@ TEST(QuaternionRootJointCppAd, GeneratedCrbaMatchesPinocchio) {
 
 TEST(QuaternionRootJointCppAd, GeneratedNonLinearEffectsMatchPinocchio) {
   const PinocchioFunction function =
-      g1().quaternionRootFunction("non_linear_effects");
+      g1().unitQuaternionRootFunction("non_linear_effects");
   const std::unique_ptr<CppAdInterface> library =
       generate(function, CppAdInterface::ApproximationOrder::Zero);
   expectGeneratedMatchesPinocchio(function, *library);
 }
 
 TEST(QuaternionRootJointCppAd, GeneratedCcrbaMatchesPinocchio) {
-  const PinocchioFunction function = g1().quaternionRootFunction("ccrba");
+  const PinocchioFunction function = g1().unitQuaternionRootFunction("ccrba");
   const std::unique_ptr<CppAdInterface> library =
       generate(function, CppAdInterface::ApproximationOrder::Zero);
   expectGeneratedMatchesPinocchio(function, *library);
@@ -1149,15 +1163,15 @@ TEST(QuaternionRootJointCppAd,
   for (const NormGuard guard :
        {NormGuard::kOnTheNorm, NormGuard::kOnTheSquaredNorm}) {
     const PinocchioFunction function =
-        g1().quaternionRootFunction("momentum_inverse_path", guard);
-    const CppAdInterface& library = momentumPathLibrary(guard);
+        g1().unitQuaternionRootFunction("momentum_inverse_path", guard);
+    const CppAdInterface& library = momentumInversePathModel(guard);
     const Eigen::Index start = function.quaternionStart;
     std::mt19937 generator(29);
     for (const Attitude& attitude : testAttitudes()) {
       const std::string context =
           absl::StrCat(guardName(guard), ", ", attitude.label);
-      const vector_t x = withQuaternion(randomInput(function, generator), start,
-                                        attitude.coefficients);
+      const vector_t x = withQuaternionCoefficients(
+          randomInput(function, generator), start, attitude.coefficients);
       const vector_t expected = function.reference(x);
       ASSERT_TRUE(expected.allFinite()) << context;
 
@@ -1168,21 +1182,25 @@ TEST(QuaternionRootJointCppAd,
         pinocchio::Data data(model);
         const vector_t q = safelyNormalizedConfiguration(
             vector_t(x.segment(kMomentumDim, model.nq)));
-        vector_t velocity(model.nv);
-        velocity << library.getFunctionValue(x).head<6>(),
+        vector_t generalizedVelocity(model.nv);
+        generalizedVelocity << library.getFunctionValue(x).head<6>(),
             x.tail(g1().numJoints());
-        const vector6_t momentum =
-            pinocchio::computeCentroidalMap(model, data, q) * velocity;
-        EXPECT_LE((momentum - g1().mass() * x.head<kMomentumDim>()).norm(),
-                  1.0e-9 * g1().mass())
+        const vector6_t cmomComRtWorldEwrtWorld =
+            pinocchio::computeCentroidalMap(model, data, q) *
+            generalizedVelocity;
+        EXPECT_LE(
+            (cmomComRtWorldEwrtWorld - g1().mass() * x.head<kMomentumDim>())
+                .norm(),
+            1.0e-9 * g1().mass())
             << context;
       }
 
       // Values: v_b sees the quaternion only through its normalization, and the
       // quaternion row is 1/2 G(xi) w_B with the raw xi, so it scales with xi.
       for (const scalar_t scale : {1.0, -1.0, 0.5, 2.0}) {
-        const vector_t generated = library.getFunctionValue(
-            withQuaternion(x, start, scale * attitude.coefficients));
+        const vector_t generated =
+            library.getFunctionValue(withQuaternionCoefficients(
+                x, start, scale * attitude.coefficients));
         ASSERT_TRUE(generated.allFinite())
             << context << ", quaternion scaled by " << scale;
         vector_t scaledExpected = expected;
@@ -1214,8 +1232,8 @@ TEST(QuaternionRootJointCppAd,
     // A zero quaternion: the base velocity of the identity attitude, and a zero
     // quaternion rate.
     const vector_t x = randomInput(function, generator);
-    const vector_t atZero =
-        library.getFunctionValue(withQuaternion(x, start, vector4_t::Zero()));
+    const vector_t atZero = library.getFunctionValue(
+        withQuaternionCoefficients(x, start, vector4_t::Zero()));
     ASSERT_TRUE(atZero.allFinite()) << guardName(guard);
     EXPECT_LE(relativeError(vector_t(atZero.head<6>()),
                             vector_t(function.reference(x).head<6>())),
@@ -1231,7 +1249,7 @@ TEST(QuaternionRootJointCppAd,
   // The whole-body end-effector terms tape forwardKinematics with velocities
   // and accelerations: the composite root's calc(q, v) and its bias terms,
   // which the configuration-only functions above never reach.
-  const PinocchioFunction function = g1().quaternionRootFunction(
+  const PinocchioFunction function = g1().unitQuaternionRootFunction(
       "frame_velocity_and_acceleration", NormGuard::kOnTheSquaredNorm);
   const std::unique_ptr<CppAdInterface> library =
       generate(function, CppAdInterface::ApproximationOrder::First);
@@ -1239,9 +1257,9 @@ TEST(QuaternionRootJointCppAd,
 
   std::mt19937 generator(37);
   for (const Attitude& attitude : testAttitudes()) {
-    const vector_t x =
-        withQuaternion(randomInput(function, generator),
-                       function.quaternionStart, attitude.coefficients);
+    const vector_t x = withQuaternionCoefficients(
+        randomInput(function, generator), function.quaternionStart,
+        attitude.coefficients);
     const matrix_t jacobian = library->getJacobian(x);
     ASSERT_TRUE(jacobian.allFinite()) << attitude.label;
     EXPECT_LE(relativeError(jacobian,
@@ -1259,8 +1277,8 @@ TEST(QuaternionRootJointCppAd,
   }
   const vector_t x = randomInput(function, generator);
   EXPECT_TRUE(library
-                  ->getJacobian(withQuaternion(x, function.quaternionStart,
-                                               vector4_t::Zero()))
+                  ->getJacobian(withQuaternionCoefficients(
+                      x, function.quaternionStart, vector4_t::Zero()))
                   .allFinite());
 }
 
@@ -1272,7 +1290,7 @@ TEST(QuaternionRootJointCppAd,
   // z = [xi(4), w_B(3), wd_B(3)], with every other entry of [q, v, a] a
   // constant on the tape. The Hessian stays small, but every derivative runs
   // through the composite root's computations.
-  const PinocchioFunction frames = g1().quaternionRootFunction(
+  const PinocchioFunction frames = g1().unitQuaternionRootFunction(
       "frame_velocity_and_acceleration", NormGuard::kOnTheSquaredNorm);
   const Eigen::Index nq = g1().model().nq;
   const Eigen::Index nv = g1().model().nv;
@@ -1464,17 +1482,18 @@ TEST(QuaternionRootJointCppAd,
   // The momentum path: finite, the v_b rows independent of xi at zero
   // (R(xi_hat) is quadratic in xi_hat), and their other columns those of the
   // identity attitude.
-  const PinocchioFunction function = g1().quaternionRootFunction(
+  const PinocchioFunction function = g1().unitQuaternionRootFunction(
       "momentum_inverse_path", NormGuard::kOnTheSquaredNorm);
   const CppAdInterface& library =
-      momentumPathLibrary(NormGuard::kOnTheSquaredNorm);
+      momentumInversePathModel(NormGuard::kOnTheSquaredNorm);
   const Eigen::Index start = function.quaternionStart;
   std::mt19937 generator(37);
   const vector_t x = randomInput(function, generator);
-  const matrix_t atZero = library.getJacobian(withQuaternion(x, start, zero));
+  const matrix_t atZero =
+      library.getJacobian(withQuaternionCoefficients(x, start, zero));
   ASSERT_TRUE(atZero.allFinite()) << atZero;
   const matrix_t atIdentity = library.getJacobian(
-      withQuaternion(x, start, vector4_t(0.0, 0.0, 0.0, 1.0)));
+      withQuaternionCoefficients(x, start, vector4_t(0.0, 0.0, 0.0, 1.0)));
   const matrix_t baseRowsAtZero = atZero.topRows<6>();
   EXPECT_LE(baseRowsAtZero.middleCols<4>(start).cwiseAbs().maxCoeff(), 1.0e-12);
   const matrix_t baseRowsAtIdentity = atIdentity.topRows<6>();
@@ -1500,8 +1519,8 @@ TEST(QuaternionRootJointCppAd,
   EXPECT_TRUE(generateNormalization(NormGuard::kOnTheNorm, ProbeOutput::kWide)
                   ->getJacobian(zero)
                   .allFinite());
-  EXPECT_FALSE(momentumPathLibrary(NormGuard::kOnTheNorm)
-                   .getJacobian(withQuaternion(x, start, zero))
+  EXPECT_FALSE(momentumInversePathModel(NormGuard::kOnTheNorm)
+                   .getJacobian(withQuaternionCoefficients(x, start, zero))
                    .allFinite());
 #endif
 }

@@ -62,18 +62,18 @@ class RigidBodyAttitudeDynamics final : public SystemDynamicsBase {
   using ad_t = CppAD::AD<scalar_t>;
   using ad_vector_t = Eigen::Matrix<ad_t, Eigen::Dynamic, 1>;
 
-  explicit RigidBodyAttitudeDynamics(bool withPosition) : withPosition_(withPosition) { recordTapes(); }
+  explicit RigidBodyAttitudeDynamics(bool withTranslation) : withTranslation_(withTranslation) { recordTapes(); }
   ~RigidBodyAttitudeDynamics() override = default;
-  RigidBodyAttitudeDynamics* absl_nonnull clone() const override { return new RigidBodyAttitudeDynamics(withPosition_); }
+  RigidBodyAttitudeDynamics* absl_nonnull clone() const override { return new RigidBodyAttitudeDynamics(withTranslation_); }
 
-  size_t getStateDim() const { return withPosition_ ? 10 : 7; }
-  size_t getInputDim() const { return withPosition_ ? 6 : 3; }
-  size_t getQuaternionOffset() const { return withPosition_ ? 3 : 0; }
+  size_t getStateDim() const { return withTranslation_ ? 10 : 7; }
+  size_t getInputDim() const { return withTranslation_ ? 6 : 3; }
+  size_t getQuaternionStartIndex() const { return withTranslation_ ? 3 : 0; }
 
   /** The manifold [E(3), Q, E(3)] (with the position) or [Q, E(3)]. */
   std::shared_ptr<const ProductStateManifold> getStateManifold() const {
     std::vector<StateManifoldSegment> segments;
-    if (withPosition_) {
+    if (withTranslation_) {
       segments.push_back(StateManifoldSegment::euclidean(3));
     }
     segments.push_back(StateManifoldSegment::unitQuaternion());
@@ -115,7 +115,7 @@ class RigidBodyAttitudeDynamics final : public SystemDynamicsBase {
 
   /** The flow map on AD scalars, x and u stacked. */
   ad_vector_t flowMap(const ad_vector_t& xu) const {
-    const size_t q = getQuaternionOffset();
+    const size_t q = getQuaternionStartIndex();
     const quaternion_coeffs_t<ad_t> xi = xu.template segment<4>(q);
     const rotation_vector_t<ad_t> omega = xu.template segment<3>(q + 4);
     const rotation_vector_t<ad_t> tau = xu.template tail<3>();
@@ -123,21 +123,21 @@ class RigidBodyAttitudeDynamics final : public SystemDynamicsBase {
     const Eigen::Matrix<ad_t, 3, 3> inertiaInverse = inertiaMatrix().inverse().template cast<ad_t>();
 
     ad_vector_t dxdt(getStateDim());
-    if (withPosition_) {
-      const rotation_vector_t<ad_t> velocity = xu.template segment<3>(getStateDim());
-      dxdt.template head<3>() = quaternionRotationMatrix(quaternionSafeNormalize(xi)) * velocity;
+    if (withTranslation_) {
+      const rotation_vector_t<ad_t> linvelBaseRtWorldEwrtBase = xu.template segment<3>(getStateDim());
+      dxdt.template head<3>() = quaternionRotationMatrix(quaternionSafeNormalize(xi)) * linvelBaseRtWorldEwrtBase;
     }
     dxdt.template segment<4>(q) = ad_t(0.5) * quaternionRateMatrix(xi) * omega;
-    const rotation_vector_t<ad_t> angularMomentum = inertia * omega;
-    dxdt.template segment<3>(q + 4) = inertiaInverse * (tau - omega.cross(angularMomentum));
+    const rotation_vector_t<ad_t> angmomBaseRtWorldEwrtBase = inertia * omega;
+    dxdt.template segment<3>(q + 4) = inertiaInverse * (tau - omega.cross(angmomBaseRtWorldEwrtBase));
     return dxdt;
   }
 
   /** The fixed rotation of the jump map. */
-  static quaternion_coeffs_t<scalar_t> jumpRotation() {
-    rotation_vector_t<scalar_t> rotationVector;
-    rotationVector << 0.3, -0.2, 0.5;
-    return quaternionExp(rotationVector);
+  static quaternion_coeffs_t<scalar_t> jumpUnitQuaternion() {
+    rotation_vector_t<scalar_t> rotvec;
+    rotvec << 0.3, -0.2, 0.5;
+    return quaternionExp(rotvec);
   }
 
   static Eigen::Matrix<scalar_t, 3, 3> inertiaMatrix() {
@@ -172,15 +172,15 @@ class RigidBodyAttitudeDynamics final : public SystemDynamicsBase {
 
     ad_vector_t x = ad_vector_t::Ones(nx);
     CppAD::Independent(x);
-    const size_t q = getQuaternionOffset();
+    const size_t q = getQuaternionStartIndex();
     ad_vector_t xNext = x;
     const quaternion_coeffs_t<ad_t> xi = x.template segment<4>(q);
-    xNext.template segment<4>(q) = quaternionProduct(xi, quaternion_coeffs_t<ad_t>(jumpRotation().template cast<ad_t>()));
+    xNext.template segment<4>(q) = quaternionProduct(xi, quaternion_coeffs_t<ad_t>(jumpUnitQuaternion().template cast<ad_t>()));
     xNext.template segment<3>(q + 4) = ad_t(0.5) * x.template segment<3>(q + 4);
     jumpTape_ = std::make_unique<CppAD::ADFun<scalar_t>>(x, xNext);
   }
 
-  bool withPosition_;
+  bool withTranslation_;
   std::unique_ptr<CppAD::ADFun<scalar_t>> flowTape_;
   std::unique_ptr<CppAD::ADFun<scalar_t>> jumpTape_;
 };

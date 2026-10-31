@@ -101,7 +101,7 @@ TEST(RobotProcessSettingsFromConfigTest,
 TEST(RobotProcessSettingsFromConfigTest, EveryFieldIsRead) {
   mpc_config::TaskFile task;
   task.contact_estimator = "robot_state";
-  task.sim_contact_force_threshold = 7.5;
+  task.sim_min_force_mjcontact_ewrt_mjcontact_x = 7.5;
   task.sim_contact_timeline_window = 3.0;
   task.sim_visualizations = {"metrics", "zmp"};
   task.gantry_hold = "kinematic_teleport";

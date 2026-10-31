@@ -42,7 +42,7 @@ Wrench requiredContactWrench(double mass,
                              const Eigen::Vector3d& com,
                              const CentroidalMomentumRate& rate,
                              const Eigen::Vector3d& reference) {
-  const double weight = mass * kGravitationalAcceleration;
+  const double weight = mass * kGravityMagnitude;
   const Eigen::Vector3d force = rate.linear / weight + Eigen::Vector3d::UnitZ();
   Wrench wrench;
   wrench.head<kForceDim>() = force;

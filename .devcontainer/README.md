@@ -65,9 +65,9 @@ make launch-drc-atlas-sim-vnc
 
 Then open the URLs printed in the terminal banner (`session.sh: the views ...`):
 <!-- LINT.IfChange(vnc_ports) -->
-- **Operator GUI, and the MuJoCo window with `VIEWER=glfw` (`:99`)**: `http://localhost:6080/vnc.html` (or `http://<host-lan-ip>:6080/vnc.html`). A VNC client can also connect directly to port `5901`.
+- **Operator GUI, and the MuJoCo window with `VIEWER=glfw` (`:99`).** `http://localhost:6080/vnc.html` (or `http://<host-lan-ip>:6080/vnc.html`). A VNC client can also connect directly to port `5901`.
 <!-- LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_ports, //docker-compose.bridge.yaml:vnc_ports, //.devcontainer/devcontainer.json:vnc_ports, //Makefile:vnc_ports) -->
-- **Rerun web viewer**: `http://localhost:9090/?url=rerun+http://localhost:9876/proxy` (or `http://<host-lan-ip>:9090/?url=rerun+http://<host-lan-ip>:9876/proxy`). If prompted for the server address in the viewer, enter `rerun+http://localhost:9876/proxy`.
+- The **Rerun web viewer** is served at `http://localhost:9090/?url=rerun+http://localhost:9876/proxy` (or `http://<host-lan-ip>:9090/?url=rerun+http://<host-lan-ip>:9876/proxy`). If prompted for the server address in the viewer, enter `rerun+http://localhost:9876/proxy`.
 
 Every GUI application in the container renders on `:99`; there is no second display.
 
@@ -159,7 +159,7 @@ If your dev container is running on a **remote Linux machine** (e.g. over Remote
 2. **Option B (Forward Ports 6080, 6090, 9090 & 9876)**:
    - In your IDE: Check the **Ports** panel tab and ensure ports `6080`, `6090`, `9090` and `9876` are forwarded (`devcontainer.json` forwards them). Open `6090` with "Open in Browser": the editor's "Preview in Editor" frames the page, which the MuJoCo web viewer refuses, so it shows a blank pane.
    - Or from your local terminal: `ssh -L 6080:localhost:6080 -L 6090:127.0.0.1:6090 -L 9090:localhost:9090 -L 9876:localhost:9876 user@remote-host`
-   - Navigate to `http://localhost:6080/vnc.html` (operator GUI; MuJoCo with `VIEWER=glfw`), `http://localhost:6090` (MuJoCo web viewer, the default) and `http://localhost:9090/?url=rerun+http://localhost:9876/proxy` (Rerun web viewer) on your local machine.
+   - Open `http://localhost:6080/vnc.html` (operator GUI; MuJoCo with `VIEWER=glfw`), `http://localhost:6090` (MuJoCo web viewer, the default) and `http://localhost:9090/?url=rerun+http://localhost:9876/proxy` (Rerun web viewer) on your local machine.
 
 ## Go to Definition
 
@@ -177,25 +177,25 @@ Its `-vnc` twin is the same target with `VIEWS=vnc`: everything on the VNC deskt
 <!-- LINT.IfChange(launch_targets) -->
 | Target | Description |
 |--------|-------------|
-| `make launch-g1-sim-vnc` | G1 centroidal MPC — MuJoCo sim (robot-sim container + MPC in the dev container) |
-| `make launch-g1-dummy-sim-vnc` | G1 centroidal MPC — dummy sim |
+| `make launch-g1-sim-vnc` | G1 centroidal MPC - MuJoCo sim (robot-sim container + MPC in the dev container) |
+| `make launch-g1-dummy-sim-vnc` | G1 centroidal MPC - dummy sim |
 | `make launch-g1-sandbox-vnc` | G1 URDF in Rerun, a slider per joint |
-| `make launch-g1-mpc-vnc NETWORK=<file>` | G1 centroidal MPC — the laptop side against the robot of the network file |
-| `make launch-wb-g1-sim-vnc` | G1 whole-body MPC — MuJoCo sim |
-| `make launch-wb-g1-dummy-sim-vnc` | G1 whole-body MPC — dummy sim |
-| `make launch-wb-g1-mpc-vnc NETWORK=<file>` | G1 whole-body MPC — the laptop side against the robot |
-| `make launch-drc-atlas-sim-vnc` | DRC Atlas centroidal MPC — MuJoCo sim |
-| `make launch-drc-atlas-dummy-sim-vnc` | DRC Atlas centroidal MPC — dummy sim |
+| `make launch-g1-mpc-vnc NETWORK=<file>` | G1 centroidal MPC - the laptop side against the robot of the network file |
+| `make launch-wb-g1-sim-vnc` | G1 whole-body MPC - MuJoCo sim |
+| `make launch-wb-g1-dummy-sim-vnc` | G1 whole-body MPC - dummy sim |
+| `make launch-wb-g1-mpc-vnc NETWORK=<file>` | G1 whole-body MPC - the laptop side against the robot |
+| `make launch-drc-atlas-sim-vnc` | DRC Atlas centroidal MPC - MuJoCo sim |
+| `make launch-drc-atlas-dummy-sim-vnc` | DRC Atlas centroidal MPC - dummy sim |
 | `make launch-drc-atlas-sandbox-vnc` | DRC Atlas URDF in Rerun, a slider per joint |
-| `make launch-drc-atlas-mpc-vnc NETWORK=<file>` | DRC Atlas centroidal MPC — the laptop side against the robot |
-| `make launch-r1-sim-vnc` | Unitree R1 centroidal MPC — MuJoCo sim |
-| `make launch-r1-dummy-sim-vnc` | Unitree R1 centroidal MPC — dummy sim |
+| `make launch-drc-atlas-mpc-vnc NETWORK=<file>` | DRC Atlas centroidal MPC - the laptop side against the robot |
+| `make launch-r1-sim-vnc` | Unitree R1 centroidal MPC - MuJoCo sim |
+| `make launch-r1-dummy-sim-vnc` | Unitree R1 centroidal MPC - dummy sim |
 | `make launch-r1-sandbox-vnc` | Unitree R1 URDF in Rerun, a slider per joint |
-| `make launch-r1-mpc-vnc NETWORK=<file>` | Unitree R1 centroidal MPC — the laptop side against the robot |
-| `make launch-sa01-sim-vnc` | EngineAI SA01 centroidal MPC — MuJoCo sim |
-| `make launch-sa01-dummy-sim-vnc` | EngineAI SA01 centroidal MPC — dummy sim |
+| `make launch-r1-mpc-vnc NETWORK=<file>` | Unitree R1 centroidal MPC - the laptop side against the robot |
+| `make launch-sa01-sim-vnc` | EngineAI SA01 centroidal MPC - MuJoCo sim |
+| `make launch-sa01-dummy-sim-vnc` | EngineAI SA01 centroidal MPC - dummy sim |
 | `make launch-sa01-sandbox-vnc` | EngineAI SA01 URDF in Rerun, a slider per joint |
-| `make launch-sa01-mpc-vnc NETWORK=<file>` | EngineAI SA01 centroidal MPC — the laptop side against the robot |
+| `make launch-sa01-mpc-vnc NETWORK=<file>` | EngineAI SA01 centroidal MPC - the laptop side against the robot |
 <!-- LINT.ThenChange(//Makefile:launch_targets, //Makefile:robot_configurations) -->
 
 The DRC Atlas's multi-contact scenarios (humanoid_nmpc/docs/multi_contact_planning/README.md) have a dummy sim each:
@@ -204,13 +204,13 @@ the centroidal MPC tracking the scenario's offline plan, with the terrain in Rer
 <!-- LINT.IfChange(multi_contact_targets) -->
 | Target | Description |
 |--------|-------------|
-| `make launch-drc-atlas-stairs-dummy-sim-vnc` | DRC Atlas — up four stairs and backward down, over and over |
-| `make launch-drc-atlas-stairs-steep-dummy-sim-vnc` | DRC Atlas — steep stairs with a handrail |
-| `make launch-drc-atlas-box-climb-dummy-sim-vnc` | DRC Atlas — climbing onto a 0.6 m box |
-| `make launch-drc-atlas-box-climb-high-dummy-sim-vnc` | DRC Atlas — climbing onto a box at hip height |
-| `make launch-drc-atlas-car-egress-dummy-sim-vnc` | DRC Atlas — getting out of a utility vehicle |
-| `make launch-drc-atlas-get-up-supine-dummy-sim-vnc` | DRC Atlas — getting up from lying on the back |
-| `make launch-drc-atlas-get-up-prone-dummy-sim-vnc` | DRC Atlas — getting up from lying face down |
+| `make launch-drc-atlas-stairs-dummy-sim-vnc` | DRC Atlas - up four stairs and backward down, over and over |
+| `make launch-drc-atlas-stairs-steep-dummy-sim-vnc` | DRC Atlas - steep stairs with a handrail |
+| `make launch-drc-atlas-box-climb-dummy-sim-vnc` | DRC Atlas - climbing onto a 0.6 m box |
+| `make launch-drc-atlas-box-climb-high-dummy-sim-vnc` | DRC Atlas - climbing onto a box at hip height |
+| `make launch-drc-atlas-car-egress-dummy-sim-vnc` | DRC Atlas - getting out of a utility vehicle |
+| `make launch-drc-atlas-get-up-supine-dummy-sim-vnc` | DRC Atlas - getting up from lying on the back |
+| `make launch-drc-atlas-get-up-prone-dummy-sim-vnc` | DRC Atlas - getting up from lying face down |
 <!-- LINT.ThenChange(//Makefile:multi_contact_targets, //Makefile:multi_contact_scenarios) -->
 
 The `browser` and `vnc` views start the VNC desktop themselves, so you do **not** need to run `make start-vnc` first.
@@ -300,7 +300,7 @@ shared: every open page shows the same view.
 | **`1`** | Toggle **Visual Meshes** | Shows/hides high-res surface meshes (group 1) to inspect underlying collision shapes |
 | **`2`** | Toggle **Collision Primitives** | Shows/hides collision capsules, boxes, and cylinders (group 2) |
 | **`3` - `5`** | Toggle **Auxiliary Groups** | Shows/hides user/sensor geom groups (groups 3–5) |
-| **`a`** - **`z`** | Toggle a **Visualization** | The key of each visualization the task file lists in `sim_visualizations` (the Markers panel shows them; the [root README's table](../README.md#mujoco-3d-viewer-hotkeys--controls) lists every one and which the shipped task files enable). Contact timeline window and force threshold: `sim_contact_timeline_window`, `sim_contact_force_threshold` in `task.textproto` |
+| **`a`** - **`z`** | Toggle a **Visualization** | The key of each visualization the task file lists in `sim_visualizations` (the Markers panel shows them; the [root README's table](../README.md#mujoco-3d-viewer-hotkeys--controls) lists every one and which the shipped task files enable). Contact timeline window and force threshold: `sim_contact_timeline_window`, `sim_min_force_mjcontact_ewrt_mjcontact_x` in `task.textproto` |
 | **`p`** | **Markers / Cheatsheet** | The web page opens its Markers panel; the GLFW window prints the hotkey and mouse guide to the robot's log |
 | **Left Click + Drag** | **Orbit Camera** | Rotates camera viewpoint around the robot or focal point |
 | **Right Click + Drag** | **Pan Camera** | Translates camera position horizontally and vertically |
@@ -316,7 +316,7 @@ shared: every open page shows the same view.
 | Port 6080 not reachable | Check `forwardPorts` in `devcontainer.json`; or visit `http://127.0.0.1:6080/vnc.html` |
 | Black/blank screen in browser | The WM may not have started. Run `make stop-vnc && make start-vnc` |
 | MuJoCo viewer: `GLX` / `Unable to create GL context` | Ensure `LIBGL_ALWAYS_INDIRECT=0` is set (the `-vnc` targets do this). See Manual Workflow above |
-| The MuJoCo viewer renders but is slow | Expected with software rendering — use lower resolution: `make start-vnc RESOLUTION=1280x720` |
+| The MuJoCo viewer renders but is slow | Expected with software rendering - use lower resolution: `make start-vnc RESOLUTION=1280x720` |
 | `http://localhost:6090` does not answer | `VIEWER=` or the plot configuration's `mujoco_viewer` names another viewer (`glfw`, `none`), or the robot process refused to start: its log (`[robot]`) names the reason, such as no EGL or the port taken by another robot process (`make kill-sims`). In a bridge-networked container the process needs `--web_viewer_address=0.0.0.0` ([MuJoCo Web Viewer](#mujoco-web-viewer)) |
 | `403` from the MuJoCo web viewer, or a blank editor pane | The browser reached it under a name that is not `localhost`, `127.0.0.1` or `::1`, through a link on another page (noVNC, Rerun), or in an editor preview that frames it: type `http://localhost:6090` in a browser tab (through a forwarded port; the Ports view's "Open in Browser"), or add the name to `--web_viewer_allowed_hosts` |
 | The MuJoCo web viewer is slow | Expected with llvmpipe (about 16 fps): lower the size or the frame rate in the page's settings, or give it a GPU (NVIDIA's EGL) |
@@ -326,5 +326,5 @@ shared: every open page shows the same view.
 
 ## Notes
 
-- Uses Mesa software rendering (`llvmpipe`) on `DISPLAY=:99` — reliable and does not require host GPU passthrough.
+- Uses Mesa software rendering (`llvmpipe`) on `DISPLAY=:99` - reliable and does not require host GPU passthrough.
 - VNC session data stays inside the container and is not persisted across rebuilds.

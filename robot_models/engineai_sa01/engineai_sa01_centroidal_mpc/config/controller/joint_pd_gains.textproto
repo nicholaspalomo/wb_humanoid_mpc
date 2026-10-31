@@ -1,7 +1,7 @@
 # proto-file: humanoid_nmpc/humanoid_mpc_config/joint_pd_gains_file.proto
 # proto-message: humanoid_mpc_config.JointPdGainsFile
 # EngineAI SA01 (12-DoF) Joint Proportional and Derivative (PD) Controller Gains
-# Units: Kp in [N*m/rad], Kd in [N*m*s/rad], torque_limit in [N*m]
+# Units: Kp in [N*m/rad], Kd in [N*m*s/rad], max_joint_torque in [N*m]
 #
 # These gains handle TRACKING error only. Gravity compensation reaches the joints through the feedforward torques the
 # MRT inverse dynamics builds from the MPC's planned contact wrenches, so the PD term does not have to fight gravity
@@ -13,7 +13,7 @@
 # G1's at 140 N*m, so those gains carry over unchanged; its ankles are much weaker at 24 N*m, so the ankle gains are
 # halved with them.
 #
-# torque_limit is not only documentation. The MRT joint controller clamps the commanded feedforward torque of every
+# max_joint_torque is not only documentation. The MRT joint controller clamps the commanded feedforward torque of every
 # joint against it, in every mode; a joint this file does not name gets default_gains' limit, and default_gains must
 # set it (the controller refuses a file without it, where it used to fall back to a hard-coded 500 N*m - twenty times
 # what the 24 N*m ankle can deliver, which the MuJoCo clamp against the model's actuatorfrcrange would then have
@@ -28,20 +28,20 @@
 default_gains {
   kp: 150.0
   kd: 10.0
-  torque_limit: 140.0
+  max_joint_torque: 140.0
 }
 # Left Leg - hip roll, yaw and pitch and the knee are 140 N*m actuators; both ankle joints are 24 N*m.
-joint_gains { joint: "leg_l1_joint" kp: 150.0 kd: 10.0 torque_limit: 140.0 }  # left hip roll
-joint_gains { joint: "leg_l2_joint" kp: 150.0 kd: 10.0 torque_limit: 140.0 }  # left hip yaw
-joint_gains { joint: "leg_l3_joint" kp: 150.0 kd: 10.0 torque_limit: 140.0 }  # left hip pitch - main sagittal driver
-joint_gains { joint: "leg_l4_joint" kp: 200.0 kd: 12.0 torque_limit: 140.0 }  # left knee - weight bearing
-joint_gains { joint: "leg_l5_joint" kp: 40.0 kd: 3.0 torque_limit: 24.0 }  # left ankle pitch
-joint_gains { joint: "leg_l6_joint" kp: 40.0 kd: 3.0 torque_limit: 24.0 }  # left ankle roll
+joint_gains { joint: "leg_l1_joint" kp: 150.0 kd: 10.0 max_joint_torque: 140.0 }  # left hip roll
+joint_gains { joint: "leg_l2_joint" kp: 150.0 kd: 10.0 max_joint_torque: 140.0 }  # left hip yaw
+joint_gains { joint: "leg_l3_joint" kp: 150.0 kd: 10.0 max_joint_torque: 140.0 }  # left hip pitch - main sagittal driver
+joint_gains { joint: "leg_l4_joint" kp: 200.0 kd: 12.0 max_joint_torque: 140.0 }  # left knee - weight bearing
+joint_gains { joint: "leg_l5_joint" kp: 40.0 kd: 3.0 max_joint_torque: 24.0 }  # left ankle pitch
+joint_gains { joint: "leg_l6_joint" kp: 40.0 kd: 3.0 max_joint_torque: 24.0 }  # left ankle roll
 
 # Right Leg (symmetric)
-joint_gains { joint: "leg_r1_joint" kp: 150.0 kd: 10.0 torque_limit: 140.0 }  # right hip roll
-joint_gains { joint: "leg_r2_joint" kp: 150.0 kd: 10.0 torque_limit: 140.0 }  # right hip yaw
-joint_gains { joint: "leg_r3_joint" kp: 150.0 kd: 10.0 torque_limit: 140.0 }  # right hip pitch
-joint_gains { joint: "leg_r4_joint" kp: 200.0 kd: 12.0 torque_limit: 140.0 }  # right knee
-joint_gains { joint: "leg_r5_joint" kp: 40.0 kd: 3.0 torque_limit: 24.0 }  # right ankle pitch
-joint_gains { joint: "leg_r6_joint" kp: 40.0 kd: 3.0 torque_limit: 24.0 }  # right ankle roll
+joint_gains { joint: "leg_r1_joint" kp: 150.0 kd: 10.0 max_joint_torque: 140.0 }  # right hip roll
+joint_gains { joint: "leg_r2_joint" kp: 150.0 kd: 10.0 max_joint_torque: 140.0 }  # right hip yaw
+joint_gains { joint: "leg_r3_joint" kp: 150.0 kd: 10.0 max_joint_torque: 140.0 }  # right hip pitch
+joint_gains { joint: "leg_r4_joint" kp: 200.0 kd: 12.0 max_joint_torque: 140.0 }  # right knee
+joint_gains { joint: "leg_r5_joint" kp: 40.0 kd: 3.0 max_joint_torque: 24.0 }  # right ankle pitch
+joint_gains { joint: "leg_r6_joint" kp: 40.0 kd: 3.0 max_joint_torque: 24.0 }  # right ankle roll

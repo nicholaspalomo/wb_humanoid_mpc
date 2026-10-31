@@ -138,7 +138,7 @@ std::string recordedGainsFile() {
                                .string();
   std::ofstream(file, std::ios::trunc)
       << "# proto-message: humanoid_mpc_config.JointPdGainsFile\ndefault_gains "
-         "{ kp: 250.0 kd: 15.0 torque_limit: 500.0 }\n";
+         "{ kp: 250.0 kd: 15.0 max_joint_torque: 500.0 }\n";
   return file;
 }
 
@@ -212,17 +212,17 @@ class ActionRecorder {
     const vector_t& state = stack_.initialState();
     const scalar_t phase = 0.3 * static_cast<scalar_t>(cycle);
     robotState_.setConfigurationToZero();
-    robotState_.setRootPositionInWorldFrame(
-        model.getBasePosition(state) +
+    robotState_.setPosBaseRtWorldEwrtWorld(
+        model.getPosBaseRtWorldEwrtWorld(state) +
         vector3_t(0.01 * std::sin(phase), 0.005 * std::cos(phase), 0.0));
     const vector3_t eulerZyx(
-        model.getBaseOrientationEulerZyx(state) +
+        model.getEulerzyxBaseRtWorld(state) +
         vector3_t(0.02 * std::sin(phase), 0.01, -0.01 * std::cos(phase)));
     const quaternion_t orientation = getQuaternionFromEulerAnglesZyx(eulerZyx);
-    robotState_.setRootRotationLocalToWorldFrame(orientation);
-    robotState_.setRootLinearVelocityInLocalFrame(
+    robotState_.setQuatBaseRtWorld(orientation);
+    robotState_.setLinvelBaseRtWorldEwrtBase(
         vector3_t(0.1 * std::cos(phase), -0.05, 0.02));
-    robotState_.setRootAngularVelocityInLocalFrame(
+    robotState_.setAngvelBaseRtWorldEwrtBase(
         vector3_t(0.03, -0.02 * std::sin(phase), 0.01));
     const vector_t joints = model.getJointAngles(state);
     for (size_t i = 0; i < mpcJointIndices_.size(); ++i) {

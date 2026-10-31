@@ -76,7 +76,7 @@ JointPdGains gainsWithKp(scalar_t kp) {
   JointPdGainsDefaults defaults;
   defaults.kp = kp;
   defaults.kd = kp / 10.0;
-  defaults.torqueLimit = 100.0;
+  defaults.maxJointTorque = 100.0;
   return defaultJointPdGains(defaults, *kMpcJoints, *kOtherJoints);
 }
 

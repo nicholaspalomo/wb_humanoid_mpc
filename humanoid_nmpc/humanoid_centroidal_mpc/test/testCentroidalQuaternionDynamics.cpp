@@ -154,8 +154,9 @@ vector_t stateAt(const LoadedCentroidalRobot& robot,
   const CentroidalMpcRobotModel<scalar_t>& model = *robot.model;
   vector_t state = model.getNeutralState();
   for (Eigen::Index i = 0; i < 6; ++i) state(i) = 0.3 * uniform(generator);
-  model.setBasePosition(state, vector3_t(0.2 * uniform(generator),
-                                         0.2 * uniform(generator), 0.85));
+  model.setPosBaseRtWorldEwrtWorld(
+      state,
+      vector3_t(0.2 * uniform(generator), 0.2 * uniform(generator), 0.85));
   state.segment<4>(
       static_cast<Eigen::Index>(model.getBaseOrientationStartIndex())) = xi;
   vector_t joints = model.getJointAngles(robot.info->qPinocchioNominal);
@@ -324,7 +325,7 @@ TEST_P(CentroidalQuaternionDynamics,
     const vector3_t bodyRate = quaternionTangentMapPseudoInverse<scalar_t>(xi) *
                                rate.segment<4>(orientationStart());
     const vector6_t twist =
-        model().getBaseTwistInWorldFrame(state, input.tail(joints));
+        model().getTwistBaseRtWorldEwrtWorld(state, input.tail(joints));
     const matrix3_t rotation = quaternion_t(xi).toRotationMatrix();
     EXPECT_LT((rotation * bodyRate - twist.tail<3>()).cwiseAbs().maxCoeff(),
               1.0e-9 * std::max(1.0, twist.norm()));
@@ -422,7 +423,7 @@ class CentroidalQuaternionDynamicsIntegration
    * still, as the solver discretizes a node. */
   RungeKuttaRun integrate(vector_t state, scalar_t step, int steps) const {
     const vector_t input = vector_t::Zero(loaded_->inputDim);
-    const vector4_t start = model().getBaseOrientation(state);
+    const vector4_t start = model().getQuatBaseRtWorldXyzw(state);
     RungeKuttaRun run;
     for (int k = 0; k < steps; ++k) {
       const vector_t k1 = flow(state, input);
@@ -434,7 +435,7 @@ class CentroidalQuaternionDynamicsIntegration
           std::max(run.largestNormError,
                    std::abs(state.segment<4>(orientationStart()).norm() - 1.0));
     }
-    const vector4_t end = model().getBaseOrientation(state);
+    const vector4_t end = model().getQuatBaseRtWorldXyzw(state);
     run.turned =
         quaternionLog<scalar_t>(quaternionProduct<scalar_t>(
                                     quaternionConjugate<scalar_t>(start), end))

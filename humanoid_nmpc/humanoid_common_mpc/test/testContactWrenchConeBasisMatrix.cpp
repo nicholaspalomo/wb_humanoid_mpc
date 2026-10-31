@@ -109,8 +109,8 @@ ContactWrenchConeConstraint::Config makeTestConeConfig(
   config.numBasisVectors = numBasisVectors;
   config.frictionCoefficient = 0.7;
   config.torsionalFrictionCoefficient = 0.05;
-  config.minNormalForce = 5.0;
-  config.gripperForce = 0.0;
+  config.minForceContactEwrtContactZ = 5.0;
+  config.gripForceContactEwrtContactZ = 0.0;
   return config;
 }
 
@@ -141,8 +141,8 @@ ContactWrenchConeBasisMatrix createOrDie(
 /** Worst (most negative) row of the homogeneous cone evaluated on a wrench;
  * non-negative means admissible. */
 scalar_t worstConeRow(const ContactWrenchConeRows& rows,
-                      const vector6_t& wrench) {
-  return rows.evaluateCone(wrench).minCoeff();
+                      const vector6_t& wrenchContactEwrtContact) {
+  return rows.evaluateCone(wrenchContactEwrtContact).minCoeff();
 }
 
 /** Footprints that are off-center, patch offsets, and different friction and
@@ -198,24 +198,27 @@ std::string describe(const GeometryCase& c) {
  * * torsionRatio. Built from cross products, independently of the closed form
  * the exact generator set uses.
  */
-vector6_t physicalWrench(const vector2_t& tangentialRatio,
-                         const vector2_t& centerOfPressure,
-                         scalar_t torsionRatio,
-                         scalar_t normalForce,
-                         const vector3_t& patchPoint) {
-  const vector3_t force =
-      normalForce * vector3_t(tangentialRatio.x(), tangentialRatio.y(), 1.0);
+vector6_t makePhysicalWrenchContactEwrtContact(
+    const vector2_t& tangentialRatio,
+    const vector2_t& centerOfPressure,
+    scalar_t torsionRatio,
+    scalar_t forceContactEwrtContactZ,
+    const vector3_t& patchPoint) {
+  const vector3_t forceContactEwrtContact =
+      forceContactEwrtContactZ *
+      vector3_t(tangentialRatio.x(), tangentialRatio.y(), 1.0);
   const vector3_t application(centerOfPressure.x(), centerOfPressure.y(), 0.0);
   const vector3_t patch(patchPoint.x(), patchPoint.y(), 0.0);
-  const scalar_t torsionOfTheForceAboutThePatch =
-      (application - patch).cross(force).z();
+  const scalar_t torsionAboutPatch =
+      (application - patch).cross(forceContactEwrtContact).z();
   const scalar_t freeTorsion =
-      normalForce * torsionRatio - torsionOfTheForceAboutThePatch;
-  vector6_t wrench;
-  wrench.head<3>() = force;
-  wrench.tail<3>() =
-      application.cross(force) + vector3_t(0.0, 0.0, freeTorsion);
-  return wrench;
+      forceContactEwrtContactZ * torsionRatio - torsionAboutPatch;
+  vector6_t wrenchContactEwrtContact;
+  wrenchContactEwrtContact.head<3>() = forceContactEwrtContact;
+  wrenchContactEwrtContact.tail<3>() =
+      application.cross(forceContactEwrtContact) +
+      vector3_t(0.0, 0.0, freeTorsion);
+  return wrenchContactEwrtContact;
 }
 
 /**
@@ -244,8 +247,10 @@ std::vector<vector2_t> frictionPolygonVertices(
 bool satisfiesFrictionRows(const ContactWrenchConeRows& rows,
                            size_t numFacets,
                            const vector2_t& tangentialRatio) {
-  const vector3_t force(tangentialRatio.x(), tangentialRatio.y(), 1.0);
-  return (rows.A_f.topRows(static_cast<Eigen::Index>(numFacets)) * force)
+  const vector3_t forceContactEwrtContact(tangentialRatio.x(),
+                                          tangentialRatio.y(), 1.0);
+  return (rows.A_f.topRows(static_cast<Eigen::Index>(numFacets)) *
+          forceContactEwrtContact)
              .minCoeff() >= 0.0;
 }
 
@@ -274,44 +279,49 @@ std::vector<vector6_t> sampleConeWrenches(
   std::mt19937 gen(seed);
   std::uniform_real_distribution<scalar_t> unit(0.0, 1.0);
   std::normal_distribution<scalar_t> gaussian(0.0, 1.0);
-  std::uniform_real_distribution<scalar_t> normalForce(1.0, 1000.0);
+  std::uniform_real_distribution<scalar_t> distributionForceContactEwrtContactZ(
+      1.0, 1000.0);
 
-  std::vector<vector6_t> wrenches;
-  wrenches.reserve(numSamples);
-  while (wrenches.size() < numSamples) {
+  std::vector<vector6_t> sampledWrenchContactEwrtContact;
+  sampledWrenchContactEwrtContact.reserve(numSamples);
+  while (sampledWrenchContactEwrtContact.size() < numSamples) {
     const vector2_t ratio(config.frictionCoefficient * (2.0 * unit(gen) - 1.0),
                           config.frictionCoefficient * (2.0 * unit(gen) - 1.0));
     const vector2_t cop(
         bounds.x_min + unit(gen) * (bounds.x_max - bounds.x_min),
         bounds.y_min + unit(gen) * (bounds.y_max - bounds.y_min));
     const scalar_t torsion = torsionBound * (2.0 * unit(gen) - 1.0);
-    vector6_t wrench = physicalWrench(ratio, cop, torsion, normalForce(gen),
-                                      vector3_t(center.x(), center.y(), 0.0));
-    if (rows.evaluateCone(wrench).minCoeff() < 0.0) continue;
-    if (wrenches.size() % 3 == 0) {
+    vector6_t wrenchContactEwrtContact = makePhysicalWrenchContactEwrtContact(
+        ratio, cop, torsion, distributionForceContactEwrtContactZ(gen),
+        vector3_t(center.x(), center.y(), 0.0));
+    if (rows.evaluateCone(wrenchContactEwrtContact).minCoeff() < 0.0) continue;
+    if (sampledWrenchContactEwrtContact.size() % 3 == 0) {
       vector6_t direction;
       for (Eigen::Index i = 0; i < 6; ++i) direction(i) = gaussian(gen);
-      const vector_t values = rows.evaluateCone(wrench);
+      const vector_t values = rows.evaluateCone(wrenchContactEwrtContact);
       const vector_t slopes = rows.evaluateCone(direction);
       scalar_t alpha = std::numeric_limits<scalar_t>::infinity();
       for (Eigen::Index row = 0; row < values.size(); ++row) {
         if (slopes(row) < 0.0)
           alpha = std::min(alpha, values(row) / -slopes(row));
       }
-      if (std::isfinite(alpha)) wrench += alpha * direction;
+      if (std::isfinite(alpha)) wrenchContactEwrtContact += alpha * direction;
     }
-    wrenches.push_back(wrench);
+    sampledWrenchContactEwrtContact.push_back(wrenchContactEwrtContact);
   }
-  return wrenches;
+  return sampledWrenchContactEwrtContact;
 }
 
 /** Whether a non-negative combination of the columns of B reproduces the
  * wrench. */
-bool isRepresentable(const matrix_t& B, const vector6_t& wrench) {
-  const vector_t lambda = solveNonNegativeLeastSquares(B, wrench);
+bool isRepresentable(const matrix_t& B,
+                     const vector6_t& wrenchContactEwrtContact) {
+  const vector_t lambda =
+      solveNonNegativeLeastSquares(B, wrenchContactEwrtContact);
   return lambda.minCoeff() >= 0.0 &&
-         (B * lambda - wrench).norm() <=
-             kRepresentableTolerance * std::max(1.0, wrench.norm());
+         (B * lambda - wrenchContactEwrtContact).norm() <=
+             kRepresentableTolerance *
+                 std::max(1.0, wrenchContactEwrtContact.norm());
 }
 
 /**
@@ -319,12 +329,14 @@ bool isRepresentable(const matrix_t& B, const vector6_t& wrench) {
  * the NNLS solution satisfies the KKT conditions (so its residual is the
  * distance from the wrench to the cone of B) and that distance is not zero.
  */
-::testing::AssertionResult isProvablyNotRepresentable(const matrix_t& B,
-                                                      const vector6_t& wrench) {
-  const vector_t lambda = solveNonNegativeLeastSquares(B, wrench);
-  const vector_t residual = wrench - B * lambda;
+::testing::AssertionResult isProvablyNotRepresentable(
+    const matrix_t& B, const vector6_t& wrenchContactEwrtContact) {
+  const vector_t lambda =
+      solveNonNegativeLeastSquares(B, wrenchContactEwrtContact);
+  const vector_t residual = wrenchContactEwrtContact - B * lambda;
   const vector_t gradient = B.transpose() * residual;
-  const scalar_t kktTolerance = 1.0e-9 * std::max(1.0, wrench.norm());
+  const scalar_t kktTolerance =
+      1.0e-9 * std::max(1.0, wrenchContactEwrtContact.norm());
   if (lambda.minCoeff() < 0.0) {
     return ::testing::AssertionFailure() << "NNLS returned a negative scaling";
   }
@@ -336,7 +348,8 @@ bool isRepresentable(const matrix_t& B, const vector6_t& wrench) {
              << ")";
     }
   }
-  if (residual.norm() <= kNotRepresentableTolerance * wrench.norm()) {
+  if (residual.norm() <=
+      kNotRepresentableTolerance * wrenchContactEwrtContact.norm()) {
     return ::testing::AssertionFailure()
            << "the wrench IS representable, residual " << residual.norm();
   }
@@ -466,8 +479,8 @@ TEST(ContactWrenchConeConfigValidationTest,
       ContactWrenchConeConstraint::validateConfig(makeTestConeConfig()).ok());
   ContactWrenchConeConstraint::Config boundary = makeTestConeConfig(3);
   boundary.torsionalFrictionCoefficient = 0.0;
-  boundary.minNormalForce = 0.0;
-  boundary.gripperForce = 0.0;
+  boundary.minForceContactEwrtContactZ = 0.0;
+  boundary.gripForceContactEwrtContactZ = 0.0;
   EXPECT_TRUE(ContactWrenchConeConstraint::validateConfig(boundary).ok());
 
   const std::string block =
@@ -485,12 +498,12 @@ TEST(ContactWrenchConeConfigValidationTest,
     ContactWrenchConeConstraint::Config torsion = makeTestConeConfig();
     torsion.torsionalFrictionCoefficient = value;
     bad.emplace_back("torsional_friction_coefficient", torsion);
-    ContactWrenchConeConstraint::Config minForce = makeTestConeConfig();
-    minForce.minNormalForce = value;
-    bad.emplace_back("min_normal_force", minForce);
+    ContactWrenchConeConstraint::Config minForceConfig = makeTestConeConfig();
+    minForceConfig.minForceContactEwrtContactZ = value;
+    bad.emplace_back("min_force_contact_ewrt_contact_z", minForceConfig);
     ContactWrenchConeConstraint::Config gripper = makeTestConeConfig();
-    gripper.gripperForce = value;
-    bad.emplace_back("gripper_force", gripper);
+    gripper.gripForceContactEwrtContactZ = value;
+    bad.emplace_back("grip_force_contact_ewrt_contact_z", gripper);
   }
   for (const std::pair<std::string, ContactWrenchConeConstraint::Config>&
            entry : bad) {
@@ -545,11 +558,12 @@ TEST(ContactWrenchConeBasisValidationTest,
   const ContactWrenchConeBasisMatrix exact =
       createOrDie(config, makeTestContactRectangle(),
                   std::string(kExactWrenchConeGeneratorSet));
-  for (const vector6_t& wrench :
+  for (const vector6_t& wrenchContactEwrtContact :
        sampleConeWrenches(config, makeTestContactRectangle(),
                           /*numSamples=*/200, /*seed=*/5)) {
-    EXPECT_TRUE(isRepresentable(exact.getBasisMatrix(), wrench))
-        << wrench.transpose();
+    EXPECT_TRUE(
+        isRepresentable(exact.getBasisMatrix(), wrenchContactEwrtContact))
+        << wrenchContactEwrtContact.transpose();
   }
 }
 
@@ -618,11 +632,11 @@ TEST(ContactWrenchConeBasisSoundnessTest,
       for (Eigen::Index i = 0; i < lambda.size(); ++i) {
         if (active(gen)) lambda(i) = magnitude(gen);
       }
-      const vector6_t wrench = B * lambda;
+      const vector6_t wrenchContactEwrtContact = B * lambda;
       // The cone rows are homogeneous, so the absolute slack grows with the
       // wrench.
-      EXPECT_GE(worstConeRow(rows, wrench),
-                -kTol * std::max(1.0, wrench.norm()))
+      EXPECT_GE(worstConeRow(rows, wrenchContactEwrtContact),
+                -kTol * std::max(1.0, wrenchContactEwrtContact.norm()))
           << set << " trial " << trial;
     }
   }
@@ -664,16 +678,17 @@ TEST(ContactWrenchConeExactSetTest,
     const ContactWrenchConeRows rows =
         buildLocalWrenchConeRows(config, rectangle);
     size_t numFailures = 0;
-    for (const vector6_t& wrench :
+    for (const vector6_t& wrenchContactEwrtContact :
          sampleConeWrenches(config, rectangle, kNumSamples, /*seed=*/17)) {
       // Positive control on the sampler: every sample really is a wrench wrench
       // mode admits.
-      ASSERT_GE(worstConeRow(rows, wrench), -1.0e-9 * wrench.norm())
+      ASSERT_GE(worstConeRow(rows, wrenchContactEwrtContact),
+                -1.0e-9 * wrenchContactEwrtContact.norm())
           << describe(c) << ": the sampler left the cone";
-      if (!isRepresentable(exact.getBasisMatrix(), wrench)) {
+      if (!isRepresentable(exact.getBasisMatrix(), wrenchContactEwrtContact)) {
         ++numFailures;
         ADD_FAILURE() << describe(c) << ": admissible wrench "
-                      << wrench.transpose()
+                      << wrenchContactEwrtContact.transpose()
                       << " is not a non-negative combination";
         if (numFailures > 5) break;
       }
@@ -708,7 +723,7 @@ TEST(ContactWrenchConeExactSetTest,
                                       vector2_t(bounds.x_min, bounds.y_max),
                                       vector2_t(bounds.x_min, bounds.y_min)}) {
         // No free torsion: the torsion about the corner itself is zero.
-        const vector6_t vertex = physicalWrench(
+        const vector6_t vertex = makePhysicalWrenchContactEwrtContact(
             frictionVertex, corner, /*torsionRatio=*/0.0, /*normalForce=*/1.0,
             vector3_t(corner.x(), corner.y(), 0.0));
         bool found = false;
@@ -790,22 +805,26 @@ TEST(ContactWrenchConeConservativeSetTest,
       createOrDie(config, rectangle, std::string(kExactWrenchConeGeneratorSet));
 
   const std::vector<vector6_t> counterexamples = {
-      physicalWrench(vector2_t(0.25, 0.0), vector2_t(0.8 * 0.12, 0.0),
-                     /*torsionRatio=*/0.0, /*normalForce=*/400.0, patchPoint),
-      physicalWrench(vector2_t(0.25, 0.0), vector2_t(0.0, 0.0),
-                     /*torsionRatio=*/0.045, /*normalForce=*/400.0, patchPoint),
-      physicalWrench(vector2_t(0.0, 0.0), vector2_t(0.8 * 0.12, 0.0),
-                     /*torsionRatio=*/0.025, /*normalForce=*/400.0, patchPoint),
+      makePhysicalWrenchContactEwrtContact(
+          vector2_t(0.25, 0.0), vector2_t(0.8 * 0.12, 0.0),
+          /*torsionRatio=*/0.0, /*normalForce=*/400.0, patchPoint),
+      makePhysicalWrenchContactEwrtContact(
+          vector2_t(0.25, 0.0), vector2_t(0.0, 0.0),
+          /*torsionRatio=*/0.045, /*normalForce=*/400.0, patchPoint),
+      makePhysicalWrenchContactEwrtContact(
+          vector2_t(0.0, 0.0), vector2_t(0.8 * 0.12, 0.0),
+          /*torsionRatio=*/0.025, /*normalForce=*/400.0, patchPoint),
   };
-  for (const vector6_t& wrench : counterexamples) {
-    EXPECT_GT(worstConeRow(rows, wrench), 0.0)
-        << wrench.transpose()
+  for (const vector6_t& wrenchContactEwrtContact : counterexamples) {
+    EXPECT_GT(worstConeRow(rows, wrenchContactEwrtContact), 0.0)
+        << wrenchContactEwrtContact.transpose()
         << " should be strictly inside the wrench-mode cone";
-    EXPECT_TRUE(isRepresentable(exact.getBasisMatrix(), wrench))
-        << wrench.transpose();
     EXPECT_TRUE(
-        isProvablyNotRepresentable(conservative.getBasisMatrix(), wrench))
-        << wrench.transpose();
+        isRepresentable(exact.getBasisMatrix(), wrenchContactEwrtContact))
+        << wrenchContactEwrtContact.transpose();
+    EXPECT_TRUE(isProvablyNotRepresentable(conservative.getBasisMatrix(),
+                                           wrenchContactEwrtContact))
+        << wrenchContactEwrtContact.transpose();
   }
 }
 
@@ -824,8 +843,9 @@ TEST(ContactWrenchConeConservativeSetTest, ReportsHowMuchOfTheConeItCovers) {
         sampleConeWrenches(config, rectangle, kNumSamples, /*seed=*/23);
     const size_t numCovered = static_cast<size_t>(std::count_if(
         samples.begin(), samples.end(),
-        [&conservative](const vector6_t& wrench) {
-          return isRepresentable(conservative.getBasisMatrix(), wrench);
+        [&conservative](const vector6_t& wrenchContactEwrtContact) {
+          return isRepresentable(conservative.getBasisMatrix(),
+                                 wrenchContactEwrtContact);
         }));
     const scalar_t coverage = static_cast<scalar_t>(numCovered) /
                               static_cast<scalar_t>(samples.size());
@@ -859,11 +879,13 @@ TEST(ContactWrenchConeConservativeSetTest,
     for (const vector2_t& vertex :
          frictionPolygonVertices(rows, config.numBasisVectors)) {
       for (const scalar_t fraction : {1.0, 0.5}) {
-        const vector6_t wrench = physicalWrench(
-            fraction * vertex, patchPoint.head<2>(), /*torsionRatio=*/0.0,
-            /*normalForce=*/100.0, patchPoint);
-        EXPECT_TRUE(isRepresentable(conservative.getBasisMatrix(), wrench))
-            << describe(c) << " " << wrench.transpose();
+        const vector6_t wrenchContactEwrtContact =
+            makePhysicalWrenchContactEwrtContact(
+                fraction * vertex, patchPoint.head<2>(), /*torsionRatio=*/0.0,
+                /*normalForce=*/100.0, patchPoint);
+        EXPECT_TRUE(isRepresentable(conservative.getBasisMatrix(),
+                                    wrenchContactEwrtContact))
+            << describe(c) << " " << wrenchContactEwrtContact.transpose();
       }
     }
   }
@@ -953,7 +975,8 @@ TEST(ContactWrenchConeBasisAlgebraTest,
   }
 }
 
-// ==================== Non-negative scalings for a wrench (setContactWrench)
+// ==================== Non-negative scalings for a wrench
+// (setWrenchContactEwrtParam)
 // ====================
 
 TEST(NonNegativeLeastSquaresTest, SolvesSmallProblemsWithKnownAnswers) {
@@ -994,14 +1017,16 @@ TEST(NonNegativeBasisScalingsTest,
     // degrees (the tilted-foot weight compensation the audit found distorted by
     // 7 % in magnitude and 6 % sideways).
     const scalar_t pitch = 15.0 * M_PI / 180.0;
-    const std::vector<vector6_t> wrenches = {
+    const std::vector<vector6_t> sampledWrenchContactEwrtContact = {
         vector6_t(500.0 * B.col(0)),
         (vector6_t() << 600.0 * std::sin(pitch), 0.0, 600.0 * std::cos(pitch),
          0.0, 0.0, 0.0)
             .finished()};
     size_t numExercised = 0;
-    for (const vector6_t& wrench : wrenches) {
-      const vector_t minimumNorm = basis.getBasisMatrixPseudoInverse() * wrench;
+    for (const vector6_t& wrenchContactEwrtContact :
+         sampledWrenchContactEwrtContact) {
+      const vector_t minimumNorm =
+          basis.getBasisMatrixPseudoInverse() * wrenchContactEwrtContact;
       if (minimumNorm.minCoeff() >= 0.0) {
         continue;  // Only the wrenches where the old clamp went wrong are of
                    // interest here.
@@ -1009,15 +1034,17 @@ TEST(NonNegativeBasisScalingsTest,
       ++numExercised;
       // Positive control: clamping the minimum-norm scalings, the old behavior,
       // does NOT reproduce this wrench.
-      EXPECT_GT((B * minimumNorm.cwiseMax(0.0) - wrench).norm(),
-                1.0e-3 * wrench.norm())
+      EXPECT_GT(
+          (B * minimumNorm.cwiseMax(0.0) - wrenchContactEwrtContact).norm(),
+          1.0e-3 * wrenchContactEwrtContact.norm())
           << set;
-      const vector_t lambda = basis.solveNonNegativeScalings(wrench);
+      const vector_t lambda =
+          basis.solveNonNegativeScalings(wrenchContactEwrtContact);
       EXPECT_GE(lambda.minCoeff(), 0.0) << set;
-      EXPECT_LE((B * lambda - wrench).norm(),
-                kRepresentableTolerance * wrench.norm())
-          << set << ": " << wrench.transpose() << " came back as "
-          << (B * lambda).transpose();
+      EXPECT_LE((B * lambda - wrenchContactEwrtContact).norm(),
+                kRepresentableTolerance * wrenchContactEwrtContact.norm())
+          << set << ": " << wrenchContactEwrtContact.transpose()
+          << " came back as " << (B * lambda).transpose();
     }
     EXPECT_GT(numExercised, 0u)
         << set << ": no test wrench has negative minimum-norm scalings";
@@ -1041,12 +1068,14 @@ TEST(NonNegativeBasisScalingsTest,
   for (const std::string& set : allGeneratorSets()) {
     const ContactWrenchConeBasisMatrix basis =
         createOrDie(makeTestConeConfig(), makeTestContactRectangle(), set);
-    const vector6_t wrench =
+    const vector6_t wrenchContactEwrtContact =
         (vector6_t() << 5.0, -3.0, 80.0, 0.0, 0.0, 0.0).finished();
-    const vector_t minimumNorm = basis.getBasisMatrixPseudoInverse() * wrench;
+    const vector_t minimumNorm =
+        basis.getBasisMatrixPseudoInverse() * wrenchContactEwrtContact;
     ASSERT_GE(minimumNorm.minCoeff(), 0.0) << set;
     EXPECT_TRUE(
-        (basis.solveNonNegativeScalings(wrench) - minimumNorm).isZero(0.0))
+        (basis.solveNonNegativeScalings(wrenchContactEwrtContact) - minimumNorm)
+            .isZero(0.0))
         << set;
   }
 }
@@ -1099,7 +1128,7 @@ TEST(BasisInputsLibraryKeyTest,
       basisInputsLibraryKey(
           basesFor(makeTestConeConfig(), makeTestContactRectangle(), exact)),
       std::regex("basis16_[0-9a-f]{16}")));
-  EXPECT_NE(key, std::string(kWrenchInputsLibraryKey));
+  EXPECT_NE(key, std::string(kWrenchInputsLibraryName));
 
   ContactWrenchConeConstraint::Config otherFriction = makeTestConeConfig();
   otherFriction.frictionCoefficient = 0.6;

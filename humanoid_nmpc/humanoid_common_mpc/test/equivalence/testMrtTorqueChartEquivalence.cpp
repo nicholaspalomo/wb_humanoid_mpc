@@ -209,7 +209,7 @@ TEST_P(MrtTorqueChartEquivalence,
           200.0 + 100.0 * unit(generator), 10.0 * unit(generator),
           10.0 * unit(generator), 5.0 * unit(generator);
     }
-    const matrix3_t rateMap = eulerZyxRateToLocalAngularVelocityMatrix(angles);
+    const matrix3_t rateMap = eulerZyxRateToBodyRateMatrix(angles);
 
     // The quaternion root's motion and the Euler root's, the same physical
     // motion.
@@ -258,8 +258,8 @@ TEST_P(MrtTorqueChartEquivalence,
       up(k) += kStep;
       down(k) -= kStep;
       rateMapRate += eulerRates(k) *
-                     (eulerZyxRateToLocalAngularVelocityMatrix(up) -
-                      eulerZyxRateToLocalAngularVelocityMatrix(down)) *
+                     (eulerZyxRateToBodyRateMatrix(up) -
+                      eulerZyxRateToBodyRateMatrix(down)) *
                      eulerRates / (2.0 * kStep);
     }
     pinocchio::Data data(model);

@@ -89,7 +89,7 @@ constexpr double kFallenTilt = 1.0;
 robot::model::RobotState standingAtlas(
     const robot::model::RobotDescription& description) {
   robot::model::RobotState state(description);
-  state.setRootPositionInWorldFrame(vector3_t(0.0, 0.0, kStandingHeight));
+  state.setPosBaseRtWorldEwrtWorld(vector3_t(0.0, 0.0, kStandingHeight));
   return state;
 }
 
@@ -192,7 +192,7 @@ TEST(HardwareFallRecovery,
   HardwareFallRecovery recovery(kMaxTilt, &backend, &log);
   const std::vector<scalar_t> nominal(description.getNumJoints(), 0.0);
   robot::model::RobotState fallen = upright;
-  fallen.setRootRotationLocalToWorldFrame(quaternion_t(
+  fallen.setQuatBaseRtWorld(quaternion_t(
       Eigen::AngleAxis<scalar_t>(kFallenTilt, vector3_t::UnitY())));
 
   std::string mode = "WB_MPC";
@@ -347,9 +347,9 @@ class RobotProcessOnHardwareTest
           static_cast<Eigen::Index>(description_->getNumJoints()));
       (*kinematics)->update(zero, zero);
       config.settings.kalmanStateEstimator.contactHeight =
-          kStandingHeight + (*kinematics)->contactPositionInBase(0).z();
-      EXPECT_NEAR((*kinematics)->contactPositionInBase(0).z(),
-                  (*kinematics)->contactPositionInBase(1).z(), 1.0e-9)
+          kStandingHeight + (*kinematics)->posContactRtBaseEwrtBase(0).z();
+      EXPECT_NEAR((*kinematics)->posContactRtBaseEwrtBase(0).z(),
+                  (*kinematics)->posContactRtBaseEwrtBase(1).z(), 1.0e-9)
           << "a symmetric stance";
     }
     return config;
@@ -416,10 +416,10 @@ TEST_P(RobotProcessOnHardwareTest, RunsItsCyclesOnABackendThatIsNoSimulator) {
   if (!initialState_.has_value()) {
     FAIL() << "SetUp() builds the initial state";
   }
-  EXPECT_LT((controller_.rootPosition() -
-             initialState_->getRootPositionInWorldFrame())
-                .norm(),
-            kStandingTolerance);
+  EXPECT_LT(
+      (controller_.rootPosition() - initialState_->getPosBaseRtWorldEwrtWorld())
+          .norm(),
+      kStandingTolerance);
   EXPECT_LT(controller_.rootLinearVelocity().norm(), kStandingTolerance);
 
   ASSERT_TRUE(command("ZERO_TORQUE",

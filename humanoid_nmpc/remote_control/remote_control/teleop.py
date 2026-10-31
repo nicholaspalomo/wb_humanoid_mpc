@@ -93,32 +93,32 @@ def add_bus_flags(parser: argparse.ArgumentParser, default_node: str) -> None:
 
 
 def add_reference_file_flag(parser: argparse.ArgumentParser) -> None:
-    """Adds --reference_file, the robot's reference file, whose default_base_height the pelvis height starts from."""
+    """Adds --reference_file, the robot's reference file, whose nom_pos_base_rt_world_ewrt_world_z the pelvis height starts from."""
     parser.add_argument(
         "--reference_file",
         default="",
         help=(
             "the robot's config/command/reference.textproto: the pelvis height"
-            " starts at its default_base_height (default: none,"
+            " starts at its nom_pos_base_rt_world_ewrt_world_z (default: none,"
             f" {config_files.DEFAULT_PELVIS_HEIGHT} m)"
         ),
     )
 
 
 def initial_pelvis_height(reference_file: str) -> float:
-    """The pelvis height a publisher starts from [m]: the default_base_height of `reference_file`.
+    """The pelvis height a publisher starts from [m]: the nom_pos_base_rt_world_ewrt_world_z of `reference_file`.
 
     Args:
         reference_file: the --reference_file flag, as the command line gave it (config_files.resolve_input_path).
 
     Returns:
-        The file's default_base_height; config_files.DEFAULT_PELVIS_HEIGHT, with a warning, when no file is given or it
+        The file's nom_pos_base_rt_world_ewrt_world_z; config_files.DEFAULT_PELVIS_HEIGHT, with a warning, when no file is given or it
         names none.
     """
     if not reference_file:
         _LOGGER.warning(
             "No --reference_file: the pelvis height starts at %.2f m, not at"
-            " the robot's default_base_height.",
+            " the robot's nom_pos_base_rt_world_ewrt_world_z.",
             config_files.DEFAULT_PELVIS_HEIGHT,
         )
         return config_files.DEFAULT_PELVIS_HEIGHT
@@ -132,10 +132,10 @@ def stop_command(
 ) -> walking_velocity_command_pb2.WalkingVelocityCommand:
     """The walking command that stops the robot where it stands: zero velocities at `pelvis_height` [m]."""
     return operator_bus.walking_velocity_command(
-        linear_velocity_x=0.0,
-        linear_velocity_y=0.0,
-        angular_velocity_z=0.0,
-        desired_pelvis_height=pelvis_height,
+        cmd_linvel_base_rt_world_ewrt_heading_x=0.0,
+        cmd_linvel_base_rt_world_ewrt_heading_y=0.0,
+        cmd_angvel_base_rt_world_ewrt_world_z=0.0,
+        cmd_pos_base_rt_world_ewrt_world_z=pelvis_height,
     )
 
 

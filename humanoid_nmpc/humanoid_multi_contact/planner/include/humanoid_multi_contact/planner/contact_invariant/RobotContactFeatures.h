@@ -83,7 +83,7 @@ struct RobotFeatureSettings {
  * softmin-weighted normal of the nearest faces), the tilt of the pad's normal
  * from n(p), the friction cone of a point pad's force about n(p) and the
  * clearance of its collision sphere; and the normalized momentum rate of the
- * centroidal dynamics (getNormalizedCentroidalMomentumRate()). The terrain
+ * centroidal dynamics (getMnormRateCmomComRtWorldEwrtWorld()). The terrain
  * and the constants are recorded on the tape: the library's name must carry
  * the scene's hash and the candidates.
  *

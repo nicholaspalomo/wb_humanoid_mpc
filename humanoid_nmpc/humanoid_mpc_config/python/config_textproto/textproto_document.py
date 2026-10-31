@@ -409,20 +409,20 @@ def tokenize(text: str, source: str = "<text>") -> list[Token]:
       TextprotoSyntaxError: An unterminated string, or a character no token starts with.
     """
     tokens: list[Token] = []
-    position = 0
+    offset = 0
     for match in _TOKEN_PATTERN.finditer(text):
-        if match.start() != position:
+        if match.start() != offset:
             break
-        tokens.append(Token(match.lastgroup or SYMBOL, match.group(), position))
-        position = match.end()
-    if position < len(text):
-        character = text[position]
+        tokens.append(Token(match.lastgroup or SYMBOL, match.group(), offset))
+        offset = match.end()
+    if offset < len(text):
+        character = text[offset]
         problem = (
             "unterminated string"
             if character in "\"'"
             else f"unexpected character {character!r}"
         )
-        raise _syntax_error(text, source, position, problem)
+        raise _syntax_error(text, source, offset, problem)
     return tokens
 
 
@@ -468,10 +468,10 @@ def parse_number(text: str) -> int | float:
 def _unescape(body: str) -> bytes:
     """The bytes of a string literal's body (between its quotes), its escapes resolved as text_format resolves them."""
     out = bytearray()
-    position = 0
+    offset = 0
     for escape in _ESCAPE.finditer(body):
-        out += body[position : escape.start()].encode("utf-8")
-        position = escape.end()
+        out += body[offset : escape.start()].encode("utf-8")
+        offset = escape.end()
         simple, octal, hexadecimal, short_unicode, long_unicode, unknown = (
             escape.groups()
         )
@@ -490,7 +490,7 @@ def _unescape(body: str) -> bytes:
                     f"\\U{long_unicode} is not a code point, in {body!r}"
                 )
             out += chr(code_point).encode("utf-8", errors="surrogatepass")
-    out += body[position:].encode("utf-8")
+    out += body[offset:].encode("utf-8")
     return bytes(out)
 
 
@@ -824,69 +824,69 @@ def parse_path(path: str) -> tuple[PathSegment, ...]:
     if not path:
         return ()
     segments: list[PathSegment] = []
-    position = 0
+    offset = 0
     while True:
-        name = _NAME.match(path, position)
+        name = _NAME.match(path, offset)
         if name is None:
             raise PathError(
-                f"{path!r}: expected a field name at column {position + 1}"
+                f"{path!r}: expected a field name at column {offset + 1}"
             )
-        position = name.end()
+        offset = name.end()
         index: int | None = None
         key: tuple[str, str] | None = None
-        if position < len(path) and path[position] == "[":
-            index, key, position = _parse_selector(path, position + 1)
+        if offset < len(path) and path[offset] == "[":
+            index, key, offset = _parse_selector(path, offset + 1)
         segments.append(PathSegment(name.group(), index, key))
-        if position == len(path):
+        if offset == len(path):
             return tuple(segments)
-        if path[position] != ".":
+        if path[offset] != ".":
             raise PathError(
-                f"{path!r}: expected '.' or '[' at column {position + 1}"
+                f"{path!r}: expected '.' or '[' at column {offset + 1}"
             )
-        position += 1
+        offset += 1
 
 
 def _parse_selector(
-    path: str, position: int
+    path: str, offset: int
 ) -> tuple[int | None, tuple[str, str] | None, int]:
-    """(index, key, the position after `]`) of the selector of `path` that starts at `position`, after its `[`."""
-    digits = _INDEX.match(path, position)
+    """(index, key, the offset after `]`) of the selector of `path` that starts at `offset`, after its `[`."""
+    digits = _INDEX.match(path, offset)
     if digits is not None and path[digits.end() : digits.end() + 1] == "]":
         return int(digits.group()), None, digits.end() + 1
-    field = _NAME.match(path, position)
+    field = _NAME.match(path, offset)
     if field is None or path[field.end() : field.end() + 1] != "=":
         raise PathError(
             f"{path!r}: expected an index or field=value at column"
-            f" {position + 1}"
+            f" {offset + 1}"
         )
-    position = field.end() + 1
-    if path[position : position + 1] == '"':
-        value, position = _parse_quoted(path, position + 1)
+    offset = field.end() + 1
+    if path[offset : offset + 1] == '"':
+        value, offset = _parse_quoted(path, offset + 1)
     else:
-        bare = _BARE_KEY_VALUE.match(path, position)
+        bare = _BARE_KEY_VALUE.match(path, offset)
         if bare is None:
             raise PathError(
-                f"{path!r}: expected a key value at column {position + 1}"
+                f"{path!r}: expected a key value at column {offset + 1}"
             )
-        value, position = bare.group(), bare.end()
-    if path[position : position + 1] != "]":
-        raise PathError(f"{path!r}: expected ']' at column {position + 1}")
-    return None, (field.group(), value), position + 1
+        value, offset = bare.group(), bare.end()
+    if path[offset : offset + 1] != "]":
+        raise PathError(f"{path!r}: expected ']' at column {offset + 1}")
+    return None, (field.group(), value), offset + 1
 
 
-def _parse_quoted(path: str, position: int) -> tuple[str, int]:
-    """(the value, the position after its closing quote) of a quoted key value whose body starts at `position`."""
+def _parse_quoted(path: str, offset: int) -> tuple[str, int]:
+    """(the value, the offset after its closing quote) of a quoted key value whose body starts at `offset`."""
     out: list[str] = []
-    while position < len(path):
-        character = path[position]
+    while offset < len(path):
+        character = path[offset]
         if character == '"':
-            return "".join(out), position + 1
-        if character == "\\" and position + 1 < len(path):
-            out.append(path[position + 1])
-            position += 2
+            return "".join(out), offset + 1
+        if character == "\\" and offset + 1 < len(path):
+            out.append(path[offset + 1])
+            offset += 2
             continue
         out.append(character)
-        position += 1
+        offset += 1
     raise PathError(f"{path!r}: unterminated quoted key value")
 
 
@@ -1145,7 +1145,7 @@ class TextprotoDocument:
         element = self._element(path)
         return element.start, element.end
 
-    def position(self, path: str) -> tuple[int, int]:
+    def line_and_column(self, path: str) -> tuple[int, int]:
         """The 1-based line and column of the field (or list element) `path` names."""
         return self._line_column(self._element(path).start)
 
@@ -1640,12 +1640,12 @@ class TextprotoDocument:
     def _remove_spans(self, spans: list[tuple[int, int]]) -> None:
         """Deletes the characters of `spans`, overlapping ones merged."""
         kept: list[str] = []
-        position = 0
+        offset = 0
         for start, end in sorted(spans):
-            start = max(start, position)
-            kept.append(self._text[position:start])
-            position = max(position, end)
-        kept.append(self._text[position:])
+            start = max(start, offset)
+            kept.append(self._text[offset:start])
+            offset = max(offset, end)
+        kept.append(self._text[offset:])
         self._set_text("".join(kept))
 
     def _removal_span(self, field: FieldNode) -> tuple[int, int]:

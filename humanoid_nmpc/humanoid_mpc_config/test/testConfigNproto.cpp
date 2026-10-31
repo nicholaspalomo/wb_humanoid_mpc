@@ -94,8 +94,9 @@ static_assert(kIs<decltype(MpcParameterUpdate::contact_planning),
                   std::optional<ContactPlanningFile>>);
 static_assert(
     kIs<decltype(ReferenceFile::default_joint_state), std::vector<JointValue>>);
-static_assert(kIs<decltype(ReferenceFile::max_displacement_velocity_x),
-                  std::optional<double>>);
+static_assert(
+    kIs<decltype(ReferenceFile::cmd_max_linvel_base_rt_world_ewrt_heading_x),
+        std::optional<double>>);
 static_assert(
     kIs<decltype(GaitFile::gaits), std::vector<ModeSequenceTemplateConfig>>);
 static_assert(kIs<decltype(JointPdGainsFile::joint_gains),
@@ -227,7 +228,7 @@ TEST(RetiredFieldTest, TheRetiredKeysOfTheTaskFileNameTheirReplacement) {
  */
 struct RetiredKeyCase {
   const char* absl_nonnull text;
-  const char* absl_nonnull position;
+  const char* absl_nonnull location;
   const char* absl_nonnull replacement;
 };
 
@@ -239,27 +240,27 @@ TEST(RetiredFieldTest,
   for (
       const RetiredKeyCase& retired : std::vector<RetiredKeyCase>{
           {.text = "centroidal_model_type: 0\n",
-           .position =
+           .location =
                "task.textproto:1:1: 'centroidal_model_type' is retired: ",
            .replacement =
                "centroidal_model: \"full_centroidal_dynamics\" where it was 0"},
           {.text = "centroidalModelType: 1\n",
-           .position = "task.textproto:1:1: 'centroidalModelType' is retired: ",
+           .location = "task.textproto:1:1: 'centroidalModelType' is retired: ",
            .replacement = "\"single_rigid_body_dynamics\" where it was 1"},
           {.text = "model_settings {\n  foot_constraint {\n    "
                    "constrain_orientation: true\n  }\n}\n",
-           .position =
+           .location =
                "task.textproto:3:5: 'constrain_orientation' is retired: ",
            .replacement =
                R"(stance_constraint: "position" where it was false, "position_and_tilt" where it was true)"},
           {.text = "model_settings {\n  foot_constraint {\n    "
                    "constrainYawRateAboutContactNormal: true\n  }\n}\n",
-           .position = "task.textproto:3:5: "
+           .location = "task.textproto:3:5: "
                        "'constrainYawRateAboutContactNormal' is retired: ",
            .replacement = "stance_constraint: \"position_and_orientation\" "
                           "where it was true"},
           {.text = "task_space_foot_cost {\n  active_in_stance: true\n}\n",
-           .position = "task.textproto:2:3: 'active_in_stance' is retired: ",
+           .location = "task.textproto:2:3: 'active_in_stance' is retired: ",
            .replacement =
                "active_phases: \"swing_and_stance\" where it was true"},
       }) {
@@ -268,18 +269,18 @@ TEST(RetiredFieldTest,
                                                               "task.textproto");
     EXPECT_EQ(task.status().code(), absl::StatusCode::kInvalidArgument)
         << retired.text;
-    EXPECT_TRUE(absl::StartsWith(task.status().message(), retired.position))
+    EXPECT_TRUE(absl::StartsWith(task.status().message(), retired.location))
         << task.status();
     EXPECT_TRUE(absl::StrContains(task.status().message(), retired.replacement))
         << task.status();
   }
   for (const RetiredKeyCase& retired : std::vector<RetiredKeyCase>{
            {.text = "planner {\n  run_in_background_thread: false\n}\n",
-            .position = "contact_planning.textproto:2:3: "
+            .location = "contact_planning.textproto:2:3: "
                         "'run_in_background_thread' is retired: ",
             .replacement = "\"pre_solve_hook\" where it was false"},
            {.text = "terminal_dcm {\n  trackCommandedVelocity: true\n}\n",
-            .position = "contact_planning.textproto:2:3: "
+            .location = "contact_planning.textproto:2:3: "
                         "'trackCommandedVelocity' is retired: ",
             .replacement = "target: \"commanded_velocity\" where it was true"},
        }) {
@@ -288,7 +289,7 @@ TEST(RetiredFieldTest,
             retired.text, "contact_planning.textproto");
     EXPECT_EQ(planning.status().code(), absl::StatusCode::kInvalidArgument)
         << retired.text;
-    EXPECT_TRUE(absl::StartsWith(planning.status().message(), retired.position))
+    EXPECT_TRUE(absl::StartsWith(planning.status().message(), retired.location))
         << planning.status();
     EXPECT_TRUE(
         absl::StrContains(planning.status().message(), retired.replacement))
@@ -305,48 +306,48 @@ TEST(RetiredFieldTest, TheSolverSettingsNothingReadsAreRefusedWithWhatToDo) {
   for (
       const RetiredKeyCase& retired : std::vector<RetiredKeyCase>{
           {.text = "multiple_shooting {\n  inequality_constraint_mu: 0.1\n}\n",
-           .position =
+           .location =
                "task.textproto:2:3: 'inequality_constraint_mu' is retired: ",
            .replacement =
                "nothing in the SQP solver reads it; delete the line"},
           {.text = "multiple_shooting {\n  inequalityConstraintDelta: 5.0\n}\n",
-           .position =
+           .location =
                "task.textproto:2:3: 'inequalityConstraintDelta' is retired: ",
            .replacement =
                "nothing in the SQP solver reads it; delete the line"},
           {.text = "multiple_shooting {\n  create_value_function: true\n}\n",
-           .position =
+           .location =
                "task.textproto:2:3: 'create_value_function' is retired: ",
            .replacement =
                "the SQP solver no longer stores one; delete the line"},
           {.text = "multiple_shooting {\n  extract_projection_multiplier: "
                    "false\n}\n",
-           .position = "task.textproto:2:3: 'extract_projection_multiplier' is "
+           .location = "task.textproto:2:3: 'extract_projection_multiplier' is "
                        "retired: ",
            .replacement =
                "the SQP solver no longer extracts one; delete the line"},
           {.text =
                "multiple_shooting {\n  extractProjectionMultiplier: true\n}\n",
-           .position =
+           .location =
                "task.textproto:2:3: 'extractProjectionMultiplier' is retired: ",
            .replacement =
                "the SQP solver no longer extracts one; delete the line"},
           {.text = "rollout {\n  root_finding_algorithm: 0\n}\n",
-           .position =
+           .location =
                "task.textproto:2:3: 'root_finding_algorithm' is retired: ",
            .replacement =
                "state-triggered rollout, which the fork no longer has (both "
                "MPCs roll out time-triggered); delete the line"},
           {.text = "rollout {\n  rootFinderType: \"ILLINOIS\"\n}\n",
-           .position = "task.textproto:2:3: 'rootFinderType' is retired: ",
+           .location = "task.textproto:2:3: 'rootFinderType' is retired: ",
            .replacement = "state-triggered rollout"},
           {.text = "rollout {\n  max_single_event_iterations: 7\n}\n",
-           .position =
+           .location =
                "task.textproto:2:3: 'max_single_event_iterations' is retired: ",
            .replacement = "state-triggered rollout"},
           {.text =
                "rollout {\n  use_trajectory_spreading_controller: true\n}\n",
-           .position = "task.textproto:2:3: "
+           .location = "task.textproto:2:3: "
                        "'use_trajectory_spreading_controller' is retired: ",
            .replacement = "state-triggered rollout"},
       }) {
@@ -355,7 +356,7 @@ TEST(RetiredFieldTest, TheSolverSettingsNothingReadsAreRefusedWithWhatToDo) {
                                                               "task.textproto");
     EXPECT_EQ(task.status().code(), absl::StatusCode::kInvalidArgument)
         << retired.text;
-    EXPECT_TRUE(absl::StartsWith(task.status().message(), retired.position))
+    EXPECT_TRUE(absl::StartsWith(task.status().message(), retired.location))
         << task.status();
     EXPECT_TRUE(absl::StrContains(task.status().message(), retired.replacement))
         << task.status();

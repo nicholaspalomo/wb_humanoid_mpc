@@ -321,10 +321,11 @@ void appendPlannerConfig(const SwingTrajectoryPlanner& planner,
   const SwingTrajectoryPlanner::Config& config = planner.getConfig();
   fingerprint.insert(
       fingerprint.end(),
-      {config.liftOffVelocity, config.touchDownVelocity, config.swingHeight,
+      {config.liftoffLinvelFootRtWorldEwrtWorldZ,
+       config.touchdownLinvelFootRtWorldEwrtWorldZ, config.swingHeight,
        config.swingTimeScale, config.touchDownHeightOffset,
-       config.impactProximityFactorLiftOffVelocity,
-       config.impactProximityFactorTouchDownVelocity,
+       config.impactProximityFactorLiftoffSlope,
+       config.impactProximityFactorTouchdownSlope,
        config.impactProximityFactorMidPointValue, config.swingPitchAngle,
        config.swingPitchRiseFraction, config.swingPitchFallFraction});
 }
@@ -345,7 +346,7 @@ void appendWalkingStateReference(const WBMpcInterface& interface,
   const WBAccelMpcRobotModel<scalar_t>& model = interface.getMpcRobotModel();
   TargetTrajectories walking = target;
   for (vector_t& knot : walking.stateTrajectory) {
-    const scalar_t heading = model.getBaseHeading(knot);
+    const scalar_t heading = model.getYawBaseRtWorld(knot);
     model.setBaseComLinearVelocity(
         knot, vector3_t(kForwardSpeed * std::cos(heading),
                         kForwardSpeed * std::sin(heading), 0.0));

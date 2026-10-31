@@ -51,7 +51,7 @@ namespace {
  * of the state and input of `mapping`, one block of rows per frame in the order of `frameIds`.
  */
 
-ad_vector_t getPositionCppAd(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd,
+ad_vector_t computePosEesRtWorldEwrtWorld(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd,
                              const PinocchioStateInputMapping<ad_scalar_t>& mapping,
                              const std::vector<size_t>& frameIds,
                              const ad_vector_t& state) {
@@ -62,15 +62,15 @@ ad_vector_t getPositionCppAd(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd,
   pinocchio::forwardKinematics(model, data, q);
   pinocchio::updateFramePlacements(model, data);
 
-  ad_vector_t positions(kPositionDim * frameIds.size());
+  ad_vector_t posEesRtWorldEwrtWorld(kPositionDim * frameIds.size());
   for (size_t i = 0; i < frameIds.size(); ++i) {
     const size_t frameId = frameIds[i];
-    positions.segment<kPositionDim>(kPositionDim * i) = data.oMf[frameId].translation();
+    posEesRtWorldEwrtWorld.segment<kPositionDim>(kPositionDim * i) = data.oMf[frameId].translation();
   }
-  return positions;
+  return posEesRtWorldEwrtWorld;
 }
 
-ad_vector_t getVelocityCppAd(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd,
+ad_vector_t computeLinvelEesRtWorldEwrtWorld(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd,
                              const PinocchioStateInputMapping<ad_scalar_t>& mapping,
                              const std::vector<size_t>& frameIds,
                              const ad_vector_t& state,
@@ -83,15 +83,15 @@ ad_vector_t getVelocityCppAd(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd,
 
   pinocchio::forwardKinematics(model, data, q, v);
 
-  ad_vector_t velocities(kPositionDim * frameIds.size());
+  ad_vector_t linvelEesRtWorldEwrtWorld(kPositionDim * frameIds.size());
   for (size_t i = 0; i < frameIds.size(); ++i) {
     const size_t frameId = frameIds[i];
-    velocities.segment<kPositionDim>(kPositionDim * i) = pinocchio::getFrameVelocity(model, data, frameId, rf).linear();
+    linvelEesRtWorldEwrtWorld.segment<kPositionDim>(kPositionDim * i) = pinocchio::getFrameVelocity(model, data, frameId, rf).linear();
   }
-  return velocities;
+  return linvelEesRtWorldEwrtWorld;
 }
 
-ad_vector_t getOrientationCppAd(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd,
+ad_vector_t computeQuatEesRtWorldXyzw(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd,
                                 const PinocchioStateInputMapping<ad_scalar_t>& mapping,
                                 const std::vector<size_t>& frameIds,
                                 const ad_vector_t& state) {
@@ -102,14 +102,15 @@ ad_vector_t getOrientationCppAd(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd
   pinocchio::forwardKinematics(model, data, q);
   pinocchio::updateFramePlacements(model, data);
 
-  ad_vector_t orientations(kQuaternionCoefficients * frameIds.size());
+  ad_vector_t quatEesRtWorldXyzw(kQuaternionCoefficients * frameIds.size());
   for (size_t i = 0; i < frameIds.size(); ++i) {
-    orientations.segment<kQuaternionCoefficients>(kQuaternionCoefficients * i) =
+    quatEesRtWorldXyzw.segment<kQuaternionCoefficients>(kQuaternionCoefficients * i) =
         matrixToQuaternion(data.oMf[frameIds[i]].rotation()).coeffs();
   }
-  return orientations;
+  return quatEesRtWorldXyzw;
 }
 
+// NOLINTNEXTLINE(frame-naming): the plane orientation error has no quantity word yet (TODO in EndEffectorKinematics.h)
 ad_vector_t getOrientationErrorWrtPlaneCppAd(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd,
                                              const PinocchioStateInputMapping<ad_scalar_t>& mapping,
                                              const std::vector<size_t>& frameIds,
@@ -132,7 +133,7 @@ ad_vector_t getOrientationErrorWrtPlaneCppAd(PinocchioInterfaceCppAd& pinocchioI
   return errors;
 }
 
-ad_vector_t getAngularVelocityCppAd(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd,
+ad_vector_t computeAngvelEesRtWorldEwrtWorld(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd,
                                     const PinocchioStateInputMapping<ad_scalar_t>& mapping,
                                     const std::vector<size_t>& frameIds,
                                     const ad_vector_t& state,
@@ -145,16 +146,16 @@ ad_vector_t getAngularVelocityCppAd(PinocchioInterfaceCppAd& pinocchioInterfaceC
 
   pinocchio::forwardKinematics(model, data, q, v);
 
-  ad_vector_t angularVelocities(kRotationTangentDim * frameIds.size());
+  ad_vector_t angvelEesRtWorldEwrtWorld(kRotationTangentDim * frameIds.size());
   for (size_t i = 0; i < frameIds.size(); ++i) {
     const size_t frameId = frameIds[i];
-    angularVelocities.segment<kRotationTangentDim>(kRotationTangentDim * i) =
+    angvelEesRtWorldEwrtWorld.segment<kRotationTangentDim>(kRotationTangentDim * i) =
         pinocchio::getFrameVelocity(model, data, frameId, rf).angular();
   }
-  return angularVelocities;
+  return angvelEesRtWorldEwrtWorld;
 }
 
-ad_vector_t getTwistCppAd(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd,
+ad_vector_t computeTwistEesRtWorldEwrtWorld(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd,
                           const PinocchioStateInputMapping<ad_scalar_t>& mapping,
                           const std::vector<size_t>& frameIds,
                           const ad_vector_t& state,
@@ -167,16 +168,16 @@ ad_vector_t getTwistCppAd(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd,
 
   pinocchio::forwardKinematics(model, data, q, v);
 
-  ad_vector_t twists(kTwistDim * frameIds.size());
+  ad_vector_t twistEesRtWorldEwrtWorld(kTwistDim * frameIds.size());
   for (size_t i = 0; i < frameIds.size(); ++i) {
     const size_t frameId = frameIds[i];
     auto motion = pinocchio::getFrameVelocity(model, data, frameId, rf);
-    ad_vector_t currTwist(kTwistDim);
-    currTwist.head(kPositionDim) = motion.linear();
-    currTwist.tail(kRotationTangentDim) = motion.angular();
-    twists.segment<kTwistDim>(kTwistDim * i) = currTwist;
+    ad_vector_t twistEeRtWorldEwrtWorld(kTwistDim);
+    twistEeRtWorldEwrtWorld.head(kPositionDim) = motion.linear();
+    twistEeRtWorldEwrtWorld.tail(kRotationTangentDim) = motion.angular();
+    twistEesRtWorldEwrtWorld.segment<kTwistDim>(kTwistDim * i) = twistEeRtWorldEwrtWorld;
   }
-  return twists;
+  return twistEesRtWorldEwrtWorld;
 }
 
 }  // namespace
@@ -209,60 +210,63 @@ PinocchioEndEffectorKinematicsCppAd::PinocchioEndEffectorKinematicsCppAd(const P
   mappingPtr->setPinocchioInterface(*pinocchioInterfaceCppAd);
 
   // position function
-  const CppAdInterface::ad_function_t positionFunc = [pinocchioInterfaceCppAd, mappingPtr, frameIds, updateCallback](const ad_vector_t& x,
-                                                                                                                     ad_vector_t& y) {
+  const CppAdInterface::ad_function_t tapePosEesRtWorldEwrtWorld = [pinocchioInterfaceCppAd, mappingPtr, frameIds, updateCallback](
+                                                                           const ad_vector_t& x, ad_vector_t& y) {
     updateCallback(x, *pinocchioInterfaceCppAd);
-    y = getPositionCppAd(*pinocchioInterfaceCppAd, *mappingPtr, frameIds, x);
+    y = computePosEesRtWorldEwrtWorld(*pinocchioInterfaceCppAd, *mappingPtr, frameIds, x);
   };
-  positionCppAdInterfacePtr_.reset(new CppAdInterface(positionFunc, stateDim, modelName + "_position", modelFolder));
+  positionCppAdInterfacePtr_.reset(new CppAdInterface(tapePosEesRtWorldEwrtWorld, stateDim, modelName + "_position", modelFolder));
 
   // velocity function
-  const CppAdInterface::ad_function_t velocityFunc = [pinocchioInterfaceCppAd, mappingPtr, frameIds, updateCallback, stateDim, inputDim](
-                                                         const ad_vector_t& x, ad_vector_t& y) {
+  const CppAdInterface::ad_function_t tapeLinvelEesRtWorldEwrtWorld = [pinocchioInterfaceCppAd, mappingPtr, frameIds, updateCallback,
+                                                                            stateDim, inputDim](const ad_vector_t& x, ad_vector_t& y) {
     const ad_vector_t state = x.head(stateDim);
     const ad_vector_t input = x.tail(inputDim);
     updateCallback(state, *pinocchioInterfaceCppAd);
-    y = getVelocityCppAd(*pinocchioInterfaceCppAd, *mappingPtr, frameIds, state, input);
+    y = computeLinvelEesRtWorldEwrtWorld(*pinocchioInterfaceCppAd, *mappingPtr, frameIds, state, input);
   };
-  velocityCppAdInterfacePtr_.reset(new CppAdInterface(velocityFunc, stateDim + inputDim, modelName + "_velocity", modelFolder));
+  velocityCppAdInterfacePtr_.reset(new CppAdInterface(tapeLinvelEesRtWorldEwrtWorld, stateDim + inputDim, modelName + "_velocity", modelFolder));
 
   // orientation function
-  const CppAdInterface::ad_function_t orientationFunc = [pinocchioInterfaceCppAd, mappingPtr, frameIds, updateCallback](
+  const CppAdInterface::ad_function_t tapeQuatEesRtWorldXyzw = [pinocchioInterfaceCppAd, mappingPtr, frameIds, updateCallback](
                                                             const ad_vector_t& x, ad_vector_t& y) {
     updateCallback(x, *pinocchioInterfaceCppAd);
-    y = getOrientationCppAd(*pinocchioInterfaceCppAd, *mappingPtr, frameIds, x);
+    y = computeQuatEesRtWorldXyzw(*pinocchioInterfaceCppAd, *mappingPtr, frameIds, x);
   };
-  orientationCppAdInterfacePtr_.reset(new CppAdInterface(orientationFunc, stateDim, modelName + "_orientation", modelFolder));
+  orientationCppAdInterfacePtr_.reset(new CppAdInterface(tapeQuatEesRtWorldXyzw, stateDim, modelName + "_orientation", modelFolder));
 
   // orientation w.r.t plane function
+  // NOLINTNEXTLINE(frame-naming): the plane orientation error has no quantity word yet (TODO in EndEffectorKinematics.h)
   const CppAdInterface::ad_parameterized_function_t orientationWrtPlaneFunc =
       [pinocchioInterfaceCppAd, mappingPtr, frameIds, updateCallback](const ad_vector_t& x, const ad_vector_t& params, ad_vector_t& y) {
         updateCallback(x, *pinocchioInterfaceCppAd);
+        // NOLINTNEXTLINE(frame-naming): the plane orientation error has no quantity word yet (TODO in EndEffectorKinematics.h)
         y = getOrientationErrorWrtPlaneCppAd(*pinocchioInterfaceCppAd, *mappingPtr, frameIds, x, params);
       };
+  // NOLINTNEXTLINE(frame-naming): the plane orientation error has no quantity word yet (TODO in EndEffectorKinematics.h)
   orientationErrorWrtPlaneCppAdInterfacePtr_.reset(new CppAdInterface(orientationWrtPlaneFunc, stateDim, kPositionDim * frameIds.size(),
                                                                       modelName + "_orientation_wrt_plane", modelFolder));
 
   // velocity function
-  const CppAdInterface::ad_function_t angularVelocityFunc = [pinocchioInterfaceCppAd, mappingPtr, frameIds, updateCallback, stateDim,
+  const CppAdInterface::ad_function_t tapeAngvelEesRtWorldEwrtWorld = [pinocchioInterfaceCppAd, mappingPtr, frameIds, updateCallback, stateDim,
                                                              inputDim](const ad_vector_t& x, ad_vector_t& y) {
     const ad_vector_t state = x.head(stateDim);
     const ad_vector_t input = x.tail(inputDim);
     updateCallback(state, *pinocchioInterfaceCppAd);
-    y = getAngularVelocityCppAd(*pinocchioInterfaceCppAd, *mappingPtr, frameIds, state, input);
+    y = computeAngvelEesRtWorldEwrtWorld(*pinocchioInterfaceCppAd, *mappingPtr, frameIds, state, input);
   };
   angularVelocityCppAdInterfacePtr_.reset(
-      new CppAdInterface(angularVelocityFunc, stateDim + inputDim, modelName + "_angular_velocity", modelFolder));
+      new CppAdInterface(tapeAngvelEesRtWorldEwrtWorld, stateDim + inputDim, modelName + "_angular_velocity", modelFolder));
 
   // twist function
-  const CppAdInterface::ad_function_t twistFunc = [pinocchioInterfaceCppAd, mappingPtr, frameIds, updateCallback, stateDim, inputDim](
+  const CppAdInterface::ad_function_t tapeTwistEesRtWorldEwrtWorld = [pinocchioInterfaceCppAd, mappingPtr, frameIds, updateCallback, stateDim, inputDim](
                                                       const ad_vector_t& x, ad_vector_t& y) {
     const ad_vector_t state = x.head(stateDim);
     const ad_vector_t input = x.tail(inputDim);
     updateCallback(state, *pinocchioInterfaceCppAd);
-    y = getTwistCppAd(*pinocchioInterfaceCppAd, *mappingPtr, frameIds, state, input);
+    y = computeTwistEesRtWorldEwrtWorld(*pinocchioInterfaceCppAd, *mappingPtr, frameIds, state, input);
   };
-  twistCppAdInterfacePtr_.reset(new CppAdInterface(twistFunc, stateDim + inputDim, modelName + "_twist", modelFolder));
+  twistCppAdInterfacePtr_.reset(new CppAdInterface(tapeTwistEesRtWorldEwrtWorld, stateDim + inputDim, modelName + "_twist", modelFolder));
 
   if (recompileLibraries) {
     positionCppAdInterfacePtr_->createModels(CppAdInterface::ApproximationOrder::First, verbose);
@@ -311,91 +315,92 @@ const std::vector<std::string>& PinocchioEndEffectorKinematicsCppAd::getIds() co
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-auto PinocchioEndEffectorKinematicsCppAd::getPosition(const vector_t& state) const -> std::vector<vector3_t> {
-  const vector_t positionValues = positionCppAdInterfacePtr_->getFunctionValue(state);
+auto PinocchioEndEffectorKinematicsCppAd::getPosEesRtWorldEwrtWorld(const vector_t& state) const -> std::vector<vector3_t> {
+  const vector_t stackedPosEesRtWorldEwrtWorld = positionCppAdInterfacePtr_->getFunctionValue(state);
 
-  std::vector<vector3_t> positions;
-  positions.reserve(endEffectorIds_.size());
+  std::vector<vector3_t> posEesRtWorldEwrtWorld;
+  posEesRtWorldEwrtWorld.reserve(endEffectorIds_.size());
   for (int i = 0; i < static_cast<int>(endEffectorIds_.size()); i++) {
-    positions.emplace_back(positionValues.segment<kPositionDim>(kPositionDim * i));
+    posEesRtWorldEwrtWorld.emplace_back(stackedPosEesRtWorldEwrtWorld.segment<kPositionDim>(kPositionDim * i));
   }
-  return positions;
+  return posEesRtWorldEwrtWorld;
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-std::vector<VectorFunctionLinearApproximation> PinocchioEndEffectorKinematicsCppAd::getPositionLinearApproximation(
+std::vector<VectorFunctionLinearApproximation> PinocchioEndEffectorKinematicsCppAd::getLinearApproximationPosEesRtWorldEwrtWorld(
     const vector_t& state) const {
-  const vector_t positionValues = positionCppAdInterfacePtr_->getFunctionValue(state);
-  const matrix_t positionJacobian = positionCppAdInterfacePtr_->getJacobian(state);
+  const vector_t stackedPosEesRtWorldEwrtWorld = positionCppAdInterfacePtr_->getFunctionValue(state);
+  const matrix_t stackedJacobianPosEesRtWorldEwrtWorld = positionCppAdInterfacePtr_->getJacobian(state);
 
-  std::vector<VectorFunctionLinearApproximation> positions;
-  positions.reserve(endEffectorIds_.size());
+  std::vector<VectorFunctionLinearApproximation> posEesRtWorldEwrtWorld;
+  posEesRtWorldEwrtWorld.reserve(endEffectorIds_.size());
   for (int i = 0; i < static_cast<int>(endEffectorIds_.size()); i++) {
-    VectorFunctionLinearApproximation pos;
-    pos.f = positionValues.segment<kPositionDim>(kPositionDim * i);
-    pos.dfdx = positionJacobian.block(kPositionDim * i, 0, kPositionDim, state.rows());
-    positions.emplace_back(std::move(pos));
+    VectorFunctionLinearApproximation posEeRtWorldEwrtWorld;
+    posEeRtWorldEwrtWorld.f = stackedPosEesRtWorldEwrtWorld.segment<kPositionDim>(kPositionDim * i);
+    posEeRtWorldEwrtWorld.dfdx = stackedJacobianPosEesRtWorldEwrtWorld.block(kPositionDim * i, 0, kPositionDim, state.rows());
+    posEesRtWorldEwrtWorld.emplace_back(std::move(posEeRtWorldEwrtWorld));
   }
-  return positions;
+  return posEesRtWorldEwrtWorld;
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-auto PinocchioEndEffectorKinematicsCppAd::getVelocity(const vector_t& state, const vector_t& input) const -> std::vector<vector3_t> {
+auto PinocchioEndEffectorKinematicsCppAd::getLinvelEesRtWorldEwrtWorld(const vector_t& state, const vector_t& input) const -> std::vector<vector3_t> {
   vector_t stateInput(state.rows() + input.rows());
   stateInput << state, input;
-  const vector_t velocityValues = velocityCppAdInterfacePtr_->getFunctionValue(stateInput);
+  const vector_t stackedLinvelEesRtWorldEwrtWorld = velocityCppAdInterfacePtr_->getFunctionValue(stateInput);
 
-  std::vector<vector3_t> velocities;
-  velocities.reserve(endEffectorIds_.size());
+  std::vector<vector3_t> linvelEesRtWorldEwrtWorld;
+  linvelEesRtWorldEwrtWorld.reserve(endEffectorIds_.size());
   for (int i = 0; i < static_cast<int>(endEffectorIds_.size()); i++) {
-    velocities.emplace_back(velocityValues.segment<kPositionDim>(kPositionDim * i));
+    linvelEesRtWorldEwrtWorld.emplace_back(stackedLinvelEesRtWorldEwrtWorld.segment<kPositionDim>(kPositionDim * i));
   }
-  return velocities;
+  return linvelEesRtWorldEwrtWorld;
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-std::vector<VectorFunctionLinearApproximation> PinocchioEndEffectorKinematicsCppAd::getVelocityLinearApproximation(
+std::vector<VectorFunctionLinearApproximation> PinocchioEndEffectorKinematicsCppAd::getLinearApproximationLinvelEesRtWorldEwrtWorld(
     const vector_t& state, const vector_t& input) const {
   vector_t stateInput(state.rows() + input.rows());
   stateInput << state, input;
-  const vector_t velocityValues = velocityCppAdInterfacePtr_->getFunctionValue(stateInput);
-  const matrix_t velocityJacobian = velocityCppAdInterfacePtr_->getJacobian(stateInput);
+  const vector_t stackedLinvelEesRtWorldEwrtWorld = velocityCppAdInterfacePtr_->getFunctionValue(stateInput);
+  const matrix_t stackedJacobianLinvelEesRtWorldEwrtWorld = velocityCppAdInterfacePtr_->getJacobian(stateInput);
 
-  std::vector<VectorFunctionLinearApproximation> velocities;
-  velocities.reserve(endEffectorIds_.size());
+  std::vector<VectorFunctionLinearApproximation> linvelEesRtWorldEwrtWorld;
+  linvelEesRtWorldEwrtWorld.reserve(endEffectorIds_.size());
   for (int i = 0; i < static_cast<int>(endEffectorIds_.size()); i++) {
-    VectorFunctionLinearApproximation vel;
-    vel.f = velocityValues.segment<kPositionDim>(kPositionDim * i);
-    vel.dfdx = velocityJacobian.block(kPositionDim * i, 0, kPositionDim, state.rows());
-    vel.dfdu = velocityJacobian.block(kPositionDim * i, state.rows(), kPositionDim, input.rows());
-    velocities.emplace_back(std::move(vel));
+    VectorFunctionLinearApproximation linvelEeRtWorldEwrtWorld;
+    linvelEeRtWorldEwrtWorld.f = stackedLinvelEesRtWorldEwrtWorld.segment<kPositionDim>(kPositionDim * i);
+    linvelEeRtWorldEwrtWorld.dfdx = stackedJacobianLinvelEesRtWorldEwrtWorld.block(kPositionDim * i, 0, kPositionDim, state.rows());
+    linvelEeRtWorldEwrtWorld.dfdu = stackedJacobianLinvelEesRtWorldEwrtWorld.block(kPositionDim * i, state.rows(), kPositionDim, input.rows());
+    linvelEesRtWorldEwrtWorld.emplace_back(std::move(linvelEeRtWorldEwrtWorld));
   }
-  return velocities;
+  return linvelEesRtWorldEwrtWorld;
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-auto PinocchioEndEffectorKinematicsCppAd::getOrientation(const vector_t& state) const -> std::vector<quaternion_t> {
-  const vector_t orientationValues = orientationCppAdInterfacePtr_->getFunctionValue(state);
+auto PinocchioEndEffectorKinematicsCppAd::getQuatEesRtWorld(const vector_t& state) const -> std::vector<quaternion_t> {
+  const vector_t stackedQuatEesRtWorldXyzw = orientationCppAdInterfacePtr_->getFunctionValue(state);
 
-  std::vector<quaternion_t> orientations;
-  orientations.reserve(endEffectorIds_.size());
+  std::vector<quaternion_t> quatEesRtWorld;
+  quatEesRtWorld.reserve(endEffectorIds_.size());
   for (int i = 0; i < static_cast<int>(endEffectorIds_.size()); i++) {
-    orientations.emplace_back(quaternion_t(orientationValues.segment<kQuaternionCoefficients>(kQuaternionCoefficients * i)));
+    quatEesRtWorld.emplace_back(quaternion_t(stackedQuatEesRtWorldXyzw.segment<kQuaternionCoefficients>(kQuaternionCoefficients * i)));
   }
-  return orientations;
+  return quatEesRtWorld;
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
+// NOLINTNEXTLINE(frame-naming): the plane orientation error has no quantity word yet (TODO in EndEffectorKinematics.h)
 auto PinocchioEndEffectorKinematicsCppAd::getOrientationErrorWrtPlane(const vector_t& state,
                                                                       const std::vector<vector3_t>& planeNormals) const
     -> std::vector<vector3_t> {
@@ -418,6 +423,7 @@ auto PinocchioEndEffectorKinematicsCppAd::getOrientationErrorWrtPlane(const vect
 /******************************************************************************************************/
 /******************************************************************************************************/
 
+// NOLINTNEXTLINE(frame-naming): the plane orientation error has no quantity word yet (TODO in EndEffectorKinematics.h)
 std::vector<VectorFunctionLinearApproximation> PinocchioEndEffectorKinematicsCppAd::getOrientationErrorWrtPlaneLinearApproximation(
     const vector_t& state, const std::vector<vector3_t>& planeNormals) const {
   vector_t params(kPositionDim * endEffectorIds_.size());
@@ -441,77 +447,77 @@ std::vector<VectorFunctionLinearApproximation> PinocchioEndEffectorKinematicsCpp
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-auto PinocchioEndEffectorKinematicsCppAd::getAngularVelocity(const vector_t& state, const vector_t& input) const -> std::vector<vector3_t> {
+auto PinocchioEndEffectorKinematicsCppAd::getAngvelEesRtWorldEwrtWorld(const vector_t& state, const vector_t& input) const -> std::vector<vector3_t> {
   vector_t stateInput(state.rows() + input.rows());
   stateInput << state, input;
-  const vector_t velocityValues = angularVelocityCppAdInterfacePtr_->getFunctionValue(stateInput);
+  const vector_t stackedAngvelEesRtWorldEwrtWorld = angularVelocityCppAdInterfacePtr_->getFunctionValue(stateInput);
 
-  std::vector<vector3_t> velocities;
-  velocities.reserve(endEffectorIds_.size());
+  std::vector<vector3_t> angvelEesRtWorldEwrtWorld;
+  angvelEesRtWorldEwrtWorld.reserve(endEffectorIds_.size());
   for (int i = 0; i < static_cast<int>(endEffectorIds_.size()); i++) {
-    velocities.emplace_back(velocityValues.segment<kRotationTangentDim>(kRotationTangentDim * i));
+    angvelEesRtWorldEwrtWorld.emplace_back(stackedAngvelEesRtWorldEwrtWorld.segment<kRotationTangentDim>(kRotationTangentDim * i));
   }
-  return velocities;
+  return angvelEesRtWorldEwrtWorld;
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-std::vector<VectorFunctionLinearApproximation> PinocchioEndEffectorKinematicsCppAd::getAngularVelocityLinearApproximation(
+std::vector<VectorFunctionLinearApproximation> PinocchioEndEffectorKinematicsCppAd::getLinearApproximationAngvelEesRtWorldEwrtWorld(
     const vector_t& state, const vector_t& input) const {
   vector_t stateInput(state.rows() + input.rows());
   stateInput << state, input;
-  const vector_t velocityValues = angularVelocityCppAdInterfacePtr_->getFunctionValue(stateInput);
-  const matrix_t velocityJacobian = angularVelocityCppAdInterfacePtr_->getJacobian(stateInput);
+  const vector_t stackedAngvelEesRtWorldEwrtWorld = angularVelocityCppAdInterfacePtr_->getFunctionValue(stateInput);
+  const matrix_t stackedJacobianAngvelEesRtWorldEwrtWorld = angularVelocityCppAdInterfacePtr_->getJacobian(stateInput);
 
-  std::vector<VectorFunctionLinearApproximation> velocities;
-  velocities.reserve(endEffectorIds_.size());
+  std::vector<VectorFunctionLinearApproximation> angvelEesRtWorldEwrtWorld;
+  angvelEesRtWorldEwrtWorld.reserve(endEffectorIds_.size());
   for (int i = 0; i < static_cast<int>(endEffectorIds_.size()); i++) {
-    VectorFunctionLinearApproximation vel;
-    vel.f = velocityValues.segment<kRotationTangentDim>(kRotationTangentDim * i);
-    vel.dfdx = velocityJacobian.block(kRotationTangentDim * i, 0, kRotationTangentDim, state.rows());
-    vel.dfdu = velocityJacobian.block(kRotationTangentDim * i, state.rows(), kRotationTangentDim, input.rows());
-    velocities.emplace_back(std::move(vel));
+    VectorFunctionLinearApproximation angvelEeRtWorldEwrtWorld;
+    angvelEeRtWorldEwrtWorld.f = stackedAngvelEesRtWorldEwrtWorld.segment<kRotationTangentDim>(kRotationTangentDim * i);
+    angvelEeRtWorldEwrtWorld.dfdx = stackedJacobianAngvelEesRtWorldEwrtWorld.block(kRotationTangentDim * i, 0, kRotationTangentDim, state.rows());
+    angvelEeRtWorldEwrtWorld.dfdu = stackedJacobianAngvelEesRtWorldEwrtWorld.block(kRotationTangentDim * i, state.rows(), kRotationTangentDim, input.rows());
+    angvelEesRtWorldEwrtWorld.emplace_back(std::move(angvelEeRtWorldEwrtWorld));
   }
-  return velocities;
+  return angvelEesRtWorldEwrtWorld;
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-auto PinocchioEndEffectorKinematicsCppAd::getTwist(const vector_t& state, const vector_t& input) const -> std::vector<vector6_t> {
+auto PinocchioEndEffectorKinematicsCppAd::getTwistEesRtWorldEwrtWorld(const vector_t& state, const vector_t& input) const -> std::vector<vector6_t> {
   vector_t stateInput(state.rows() + input.rows());
   stateInput << state, input;
-  const vector_t velocityValues = twistCppAdInterfacePtr_->getFunctionValue(stateInput);
+  const vector_t stackedTwistEesRtWorldEwrtWorld = twistCppAdInterfacePtr_->getFunctionValue(stateInput);
 
-  std::vector<vector6_t> velocities;
-  velocities.reserve(endEffectorIds_.size());
+  std::vector<vector6_t> twistEesRtWorldEwrtWorld;
+  twistEesRtWorldEwrtWorld.reserve(endEffectorIds_.size());
   for (int i = 0; i < static_cast<int>(endEffectorIds_.size()); i++) {
-    velocities.emplace_back(velocityValues.segment<kTwistDim>(kTwistDim * i));
+    twistEesRtWorldEwrtWorld.emplace_back(stackedTwistEesRtWorldEwrtWorld.segment<kTwistDim>(kTwistDim * i));
   }
-  return velocities;
+  return twistEesRtWorldEwrtWorld;
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-std::vector<VectorFunctionLinearApproximation> PinocchioEndEffectorKinematicsCppAd::getTwistLinearApproximation(
+std::vector<VectorFunctionLinearApproximation> PinocchioEndEffectorKinematicsCppAd::getLinearApproximationTwistEesRtWorldEwrtWorld(
     const vector_t& state, const vector_t& input) const {
   vector_t stateInput(state.rows() + input.rows());
   stateInput << state, input;
-  const vector_t velocityValues = twistCppAdInterfacePtr_->getFunctionValue(stateInput);
-  const matrix_t velocityJacobian = twistCppAdInterfacePtr_->getJacobian(stateInput);
+  const vector_t stackedTwistEesRtWorldEwrtWorld = twistCppAdInterfacePtr_->getFunctionValue(stateInput);
+  const matrix_t stackedJacobianTwistEesRtWorldEwrtWorld = twistCppAdInterfacePtr_->getJacobian(stateInput);
 
-  std::vector<VectorFunctionLinearApproximation> velocities;
-  velocities.reserve(endEffectorIds_.size());
+  std::vector<VectorFunctionLinearApproximation> twistEesRtWorldEwrtWorld;
+  twistEesRtWorldEwrtWorld.reserve(endEffectorIds_.size());
   for (int i = 0; i < static_cast<int>(endEffectorIds_.size()); i++) {
-    VectorFunctionLinearApproximation vel;
-    vel.f = velocityValues.segment<kTwistDim>(kTwistDim * i);
-    vel.dfdx = velocityJacobian.block(kTwistDim * i, 0, kTwistDim, state.rows());
-    vel.dfdu = velocityJacobian.block(kTwistDim * i, state.rows(), kTwistDim, input.rows());
-    velocities.emplace_back(std::move(vel));
+    VectorFunctionLinearApproximation twistEeRtWorldEwrtWorld;
+    twistEeRtWorldEwrtWorld.f = stackedTwistEesRtWorldEwrtWorld.segment<kTwistDim>(kTwistDim * i);
+    twistEeRtWorldEwrtWorld.dfdx = stackedJacobianTwistEesRtWorldEwrtWorld.block(kTwistDim * i, 0, kTwistDim, state.rows());
+    twistEeRtWorldEwrtWorld.dfdu = stackedJacobianTwistEesRtWorldEwrtWorld.block(kTwistDim * i, state.rows(), kTwistDim, input.rows());
+    twistEesRtWorldEwrtWorld.emplace_back(std::move(twistEeRtWorldEwrtWorld));
   }
-  return velocities;
+  return twistEesRtWorldEwrtWorld;
 }
 
 }  // namespace ocs2

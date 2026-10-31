@@ -54,8 +54,8 @@ namespace ocs2::humanoid {
  * the whole running horizon's base-pose weight - pulling the end of every
  * horizon back to the pose the heuristics had just moved every other node away
  * from. This routes the reference through
- * SwitchedModelReferenceManager::shapeBasePose(), the one definition of the
- * shaped pose, and nothing else: in particular not through the reference
+ * SwitchedModelReferenceManager::shapePoseBaseRtWorld(), the one definition of
+ * the shaped pose, and nothing else: in particular not through the reference
  * manager's getDesiredState(), which would also pull the procedural arm swing
  * into Q_final. The target is interpolated by the robot model
  * (getDesiredState()).

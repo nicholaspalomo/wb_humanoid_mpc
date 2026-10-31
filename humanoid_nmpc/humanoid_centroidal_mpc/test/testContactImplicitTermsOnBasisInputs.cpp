@@ -64,12 +64,12 @@ constexpr scalar_t kAngularReference = 1.0;   // [rad/s]
  *
  * testRelaxedContactConstraints.cpp builds these terms on the wrench-space
  * CentroidalMpcRobotModel only. That model stores the contact wrench in the
- * WORLD frame, so `getContactForce(input, i)(2)` there is the world-vertical
- * force; under BasisInputsModelDecorator the input stores non-negative scalings
- * of a LOCAL contact-frame wrench-cone basis, and the same accessor returns the
- * SOLE-normal force instead. The terms were therefore never exercised in the
- * parameterization they ship in, and the frame they use was decided by accident
- * rather than by design.
+ * WORLD frame, so `getForceContactEwrtParam(input, i)(2)` there is the
+ * world-vertical force; under BasisInputsModelDecorator the input stores
+ * non-negative scalings of a LOCAL contact-frame wrench-cone basis, and the
+ * same accessor returns the SOLE-normal force instead. The terms were therefore
+ * never exercised in the parameterization they ship in, and the frame they use
+ * was decided by accident rather than by design.
  *
  * What makes both frames correct is that these terms use the normal force as a
  * LOAD INDICATOR rather than as a physical force: a number that vanishes
@@ -105,7 +105,8 @@ class ContactImplicitTermsOnBasisInputsTest : public ::testing::Test {
 
 TEST_F(ContactImplicitTermsOnBasisInputsTest,
        theNormalForceRowIsANonNegativeLoadIndicatorOnTheBasisModel) {
-  const vector_t row = normalContactForceRow(model_->basisModel(), kFoot);
+  const vector_t row =
+      inputRowForceContactEwrtParamZ(model_->basisModel(), kFoot);
   ASSERT_EQ(row.size(),
             static_cast<Eigen::Index>(model_->basisModel().getInputDim()));
 
@@ -130,14 +131,15 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest,
 
 TEST_F(ContactImplicitTermsOnBasisInputsTest,
        theForceJacobianIsTheParameterizationAndTheNormalRowIsItsThirdRow) {
-  // normalContactForceRow() is one row of contactForceInputJacobian(), and the
-  // friction cone linearizes through the other two. Pinning the relationship
-  // keeps the three terms reading one description of the parameterization: a
-  // future input layout that broke it would otherwise break them one at a time
-  // and in different ways.
+  // inputRowForceContactEwrtParamZ() is one row of
+  // inputJacobianForceContactEwrtParam(), and the friction cone linearizes
+  // through the other two. Pinning the relationship keeps the three terms
+  // reading one description of the parameterization: a future input layout that
+  // broke it would otherwise break them one at a time and in different ways.
   const matrix_t jacobian =
-      contactForceInputJacobian(model_->basisModel(), kFoot);
-  const vector_t row = normalContactForceRow(model_->basisModel(), kFoot);
+      inputJacobianForceContactEwrtParam(model_->basisModel(), kFoot);
+  const vector_t row =
+      inputRowForceContactEwrtParamZ(model_->basisModel(), kFoot);
 
   ASSERT_EQ(jacobian.rows(), 3);
   ASSERT_EQ(jacobian.cols(),
@@ -170,7 +172,7 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest,
   // hand-written 3x3 assumed - which is why that assumption survived: it is
   // right in exactly one of the two parameterizations this repository ships.
   const matrix_t jacobian =
-      contactForceInputJacobian(model_->wrenchModel(), kFoot);
+      inputJacobianForceContactEwrtParam(model_->wrenchModel(), kFoot);
   const Eigen::Index start = static_cast<Eigen::Index>(
       model_->wrenchModel().getContactForceStartIndices(kFoot));
 
@@ -185,13 +187,15 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest,
 
 TEST_F(ContactImplicitTermsOnBasisInputsTest,
        theIndicatorVanishesExactlyWhenTheFootCarriesNoWrench) {
-  const vector_t row = normalContactForceRow(model_->basisModel(), kFoot);
+  const vector_t row =
+      inputRowForceContactEwrtParamZ(model_->basisModel(), kFoot);
   const size_t start = model_->basisModel().getContactWrenchStartIndices(kFoot);
 
   vector_t noLoad = vector_t::Zero(model_->basisModel().getInputDim());
   EXPECT_NEAR(row.dot(noLoad), 0.0, 1.0e-12);
-  EXPECT_TRUE(
-      model_->basisModel().getContactWrench(noLoad, kFoot).isZero(1.0e-12));
+  EXPECT_TRUE(model_->basisModel()
+                  .getWrenchContactEwrtParam(noLoad, kFoot)
+                  .isZero(1.0e-12));
 
   // Any single non-zero scaling makes both the indicator and the wrench
   // non-zero.
@@ -199,8 +203,9 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest,
     vector_t oneRay = vector_t::Zero(model_->basisModel().getInputDim());
     oneRay(static_cast<Eigen::Index>(start + index)) = 0.5;
     EXPECT_GT(row.dot(oneRay), 0.0) << "basis " << index;
-    EXPECT_FALSE(
-        model_->basisModel().getContactWrench(oneRay, kFoot).isZero(1.0e-12))
+    EXPECT_FALSE(model_->basisModel()
+                     .getWrenchContactEwrtParam(oneRay, kFoot)
+                     .isZero(1.0e-12))
         << "basis " << index;
   }
 
@@ -232,7 +237,8 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest,
   const ContactComplementarityConstraint& term = *termPtr;
   const PreComputation preComp;
 
-  const vector_t row = normalContactForceRow(model_->basisModel(), kFoot);
+  const vector_t row =
+      inputRowForceContactEwrtParamZ(model_->basisModel(), kFoot);
   const scalar_t expected = (row.dot(input_) / kForceReference) *
                             (term.getGap(state_) / kHeightReference);
   EXPECT_NEAR(term.getValue(/*time=*/0.0, state_, input_, preComp)(0), expected,
@@ -298,11 +304,11 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest,
   ASSERT_EQ(value.size(), 3);
 
   const vector3_t velocity =
-      basisKinematics_->getVelocity(state_, input_).front();
+      basisKinematics_->getLinvelEesRtWorldEwrtWorld(state_, input_).front();
   const vector3_t angularVelocity =
-      basisKinematics_->getAngularVelocity(state_, input_).front();
+      basisKinematics_->getAngvelEesRtWorldEwrtWorld(state_, input_).front();
   const scalar_t load =
-      normalContactForceRow(model_->basisModel(), kFoot).dot(input_) /
+      inputRowForceContactEwrtParamZ(model_->basisModel(), kFoot).dot(input_) /
       kForceReference;
   EXPECT_NEAR(value(0), load * velocity(0) / kVelocityReference, 1.0e-9);
   EXPECT_NEAR(value(1), load * velocity(1) / kVelocityReference, 1.0e-9);
@@ -351,7 +357,7 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest,
 
   // At the nominal state the foot is flat, so every corner sits at the sole
   // center's height and a center-only term would look perfectly adequate. PITCH
-  // the foot and the whole point of finding A6 appears: the lowest corner drops
+  // the foot and the reason for finding A6 appears: the lowest corner drops
   // well below the center, so a term watching only the center lets the toe
   // through the floor. The Atlas footprint is 0.12 m fore and aft, so 0.15 rad
   // of ankle pitch should move a corner by about 0.12 * sin(0.15) = 18 mm.
@@ -366,7 +372,7 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest,
   const vector_t pitchedHeights =
       term.getValue(/*time=*/0.0, pitchedState, preComp);
   const scalar_t pitchedCenterHeight =
-      soleCenter->getPosition(pitchedState).front()(2);
+      soleCenter->getPosEesRtWorldEwrtWorld(pitchedState).front()(2);
   EXPECT_GT(pitchedHeights.maxCoeff() - pitchedHeights.minCoeff(), 0.01)
       << "pitching the foot must separate the corner heights, or the corners "
          "are not being read";
@@ -417,9 +423,9 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest,
   const std::unique_ptr<PinocchioEndEffectorKinematicsCppAd> soleCenter =
       model_->makeEndEffectorKinematics(kFoot,
                                         model_->basisModel().getInputDim());
-  EXPECT_GT(
-      soleCenter->getPosition(pitchedState).front()(2) - heights.minCoeff(),
-      0.005);
+  EXPECT_GT(soleCenter->getPosEesRtWorldEwrtWorld(pitchedState).front()(2) -
+                heights.minCoeff(),
+            0.005);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -434,7 +440,7 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest,
     EXPECT_EQ(
         ContactComplementarityConstraint::Create(
             *cornerHeights_, model_->basisModel(), kFoot, /*terrainHeight=*/0.0,
-            /*forceReference=*/bad, kHeightReference)
+            /*scaleForceContactEwrtParamZ=*/bad, kHeightReference)
             .status()
             .code(),
         absl::StatusCode::kInvalidArgument)
@@ -468,7 +474,8 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest,
   for (const scalar_t bad : {0.0, -1.0, nan}) {
     EXPECT_EQ(ForceWeightedSlipConstraint::Create(
                   *basisKinematics_, model_->basisModel(), kFoot,
-                  /*forceReference=*/bad, kVelocityReference, kAngularReference)
+                  /*scaleForceContactEwrtParamZ=*/bad, kVelocityReference,
+                  kAngularReference)
                   .status()
                   .code(),
               absl::StatusCode::kInvalidArgument)
@@ -476,7 +483,7 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest,
     EXPECT_EQ(
         ForceWeightedSlipConstraint::Create(
             *basisKinematics_, model_->basisModel(), kFoot, kForceReference,
-            /*velocityReference=*/bad, kAngularReference)
+            /*scaleLinvelContactRtWorldEwrtWorldXy=*/bad, kAngularReference)
             .status()
             .code(),
         absl::StatusCode::kInvalidArgument)
@@ -484,7 +491,7 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest,
     EXPECT_EQ(ForceWeightedSlipConstraint::Create(
                   *basisKinematics_, model_->basisModel(), kFoot,
                   kForceReference, kVelocityReference,
-                  /*angularVelocityReference=*/bad)
+                  /*scaleAngvelContactRtWorldEwrtWorldZ=*/bad)
                   .status()
                   .code(),
               absl::StatusCode::kInvalidArgument)

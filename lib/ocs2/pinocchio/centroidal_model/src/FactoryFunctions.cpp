@@ -80,12 +80,12 @@ CentroidalModelInfo createCentroidalModelInfo(const PinocchioInterface& interfac
   info.qPinocchioNominal.resize(model.nq);
   info.qPinocchioNominal << vector_t::Zero(kPositionDim), 0.0, 0.0, 0.0, 1.0, nominalJointAngles;
   info.centroidalInertiaNominal.setZero();
-  info.comToBasePositionNominal.setZero();
+  info.nomPosBaseRtComEwrtBase.setZero();
   if (info.centroidalModelType == CentroidalModelType::SingleRigidBodyDynamics) {
     const vector_t vPinocchioNominal = vector_t::Zero(info.velocityDim);
     pinocchio::ccrba(model, data, info.qPinocchioNominal, vPinocchioNominal);
     info.centroidalInertiaNominal = data.Ig.inertia().matrix();
-    info.comToBasePositionNominal = info.qPinocchioNominal.template head<kPositionDim>() - data.com[0];
+    info.nomPosBaseRtComEwrtBase = info.qPinocchioNominal.template head<kPositionDim>() - data.com[0];
   }
 
   return info;

@@ -91,12 +91,14 @@ StateInputLayout stateInputLayout(const ModelSettings& settings,
  * The tuning layout of `layout`'s state: its blocks in state order, each named
  * by the field of the task file's StateValues and StateWeights it holds, with
  * the kind of what it stores (design section 2.3) - the centroidal
- * normalized_linear_momentum (3), normalized_angular_momentum (3),
- * base_position (3), base_orientation (yaw, pitch, roll; kEulerZyxOrientation)
- * and joint_positions (n); the whole-body base_position, base_orientation,
- * joint_positions, base_linear_velocity (3), base_angular_velocity (z, y, x;
- * kZyxOrderedAngularVelocity, design decision D18) and joint_velocities (n).
- * Not placed on a state: the robot model places it (placeTuningLayout()).
+ * mnorm_linmom_com_rt_world_ewrt_world (3),
+ * mnorm_angmom_com_rt_world_ewrt_world (3), pos_base_rt_world_ewrt_world (3),
+ * eulerzyx_base_rt_world (yaw, pitch, roll; kEulerZyxOrientation) and
+ * joint_positions (n); the whole-body pos_base_rt_world_ewrt_world,
+ * eulerzyx_base_rt_world, joint_positions, linvel_base_rt_world_ewrt_world (3),
+ * angvel_base_rt_world_ewrt_base (z, y, x; kZyxOrderedAngularVelocity, design
+ * decision D18) and joint_velocities (n). Not placed on a state: the robot
+ * model places it (placeTuningLayout()).
  */
 TuningLayout tuningLayoutOf(const StateInputLayout& layout);
 

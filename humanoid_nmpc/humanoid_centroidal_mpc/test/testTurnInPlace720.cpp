@@ -118,7 +118,7 @@ TEST(TurnInPlace720, TheMpcTurnsTwiceRoundThroughPiWithoutAJumpOfItsSolves) {
 
   // Standing, then turning; the heading unwrapped by the steps between solves,
   // each far below pi.
-  scalar_t previousHeading = model.getBaseHeading(loop.observation().state);
+  scalar_t previousHeading = model.getYawBaseRtWorld(loop.observation().state);
   scalar_t turned = 0.0;
   scalar_t largestGapRotation = 0.0;
   scalar_t largestFeedbackShare = 0.0;
@@ -141,15 +141,15 @@ TEST(TurnInPlace720, TheMpcTurnsTwiceRoundThroughPiWithoutAJumpOfItsSolves) {
       const scalar_t targetHeading =
           targets.empty()
               ? 0.0
-              : model.getBaseHeading(targets.stateTrajectory.back());
+              : model.getYawBaseRtWorld(targets.stateTrajectory.back());
       const scalar_t plannedHeading =
           loop.hasPolicy() && !loop.policy().stateTrajectory_.empty()
-              ? model.getBaseHeading(loop.policy().stateTrajectory_.back())
+              ? model.getYawBaseRtWorld(loop.policy().stateTrajectory_.back())
               : 0.0;
       absl::StrAppend(&gaits, " t=", std::floor(time), ":",
                       loop.motionManager().getCurrentGaitCommand(), " turned ",
                       turned, " heading ",
-                      model.getBaseHeading(loop.observation().state),
+                      model.getYawBaseRtWorld(loop.observation().state),
                       " target ", targetHeading, " plan ", plannedHeading, ";");
     }
     ASSERT_LT(time, kStandingTime + kLongestTurnTime)
@@ -170,7 +170,7 @@ TEST(TurnInPlace720, TheMpcTurnsTwiceRoundThroughPiWithoutAJumpOfItsSolves) {
     largestFeedbackShare = std::max(
         largestFeedbackShare,
         step->feedbackCorrection / std::max(1.0, step->feedforwardMagnitude));
-    const scalar_t heading = model.getBaseHeading(loop.observation().state);
+    const scalar_t heading = model.getYawBaseRtWorld(loop.observation().state);
     const scalar_t change =
         std::remainder(heading - previousHeading, 2.0 * M_PI);
     if (std::abs(heading - previousHeading) > M_PI) ++crossingsOfPi;

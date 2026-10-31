@@ -116,8 +116,8 @@ class SandboxSceneTest(unittest.TestCase):
         robot = message.robots[0]
         self.assertEqual(robot.name, scene_contract.MEASURED)
         self.assertEqual(list(robot.link_names), ["base", "upper", "lower"])
-        self.assertEqual(len(robot.link_poses), 3)
-        lower = robot.link_poses[2]
+        self.assertEqual(len(robot.pose_links_rt_world), 3)
+        lower = robot.pose_links_rt_world[2]
         # The hip pitches the leg about +y: the lower link's origin swings from below the hip toward -x.
         self.assertAlmostEqual(lower.position.x, -0.5 * math.sin(0.5))
         self.assertAlmostEqual(lower.position.z, -0.5 * math.cos(0.5))
@@ -257,7 +257,9 @@ class BinaryTest(unittest.TestCase):
             robot = received[-1].robots[0]
             self.assertEqual(robot.name, scene_contract.MEASURED)
             self.assertEqual(list(robot.link_names), list(tree.links))
-            root = robot.link_poses[list(tree.links).index(tree.root_link)]
+            root = robot.pose_links_rt_world[
+                list(tree.links).index(tree.root_link)
+            ]
             self.assertEqual(
                 (root.position.x, root.position.y, root.position.z), (0, 0, 0)
             )

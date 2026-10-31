@@ -215,19 +215,22 @@ TEST(GuiVelocityCommand, TheClampIsTheOneTheMpcNodeAppliesToAReceivedMessage) {
   };
   for (const Eigen::Vector4d& message : messages) {
     humanoid_mpc_msgs::WalkingVelocityCommand proto;
-    proto.set_linear_velocity_x(message(0));
-    proto.set_linear_velocity_y(message(1));
-    proto.set_desired_pelvis_height(message(2));
-    proto.set_angular_velocity_z(message(3));
+    proto.set_cmd_linvel_base_rt_world_ewrt_heading_x(message(0));
+    proto.set_cmd_linvel_base_rt_world_ewrt_heading_y(message(1));
+    proto.set_cmd_pos_base_rt_world_ewrt_world_z(message(2));
+    proto.set_cmd_angvel_base_rt_world_ewrt_world_z(message(3));
     const absl::StatusOr<WalkingVelocityCommand> command =
         node::walkingVelocityCommandFromProto(proto);
     ASSERT_TRUE(command.ok()) << command.status();
     const Eigen::Vector4d clamped = clampGuiVelocityMessage(message);
-    EXPECT_EQ(clamped(0), command->linear_velocity_x) << message.transpose();
-    EXPECT_EQ(clamped(1), command->linear_velocity_y) << message.transpose();
-    EXPECT_EQ(clamped(2), command->desired_pelvis_height)
+    EXPECT_EQ(clamped(0), command->cmd_linvel_base_rt_world_ewrt_heading_x)
         << message.transpose();
-    EXPECT_EQ(clamped(3), command->angular_velocity_z) << message.transpose();
+    EXPECT_EQ(clamped(1), command->cmd_linvel_base_rt_world_ewrt_heading_y)
+        << message.transpose();
+    EXPECT_EQ(clamped(2), command->cmd_pos_base_rt_world_ewrt_world_z)
+        << message.transpose();
+    EXPECT_EQ(clamped(3), command->cmd_angvel_base_rt_world_ewrt_world_z)
+        << message.transpose();
   }
 }
 

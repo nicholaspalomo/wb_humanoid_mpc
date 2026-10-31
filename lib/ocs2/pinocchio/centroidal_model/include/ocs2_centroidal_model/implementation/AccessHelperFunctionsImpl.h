@@ -34,7 +34,7 @@ namespace centroidal_model {
 /******************************************************************************************************/
 /******************************************************************************************************/
 template <typename Derived, typename SCALAR>
-Eigen::Block<Derived, kForceDim, 1> getContactForces(Eigen::MatrixBase<Derived>& input,
+Eigen::Block<Derived, kForceDim, 1> getForceContactEwrtWorld(Eigen::MatrixBase<Derived>& input,
                                                      size_t contactIndex,
                                                      const CentroidalModelInfoTpl<SCALAR>& info) {
   assert(input.rows() == info.inputDim);
@@ -47,7 +47,7 @@ Eigen::Block<Derived, kForceDim, 1> getContactForces(Eigen::MatrixBase<Derived>&
 }
 
 template <typename Derived, typename SCALAR>
-const Eigen::Block<const Derived, kForceDim, 1> getContactForces(const Eigen::MatrixBase<Derived>& input,
+const Eigen::Block<const Derived, kForceDim, 1> getForceContactEwrtWorld(const Eigen::MatrixBase<Derived>& input,
                                                                  size_t contactIndex,
                                                                  const CentroidalModelInfoTpl<SCALAR>& info) {
   assert(input.rows() == info.inputDim);
@@ -63,7 +63,7 @@ const Eigen::Block<const Derived, kForceDim, 1> getContactForces(const Eigen::Ma
 /******************************************************************************************************/
 /******************************************************************************************************/
 template <typename Derived, typename SCALAR>
-Eigen::Block<Derived, kTorqueDim, 1> getContactTorques(Eigen::MatrixBase<Derived>& input,
+Eigen::Block<Derived, kTorqueDim, 1> getTorqueContactEwrtWorld(Eigen::MatrixBase<Derived>& input,
                                                        size_t contactIndex,
                                                        const CentroidalModelInfoTpl<SCALAR>& info) {
   assert(input.rows() == info.inputDim);
@@ -76,7 +76,7 @@ Eigen::Block<Derived, kTorqueDim, 1> getContactTorques(Eigen::MatrixBase<Derived
 }
 
 template <typename Derived, typename SCALAR>
-const Eigen::Block<const Derived, kTorqueDim, 1> getContactTorques(const Eigen::MatrixBase<Derived>& input,
+const Eigen::Block<const Derived, kTorqueDim, 1> getTorqueContactEwrtWorld(const Eigen::MatrixBase<Derived>& input,
                                                                    size_t contactIndex,
                                                                    const CentroidalModelInfoTpl<SCALAR>& info) {
   assert(input.rows() == info.inputDim);
@@ -112,7 +112,7 @@ const Eigen::Block<const Derived, -1, 1> getJointVelocities(const Eigen::MatrixB
 /******************************************************************************************************/
 /******************************************************************************************************/
 template <typename Derived, typename SCALAR>
-Eigen::Block<Derived, kCentroidalMomentumDim, 1> getNormalizedMomentum(Eigen::MatrixBase<Derived>& state,
+Eigen::Block<Derived, kCentroidalMomentumDim, 1> getMnormCmomComRtWorldEwrtWorld(Eigen::MatrixBase<Derived>& state,
                                                                        const CentroidalModelInfoTpl<SCALAR>& info) {
   assert(state.rows() == info.stateDim);
   assert(state.cols() == 1);
@@ -120,7 +120,7 @@ Eigen::Block<Derived, kCentroidalMomentumDim, 1> getNormalizedMomentum(Eigen::Ma
 }
 
 template <typename Derived, typename SCALAR>
-const Eigen::Block<const Derived, kCentroidalMomentumDim, 1> getNormalizedMomentum(const Eigen::MatrixBase<Derived>& state,
+const Eigen::Block<const Derived, kCentroidalMomentumDim, 1> getMnormCmomComRtWorldEwrtWorld(const Eigen::MatrixBase<Derived>& state,
                                                                                    const CentroidalModelInfoTpl<SCALAR>& info) {
   assert(state.rows() == info.stateDim);
   assert(state.cols() == 1);
@@ -131,14 +131,14 @@ const Eigen::Block<const Derived, kCentroidalMomentumDim, 1> getNormalizedMoment
 /******************************************************************************************************/
 /******************************************************************************************************/
 template <typename Derived, typename SCALAR>
-Eigen::Block<Derived, kPositionDim, 1> getBasePosition(Eigen::MatrixBase<Derived>& state, const CentroidalModelInfoTpl<SCALAR>& info) {
+Eigen::Block<Derived, kPositionDim, 1> getPosBaseRtWorldEwrtWorld(Eigen::MatrixBase<Derived>& state, const CentroidalModelInfoTpl<SCALAR>& info) {
   assert(state.rows() == info.stateDim);
   assert(state.cols() == 1);
   return Eigen::Block<Derived, kPositionDim, 1>(state.derived(), kBasePositionStartInState, 0);
 }
 
 template <typename Derived, typename SCALAR>
-const Eigen::Block<const Derived, kPositionDim, 1> getBasePosition(const Eigen::MatrixBase<Derived>& state,
+const Eigen::Block<const Derived, kPositionDim, 1> getPosBaseRtWorldEwrtWorld(const Eigen::MatrixBase<Derived>& state,
                                                                    const CentroidalModelInfoTpl<SCALAR>& info) {
   assert(state.rows() == info.stateDim);
   assert(state.cols() == 1);
@@ -149,7 +149,7 @@ const Eigen::Block<const Derived, kPositionDim, 1> getBasePosition(const Eigen::
 /******************************************************************************************************/
 /******************************************************************************************************/
 template <typename Derived, typename SCALAR>
-Eigen::Block<Derived, kQuaternionCoefficients, 1> getBaseQuaternion(Eigen::MatrixBase<Derived>& state,
+Eigen::Block<Derived, kQuaternionCoefficients, 1> getQuatBaseRtWorldXyzw(Eigen::MatrixBase<Derived>& state,
                                                                     const CentroidalModelInfoTpl<SCALAR>& info) {
   assert(state.rows() == info.stateDim);
   assert(state.cols() == 1);
@@ -157,7 +157,7 @@ Eigen::Block<Derived, kQuaternionCoefficients, 1> getBaseQuaternion(Eigen::Matri
 }
 
 template <typename Derived, typename SCALAR>
-const Eigen::Block<const Derived, kQuaternionCoefficients, 1> getBaseQuaternion(const Eigen::MatrixBase<Derived>& state,
+const Eigen::Block<const Derived, kQuaternionCoefficients, 1> getQuatBaseRtWorldXyzw(const Eigen::MatrixBase<Derived>& state,
                                                                                 const CentroidalModelInfoTpl<SCALAR>& info) {
   assert(state.rows() == info.stateDim);
   assert(state.cols() == 1);

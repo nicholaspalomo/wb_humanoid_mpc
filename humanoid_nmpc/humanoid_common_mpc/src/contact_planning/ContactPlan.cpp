@@ -58,8 +58,8 @@ std::string ContactPlan::describe() const {
       valid ? " valid" : " INVALID", objective, numBranchAndBoundNodes,
       solveTime * kMillisecondsPerSecond, optimal ? " optimal" : "",
       nodeLimitHit ? " NODE-LIMIT" : "", timeLimitHit ? " TIME-LIMIT" : "");
-  // A step the reach clip had to cut is no longer the deadbeat step, so it is
-  // worth seeing in the log.
+  // A step the reach clip had to cut is no longer the deadbeat step, so report
+  // it in the log.
   if (numClippedSteps > 0)
     absl::StrAppend(&out, " CLIPPED-STEPS=", numClippedSteps);
   if (!comVelocity.empty()) {

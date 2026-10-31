@@ -222,7 +222,7 @@ vector_t DrcAtlasContactTestModel::makeInput(
   vector_t input = vector_t::Zero(model.getInputDim());
   vector6_t wrench = vector6_t::Zero();
   wrench(kWrenchForceZIndex) = normalForce;
-  model.setContactWrench(input, wrench, loadedFoot);
+  model.setWrenchContactEwrtParam(input, wrench, loadedFoot);
   for (size_t index = 0; index < model.getJointDim(); ++index) {
     input(model.getJointVelocitiesStartindex() + index) =
         0.05 * static_cast<scalar_t>(index % 5) - 0.1;

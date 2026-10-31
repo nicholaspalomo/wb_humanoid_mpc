@@ -140,12 +140,13 @@ void CentroidalMpcTargetTrajectoriesCalculator::reset() {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-TargetTrajectories CentroidalMpcTargetTrajectoriesCalculator::
-    commandedPositionToTargetTrajectories(
-        const vector4_t& commandLinePoseTarget,
-        scalar_t initTime,
-        const vector_t& initState) {
-  const vector6_t currentPoseTarget = getCurrentBasePoseTarget(initState);
+TargetTrajectories
+CentroidalMpcTargetTrajectoriesCalculator::poseCommandToTargetTrajectories(
+    const vector4_t& commandLinePoseTarget,
+    scalar_t initTime,
+    const vector_t& initState) {
+  const vector6_t currentPoseTarget =
+      getLevelPoseeulerzyxBaseRtWorld(initState);
 
   const vector6_t targetPose =
       getDeltaBaseTarget(commandLinePoseTarget, currentPoseTarget);
@@ -166,7 +167,8 @@ TargetTrajectories CentroidalMpcTargetTrajectoriesCalculator::
   for (const PoseCommandKnot& knot : knots) {
     timeTrajectory.push_back(knot.time);
     vector_t state = vector_t::Zero(mpcRobotModelPtr_->getStateDim());
-    mpcRobotModelPtr_->setBasePoseEulerZyx(state, knot.basePose);
+    mpcRobotModelPtr_->setPoseeulerzyxBaseRtWorld(state,
+                                                  knot.poseeulerzyxBaseRtWorld);
     mpcRobotModelPtr_->setJointAngles(state, targetJointState_);
     stateTrajectory.push_back(std::move(state));
   }
@@ -185,12 +187,12 @@ TargetTrajectories CentroidalMpcTargetTrajectoriesCalculator::
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-TargetTrajectories CentroidalMpcTargetTrajectoriesCalculator::
-    commandedVelocityToTargetTrajectories(
-        const vector4_t& commandedVelocities,
-        scalar_t initTime,
-        const vector_t& initState,
-        const BasePlanarMotion& measuredMotion) {
+TargetTrajectories
+CentroidalMpcTargetTrajectoriesCalculator::velocityCommandToTargetTrajectories(
+    const vector4_t& commandedVelocities,
+    scalar_t initTime,
+    const vector_t& initState,
+    const BasePlanarMotion& measuredMotion) {
   // The base knots of the command on the arc of its twist, the first segment
   // starting from the measured motion (TargetTrajectoriesCalculatorBase's class
   // comment; design defect D1b). The momentum target of every knot is the
@@ -235,7 +237,8 @@ TargetTrajectories CentroidalMpcTargetTrajectoriesCalculator::
   // velocity's share of that (TargetTrajectoriesCalculatorBase's class
   // comment).
   const vector3_t angularMomentum =
-      lockedInertia.col(kZAxisIndex) * (knots.front().commandedYawRate / mass_);
+      lockedInertia.col(kZAxisIndex) *
+      (knots.front().cmdRateYawBaseRtWorld / mass_);
 
   // Extract current joint state from the provided initial state observation
   vector_t currentJointState = initState.tail(targetJointState_.size());
@@ -274,12 +277,13 @@ TargetTrajectories CentroidalMpcTargetTrajectoriesCalculator::
     const scalar_t cosine = std::cos(knot.headingChange);
     const scalar_t sine = std::sin(knot.headingChange);
     state.head<centroidal_model::kCentroidalMomentumDim>()
-        << knot.commandedVelocityWorld(0),
-        knot.commandedVelocityWorld(1), 0.0,
+        << knot.cmdLinvelBaseRtWorldEwrtWorldXy(0),
+        knot.cmdLinvelBaseRtWorldEwrtWorldXy(1), 0.0,
         cosine * angularMomentum(0) - sine * angularMomentum(1),
         sine * angularMomentum(0) + cosine * angularMomentum(1),
         angularMomentum(kZAxisIndex);
-    mpcRobotModelPtr_->setBasePoseEulerZyx(state, knot.basePose);
+    mpcRobotModelPtr_->setPoseeulerzyxBaseRtWorld(state,
+                                                  knot.poseeulerzyxBaseRtWorld);
     if (knot.secondSegmentFraction == 0.0) {
       mpcRobotModelPtr_->setJointAngles(state, filteredJointState_);
     } else if (knot.secondSegmentFraction == 1.0) {

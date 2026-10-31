@@ -64,7 +64,7 @@ enum class ContactInputParameterization { kWrench, kBasisVectors };
 /** The top-level task-file field that names the parameterization. */
 inline constexpr absl::string_view kContactInputParameterizationKey =
     "contact_input_parameterization";
-inline constexpr absl::string_view kWrenchContactInputParameterization =
+inline constexpr absl::string_view kWrenchContactInputParameterizationName =
     "wrench";
 inline constexpr absl::string_view kBasisVectorsContactInputParameterization =
     "basis_vectors";

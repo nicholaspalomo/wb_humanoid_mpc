@@ -56,7 +56,7 @@ constexpr unsigned int kRandomSeed = 0;
 
 /** A unit quaternion of the rotation by `angle` about the unit axis `axis`, as
  * coefficients (x, y, z, w). */
-vector4_t rotationAbout(const vector3_t& axis, scalar_t angle) {
+vector4_t quaternionFromAxisAngle(const vector3_t& axis, scalar_t angle) {
   return quaternionExp(vector3_t(angle * axis.normalized()));
 }
 
@@ -163,7 +163,8 @@ TEST_F(AngularCenterOfMassTest,
        AcomAttitudeIsTheBaseComposedWithTheJointRotation) {
   const vector_t qJoints =
       vector_t::Random(static_cast<Eigen::Index>(acomPtr_->getInputDim()));
-  const vector4_t xi = rotationAbout(vector3_t(0.3, -0.5, 0.8), /*angle=*/1.1);
+  const vector4_t xi =
+      quaternionFromAxisAngle(vector3_t(0.3, -0.5, 0.8), /*angle=*/1.1);
   const vector3_t offset = acomPtr_->computeJointOrientationOffset(qJoints);
   ASSERT_GT(offset.norm(), 1.0e-3)
       << "the joints must rotate the ACoM for this to tell it from the base";
@@ -193,14 +194,15 @@ TEST_F(AngularCenterOfMassTest,
 TEST_F(AngularCenterOfMassTest, AWholeBodyRotationRotatesTheAcomOneForOne) {
   const vector_t qJoints =
       vector_t::Random(static_cast<Eigen::Index>(acomPtr_->getInputDim()));
-  const vector4_t xi = rotationAbout(vector3_t(0.1, 0.9, -0.2), /*angle=*/0.7);
-  const std::array<vector4_t, 2> rotations = {
-      rotationAbout(vector3_t::UnitZ(), /*angle=*/2.9),
-      rotationAbout(vector3_t(1.0, -1.0, 0.5), /*angle=*/1.3)};
-  for (const vector4_t& rotation : rotations) {
+  const vector4_t xi =
+      quaternionFromAxisAngle(vector3_t(0.1, 0.9, -0.2), /*angle=*/0.7);
+  const std::array<vector4_t, 2> premultipliers = {
+      quaternionFromAxisAngle(vector3_t::UnitZ(), /*angle=*/2.9),
+      quaternionFromAxisAngle(vector3_t(1.0, -1.0, 0.5), /*angle=*/1.3)};
+  for (const vector4_t& premultiplier : premultipliers) {
     EXPECT_LT(
-        (acomPtr_->acomAttitude(quaternionProduct(rotation, xi), qJoints) -
-         quaternionProduct(rotation, acomPtr_->acomAttitude(xi, qJoints)))
+        (acomPtr_->acomAttitude(quaternionProduct(premultiplier, xi), qJoints) -
+         quaternionProduct(premultiplier, acomPtr_->acomAttitude(xi, qJoints)))
             .norm(),
         1.0e-14);
   }
@@ -221,7 +223,7 @@ TEST_F(AngularCenterOfMassTest,
   // Bit for bit: the one-pass evaluation reproduces
   // computeJointOrientationOffset()'s operations.
   EXPECT_EQ(
-      jacobian.baseOrientation,
+      jacobian.baseTangent,
       matrix3_t(quaternionRotationMatrix(quaternionExp(offset)).transpose()));
   ASSERT_EQ(jacobian.jointAngles.rows(), 3);
   ASSERT_EQ(jacobian.jointAngles.cols(),
@@ -245,7 +247,8 @@ TEST_F(AngularCenterOfMassTest,
   const Eigen::Index inputDim =
       static_cast<Eigen::Index>(acomPtr_->getInputDim());
   const vector_t qJoints = vector_t::Random(inputDim);
-  const vector4_t xi = rotationAbout(vector3_t(-0.4, 0.2, 0.9), /*angle=*/2.2);
+  const vector4_t xi =
+      quaternionFromAxisAngle(vector3_t(-0.4, 0.2, 0.9), /*angle=*/2.2);
   const vector4_t attitude = acomPtr_->acomAttitude(xi, qJoints);
   const AcomAttitudeTangentJacobian jacobian =
       acomPtr_->acomAttitudeTangentJacobian(qJoints);
@@ -260,10 +263,9 @@ TEST_F(AngularCenterOfMassTest,
         attitude,
         acomPtr_->acomAttitude(
             quaternionProduct(xi, quaternionExp(vector3_t(-step))), qJoints));
-    EXPECT_LT(
-        ((plus - minus) / (2.0 * kStep) - jacobian.baseOrientation.col(axis))
-            .norm(),
-        1.0e-8)
+    EXPECT_LT(((plus - minus) / (2.0 * kStep) - jacobian.baseTangent.col(axis))
+                  .norm(),
+              1.0e-8)
         << "base axis " << axis;
   }
   const scalar_t scale =

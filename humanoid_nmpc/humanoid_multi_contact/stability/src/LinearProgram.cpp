@@ -138,7 +138,7 @@ LinearProgram LinearProgram::Unconstrained(int variables) {
 namespace {
 
 /** Solves `program` with the Hessian `hessian` (checked by the callers), in
- * HPIPM's ROBUST mode with `settings`. */
+ * HPIPM's ROBUST mode with `settings`. */  // NOLINT(claudisms): HPIPM mode enumerator
 absl::StatusOr<LinearProgramSolution> solveDenseQp(
     const Eigen::MatrixXd& hessianIn,
     const LinearProgram& program,
@@ -192,7 +192,8 @@ absl::StatusOr<LinearProgramSolution> solveDenseQp(
   d_dense_qp_ipm_arg arg;
   std::vector<char> argMemory(d_dense_qp_ipm_arg_memsize(&dim));
   d_dense_qp_ipm_arg_create(&dim, &arg, argMemory.data());
-  d_dense_qp_ipm_arg_set_default(ROBUST, &arg);
+  d_dense_qp_ipm_arg_set_default(
+      ROBUST, &arg);  // NOLINT(claudisms): HPIPM mode enumerator
   int maxIterations = settings.maxIterations;
   double stationarityTolerance = settings.stationarityTolerance;
   double equalityTolerance = settings.equalityTolerance;

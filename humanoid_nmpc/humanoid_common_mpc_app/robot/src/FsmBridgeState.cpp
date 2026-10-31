@@ -47,7 +47,7 @@ FsmBridgeState::FsmBridgeState(
     nominalJointPositions_[i] = initState.getCheckedJointPosition(i);
   }
   // The initial state: zero torque.
-  publish(control_mode::kZeroTorque, gantryLocked);
+  publish(control_mode::kZeroJointTorque, gantryLocked);
 }
 
 void FsmBridgeState::publish(absl::string_view modeName, bool gantryLocked) {

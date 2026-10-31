@@ -105,7 +105,9 @@ absl::StatusOr<RobotDescription> RobotDescription::Create(
     if (joint.limits != nullptr) {
       description.min_angle = joint.limits->lower;
       description.max_angle = joint.limits->upper;
-      description.max_velocity = joint.limits->velocity;
+      description.max_joint_velocity =
+          joint.limits
+              ->velocity;  // NOLINT(frame-naming): urdfdom JointLimits field, a joint-space bound
       description.max_effort = joint.limits->effort;
     }
     jointNames.push_back(entry.first);

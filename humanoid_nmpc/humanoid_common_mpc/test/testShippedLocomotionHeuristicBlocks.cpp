@@ -464,8 +464,9 @@ TEST_P(ShippedLocomotionHeuristicBlockTest,
       const google::protobuf::FieldDescriptor* absl_nonnull parameter =
           parameterBlock.GetDescriptor()->field(j);
       // A parameter without a default (capture_point.com_height_override,
-      // centripetal_acceleration.maximum_force) may be left out: its absence is
-      // a setting of its own, and the file says which in a comment.
+      // centripetal_acceleration.max_force_com_ewrt_world_xy) may be left out:
+      // its absence is a setting of its own, and the file says which in a
+      // comment.
       if (parameter->has_presence() && !parameter->has_default_value())
         continue;
       EXPECT_TRUE(

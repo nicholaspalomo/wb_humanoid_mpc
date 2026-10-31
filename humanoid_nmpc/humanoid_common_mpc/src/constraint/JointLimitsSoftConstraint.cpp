@@ -38,20 +38,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 JointLimitsSoftConstraint::JointLimitsSoftConstraint(
-    JointPositionLimits positionLimits,
+    JointPositionLimits jointPositionLimits,
     ocs2::PieceWisePolynomialBarrierPenalty::Config barrierSettings,
     const MpcRobotModelBase<scalar_t>& mpcRobotModel)
     : jointPositionPenaltyPtr_(
           std::make_unique<ocs2::PieceWisePolynomialBarrierPenalty>(
               barrierSettings)),
       mpcRobotModelPtr_(&mpcRobotModel),
-      positionLimits_(std::move(positionLimits)) {}
+      jointPositionLimits_(std::move(jointPositionLimits)) {}
 
 JointLimitsSoftConstraint::JointLimitsSoftConstraint(
     const JointLimitsSoftConstraint& rhs)
     : jointPositionPenaltyPtr_(rhs.jointPositionPenaltyPtr_->clone()),
       mpcRobotModelPtr_(rhs.mpcRobotModelPtr_),
-      positionLimits_(rhs.positionLimits_),
+      jointPositionLimits_(rhs.jointPositionLimits_),
       // isActive_ is copied deliberately: the SQP solver clones the whole
       // problem once per worker thread, and a copy constructor that dropped
       // this flag silently reverted a deactivated term to active.
@@ -76,17 +76,17 @@ JointLimitsSoftConstraint::getQuadraticApproximation(
 
 scalar_t JointLimitsSoftConstraint::getValue(
     const vector_t& jointPositions) const {
-  const vector_t upperBoundPositionOffset =
-      positionLimits_.upper - jointPositions;
-  const vector_t lowerBoundPositionOffset =
-      jointPositions - positionLimits_.lower;
+  const vector_t upperBoundJointPositionOffset =
+      jointPositionLimits_.upper - jointPositions;
+  const vector_t lowerBoundJointPositionOffset =
+      jointPositions - jointPositionLimits_.lower;
 
-  return upperBoundPositionOffset
+  return upperBoundJointPositionOffset
              .unaryExpr([&](scalar_t hi) {
                return jointPositionPenaltyPtr_->getValue(/*t=*/0.0, hi);
              })
              .sum() +
-         lowerBoundPositionOffset
+         lowerBoundJointPositionOffset
              .unaryExpr([&](scalar_t hi) {
                return jointPositionPenaltyPtr_->getValue(/*t=*/0.0, hi);
              })
@@ -96,22 +96,22 @@ scalar_t JointLimitsSoftConstraint::getValue(
 ScalarFunctionQuadraticApproximation
 JointLimitsSoftConstraint::getQuadraticApproximation(
     const vector_t& jointPositions) const {
-  const vector_t upperBoundPositionOffset =
-      positionLimits_.upper - jointPositions;
-  const vector_t lowerBoundPositionOffset =
-      jointPositions - positionLimits_.lower;
+  const vector_t upperBoundJointPositionOffset =
+      jointPositionLimits_.upper - jointPositions;
+  const vector_t lowerBoundJointPositionOffset =
+      jointPositions - jointPositionLimits_.lower;
 
   const size_t stateDim = mpcRobotModelPtr_->getStateDim();
   const size_t jointDim = mpcRobotModelPtr_->getJointDim();
   const size_t jointStartIndex = mpcRobotModelPtr_->getJointStartindex();
 
   ScalarFunctionQuadraticApproximation cost;
-  cost.f = upperBoundPositionOffset
+  cost.f = upperBoundJointPositionOffset
                .unaryExpr([&](scalar_t hi) {
                  return jointPositionPenaltyPtr_->getValue(/*t=*/0.0, hi);
                })
                .sum() +
-           lowerBoundPositionOffset
+           lowerBoundJointPositionOffset
                .unaryExpr([&](scalar_t hi) {
                  return jointPositionPenaltyPtr_->getValue(/*t=*/0.0, hi);
                })
@@ -119,18 +119,18 @@ JointLimitsSoftConstraint::getQuadraticApproximation(
 
   cost.dfdx = vector_t::Zero(stateDim);
   cost.dfdx.segment(jointStartIndex, jointDim) =
-      lowerBoundPositionOffset.unaryExpr([&](scalar_t hi) {
+      lowerBoundJointPositionOffset.unaryExpr([&](scalar_t hi) {
         return jointPositionPenaltyPtr_->getDerivative(/*t=*/0.0, hi);
       }) -
-      upperBoundPositionOffset.unaryExpr([&](scalar_t hi) {
+      upperBoundJointPositionOffset.unaryExpr([&](scalar_t hi) {
         return jointPositionPenaltyPtr_->getDerivative(/*t=*/0.0, hi);
       });
 
   cost.dfdxx = matrix_t::Zero(stateDim, stateDim);
   cost.dfdxx.block(jointStartIndex, jointStartIndex, jointDim, jointDim)
-      .diagonal() = lowerBoundPositionOffset.unaryExpr([&](scalar_t hi) {
+      .diagonal() = lowerBoundJointPositionOffset.unaryExpr([&](scalar_t hi) {
     return jointPositionPenaltyPtr_->getSecondDerivative(/*t=*/0.0, hi);
-  }) + upperBoundPositionOffset.unaryExpr([&](scalar_t hi) {
+  }) + upperBoundJointPositionOffset.unaryExpr([&](scalar_t hi) {
     return jointPositionPenaltyPtr_->getSecondDerivative(/*t=*/0.0, hi);
   });
 

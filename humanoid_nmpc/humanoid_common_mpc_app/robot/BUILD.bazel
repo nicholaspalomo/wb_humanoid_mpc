@@ -416,7 +416,7 @@ cc_test(
     ],
 )
 
-# The fall recovery against the real simulator, headless, on the DRC Atlas scene: every simulator reset and every catch
+# The fall recovery against MuJoCo, headless, on the DRC Atlas scene: every simulator reset and every catch
 # is one discontinuity, and a caught robot settles on the gantry before WB_MPC is accepted.
 cc_test(
     name = "test_sim_fall_recovery",
@@ -440,7 +440,7 @@ cc_test(
 )
 
 # Every shipped robot runs one gravity: its MuJoCo scene's, its Pinocchio model's (which the MPC's pendulums read), the
-# centroidal dynamics' kGravitationalAcceleration and the GUI's dodgeball aim.
+# centroidal dynamics' kGravityMagnitude and the GUI's dodgeball aim.
 cc_test(
     name = "test_shipped_robot_gravity",
     size = "small",

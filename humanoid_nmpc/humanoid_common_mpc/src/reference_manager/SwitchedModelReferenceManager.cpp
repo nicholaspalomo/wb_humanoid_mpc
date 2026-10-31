@@ -74,7 +74,7 @@ constexpr scalar_t kArmSwingRadiansPerCycle = 2 * M_PI;
 
 /** Whether a state of the layout `layout` stores the base's body angular
  * velocity (a kZyxOrderedAngularVelocity block). */
-bool storesBaseAngularVelocity(const TuningLayout& layout) {
+bool storesAngvelBaseRtWorldEwrtBase(const TuningLayout& layout) {
   for (const TuningSegment& segment : layout.segments) {
     if (segment.kind == TuningSegmentKind::kZyxOrderedAngularVelocity)
       return true;
@@ -84,15 +84,14 @@ bool storesBaseAngularVelocity(const TuningLayout& layout) {
 
 /** The tuning block of the centroidal state that holds the normalized angular
  * momentum L / m (tuningLayoutOf()). */
-constexpr char kNormalizedAngularMomentumSegment[] =
-    "normalized_angular_momentum";
+constexpr char kMnormAngmomSegmentName[] =
+    "mnorm_angmom_com_rt_world_ewrt_world";
 
 /** The first state row of the normalized angular momentum L / m, for a state
  * that stores it (the centroidal one). */
-std::optional<size_t> normalizedAngularMomentumRow(const TuningLayout& layout) {
+std::optional<size_t> mnormAngmomStartIndex(const TuningLayout& layout) {
   for (const TuningSegment& segment : layout.segments) {
-    if (segment.name == kNormalizedAngularMomentumSegment)
-      return segment.stateStart;
+    if (segment.name == kMnormAngmomSegmentName) return segment.stateStart;
   }
   return std::nullopt;
 }
@@ -150,10 +149,11 @@ void SwitchedModelReferenceManager::resetRuntimeState() {
 
   hasMeasuredState_ = false;
   lastSolveTime_ = 0.0;
-  measuredBasePosition_.setZero();
-  measuredBaseYaw_ = 0.0;
-  liftOffPositions_ = makeFeetArray(vector2_t(vector2_t::Zero()));
-  measuredComVelocity_.setZero();
+  measPosBaseRtWorldEwrtWorldXy_.setZero();
+  measYawBaseRtWorld_ = 0.0;
+  liftoffPosFeetRtWorldEwrtWorldXy_ =
+      makeFeetArray(vector2_t(vector2_t::Zero()));
+  measLinvelComRtWorldEwrtWorldXy_.setZero();
   measuredComHeight_ = 0.0;
   yawInertia_ = 0.0;
   compositeInertia_.setZero();
@@ -169,7 +169,7 @@ contact_flag_t SwitchedModelReferenceManager::getContactFlags(
 
 ContactPatchFrame SwitchedModelReferenceManager::getContactPatchFrame(
     size_t /*contactIndex*/, scalar_t /*time*/) const {
-  return ContactPatchFrame{.worldToPatchRotation = matrix3_t::Identity(),
+  return ContactPatchFrame{.rotmatWorldRtSurface = matrix3_t::Identity(),
                            .normalOffset = appliedTerrainHeight_.load()};
 }
 
@@ -257,7 +257,7 @@ vector3_t SwitchedModelReferenceManager::getSwingFootPlaneNormal(
         mpcRobotModelPtr_->getDesiredState(targetTrajectories, time);
     if (static_cast<size_t>(desiredState.size()) ==
         mpcRobotModelPtr_->getStateDim()) {
-      yaw = mpcRobotModelPtr_->getBaseHeading(desiredState);
+      yaw = mpcRobotModelPtr_->getYawBaseRtWorld(desiredState);
     }
   }
 
@@ -272,11 +272,11 @@ vector3_t SwitchedModelReferenceManager::getSwingFootPlaneNormal(
 /******************************************************************************************************/
 /******************************************************************************************************/
 std::optional<vector2_t>
-SwitchedModelReferenceManager::getSwingFootVelocityReference(
+SwitchedModelReferenceManager::getSwingRefLinvelFootRtWorldEwrtWorldXy(
     size_t contactIndex, scalar_t time) const {
   if (isInContact(time, contactIndex)) return std::nullopt;
 
-  return getCommandedVelocity(time);
+  return getCmdLinvelBaseRtWorldEwrtWorldXy(time);
 }
 
 absl::Status SwitchedModelReferenceManager::configureArmSwing(
@@ -309,43 +309,53 @@ bool SwitchedModelReferenceManager::needsMeasuredState() const {
 }
 
 SwitchedModelReferenceManager::PlanarPoseChange
-SwitchedModelReferenceManager::commandedPoseChange(const PlanarCommandAt& start,
-                                                   const PlanarCommandAt& end,
-                                                   scalar_t duration) {
-  const scalar_t meanYawRate = 0.5 * (start.yawRate + end.yawRate);
-  const scalar_t yawChange = meanYawRate * duration;
+SwitchedModelReferenceManager::integratePlanarCommand(
+    const PlanarCommandAt& start,
+    const PlanarCommandAt& end,
+    scalar_t duration) {
+  const scalar_t meanCmdRateYawBaseRtWorld =
+      0.5 * (start.cmdRateYawBaseRtWorld + end.cmdRateYawBaseRtWorld);
+  const scalar_t yawChange = meanCmdRateYawBaseRtWorld * duration;
   // R_z(-theta) v_1: the end velocity in the frame that has turned with the
   // command, where a constant body twist keeps it.
   const scalar_t cosine = std::cos(yawChange);
   const scalar_t sine = std::sin(yawChange);
-  const vector2_t& endVelocity = end.velocityWorld;
+  const vector2_t& finalCmdLinvelBaseRtWorldEwrtWorldXy =
+      end.cmdLinvelBaseRtWorldEwrtWorldXy;
   const vector2_t endInTurningFrame(
-      cosine * endVelocity(0) + sine * endVelocity(1),
-      -sine * endVelocity(0) + cosine * endVelocity(1));
-  const vector2_t meanVelocity =
-      0.5 * (start.velocityWorld + endInTurningFrame);
+      cosine * finalCmdLinvelBaseRtWorldEwrtWorldXy(0) +
+          sine * finalCmdLinvelBaseRtWorldEwrtWorldXy(1),
+      -sine * finalCmdLinvelBaseRtWorldEwrtWorldXy(0) +
+          cosine * finalCmdLinvelBaseRtWorldEwrtWorldXy(1));
+  const vector2_t meanCmdLinvelBaseRtWorldEwrtWorldXy =
+      0.5 * (start.cmdLinvelBaseRtWorldEwrtWorldXy + endInTurningFrame);
   return PlanarPoseChange{
       .displacement = TargetTrajectoriesCalculatorBase::planarArcDisplacement(
-          meanVelocity, meanYawRate, duration),
+          meanCmdLinvelBaseRtWorldEwrtWorldXy, meanCmdRateYawBaseRtWorld,
+          duration),
       .yawChange = yawChange};
 }
 
 SwitchedModelReferenceManager::PlanarBasePose
 SwitchedModelReferenceManager::predictedBaseAt(scalar_t time) const {
   // The measurement carried forward by the command over the time until `time`
-  // (commandedPoseChange()). Only the foothold heuristics read the position
+  // (integratePlanarCommand()). Only the foothold heuristics read the position
   // (footholdContext()), and no shipped robot lists one; the nominal step reads
   // the yaw.
   const scalar_t elapsed = std::max(time - lastSolveTime_, 0.0);
-  const PlanarPoseChange change = commandedPoseChange(
-      PlanarCommandAt{.velocityWorld = getCommandedVelocity(lastSolveTime_),
-                      .yawRate = getCommandedYawRate(lastSolveTime_)},
-      PlanarCommandAt{.velocityWorld = getCommandedVelocity(time),
-                      .yawRate = getCommandedYawRate(time)},
+  const PlanarPoseChange change = integratePlanarCommand(
+      PlanarCommandAt{
+          .cmdLinvelBaseRtWorldEwrtWorldXy =
+              getCmdLinvelBaseRtWorldEwrtWorldXy(lastSolveTime_),
+          .cmdRateYawBaseRtWorld = getCmdRateYawBaseRtWorld(lastSolveTime_)},
+      PlanarCommandAt{.cmdLinvelBaseRtWorldEwrtWorldXy =
+                          getCmdLinvelBaseRtWorldEwrtWorldXy(time),
+                      .cmdRateYawBaseRtWorld = getCmdRateYawBaseRtWorld(time)},
       elapsed);
   return PlanarBasePose{
-      .position = vector2_t(measuredBasePosition_ + change.displacement),
-      .yaw = measuredBaseYaw_ + change.yawChange};
+      .posBaseRtWorldEwrtWorldXy =
+          vector2_t(measPosBaseRtWorldEwrtWorldXy_ + change.displacement),
+      .yawBaseRtWorld = measYawBaseRtWorld_ + change.yawChange};
 }
 
 FootholdHeuristicContext SwitchedModelReferenceManager::footholdContext(
@@ -354,12 +364,13 @@ FootholdHeuristicContext SwitchedModelReferenceManager::footholdContext(
   context.contactIndex = contactIndex;
   context.side = (contactIndex == kContactLeftIndex) ? 1.0 : -1.0;
   const PlanarBasePose predicted = predictedBaseAt(time);
-  context.basePosition = predicted.position;
-  context.baseYaw = predicted.yaw;
-  context.measuredVelocity = measuredComVelocity_;
-  context.commandedVelocityAtMeasurement = getCommandedVelocity(lastSolveTime_);
-  context.commandedVelocity = getCommandedVelocity(time);
-  context.commandedYawRate = getCommandedYawRate(time);
+  context.basePosition = predicted.posBaseRtWorldEwrtWorldXy;
+  context.baseYaw = predicted.yawBaseRtWorld;
+  context.measuredVelocity = measLinvelComRtWorldEwrtWorldXy_;
+  context.commandedVelocityAtMeasurement =
+      getCmdLinvelBaseRtWorldEwrtWorldXy(lastSolveTime_);
+  context.commandedVelocity = getCmdLinvelBaseRtWorldEwrtWorldXy(time);
+  context.commandedYawRate = getCmdRateYawBaseRtWorld(time);
   context.comHeight = measuredComHeight_;
   context.stanceDuration =
       upcomingStanceDuration(modeSchedule_, contactIndex, time);
@@ -383,7 +394,7 @@ std::optional<vector2_t> SwitchedModelReferenceManager::nominalFoothold(
                                  ? kContactRightIndex
                                  : kContactLeftIndex;
   const scalar_t side = (contactIndex == kContactLeftIndex) ? 1.0 : -1.0;
-  const vector2_t& stanceFoot = liftOffPositions_[stanceIndex];
+  const vector2_t& stanceFoot = liftoffPosFeetRtWorldEwrtWorldXy_[stanceIndex];
 
   if (!haveHeuristics) {
     // THE NOMINAL STEP. A whole step width to this foot's side of the stance
@@ -412,9 +423,9 @@ std::optional<vector2_t> SwitchedModelReferenceManager::nominalFoothold(
         stanceLanded.has_value()
             ? *stanceLanded
             : (swing.has_value() ? swing->liftOff : lastSolveTime_);
-    const scalar_t yaw = predictedBaseAt(time).yaw;
-    const vector2_t advance =
-        getCommandedVelocity(time) * std::max(time - stepStart, 0.0);
+    const scalar_t yaw = predictedBaseAt(time).yawBaseRtWorld;
+    const vector2_t advance = getCmdLinvelBaseRtWorldEwrtWorldXy(time) *
+                              std::max(time - stepStart, 0.0);
     const vector2_t lateral(-std::sin(yaw) * side * stepWidth,
                             std::cos(yaw) * side * stepWidth);
     return vector2_t(stanceFoot + advance + lateral);
@@ -469,7 +480,7 @@ SwitchedModelReferenceManager::getSwingFootReference(size_t contactIndex,
   const std::optional<vector2_t> target =
       nominalFoothold(contactIndex, touchDownTime);
   if (!target.has_value()) return std::nullopt;
-  const vector2_t start = liftOffPositions_[contactIndex];
+  const vector2_t start = liftoffPosFeetRtWorldEwrtWorldXy_[contactIndex];
 
   // The same cubic blend the planned-foothold path uses: p'(0) = 1, p'(1) = 0,
   // so the foot leaves the ground moving with the step and settles onto the
@@ -482,12 +493,15 @@ SwitchedModelReferenceManager::getSwingFootReference(size_t contactIndex,
   const vector2_t delta = *target - start;
 
   SwingFootReference reference;
-  reference.position.head<kHorizontalPositionDim>() = start + blend * delta;
-  reference.position(kZAxisIndex) =
-      swingTrajectoryPtr_->getZpositionConstraint(contactIndex, time);
-  reference.linearVelocity.head<kHorizontalPositionDim>() = blendRate * delta;
-  reference.linearVelocity(kZAxisIndex) =
-      swingTrajectoryPtr_->getZvelocityConstraint(contactIndex, time);
+  reference.desPosFootRtWorldEwrtWorld.head<kHorizontalPositionDim>() =
+      start + blend * delta;
+  reference.desPosFootRtWorldEwrtWorld(kZAxisIndex) =
+      swingTrajectoryPtr_->getDesPosFootRtWorldEwrtWorldZ(contactIndex, time);
+  reference.desLinvelFootRtWorldEwrtWorld.head<kHorizontalPositionDim>() =
+      blendRate * delta;
+  reference.desLinvelFootRtWorldEwrtWorld(kZAxisIndex) =
+      swingTrajectoryPtr_->getDesLinvelFootRtWorldEwrtWorldZ(contactIndex,
+                                                             time);
   return reference;
 }
 
@@ -498,20 +512,25 @@ void SwitchedModelReferenceManager::captureMeasuredState(
   // and they are available on robots whose step width is zero.
   if (!needsMeasuredState()) return;
   lastSolveTime_ = initTime;
-  measuredBasePosition_ = mpcRobotModelPtr_->getBasePosition(initState)
-                              .head<kHorizontalPositionDim>();
-  measuredBaseYaw_ = mpcRobotModelPtr_->getBaseHeading(initState);
+  measPosBaseRtWorldEwrtWorldXy_ =
+      mpcRobotModelPtr_->getPosBaseRtWorldEwrtWorld(initState)
+          .head<kHorizontalPositionDim>();
+  measYawBaseRtWorld_ = mpcRobotModelPtr_->getYawBaseRtWorld(initState);
 
   // Every foot that is in contact records where it is. The last value a foot
   // recorded before it began to swing is therefore where it lifted off from,
   // with no event to detect and nothing to reset.
   const vector_t q = mpcRobotModelPtr_->getGeneralizedCoordinates(initState);
-  const std::vector<vector3_t> feet = computeContactPositions<scalar_t>(
-      q, pinocchioInterface_, *mpcRobotModelPtr_);
+  const std::vector<vector3_t> posContactsRtWorldEwrtWorld =
+      computePosContactsRtWorldEwrtWorld<scalar_t>(q, pinocchioInterface_,
+                                                   *mpcRobotModelPtr_);
   const contact_flag_t contacts = getContactFlags(initTime);
-  for (size_t foot = 0; foot < kNumContacts && foot < feet.size(); ++foot) {
+  for (size_t foot = 0;
+       foot < kNumContacts && foot < posContactsRtWorldEwrtWorld.size();
+       ++foot) {
     if (contacts[foot])
-      liftOffPositions_[foot] = feet[foot].head<kHorizontalPositionDim>();
+      liftoffPosFeetRtWorldEwrtWorldXy_[foot] =
+          posContactsRtWorldEwrtWorld[foot].head<kHorizontalPositionDim>();
   }
 
   // The composite yaw inertia inverts the target's momentum channel into the
@@ -536,7 +555,7 @@ void SwitchedModelReferenceManager::captureMeasuredState(
     // The linear part of the state's momentum channel IS the center-of-mass
     // velocity: the state carries the NORMALIZED momentum h = [p/m, L/m], so no
     // division by the mass is needed here.
-    measuredComVelocity_ =
+    measLinvelComRtWorldEwrtWorldXy_ =
         mpcRobotModelPtr_->getBaseComLinearVelocity(initState)
             .head<kHorizontalPositionDim>();
     // The capture point's pendulum length, measured the way every LIP consumer
@@ -563,13 +582,13 @@ std::optional<vector3_t> SwitchedModelReferenceManager::targetPlanarCommandAt(
   // roll rate of the whole-body knot). A centroidal knot holds the turn as the
   // momentum h_z = I_zz psidot / m of the body at the measured configuration,
   // so it comes back out with the inertia latched for this solve; until one is
-  // latched it reads 0, the honest answer and also the safe one: every
+  // latched it reads 0, which is accurate and safe: every
   // heuristic that reads the yaw rate is linear in it and so contributes
   // nothing rather than something wrong.
   return mpcRobotModelPtr_->getTargetPlanarCommand(desiredState, yawInertia_);
 }
 
-scalar_t SwitchedModelReferenceManager::getCommandedYawRate(
+scalar_t SwitchedModelReferenceManager::getCmdRateYawBaseRtWorld(
     scalar_t time) const {
   const std::optional<vector3_t> command = targetPlanarCommandAt(time);
   return command.has_value()
@@ -578,7 +597,7 @@ scalar_t SwitchedModelReferenceManager::getCommandedYawRate(
              : 0.0;
 }
 
-vector2_t SwitchedModelReferenceManager::getCommandedVelocity(
+vector2_t SwitchedModelReferenceManager::getCmdLinvelBaseRtWorldEwrtWorldXy(
     scalar_t time) const {
   const std::optional<vector3_t> command = targetPlanarCommandAt(time);
   return command.has_value()
@@ -615,7 +634,8 @@ scalar_t SwitchedModelReferenceManager::adaptToCurrentGroundHeight(
   const scalar_t heightChange = terrainHeight - targetTerrainHeight_;
   if (heightChange != 0.0) {
     for (vector_t& targetState : targetTrajectories.stateTrajectory) {
-      mpcRobotModelPtr_->adaptBasePoseHeight(targetState, heightChange);
+      mpcRobotModelPtr_->adaptPosBaseRtWorldEwrtWorldZ(targetState,
+                                                       heightChange);
     }
   }
   targetTerrainHeight_ = terrainHeight;
@@ -652,10 +672,10 @@ vector_t SwitchedModelReferenceManager::getDesiredState(
     // Gauss-Newton gradient (J' Q (x - x_ref), with x_ref held constant) is
     // wrong by -J' Q dx_ref/dx, and the arm swing's heading is the one channel
     // of this reference that used to read the state. The reference's heading is
-    // the commanded path's, which is also the frame shapeBasePose() reads
-    // "forward" in.
+    // the commanded path's, which is also the frame shapePoseBaseRtWorld()
+    // reads "forward" in.
     const scalar_t referenceHeading =
-        mpcRobotModelPtr_->getBaseHeading(xNominal);
+        mpcRobotModelPtr_->getYawBaseRtWorld(xNominal);
 
     const scalar_t localVelXCommand =
         (std::cos(referenceHeading) * linVelCommand[0] +
@@ -686,12 +706,12 @@ vector_t SwitchedModelReferenceManager::getDesiredState(
     mpcRobotModelPtr_->setJointAngles(xNominal, desiredJointAngles);
   }
 
-  // The base-pose seam of the locomotion heuristics; see shapeBasePose(), which
-  // the terminal and torso costs call too.
-  return shapeBasePose(time, xNominal);
+  // The base-pose seam of the locomotion heuristics; see
+  // shapePoseBaseRtWorld(), which the terminal and torso costs call too.
+  return shapePoseBaseRtWorld(time, xNominal);
 }
 
-vector_t SwitchedModelReferenceManager::shapeBasePose(
+vector_t SwitchedModelReferenceManager::shapePoseBaseRtWorld(
     scalar_t time, const vector_t& xNominal) const {
   if (heuristicLayerPtr_->basePoseEmpty()) return xNominal;
   // Here, per node, at the point of use - not in the target-trajectory
@@ -707,20 +727,21 @@ vector_t SwitchedModelReferenceManager::shapeBasePose(
   // the planned_com_override rule rewrites that with the plan's own CoM
   // velocity, which sways with the gait, and Bledt's H_Theta and H_z are
   // functions of the commanded velocity.
-  const vector2_t commandedVelocityInWorld = getCommandedVelocity(time);
+  const vector2_t cmdLinvelBaseRtWorldEwrtWorldXy =
+      getCmdLinvelBaseRtWorldEwrtWorldXy(time);
   // Into the reference's own heading frame, so that "forward" means the robot's
   // forward rather than the world's x. The reference's heading is the right one
   // and not the measured one: the heuristics describe how the robot should
   // carry itself along the path it was told to take.
-  const scalar_t referenceYaw = mpcRobotModelPtr_->getBaseHeading(xNominal);
+  const scalar_t referenceYaw = mpcRobotModelPtr_->getYawBaseRtWorld(xNominal);
   const scalar_t cosYaw = std::cos(referenceYaw);
   const scalar_t sinYaw = std::sin(referenceYaw);
   context.commandedVelocityInBaseFrame =
-      vector2_t(cosYaw * commandedVelocityInWorld(0) +
-                    sinYaw * commandedVelocityInWorld(1),
-                -sinYaw * commandedVelocityInWorld(0) +
-                    cosYaw * commandedVelocityInWorld(1));
-  context.commandedYawRate = getCommandedYawRate(time);
+      vector2_t(cosYaw * cmdLinvelBaseRtWorldEwrtWorldXy(0) +
+                    sinYaw * cmdLinvelBaseRtWorldEwrtWorldXy(1),
+                -sinYaw * cmdLinvelBaseRtWorldEwrtWorldXy(0) +
+                    cosYaw * cmdLinvelBaseRtWorldEwrtWorldXy(1));
+  context.commandedYawRate = getCmdRateYawBaseRtWorld(time);
   context.gaitPhase = getPhaseVariable(time);
   context.gaitPhaseRate = getPhaseVariableRate(time);
 
@@ -728,18 +749,18 @@ vector_t SwitchedModelReferenceManager::shapeBasePose(
   vector_t shaped = xNominal;
   // LINT.IfChange(base_pose_heuristic_seam)
   // The heuristics' Euler boundary (quaternion_base_orientation/README.md,
-  // section 4.2): getBaseOrientationEulerZyx() returns (yaw, pitch, roll),
+  // section 4.2): getEulerzyxBaseRtWorld() returns (yaw, pitch, roll),
   // Euler ZYX with YAW FIRST, so roll, the angle about x, is index 2
   // (kEulerAnglesZyxXIndex) and pitch is index 1 (kEulerAnglesZyxYIndex) - the
   // reverse of the (roll, pitch, yaw) order every textbook writes - and the
   // height is index 2 of the base position. This is the one place in the
   // subsystem that knows it.
   const vector3_t nominalEulerZyx =
-      mpcRobotModelPtr_->getBaseOrientationEulerZyx(shaped);
+      mpcRobotModelPtr_->getEulerzyxBaseRtWorld(shaped);
   vector3_t eulerZyx = nominalEulerZyx;
   eulerZyx(kEulerAnglesZyxXIndex) += offset.roll;
   eulerZyx(kEulerAnglesZyxYIndex) += offset.pitch;
-  mpcRobotModelPtr_->setBaseOrientationEulerZyx(shaped, eulerZyx);
+  mpcRobotModelPtr_->setEulerzyxBaseRtWorld(shaped, eulerZyx);
   vector3_t offsetEulerZyxRates = vector3_t::Zero();
   offsetEulerZyxRates(kEulerAnglesZyxXIndex) = offset.rollRate;
   offsetEulerZyxRates(kEulerAnglesZyxYIndex) = offset.pitchRate;
@@ -747,49 +768,51 @@ vector_t SwitchedModelReferenceManager::shapeBasePose(
   // delta(t), so its rate is the derivative of THAT. A state that stores the
   // body angular velocity (the whole body's) gets the body rate of Theta_n +
   // delta with the Euler rates dTheta_n/dt + d(delta)/dt
-  // (shapedBodyAngularVelocity()), which keeps the reference's turn in the
-  // world and adds the rate of a periodic tilt. A state that stores the
-  // centroidal momentum gets the angular momentum of the tilt rate, I_G w_tilt
-  // / m with the composite inertia latched at the solve, on top of the turn the
-  // target calculator already wrote there. Left as they were, the reference
-  // would describe an attitude that oscillates while its rate says it holds
-  // still.
-  if (storesBaseAngularVelocity(mpcRobotModelPtr_->getTuningLayout())) {
-    mpcRobotModelPtr_->setBaseAngularVelocityLocal(
-        shaped, shapedBodyAngularVelocity(
+  // (computeShapedAngvelBaseRtWorldEwrtBase()), which keeps the reference's
+  // turn in the world and adds the rate of a periodic tilt. A state that stores
+  // the centroidal momentum gets the angular momentum of the tilt rate, I_G
+  // w_tilt / m with the composite inertia latched at the solve, on top of the
+  // turn the target calculator already wrote there. Left as they were, the
+  // reference would describe an attitude that oscillates while its rate says it
+  // holds still.
+  if (storesAngvelBaseRtWorldEwrtBase(mpcRobotModelPtr_->getTuningLayout())) {
+    mpcRobotModelPtr_->setAngvelBaseRtWorldEwrtBase(
+        shaped, computeShapedAngvelBaseRtWorldEwrtBase(
                     nominalEulerZyx,
-                    mpcRobotModelPtr_->getBaseAngularVelocityLocal(xNominal),
+                    mpcRobotModelPtr_->getAngvelBaseRtWorldEwrtBase(xNominal),
                     eulerZyx, offsetEulerZyxRates));
-  } else if (const std::optional<size_t> momentumRow =
-                 normalizedAngularMomentumRow(
-                     mpcRobotModelPtr_->getTuningLayout());
-             momentumRow.has_value() && totalMass_ > 0.0 &&
+  } else if (const std::optional<size_t> angmomStart =
+                 mnormAngmomStartIndex(mpcRobotModelPtr_->getTuningLayout());
+             angmomStart.has_value() && totalMass_ > 0.0 &&
              !offsetEulerZyxRates.isZero(0.0)) {
-    shaped.segment<kRotationTangentDim>(*momentumRow) +=
+    shaped.segment<kRotationTangentDim>(*angmomStart) +=
         compositeInertia_ *
-        tiltAngularVelocityInWorld(eulerZyx, offsetEulerZyxRates) / totalMass_;
+        computeTiltAngvelBaseRtWorldEwrtWorld(eulerZyx, offsetEulerZyxRates) /
+        totalMass_;
   }
-  vector3_t basePosition = mpcRobotModelPtr_->getBasePosition(shaped);
-  basePosition(kZAxisIndex) += offset.height;
-  mpcRobotModelPtr_->setBasePosition(shaped, basePosition);
+  vector3_t posBaseRtWorldEwrtWorld =
+      mpcRobotModelPtr_->getPosBaseRtWorldEwrtWorld(shaped);
+  posBaseRtWorldEwrtWorld(kZAxisIndex) += offset.height;
+  mpcRobotModelPtr_->setPosBaseRtWorldEwrtWorld(shaped,
+                                                posBaseRtWorldEwrtWorld);
   // clang-format off
   // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/locomotion_heuristics/BasePoseHeuristic.h:base_pose_offset_convention)
   // clang-format on
   return shaped;
 }
 
-vector3_t SwitchedModelReferenceManager::shapedBodyAngularVelocity(
+vector3_t SwitchedModelReferenceManager::computeShapedAngvelBaseRtWorldEwrtBase(
     const vector3_t& nominalEulerZyx,
-    const vector3_t& nominalBodyAngularVelocity,
+    const vector3_t& nomAngvelBaseRtWorldEwrtBase,
     const vector3_t& shapedEulerZyx,
     const vector3_t& offsetEulerZyxRates) {
-  const vector3_t nominalRates = eulerZyxRatesFromLocalAngularVelocity(
-      nominalEulerZyx, nominalBodyAngularVelocity);
+  const vector3_t nominalRates =
+      eulerZyxRatesFromBodyRates(nominalEulerZyx, nomAngvelBaseRtWorldEwrtBase);
   return localAngularVelocityFromEulerZyxRates(
       shapedEulerZyx, vector3_t(nominalRates + offsetEulerZyxRates));
 }
 
-vector3_t SwitchedModelReferenceManager::tiltAngularVelocityInWorld(
+vector3_t SwitchedModelReferenceManager::computeTiltAngvelBaseRtWorldEwrtWorld(
     const vector3_t& shapedEulerZyx, const vector3_t& offsetEulerZyxRates) {
   return quaternionRotationMatrix<scalar_t>(
              quaternionFromEulerZyx(shapedEulerZyx)) *
@@ -828,13 +851,13 @@ vector_t SwitchedModelReferenceManager::getDesiredInput(
   WrenchHeuristicContext context;
   context.contactFlags = contactFlags;
   context.numStanceFeet = numberOfLegsInContacts(contactFlags);
-  context.commandedVelocity = getCommandedVelocity(time);
-  context.commandedYawRate = getCommandedYawRate(time);
+  context.commandedVelocity = getCmdLinvelBaseRtWorldEwrtWorldXy(time);
+  context.commandedYawRate = getCmdRateYawBaseRtWorld(time);
   // The same gravity weightCompensatingInput() uses, so that the offsets and
   // the reference they correct are measured in the same weight. It is a
   // constant in both places because the centroidal model carries no gravity
   // constant of its own.
-  context.totalWeight = totalMass_ * kGravitationalAcceleration;
+  context.totalWeight = totalMass_ * kGravityMagnitude;
   // Each foot's duty factor over its OWN stride, lift-off to lift-off, from the
   // schedule this node is solved on. On a periodic gait that is the gait's duty
   // factor at every node, which is what makes the scaled reference average to
@@ -858,15 +881,16 @@ vector_t SwitchedModelReferenceManager::getDesiredInput(
       if (!contactFlags[foot]) continue;
       const vector3_t offset = heuristicLayerPtr_->wrenchOffset(context, foot);
       if (offset.isZero()) continue;
-      mpcRobotModelPtr_->setContactForce(
-          input, mpcRobotModelPtr_->getContactForce(input, foot) + offset,
+      mpcRobotModelPtr_->setForceContactEwrtParam(
+          input,
+          mpcRobotModelPtr_->getForceContactEwrtParam(input, foot) + offset,
           foot);
     }
     return input;
   }
 
-  // The world-frame path. Every setContactForceInWorldFrame() /
-  // getContactForceInWorldFrame() call on the basis-vector model copies the
+  // The world-frame path. Every setForceContactEwrtWorld() /
+  // getForceContactEwrtWorld() call on the basis-vector model copies the
   // whole pinocchio::Data and runs a forward-kinematics pass, so the total
   // force is assembled here and written ONCE per stance foot rather than being
   // built by weightCompensatingInput() and then read back and re-written -
@@ -893,7 +917,7 @@ vector_t SwitchedModelReferenceManager::getDesiredInput(
       context.totalWeight / static_cast<scalar_t>(context.numStanceFeet));
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
     if (!contactFlags[foot]) continue;
-    mpcRobotModelPtr_->setContactForceInWorldFrame(
+    mpcRobotModelPtr_->setForceContactEwrtWorld(
         referenceState, input,
         weightCompensation + heuristicLayerPtr_->wrenchOffset(context, foot),
         foot);

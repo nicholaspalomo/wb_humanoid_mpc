@@ -70,9 +70,10 @@ void MujocoViewerAnnotator::apply(const msgs::ViewerAnnotations& annotations) {
           patches_[contact];
       patch.kind = viewerKind(source.kind);
       // No pose: nothing is drawn for the foot (the viewer's `valid`).
-      patch.valid = source.pose.has_value();
+      patch.valid = source.des_pose_foot_rt_world.has_value();
       const msgs::TargetContactPatch::Pose pose =
-          source.pose.value_or(msgs::TargetContactPatch::Pose{});
+          source.des_pose_foot_rt_world.value_or(
+              msgs::TargetContactPatch::Pose{});
       patch.x = pose.x;
       patch.y = pose.y;
       patch.z = pose.z;
@@ -81,9 +82,10 @@ void MujocoViewerAnnotator::apply(const msgs::ViewerAnnotations& annotations) {
     }
     simulator_->setTargetContactPatches(patches_);
   }
-  simulator_->setTargetVelocities(annotations.scaled_velocity_x,
-                                  annotations.scaled_velocity_y,
-                                  annotations.scaled_yaw_rate);
+  simulator_->setBaseMotionCommand(
+      annotations.scaled_cmd_linvel_base_rt_world_ewrt_heading_x,
+      annotations.scaled_cmd_linvel_base_rt_world_ewrt_heading_y,
+      annotations.scaled_cmd_angvel_base_rt_world_ewrt_world_z);
 }
 
 }  // namespace ocs2::humanoid

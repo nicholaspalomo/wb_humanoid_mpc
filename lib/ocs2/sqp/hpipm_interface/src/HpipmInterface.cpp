@@ -91,13 +91,13 @@ class HpipmInterface::Impl {
  public:
   Impl(OcpSize ocpSize, Settings settings) : settings_(std::move(settings)) { initializeMemory(std::move(ocpSize), true); }
 
-  void initializeMemory(OcpSize ocpSize, bool forceInitialization = false) {
+  void initializeMemory(OcpSize ocpSize, bool alwaysInitialize = false) {
     // We will remove the initial state from the decision variables before passing the data to HPIPM.
     // This removes the need for adding constraints to enforce x[0] = x_init
     ocpSize.numStates[0] = 0;
 
     // Skip memory initialization if problem size didn't change.
-    if (!forceInitialization && ocpSize_ == ocpSize) {
+    if (!alwaysInitialize && ocpSize_ == ocpSize) {
       return;
     }
 

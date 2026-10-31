@@ -301,7 +301,7 @@ HeadingNominal LipContactPlanner::defaultNominal(
   // quaternion), the previous plan's heading is whatever branch that plan
   // started on. Across a crossing of +-pi the two differ by 2 pi, and a nominal
   // on the old branch made every first-order frame term g (theta - theta_n)
-  // worth g 2 pi (over a meter on the step width) and aimed the foot yaw
+  // equal to g 2 pi (over a meter on the step width) and aimed the foot yaw
   // tracking a full turn away. One offset moves the whole previous heading
   // trajectory onto the branch of the measurement, which keeps it continuous
   // whatever the plan turns through.
@@ -503,8 +503,8 @@ ContactPlan LipContactPlanner::plan(const ContactPlannerInput& input) {
   // the one before it adopted, so the node duration survives whatever order
   // cadence_stretch and heading_relinearization are listed in.
   //
-  // The LINEARIZATION POINT does not compose the same way yet, and the
-  // asymmetry is worth stating: a stretch listed after a re-linearization
+  // The LINEARIZATION POINT does not compose the same way yet:
+  // a stretch listed after a re-linearization
   // rebuilds the nominal from the command (or from the previous plan) and so
   // drops that stage's relinearized frame, because SearchRun carries the
   // adopted grid but has no field for the adopted nominal, and a stage's

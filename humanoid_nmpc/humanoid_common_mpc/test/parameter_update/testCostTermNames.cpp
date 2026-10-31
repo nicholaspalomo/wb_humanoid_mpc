@@ -70,7 +70,7 @@ TEST(CostTermNames, ThePerLinkAndPerFootTermsAreTheNameAndTheirSuffix) {
             "torso_TaskSpaceKinematicsCost");
   EXPECT_EQ(externalTorqueCostName("foot_r_contact"),
             "foot_r_contact_ExternalTorqueQuadraticCost");
-  EXPECT_EQ(absl::string_view(kZeroVelocityTermSuffix), "_zeroVelocity");
+  EXPECT_EQ(absl::string_view(kZeroVelocityTermNameSuffix), "_zeroVelocity");
   EXPECT_EQ(zeroVelocityTermName("foot_l_contact"),
             "foot_l_contact_zeroVelocity");
   EXPECT_EQ(basisNonNegativityTermName("foot_l_contact"),
@@ -86,20 +86,20 @@ TEST(CostTermNames, TheContactTermsKeepTheirSuffixes) {
       contact_term::name("foot_l_contact", contact_term::kFrictionForceCone),
       "foot_l_contact_frictionForceCone");
   EXPECT_EQ(
-      contact_term::name("foot_l_contact", contact_term::kContactMomentXY),
+      contact_term::name("foot_l_contact", contact_term::kContactMomentXYName),
       "foot_l_contact_contactMomentXY");
   EXPECT_EQ(contact_term::name("foot_l_contact",
                                contact_term::kContactComplementarity),
             "foot_l_contact_contactComplementarity");
-  EXPECT_EQ(
-      contact_term::name("foot_l_contact", contact_term::kForceWeightedSlip),
-      "foot_l_contact_forceWeightedSlip");
+  EXPECT_EQ(contact_term::name("foot_l_contact",
+                               contact_term::kForceWeightedSlipName),
+            "foot_l_contact_forceWeightedSlip");
   EXPECT_EQ(
       contact_term::name("foot_l_contact", contact_term::kGroundPenetration),
       "foot_l_contact_groundPenetration");
-  EXPECT_EQ(
-      contact_term::name("foot_l_contact", contact_term::kNormalVelocitySoft),
-      "foot_l_contact_normalVelocitySoft");
+  EXPECT_EQ(contact_term::name("foot_l_contact",
+                               contact_term::kNormalVelocitySoftName),
+            "foot_l_contact_normalVelocitySoft");
 }
 
 }  // namespace

@@ -46,8 +46,8 @@ namespace ocs2::humanoid {
  *  - the state is the observation's, with every generalized velocity zeroed and
  * the base upright at the observed heading: the attitude is the heading
  * quaternion of the observed one (its twist about the world z axis,
- *    headingQuaternion()), so the yaw is the observation's getBaseHeading(),
- * wrapped into (-pi, pi], and the pitch and roll are zero;
+ *    verticalTwistFromQuaternion()), so the yaw is the observation's
+ * getYawBaseRtWorld(), wrapped into (-pi, pi], and the pitch and roll are zero;
  *  - the input carries the robot's weight evenly on both feet
  * (weightCompensatingInput()), as the centroidal MPC's reset target does: a
  * zero input asked the first solve after a reset to hold the robot up with no

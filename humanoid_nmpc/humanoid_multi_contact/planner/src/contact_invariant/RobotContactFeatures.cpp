@@ -111,9 +111,9 @@ void candidateFeatures(const PinocchioInterfaceCppAd::Model& model,
   const ad_scalar_t excess = ad_scalar_t(constants.cosineOfMaxTilt) - alignment;
   features(featureRow(candidate, kTiltFeature)) =
       CppAD::CondExpGt(excess, ad_scalar_t(0.0), excess, ad_scalar_t(0.0));
-  const AdVector3 force =
-      centroidal_model::getContactForces(input, entry.mpcContactIndex, info) /
-      ad_scalar_t(constants.weight);
+  const AdVector3 force = centroidal_model::getForceContactEwrtWorld(
+                              input, entry.mpcContactIndex, info) /
+                          ad_scalar_t(constants.weight);
   const ad_scalar_t normalForce = force.dot(normal);
   const AdVector3 tangential = force - normalForce * normal;
   features(featureRow(candidate, kConeFeature)) =
@@ -164,7 +164,7 @@ absl::StatusOr<std::unique_ptr<ContactFeatureFunction>> robotContactFeatures(
       .friction = settings.friction,
       .coneSmoothing = settings.coneSmoothing,
       .cosineOfMaxTilt = std::cos(settings.maxPointTilt),
-      .weight = info.robotMass * kGravitationalAcceleration};
+      .weight = info.robotMass * kGravityMagnitude};
   const int numCandidates = static_cast<int>(candidates.size());
   const ContactFeatureFunction::Function function =
       [pinocchioAd = pinocchio.toCppAd(), infoAd = info.toCppAd(), taped,
@@ -186,7 +186,7 @@ absl::StatusOr<std::unique_ptr<ContactFeatureFunction>> robotContactFeatures(
                         input, i, features);
     }
     features.segment<kMomentumRateFeatures>(momentumRateRow(numCandidates)) =
-        getNormalizedCentroidalMomentumRate(interface, infoAd, input);
+        getMnormRateCmomComRtWorldEwrtWorld(interface, infoAd, input);
     return features;
   };
   return ContactFeatureFunction::Create(

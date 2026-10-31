@@ -156,11 +156,11 @@ TEST(MujocoContactUtils, GroundTruthMaskFollowsTheContactForcesOfTheSubtree) {
   // Only the left toe touches the floor: it belongs to the left foot's subtree,
   // so the left foot counts as touching.
   EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet,
-                                   /*forceThreshold=*/1.0),
+                                   /*minForceMjcontactEwrtMjcontactX=*/1.0),
             0b01u);
   // The threshold is a normal-force threshold.
   EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet,
-                                   /*forceThreshold=*/1.0e9),
+                                   /*minForceMjcontactEwrtMjcontactX=*/1.0e9),
             0u);
 
   // Bring the right sole down to the same 2 mm penetration as the left toe (the
@@ -172,18 +172,18 @@ TEST(MujocoContactUtils, GroundTruthMaskFollowsTheContactForcesOfTheSubtree) {
       -0.452;  // right sole bottom at z = 0.5 - 0.452 - 0.05 = -0.002
   mj_forward(scene.model, scene.data);
   EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet,
-                                   /*forceThreshold=*/1.0),
+                                   /*minForceMjcontactEwrtMjcontactX=*/1.0),
             0b11u);
 
   // An unresolved contact point (-1) never reports contact and does not disturb
   // the others.
   EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, {-1, feet[1]},
-                                   /*forceThreshold=*/1.0),
+                                   /*minForceMjcontactEwrtMjcontactX=*/1.0),
             0b10u);
   // The crate rests on the floor too, but it is nobody's contact point.
   EXPECT_EQ(
       groundTruthContactMask(scene.model, scene.data, {scene.body("pelvis")},
-                             /*forceThreshold=*/1.0),
+                             /*minForceMjcontactEwrtMjcontactX=*/1.0),
       0b1u)
       << "the pelvis subtree contains both feet";
 }
@@ -198,17 +198,18 @@ TEST(MujocoContactUtils, ContactWithAForeignBodyCountsAndSelfContactDoesNot) {
   for (int c = 0; c < scene.data->ncon; ++c) {
     const int b1 = scene.model->geom_bodyid[scene.data->contact[c].geom[0]];
     const int b2 = scene.model->geom_bodyid[scene.data->contact[c].geom[1]];
-    mjtNum force[6];
-    mj_contactForce(scene.model, scene.data, c, force);
-    selfContactSeen = selfContactSeen || (((b1 == feet[0] && b2 == feet[1]) ||
-                                           (b1 == feet[1] && b2 == feet[0])) &&
-                                          force[0] > 1.0);
+    mjtNum wrenchMjcontactEwrtMjcontact[6];
+    mj_contactForce(scene.model, scene.data, c, wrenchMjcontactEwrtMjcontact);
+    selfContactSeen =
+        selfContactSeen || (((b1 == feet[0] && b2 == feet[1]) ||
+                             (b1 == feet[1] && b2 == feet[0])) &&
+                            wrenchMjcontactEwrtMjcontact[0] > 1.0);
   }
   ASSERT_TRUE(selfContactSeen)
       << "the scene must contain a self-contact between the feet for this test "
          "to mean anything";
   EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet,
-                                   /*forceThreshold=*/1.0),
+                                   /*minForceMjcontactEwrtMjcontactX=*/1.0),
             0b01u)
       << "self-contact is not ground contact";
 
@@ -223,7 +224,7 @@ TEST(MujocoContactUtils, ContactWithAForeignBodyCountsAndSelfContactDoesNot) {
   scene.data->qpos[crateQpos + 2] = 0.25 - 0.05 + 0.002;
   mj_forward(scene.model, scene.data);
   EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet,
-                                   /*forceThreshold=*/1.0),
+                                   /*minForceMjcontactEwrtMjcontactX=*/1.0),
             0b11u);
 }
 
@@ -355,9 +356,9 @@ TEST(MujocoContactUtils,
   EXPECT_NEAR(resting.mass, scene.model->body_subtreemass[pelvis], 1.0e-12);
   EXPECT_NEAR(resting.mass, 10.0 + 1.0 + 0.01 + 0.1 + 1.0, 1.0e-9);
   for (int axis = 0; axis < 3; ++axis) {
-    EXPECT_NEAR(resting.com[axis], scene.data->subtree_com[3 * pelvis + axis],
-                1.0e-12);
-    EXPECT_NEAR(resting.comVelocity[axis], 0.0, 1.0e-12);
+    EXPECT_NEAR(resting.posComRtWorldEwrtWorld[axis],
+                scene.data->subtree_com[3 * pelvis + axis], 1.0e-12);
+    EXPECT_NEAR(resting.linvelComRtWorldEwrtWorld[axis], 0.0, 1.0e-12);
   }
   // The whole robot translating at 1 m/s along x: so does its center of mass.
   scene.data->qvel[0] = 1.0;
@@ -365,9 +366,9 @@ TEST(MujocoContactUtils,
   const RobotCentroidalState moving =
       robotCentroidalState(scene.model, scene.data);
   ASSERT_TRUE(moving.valid);
-  EXPECT_NEAR(moving.comVelocity[0], 1.0, 1.0e-9);
-  EXPECT_NEAR(moving.comVelocity[1], 0.0, 1.0e-9);
-  EXPECT_NEAR(moving.comVelocity[2], 0.0, 1.0e-9);
+  EXPECT_NEAR(moving.linvelComRtWorldEwrtWorld[0], 1.0, 1.0e-9);
+  EXPECT_NEAR(moving.linvelComRtWorldEwrtWorld[1], 0.0, 1.0e-9);
+  EXPECT_NEAR(moving.linvelComRtWorldEwrtWorld[2], 0.0, 1.0e-9);
   EXPECT_FALSE(robotCentroidalState(/*model=*/nullptr, scene.data).valid);
 }
 
@@ -376,10 +377,11 @@ TEST(MujocoContactUtils, GroundReactionZmpSitsUnderTheOnlyGroundContact) {
   const int pelvis = scene.body("pelvis");
   // Only the left toe touches the floor; the strut-sole self-contact carries
   // force but is not a ground reaction.
-  const GroundReaction reaction =
-      groundReaction(scene.model, scene.data, pelvis, /*minNormalForce=*/0.0);
+  const GroundReaction reaction = groundReaction(
+      scene.model, scene.data, pelvis, /*minForceWorldEwrtWorldZ=*/0.0);
   ASSERT_TRUE(reaction.valid);
-  EXPECT_GT(reaction.force[2], 0.0) << "the floor pushes the robot up";
+  EXPECT_GT(reaction.forceWorldEwrtWorld[2], 0.0)
+      << "the floor pushes the robot up";
   // The center of pressure lies in the convex hull of the ground contact points
   // (the corners of the toe box).
   double lo[2] = {1.0e9, 1.0e9};
@@ -392,38 +394,43 @@ TEST(MujocoContactUtils, GroundReactionZmpSitsUnderTheOnlyGroundContact) {
     if (b1 != 0 && b2 != 0) continue;
     ++groundContacts;
     for (int axis = 0; axis < 2; ++axis) {
+      // NOLINTBEGIN(frame-naming): MuJoCo's mjContact::pos
       lo[axis] = std::min(lo[axis], contact.pos[axis]);
       hi[axis] = std::max(hi[axis], contact.pos[axis]);
+      // NOLINTEND(frame-naming)
     }
   }
   ASSERT_GT(groundContacts, 0);
   for (int axis = 0; axis < 2; ++axis) {
-    EXPECT_GE(reaction.zmp[axis], lo[axis] - 1.0e-6);
-    EXPECT_LE(reaction.zmp[axis], hi[axis] + 1.0e-6);
+    EXPECT_GE(reaction.posZmpRtWorldEwrtWorldXy[axis], lo[axis] - 1.0e-6);
+    EXPECT_LE(reaction.posZmpRtWorldEwrtWorldXy[axis], hi[axis] + 1.0e-6);
   }
-  EXPECT_NEAR(reaction.zmp[0], 0.14, 0.05) << "under the toe";
-  EXPECT_NEAR(reaction.zmp[1], 0.2, 0.06) << "under the toe";
+  EXPECT_NEAR(reaction.posZmpRtWorldEwrtWorldXy[0], 0.14, 0.05)
+      << "under the toe";
+  EXPECT_NEAR(reaction.posZmpRtWorldEwrtWorldXy[1], 0.2, 0.06)
+      << "under the toe";
   // A threshold above the reaction hides the marker (the robot on the gantry).
-  EXPECT_FALSE(
-      groundReaction(scene.model, scene.data, pelvis, reaction.force[2] + 1.0)
-          .valid);
+  EXPECT_FALSE(groundReaction(scene.model, scene.data, pelvis,
+                              reaction.forceWorldEwrtWorld[2] + 1.0)
+                   .valid);
   EXPECT_FALSE(groundReaction(scene.model, scene.data, /*rootBodyId=*/-1,
-                              /*minNormalForce=*/0.0)
+                              /*minForceWorldEwrtWorldZ=*/0.0)
                    .valid);
 }
 
 TEST(MujocoContactUtils,
      DivergentComponentOfMotionIsTheComPlusVelocityOverOmega) {
   const double com[3] = {1.0, 2.0, 0.85};
-  const double velocity[3] = {0.34, -0.17, 0.5};
+  const double linvelComRtWorldEwrtWorld[3] = {0.34, -0.17, 0.5};
   double dcm[2];
-  divergentComponentOfMotion(com, velocity, com[2], /*gravity=*/9.81, dcm);
+  divergentComponentOfMotion(com, linvelComRtWorldEwrtWorld, com[2],
+                             /*gravity=*/9.81, dcm);
   const double omega = std::sqrt(9.81 / 0.85);
   EXPECT_NEAR(dcm[0], 1.0 + 0.34 / omega, 1.0e-12);
   EXPECT_NEAR(dcm[1], 2.0 - 0.17 / omega, 1.0e-12);
   // The height is clamped so that a CoM on the ground does not blow the DCM up.
-  divergentComponentOfMotion(com, velocity, /*height=*/0.0, /*gravity=*/9.81,
-                             dcm);
+  divergentComponentOfMotion(com, linvelComRtWorldEwrtWorld, /*height=*/0.0,
+                             /*gravity=*/9.81, dcm);
   EXPECT_NEAR(dcm[0], 1.0 + 0.34 / std::sqrt(9.81 / 0.05), 1.0e-12);
 }
 
@@ -504,7 +511,7 @@ TEST(MujocoUtils, MjStateCopiesAreDeepAndMovesHandTheDataOver) {
  * horizontal part (a slope's). The sensor reads the force between the foot and
  * the trunk.
  */
-MjModelPtr compileFootForceScene(absl::string_view yawDegrees) {
+MjModelPtr compileFootSensorScene(absl::string_view yawDegrees) {
   const std::string xml = absl::StrCat(R"(
 <mujoco>
   <option timestep="0.002" gravity="1.5 0 -9.81"/>
@@ -540,31 +547,38 @@ TEST(MujocoUtils, TheFootForceIsTheWorldFrameForceTheFootCarries) {
   const double trunkMass = 30.0;
   for (const char* absl_nonnull yaw : {"0", "90"}) {
     SCOPED_TRACE(absl::StrCat("yaw ", yaw, " deg"));
-    const MjModelPtr model = compileFootForceScene(yaw);
+    const MjModelPtr model = compileFootSensorScene(yaw);
     ASSERT_NE(model, nullptr);
     absl::StatusOr<MjDataPtr> data = makeMjData(model.get());
     ASSERT_TRUE(data.ok()) << data.status();
     for (int step = 0; step < 3000; ++step) mj_step(model.get(), data->get());
     const int sensor =
         mj_name2id(model.get(), mjOBJ_SENSOR, "left_foot_force_sensor");
+    // NOLINTBEGIN(frame-naming): a sensor's type, not a force
     ASSERT_TRUE(isFootForceSensor(model.get(), sensor));
-    const std::array<mjtNum, ocs2::kPositionDim> force =
-        footForceInWorldFrame(model.get(), data->get(), sensor);
-    EXPECT_NEAR(force[0], -trunkMass * model->opt.gravity[0], 0.5);
-    EXPECT_NEAR(force[1], -trunkMass * model->opt.gravity[1], 0.5);
-    EXPECT_NEAR(force[2], -trunkMass * model->opt.gravity[2], 0.5);
+    // NOLINTEND(frame-naming)
+    const std::array<mjtNum, ocs2::kPositionDim> measForceFootEwrtWorld =
+        computeMeasForceFootEwrtWorld(model.get(), data->get(), sensor);
+    EXPECT_NEAR(measForceFootEwrtWorld[0], -trunkMass * model->opt.gravity[0],
+                0.5);
+    EXPECT_NEAR(measForceFootEwrtWorld[1], -trunkMass * model->opt.gravity[1],
+                0.5);
+    EXPECT_NEAR(measForceFootEwrtWorld[2], -trunkMass * model->opt.gravity[2],
+                0.5);
   }
 }
 
 TEST(MujocoUtils, OnlyAForceSensorOnASiteIsAFootForceSensor) {
-  const MjModelPtr model = compileFootForceScene("0");
+  const MjModelPtr model = compileFootSensorScene("0");
   ASSERT_NE(model, nullptr);
+  // NOLINTBEGIN(frame-naming): a sensor's type, not a force
   EXPECT_TRUE(isFootForceSensor(
       model.get(),
       mj_name2id(model.get(), mjOBJ_SENSOR, "left_foot_force_sensor")));
   EXPECT_FALSE(isFootForceSensor(model.get(), /*sensorId=*/-1))
       << "a sensor the scene does not have";
   EXPECT_FALSE(isFootForceSensor(model.get(), model->nsensor));
+  // NOLINTEND(frame-naming)
 }
 
 // The twist about the vertical of a MuJoCo quaternion, against the defining
@@ -578,35 +592,40 @@ TEST(VerticalTwist, LeavesASwingAboutAHorizontalAxisForRandomAttitudes) {
     mjtNum q[4] = {normal(generator), normal(generator), normal(generator),
                    normal(generator)};
     mju_normalize4(q);
-    const VerticalTwist twist = verticalTwistOf(q[0], q[3]);
-    EXPECT_NEAR(twist.w * twist.w + twist.z * twist.z, 1.0, 1.0e-12);
-    EXPECT_GE(twist.w, 0.0);
-    const mjtNum twistInverse[4] = {twist.w, 0.0, 0.0, -twist.z};
+    const VerticalTwist quatHeadingRtWorld =
+        verticalTwistFromQuaternion(q[0], q[3]);
+    EXPECT_NEAR(quatHeadingRtWorld.w * quatHeadingRtWorld.w +
+                    quatHeadingRtWorld.z * quatHeadingRtWorld.z,
+                1.0, 1.0e-12);
+    EXPECT_GE(quatHeadingRtWorld.w, 0.0);
+    const mjtNum quatWorldRtHeadingWxyz[4] = {quatHeadingRtWorld.w, 0.0, 0.0,
+                                              -quatHeadingRtWorld.z};
     mjtNum swing[4];
-    mju_mulQuat(swing, twistInverse, q);
+    mju_mulQuat(swing, quatWorldRtHeadingWxyz, q);
     EXPECT_NEAR(swing[3], 0.0, 1.0e-12) << "sample " << sample;
     // The heading is the twist's angle, in (-pi, pi].
-    const double heading = twistHeadingOf(q[0], q[3]);
+    const double heading = yawOf(q[0], q[3]);
     EXPECT_GT(heading, -std::numbers::pi);
     EXPECT_LE(heading, std::numbers::pi);
-    EXPECT_NEAR(std::cos(heading / 2.0), twist.w, 1.0e-12);
-    EXPECT_NEAR(std::sin(heading / 2.0), twist.z, 1.0e-12);
+    EXPECT_NEAR(std::cos(heading / 2.0), quatHeadingRtWorld.w, 1.0e-12);
+    EXPECT_NEAR(std::sin(heading / 2.0), quatHeadingRtWorld.z, 1.0e-12);
   }
 }
 
-// Upside down the twist is undefined; the MPC (headingQuaternion(),
-// twistHeading()) reads it as heading 0, and so must the gantry anchor and the
+// Upside down the twist is undefined; the MPC (verticalTwistFromQuaternion(),
+// yawOf()) reads it as heading 0, and so must the gantry anchor and the
 // dodgeball's yaw frame. It used to fall back to the ZYX yaw instead.
 TEST(VerticalTwist, AnUpsideDownAttitudeHasTheIdentityTwistAsInTheMpc) {
   for (const std::array<double, 4>& q :
        {std::array<double, 4>{0.0, 1.0, 0.0, 0.0},
         std::array<double, 4>{0.0, 0.6, 0.8, 0.0},
         std::array<double, 4>{-0.0, 0.6, -0.8, -0.0}}) {
-    const VerticalTwist twist = verticalTwistOf(q[0], q[3]);
-    EXPECT_EQ(twist.w, 1.0)
+    const VerticalTwist quatHeadingRtWorld =
+        verticalTwistFromQuaternion(q[0], q[3]);
+    EXPECT_EQ(quatHeadingRtWorld.w, 1.0)
         << "(" << q[0] << ", " << q[1] << ", " << q[2] << ", " << q[3] << ")";
-    EXPECT_EQ(twist.z, 0.0);
-    EXPECT_EQ(twistHeadingOf(q[0], q[3]), 0.0);
+    EXPECT_EQ(quatHeadingRtWorld.z, 0.0);
+    EXPECT_EQ(yawOf(q[0], q[3]), 0.0);
   }
 }
 
@@ -617,16 +636,18 @@ TEST(VerticalTwist, IsContinuousDownToUpsideDownAndTheSameForQAndMinusQ) {
     const double angle = 0.7;
     const double w = rho * std::cos(angle);
     const double z = rho * std::sin(angle);
-    const VerticalTwist twist = verticalTwistOf(w, z);
-    EXPECT_NEAR(twist.w, std::cos(angle), 1.0e-12) << "rho = " << rho;
-    EXPECT_NEAR(twist.z, std::sin(angle), 1.0e-12) << "rho = " << rho;
-    const VerticalTwist negated = verticalTwistOf(-w, -z);
-    EXPECT_EQ(negated.w, twist.w) << "q and -q are one rotation";
-    EXPECT_EQ(negated.z, twist.z);
+    const VerticalTwist quatHeadingRtWorld = verticalTwistFromQuaternion(w, z);
+    EXPECT_NEAR(quatHeadingRtWorld.w, std::cos(angle), 1.0e-12)
+        << "rho = " << rho;
+    EXPECT_NEAR(quatHeadingRtWorld.z, std::sin(angle), 1.0e-12)
+        << "rho = " << rho;
+    const VerticalTwist negated = verticalTwistFromQuaternion(-w, -z);
+    EXPECT_EQ(negated.w, quatHeadingRtWorld.w) << "q and -q are one rotation";
+    EXPECT_EQ(negated.z, quatHeadingRtWorld.z);
   }
   // A heading of exactly pi is +pi from either hemisphere.
-  EXPECT_NEAR(twistHeadingOf(0.0, 1.0), std::numbers::pi, 1.0e-15);
-  EXPECT_NEAR(twistHeadingOf(0.0, -1.0), std::numbers::pi, 1.0e-15);
+  EXPECT_NEAR(yawOf(0.0, 1.0), std::numbers::pi, 1.0e-15);
+  EXPECT_NEAR(yawOf(0.0, -1.0), std::numbers::pi, 1.0e-15);
 }
 
 }  // namespace

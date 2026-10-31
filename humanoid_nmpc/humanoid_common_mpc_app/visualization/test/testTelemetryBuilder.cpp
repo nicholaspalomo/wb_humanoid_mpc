@@ -118,8 +118,8 @@ vector_t displayCoordinatesOf(const MpcRobotModelBase<scalar_t>& model,
   vector_t display(
       static_cast<Eigen::Index>(kBaseTranslationDim + kBaseRotationDim) +
       joints.size());
-  display << model.getBasePosition(state),
-      model.getBaseOrientationEulerZyx(state), joints;
+  display << model.getPosBaseRtWorldEwrtWorld(state),
+      model.getEulerzyxBaseRtWorld(state), joints;
   return display;
 }
 
@@ -212,10 +212,11 @@ std::vector<std::string> contractPaths(const std::vector<std::string>& frames) {
  * up. */
 humanoid_mpc_msgs::RobotStateSample withFootForces(
     humanoid_mpc_msgs::RobotStateSample proto, scalar_t normalForce) {
-  for (int contact = 0; contact < proto.measured_contact_wrenches_size();
+  for (int contact = 0; contact < proto.meas_wrench_contacts_ewrt_world_size();
        ++contact) {
-    proto.mutable_measured_contact_wrenches(contact)->mutable_force()->set_z(
-        normalForce);
+    proto.mutable_meas_wrench_contacts_ewrt_world(contact)
+        ->mutable_force()
+        ->set_z(normalForce);
   }
   return proto;
 }
@@ -350,7 +351,7 @@ class TelemetryBuilderTest : public ::testing::Test {
                   robot_->modelSettings().contactNames[contact])]
               .translation();
       wrenches[contact] =
-          model.getContactWrenchInWorldFrame(state, input, contact);
+          model.getWrenchContactEwrtWorld(state, input, contact);
       normalForce += wrenches[contact][kWrenchForceZIndex];
       weightedHeight +=
           wrenches[contact][kWrenchForceZIndex] * positions[contact].z();
@@ -371,7 +372,7 @@ class TelemetryBuilderTest : public ::testing::Test {
             robot_->modelSettings().robotName,
             robot_->modelSettings().mpcModelJointNames);
     const vector3_t yawPitchRoll = eulerZyxFromQuaternion(acom->acomAttitude(
-        model.getBaseOrientation(state), model.getJointAngles(state)));
+        model.getQuatBaseRtWorldXyzw(state), model.getJointAngles(state)));
     EXPECT_NEAR(valueOf(series, "acom/yaw", "plan"),
                 yawPitchRoll[kBaseRotYawIndex], kTolerance);
     EXPECT_NEAR(valueOf(series, "acom/pitch", "plan"),
@@ -465,8 +466,8 @@ TEST_F(TelemetryBuilderTest, TheGroupsAreTheContractsInItsOrder) {
 TEST_F(TelemetryBuilderTest, TheBaseIsMeasuredInTheWorldFrameAsRollPitchYaw) {
   humanoid_mpc_msgs::RobotStateSample proto = robot_->robotState(
       /*time=*/0.1, vector3_t(1.0, 2.0, 3.0), vector3_t(0.1, 0.2, 0.3));
-  proto.mutable_base_linear_velocity_local()->set_x(1.0);
-  proto.mutable_base_angular_velocity_local()->set_z(0.5);
+  proto.mutable_linvel_base_rt_world_ewrt_base()->set_x(1.0);
+  proto.mutable_angvel_base_rt_world_ewrt_base()->set_z(0.5);
   const humanoid_mpc_msgs::TelemetrySeries& series = builder_->build(
       decode(proto), /*observation=*/nullptr, /*policy=*/nullptr);
   const matrix3_t rotation =
@@ -549,7 +550,7 @@ TEST_F(TelemetryBuilderTest,
        WithoutAPolicyTheReferenceAndThePlanAreTheMeasuredRobotAtRest) {
   humanoid_mpc_msgs::RobotStateSample proto = robot_->robotState(
       /*time=*/0.1, vector3_t(1.0, 2.0, 3.0), vector3_t(0.1, 0.2, 0.3));
-  proto.mutable_base_linear_velocity_local()->set_x(1.0);
+  proto.mutable_linvel_base_rt_world_ewrt_base()->set_x(1.0);
   const humanoid_mpc_msgs::TelemetrySeries& series = builder_->build(
       decode(proto), /*observation=*/nullptr, /*policy=*/nullptr);
   EXPECT_EQ(valueOf(series, "base_pose/position_x", "reference"), 1.0);
@@ -584,11 +585,11 @@ TEST_F(TelemetryBuilderTest, TheReferenceIsTheTargetAtTheSamplesTime) {
   EXPECT_TRUE(valuesOf(series, "dofs/position/reference")
                   .isApprox(displayCoordinatesOf(model, target), kTolerance));
   EXPECT_NEAR(valueOf(series, "base_pose/position_x", "reference"),
-              model.getBasePosition(target).x(), kTolerance);
+              model.getPosBaseRtWorldEwrtWorld(target).x(), kTolerance);
   EXPECT_NEAR(valueOf(series, "base_pose/yaw", "reference"),
-              model.getBaseOrientationEulerZyx(target)(0), kTolerance);
+              model.getEulerzyxBaseRtWorld(target)(0), kTolerance);
   EXPECT_NEAR(valueOf(series, "base_pose/roll", "reference"),
-              model.getBaseOrientationEulerZyx(target)(2), kTolerance);
+              model.getEulerzyxBaseRtWorld(target)(2), kTolerance);
   EXPECT_NEAR(valueOf(series, "base_twist/linear_x", "reference"),
               model.getBaseComLinearVelocity(target).x(), kTolerance);
   // The display coordinates of the reference: q with the Euler angles of its
@@ -597,7 +598,7 @@ TEST_F(TelemetryBuilderTest, TheReferenceIsTheTargetAtTheSamplesTime) {
   const vector_t display = valuesOf(series, "dofs/position/reference");
   EXPECT_TRUE(display.head<3>().isApprox(q.head<3>(), kTolerance));
   EXPECT_TRUE(display.segment<3>(3).isApprox(
-      model.getBaseOrientationEulerZyx(target), kTolerance));
+      model.getEulerzyxBaseRtWorld(target), kTolerance));
   EXPECT_EQ(display.tail(display.size() - 6), q.tail(display.size() - 6));
 }
 
@@ -611,21 +612,21 @@ TEST_F(TelemetryBuilderTest,
   const MpcRobotModelBase<scalar_t>& model = robot_->robotModel();
   const vector3_t angularVelocityLocal(0.2, -0.1, 0.4);
   for (vector_t& state : policy_.target.stateTrajectory) {
-    model.setBaseOrientationEulerZyx(state, vector3_t(0.5, 0.3, -0.2));
-    model.setBaseAngularVelocityLocal(state, angularVelocityLocal);
+    model.setEulerzyxBaseRtWorld(state, vector3_t(0.5, 0.3, -0.2));
+    model.setAngvelBaseRtWorldEwrtBase(state, angularVelocityLocal);
   }
   const humanoid_mpc_msgs::TelemetrySeries& series =
       builder_->build(decode(robot_->robotState(/*time=*/0.5, vector3_t::Zero(),
                                                 vector3_t::Zero())),
                       &observation_, &policy_);
   const vector_t target = model.getDesiredState(policy_.target, /*time=*/0.5);
-  const vector3_t eulerZyx = model.getBaseOrientationEulerZyx(target);
+  const vector3_t eulerZyx = model.getEulerzyxBaseRtWorld(target);
   const vector3_t eulerZyxRates =
       eulerZyxRatesForDisplay(eulerZyx, angularVelocityLocal);
   vector3_t angularVelocityWorld = vector3_t::Zero();
   {
     quaternion_t orientation;
-    orientation.coeffs() = model.getBaseOrientation(target);
+    orientation.coeffs() = model.getQuatBaseRtWorldXyzw(target);
     angularVelocityWorld =
         orientation.toRotationMatrix() * angularVelocityLocal;
   }
@@ -675,9 +676,9 @@ TEST_F(TelemetryBuilderTest,
   // the knot itself: the momentum of a turn at one posture interpolated towards
   // another posture's is no posture's turn.
   vector_t knot = policy_.target.stateTrajectory.front();
-  model.setBaseOrientationEulerZyx(knot, vector3_t(0.5, 0.3, -0.2));
+  model.setEulerzyxBaseRtWorld(knot, vector3_t(0.5, 0.3, -0.2));
   quaternion_t knotOrientation;
-  knotOrientation.coeffs() = model.getBaseOrientation(knot);
+  knotOrientation.coeffs() = model.getQuatBaseRtWorldXyzw(knot);
   vector_t velocity =
       vector_t::Zero(static_cast<Eigen::Index>(model.getVelocityDim()));
   velocity.segment<3>(3) = knotOrientation.toRotationMatrix().transpose() *
@@ -697,7 +698,7 @@ TEST_F(TelemetryBuilderTest,
                       &observation_, &policy_);
   const vector_t target = model.getDesiredState(policy_.target, /*time=*/0.5);
   quaternion_t orientation;
-  orientation.coeffs() = model.getBaseOrientation(target);
+  orientation.coeffs() = model.getQuatBaseRtWorldXyzw(target);
   const vector3_t turnLocal = orientation.toRotationMatrix().transpose() *
                               vector3_t(0.0, 0.0, kYawRate);
   const std::array<const char* absl_nonnull, 3> axes = {"x", "y", "z"};
@@ -718,7 +719,7 @@ TEST_F(TelemetryBuilderTest,
        AtThePitchSingularityOnlyTheEulerRatesAreNotANumber) {
   humanoid_mpc_msgs::RobotStateSample proto = robot_->robotState(
       /*time=*/0.1, vector3_t(0.0, 0.0, 0.7), vector3_t(0.2, M_PI / 2.0, 0.3));
-  proto.mutable_base_angular_velocity_local()->set_y(0.4);
+  proto.mutable_angvel_base_rt_world_ewrt_base()->set_y(0.4);
   const humanoid_mpc_msgs::TelemetrySeries& series =
       builder_->build(decode(withFootForces(proto, /*normalForce=*/300.0)),
                       &observation_, &policy_, &solutionTerms_);
@@ -755,7 +756,7 @@ TEST_F(TelemetryBuilderTest, ThePlanIsThePolicyAtTheSamplesTime) {
   EXPECT_TRUE(valuesOf(series, "dofs/position/plan")
                   .isApprox(displayCoordinatesOf(model, state), kTolerance));
   const vector6_t left =
-      model.getContactWrenchInWorldFrame(state, input, kContactLeftIndex);
+      model.getWrenchContactEwrtWorld(state, input, kContactLeftIndex);
   EXPECT_TRUE(
       valuesOf(series, "contact_wrenches/left/mpc").isApprox(left, kTolerance));
   // Written as 300 N up and 15 N forward on each stance foot (world-frame
@@ -773,7 +774,7 @@ TEST_F(TelemetryBuilderTest, TheMeasuredWrenchesAreTheSensors) {
   humanoid_mpc_msgs::RobotStateSample proto =
       robot_->robotState(/*time=*/0.1, vector3_t::Zero(), vector3_t::Zero());
   humanoid_mpc_msgs::Wrench* absl_nonnull left =
-      proto.mutable_measured_contact_wrenches(0);
+      proto.mutable_meas_wrench_contacts_ewrt_world(0);
   left->mutable_force()->set_x(5.0);
   left->mutable_force()->set_y(-6.0);
   left->mutable_force()->set_z(310.0);
@@ -801,7 +802,7 @@ TEST_F(TelemetryBuilderTest,
                   /*policy=*/nullptr);
   humanoid_mpc_msgs::RobotStateSample proto =
       robot_->robotState(/*time=*/1.01, vector3_t::Zero(), vector3_t::Zero());
-  proto.mutable_base_linear_velocity_local()->set_z(0.1);
+  proto.mutable_linvel_base_rt_world_ewrt_base()->set_z(0.1);
   const humanoid_mpc_msgs::TelemetrySeries& series = builder_->build(
       decode(proto), /*observation=*/nullptr, /*policy=*/nullptr);
   // 0.1 m/s more in 10 ms, at the root link, which does not rotate.
@@ -815,7 +816,7 @@ TEST_F(TelemetryBuilderTest,
   // The robot's clock went back (a simulation restarted): no acceleration from
   // a sample of the previous run.
   proto.set_time(0.5);
-  proto.mutable_base_linear_velocity_local()->set_z(-3.0);
+  proto.mutable_linvel_base_rt_world_ewrt_base()->set_z(-3.0);
   const humanoid_mpc_msgs::TelemetrySeries& rewound = builder_->build(
       decode(proto), /*observation=*/nullptr, /*policy=*/nullptr);
   EXPECT_EQ(valueOf(rewound, "frames/acceleration/pelvis/measured", "linear_z"),
@@ -1071,7 +1072,7 @@ TEST_F(TelemetryBuilderTest, EveryFormulationGivesTheContractsGroups) {
     vector_t input;
     samplePlan(policy_, robot_->stateManifold(), /*time=*/0.1, &state, &input);
     EXPECT_TRUE(valuesOf(series, "contact_wrenches/right/mpc")
-                    .isApprox(robot_->robotModel().getContactWrenchInWorldFrame(
+                    .isApprox(robot_->robotModel().getWrenchContactEwrtWorld(
                                   state, input, kContactRightIndex),
                               kTolerance));
     expectBalanceOfThePlan(series, /*time=*/0.1);

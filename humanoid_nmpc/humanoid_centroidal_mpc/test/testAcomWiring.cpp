@@ -106,8 +106,9 @@ constexpr Eigen::Index kBasePitchIndex = 10;
  * the zeroing these tests are about would be invisible.
  */
 void setBasePoseWeights(mpc_config::StateWeights& weights) {
-  weights.base_position = mpc_config::Xyz{.x = 38.0, .y = 41.0, .z = 44.0};
-  weights.base_orientation =
+  weights.pos_base_rt_world_ewrt_world =
+      mpc_config::Xyz{.x = 38.0, .y = 41.0, .z = 44.0};
+  weights.eulerzyx_base_rt_world =
       mpc_config::YawPitchRoll{.yaw = 47.0, .pitch = 50.0, .roll = 53.0};
 }
 
@@ -569,15 +570,15 @@ TEST_F(HeadingModelReloadTest,
       << "nothing needs the network while the heading model is off";
 
   const vector_t state = bentState();
-  const scalar_t baseYaw = robotModel_->getBaseHeading(state);
+  const scalar_t baseYaw = robotModel_->getYawBaseRtWorld(state);
   absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> acom =
       AngularCenterOfMass::Create(modelSettings_->robotName,
                                   modelSettings_->mpcModelJointNames);
   ASSERT_TRUE(acom.ok()) << acom.status();
   // The twist heading of the ACoM attitude, xi (x) Exp(Delta_theta(q_j)).
   const scalar_t acomYaw =
-      twistHeading((*acom)->acomAttitude(robotModel_->getBaseOrientation(state),
-                                         robotModel_->getJointAngles(state)));
+      yawOf((*acom)->acomAttitude(robotModel_->getQuatBaseRtWorldXyzw(state),
+                                  robotModel_->getJointAngles(state)));
   // Positive control: at this state the two headings are different quantities,
   // so the check below can fail.
   ASSERT_GT(std::abs(acomYaw - baseYaw), 1.0e-3);
@@ -659,7 +660,7 @@ TEST_F(HeadingModelReloadTest,
   EXPECT_TRUE(manager->getConfig().usesHeadingModel());
   EXPECT_FALSE(manager->hasAngularCenterOfMass());
   const vector_t state = bentState();
-  EXPECT_EQ(manager->computeHeading(state), model.getBaseHeading(state));
+  EXPECT_EQ(manager->computeHeading(state), model.getYawBaseRtWorld(state));
 }
 
 }  // namespace ocs2::humanoid

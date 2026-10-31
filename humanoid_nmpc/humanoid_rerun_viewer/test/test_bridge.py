@@ -260,7 +260,7 @@ class SceneTest(BridgeTestCase):
             len({round(component, 3) for component in expected}), 4
         )
         self.assertTrue(all(abs(component) > 0.05 for component in expected))
-        pose = scene.robots[0].link_poses[1]
+        pose = scene.robots[0].pose_links_rt_world[1]
         scale = 2.0
         (
             pose.orientation.x,
@@ -581,8 +581,10 @@ class SceneTest(BridgeTestCase):
         scene.robots[0].link_names.append(
             "extra"
         )  # names and poses differ in length
-        scene.robots[1].link_poses[0].orientation.w = 0.0
-        scene.robots[1].link_poses[0].orientation.z = 0.0  # a zero quaternion
+        scene.robots[1].pose_links_rt_world[0].orientation.w = 0.0
+        scene.robots[1].pose_links_rt_world[
+            0
+        ].orientation.z = 0.0  # a zero quaternion
         scene.arrows.add(path="../escape").vectors.add(z=1.0)
         scene.arrows.add(path="markers/contact_forces")  # the same path twice
         bad = scene.spheres.add(path="markers/odd")

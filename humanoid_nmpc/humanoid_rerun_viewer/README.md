@@ -304,7 +304,7 @@ duplication costs a few doubles per message, and it keeps every panel independen
 | `base_pose/roll_rate` | measured, reference | rad/s | Base Pose & Euler / Euler Roll Rate [rad/s] | the ZYX Euler angle rates of the body angular velocity, `T_B(Theta)^-1 w_B`, for display; NaN within about 1e-6 rad of a pitch of +-90 degrees. measured: of the sample; reference: of the target trajectory, 0 where it carries no velocity |
 | `base_pose/pitch_rate` | measured, reference | rad/s | Base Pose & Euler / Euler Pitch Rate [rad/s] | as above |
 | `base_pose/yaw_rate` | measured, reference | rad/s | Base Pose & Euler / Euler Yaw Rate [rad/s] | as above |
-| `base_pose/angular_velocity_x` | measured, reference | rad/s | Base Pose & Euler / Body Angular Vel X [rad/s] | the body angular velocity w_B, in the base frame. measured: the sample's `base_angular_velocity_local`; reference: the target trajectory's, Pinocchio's `v[3:6]`, 0 where it carries no velocity |
+| `base_pose/angular_velocity_x` | measured, reference | rad/s | Base Pose & Euler / Body Angular Vel X [rad/s] | the body angular velocity w_B, in the base frame. measured: the sample's `angvel_base_rt_world_ewrt_base`; reference: the target trajectory's, Pinocchio's `v[3:6]`, 0 where it carries no velocity |
 | `base_pose/angular_velocity_y` | measured, reference | rad/s | Base Pose & Euler / Body Angular Vel Y [rad/s] | as above |
 | `base_pose/angular_velocity_z` | measured, reference | rad/s | Base Pose & Euler / Body Angular Vel Z [rad/s] | as above |
 | `base_twist/linear_x` | measured, reference | m/s | Base Twist (Linear & Angular) / Linear Vel X [m/s] | measured: root linear velocity; reference: base CoM velocity of the target trajectory |
@@ -423,7 +423,7 @@ producer.
 
 The "Events" view below the 3D scene shows the text logs; the "Status" tab plots the scalars.
 
-## Robustness
+## Fault Handling and Rate Limiting
 
 No handler raises.
 

@@ -461,7 +461,7 @@ absl::Status CentroidalMpcInterface::setupContactInputParameterization() {
   if (contactInputParameterization_ == ContactInputParameterization::kWrench) {
     effectiveMpcRobotModelPtr_ = mpcRobotModelPtr_.get();
     effectiveMpcRobotModelADPtr_ = mpcRobotModelADPtr_.get();
-    keyCppAdModelFolder(kWrenchInputsLibraryKey);
+    keyCppAdModelFolder(kWrenchInputsLibraryName);
     return absl::OkStatus();
   }
 
@@ -490,12 +490,15 @@ absl::Status CentroidalMpcInterface::setupContactInputParameterization() {
   // A conic combination is homogeneous, so the basis can represent neither the
   // minimum normal force nor a gripper adhesion force: both are affine offsets
   // of the cone and lambda = 0 always yields the zero wrench.
-  if (coneConfig.minNormalForce > 0.0 || coneConfig.gripperForce > 0.0) {
+  if (coneConfig.minForceContactEwrtContactZ > 0.0 ||
+      coneConfig.gripForceContactEwrtContactZ > 0.0) {
     LOG(WARNING)
         << "[CentroidalMpcInterface] "
-           "contacts.contact_wrench_cone_soft_constraint.min_normal_force ("
-        << coneConfig.minNormalForce << " N) and gripper_force ("
-        << coneConfig.gripperForce
+           "contacts.contact_wrench_cone_soft_constraint.min_force_contact_"
+           "ewrt_contact_z ("
+        << coneConfig.minForceContactEwrtContactZ
+        << " N) and grip_force_contact_ewrt_contact_z ("
+        << coneConfig.gripForceContactEwrtContactZ
         << " N) are NOT enforced with contact_input_parameterization: "
         << kBasisVectorsContactInputParameterization
         << ". Every generator lies inside the cone, so its friction, "
@@ -532,7 +535,7 @@ absl::Status CentroidalMpcInterface::setupContactInputParameterization() {
   // input-cost transform, the online parameter updater and the CppAD
   // end-effector kinematics mapping (which only needs the joint-velocity
   // block).
-  basisToWrenchMap_ = basisDecoratorPtr_->getLocalBasisToWrenchMap();
+  basisToWrenchMap_ = basisDecoratorPtr_->getLocalBasisGeneratorMap();
 
   // An unknown regularization name or a negative weight, named by its key.
   RETURN_IF_ERROR(validateBasisInputsCostTransformConfig(
@@ -658,7 +661,7 @@ absl::Status CentroidalMpcInterface::setupReferenceManager() {
       const vector3_t footprintCenter = contactPatchReferencePoint(
           ContactWrenchConeConstraint::Config(), *footprint);
       const std::optional<TorsionInterval> torsionLimits =
-          torsionLimitsOfNormalForceAt(
+          computeLimitsPerNewtonTorqueContactEwrtContactZ(
               buildLocalWrenchConeRows(coneConfig, *footprint),
               vector2_t(footprintCenter.x(), footprintCenter.y()));
       if (torsionLimits.has_value()) {
@@ -1418,7 +1421,7 @@ absl::Status CentroidalMpcInterface::addContactConeTerms(
         factory.makeContactMomentXYConstraint(
             i, absl::StrCat(footName, "_contact_moment_XY_constraint")));
     problemPtr_->softConstraintPtr->add(
-        contact_term::name(footName, contact_term::kContactMomentXY),
+        contact_term::name(footName, contact_term::kContactMomentXYName),
         std::move(contactMomentXYConstraint));
   }
   if (formulationTasks.hasSoftConstraint(
@@ -1530,7 +1533,7 @@ absl::Status CentroidalMpcInterface::addContactImplicitTerms(
   // the URDF. It is what makes the two weights mean the same thing on a 40 kg
   // robot and a 160 kg one.
   const scalar_t forceReference =
-      centroidalModelInfo_.robotMass * kGravitationalAcceleration;
+      centroidalModelInfo_.robotMass * kGravityMagnitude;
 
   // Where the foot is, as far as contact is concerned: the CORNERS of the
   // footprint, not the center of the sole. createPinocchioModel() already adds
@@ -1585,7 +1588,7 @@ absl::Status CentroidalMpcInterface::addContactImplicitTerms(
   if (formulationTasks.hasSoftConstraint(
           MpcSoftConstraintType::kForceWeightedSlip)) {
     // Not `&& eeKinematicsPtr`, which is how the neighboring terms guard
-    // themselves: this one is load bearing. checkMpcFormulationTasks() refuses
+    // themselves: this check is required. checkMpcFormulationTasks() refuses
     // `contact_complementarity` without `force_weighted_slip`, because nothing
     // else holds a LOADED foot still once the schedule-gated zero-velocity
     // constraint is gone. Silently skipping it because `needsEeKinematics`
@@ -1595,15 +1598,16 @@ absl::Status CentroidalMpcInterface::addContactImplicitTerms(
         << "[CentroidalMpcInterface] 'force_weighted_slip' needs the contact "
            "frame's kinematics; "
            "needsEeKinematics must list it.";
-    ASSIGN_OR_RETURN(std::unique_ptr<StateInputConstraint> slip,
-                     ForceWeightedSlipConstraint::Create(
-                         *eeKinematicsPtr, *effectiveMpcRobotModelPtr_, i,
-                         forceReference, contactImplicit.velocityReference,
-                         contactImplicit.angularVelocityReference));
+    ASSIGN_OR_RETURN(
+        std::unique_ptr<StateInputConstraint> slip,
+        ForceWeightedSlipConstraint::Create(
+            *eeKinematicsPtr, *effectiveMpcRobotModelPtr_, i, forceReference,
+            contactImplicit.scaleLinvelContactRtWorldEwrtWorldXy,
+            contactImplicit.scaleAngvelContactRtWorldEwrtWorldZ));
     auto penalty =
         std::make_unique<QuadraticPenalty>(contactImplicit.slipWeight);
     problemPtr_->softConstraintPtr->add(
-        contact_term::name(footName, contact_term::kForceWeightedSlip),
+        contact_term::name(footName, contact_term::kForceWeightedSlipName),
         std::make_unique<StateInputSoftConstraint>(std::move(slip),
                                                    std::move(penalty)));
   }
@@ -1655,7 +1659,7 @@ absl::Status CentroidalMpcInterface::addContactHardConstraintsAndFootCosts(
           MpcHardConstraintType::kNormalVelocity) &&
       eeKinematicsPtr) {
     problemPtr_->equalityConstraintPtr->add(
-        contact_term::name(footName, contact_term::kNormalVelocity),
+        contact_term::name(footName, contact_term::kNormalVelocityName),
         getNormalVelocityConstraint(*eeKinematicsPtr, i));
   }
   // The same row, priced instead of imposed. Imposed, it fixes the whole height
@@ -1669,7 +1673,7 @@ absl::Status CentroidalMpcInterface::addContactHardConstraintsAndFootCosts(
     auto penalty = std::make_unique<QuadraticPenalty>(
         modelSettings_.footConstraintConfig.normalVelocitySoftConstraintWeight);
     problemPtr_->softConstraintPtr->add(
-        contact_term::name(footName, contact_term::kNormalVelocitySoft),
+        contact_term::name(footName, contact_term::kNormalVelocitySoftName),
         std::make_unique<StateInputSoftConstraint>(
             getNormalVelocityConstraint(*eeKinematicsPtr, i),
             std::move(penalty)));
@@ -1727,7 +1731,7 @@ CentroidalMpcInterface::getStanceFootConstraint(
           ? ZeroVelocityConstraintCppAd::ContactKind::kPoint
           : ZeroVelocityConstraintCppAd::ContactKind::kSurface;
   const size_t numConstraints =
-      footConfig.constrainOrientation ? kPoseTangentDim : kPositionDim;
+      footConfig.constrainAttitude ? kPoseTangentDim : kPositionDim;
   auto constraint = std::make_unique<ZeroVelocityConstraintCppAd>(
       *referenceManagerPtr_, eeKinematics, contactPointIndex, numConstraints,
       twistConfig, contactKind);

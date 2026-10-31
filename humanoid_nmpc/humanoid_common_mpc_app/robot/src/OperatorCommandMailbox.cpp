@@ -69,8 +69,8 @@ using DodgeballThrow =
 
 constexpr double kLogPeriodSeconds = 5.0;
 // LINT.IfChange(gantry_height_limits)
-/// [m] The gantry heights the walking command's desired_pelvis_height is
-/// clamped to.
+/// [m] The gantry heights the walking command's
+/// cmd_pos_base_rt_world_ewrt_world_z is clamped to.
 constexpr double kMinGantryHeight = 0.2;
 constexpr double kMaxGantryHeight = 1.5;
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/README.md:operator_mailbox)
@@ -243,7 +243,7 @@ void OperatorCommandMailbox::onJointTargets(
     const humanoid_mpc_msgs::JointTargets& message) {
   bool changed = false;
   for (const google::protobuf::Map<std::string, double>::value_type& entry :
-       message.positions()) {
+       message.joint_positions()) {
     const absl::flat_hash_map<std::string, size_t>::const_iterator joint =
         jointIndexByName_.find(entry.first);
     if (joint == jointIndexByName_.end()) {
@@ -295,10 +295,11 @@ void OperatorCommandMailbox::onDodgeballThrow(
 
 void OperatorCommandMailbox::onWalkingVelocityCommand(
     const humanoid_mpc_msgs::WalkingVelocityCommand& message) {
-  if (std::isfinite(message.desired_pelvis_height())) {
-    desiredGantryHeight_.store(std::clamp(message.desired_pelvis_height(),
-                                          kMinGantryHeight, kMaxGantryHeight),
-                               std::memory_order_release);
+  if (std::isfinite(message.cmd_pos_base_rt_world_ewrt_world_z())) {
+    desiredGantryHeight_.store(
+        std::clamp(message.cmd_pos_base_rt_world_ewrt_world_z(),
+                   kMinGantryHeight, kMaxGantryHeight),
+        std::memory_order_release);
   }
 }
 

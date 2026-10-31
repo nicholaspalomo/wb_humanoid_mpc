@@ -63,7 +63,7 @@ from humanoid_mpc_msgs import dodgeball_throw_pb2
 #:
 #: This must stay equal to the mass the C++ registry gives the ball it compiles into the scene. It is the default
 #: rather than the only value - the slider overrides it per throw, and the simulator retunes the real ball's mass and
-#: inertia to match - but a default that disagreed with the registry would make an untouched slider quietly change
+#: inertia to match - but a default that disagreed with the registry would make an untouched slider change
 #: the ball.
 # LINT.IfChange(dodgeball_mass)
 DEFAULT_BALL_MASS_KG = 0.45
@@ -275,7 +275,7 @@ def sample_random_angles(
 
     Only the two ANGLES. The distance, the speed and the MASS are left to the operator deliberately: those three set
     how hard and how soon the hit lands, which is the part of the experiment being controlled, while the direction is
-    the part worth randomizing to avoid unconsciously always throwing from the same side. Mass belongs with the speed
+    randomized to avoid unconsciously always throwing from the same side. Mass belongs with the speed
     rather than with the angles for exactly the reason the original request put the speed on the operator's side of
     that line: it is a magnitude being swept, not a condition being sampled.
 
@@ -300,9 +300,10 @@ def throw_message(
     It carries BOTH the operator's five parameters and what was derived from them. The simulator acts on the mass, the
     spawn offset, the launch velocity and the flight time (humanoid_common_mpc_app/robot's dodgeballThrowFromMessage()); the
     rest is there so that someone watching the topic (`bazel run //tools/ipc:ipc_tool -- echo
-    operator/dodgeball_throw`) sees what was asked for as well as what was computed - including `launch_speed`, which
-    differs from `speed` when the slider's speed was too slow to reach the base and was raised. The values are rounded
-    as the golden payload of the robot's tests (robot/test/data/dodgeball_throw.textproto) writes them.
+    operator/dodgeball_throw`) sees what was asked for as well as what was computed - including
+    `launch_speed_ball_rt_world`, which differs from `cmd_speed_ball_rt_world` when the slider's speed was too slow to
+    reach the base and was raised. The values are rounded as the golden payload of the robot's tests
+    (robot/test/data/dodgeball_throw.textproto) writes them.
 
     Args:
         throw: the throw, clamped into the slider ranges first.
@@ -318,23 +319,25 @@ def throw_message(
         # What the operator set.
         azimuth_deg=round(throw.azimuth_deg, 4),
         elevation_deg=round(throw.elevation_deg, 4),
-        distance=round(throw.distance_m, 4),
-        speed=round(throw.speed_mps, 4),
+        cmd_dist_ball_rt_base=round(throw.distance_m, 4),
+        cmd_speed_ball_rt_world=round(throw.speed_mps, 4),
         mass=round(throw.mass_kg, 4),
         # What the simulator acts on, in the robot's own yaw frame: it rotates these by the measured base yaw and adds
         # the base position. With a ball compiled into the scene it flies the ball from there; without one, it applies
         # the arrival momentum to the base after `flight_time`.
         flight_time=round(flight_time(throw, gravity), 6),
         # Documentation only.
-        launch_speed=round(launch_speed(throw, gravity), 6),
+        launch_speed_ball_rt_world=round(launch_speed(throw, gravity), 6),
         impact_momentum=round(impact_momentum(throw, gravity), 6),
     )
-    message.spawn_offset.x, message.spawn_offset.y, message.spawn_offset.z = (
-        round(value, 6) for value in offset
-    )
     (
-        message.launch_velocity.x,
-        message.launch_velocity.y,
-        message.launch_velocity.z,
+        message.spawn_pos_ball_rt_base_ewrt_heading.x,
+        message.spawn_pos_ball_rt_base_ewrt_heading.y,
+        message.spawn_pos_ball_rt_base_ewrt_heading.z,
+    ) = (round(value, 6) for value in offset)
+    (
+        message.launch_linvel_ball_rt_world_ewrt_heading.x,
+        message.launch_linvel_ball_rt_world_ewrt_heading.y,
+        message.launch_linvel_ball_rt_world_ewrt_heading.z,
     ) = (round(value, 6) for value in velocity)
     return message

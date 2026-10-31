@@ -90,7 +90,7 @@ def main() -> None:
         args.output_dir = os.path.join(workspace_dir, args.output_dir)
 
     print("=" * 70)
-    print("🚀 Google Brax & MuJoCo MJX Humanoid PPO Training")
+    print("Google Brax & MuJoCo MJX Humanoid PPO Training")
     print(f"   Parallel Envs:       {args.num_envs}")
     print(f"   Total Timesteps:     {args.total_timesteps:,}")
     print(f"   Evaluation Epochs:   {args.num_evals}")
@@ -115,7 +115,7 @@ def main() -> None:
             f" {loss_val:.4f}"
         )
 
-    print("\n🏁 Starting Brax PPO Training Loop...\n")
+    print("\nStarting Brax PPO Training Loop...\n")
 
     make_inference_fn, params, _ = ppo.train(
         environment=env,
@@ -140,8 +140,8 @@ def main() -> None:
     make_inference_fn(
         params
     )  # Builds the policy once: the trained parameters load.
-    print(f"\n⚡ Training finished in {time.time() - t_start:.2f}s.")
-    print("✅ Brax PPO humanoid policy trained and ready for inference.")
+    print(f"\nTraining finished in {time.time() - t_start:.2f}s.")
+    print("Brax PPO humanoid policy trained and ready for inference.")
 
 
 if __name__ == "__main__":

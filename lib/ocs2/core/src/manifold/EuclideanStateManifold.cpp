@@ -67,12 +67,12 @@ void EuclideanStateManifold::project(vector_t& x) const {
   CHECK_EQ(static_cast<size_t>(x.size()), dimension_);
 }
 
-scalar_t EuclideanStateManifold::getMaximumRotationAngle(const vector_t& dx) const {
+scalar_t EuclideanStateManifold::getMaximumTangentAngle(const vector_t& dx) const {
   CHECK_EQ(static_cast<size_t>(dx.size()), dimension_);
   return 0.0;
 }
 
-bool EuclideanStateManifold::hasRepresentableRotations(const vector_t& x) const {
+bool EuclideanStateManifold::hasRepresentableAttitudes(const vector_t& x) const {
   CHECK_EQ(static_cast<size_t>(x.size()), dimension_);
   return true;
 }

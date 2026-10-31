@@ -176,7 +176,7 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(
   const double controlPeriod = stepsPerCycle * timeStep;
   const double mpcPeriod = 1.0 / driver->mpcFrequency();
   const double startTime = initialState.getTime();
-  const double initialHeight = initialState.getRootPositionInWorldFrame().z();
+  const double initialHeight = initialState.getPosBaseRtWorldEwrtWorld().z();
   const double configuredMaxTilt =
       driver->settings().fallRecovery.maxBaseTiltAngle;
   const double maxTilt =
@@ -218,8 +218,7 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(
   while (true) {
     const robot::model::RobotState& state = sim.getRobotState();
     const double time = state.getTime();
-    const vector4_t baseQuaternion =
-        state.getRootRotationLocalToWorldFrame().coeffs();
+    const vector4_t baseQuaternion = state.getQuatBaseRtWorld().coeffs();
 
     // A fall ends the run. The gantry holds the robot until it is released; a
     // reset by the simulator counts at any time.
@@ -228,7 +227,7 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(
       fallReason = "the simulator reset the robot";
     } else if (phase == Phase::kStanding || phase == Phase::kCommands) {
       const double tilt = tiltVector(baseQuaternion).norm();
-      const double height = state.getRootPositionInWorldFrame().z();
+      const double height = state.getPosBaseRtWorldEwrtWorld().z();
       if (tilt > maxTilt) {
         fallReason = absl::StrCat("the base tilted ", tilt, " rad, past ",
                                   maxTilt, " rad");
@@ -375,12 +374,11 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(
       rotation.coeffs() = baseQuaternion;
       ControlCycleSample sample;
       sample.time = time;
-      sample.basePosition = state.getRootPositionInWorldFrame();
+      sample.basePosition = state.getPosBaseRtWorldEwrtWorld();
       sample.baseQuaternion = baseQuaternion;
       sample.baseLinearVelocityWorld =
-          rotation.normalized() * state.getRootLinearVelocityInLocalFrame();
-      sample.baseAngularVelocityLocal =
-          state.getRootAngularVelocityInLocalFrame();
+          rotation.normalized() * state.getLinvelBaseRtWorldEwrtBase();
+      sample.baseAngularVelocityLocal = state.getAngvelBaseRtWorldEwrtBase();
       sample.referenceVelocity = driver->referenceVelocity();
       sample.referenceBaseHeight =
           driver->referenceBaseHeight(clampGuiVelocityMessage(gui.message)(2));
@@ -501,8 +499,10 @@ absl::StatusOr<Eigen::VectorXd> jointFeedbackTorques(
           "[LockstepClosedLoop] the controller commanded no action for joint ",
           joints[i]));
     }
-    torques(static_cast<Eigen::Index>(i)) = jointAction->getTotalFeedbackTorque(
-        state.getJointPosition(joints[i]), state.getJointVelocity(joints[i]));
+    torques(static_cast<Eigen::Index>(i)) =
+        jointAction->getTotalFeedbackJointTorque(
+            state.getJointPosition(joints[i]),
+            state.getJointVelocity(joints[i]));
   }
   return torques;
 }

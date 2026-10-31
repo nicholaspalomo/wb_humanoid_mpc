@@ -110,9 +110,9 @@ robot process's FSM bridge takes it.
 | `smoke` | 0.3 m/s and 0.2 rad/s for 1.5 s after 0.5 s of standing: the determinism test |
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/ClosedLoopScenario.h:scenario_names) -->
 
-A command is sent as the base-controller GUI sends it: the sticks at `command / limit` (`max_displacement_velocity_x`,
-`max_displacement_velocity_y`, `max_rotation_velocity` of the reference file, `guiCommandScalingFromConfig()`), clamped
-to [-1, 1], and the pelvis height at `default_base_height`. A command beyond a robot's limit is cut there and the document says `command_saturated: true`.
+A command is sent as the base-controller GUI sends it: the sticks at `command / limit` (`cmd_max_linvel_base_rt_world_ewrt_heading_x`,
+`cmd_max_linvel_base_rt_world_ewrt_heading_y`, `cmd_max_angvel_base_rt_world_ewrt_world_z` of the reference file, `guiCommandScalingFromConfig()`), clamped
+to [-1, 1], and the pelvis height at `nom_pos_base_rt_world_ewrt_world_z`. A command beyond a robot's limit is cut there and the document says `command_saturated: true`.
 
 ## Metrics
 

@@ -26,7 +26,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """Every robot's default stance stands on flat ground, and its MPC contact rectangle lies on the MuJoCo sole.
 
-The default posture - the reference file's default_base_height and default_joint_state, which the MPC returns to, and
+The default posture - the reference file's nom_pos_base_rt_world_ewrt_world_z and default_joint_state, which the MPC returns to, and
 the task file's initial_state, which it starts from - must put each foot's contact frame on the terrain (z = 0) with the
 sole level. A frame above the ground makes every stance a planned free fall of the base by that height onto the real
 ground, a frame below it a penetration the contact constraints fight; a tilted sole a planned contact on one edge. The
@@ -44,7 +44,7 @@ Each corner must lie inside that hull, and each sphere's bottom on the contact f
 feet of every robot.
 
 The forward kinematics are this file's own, of the URDF that Pinocchio loads for the MPC (a contact frame is its parent
-joint's frame translated by contacts.contact_frame_translation, unrotated, as createPinocchioModel() adds it), and the
+joint's frame translated by contacts.pos_contact_rt_link_ewrt_link, unrotated, as createPinocchioModel() adds it), and the
 spheres are MuJoCo's, of the MJCF the simulator loads; the two frames are checked to coincide first.
 """
 
@@ -243,8 +243,8 @@ def _load(
 
 
 def _contact_translation(task: task_file_pb2.TaskFile) -> np.ndarray:
-    """Returns contacts.contact_frame_translation, the contact frame in its parent joint's frame [m]."""
-    translation = task.contacts.contact_frame_translation
+    """Returns contacts.pos_contact_rt_link_ewrt_link, the contact frame in its parent joint's frame [m]."""
+    translation = task.contacts.pos_contact_rt_link_ewrt_link
     return np.array([translation.x, translation.y, translation.z])
 
 
@@ -294,7 +294,9 @@ class DefaultStanceTest(unittest.TestCase):
                 for entry in reference.default_joint_state
             }
             base = (
-                np.array([0.0, 0.0, reference.default_base_height]),
+                np.array(
+                    [0.0, 0.0, reference.nom_pos_base_rt_world_ewrt_world_z]
+                ),
                 np.eye(3),
             )
             self._assert_stands(robot, "reference default", base, positions)
@@ -306,13 +308,13 @@ class DefaultStanceTest(unittest.TestCase):
             positions = {
                 entry.joint: entry.value for entry in state.joint_positions
             }
-            orientation = state.base_orientation
+            orientation = state.eulerzyx_base_rt_world
             base = (
                 np.array(
                     [
-                        state.base_position.x,
-                        state.base_position.y,
-                        state.base_position.z,
+                        state.pos_base_rt_world_ewrt_world.x,
+                        state.pos_base_rt_world_ewrt_world.y,
+                        state.pos_base_rt_world_ewrt_world.z,
                     ]
                 ),
                 _rotation_from_rpy(
@@ -326,8 +328,8 @@ class DefaultStanceTest(unittest.TestCase):
         for robot in _ROBOTS:
             _, reference, task = _load(robot)
             self.assertAlmostEqual(
-                task.initial_state.base_position.z,
-                reference.default_base_height,
+                task.initial_state.pos_base_rt_world_ewrt_world.z,
+                reference.nom_pos_base_rt_world_ewrt_world_z,
                 delta=1e-9,
                 msg=robot,
             )

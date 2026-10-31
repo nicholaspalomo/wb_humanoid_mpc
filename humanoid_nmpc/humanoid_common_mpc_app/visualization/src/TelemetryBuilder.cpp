@@ -582,17 +582,16 @@ void TelemetryBuilder::computeReference(
     return;
   }
   reference.q = robotModel_->getGeneralizedCoordinates(state);
-  reference.eulerAnglesZyx = robotModel_->getBaseOrientationEulerZyx(state);
-  referenceBasePosition_ = robotModel_->getBasePosition(state);
+  reference.eulerAnglesZyx = robotModel_->getEulerzyxBaseRtWorld(state);
+  referenceBasePosition_ = robotModel_->getPosBaseRtWorldEwrtWorld(state);
   referenceBaseLinearVelocity_ = robotModel_->getBaseComLinearVelocity(state);
   if (sample != TargetSample::kStateAndInput) {
     return;
   }
   reference.v = generalizedVelocities(state, input);
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    reference.contactWrenches[contact] =
-        robotModel_->getContactWrenchInWorldFrame(state, input,
-                                                  footContact(contact));
+    reference.contactWrenches[contact] = robotModel_->getWrenchContactEwrtWorld(
+        state, input, footContact(contact));
   }
   const scalar_array_t& times = policy->target.timeTrajectory;
   const scalar_t earlier =
@@ -630,10 +629,10 @@ void TelemetryBuilder::computePlan(const DecodedRobotState& measured,
   vector_t input;
   samplePlan(*policy, stateManifold_, time, &state, &input);
   plan.q = robotModel_->getGeneralizedCoordinates(state);
-  plan.eulerAnglesZyx = robotModel_->getBaseOrientationEulerZyx(state);
+  plan.eulerAnglesZyx = robotModel_->getEulerzyxBaseRtWorld(state);
   plan.v = generalizedVelocities(state, input);
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    plan.contactWrenches[contact] = robotModel_->getContactWrenchInWorldFrame(
+    plan.contactWrenches[contact] = robotModel_->getWrenchContactEwrtWorld(
         state, input, footContact(contact));
   }
   const scalar_t earlier =

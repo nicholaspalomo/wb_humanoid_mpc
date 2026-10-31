@@ -46,13 +46,14 @@ namespace ocs2::humanoid::validation {
  */
 struct GuiCommandScaling {
   /**
-   * [m/s, m/s, rad/s] max_displacement_velocity_x, max_displacement_velocity_y
-   * and max_rotation_velocity of the reference file: the forward, sideways and
-   * yaw velocity of a full stick deflection. Positive.
+   * [m/s, m/s, rad/s] cmd_max_linvel_base_rt_world_ewrt_heading_x,
+   * cmd_max_linvel_base_rt_world_ewrt_heading_y and
+   * cmd_max_angvel_base_rt_world_ewrt_world_z of the reference file: the
+   * forward, sideways and yaw velocity of a full stick deflection. Positive.
    */
   Eigen::Vector3d commandLimits = Eigen::Vector3d::Ones();
-  /** [m] default_base_height of the reference file: the pelvis height the GUI's
-   * slider sends. */
+  /** [m] nom_pos_base_rt_world_ewrt_world_z of the reference file: the pelvis
+   * height the GUI's slider sends. */
   double defaultPelvisHeight = 0.0;
 };
 

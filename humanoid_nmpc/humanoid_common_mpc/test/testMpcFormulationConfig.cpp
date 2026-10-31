@@ -306,7 +306,7 @@ TEST(MpcFormulationNames,
   // And so is every enumerator that has a name, and nothing else: the enum is
   // walked by value (it has no explicit values) until mpcCostTypeToString()
   // knows no more, so a cost added to the enum and to its name but not to the
-  // generated list fails here rather than quietly going unoffered.
+  // generated list fails here rather than going unoffered.
   const std::string message(cost.status().message());
   const std::string::size_type listStart = message.find("are: ");
   ASSERT_NE(listStart, std::string::npos) << message;

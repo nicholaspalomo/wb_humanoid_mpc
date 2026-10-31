@@ -71,10 +71,10 @@ class ProductStateManifold final : public StateManifold {
   const std::vector<StateManifoldSegment>& getSegments() const { return segments_; }
 
   /** The first ambient index of every unit-quaternion block, in state order. */
-  std::vector<size_t> getQuaternionAmbientOffsets() const;
+  std::vector<size_t> getUnitQuaternionAmbientOffsets() const;
 
   /** The first tangent index of every unit-quaternion block, in state order. */
-  std::vector<size_t> getQuaternionTangentOffsets() const;
+  std::vector<size_t> getUnitQuaternionTangentOffsets() const;
 
   void retract(const vector_t& x, const vector_t& dx, scalar_t alpha, vector_t& xNew) const override;
   vector_t difference(const vector_t& x0, const vector_t& x1) const override;
@@ -84,14 +84,14 @@ class ProductStateManifold final : public StateManifold {
   /** Block by block, a quaternion block in fixed-size Eigen types: no temporary is allocated. */
   void interpolateInto(const vector_t& x0, const vector_t& x1, scalar_t alpha, vector_t& x) const override;
   void project(vector_t& x) const override;
-  scalar_t getMaximumRotationAngle(const vector_t& dx) const override;
-  /** False when a quaternion block's |xi|^2 is not above kQuaternionNormalizationEpsilon^2 (the guard), NaN included. */
-  bool hasRepresentableRotations(const vector_t& x) const override;
+  scalar_t getMaximumTangentAngle(const vector_t& dx) const override;
+  /** False when a quaternion block's |xi|^2 is not above kUnitQuaternionNormalizationEpsilon^2 (the guard), NaN included. */
+  bool hasRepresentableAttitudes(const vector_t& x) const override;
   void pullBackStateColumns(const vector_t& x, matrix_t& J) const override;
   void pullBackStateRows(const vector_t& x, matrix_t& M) const override;
   void pullBackGradient(const vector_t& x, vector_t& g) const override;
   void liftStateColumns(const vector_t& x, matrix_t& J) const override;
-  /** StateManifold's, with its precondition: every quaternion block of Phi longer than kQuaternionNormalizationEpsilon. */
+  /** StateManifold's, with its precondition: every quaternion block of Phi longer than kUnitQuaternionNormalizationEpsilon. */
   void pushForwardDynamics(const vector_t& x, const vector_t& xNext, VectorFunctionLinearApproximation& dynamics) const override;
 
  private:
@@ -107,12 +107,12 @@ class ProductStateManifold final : public StateManifold {
   explicit ProductStateManifold(std::vector<StateManifoldSegment> segments);
 
   /** M <- M with the columns of each quaternion block multiplied by columnMaps[k] (4 x 3), the others shifted. */
-  void mapQuaternionColumns(const std::vector<Eigen::Matrix<scalar_t, kQuaternionCoefficients, kRotationTangentDim>>& columnMaps,
+  void mapUnitQuaternionColumns(const std::vector<Eigen::Matrix<scalar_t, kQuaternionCoefficients, kRotationTangentDim>>& columnMaps,
                             matrix_t& M) const;
 
   /** M <- M with the rows of each quaternion block replaced by rowMaps[k] (3 x 4) times them, the others shifted. */
   template <typename Derived>
-  void mapQuaternionRows(const std::vector<Eigen::Matrix<scalar_t, kRotationTangentDim, kQuaternionCoefficients>>& rowMaps,
+  void mapUnitQuaternionRows(const std::vector<Eigen::Matrix<scalar_t, kRotationTangentDim, kQuaternionCoefficients>>& rowMaps,
                          Eigen::PlainObjectBase<Derived>& M) const;
 
   /** E(xi) of every quaternion block of x. */

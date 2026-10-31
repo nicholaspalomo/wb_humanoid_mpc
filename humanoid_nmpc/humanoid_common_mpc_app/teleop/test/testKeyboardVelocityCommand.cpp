@@ -112,9 +112,12 @@ TEST(KeyboardCommandLimits, EveryShippedReferenceFileHasPositiveLimits) {
 TEST(KeyboardCommandLimits,
      RefusesAMissingFieldALimitThatIsNotPositiveAnUnknownFieldAndAMissingFile) {
   const std::string complete =
-      "max_displacement_velocity_x: 0.6\nmax_displacement_velocity_y: "
-      "0.3\nmax_delta_pelvis_height: 0.2\n"
-      "max_rotation_velocity: 0.8\ndefault_base_height: 0.75\n";
+      "cmd_max_linvel_base_rt_world_ewrt_heading_x: "
+      "0.6\ncmd_max_linvel_base_rt_world_ewrt_heading_y: "
+      "0.3\ncmd_max_err_pos_base_rt_world_ewrt_world_z: 0.2\n"
+      "cmd_max_angvel_base_rt_world_ewrt_world_z: "
+      "0.8\nnom_pos_base_rt_world_ewrt_world_z: "
+      "0.75\n";
   const absl::StatusOr<KeyboardCommandLimits> loaded =
       loadKeyboardCommandLimits(
           writeTemporaryFile("complete.textproto", complete));
@@ -123,15 +126,16 @@ TEST(KeyboardCommandLimits,
   EXPECT_EQ(loaded->limits(3), 0.8);
   EXPECT_EQ(loaded->defaultBaseHeight, 0.75);
 
-  const std::string missingFile = writeTemporaryFile(
-      "missing.textproto", "max_displacement_velocity_x: 0.6\n");
+  const std::string missingFile =
+      writeTemporaryFile("missing.textproto",
+                         "cmd_max_linvel_base_rt_world_ewrt_heading_x: 0.6\n");
   const absl::StatusOr<KeyboardCommandLimits> missing =
       loadKeyboardCommandLimits(missingFile);
   EXPECT_EQ(missing.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_TRUE(absl::StartsWith(missing.status().message(), missingFile))
       << missing.status();
   EXPECT_TRUE(absl::StrContains(missing.status().message(),
-                                "max_displacement_velocity_y"))
+                                "cmd_max_linvel_base_rt_world_ewrt_heading_y"))
       << missing.status();
 
   std::string zero = complete;
@@ -140,7 +144,7 @@ TEST(KeyboardCommandLimits,
       loadKeyboardCommandLimits(writeTemporaryFile("zero.textproto", zero));
   EXPECT_EQ(notPositive.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_TRUE(absl::StrContains(notPositive.status().message(),
-                                "max_displacement_velocity_y"))
+                                "cmd_max_linvel_base_rt_world_ewrt_heading_y"))
       << notPositive.status();
 
   // The file is read strictly: a field the schema does not have is refused
@@ -190,17 +194,17 @@ TEST(KeyboardCommandToMessage, NormalizesByTheLimitsAndClampsToThem) {
 
   const humanoid_mpc_msgs::WalkingVelocityCommand inside =
       keyboardCommandToMessage(vector4_t(0.25, -0.125, -0.1, 0.5), limits);
-  EXPECT_DOUBLE_EQ(inside.linear_velocity_x(), 0.5);
-  EXPECT_DOUBLE_EQ(inside.linear_velocity_y(), -0.5);
-  EXPECT_DOUBLE_EQ(inside.desired_pelvis_height(), 0.6);
-  EXPECT_DOUBLE_EQ(inside.angular_velocity_z(), 0.5);
+  EXPECT_DOUBLE_EQ(inside.cmd_linvel_base_rt_world_ewrt_heading_x(), 0.5);
+  EXPECT_DOUBLE_EQ(inside.cmd_linvel_base_rt_world_ewrt_heading_y(), -0.5);
+  EXPECT_DOUBLE_EQ(inside.cmd_pos_base_rt_world_ewrt_world_z(), 0.6);
+  EXPECT_DOUBLE_EQ(inside.cmd_angvel_base_rt_world_ewrt_world_z(), 0.5);
 
   const humanoid_mpc_msgs::WalkingVelocityCommand beyond =
       keyboardCommandToMessage(vector4_t(3.0, -3.0, 1.0, -9.0), limits);
-  EXPECT_DOUBLE_EQ(beyond.linear_velocity_x(), 1.0);
-  EXPECT_DOUBLE_EQ(beyond.linear_velocity_y(), -1.0);
-  EXPECT_DOUBLE_EQ(beyond.desired_pelvis_height(), 0.9);
-  EXPECT_DOUBLE_EQ(beyond.angular_velocity_z(), -1.0);
+  EXPECT_DOUBLE_EQ(beyond.cmd_linvel_base_rt_world_ewrt_heading_x(), 1.0);
+  EXPECT_DOUBLE_EQ(beyond.cmd_linvel_base_rt_world_ewrt_heading_y(), -1.0);
+  EXPECT_DOUBLE_EQ(beyond.cmd_pos_base_rt_world_ewrt_world_z(), 0.9);
+  EXPECT_DOUBLE_EQ(beyond.cmd_angvel_base_rt_world_ewrt_world_z(), -1.0);
 }
 
 TEST(LineReader, ReadsLinesAndTheLastOneWithoutABreak) {
@@ -232,14 +236,15 @@ TEST(LineReader, GivesUpWaitingOnceTheStopPredicateHolds) {
   ::close(pipeEnds[1]);
 }
 
-// A complete reference file whose max_displacement_velocity_x is `maxVelocityX`
-// (default_base_height 0.75 m).
+// A complete reference file whose cmd_max_linvel_base_rt_world_ewrt_heading_x
+// is `maxVelocityX` (nom_pos_base_rt_world_ewrt_world_z 0.75 m).
 std::string referenceWithMaxVelocityX(const std::string& maxVelocityX) {
   return absl::StrCat(
-      "max_displacement_velocity_x: ", maxVelocityX,
-      "\nmax_displacement_velocity_y: 0.3\nmax_delta_pelvis_height: "
-      "0.2\nmax_rotation_velocity: 0.8\n"
-      "default_base_height: 0.75\n");
+      "cmd_max_linvel_base_rt_world_ewrt_heading_x: ", maxVelocityX,
+      "\ncmd_max_linvel_base_rt_world_ewrt_heading_y: "
+      "0.3\ncmd_max_err_pos_base_rt_world_ewrt_world_z: "
+      "0.2\ncmd_max_angvel_base_rt_world_ewrt_world_z: 0.8\n"
+      "nom_pos_base_rt_world_ewrt_world_z: 0.75\n");
 }
 
 // Rewrites `path` with the reference file `content` below kReferenceHeader and
@@ -348,7 +353,7 @@ TEST(VelocityCommandRepeater,
     // An if, not ASSERT_TRUE: clang-tidy sees the check
     // (bugprone-unchecked-optional-access) only through an if.
     if (!received.has_value()) FAIL() << "no command";
-    EXPECT_EQ(received->linear_velocity_x(), 0.5);
+    EXPECT_EQ(received->cmd_linvel_base_rt_world_ewrt_heading_x(), 0.5);
   }
   // Repeated at about 25 Hz, not as fast as the IO thread can.
   const uint64_t before = (*repeater)->published();
@@ -412,7 +417,7 @@ TEST(VelocityCommandRepeater, ASavedChangeOfTheLimitsKeepsTheTypedSpeed) {
   rig.repeater->setCommand(vector4_t(0.5, 0.0, 0.0, 0.0), *limits);
   ASSERT_TRUE(rig.recorder->waitFor(
       [](const humanoid_mpc_msgs::WalkingVelocityCommand& c) {
-        return c.linear_velocity_x() == 0.5;
+        return c.cmd_linvel_base_rt_world_ewrt_heading_x() == 0.5;
       },
       absl::Seconds(10)));
 
@@ -422,7 +427,7 @@ TEST(VelocityCommandRepeater, ASavedChangeOfTheLimitsKeepsTheTypedSpeed) {
                /*secondsLater=*/2);
   EXPECT_TRUE(rig.recorder->waitFor(
       [](const humanoid_mpc_msgs::WalkingVelocityCommand& c) {
-        return c.linear_velocity_x() == 0.25;
+        return c.cmd_linvel_base_rt_world_ewrt_heading_x() == 0.25;
       },
       absl::Seconds(10)));
   EXPECT_GE(rig.repeater->limitsReloads(), 1u);
@@ -433,18 +438,18 @@ TEST(VelocityCommandRepeater, ASavedChangeOfTheLimitsKeepsTheTypedSpeed) {
                /*secondsLater=*/4);
   EXPECT_TRUE(rig.recorder->waitFor(
       [](const humanoid_mpc_msgs::WalkingVelocityCommand& c) {
-        return c.linear_velocity_x() == 1.0;
+        return c.cmd_linvel_base_rt_world_ewrt_heading_x() == 1.0;
       },
       absl::Seconds(10)));
 
   // A file that no longer reads keeps the previous limits.
-  rewriteLater(referenceFile, "max_displacement_velocity_x: \n",
+  rewriteLater(referenceFile, "cmd_max_linvel_base_rt_world_ewrt_heading_x: \n",
                /*secondsLater=*/6);
   absl::SleepFor(absl::Milliseconds(400));
   const std::optional<humanoid_mpc_msgs::WalkingVelocityCommand> kept =
       rig.recorder->last();
   if (!kept.has_value()) FAIL() << "no command";
-  EXPECT_EQ(kept->linear_velocity_x(), 1.0);
+  EXPECT_EQ(kept->cmd_linvel_base_rt_world_ewrt_heading_x(), 1.0);
   rig.teleop->stop();
   rig.mpc->stop();
 }
@@ -468,20 +473,21 @@ TEST(VelocityCommandRepeater, EndsWithTheStopCommandKeepingTheHeight) {
   rig.repeater->setCommand(vector4_t(0.5, 0.1, 0.05, 0.2), *limits);
   ASSERT_TRUE(rig.recorder->waitFor(
       [](const humanoid_mpc_msgs::WalkingVelocityCommand& c) {
-        return c.linear_velocity_x() == 0.5;
+        return c.cmd_linvel_base_rt_world_ewrt_heading_x() == 0.5;
       },
       absl::Seconds(10)));
   EXPECT_TRUE(rig.repeater->publishStopCommand());
   EXPECT_TRUE(rig.recorder->waitFor(
       [](const humanoid_mpc_msgs::WalkingVelocityCommand& c) {
-        return c.linear_velocity_x() == 0.0 && c.linear_velocity_y() == 0.0 &&
-               c.angular_velocity_z() == 0.0;
+        return c.cmd_linvel_base_rt_world_ewrt_heading_x() == 0.0 &&
+               c.cmd_linvel_base_rt_world_ewrt_heading_y() == 0.0 &&
+               c.cmd_angvel_base_rt_world_ewrt_world_z() == 0.0;
       },
       absl::Seconds(10)));
   const std::optional<humanoid_mpc_msgs::WalkingVelocityCommand> stop =
       rig.recorder->last();
   if (!stop.has_value()) FAIL() << "no command";
-  EXPECT_DOUBLE_EQ(stop->desired_pelvis_height(), 0.75 + 0.05);
+  EXPECT_DOUBLE_EQ(stop->cmd_pos_base_rt_world_ewrt_world_z(), 0.75 + 0.05);
   rig.teleop->stop();
   rig.mpc->stop();
 }

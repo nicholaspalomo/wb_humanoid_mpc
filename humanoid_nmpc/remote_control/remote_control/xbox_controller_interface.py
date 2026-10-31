@@ -166,7 +166,7 @@ class XBoxControllerInterface:
     Args:
         publisher_rate: how often get_walking_command_msg() is called [Hz]; it scales the pelvis height rate.
         backend: the joysticks (default: pygame's).
-        initial_pelvis_height: the pelvis height target the triggers start from [m]: the robot's default_base_height
+        initial_pelvis_height: the pelvis height target the triggers start from [m]: the robot's nom_pos_base_rt_world_ewrt_world_z
             (teleop.initial_pelvis_height()), clamped to the target's range.
     """
 
@@ -256,10 +256,10 @@ class XBoxControllerInterface:
             self.max_pelvis_height,
         )
         return True, operator_bus.walking_velocity_command(
-            linear_velocity_x=controller_input.x_left,
-            linear_velocity_y=controller_input.y_left,
-            angular_velocity_z=controller_input.y_right,
-            desired_pelvis_height=self.current_pelvis_height_target,
+            cmd_linvel_base_rt_world_ewrt_heading_x=controller_input.x_left,
+            cmd_linvel_base_rt_world_ewrt_heading_y=controller_input.y_left,
+            cmd_angvel_base_rt_world_ewrt_world_z=controller_input.y_right,
+            cmd_pos_base_rt_world_ewrt_world_z=self.current_pelvis_height_target,
         )
 
 

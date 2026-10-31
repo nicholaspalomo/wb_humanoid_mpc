@@ -311,7 +311,7 @@ scalar_t warmStartRotationGap(const MpcEquivalenceFixture& mpc,
   vector_t end =
       discretizer(dynamics, /*t=*/0.0, state, input, mpc.nodeTimeStep());
   mpc.manifold().project(end);
-  return mpc.manifold().getMaximumRotationAngle(
+  return mpc.manifold().getMaximumTangentAngle(
       mpc.manifold().difference(state, end));
 }
 
@@ -385,7 +385,7 @@ scalar_t warmStartAngularVelocityGap(const MpcEquivalenceFixture& mpc,
 }
 
 /** C(Theta, r) = d(T_B(Theta) r) / dTheta by central differences of
- * eulerZyxRateToLocalAngularVelocityMatrix (kRateMapStep). */
+ * eulerZyxRateToBodyRateMatrix (kRateMapStep). */
 matrix3_t rateMapDerivative(const vector3_t& angles, const vector3_t& rates) {
   matrix3_t derivative;
   for (Eigen::Index column = 0; column < 3; ++column) {
@@ -393,10 +393,9 @@ matrix3_t rateMapDerivative(const vector3_t& angles, const vector3_t& rates) {
     vector3_t down = angles;
     up(column) += kRateMapStep;
     down(column) -= kRateMapStep;
-    derivative.col(column) =
-        (eulerZyxRateToLocalAngularVelocityMatrix(up) * rates -
-         eulerZyxRateToLocalAngularVelocityMatrix(down) * rates) /
-        (2.0 * kRateMapStep);
+    derivative.col(column) = (eulerZyxRateToBodyRateMatrix(up) * rates -
+                              eulerZyxRateToBodyRateMatrix(down) * rates) /
+                             (2.0 * kRateMapStep);
   }
   return derivative;
 }
@@ -455,7 +454,7 @@ KickedWarmStart kickedWarmStart(const MpcEquivalenceFixture& mpc,
     next.segment<3>(rows.angularVelocity) += kick;
     const vector_t gap = mpc.manifold().difference(next, end);
     kicked.largestRotationGap = std::max(
-        kicked.largestRotationGap, mpc.manifold().getMaximumRotationAngle(gap));
+        kicked.largestRotationGap, mpc.manifold().getMaximumTangentAngle(gap));
     kicked.largestKickError = std::max(
         kicked.largestKickError,
         (gap.segment<3>(rows.eulerRates) + kick).cwiseAbs().maxCoeff());
@@ -615,7 +614,7 @@ TEST_P(
 
       // The gap's value: the same in both charts, the angular velocity's rows
       // alone.
-      ASSERT_LE(mpc.manifold().getMaximumRotationAngle(onQuaternions.f),
+      ASSERT_LE(mpc.manifold().getMaximumTangentAngle(onQuaternions.f),
                 kNoRotation);
       EXPECT_TRUE(isCloseToScale(onTheChart.f, onQuaternions.f,
                                  kSameArithmeticTolerance, /*floor=*/1.0))
@@ -633,8 +632,7 @@ TEST_P(
           mpc.physicalTangentJacobian(nextEuler) *
           mpc.physicalTangentJacobian(endEuler).inverse();
       const vector3_t angles = endEuler.segment<3>(rows.eulerAngles);
-      const matrix3_t rateMap =
-          eulerZyxRateToLocalAngularVelocityMatrix(angles);
+      const matrix3_t rateMap = eulerZyxRateToBodyRateMatrix(angles);
       const vector3_t rateDifference = nextEuler.segment<3>(rows.eulerRates) -
                                        endEuler.segment<3>(rows.eulerRates);
       const matrix3_t expectedBlock =
@@ -805,7 +803,7 @@ GapComparison compareGaps(const MpcEquivalenceFixture& mpc,
       chart.pushForwardDynamics(states[i], states[i + 1], onTheChart);
     }
     const scalar_t rotation =
-        mpc.manifold().getMaximumRotationAngle(onQuaternions.f);
+        mpc.manifold().getMaximumTangentAngle(onQuaternions.f);
     const scalar_t angularVelocity =
         rows.angularVelocity >= 0
             ? onQuaternions.f.segment<3>(rows.eulerRates).cwiseAbs().maxCoeff()

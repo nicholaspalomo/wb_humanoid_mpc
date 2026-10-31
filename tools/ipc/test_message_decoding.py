@@ -333,7 +333,7 @@ class TextFormatTest(unittest.TestCase):
             status,
         )
         targets = joint_targets_pb2.JointTargets(
-            positions={"right_knee": -0.5, "left_knee": 0.25}
+            joint_positions={"right_knee": -0.5, "left_knee": 0.25}
         )
         text = message_decoding.message_to_text(targets)
         self.assertEqual(
@@ -343,7 +343,7 @@ class TextFormatTest(unittest.TestCase):
         empty = message_decoding.message_to_text(
             joint_targets_pb2.JointTargets()
         )
-        self.assertEqual(empty, "positions: []")
+        self.assertEqual(empty, "joint_positions: []")
         self.assertEqual(
             parse_text(empty, joint_targets_pb2.JointTargets),
             joint_targets_pb2.JointTargets(),
@@ -401,7 +401,7 @@ class TextFormatTest(unittest.TestCase):
         )
         self.assertEqual(parsed, throw)
         self.assertFalse(parsed.HasField("mass"))
-        self.assertFalse(parsed.HasField("spawn_offset"))
+        self.assertFalse(parsed.HasField("spawn_pos_ball_rt_base_ewrt_heading"))
 
     def test_selected_fields_print_as_a_pruned_textproto(self) -> None:
         text = message_decoding.format_fields(

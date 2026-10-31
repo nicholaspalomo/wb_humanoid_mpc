@@ -68,9 +68,9 @@ bool carriesContactImplicitTerms(const OptimalControlProblem& ocp,
     if (carriesTerm(*ocp.softConstraintPtr,
                     contact_term::name(
                         footName, contact_term::kContactComplementarity)) ||
-        carriesTerm(
-            *ocp.softConstraintPtr,
-            contact_term::name(footName, contact_term::kForceWeightedSlip)) ||
+        carriesTerm(*ocp.softConstraintPtr,
+                    contact_term::name(footName,
+                                       contact_term::kForceWeightedSlipName)) ||
         carriesTerm(
             *ocp.stateSoftConstraintPtr,
             contact_term::name(footName, contact_term::kGroundPenetration))) {
@@ -122,11 +122,12 @@ void ContactImplicitApplier::apply(HotUpdateTarget& target) {
           });
       updateTermIfPresent<StateInputSoftConstraint>(
           *ocp.softConstraintPtr,
-          contact_term::name(footName, contact_term::kForceWeightedSlip),
+          contact_term::name(footName, contact_term::kForceWeightedSlipName),
           [&](StateInputSoftConstraint& softCon) {
             setPenaltyParameters(softCon, slipParams);
-            softCon.get<ForceWeightedSlipConstraint>().setTwistReferences(
-                reloaded.velocityReference, reloaded.angularVelocityReference);
+            softCon.get<ForceWeightedSlipConstraint>().setSlipScales(
+                reloaded.scaleLinvelContactRtWorldEwrtWorldXy,
+                reloaded.scaleAngvelContactRtWorldEwrtWorldZ);
           });
       updateTermIfPresent<StateSoftConstraint>(
           *ocp.stateSoftConstraintPtr,

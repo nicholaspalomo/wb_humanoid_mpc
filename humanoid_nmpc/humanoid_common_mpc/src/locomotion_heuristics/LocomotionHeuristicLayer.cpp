@@ -133,13 +133,12 @@ LocomotionHeuristicLayer::Create(
   // The basis-vector parameterization expresses the contact input in the LOCAL
   // contact frame, so a horizontal world-frame force has to be rotated into it
   // by the foot's own orientation. The model supplies exactly that through
-  // setContactForceInWorldFrame(), whose BasisInputsModelDecorator override
+  // setForceContactEwrtWorld(), whose BasisInputsModelDecorator override
   // takes a local copy of the Pinocchio data and is documented as safe to call
-  // from several threads - so this combination WORKS, and the only thing it
-  // costs is one forward-kinematics pass per shooting node per SQP iteration in
-  // the two input costs. That is a real cost on a hot path, and it is paid only
-  // when a heuristic that needs it is listed, which is why it is reported
-  // rather than hidden.
+  // from several threads, so this combination works and costs one
+  // forward-kinematics pass per shooting node per SQP iteration in the two
+  // input costs. That extra pass is paid only when a heuristic that needs it is
+  // listed, which is why start-up logs a warning.
   if (environment.usesContactBasisVectorInputs &&
       layer->wrenchNeedsWorldFrame_) {
     LOG(WARNING) << "[LocomotionHeuristicLayer] a listed wrench heuristic "

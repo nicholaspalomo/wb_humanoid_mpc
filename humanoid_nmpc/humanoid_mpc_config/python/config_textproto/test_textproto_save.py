@@ -1062,7 +1062,7 @@ def _gaps(document: textproto_document.TextprotoDocument) -> list[str]:
     """The text between the values of `document`: what an edit of values only leaves as it is."""
     text = document.text()
     gaps = []
-    position = 0
+    offset = 0
     pending = [document.root]
     nodes = []
     while pending:
@@ -1079,9 +1079,9 @@ def _gaps(document: textproto_document.TextprotoDocument) -> list[str]:
                 else:
                     pending.append(value)
     for node in sorted(nodes, key=lambda node: node.start):
-        gaps.append(text[position : node.start])
-        position = node.end
-    gaps.append(text[position:])
+        gaps.append(text[offset : node.start])
+        offset = node.end
+    gaps.append(text[offset:])
     return gaps
 
 

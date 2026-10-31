@@ -196,8 +196,8 @@ std::vector<UnloadingWindow> unloadingWindowsOf(
 RobotConfiguration configurationOf(const MpcRobotModelBase<scalar_t>& model,
                                    const vector_t& state) {
   RobotConfiguration configuration;
-  configuration.basePosition = model.getBasePosition(state);
-  configuration.baseOrientation.coeffs() = model.getBaseOrientation(state);
+  configuration.basePosition = model.getPosBaseRtWorldEwrtWorld(state);
+  configuration.baseOrientation.coeffs() = model.getQuatBaseRtWorldXyzw(state);
   configuration.baseOrientation.normalize();
   configuration.jointNames = model.modelSettings.mpcModelJointNames;
   configuration.jointPositions = model.getJointAngles(state);
@@ -454,8 +454,7 @@ absl::StatusOr<RefinementResult> HardContactRefinement::solve(
           unloadingWindowsOf(guess, interface->getMpcRobotModel(),
                              settings.contactNames, loaded_.contactSet,
                              options_.unloadingWindow),
-          options_.unloadingWeight,
-          info.robotMass * kGravitationalAcceleration));
+          options_.unloadingWeight, info.robotMass * kGravityMagnitude));
 
   ASSIGN_OR_RETURN(std::unique_ptr<LandingAlignmentCost> landing,
                    landingAlignmentOf(guess, *interface, loaded_, options_));

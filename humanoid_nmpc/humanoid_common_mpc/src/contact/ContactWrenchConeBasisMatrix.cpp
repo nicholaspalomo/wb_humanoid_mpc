@@ -77,15 +77,15 @@ constexpr scalar_t kHashZeroThreshold =
  * plus a torsion about the contact normal. The moment is taken about the
  * contact frame origin.
  */
-vector6_t wrenchAt(const vector2_t& point,
-                   const vector3_t& force,
-                   scalar_t torsion) {
-  vector6_t wrench;
-  wrench.head<kForceDim>() = force;
-  wrench.tail<kTorqueDim>() =
-      vector3_t(point.x(), point.y(), 0.0).cross(force) +
+vector6_t generatorWrenchAt(const vector2_t& point,
+                            const vector3_t& generatorForce,
+                            scalar_t torsion) {
+  vector6_t generatorWrench;
+  generatorWrench.head<kForceDim>() = generatorForce;
+  generatorWrench.tail<kTorqueDim>() =
+      vector3_t(point.x(), point.y(), 0.0).cross(generatorForce) +
       vector3_t(0.0, 0.0, torsion);
-  return wrench;
+  return generatorWrench;
 }
 
 /** The N + 7 set, see kConservativeInnerApproximationGeneratorSet. */
@@ -119,7 +119,7 @@ absl::StatusOr<matrix_t> buildConservativeInnerApproximation(
       std::clamp(patchXy.x(), bounds.x_min, bounds.x_max),
       std::clamp(patchXy.y(), bounds.y_min, bounds.y_max));
   const std::optional<TorsionInterval> torsionLimits =
-      torsionLimitsOfNormalForceAt(
+      computeLimitsPerNewtonTorqueContactEwrtContactZ(
           buildLocalWrenchConeRows(config, contactRectangle), clampedPatch);
   if (!torsionLimits.has_value()) {
     return absl::InternalError(
@@ -148,22 +148,24 @@ absl::StatusOr<matrix_t> buildConservativeInnerApproximation(
   Eigen::Index column = 0;
   // 1. Friction-pyramid edges at the patch point.
   for (const vector3_t& edge : frictionPyramidEdges(config)) {
-    basis.col(column++) = wrenchAt(clampedPatch, edge, /*torsion=*/0.0);
+    basis.col(column++) =
+        generatorWrenchAt(clampedPatch, edge, /*torsion=*/0.0);
   }
   // 2. A pure normal force at the patch point.
   basis.col(column++) =
-      wrenchAt(clampedPatch, vector3_t::UnitZ(), /*torsion=*/0.0);
+      generatorWrenchAt(clampedPatch, vector3_t::UnitZ(), /*torsion=*/0.0);
   // 3. A unit normal force at each footprint corner, which puts the center of
   // pressure on that corner.
   for (const vector2_t& corner : footprintCorners(contactRectangle)) {
-    basis.col(column++) = wrenchAt(corner, vector3_t::UnitZ(), /*torsion=*/0.0);
+    basis.col(column++) =
+        generatorWrenchAt(corner, vector3_t::UnitZ(), /*torsion=*/0.0);
   }
   // 4. A unit normal force at the patch point with the torsional limit of
   // either sign.
   basis.col(column++) =
-      wrenchAt(clampedPatch, vector3_t::UnitZ(), torsionLimits->upper);
+      generatorWrenchAt(clampedPatch, vector3_t::UnitZ(), torsionLimits->upper);
   basis.col(column++) =
-      wrenchAt(clampedPatch, vector3_t::UnitZ(), torsionLimits->lower);
+      generatorWrenchAt(clampedPatch, vector3_t::UnitZ(), torsionLimits->lower);
   ABSL_CHECK_EQ(column, basis.cols())
       << "ContactWrenchConeBasisMatrix: a generator set filled another number "
          "of columns than it has";
@@ -333,8 +335,9 @@ ContactWrenchConeBasisMatrix::ContactWrenchConeBasisMatrix(
 }
 
 vector_t ContactWrenchConeBasisMatrix::solveNonNegativeScalings(
-    const vector6_t& wrenchLocal) const {
-  return solveNonNegativeBasisScalings(B_local_, B_pinv_local_, wrenchLocal);
+    const vector6_t& wrenchContactEwrtContact) const {
+  return solveNonNegativeBasisScalings(B_local_, B_pinv_local_,
+                                       wrenchContactEwrtContact);
 }
 
 /******************************************************************************************************/
@@ -421,17 +424,18 @@ vector_t solveNonNegativeLeastSquares(const matrix_t& A, const vector_t& b) {
   return x.cwiseMax(0.0);
 }
 
-vector_t solveNonNegativeBasisScalings(const matrix_t& basisMatrix,
-                                       const matrix_t& basisPseudoInverse,
-                                       const vector_t& wrench) {
-  const vector_t minimumNorm = basisPseudoInverse * wrench;
+vector_t solveNonNegativeBasisScalings(
+    const matrix_t& basisMatrix,
+    const matrix_t& basisPseudoInverse,
+    const vector_t& wrenchContactEwrtContact) {
+  const vector_t minimumNorm = basisPseudoInverse * wrenchContactEwrtContact;
   const scalar_t tolerance =
       kNonNegativeRelativeTolerance *
       std::max<scalar_t>(1.0, minimumNorm.cwiseAbs().maxCoeff());
   if (minimumNorm.size() == 0 || minimumNorm.minCoeff() >= -tolerance) {
     return minimumNorm.cwiseMax(0.0);
   }
-  return solveNonNegativeLeastSquares(basisMatrix, wrench);
+  return solveNonNegativeLeastSquares(basisMatrix, wrenchContactEwrtContact);
 }
 
 /******************************************************************************************************/

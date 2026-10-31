@@ -199,9 +199,9 @@ VECTOR_T<SCALAR_T> CentroidalDynamicsBasisInputsAD::toWorldFrameWrenchInput(
         data.oMf[contactFrameIndices_[i]].rotation();
     // Contact i is the i-th six-DoF contact (there are no three-DoF contacts,
     // checked in the constructor).
-    centroidal_model::getContactForces(wrenchInput, i, info) =
+    centroidal_model::getForceContactEwrtWorld(wrenchInput, i, info) =
         w_R_l * wrenchLocal.template head<kForceDim>();
-    centroidal_model::getContactTorques(wrenchInput, i, info) =
+    centroidal_model::getTorqueContactEwrtWorld(wrenchInput, i, info) =
         w_R_l * wrenchLocal.template tail<kTorqueDim>();
   }
   centroidal_model::getJointVelocities(wrenchInput, info) =
@@ -245,8 +245,8 @@ ad_vector_t CentroidalDynamicsBasisInputsAD::systemFlowMap(
 
   // compute center of mass acceleration and derivative of the normalized
   // angular momentum
-  centroidal_model::getNormalizedMomentum(stateDerivative, info) =
-      getNormalizedCentroidalMomentumRate(pinocchioInterfaceCppAd, info,
+  centroidal_model::getMnormCmomComRtWorldEwrtWorld(stateDerivative, info) =
+      getMnormRateCmomComRtWorldEwrtWorld(pinocchioInterfaceCppAd, info,
                                           wrenchInput);
 
   // derivatives of the generalized coordinates [p_W, xi, q_j] from the

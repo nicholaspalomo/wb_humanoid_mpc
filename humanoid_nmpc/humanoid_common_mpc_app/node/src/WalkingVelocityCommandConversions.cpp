@@ -51,32 +51,39 @@ absl::Status checkFinite(absl::string_view field, double value) {
 WalkingVelocityCommand clampWalkingVelocityCommand(
     const WalkingVelocityCommand& command) {
   WalkingVelocityCommand clamped;
-  clamped.linear_velocity_x =
-      std::clamp(command.linear_velocity_x, -kMaxNormalizedVelocity,
-                 kMaxNormalizedVelocity);
-  clamped.linear_velocity_y =
-      std::clamp(command.linear_velocity_y, -kMaxNormalizedVelocity,
-                 kMaxNormalizedVelocity);
-  clamped.desired_pelvis_height = std::clamp(
-      command.desired_pelvis_height, kMinPelvisHeight, kMaxPelvisHeight);
-  clamped.angular_velocity_z =
-      std::clamp(command.angular_velocity_z, -kMaxNormalizedVelocity,
-                 kMaxNormalizedVelocity);
+  clamped.cmd_linvel_base_rt_world_ewrt_heading_x =
+      std::clamp(command.cmd_linvel_base_rt_world_ewrt_heading_x,
+                 -kMaxNormalizedVelocity, kMaxNormalizedVelocity);
+  clamped.cmd_linvel_base_rt_world_ewrt_heading_y =
+      std::clamp(command.cmd_linvel_base_rt_world_ewrt_heading_y,
+                 -kMaxNormalizedVelocity, kMaxNormalizedVelocity);
+  clamped.cmd_pos_base_rt_world_ewrt_world_z =
+      std::clamp(command.cmd_pos_base_rt_world_ewrt_world_z, kMinPelvisHeight,
+                 kMaxPelvisHeight);
+  clamped.cmd_angvel_base_rt_world_ewrt_world_z =
+      std::clamp(command.cmd_angvel_base_rt_world_ewrt_world_z,
+                 -kMaxNormalizedVelocity, kMaxNormalizedVelocity);
   return clamped;
 }
 
 absl::StatusOr<WalkingVelocityCommand> walkingVelocityCommandFromProto(
     const humanoid_mpc_msgs::WalkingVelocityCommand& message) {
   for (const absl::Status& status :
-       {checkFinite("linear_velocity_x", message.linear_velocity_x()),
-        checkFinite("linear_velocity_y", message.linear_velocity_y()),
-        checkFinite("desired_pelvis_height", message.desired_pelvis_height()),
-        checkFinite("angular_velocity_z", message.angular_velocity_z())}) {
+       {checkFinite("cmd_linvel_base_rt_world_ewrt_heading_x",
+                    message.cmd_linvel_base_rt_world_ewrt_heading_x()),
+        checkFinite("cmd_linvel_base_rt_world_ewrt_heading_y",
+                    message.cmd_linvel_base_rt_world_ewrt_heading_y()),
+        checkFinite("cmd_pos_base_rt_world_ewrt_world_z",
+                    message.cmd_pos_base_rt_world_ewrt_world_z()),
+        checkFinite("cmd_angvel_base_rt_world_ewrt_world_z",
+                    message.cmd_angvel_base_rt_world_ewrt_world_z())}) {
     if (!status.ok()) return status;
   }
-  return clampWalkingVelocityCommand(WalkingVelocityCommand(
-      message.linear_velocity_x(), message.linear_velocity_y(),
-      message.desired_pelvis_height(), message.angular_velocity_z()));
+  return clampWalkingVelocityCommand(
+      WalkingVelocityCommand(message.cmd_linvel_base_rt_world_ewrt_heading_x(),
+                             message.cmd_linvel_base_rt_world_ewrt_heading_y(),
+                             message.cmd_pos_base_rt_world_ewrt_world_z(),
+                             message.cmd_angvel_base_rt_world_ewrt_world_z()));
 }
 
 }  // namespace ocs2::humanoid::node

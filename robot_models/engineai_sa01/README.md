@@ -43,7 +43,7 @@ files name every joint instead (`joint_positions { joint: "leg_l1_joint" value: 
 | `leg_?5_joint` | ankle pitch | y | `0 0 -0.37` | −1.0 … 0.6 | 24 |
 | `leg_?6_joint` | ankle roll | x | coincident with ankle pitch | ±0.600 | 24 |
 
-`?` is `l` or `r`; the right leg mirrors the left about y. The floating base link is `base_link` — there is no
+`?` is `l` or `r`; the right leg mirrors the left about y. The floating base link is `base_link` - there is no
 `pelvis` and no `torso`, which is why `telemetry_frames` names `base_link` and why `task_space_torso_cost` is absent
 from the cost list.
 
@@ -55,14 +55,14 @@ model, which is the check that the URDF and the MJCF still agree.
 
 | Quantity | Value | Where it is used |
 | --- | --- | --- |
-| Total mass | 33.113 kg | — |
+| Total mass | 33.113 kg | - |
 | Leg length, hip pitch to sole | 0.725 m | step and swing scaling |
 | Base above sole, legs straight | 0.8561 m | the ground offset of a URDF viewer |
 | Nominal crouch | hip −0.30, knee 0.70, ankle −0.40 | `reference.textproto` `default_joint_state`, `task.textproto` `initial_state` |
-| Base above sole at that crouch | 0.8135 m | `default_base_height`, `initial_state.base_position.z`, MJCF spawn height |
+| Base above sole at that crouch | 0.8135 m | `nom_pos_base_rt_world_ewrt_world_z`, `initial_state.pos_base_rt_world_ewrt_world.z`, MJCF spawn height |
 | CoM above sole at that crouch | 0.6124 m | the pendulum of the DCM terminal cost and the contact planner, both derived from the model (`com_height` left out of `dcm_terminal_cost` and of the planner's `shared`); `locomotion_heuristics.capture_point.com_height_override` |
-| Sole | 0.27 × 0.10 m, 0.055 m below the ankle | `contacts.contact_frame_translation` |
-| Contact frame, from the ankle | `x 0.060, y 0, z −0.055` | `contacts.contact_frame_translation` |
+| Sole | 0.27 × 0.10 m, 0.055 m below the ankle | `contacts.pos_contact_rt_link_ewrt_link` |
+| Contact frame, from the ankle | `x 0.060, y 0, z −0.055` | `contacts.pos_contact_rt_link_ewrt_link` |
 | Hip-to-hip spacing | 0.150 m | step widths, collision radii |
 | Natural stance (legs vertical) | 0.160 m sole center to sole center | `step_width.nominal_step_width`, `hlip.step_width` (contact planner) |
 
@@ -74,38 +74,38 @@ polygon instead of 28 mm.
 
 ## Contact model
 
-Each sole is four corner spheres of radius 10 mm, the same scheme Atlas and the Unitree G1 use — point contacts
+Each sole is four corner spheres of radius 10 mm, the same scheme Atlas and the Unitree G1 use - point contacts
 rather than a box, which keeps the contact set small and the normals clean. Their centers are inset one radius from
 the sole rectangle and sit 45 mm below the ankle, so the contact plane is at exactly −0.055 m and the support polygon
 is `x ∈ [−0.125, 0.125]`, `y ∈ [±0.035]` in the contact frame.
 
-The MPC's `contacts.contact_rectangle` matches that polygon except for `x_max`, which is capped — see below.
+The MPC's `contacts.contact_rectangle` matches that polygon except for `x_max`, which is capped - see below.
 
 ## Known issues to watch in the first bring-up
 
 **The ankle is the weakest link on this robot, and the MPC does not know it.** The ankle pitch actuator is 24 N·m
 against 324.8 N of body weight, so in single support the ankle can only hold the center of pressure within 74 mm of
 itself; in double support, carrying half the weight each, within 148 mm. The sole is 270 mm long and its toe is
-185 mm ahead of the ankle. Nothing in the formulation bounds ankle torque — the wrench cone bounds the center of
-pressure geometrically only — so the solver would happily plan a forward CoP the ankle cannot hold and the robot
+185 mm ahead of the ankle. Nothing in the formulation bounds ankle torque - the wrench cone bounds the center of
+pressure geometrically only - so the solver would happily plan a forward CoP the ankle cannot hold and the robot
 would pitch over its toes. `contact_rectangle.x_max` is therefore set to the double-support budget of 0.09 m rather
 than the geometric 0.125 m, and `task.textproto`'s external-torque cost weights the ankle joints five times higher than
 R1's. Turn the `zmp` viewer marker on (`z`) and watch whether the ZMP runs to the toe. If the 24 N·m in the URDF
 turns out to be a motor-side figure ahead of a gear reduction, raise `x_max` to 0.125 and drop the extra weighting.
 
-For the same reason `joint_pd_gains.textproto` carries an explicit `torque_limit` on every joint, which G1 and R1 both
+For the same reason `joint_pd_gains.textproto` carries an explicit `max_joint_torque` on every joint, which G1 and R1 both
 omit. `CentroidalMpcMrtJointController` clamps the commanded joint torque against that field and falls back to a
-hard-coded 500 N·m when it is missing — twenty times what SA01's ankle can deliver. The values there are the URDF
+hard-coded 500 N·m when it is missing - twenty times what SA01's ankle can deliver. The values there are the URDF
 effort limits and match the `actuatorfrcrange` of `zq_sa01.xml` joint for joint. A gains file the controller refuses
 at start-up (a mistyped, negative or non-finite entry) stops it from starting, with a message naming the entry, rather
 than leaving every joint on that fallback; a refused edit while it runs leaves the gains in use as they are.
 
-**SA01 has proportionally the longest foot here** — 0.27 m of sole on a 0.725 m leg, where Atlas manages 0.24 m on
+**SA01 has proportionally the longest foot here** - 0.27 m of sole on a 0.725 m leg, where Atlas manages 0.24 m on
 0.878 m. A degree of foot droop drops the toe 2.2 mm, so `task_space_foot_cost.weights.orientation_x / _y` are at
 1000 and `swing_trajectory_config.swing_pitch_angle` is available (at 0.0) if the toe still catches.
 
-**SA01 has the narrowest hips here** — 0.150 m, about two thirds of the other three robots. Lateral base motion runs
-out sooner, which is why `state_weights.base_orientation.roll` is the largest base-pose weight and why every lateral
+**SA01 has the narrowest hips here** - 0.150 m, about two thirds of the other three robots. Lateral base motion runs
+out sooner, which is why `state_weights.eulerzyx_base_rt_world.roll` is the largest base-pose weight and why every lateral
 number in `contact_planning.textproto` is scaled down rather than copied.
 
 ## What is configured, and what is deliberately off
@@ -146,7 +146,7 @@ unvalidated there. Enabling it means retraining (`bazel run //humanoid_learning/
 
 The same network is why `contact_planning.textproto` leaves `heading_double_integrator` out of its `dynamics` list:
 the planner's heading model is the ACoM. Because ACoM tracking is off, the base-pose weights of `state_weights`
-(`base_position`, `base_orientation`) are live and `com_weights` / `acom_weights` are absent rather than present and
+(`pos_base_rt_world_ewrt_world`, `eulerzyx_base_rt_world`) are live and `com_weights` / `acom_weights` are absent rather than present and
 dead; turning it on means writing them.
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/testAcomAngularVelocityConsistency.cpp:acom_acceptance_robots) -->
 
@@ -154,6 +154,6 @@ dead; turning it on means writing them.
 
 Onboarding SA01 needed one change to the shared MPC: `model_settings.arm_joint_names` used to be mandatory, and
 `ModelSettings` aborted at load time if its four entries did not resolve to joints of the MPC model. A legs-only
-robot cannot satisfy that. The block is now optional — omitting it entirely leaves `hasArmSwingJoints` false and the
-procedural arm swing disabled — while naming only some of the four, or naming a joint that is not in the MPC model,
+robot cannot satisfy that. The block is now optional - omitting it entirely leaves `hasArmSwingJoints` false and the
+procedural arm swing disabled - while naming only some of the four, or naming a joint that is not in the MPC model,
 still fails loudly as before.

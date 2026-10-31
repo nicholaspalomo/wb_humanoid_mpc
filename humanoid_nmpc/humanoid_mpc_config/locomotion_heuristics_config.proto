@@ -26,6 +26,7 @@ message LocomotionHeuristicsConfig {
 
   // The heuristics that shape the base-pose reference: orientation_compensation, periodic_orientation,
   // height_compensation.
+  // NOLINTNEXTLINE(frame-naming): the names of the heuristics that shape the base-pose reference
   repeated string base_pose = 1 [
     (humanoid_mpc_config.tuning) = {
       reload: RELOAD_START_UP
@@ -41,6 +42,7 @@ message LocomotionHeuristicsConfig {
     }
   ];
   // The heuristics that shape the contact-wrench reference: impulse_scaling, centripetal_acceleration.
+  // NOLINTNEXTLINE(frame-naming): the names of the heuristics that shape the contact-wrench reference
   repeated string wrench = 3 [
     (humanoid_mpc_config.tuning) = {
       reload: RELOAD_START_UP
@@ -57,10 +59,12 @@ message LocomotionHeuristicsConfig {
     reserved 6 to max;
 
     // a1 [rad s/m] Roll reference per commanded lateral speed.
+    // NOLINTNEXTLINE(frame-naming): Bledt's coefficient a1 [rad s/m] of a linear map; the comment names its frames
     double roll_per_lateral_velocity = 1 [default = 0.0];
     // a0 [rad] Standing roll trim.
     double roll_offset = 2 [default = 0.0];
     // a1 [rad s/m] Pitch reference per commanded forward speed.
+    // NOLINTNEXTLINE(frame-naming): Bledt's coefficient a1 [rad s/m] of a linear map; the comment names its frames
     double pitch_per_forward_velocity = 3 [default = 0.0];
     // a0 [rad] Standing pitch trim.
     double pitch_offset = 4 [default = 0.0];
@@ -143,12 +147,14 @@ message LocomotionHeuristicsConfig {
     reserved 7 to max;
 
     // a1 [m s/m], Bledt's constant.
+    // NOLINTNEXTLINE(frame-naming): Bledt's coefficient a1 [m s/m] of a linear map; the comment names its frames
     double forward_per_forward_velocity = 1 [default = 0.0];
     // [-] Adds this times the upcoming stance duration to a1; Raibert's rule is 0.5.
     double forward_stance_fraction = 2 [default = 0.0];
     // a0 [m]
     double forward_offset = 3 [default = 0.0];
     // a1 [m s/m], Bledt's constant.
+    // NOLINTNEXTLINE(frame-naming): Bledt's coefficient a1 [m s/m] of a linear map; the comment names its frames
     double lateral_per_lateral_velocity = 4 [default = 0.0];
     // [-] Adds this times the upcoming stance duration to a1.
     double lateral_stance_fraction = 5 [default = 0.0];
@@ -200,6 +206,7 @@ message LocomotionHeuristicsConfig {
     // beta is clamped up to this, in (0, 1], before its reciprocal is taken.
     double minimum_duty_factor = 2 [default = 0.2];
     // The reference is clamped to this many times weight compensation; at least 1.
+    // NOLINTNEXTLINE(frame-naming): a dimensionless ratio of the weight-compensation force
     double maximum_force_ratio = 3 [default = 2.0];
   }
 
@@ -213,13 +220,15 @@ message LocomotionHeuristicsConfig {
     // [N] The TOTAL horizontal force, before it is shared equally over the stance feet, is clamped to this magnitude,
     // positive; absent: maximum_force_ratio_of_weight sets the clamp instead. A total, so that the clamp is the same
     // fraction of each foot's friction budget (mu W / n_stance) in single and in double support.
-    double maximum_force = 2 [(humanoid_mpc_config.tuning) = { unit: "N" }];
-    // The clamp on the total as a fraction of the robot's weight, used while maximum_force is absent, when it must be
+    double max_force_com_ewrt_world_xy = 2 [(humanoid_mpc_config.tuning) = { unit: "N" }];
+    // The clamp on the total as a fraction of the robot's weight, used while max_force_com_ewrt_world_xy is absent, when it must be
     // positive.
     double maximum_force_ratio_of_weight = 3 [default = 0.3];
   }
 
+  // NOLINTNEXTLINE(frame-naming): the block of the heuristic `orientation_compensation`, named after its registry name
   OrientationCompensation orientation_compensation = 4;
+  // NOLINTNEXTLINE(frame-naming): the block of the heuristic `periodic_orientation`, named after its registry name
   PeriodicOrientation periodic_orientation = 5;
   HeightCompensation height_compensation = 6;
   HipCenteredStepping hip_centered_stepping = 7;
@@ -228,6 +237,7 @@ message LocomotionHeuristicsConfig {
   InPlaceTurning in_place_turning = 10;
   HighSpeedTurning high_speed_turning = 11;
   ImpulseScaling impulse_scaling = 12;
+  // NOLINTNEXTLINE(frame-naming): the block of the heuristic `centripetal_acceleration`, named after its registry name
   CentripetalAcceleration centripetal_acceleration = 13;
   // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/locomotion_heuristics/LocomotionHeuristicFormulation.cpp:known_heuristic_names, //tools/locomotion_heuristics/derive_parameters.py:derived_heuristic_keys)
 }

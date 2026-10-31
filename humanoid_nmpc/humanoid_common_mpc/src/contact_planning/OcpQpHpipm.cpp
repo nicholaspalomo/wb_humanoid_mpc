@@ -543,7 +543,7 @@ class OcpQpHpipmSolver::Impl {
     // validates exactly that. The formulation happens to emit all hard rows
     // before all soft ones today, which pins the soft set through (ng, nsg)
     // alone and hides the problem, but that ordering is an incidental choice of
-    // the assembler and must not be load bearing here.
+    // the assembler and must not be relied upon here.
     //
     // d_ocp_qp_set_idxs_rev writes all nb + ng entries of the stage, so stale
     // entries are overwritten instead of being left in place. The buffer is

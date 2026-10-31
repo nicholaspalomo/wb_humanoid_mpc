@@ -84,22 +84,22 @@ WBMpcPreComputation::normalAccelerationConstraintConfig(size_t footIndex,
   EndEffectorDynamicsLinearAccConstraint::Config config;
   config.b =
       (vector_t(1) << -swingFootGains_.linearVelocityErrorGainZ *
-                          swingTrajectoryPlannerPtr_->getZvelocityConstraint(
-                              footIndex, t))
+                          swingTrajectoryPlannerPtr_
+                              ->getDesLinvelFootRtWorldEwrtWorldZ(footIndex, t))
           .finished();
   config.Av = (matrix_t(1, kPositionDim) << 0.0, 0.0,
                swingFootGains_.linearVelocityErrorGainZ)
                   .finished();
-  config.b(0) -=
-      swingFootGains_.linearAccelerationErrorGainZ *
-      swingTrajectoryPlannerPtr_->getZaccelerationConstraint(footIndex, t);
+  config.b(0) -= swingFootGains_.linearAccelerationErrorGainZ *
+                 swingTrajectoryPlannerPtr_->getDesLinaccFootRtWorldEwrtWorldZ(
+                     footIndex, t);
   config.Aa = (matrix_t(1, kPositionDim) << 0.0, 0.0,
                swingFootGains_.linearAccelerationErrorGainZ)
                   .finished();
   if (!numerics::almost_eq(positionErrorGainZ_, /*y=*/0.0)) {
-    config.b(0) -=
-        positionErrorGainZ_ *
-        swingTrajectoryPlannerPtr_->getZpositionConstraint(footIndex, t);
+    config.b(0) -= positionErrorGainZ_ *
+                   swingTrajectoryPlannerPtr_->getDesPosFootRtWorldEwrtWorldZ(
+                       footIndex, t);
     config.Ax =
         (matrix_t(1, kPositionDim) << 0.0, 0.0, positionErrorGainZ_).finished();
   }

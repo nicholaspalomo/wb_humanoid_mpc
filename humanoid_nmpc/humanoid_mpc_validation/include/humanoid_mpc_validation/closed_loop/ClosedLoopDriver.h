@@ -114,7 +114,7 @@ struct InitialStateGap {
  * Returns the gap of the SQP step `delta` (SqpSolver::getInitialStateGap(), a
  * tangent vector of the problem's state on `stateManifold`): its rotation part
  * is the largest rotation angle the manifold's rotation blocks describe
- * (StateManifold::getMaximumRotationAngle(), 0 without a rotation block), its
+ * (StateManifold::getMaximumTangentAngle(), 0 without a rotation block), its
  * norm the whole step's. `stateManifold` is not retained; `delta` has its
  * tangent size.
  */
@@ -219,23 +219,26 @@ class ClosedLoopDriver {
   // operator's side
 
   /**
-   * The GUI publishes `message` (linear_velocity_x, linear_velocity_y,
-   * desired_pelvis_height, angular_velocity_z): the MPC node's
+   * The GUI publishes `message` (cmd_linvel_base_rt_world_ewrt_heading_x,
+   * cmd_linvel_base_rt_world_ewrt_heading_y,
+   * cmd_pos_base_rt_world_ewrt_world_z,
+   * cmd_angvel_base_rt_world_ewrt_world_z): the MPC node's
    * node::applyWalkingVelocityCommand() hands it to the motion manager, clamped
    * and scaled, and the next solve reads it. A message the node refuses (a
    * value that is not finite) is logged and changes nothing.
    */
   void setGuiVelocityCommand(const Eigen::Vector4d& message);
   /**
-   * max_displacement_velocity_x, max_displacement_velocity_y and
-   * max_rotation_velocity of the reference file
+   * cmd_max_linvel_base_rt_world_ewrt_heading_x,
+   * cmd_max_linvel_base_rt_world_ewrt_heading_y and
+   * cmd_max_angvel_base_rt_world_ewrt_world_z of the reference file
    * (GuiCommandScaling::commandLimits).
    */
   const Eigen::Vector3d& commandLimits() const {
     return guiCommandScaling_.commandLimits;
   }
-  /** [m] default_base_height of the reference file, the pelvis height the GUI's
-   * slider sends. */
+  /** [m] nom_pos_base_rt_world_ewrt_world_z of the reference file, the pelvis
+   * height the GUI's slider sends. */
   double defaultPelvisHeight() const {
     return guiCommandScaling_.defaultPelvisHeight;
   }

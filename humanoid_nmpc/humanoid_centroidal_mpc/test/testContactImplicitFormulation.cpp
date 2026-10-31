@@ -88,7 +88,7 @@ bool hasTerm(const Collection<Term>& collection, const std::string& name) {
  * normal_velocity and comments the three contact-implicit terms out), which is
  * correct - it changes the closed loop and has not been validated in
  * simulation. But it also meant the entire assembly path had NO coverage
- * whatsoever: the one test that reached for these terms, a hot-reload test of
+ * whatsoever: the one test that checked these terms, a hot-reload test of
  * MpcParameterUpdaterModule, called GTEST_SKIP() because they were not in the
  * shipped configuration. That is how every one of the defects this file now
  * pins went unnoticed.
@@ -716,7 +716,7 @@ TEST_F(ContactImplicitProblemTest, groundPenetrationIsAHingeAndNotALogBarrier) {
           << footName;
       EXPECT_DOUBLE_EQ(penalty->getValue(/*t=*/0.0, /*h=*/0.05), 0.0)
           << footName;
-      // And a real cost below it.
+      // And a positive cost below it.
       EXPECT_GT(penalty->getValue(/*t=*/0.0, /*h=*/-0.01), 0.0) << footName;
       EXPECT_LT(penalty->getDerivative(/*t=*/0.0, /*h=*/-0.01), 0.0)
           << footName;
@@ -774,18 +774,21 @@ TEST_F(ContactImplicitProblemTest,
             ->get<StateInputSoftConstraint>(
                 absl::StrCat(footName, "_forceWeightedSlip"))
             .get<ForceWeightedSlipConstraint>();
-    const vector3_t inverseReferences = slip.getInverseTwistReference();
-    EXPECT_NEAR(inverseReferences(0), 1.0 / config.velocityReference, 1.0e-9)
+    const vector3_t inverseReferences = slip.getInverseScaleSlip();
+    EXPECT_NEAR(inverseReferences(0),
+                1.0 / config.scaleLinvelContactRtWorldEwrtWorldXy, 1.0e-9)
         << footName;
-    EXPECT_NEAR(inverseReferences(1), 1.0 / config.velocityReference, 1.0e-9)
+    EXPECT_NEAR(inverseReferences(1),
+                1.0 / config.scaleLinvelContactRtWorldEwrtWorldXy, 1.0e-9)
         << footName;
     // The yaw row is a rate, and must be normalized by the ANGULAR reference:
     // sharing the linear one declared one rad/s to be exactly as bad as one
     // m/s, which is a statement about SI units rather than about the robot.
-    EXPECT_NEAR(inverseReferences(2), 1.0 / config.angularVelocityReference,
-                1.0e-9)
+    EXPECT_NEAR(inverseReferences(2),
+                1.0 / config.scaleAngvelContactRtWorldEwrtWorldZ, 1.0e-9)
         << footName;
-    EXPECT_NE(config.velocityReference, config.angularVelocityReference)
+    EXPECT_NE(config.scaleLinvelContactRtWorldEwrtWorldXy,
+              config.scaleAngvelContactRtWorldEwrtWorldZ)
         << "the test is vacuous if the two agree";
   }
 }

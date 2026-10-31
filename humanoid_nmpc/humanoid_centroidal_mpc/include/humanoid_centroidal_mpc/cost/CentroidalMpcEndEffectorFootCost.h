@@ -61,13 +61,14 @@ namespace ocs2::humanoid {
  * (getParameters()):
  *
  *  - the height and the vertical velocity are the swing trajectory planner's
- * (getZpositionConstraint(), getZvelocityConstraint()), the references of the
- * normal-velocity constraint too: the planned swing height in swing, the ground
- * the planner was built on (the reference manager's terrain height) in stance;
+ * (getDesPosFootRtWorldEwrtWorldZ(), getDesLinvelFootRtWorldEwrtWorldZ()), the
+ * references of the normal-velocity constraint too: the planned swing height in
+ * swing, the ground the planner was built on (the reference manager's terrain
+ * height) in stance;
  *  - the horizontal position and velocity are the swing foot reference's when
  * it has a landing target (getSwingFootReference()). Without one the xy
  * position weights are 0, and the xy velocity tracks the commanded base
- *    velocity (getSwingFootVelocityReference()) with
+ *    velocity (getSwingRefLinvelFootRtWorldEwrtWorldXy()) with
  * swing_velocity_reference_weight in place of lin_velocity_x / _y;
  *  - the orientation residual is in radians, so its weights are per rad^2 like
  * those of the end-effector costs (computeTaskSpaceErrors()): the tilt of the

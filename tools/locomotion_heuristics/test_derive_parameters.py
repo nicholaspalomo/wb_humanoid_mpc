@@ -260,7 +260,7 @@ def _stance_width(task, geometry):
 
 
 def _listed_names(block):
-    """The names each of the three lists of a `locomotion_heuristics` block turns on; an absent list is none."""
+    """The names enabled by each of the three lists of a `locomotion_heuristics` block; an absent list is none."""
     return {
         kind: derive.as_list(block.get(kind))
         for kind in EXPECTED_HEURISTIC_NAMES
@@ -469,7 +469,7 @@ def _derive(geometry, task, limits, planning, gait="trot"):
 
 # The ranges LocomotionHeuristicConfig::validate() enforces with requirePositive / requireNonNegative, spelled out so
 # that each admissibility assertion names its key. test_admissibility_table_matches_validate keeps it in step with the
-# C++, which is how the checks of lateral_scale, maximum_force, maximum_force_ratio_of_weight, gain and longitudinal_scale
+# C++, which is how the checks of lateral_scale, max_force_com_ewrt_world_xy, maximum_force_ratio_of_weight, gain and longitudinal_scale
 # came to be missing before.
 MUST_BE_POSITIVE = (
     "orientation_compensation.maximum_tilt",
@@ -483,15 +483,15 @@ MUST_NOT_BE_NEGATIVE = (
     "capture_point.gain",
     "impulse_scaling.scale",
     "centripetal_acceleration.scale",
-    "centripetal_acceleration.maximum_force",
+    "centripetal_acceleration.max_force_com_ewrt_world_xy",
     "centripetal_acceleration.maximum_force_ratio_of_weight",
 )
 
 # The keys a derivation or a task file may leave out, whose absence is a setting of its own (no 0 sentinel in the
-# schema): without centripetal_acceleration.maximum_force, maximum_force_ratio_of_weight is the clamp; without
+# schema): without centripetal_acceleration.max_force_com_ewrt_world_xy, maximum_force_ratio_of_weight is the clamp; without
 # capture_point.com_height_override, the CoM height measured each solve is the pendulum.
 OPTIONAL_KEYS = (
-    "centripetal_acceleration.maximum_force",
+    "centripetal_acceleration.max_force_com_ewrt_world_xy",
     "capture_point.com_height_override",
 )
 
@@ -526,7 +526,7 @@ class _DerivedBlockAssertions(unittest.TestCase):
         )
         centripetal = parameters["centripetal_acceleration"]
         self.assertTrue(
-            centripetal.get("maximum_force", 0.0) > 0.0
+            centripetal.get("max_force_com_ewrt_world_xy", 0.0) > 0.0
             or centripetal["maximum_force_ratio_of_weight"] > 0.0,
             "both centripetal clamps at zero would remove the clamp",
         )
@@ -680,7 +680,10 @@ class LoadTextprotoTest(unittest.TestCase):
                 task, limits, _ = _robot_inputs(robot)
                 self.assertIn("model_settings", task)
                 self.assertGreater(
-                    float(limits["max_displacement_velocity_x"]), 0.0
+                    float(
+                        limits["cmd_max_linvel_base_rt_world_ewrt_heading_x"]
+                    ),
+                    0.0,
                 )
         self.assertIn("trot", _gaits()["gait_list"])
 
@@ -801,7 +804,7 @@ class ContactInputParameterizationReportTest(unittest.TestCase):
         ):
             with self.subTest(constant=constant):
                 match = re.search(
-                    r"%s = \"([A-Za-z_]+)\";" % constant,
+                    r"%s =\s*\"([A-Za-z_]+)\";" % constant,
                     source,
                 )
                 assert match is not None, (
@@ -883,7 +886,9 @@ class ContactScheduleSourceReportTest(unittest.TestCase):
             ("kGaitScheduleContactScheduleSource", derive.GAIT_SCHEDULE_SOURCE),
         ):
             with self.subTest(constant=constant):
-                match = re.search(r"%s = \"([A-Za-z_]+)\";" % constant, source)
+                match = re.search(
+                    r"%s =\s*\"([A-Za-z_]+)\";" % constant, source
+                )
                 assert match is not None, (
                     "%s is not in the C++ header" % constant
                 )
@@ -1107,7 +1112,7 @@ class ShippedConfigurationTest(unittest.TestCase):
 
     def test_admissibility_table_matches_validate(self):
         # MUST_BE_POSITIVE / MUST_NOT_BE_NEGATIVE are what the derivation tests hold every derived block to. They fell
-        # behind validate() once (lateral_scale, maximum_force, maximum_force_ratio_of_weight), so they are read against it.
+        # behind validate() once (lateral_scale, max_force_com_ewrt_world_xy, maximum_force_ratio_of_weight), so they are read against it.
         positive, non_negative, calls = _validate_range_checks()
         self.assertTrue(positive, "no requirePositive call found in validate()")
         self.assertTrue(
@@ -1635,14 +1640,22 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
 
     def test_a_reference_file_without_a_required_limit_is_reported(self):
         _, notes = _derive(
-            _synthetic_geometry(), {}, {"max_rotation_velocity": 0.7}, {}
+            _synthetic_geometry(),
+            {},
+            {"cmd_max_angvel_base_rt_world_ewrt_world_z": 0.7},
+            {},
         )
         missing = [n for n in notes if "which the MPC requires" in n]
         self.assertEqual(len(missing), 2, notes)
         self.assertTrue(
-            any("max_displacement_velocity_x" in n for n in missing)
+            any(
+                "cmd_max_linvel_base_rt_world_ewrt_heading_x" in n
+                for n in missing
+            )
         )
-        self.assertTrue(any("default_base_height" in n for n in missing))
+        self.assertTrue(
+            any("nom_pos_base_rt_world_ewrt_world_z" in n for n in missing)
+        )
 
     def test_lean_and_crouch_reach_their_assumed_values_at_the_forward_limit(
         self,
@@ -1659,9 +1672,9 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
                 "synthetic",
                 {},
                 {
-                    "max_displacement_velocity_x": 1.5,
-                    "max_displacement_velocity_y": 0.4,
-                    "max_rotation_velocity": 0.7,
+                    "cmd_max_linvel_base_rt_world_ewrt_heading_x": 1.5,
+                    "cmd_max_linvel_base_rt_world_ewrt_heading_y": 0.4,
+                    "cmd_max_angvel_base_rt_world_ewrt_world_z": 0.7,
                 },
                 {},
             )
@@ -1671,7 +1684,9 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
                 parameters, _ = _derive(
                     _synthetic_geometry(), task, limits, planning
                 )
-                vmax = float(limits["max_displacement_velocity_x"])
+                vmax = float(
+                    limits["cmd_max_linvel_base_rt_world_ewrt_heading_x"]
+                )
                 orientation = parameters["orientation_compensation"]
                 height = parameters["height_compensation"]
                 lean = orientation["pitch_per_forward_velocity"] * vmax
@@ -1840,8 +1855,8 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
 
     def test_fitted_coefficients_are_left_at_zero(self):
         # The script derives what follows from geometry and cadence, and refuses to invent what does not. Table C.2's
-        # roll lean and its pitch limit cycle are the two that need data, and a future edit that quietly filled them
-        # in with a plausible-looking number is exactly what this catches.
+        # roll lean and its pitch limit cycle are the two that need data, and a future edit that filled them
+        # in with a plausible-looking number is what this catches.
         for robot in sorted(derive.ROBOTS):
             with self.subTest(robot=robot):
                 parameters = self._derive_robot(robot)[3]

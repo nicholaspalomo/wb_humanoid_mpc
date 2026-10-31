@@ -125,10 +125,10 @@ class Harness {
         stack_.model().getJointAngles(stack_.initialState());
     robotState_.setConfigurationToZero();
     robotState_.setTime(time_);
-    robotState_.setRootPositionInWorldFrame(base.position);
-    robotState_.setRootRotationLocalToWorldFrame(base.orientation);
-    robotState_.setRootLinearVelocityInLocalFrame(base.linearVelocityLocal);
-    robotState_.setRootAngularVelocityInLocalFrame(base.angularVelocityLocal);
+    robotState_.setPosBaseRtWorldEwrtWorld(base.position);
+    robotState_.setQuatBaseRtWorld(base.orientation);
+    robotState_.setLinvelBaseRtWorldEwrtBase(base.linearVelocityLocal);
+    robotState_.setAngvelBaseRtWorldEwrtBase(base.angularVelocityLocal);
     for (size_t i = 0; i < mpcJointIndices_.size(); ++i) {
       const scalar_t jointPhase = phase + static_cast<scalar_t>(i);
       robotState_.setJointPosition(mpcJointIndices_[i],
@@ -246,11 +246,11 @@ TEST(MrtObservationDoubleCover,
     expectTheSameSolverState(model, positiveState, negativeState,
                              /*negatedQuaternion=*/true);
     // Positive control: the two observations do carry opposite quaternions.
-    EXPECT_GT(model.getBaseOrientation(positiveState)
-                  .dot(model.getBaseOrientation(negativeState)),
+    EXPECT_GT(model.getQuatBaseRtWorldXyzw(positiveState)
+                  .dot(model.getQuatBaseRtWorldXyzw(negativeState)),
               -1.0 - 1.0e-15);
-    EXPECT_LT(model.getBaseOrientation(positiveState)
-                  .dot(model.getBaseOrientation(negativeState)),
+    EXPECT_LT(model.getQuatBaseRtWorldXyzw(positiveState)
+                  .dot(model.getQuatBaseRtWorldXyzw(negativeState)),
               -1.0 + 1.0e-15);
   }
 }
@@ -311,7 +311,7 @@ TEST(
                              flipped);
     // The heading the solver reads moves on continuously across pi, by the turn
     // of two cycles.
-    const scalar_t heading = model.getBaseHeading(canonicalizedState);
+    const scalar_t heading = model.getYawBaseRtWorld(canonicalizedState);
     if (!std::isnan(previousHeading)) {
       EXPECT_NEAR(std::remainder(heading - previousHeading, 2.0 * M_PI),
                   2.0 * kYawRate * kControlPeriod, 1.0e-12);

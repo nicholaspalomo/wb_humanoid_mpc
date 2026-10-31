@@ -295,7 +295,7 @@ TEST_F(MpcParameterUpdaterModuleTest,
   config.wrenchInputDim = wrenchInputDim;
   config.numBasisInputs = 8 * kNumContacts;
   config.lambdaRegularization = 1.0e-3;
-  config.basisToWrenchMap =
+  config.basisGeneratorMap =
       matrix_t::Random(wrenchInputDim, config.numBasisInputs + numJoints);
   ASSERT_NE(config.basisInputDim(), wrenchInputDim);
 

@@ -114,7 +114,8 @@ class ContactWrenchGate {
   const feet_array_t<scalar_t>& getScales() const { return scales_; }
 
   /** The planned wrenches scaled by the last update. */
-  feet_array_t<vector6_t> apply(feet_array_t<vector6_t> plannedWrenches) const;
+  feet_array_t<vector6_t> apply(
+      feet_array_t<vector6_t> plannedWrenchFeetEwrtWorld) const;
 
   /** Forgets every contact onset; the next update starts the debounce and ramp
    * of every foot in contact anew. */

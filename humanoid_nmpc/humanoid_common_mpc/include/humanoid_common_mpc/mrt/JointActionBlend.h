@@ -37,12 +37,12 @@ namespace ocs2::humanoid {
 /**
  * Moves the joint action `to` the fraction 1 - a back towards `from`, so that
  * the torque the drive makes of it, tau(q, qd) = kp (q_des - q) + kd (qd_des -
- * qd) + ff        (robot::model::JointAction::getTotalFeedbackTorque()), is the
- * linear blend (1 - a) tau_from(q, qd) + a tau_to(q, qd) at EVERY measured q
- * and qd. Blending each field on its own does not do that: kp q_des is a
- * product of two blended fields, and its torque misses the linear blend by -a
- * (1 - a) (kp_to - kp_from) (q_to - q_from), a quarter of that product at a =
- * 1/2 (likewise for kd and qd_des). Here the gains blend linearly and the
+ * qd) + ff        (robot::model::JointAction::getTotalFeedbackJointTorque()),
+ * is the linear blend (1 - a) tau_from(q, qd) + a tau_to(q, qd) at EVERY
+ * measured q and qd. Blending each field on its own does not do that: kp q_des
+ * is a product of two blended fields, and its torque misses the linear blend by
+ * -a (1 - a) (kp_to - kp_from) (q_to - q_from), a quarter of that product at a
+ * = 1/2 (likewise for kd and qd_des). Here the gains blend linearly and the
  * targets are the gain-weighted means kp = (1 - a) kp_from + a kp_to,   q_des =
  * ((1 - a) kp_from q_from + a kp_to q_to) / kp, which lie between the two
  * targets for non-negative gains and a in [0, 1]. Where a blended gain is zero

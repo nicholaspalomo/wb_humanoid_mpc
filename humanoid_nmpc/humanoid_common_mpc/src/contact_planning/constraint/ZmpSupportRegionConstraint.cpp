@@ -136,7 +136,7 @@ void ZmpSupportRegionConstraint::addRows(const ContactPlanningContext& ctx,
   // precisely what that foot's own single-support box already states. The bound
   // was therefore correct but duplicated, and since these are SOFT rows the
   // duplicate is not free - a lateral excursion past the support foot paid its
-  // slack penalty twice on the outward side and once everywhere else, quietly
+  // slack penalty twice on the outward side and once everywhere else,
   // making the lateral ZMP cost asymmetric in single support, which is most of
   // a stride. Relaxing by the other foot as well removes the duplicate without
   // loosening anything: in single support the surviving constraint is the

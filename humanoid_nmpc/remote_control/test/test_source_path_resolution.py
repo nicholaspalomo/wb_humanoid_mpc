@@ -86,7 +86,7 @@ class FakeCheckoutTestCase(unittest.TestCase):
         )
         self.reference = _write(
             os.path.join(self.config, "command", "reference.textproto"),
-            f"{_REFERENCE_HEADER}default_base_height: 0.91\n",
+            f"{_REFERENCE_HEADER}nom_pos_base_rt_world_ewrt_world_z: 0.91\n",
         )
         self.pd_gains = _write(
             os.path.join(self.config, "controller", "joint_pd_gains.textproto"),
@@ -369,7 +369,7 @@ class TestDefaults(FakeCheckoutTestCase):
         )
         broken = _write(
             os.path.join(self.tmpdir, "broken.textproto"),
-            f"{_REFERENCE_HEADER}default_base_height: [unclosed\n",
+            f"{_REFERENCE_HEADER}nom_pos_base_rt_world_ewrt_world_z: [unclosed\n",
         )
         self.assertEqual(
             config_files.read_default_pelvis_height(broken, fallback=0.5), 0.5
@@ -383,7 +383,7 @@ class TestDefaults(FakeCheckoutTestCase):
         )
         no_key = _write(
             os.path.join(self.tmpdir, "no_key.textproto"),
-            f"{_REFERENCE_HEADER}max_rotation_velocity: 1\n",
+            f"{_REFERENCE_HEADER}cmd_max_angvel_base_rt_world_ewrt_world_z: 1\n",
         )
         self.assertEqual(
             config_files.read_default_pelvis_height(no_key, fallback=0.5), 0.5

@@ -153,14 +153,14 @@ TEST_F(RobotStateTest, CopyingAStateIntoAnotherCopiesEveryJointAndFlag) {
 TEST_F(RobotStateTest,
        TheImuAccelerationStartsAtZeroIsCopiedAndIsZeroedWithTheConfiguration) {
   RobotState source(description_);
-  EXPECT_EQ(source.getImuLinearAccelerationInLocalFrame(), vector3_t::Zero());
+  EXPECT_EQ(source.getSpecforceBaseRtWorldEwrtBase(), vector3_t::Zero());
   const vector3_t atRest(0.1, -0.2, 9.81);
-  source.setImuLinearAccelerationInLocalFrame(atRest);
+  source.setSpecforceBaseRtWorldEwrtBase(atRest);
   RobotState target(description_);
   target = source;
-  EXPECT_EQ(target.getImuLinearAccelerationInLocalFrame(), atRest);
+  EXPECT_EQ(target.getSpecforceBaseRtWorldEwrtBase(), atRest);
   target.setConfigurationToZero();
-  EXPECT_EQ(target.getImuLinearAccelerationInLocalFrame(), vector3_t::Zero());
+  EXPECT_EQ(target.getSpecforceBaseRtWorldEwrtBase(), vector3_t::Zero());
 }
 
 TEST_F(RobotStateTest, AJointActionStartsAtZeroForEveryJoint) {

@@ -173,7 +173,7 @@ class SandboxScene:
         for link in self.tree.links:
             translation, quaternion = poses[link]
             robot.link_names.append(link)
-            pose = robot.link_poses.add()
+            pose = robot.pose_links_rt_world.add()
             pose.position.x, pose.position.y, pose.position.z = translation
             (
                 pose.orientation.x,

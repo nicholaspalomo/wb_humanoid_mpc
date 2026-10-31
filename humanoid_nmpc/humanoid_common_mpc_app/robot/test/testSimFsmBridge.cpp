@@ -188,12 +188,12 @@ TEST_F(SimFsmBridgeTest,
   EXPECT_DOUBLE_EQ(sim_->getGantryHeight(), spawnHeight)
       << "no walking command yet: the gantry stays where it is";
   humanoid_mpc_msgs::WalkingVelocityCommand command;
-  command.set_desired_pelvis_height(0.7);
+  command.set_cmd_pos_base_rt_world_ewrt_world_z(0.7);
   mailbox_->onWalkingVelocityCommand(command);
   bridge_->processCommands(mode);
   EXPECT_DOUBLE_EQ(sim_->getGantryHeight(), 0.7);
   // A cycle that processes a command leaves the height alone.
-  command.set_desired_pelvis_height(0.8);
+  command.set_cmd_pos_base_rt_world_ewrt_world_z(0.8);
   mailbox_->onWalkingVelocityCommand(command);
   send("GRAVITY_COMP");
   bridge_->processCommands(mode);
@@ -202,7 +202,7 @@ TEST_F(SimFsmBridgeTest,
   EXPECT_DOUBLE_EQ(sim_->getGantryHeight(), 0.8);
   // Unlocked, the slider does not move the gantry.
   sim_->unlockGantry();
-  command.set_desired_pelvis_height(1.2);
+  command.set_cmd_pos_base_rt_world_ewrt_world_z(1.2);
   mailbox_->onWalkingVelocityCommand(command);
   bridge_->processCommands(mode);
   EXPECT_DOUBLE_EQ(sim_->getGantryHeight(), 0.8);
@@ -237,7 +237,7 @@ TEST_F(SimFsmBridgeTest, JointTargetsMoveTheNominalPosture) {
       << "nothing has arrived";
   humanoid_mpc_msgs::JointTargets targets;
   const std::string joint = sim_->getRobotDescription().getJointName(3);
-  (*targets.mutable_positions())[joint] = 0.42;
+  (*targets.mutable_joint_positions())[joint] = 0.42;
   mailbox_->onJointTargets(targets);
   bridge_->applyJointTargetUpdates();
   EXPECT_DOUBLE_EQ(bridge_->getNominalJointPositions()[3], 0.42);

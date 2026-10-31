@@ -88,10 +88,13 @@ absl::StatusOr<DodgeballThrow> dodgeballThrowFromMessage(
     const msgs::DodgeballThrow& message) {
   DodgeballThrow command;
   absl::Status status =
-      requiredVector(message.spawn_offset, "spawn_offset", command.spawnOffset);
+      requiredVector(message.spawn_pos_ball_rt_base_ewrt_heading,
+                     "spawn_pos_ball_rt_base_ewrt_heading",
+                     command.spawnPosBallRtBaseEwrtHeading);
   if (!status.ok()) return status;
-  status = requiredVector(message.launch_velocity, "launch_velocity",
-                          command.launchVelocity);
+  status = requiredVector(message.launch_linvel_ball_rt_world_ewrt_heading,
+                          "launch_linvel_ball_rt_world_ewrt_heading",
+                          command.launchLinvelBallRtWorldEwrtHeading);
   if (!status.ok()) return status;
   const absl::StatusOr<double> flightTime =
       requiredNumber(message.flight_time, "flight_time");

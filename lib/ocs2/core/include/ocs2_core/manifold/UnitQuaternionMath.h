@@ -78,7 +78,7 @@ using rotation_vector_t = Eigen::Matrix<SCALAR_T, kRotationTangentDim, 1>;
  * rotation-matrix polynomial reads it as the identity, to within 2 |xi|^2 <= 2e-12 per entry (exactly at the zero
  * quaternion). Log is the exception: it reads every nonzero quaternion as the rotation of xi / |xi| (quaternionLog()).
  */
-constexpr double kQuaternionNormalizationEpsilon = 1e-6;
+constexpr double kUnitQuaternionNormalizationEpsilon = 1e-6;
 
 namespace unit_quaternion_internal {
 
@@ -129,12 +129,12 @@ constexpr double kJacobianSeriesThreshold = 0.1;
  * the coefficients sin(a / 2) and cos(a / 2), E(xi) = G(xi) / 2 and with it the attitude kinematics
  * xi' = 1/2 G(xi) omega_body, a quaternion-distance orientation error (the vector part of an error quaternion, half the
  * rotation angle to first order) moves at half the angular velocity, and Jr^-1 has the terms (a / 2) [phi / a]x and
- * (1 - (a / 2) cot(a / 2)) [phi / a]x^2. kQuaternionDoubleAngleFactor takes a half angle back to its angle: Log(xi) =
+ * (1 - (a / 2) cot(a / 2)) [phi / a]x^2. kUnitQuaternionDoubleAngleFactor takes a half angle back to its angle: Log(xi) =
  * 2 atan2(|v|, w) v / |v|, E+(xi) = 2 G(xi)' / |xi|^2, the cot(a / 2) / (2 a) of Jr^-1, and the double-angle identities
  * sin a = 2 sin(a / 2) cos(a / 2) and 1 - cos a = 2 sin^2(a / 2), which give R(xi) and Jr their factors 2.
  */
-inline constexpr double kQuaternionHalfAngleFactor = 0.5;
-inline constexpr double kQuaternionDoubleAngleFactor = 2.0;
+inline constexpr double kUnitQuaternionHalfAngleFactor = 0.5;
+inline constexpr double kUnitQuaternionDoubleAngleFactor = 2.0;
 
 /**
  * The rate matrix G(xi), with xi (x) (omega, 0) = G(xi) * omega:
@@ -181,16 +181,16 @@ quaternion_coeffs_t<SCALAR_T> quaternionConjugate(const quaternion_coeffs_t<SCAL
 }
 
 /**
- * |xi|, or 1 when |xi| <= kQuaternionNormalizationEpsilon. The guard acts on |xi|^2 (see guardedNorm()), so the norm
+ * |xi|, or 1 when |xi| <= kUnitQuaternionNormalizationEpsilon. The guard acts on |xi|^2 (see guardedNorm()), so the norm
  * and its derivatives are finite at every xi, the zero quaternion included, in forward and reverse mode.
  */
 template <typename SCALAR_T>
 SCALAR_T quaternionSafeNorm(const quaternion_coeffs_t<SCALAR_T>& xi) {
-  return unit_quaternion_internal::guardedNorm(xi.squaredNorm(), kQuaternionNormalizationEpsilon);
+  return unit_quaternion_internal::guardedNorm(xi.squaredNorm(), kUnitQuaternionNormalizationEpsilon);
 }
 
 /**
- * xi / |xi|, safe on a tape and at every xi: a quaternion shorter than kQuaternionNormalizationEpsilon is returned
+ * xi / |xi|, safe on a tape and at every xi: a quaternion shorter than kUnitQuaternionNormalizationEpsilon is returned
  * unchanged, so the zero quaternion stays zero and Eigen's polynomial toRotationMatrix() maps it to the identity. Never
  * use Eigen's normalized() / normalize() on an AD scalar: they record a comparison between variables.
  */
@@ -204,11 +204,11 @@ quaternion_coeffs_t<SCALAR_T> quaternionSafeNormalize(const quaternion_coeffs_t<
  */
 template <typename SCALAR_T>
 Eigen::Matrix<SCALAR_T, kQuaternionCoefficients, kRotationTangentDim> quaternionTangentMap(const quaternion_coeffs_t<SCALAR_T>& xi) {
-  return SCALAR_T(kQuaternionHalfAngleFactor) * quaternionRateMatrix(xi);
+  return SCALAR_T(kUnitQuaternionHalfAngleFactor) * quaternionRateMatrix(xi);
 }
 
 /**
- * E+(xi) = 2 G(xi)' / |xi|^2 (3 x 4), the left inverse of E(xi) (E+ E = I) for |xi| > kQuaternionNormalizationEpsilon,
+ * E+(xi) = 2 G(xi)' / |xi|^2 (3 x 4), the left inverse of E(xi) (E+ E = I) for |xi| > kUnitQuaternionNormalizationEpsilon,
  * whose rows are orthogonal to xi (E+ xi = 0 at every xi). On the unit sphere it is 2 G(xi)'. At or below the epsilon
  * the divisor is the guarded 1, so E+ = 2 G(xi)' and E+ E = |xi|^2 I: the zero quaternion lifts to zero, not NaN. A row
  * vector J_t on the tangent lifts to the ambient row vector J_t E+.
@@ -217,7 +217,7 @@ template <typename SCALAR_T>
 Eigen::Matrix<SCALAR_T, kRotationTangentDim, kQuaternionCoefficients> quaternionTangentMapPseudoInverse(
     const quaternion_coeffs_t<SCALAR_T>& xi) {
   const SCALAR_T norm = quaternionSafeNorm(xi);
-  return (SCALAR_T(kQuaternionDoubleAngleFactor) / (norm * norm)) * quaternionRateMatrix(xi).transpose();
+  return (SCALAR_T(kUnitQuaternionDoubleAngleFactor) / (norm * norm)) * quaternionRateMatrix(xi).transpose();
 }
 
 /**
@@ -233,7 +233,7 @@ Eigen::Matrix<SCALAR_T, kPositionDim, kPositionDim> quaternionRotationMatrix(con
   const SCALAR_T& w = xi(kQuaternionWIndex);
   const SCALAR_T one(1.0);
   // The factors 2 of the double-angle identities sin a = 2 sin(a / 2) cos(a / 2) and 1 - cos a = 2 sin^2(a / 2).
-  const SCALAR_T doubleAngleFactor(kQuaternionDoubleAngleFactor);
+  const SCALAR_T doubleAngleFactor(kUnitQuaternionDoubleAngleFactor);
   Eigen::Matrix<SCALAR_T, kPositionDim, kPositionDim> R;
   R << one - doubleAngleFactor * (y * y + z * z), doubleAngleFactor * (x * y - z * w), doubleAngleFactor * (x * z + y * w),  //
       doubleAngleFactor * (x * y + z * w), one - doubleAngleFactor * (x * x + z * z), doubleAngleFactor * (y * z - x * w),   //
@@ -257,10 +257,10 @@ quaternion_coeffs_t<SCALAR_T> quaternionExp(const rotation_vector_t<SCALAR_T>& p
   constexpr double kScalarPartSecondOrderDenominator = 8.0;
   constexpr double kScalarPartFourthOrderDenominator = 384.0;
   const SCALAR_T vectorScale =
-      ifGreaterThan(angleSquared, threshold, sin(SCALAR_T(kQuaternionHalfAngleFactor) * angle) / angle,
-                    SCALAR_T(kQuaternionHalfAngleFactor) - angleSquared / SCALAR_T(kVectorScaleSecondOrderDenominator) +
+      ifGreaterThan(angleSquared, threshold, sin(SCALAR_T(kUnitQuaternionHalfAngleFactor) * angle) / angle,
+                    SCALAR_T(kUnitQuaternionHalfAngleFactor) - angleSquared / SCALAR_T(kVectorScaleSecondOrderDenominator) +
                         angleSquared * angleSquared / SCALAR_T(kVectorScaleFourthOrderDenominator));
-  const SCALAR_T scalarPart = ifGreaterThan(angleSquared, threshold, cos(SCALAR_T(kQuaternionHalfAngleFactor) * angle),
+  const SCALAR_T scalarPart = ifGreaterThan(angleSquared, threshold, cos(SCALAR_T(kUnitQuaternionHalfAngleFactor) * angle),
                                             SCALAR_T(1.0) - angleSquared / SCALAR_T(kScalarPartSecondOrderDenominator) +
                                                 angleSquared * angleSquared / SCALAR_T(kScalarPartFourthOrderDenominator));
   quaternion_coeffs_t<SCALAR_T> xi;
@@ -275,7 +275,7 @@ quaternion_coeffs_t<SCALAR_T> quaternionExp(const rotation_vector_t<SCALAR_T>& p
  * degree 0, Log(c xi) = Log(xi) for every c > 0, so xi need not be unit. Every guard below is therefore relative to
  * |xi|^2, never an absolute threshold (which would select the series for every short quaternion, whatever its angle), and
  * the identity holds to round-off for 1e-150 <= |xi| <= 1e150, where |xi|^2 is a normal double. A nonzero xi is read as
- * the rotation of xi / |xi| also at or below kQuaternionNormalizationEpsilon, where the safe normalization leaves it
+ * the rotation of xi / |xi| also at or below kUnitQuaternionNormalizationEpsilon, where the safe normalization leaves it
  * unchanged. The zero quaternion maps to the zero vector.
  *
  * The double cover: Log(-xi) = Log(xi) bit for bit for every xi with w != 0, subnormal w included, and
@@ -313,8 +313,8 @@ rotation_vector_t<SCALAR_T> quaternionLog(const quaternion_coeffs_t<SCALAR_T>& x
   // The series is that of atan(t) = t - t^3 / 3 + O(t^5) at t = n / w.
   constexpr double kArctanThirdOrderDenominator = 3.0;
   const SCALAR_T scale =
-      ifGreaterThan(vectorNormSquared, threshold, SCALAR_T(kQuaternionDoubleAngleFactor) * atan2(vectorNorm, w) / vectorNorm,
-                    (SCALAR_T(kQuaternionDoubleAngleFactor) / guardedW) *
+      ifGreaterThan(vectorNormSquared, threshold, SCALAR_T(kUnitQuaternionDoubleAngleFactor) * atan2(vectorNorm, w) / vectorNorm,
+                    (SCALAR_T(kUnitQuaternionDoubleAngleFactor) / guardedW) *
                         (SCALAR_T(1.0) - vectorNormSquared / (SCALAR_T(kArctanThirdOrderDenominator) * guardedW * guardedW)));
   return scale * v;
 }
@@ -340,10 +340,10 @@ Eigen::Matrix<SCALAR_T, kRotationTangentDim, kRotationTangentDim> so3RightJacobi
   const SCALAR_T a = unit_quaternion_internal::guardedNorm(a2, unit_quaternion_internal::kExpLogSeriesThreshold);
   const SCALAR_T aJacobian = unit_quaternion_internal::guardedNorm(a2, unit_quaternion_internal::kJacobianSeriesThreshold);
   // (1 - cos a) / a^2 = 2 sin^2(a / 2) / a^2, which has no cancellation; series 1/2! - a^2/4! + a^4/6!.
-  const SCALAR_T sinHalf = sin(SCALAR_T(kQuaternionHalfAngleFactor) * a);
+  const SCALAR_T sinHalf = sin(SCALAR_T(kUnitQuaternionHalfAngleFactor) * a);
   const SCALAR_T first =
       ifGreaterThan(a2, SCALAR_T(unit_quaternion_internal::kExpLogSeriesThreshold * unit_quaternion_internal::kExpLogSeriesThreshold),
-                    SCALAR_T(kQuaternionDoubleAngleFactor) * sinHalf * sinHalf / (a * a),
+                    SCALAR_T(kUnitQuaternionDoubleAngleFactor) * sinHalf * sinHalf / (a * a),
                     SCALAR_T(kInverseFactorial2) - a2 / SCALAR_T(kFactorial4) + a2 * a2 / SCALAR_T(kFactorial6));
   // (a - sin a) / a^3 = 1/3! - a^2/5! + a^4/7! - a^6/9! + a^8/11!.
   const SCALAR_T a4 = a2 * a2;
@@ -373,22 +373,22 @@ Eigen::Matrix<SCALAR_T, kRotationTangentDim, kRotationTangentDim> so3RightJacobi
   constexpr double kSeriesSixthOrderDenominator = 1209600.0;
   const SCALAR_T a2 = phi.squaredNorm();
   const SCALAR_T a = unit_quaternion_internal::guardedNorm(a2, unit_quaternion_internal::kJacobianSeriesThreshold);
-  const SCALAR_T halfAngle = SCALAR_T(kQuaternionHalfAngleFactor) * a;
+  const SCALAR_T halfAngle = SCALAR_T(kUnitQuaternionHalfAngleFactor) * a;
   // 1/a^2 - cot(a/2) / (2a) = 1/12 + a^2/720 + a^4/30240 + a^6/1209600.
   const SCALAR_T a4 = a2 * a2;
   const SCALAR_T coefficient =
       ifGreaterThan(a2, SCALAR_T(unit_quaternion_internal::kJacobianSeriesThreshold * unit_quaternion_internal::kJacobianSeriesThreshold),
-                    SCALAR_T(1.0) / (a * a) - cos(halfAngle) / (SCALAR_T(kQuaternionDoubleAngleFactor) * a * sin(halfAngle)),
+                    SCALAR_T(1.0) / (a * a) - cos(halfAngle) / (SCALAR_T(kUnitQuaternionDoubleAngleFactor) * a * sin(halfAngle)),
                     SCALAR_T(kSeriesConstantTerm) + a2 / SCALAR_T(kSeriesSecondOrderDenominator) +
                         a4 / SCALAR_T(kSeriesFourthOrderDenominator) + a4 * a2 / SCALAR_T(kSeriesSixthOrderDenominator));
   const Eigen::Matrix<SCALAR_T, kRotationTangentDim, kRotationTangentDim> cross = unit_quaternion_internal::crossProductMatrix(phi);
-  return Eigen::Matrix<SCALAR_T, kRotationTangentDim, kRotationTangentDim>::Identity() + SCALAR_T(kQuaternionHalfAngleFactor) * cross +
+  return Eigen::Matrix<SCALAR_T, kRotationTangentDim, kRotationTangentDim>::Identity() + SCALAR_T(kUnitQuaternionHalfAngleFactor) * cross +
          coefficient * cross * cross;
 }
 
 /**
  * Shortest-path spherical interpolation: xi0 at alpha = 0 and the rotation of xi1 at alpha = 1, through
- * xi0 (x) Exp(alpha Log(xi0^-1 (x) xi1)). The result is normalized (for |xi0| > kQuaternionNormalizationEpsilon).
+ * xi0 (x) Exp(alpha Log(xi0^-1 (x) xi1)). The result is normalized (for |xi0| > kUnitQuaternionNormalizationEpsilon).
  * Rotations about one fixed axis interpolate linearly in the angle. Invariant under xi0 -> -xi0 and xi1 -> -xi1 up to the
  * sign of the result, except where xi0^-1 (x) xi1 is an exact half turn (w = +-0): both geodesics are then shortest, of
  * length pi, and xi1 and -xi1 take opposite ones (quaternionLog()), so slerp(xi0, xi1, 1/2) and slerp(xi0, -xi1, 1/2)

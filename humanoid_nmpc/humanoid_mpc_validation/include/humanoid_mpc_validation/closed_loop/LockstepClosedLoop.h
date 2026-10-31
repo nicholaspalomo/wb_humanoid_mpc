@@ -138,7 +138,7 @@ class LockstepClosedLoop {
 };
 
 /**
- * The total feedback torque (JointAction::getTotalFeedbackTorque()) that
+ * The total feedback torque (JointAction::getTotalFeedbackJointTorque()) that
  * `action` commands at `state` for each of `joints`, in their order: what a
  * control cycle of the run records. An internal error names the first joint
  * `action` holds no action for.

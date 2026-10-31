@@ -899,19 +899,22 @@ class TestCommandLimitsTab(TempFileTestCase):
         shutil.copyfile(operator_test_support.ATLAS_REFERENCE_FILE, path)
         original = self.read(path)
         tab = command_limits_tab.CommandLimitsTab(root, reference_file=path)
-        self.assertIn("max_rotation_velocity", tab.slider_rows)
+        self.assertIn(
+            "cmd_max_angvel_base_rt_world_ewrt_world_z", tab.slider_rows
+        )
         self.assertTrue(
             tab.save()
         )  # nothing changed: nothing written, and the file is sent all the same
         self.assertEqual(self.read(path), original)
         self.assertFalse(os.path.exists(f"{path}.bak"))
-        row = tab.slider_rows["max_rotation_velocity"]
+        row = tab.slider_rows["cmd_max_angvel_base_rt_world_ewrt_world_z"]
         row.set_value(float(row.get_value()) + 0.25)
         self.assertEqual(tab.status_var.get(), "unsaved changes")
         self.assertTrue(tab.save())
         reloaded = tuned_file.TunedFile(path, reference_file_pb2.ReferenceFile)
         self.assertEqual(
-            reloaded.saved_value("max_rotation_velocity"), row.get_value()
+            reloaded.saved_value("cmd_max_angvel_base_rt_world_ewrt_world_z"),
+            row.get_value(),
         )
         changed = [
             (before, after)
@@ -921,7 +924,9 @@ class TestCommandLimitsTab(TempFileTestCase):
             if before != after
         ]
         self.assertEqual(len(changed), 1, changed)
-        self.assertIn("max_rotation_velocity", changed[0][1])
+        self.assertIn(
+            "cmd_max_angvel_base_rt_world_ewrt_world_z", changed[0][1]
+        )
 
     def test_the_command_limits_tab_saves_nothing_while_online_tuning_is_off(
         self,
@@ -945,7 +950,7 @@ class TestCommandLimitsTab(TempFileTestCase):
             robot_saver=robot_saver,
         )
         self.assertEqual(str(tab.save_btn.cget("state")), "disabled")
-        row = tab.slider_rows["max_rotation_velocity"]
+        row = tab.slider_rows["cmd_max_angvel_base_rt_world_ewrt_world_z"]
         row.set_value(float(row.get_value()) + 0.25)
         self.assertFalse(tab.save())
         self.assertEqual(self.read(path), original)

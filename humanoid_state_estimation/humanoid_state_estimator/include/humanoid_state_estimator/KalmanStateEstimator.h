@@ -49,7 +49,7 @@ namespace ocs2::humanoid::estimation {
  * The `kalman` state estimator: the backend's state with the base position and
  * linear velocity replaced by KalmanBaseEstimator's, from the IMU (the state's
  * root orientation, angular velocity and
- * getImuLinearAccelerationInLocalFrame()), the joint positions and velocities
+ * getSpecforceBaseRtWorldEwrtBase()), the joint positions and velocities
  * and the state's contact flags. Everything else - the orientation, the angular
  * velocity, the joints, the flags, the time - is the backend's.
  *

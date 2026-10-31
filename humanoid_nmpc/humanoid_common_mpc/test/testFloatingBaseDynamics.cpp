@@ -57,9 +57,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * recursive Newton-Euler algorithm rather than against a copy of their
  * formulas:
  *
- *   - computeBaseAcceleration() solves the base rows of M qdd + nle = J^T F.
- * With it, RNEA's base rows must equal the generalized contact force, and the
- * solve must be exact for a base mass matrix that is not block diagonal.
+ *   - computeBaseGeneralizedAcceleration() solves the base rows of M qdd + nle
+ * = J^T F. With it, RNEA's base rows must equal the generalized contact force,
+ * and the solve must be exact for a base mass matrix that is not block
+ * diagonal.
  *   - It must be taped by CppAD without a single comparison between variables:
  * CppADCodeGen cannot generate code for one, which is how the whole-body MPC
  * stopped compiling its dynamics ("GreaterThanZero cannot be called for
@@ -122,11 +123,11 @@ matrix_t coupledBaseMassMatrix(size_t numJoints) {
 }
 
 /**
- * Tapes f(M_bb, M_bj, nle_b, qdd_j, (J^T F)_b) = computeBaseAcceleration, with
- * every input an independent variable, and runs the operation sequence forward
- * on CppADCodeGen variables - the step at which the code generator used to
- * throw. Returns the error message, empty when the sequence has no comparison
- * between variables.
+ * Tapes f(M_bb, M_bj, nle_b, qdd_j, (J^T F)_b) =
+ * computeBaseGeneralizedAcceleration, with every input an independent variable,
+ * and runs the operation sequence forward on CppADCodeGen variables - the step
+ * at which the code generator used to throw. Returns the error message, empty
+ * when the sequence has no comparison between variables.
  */
 std::string codeGenerationError(size_t numJoints,
                                 bool useLegacyPivotingInverse) {
@@ -147,8 +148,8 @@ std::string codeGenerationError(size_t numJoints,
   generalizedForce.head(6) = x.tail(6);
   ad_vector_t y(6);
   if (useLegacyPivotingInverse) {
-    // What computeBaseAcceleration did before: a pivoting inverse of the
-    // dynamic-size 6x6 block.
+    // What computeBaseGeneralizedAcceleration did before: a pivoting inverse of
+    // the dynamic-size 6x6 block.
     const ad_matrix_t M_bb = adM.topLeftCorner(6, 6);
     const ad_matrix_t M_bj = adM.block(0, 6, 6, nj);
     const ad_vector_t intermediate =
@@ -157,8 +158,8 @@ std::string codeGenerationError(size_t numJoints,
   } else {
     ad_vector_t fullNle = ad_vector_t::Zero(6 + nj);
     fullNle.head(6) = nle;
-    y = computeBaseAcceleration<ad_scalar_t>(adM, fullNle, qddJoints,
-                                             generalizedForce);
+    y = computeBaseGeneralizedAcceleration<ad_scalar_t>(adM, fullNle, qddJoints,
+                                                        generalizedForce);
   }
   ad_fun_t fun(x, y);
 
@@ -194,11 +195,13 @@ TEST(FloatingBaseDynamicsTest,
   for (size_t i = 0; i < kNumJoints; ++i)
     qddJoints(static_cast<Eigen::Index>(i)) = 2.0 * spread(i, /*phase=*/2.3);
 
-  const vector6_t baseAcceleration =
-      computeBaseAcceleration<scalar_t>(M, nle, qddJoints, generalizedForce);
-  const vector6_t residual = M.topLeftCorner(6, 6) * baseAcceleration +
-                             M.block(0, 6, 6, kNumJoints) * qddJoints +
-                             nle.head(6) - generalizedForce.head(6);
+  const vector6_t baseGeneralizedAcceleration =
+      computeBaseGeneralizedAcceleration<scalar_t>(M, nle, qddJoints,
+                                                   generalizedForce);
+  const vector6_t residual =
+      M.topLeftCorner(6, 6) * baseGeneralizedAcceleration +
+      M.block(0, 6, 6, kNumJoints) * qddJoints + nle.head(6) -
+      generalizedForce.head(6);
   EXPECT_LT(residual.norm(), 1.0e-9) << residual.transpose();
 }
 
@@ -250,14 +253,16 @@ class FloatingBaseInverseDynamicsTest : public ::testing::Test {
         vector_t(model.nv - static_cast<Eigen::Index>(kBaseVelocityDim));
     for (Eigen::Index i = 0; i < qddJoints_.size(); ++i)
       qddJoints_(i) = 1.5 * spread(static_cast<size_t>(i), /*phase=*/0.4);
-    wrenches_ = {vector6_t::Zero(), vector6_t::Zero()};
+    wrenchFeetEwrtWorld_ = {vector6_t::Zero(), vector6_t::Zero()};
     for (Eigen::Index i = 0; i < 6; ++i) {
-      wrenches_[0](i) = (i == 2 ? 180.0 : 15.0) *
-                            spread(static_cast<size_t>(i), /*phase=*/0.1) +
-                        (i == 2 ? 200.0 : 0.0);
-      wrenches_[1](i) = (i == 2 ? 180.0 : 15.0) *
-                            spread(static_cast<size_t>(i), /*phase=*/2.6) +
-                        (i == 2 ? 200.0 : 0.0);
+      wrenchFeetEwrtWorld_[0](i) =
+          (i == 2 ? 180.0 : 15.0) *
+              spread(static_cast<size_t>(i), /*phase=*/0.1) +
+          (i == 2 ? 200.0 : 0.0);
+      wrenchFeetEwrtWorld_[1](i) =
+          (i == 2 ? 180.0 : 15.0) *
+              spread(static_cast<size_t>(i), /*phase=*/2.6) +
+          (i == 2 ? 200.0 : 0.0);
     }
   }
 
@@ -266,7 +271,7 @@ class FloatingBaseInverseDynamicsTest : public ::testing::Test {
   vector_t generalizedContactForce() {
     const pinocchio::Model& model = pinocchioInterface_->getModel();
     pinocchio::Data& data = pinocchioInterface_->getData();
-    vector_t force = vector_t::Zero(model.nv);
+    vector_t jointSpaceForce = vector_t::Zero(model.nv);
     const std::array<std::string, 2> frames = {"foot_l_contact",
                                                "foot_r_contact"};
     for (size_t foot = 0; foot < frames.size(); ++foot) {
@@ -274,9 +279,9 @@ class FloatingBaseInverseDynamicsTest : public ::testing::Test {
       pinocchio::computeFrameJacobian(
           model, data, q_, model.getFrameId(frames[foot]),
           pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED, J);
-      force += J.transpose() * wrenches_[foot];
+      jointSpaceForce += J.transpose() * wrenchFeetEwrtWorld_[foot];
     }
-    return force;
+    return jointSpaceForce;
   }
 
   std::unique_ptr<ModelSettings> settings_;
@@ -284,7 +289,7 @@ class FloatingBaseInverseDynamicsTest : public ::testing::Test {
   vector_t q_;
   vector_t v_;
   vector_t qddJoints_;
-  std::array<vector6_t, 2> wrenches_;
+  std::array<vector6_t, 2> wrenchFeetEwrtWorld_;
 };
 
 TEST_F(FloatingBaseInverseDynamicsTest,
@@ -300,10 +305,11 @@ TEST_F(FloatingBaseInverseDynamicsTest,
   pinocchio::crba(model, data, q_);
   pinocchio::nonLinearEffects(model, data, q_, v_);
   const vector_t generalizedForce = generalizedContactForce();
-  const vector6_t baseAcceleration = computeBaseAcceleration<scalar_t>(
-      data.M, data.nle, qddJoints_, generalizedForce);
+  const vector6_t baseGeneralizedAcceleration =
+      computeBaseGeneralizedAcceleration<scalar_t>(data.M, data.nle, qddJoints_,
+                                                   generalizedForce);
   vector_t qdd(model.nv);
-  qdd << baseAcceleration, qddJoints_;
+  qdd << baseGeneralizedAcceleration, qddJoints_;
   const vector_t tau = pinocchio::rnea(model, data, q_, v_, qdd);
 
   // Positive control: the premise that the base block is coupled on the real

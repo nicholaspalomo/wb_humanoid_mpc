@@ -116,7 +116,7 @@ buffers sized at construction, the ZYX Euler angles of each source's quaternion 
 `getBaseVelocityDofNames()`. `base_pose/{roll,pitch,yaw}_rate` and `base_pose/angular_velocity_{x,y,z}` sit in the
 "Base Pose & Euler" tab next to the angles; `base_twist/angular_*` is the world-frame angular velocity `R(xi) w_B`. All of
 it is display only and runs on this thread, never in the robot process; `mpc_observation/state` stays the raw state
-(the user's display decision: humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 3.4).
+(humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 3.4).
 
 **Balance** (`BalanceQuantities.h`), per source: the whole-body CoM `c` and `c_dot` (Pinocchio's, of the source's `q`
 and `v`), the DCM / instantaneous capture point `xi = c_xy + c_dot_xy / omega` with `omega = sqrt(g / z0)` (`g` the
@@ -136,21 +136,21 @@ per term per node: tens of microseconds per solve, never on the robot's realtime
 
 ## Design rules
 
-- **One measured robot.** It is drawn from `robot/state`, with every joint of the URDF.
-- **Markers from the policy.** The force, center-of-pressure and corner-force markers use the policy's input at the
+- One **measured robot** is drawn from `robot/state`, with every joint of the URDF.
+- The **force, center-of-pressure and corner-force markers** use the policy's input at the
   observation's time, not the observation's input, which a simulated robot may leave zero. Below
   `kMinNormalForceForCop` (1 N) the center of pressure is the contact frame, never 0/0.
-- **Reference and plan apart.** The `reference` groups are the target trajectory's; the `plan` groups
+- The **reference and plan** stay apart: the `reference` groups are the target trajectory's; the `plan` groups
   (`dofs/{position,velocity}/plan`, `frames/*/<frame>/plan`) and the `mpc` wrenches are the MPC policy's.
-- **Euler angles from the Euler boundary.** `eulerZyxFromQuaternion()` returns (yaw, pitch, roll), regular at gimbal
+- **Euler angles** come from the Euler boundary: `eulerZyxFromQuaternion()` returns (yaw, pitch, roll), regular at gimbal
   lock; the builder reorders it to (roll, pitch, yaw) for the plots.
-- **Angular velocities say their frame.** The world-frame panels of `base_twist` say "(world)"; the Euler rates and the
+- **Angular velocities** state their frame: the world-frame panels of `base_twist` say "(world)"; the Euler rates and the
   body angular velocity have rows of their own, computed from the quaternion state, with a gap at the pitch
   singularity.
-- **Frames from the task file.** The plan's frames are `rerun_plan_frames`, checked against the model at start-up.
-- **Robust to clock rewinds.** The scene's rate is kept on the monotonic clock, and the measured acceleration restarts
+- The **plan's frames** come from `rerun_plan_frames` in the task file, checked against the model at start-up.
+- On **clock rewinds**, the scene's rate is kept on the monotonic clock, and the measured acceleration restarts
   after a rewind.
-- **Off the realtime thread.** The publisher runs on a thread of its own in the MPC process, fed through lock-free
+- The publisher runs **off the realtime thread**, on a thread of its own in the MPC process, fed through lock-free
   mailboxes.
 
 ## Task-file fields
@@ -176,7 +176,7 @@ error at start-up that names the field.
 
 `RobotStateDecoder` maps the sample's joints by name. The five joint-action arrays are each empty or aligned with
 `joint_names`; a joint without an action has a NaN position target (`robot_state_sample.proto`). The effort applied is
-`feed-forward + kp (q_des - q) + kd (qd_des - qd)`, 0 without an action. `measured_contact_wrenches` are in contact
+`feed-forward + kp (q_des - q) + kd (qd_des - qd)`, 0 without an action. `meas_wrench_contacts_ewrt_world` are in contact
 order, in the world frame. The base and the MPC joints become the MPC's generalized coordinates `[p_W, xi, q_j]` and
 velocities `[v_W, w_B, dq_j]` through the robot model's measurement helpers (`fillGeneralizedCoordinatesFromMeasurement()`,
 `fillGeneralizedVelocitiesFromMeasurement()`), the conversion the MRT controllers use; the generalized forces are sized

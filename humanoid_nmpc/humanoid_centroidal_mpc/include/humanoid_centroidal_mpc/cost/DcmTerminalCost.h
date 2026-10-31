@@ -111,7 +111,7 @@ class DcmTerminalCost final : public StateCost {
     // [m/s^2] the robot model's gravity (modelGravity()), the one its dynamics
     // use; not a file key. resolveConfig() writes the model's, at start-up and
     // on every setConfig().
-    scalar_t gravity = kGravitationalAcceleration;
+    scalar_t gravity = kGravityMagnitude;
     vector2_t weights{kDefaultWeight,
                       kDefaultWeight};  // [x, y] weights on the DCM error
     scalar_t velocityOffsetFactor =

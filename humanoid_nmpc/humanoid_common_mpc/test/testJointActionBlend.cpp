@@ -59,13 +59,13 @@ JointAction randomAction(std::mt19937& generator,
                          bool zeroVelocityGain) {
   std::uniform_real_distribution<scalar_t> gain(0.0, 400.0);
   std::uniform_real_distribution<scalar_t> target(-2.0, 2.0);
-  std::uniform_real_distribution<scalar_t> torque(-100.0, 100.0);
+  std::uniform_real_distribution<scalar_t> jointTorque(-100.0, 100.0);
   JointAction action;
   action.q_des = target(generator);
   action.qd_des = target(generator);
   action.kp = zeroPositionGain ? 0.0 : gain(generator);
   action.kd = zeroVelocityGain ? 0.0 : gain(generator) * 0.1;
-  action.feed_forward_effort = torque(generator);
+  action.feed_forward_effort = jointTorque(generator);
   return action;
 }
 
@@ -104,19 +104,21 @@ TEST(JointActionBlend,
     for (int probe = 0; probe < 3; ++probe) {
       const scalar_t q = measurement(generator);
       const scalar_t qd = measurement(generator);
-      const scalar_t expected = (1.0 - a) * from.getTotalFeedbackTorque(q, qd) +
-                                a * to.getTotalFeedbackTorque(q, qd);
+      const scalar_t expected =
+          (1.0 - a) * from.getTotalFeedbackJointTorque(q, qd) +
+          a * to.getTotalFeedbackJointTorque(q, qd);
       const scalar_t scale =
-          std::max({1.0, std::abs(from.getTotalFeedbackTorque(q, qd)),
-                    std::abs(to.getTotalFeedbackTorque(q, qd)),
+          std::max({1.0, std::abs(from.getTotalFeedbackJointTorque(q, qd)),
+                    std::abs(to.getTotalFeedbackJointTorque(q, qd)),
                     from.kp * std::abs(q), to.kp * std::abs(q)});
-      EXPECT_NEAR(blended.getTotalFeedbackTorque(q, qd), expected,
+      EXPECT_NEAR(blended.getTotalFeedbackJointTorque(q, qd), expected,
                   1.0e-12 * scale)
           << "sample " << sample << ", a = " << a;
       largestFieldwiseError = std::max(
           largestFieldwiseError,
-          std::abs(fieldwiseBlend(from, a, to).getTotalFeedbackTorque(q, qd) -
-                   expected));
+          std::abs(
+              fieldwiseBlend(from, a, to).getTotalFeedbackJointTorque(q, qd) -
+              expected));
     }
     // The gains blend linearly, and the targets stay between the two.
     EXPECT_DOUBLE_EQ(blended.kp, (1.0 - a) * from.kp + a * to.kp);

@@ -103,11 +103,12 @@ ad_vector_t FootCollisionConstraint::constraintFunction(
 
   const std::array<std::string, kNumFootCollisionPoints> frames =
       footCollisionPointFrames(cfg_);
-  std::array<ad_vector3_t, kNumFootCollisionPoints> positions;
+  std::array<ad_vector3_t, kNumFootCollisionPoints> posLinksRtWorldEwrtWorld;
   for (size_t point = 0; point < kNumFootCollisionPoints; ++point) {
-    positions[point] = pinocchio::updateFramePlacement(
-                           model, data, model.getFrameId(frames[point]))
-                           .translation();
+    posLinksRtWorldEwrtWorld[point] =
+        pinocchio::updateFramePlacement(model, data,
+                                        model.getFrameId(frames[point]))
+            .translation();
   }
 
   // The minimum distance between two collision spheres, 2 * radius: each row is
@@ -119,10 +120,11 @@ ad_vector_t FootCollisionConstraint::constraintFunction(
   ad_vector_t constraintValues(numConstraints_);
   for (size_t row = 0; row < kNumFootCollisionPairs; ++row) {
     const FootCollisionPair& pair = kFootCollisionPairs[row];
-    const ad_vector3_t difference = positions[static_cast<size_t>(pair.first)] -
-                                    positions[static_cast<size_t>(pair.second)];
+    const ad_vector3_t errPosLinkRtWorldEwrtWorld =
+        posLinksRtWorldEwrtWorld[static_cast<size_t>(pair.first)] -
+        posLinksRtWorldEwrtWorld[static_cast<size_t>(pair.second)];
     constraintValues[static_cast<Eigen::Index>(row)] =
-        difference.norm() -
+        errPosLinkRtWorldEwrtWorld.norm() -
         (pair.radius == FootCollisionRadius::kKnee ? minDistKnee : minDistFoot);
   }
   return constraintValues;

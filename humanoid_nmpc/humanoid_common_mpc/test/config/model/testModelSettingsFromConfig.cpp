@@ -135,7 +135,7 @@ std::string describe(const ModelSettings::FootConstraintConfig& config) {
        text(config.angularAccelerationErrorGain),
        text(config.softConstraintWeight),
        text(config.normalVelocitySoftConstraintWeight),
-       std::string(config.constrainOrientation ? "true" : "false"),
+       std::string(config.constrainAttitude ? "true" : "false"),
        std::string(config.constrainYawRateAboutContactNormal ? "true"
                                                              : "false")},
       " ");
@@ -144,9 +144,10 @@ std::string describe(const ModelSettings::FootConstraintConfig& config) {
 std::string describe(const ModelSettings::ContactImplicitConfig& config) {
   return absl::StrJoin(
       {text(config.complementarityWeight), text(config.slipWeight),
-       text(config.heightReference), text(config.velocityReference),
-       text(config.angularVelocityReference), text(config.penetrationWeight),
-       text(config.gapSmoothing)},
+       text(config.heightReference),
+       text(config.scaleLinvelContactRtWorldEwrtWorldXy),
+       text(config.scaleAngvelContactRtWorldEwrtWorldZ),
+       text(config.penetrationWeight), text(config.gapSmoothing)},
       " ");
 }
 
@@ -517,17 +518,17 @@ TEST(ModelSettingsFromConfig,
   // (false, true), did nothing and has no name.
   struct Rows {
     const char* absl_nonnull name;
-    bool constrainOrientation;
+    bool constrainAttitude;
     bool constrainYawRateAboutContactNormal;
   };
   const std::vector<Rows> rows = {{.name = "position",
-                                   .constrainOrientation = false,
+                                   .constrainAttitude = false,
                                    .constrainYawRateAboutContactNormal = false},
                                   {.name = "position_and_tilt",
-                                   .constrainOrientation = true,
+                                   .constrainAttitude = true,
                                    .constrainYawRateAboutContactNormal = false},
                                   {.name = "position_and_orientation",
-                                   .constrainOrientation = true,
+                                   .constrainAttitude = true,
                                    .constrainYawRateAboutContactNormal = true}};
   std::vector<std::string> names;
   for (const Rows& expected : rows) {
@@ -536,7 +537,7 @@ TEST(ModelSettingsFromConfig,
     const absl::StatusOr<ModelSettings::FootConstraintConfig> converted =
         footConstraintFromConfig(config);
     ASSERT_TRUE(converted.ok()) << converted.status();
-    EXPECT_EQ(converted->constrainOrientation, expected.constrainOrientation)
+    EXPECT_EQ(converted->constrainAttitude, expected.constrainAttitude)
         << expected.name;
     EXPECT_EQ(converted->constrainYawRateAboutContactNormal,
               expected.constrainYawRateAboutContactNormal)
@@ -545,10 +546,10 @@ TEST(ModelSettingsFromConfig,
     names.emplace_back(expected.name);
   }
   EXPECT_EQ(stanceConstraintNames(), names);
-  ModelSettings::FootConstraintConfig yawRateWithoutOrientation;
-  yawRateWithoutOrientation.constrainOrientation = false;
-  yawRateWithoutOrientation.constrainYawRateAboutContactNormal = true;
-  EXPECT_EQ(stanceConstraintName(yawRateWithoutOrientation), "position")
+  ModelSettings::FootConstraintConfig yawRateWithoutAttitude;
+  yawRateWithoutAttitude.constrainAttitude = false;
+  yawRateWithoutAttitude.constrainYawRateAboutContactNormal = true;
+  EXPECT_EQ(stanceConstraintName(yawRateWithoutAttitude), "position")
       << "three rows have no yaw-rate row";
   EXPECT_EQ(
       mpc_config::ModelSettingsConfig::FootConstraintConfig{}.stance_constraint,
@@ -640,7 +641,7 @@ TEST(ModelSettingsFromConfig, ABlockParsesIntoItsSettings) {
       ModelSettings::Create(*task, twoJointUrdf(), "test_", /*verbose=*/false);
   ASSERT_TRUE(settings.ok()) << settings.status();
   EXPECT_EQ(settings->footConstraintConfig.softConstraintWeight, 250.0);
-  EXPECT_FALSE(settings->footConstraintConfig.constrainOrientation);
+  EXPECT_FALSE(settings->footConstraintConfig.constrainAttitude);
   EXPECT_EQ(settings->footConstraintConfig.positionErrorGain_z,
             ModelSettings::FootConstraintConfig{}.positionErrorGain_z);
   EXPECT_THAT(settings->contactNames6DoF,

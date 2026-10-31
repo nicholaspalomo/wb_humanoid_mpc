@@ -97,8 +97,7 @@ TEST(EulerZyxRatesForDisplayTest,
   const vector3_t eulerZyx(2.9, -0.7, 0.4);
   const vector3_t rates =
       eulerZyxRatesForDisplay(eulerZyx, angularVelocityLocal);
-  EXPECT_EQ(rates, eulerZyxRatesFromLocalAngularVelocity(eulerZyx,
-                                                         angularVelocityLocal));
+  EXPECT_EQ(rates, eulerZyxRatesFromBodyRates(eulerZyx, angularVelocityLocal));
   EXPECT_TRUE(localAngularVelocityFromEulerZyxRates(eulerZyx, rates)
                   .isApprox(angularVelocityLocal, kTolerance));
   // Just above and below the threshold of |cos(pitch)|, and a pitch that is not
@@ -159,8 +158,8 @@ TEST_F(RobotStateDecoderTest, TheBaseIsInTheWorldFrame) {
   const vector3_t rollPitchYaw(0.1, 0.2, M_PI / 2.0);
   humanoid_mpc_msgs::RobotStateSample proto =
       robot_->robotState(/*time=*/1.5, vector3_t(1.0, 2.0, 3.0), rollPitchYaw);
-  proto.mutable_base_linear_velocity_local()->set_x(1.0);
-  proto.mutable_base_angular_velocity_local()->set_z(0.5);
+  proto.mutable_linvel_base_rt_world_ewrt_base()->set_x(1.0);
+  proto.mutable_angvel_base_rt_world_ewrt_base()->set_z(0.5);
   RobotStateDecoder decoder(robot_->robotModel());
   DecodedRobotState state;
   ASSERT_TRUE(decoder.decode(toStruct(proto), &state).ok());
@@ -214,9 +213,12 @@ TEST_F(RobotStateDecoderTest, TheBaseIsInTheWorldFrame) {
 void setAngularVelocityLocal(
     const vector3_t& angularVelocityLocal,
     humanoid_mpc_msgs::RobotStateSample* absl_nonnull proto) {
-  proto->mutable_base_angular_velocity_local()->set_x(angularVelocityLocal.x());
-  proto->mutable_base_angular_velocity_local()->set_y(angularVelocityLocal.y());
-  proto->mutable_base_angular_velocity_local()->set_z(angularVelocityLocal.z());
+  proto->mutable_angvel_base_rt_world_ewrt_base()->set_x(
+      angularVelocityLocal.x());
+  proto->mutable_angvel_base_rt_world_ewrt_base()->set_y(
+      angularVelocityLocal.y());
+  proto->mutable_angvel_base_rt_world_ewrt_base()->set_z(
+      angularVelocityLocal.z());
 }
 
 // Level: v holds the body angular velocity, and the display's Euler rates of a
@@ -225,7 +227,7 @@ TEST_F(RobotStateDecoderTest,
        TheBaseVelocityIsTheBodyAngularVelocityAndALevelTurnIsAYawRate) {
   humanoid_mpc_msgs::RobotStateSample proto = robot_->robotState(
       /*time=*/0.0, vector3_t::Zero(), vector3_t(0.0, 0.0, 0.4));
-  proto.mutable_base_angular_velocity_local()->set_z(0.7);
+  proto.mutable_angvel_base_rt_world_ewrt_base()->set_z(0.7);
   RobotStateDecoder decoder(robot_->robotModel());
   DecodedRobotState state;
   ASSERT_TRUE(decoder.decode(toStruct(proto), &state).ok());
@@ -264,6 +266,7 @@ TEST_F(
           << angle;
     }
     const vector3_t eulerLayoutRates =
+        // NOLINTNEXTLINE(frame-naming): a generic Euler conversion
         getEulerAnglesZyxDerivativesFromGlobalAngularVelocity<scalar_t>(
             state.baseEulerAnglesZyx, state.baseAngularVelocity);
     EXPECT_TRUE(state.baseEulerZyxRates.isApprox(eulerLayoutRates, kTolerance))
@@ -371,14 +374,17 @@ TEST_F(RobotStateDecoderTest,
     const MpcRobotModelBase<scalar_t>& model = robot->robotModel();
     humanoid_mpc_msgs::RobotStateSample proto = robot->robotState(
         /*time=*/0.0, vector3_t(0.5, -0.4, 0.9), rollPitchYaw);
-    proto.mutable_base_linear_velocity_local()->set_x(linearVelocityLocal.x());
-    proto.mutable_base_linear_velocity_local()->set_y(linearVelocityLocal.y());
-    proto.mutable_base_linear_velocity_local()->set_z(linearVelocityLocal.z());
-    proto.mutable_base_angular_velocity_local()->set_x(
+    proto.mutable_linvel_base_rt_world_ewrt_base()->set_x(
+        linearVelocityLocal.x());
+    proto.mutable_linvel_base_rt_world_ewrt_base()->set_y(
+        linearVelocityLocal.y());
+    proto.mutable_linvel_base_rt_world_ewrt_base()->set_z(
+        linearVelocityLocal.z());
+    proto.mutable_angvel_base_rt_world_ewrt_base()->set_x(
         angularVelocityLocal.x());
-    proto.mutable_base_angular_velocity_local()->set_y(
+    proto.mutable_angvel_base_rt_world_ewrt_base()->set_y(
         angularVelocityLocal.y());
-    proto.mutable_base_angular_velocity_local()->set_z(
+    proto.mutable_angvel_base_rt_world_ewrt_base()->set_z(
         angularVelocityLocal.z());
     RobotStateDecoder decoder(model);
     DecodedRobotState state;
@@ -425,6 +431,7 @@ TEST_F(RobotStateDecoderTest,
     EXPECT_EQ(state.baseEulerAnglesZyx,
               eulerZyxFromQuaternion(state.baseOrientation.coeffs()));
     const vector3_t eulerLayoutRates =
+        // NOLINTNEXTLINE(frame-naming): a generic Euler conversion
         getEulerAnglesZyxDerivativesFromGlobalAngularVelocity<scalar_t>(
             state.baseEulerAnglesZyx, state.baseAngularVelocity);
     EXPECT_TRUE(state.baseEulerZyxRates.isApprox(eulerLayoutRates, kTolerance))
@@ -529,8 +536,10 @@ TEST_F(RobotStateDecoderTest, JointsAreFoundByNameWhateverTheirOrder) {
 TEST_F(RobotStateDecoderTest, TheMeasuredContactWrenchesAreCopied) {
   humanoid_mpc_msgs::RobotStateSample proto =
       robot_->robotState(/*time=*/0.0, vector3_t::Zero(), vector3_t::Zero());
-  proto.mutable_measured_contact_wrenches(1)->mutable_force()->set_z(300.0);
-  proto.mutable_measured_contact_wrenches(1)->mutable_torque()->set_x(4.0);
+  proto.mutable_meas_wrench_contacts_ewrt_world(1)->mutable_force()->set_z(
+      300.0);
+  proto.mutable_meas_wrench_contacts_ewrt_world(1)->mutable_torque()->set_x(
+      4.0);
   RobotStateDecoder decoder(robot_->robotModel());
   DecodedRobotState state;
   ASSERT_TRUE(decoder.decode(toStruct(proto), &state).ok());
@@ -538,7 +547,7 @@ TEST_F(RobotStateDecoderTest, TheMeasuredContactWrenchesAreCopied) {
   EXPECT_EQ(state.measuredContactWrenches[1][2], 300.0);
   EXPECT_EQ(state.measuredContactWrenches[1][3], 4.0);
 
-  proto.clear_measured_contact_wrenches();
+  proto.clear_meas_wrench_contacts_ewrt_world();
   ASSERT_TRUE(decoder.decode(toStruct(proto), &state).ok());
   EXPECT_TRUE(state.measuredContactWrenches[1].isZero());
 }
@@ -565,12 +574,12 @@ TEST_F(RobotStateDecoderTest, AnInconsistentSampleIsRefused) {
             absl::StatusCode::kInvalidArgument);
 
   sample = valid;
-  sample.mutable_base_orientation_world()->set_w(0.0);
+  sample.mutable_quat_base_rt_world()->set_w(0.0);
   EXPECT_EQ(decoder.decode(toStruct(sample), &state).code(),
             absl::StatusCode::kInvalidArgument);
 
   sample = valid;
-  sample.mutable_base_orientation_world()->set_w(2.0);
+  sample.mutable_quat_base_rt_world()->set_w(2.0);
   EXPECT_EQ(decoder.decode(toStruct(sample), &state).code(),
             absl::StatusCode::kInvalidArgument);
 

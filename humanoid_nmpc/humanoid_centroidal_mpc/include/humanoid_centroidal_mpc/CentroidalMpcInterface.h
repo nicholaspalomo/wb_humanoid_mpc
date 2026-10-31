@@ -75,7 +75,7 @@ namespace ocs2::humanoid {
 
 /**
  * Returns the key CentroidalMpcInterface appends to its CppAD model folder:
- * `inputParameterizationKey` (kWrenchInputsLibraryKey or
+ * `inputParameterizationKey` (kWrenchInputsLibraryName or
  * basisInputsLibraryKey()) under the full centroidal dynamics, and
  * "<centroidal model name>/<inputParameterizationKey>" under any other
  * centroidal model (centroidalModelName()). Every taped term depends on both:
@@ -263,7 +263,7 @@ class CentroidalMpcInterface final : public RobotInterface {
     return *mpcRobotModelADPtr_;
   }
 
-  /** Returns the effective model used by the OCP — either the concrete model or
+  /** Returns the effective model used by the OCP - either the concrete model or
    * the basis-vector decorator. */
   const MpcRobotModelBase<scalar_t>& getEffectiveMpcRobotModel() const {
     return *effectiveMpcRobotModelPtr_;
@@ -316,7 +316,7 @@ class CentroidalMpcInterface final : public RobotInterface {
    * usesContactBasisVectorInputs() is true). The map M = blkdiag(B_0, B_1,
    * I_joints) converts the basis-vector input into the wrench-space input with
    * every contact wrench expressed in its local contact frame (see
-   * BasisInputsModelDecorator::getLocalBasisToWrenchMap).
+   * BasisInputsModelDecorator::getLocalBasisGeneratorMap).
    */
   const std::optional<matrix_t>& getBasisToWrenchMap() const {
     return basisToWrenchMap_;
@@ -419,11 +419,11 @@ class CentroidalMpcInterface final : public RobotInterface {
   void keyCppAdModelFolder(absl::string_view libraryKey);
 
   /** The transform of getBasisInputsCostTransformConfig() around
-   * `basisToWrenchMap`, under basis-vector inputs. */
+   * `basisGeneratorMap`, under basis-vector inputs. */
   BasisInputsCostTransformConfig makeBasisInputsCostTransformConfig(
-      const matrix_t& basisToWrenchMap) const {
+      const matrix_t& basisGeneratorMap) const {
     BasisInputsCostTransformConfig config;
-    config.basisToWrenchMap = basisToWrenchMap;
+    config.basisGeneratorMap = basisGeneratorMap;
     config.wrenchInputDim = getWrenchInputDim();
     config.numBasisInputs = getNumBasisInputs();
     config.lambdaRegularization = basisScalingRegularization_;

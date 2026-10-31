@@ -61,12 +61,12 @@ struct SwingField {
 // Every field of swing_trajectory_config.proto, in its order, with the planner
 // setting it becomes.
 constexpr std::array<SwingField, 11> kSwingFields = {{
-    {.name = "lift_off_velocity",
-     .field = &SwingConfig::lift_off_velocity,
-     .setting = &SwingSettings::liftOffVelocity},
-    {.name = "touch_down_velocity",
-     .field = &SwingConfig::touch_down_velocity,
-     .setting = &SwingSettings::touchDownVelocity},
+    {.name = "liftoff_linvel_foot_rt_world_ewrt_world_z",
+     .field = &SwingConfig::liftoff_linvel_foot_rt_world_ewrt_world_z,
+     .setting = &SwingSettings::liftoffLinvelFootRtWorldEwrtWorldZ},
+    {.name = "touchdown_linvel_foot_rt_world_ewrt_world_z",
+     .field = &SwingConfig::touchdown_linvel_foot_rt_world_ewrt_world_z,
+     .setting = &SwingSettings::touchdownLinvelFootRtWorldEwrtWorldZ},
     {.name = "swing_height",
      .field = &SwingConfig::swing_height,
      .setting = &SwingSettings::swingHeight},
@@ -76,12 +76,12 @@ constexpr std::array<SwingField, 11> kSwingFields = {{
     {.name = "touch_down_height_offset",
      .field = &SwingConfig::touch_down_height_offset,
      .setting = &SwingSettings::touchDownHeightOffset},
-    {.name = "impact_proximity_factor_lift_off_velocity",
-     .field = &SwingConfig::impact_proximity_factor_lift_off_velocity,
-     .setting = &SwingSettings::impactProximityFactorLiftOffVelocity},
-    {.name = "impact_proximity_factor_touch_down_velocity",
-     .field = &SwingConfig::impact_proximity_factor_touch_down_velocity,
-     .setting = &SwingSettings::impactProximityFactorTouchDownVelocity},
+    {.name = "impact_proximity_factor_liftoff_slope",
+     .field = &SwingConfig::impact_proximity_factor_liftoff_slope,
+     .setting = &SwingSettings::impactProximityFactorLiftoffSlope},
+    {.name = "impact_proximity_factor_touchdown_slope",
+     .field = &SwingConfig::impact_proximity_factor_touchdown_slope,
+     .setting = &SwingSettings::impactProximityFactorTouchdownSlope},
     {.name = "impact_proximity_factor_mid_point_value",
      .field = &SwingConfig::impact_proximity_factor_mid_point_value,
      .setting = &SwingSettings::impactProximityFactorMidPointValue},
@@ -110,15 +110,14 @@ absl::Status checkSwingRanges(const SwingConfig& config) {
                                   config.swing_time_scale));
   RETURN_IF_ERROR(requireNonNegative(absl::StrCat(kBlock, "swing_height"),
                                      config.swing_height));
-  if (!(config.impact_proximity_factor_lift_off_velocity <= 0.0)) {
-    return absl::InvalidArgumentError(
-        absl::StrCat(kBlock, "impact_proximity_factor_lift_off_velocity: ",
-                     config.impact_proximity_factor_lift_off_velocity,
-                     " is not 0 or negative"));
+  if (!(config.impact_proximity_factor_liftoff_slope <= 0.0)) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        kBlock, "impact_proximity_factor_liftoff_slope: ",
+        config.impact_proximity_factor_liftoff_slope, " is not 0 or negative"));
   }
   RETURN_IF_ERROR(requireNonNegative(
-      absl::StrCat(kBlock, "impact_proximity_factor_touch_down_velocity"),
-      config.impact_proximity_factor_touch_down_velocity));
+      absl::StrCat(kBlock, "impact_proximity_factor_touchdown_slope"),
+      config.impact_proximity_factor_touchdown_slope));
   for (const SwingField& entry : kSwingFields) {
     const absl::string_view name = entry.name;
     if (name != "impact_proximity_factor_mid_point_value" &&

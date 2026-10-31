@@ -150,7 +150,7 @@ TEST(WBMpcMrtJointControllerAllocations,
   ASSERT_TRUE(descriptionOrStatus.ok()) << descriptionOrStatus.status();
   const robot::model::RobotDescription& description = *descriptionOrStatus;
   robot::model::RobotState state(description);
-  state.setRootPositionInWorldFrame(vector3_t(0.0, 0.0, 0.75));
+  state.setPosBaseRtWorldEwrtWorld(vector3_t(0.0, 0.0, 0.75));
   robot::model::RobotJointAction action(description);
   absl::StatusOr<std::unique_ptr<WBMpcMrtJointController>> created =
       WBMpcMrtJointController::Create(
@@ -264,7 +264,7 @@ TEST(WBMpcMrtJointControllerAllocations,
   CountingSink sink;
   controller.setEventSink(&sink);
   robot::model::RobotState state(description);
-  state.setRootPositionInWorldFrame(vector3_t(0.0, 0.0, 0.75));
+  state.setPosBaseRtWorldEwrtWorld(vector3_t(0.0, 0.0, 0.75));
   state.setContactFlag(/*index=*/0, /*contactFlag=*/true);
   state.setContactFlag(/*index=*/1, /*contactFlag=*/true);
   robot::model::RobotJointAction action(description);
@@ -356,11 +356,11 @@ TEST(
   // A moving, tilted robot, so that the base velocity and the attitude reach
   // the torques.
   robot::model::RobotState state(description);
-  state.setRootPositionInWorldFrame(vector3_t(0.1, -0.2, 0.75));
-  state.setRootRotationLocalToWorldFrame(quaternion_t(
+  state.setPosBaseRtWorldEwrtWorld(vector3_t(0.1, -0.2, 0.75));
+  state.setQuatBaseRtWorld(quaternion_t(
       Eigen::AngleAxisd(0.2, vector3_t(1.0, 2.0, -1.0).normalized())));
-  state.setRootLinearVelocityInLocalFrame(vector3_t(0.3, -0.1, 0.2));
-  state.setRootAngularVelocityInLocalFrame(vector3_t(0.4, 0.5, -0.6));
+  state.setLinvelBaseRtWorldEwrtBase(vector3_t(0.3, -0.1, 0.2));
+  state.setAngvelBaseRtWorldEwrtBase(vector3_t(0.4, 0.5, -0.6));
   for (size_t joint = 0; joint < description.getNumJoints(); ++joint) {
     state.setJointPosition(
         joint, /*jointPosition=*/0.05 * static_cast<scalar_t>(joint % 5));

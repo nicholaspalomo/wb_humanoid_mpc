@@ -206,7 +206,7 @@ def export_policy_to_onnx(
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
     onnx.save(model, output_path)
-    print(f"✅ ONNX model successfully saved to: {output_path}")
+    print(f"ONNX model successfully saved to: {output_path}")
 
 
 def _resolved(path: str) -> str:
@@ -224,7 +224,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     checkpoint_path = _resolved(args.checkpoint_path)
     output_path = _resolved(args.output_path)
     print("=" * 60)
-    print("🚀 Exporting JAX Policy to ONNX for C++ Real-Time Bridge")
+    print("Exporting JAX Policy to ONNX for C++ Real-Time Bridge")
     print(f"   Checkpoint:  {checkpoint_path}")
     print(f"   Output File: {output_path}")
     print("=" * 60)

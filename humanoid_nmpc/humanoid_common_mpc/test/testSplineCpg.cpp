@@ -61,12 +61,12 @@ SwingNodes randomNodes(std::mt19937& generator) {
   const scalar_t liftOffTime = start(generator);
   const scalar_t touchDownTime = liftOffTime + duration(generator);
   return SwingNodes{.liftOff = {.time = liftOffTime,
-                                .position = value(generator),
-                                .velocity = value(generator)},
+                                .value = value(generator),
+                                .derivative = value(generator)},
                     .apex = 0.1 + std::abs(value(generator)),
                     .touchDown = {.time = touchDownTime,
-                                  .position = value(generator),
-                                  .velocity = value(generator)}};
+                                  .value = value(generator),
+                                  .derivative = value(generator)}};
 }
 
 SplineCpg shifted(const SwingNodes& nodes,
@@ -96,12 +96,12 @@ TEST(SplineCpg, TimeDerivativesMatchFiniteDifferences) {
       continue;
 
     const scalar_t startDifference =
-        (shifted(nodes, kStep, /*touchDownShift=*/0.0).position(time) -
-         shifted(nodes, -kStep, /*touchDownShift=*/0.0).position(time)) /
+        (shifted(nodes, kStep, /*touchDownShift=*/0.0).value(time) -
+         shifted(nodes, -kStep, /*touchDownShift=*/0.0).value(time)) /
         (2.0 * kStep);
     const scalar_t finalDifference =
-        (shifted(nodes, /*liftOffShift=*/0.0, kStep).position(time) -
-         shifted(nodes, /*liftOffShift=*/0.0, -kStep).position(time)) /
+        (shifted(nodes, /*liftOffShift=*/0.0, kStep).value(time) -
+         shifted(nodes, /*liftOffShift=*/0.0, -kStep).value(time)) /
         (2.0 * kStep);
     EXPECT_NEAR(spline.startTimeDerivative(time), startDifference, kTol)
         << "trial " << trial;
@@ -124,16 +124,16 @@ TEST(SplineCpg, CubicSplineTimeDerivativesMatchFiniteDifferences) {
     earlier.time -= kStep;
     later.time += kStep;
     const scalar_t startDifference =
-        (CubicSpline(later, nodes.touchDown).position(time) -
-         CubicSpline(earlier, nodes.touchDown).position(time)) /
+        (CubicSpline(later, nodes.touchDown).value(time) -
+         CubicSpline(earlier, nodes.touchDown).value(time)) /
         (2.0 * kStep);
     CubicSpline::Node earlierEnd = nodes.touchDown;
     CubicSpline::Node laterEnd = nodes.touchDown;
     earlierEnd.time -= kStep;
     laterEnd.time += kStep;
     const scalar_t finalDifference =
-        (CubicSpline(nodes.liftOff, laterEnd).position(time) -
-         CubicSpline(nodes.liftOff, earlierEnd).position(time)) /
+        (CubicSpline(nodes.liftOff, laterEnd).value(time) -
+         CubicSpline(nodes.liftOff, earlierEnd).value(time)) /
         (2.0 * kStep);
     EXPECT_NEAR(spline.startTimeDerivative(time), startDifference, kTol)
         << "trial " << trial;

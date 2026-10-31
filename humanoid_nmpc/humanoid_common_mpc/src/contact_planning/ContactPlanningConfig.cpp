@@ -68,7 +68,7 @@ absl::Status invalidConfig(absl::string_view message) {
       absl::StrCat("[ContactPlanningConfig] ", message));
 }
 
-/** "`key` (value) must be `requirement`", the shape of every single-key
+/** "`key` (value) must be `requirement`", the format of every single-key
  * rejection. */
 absl::Status keyMustBe(absl::string_view key,
                        scalar_t value,
@@ -270,12 +270,13 @@ void appendHlipWarnings(const ContactPlanningConfig& config,
   // long as the command is held, ContactPlan::describe() prints CLIPPED-STEPS
   // forever and the one signal documented to mean "the legs cannot deliver this
   // command at this cadence" becomes a standing false positive that hides
-  // genuine clipping, while the realized lateral rate quietly runs below the
+  // genuine clipping, while the realized lateral rate runs below the
   // command.
   const scalar_t lateralDrift = h.blend.maxCommandedVelocityY * stepDuration;
   if (h.stepWidth - lateralDrift < h.minStepWidth) {
     out.push_back(absl::StrCat(
-        "a sustained sidestep at hlip.blend.max_commanded_velocity_y (",
+        "a sustained sidestep at "
+        "hlip.blend.cmd_max_linvel_base_rt_world_ewrt_heading_y (",
         h.blend.maxCommandedVelocityY, " m/s) drifts ", lateralDrift,
         " m over a step of ", stepDuration,
         " s, so the step that places the trailing foot is planned at "
@@ -283,13 +284,14 @@ void appendHlipWarnings(const ContactPlanningConfig& config,
         h.stepWidth - lateralDrift, " m and clipped to hlip.min_step_width (",
         h.minStepWidth,
         " m) on every occurrence. Raise hlip.step_width, or lower "
-        "hlip.blend.max_commanded_velocity_y below ",
+        "hlip.blend.cmd_max_linvel_base_rt_world_ewrt_heading_y below ",
         (h.stepWidth - h.minStepWidth) / stepDuration,
         " m/s, or shorten the step."));
   }
   if (h.stepWidth + lateralDrift > h.maxStepWidth) {
     out.push_back(absl::StrCat(
-        "a sustained sidestep at hlip.blend.max_commanded_velocity_y (",
+        "a sustained sidestep at "
+        "hlip.blend.cmd_max_linvel_base_rt_world_ewrt_heading_y (",
         h.blend.maxCommandedVelocityY, " m/s) drifts ", lateralDrift,
         " m over a step of ", stepDuration,
         " s, so the step that places the leading foot is planned at "
@@ -297,7 +299,7 @@ void appendHlipWarnings(const ContactPlanningConfig& config,
         h.stepWidth + lateralDrift, " m and clipped to hlip.max_step_width (",
         h.maxStepWidth,
         " m) on every occurrence. Raise hlip.max_step_width, or lower "
-        "hlip.blend.max_commanded_velocity_y below ",
+        "hlip.blend.cmd_max_linvel_base_rt_world_ewrt_heading_y below ",
         (h.maxStepWidth - h.stepWidth) / stepDuration,
         " m/s, or shorten the step."));
   }
@@ -586,8 +588,9 @@ absl::Status validateExecutionRules(const ContactPlanningConfig& config) {
                      r.lateTouchdownExtensionStep, "positive");
   }
   if (r.lateTouchdownSearchVelocity < 0.0) {
-    return keyMustBe("phase_resetting.late_touchdown_search_velocity",
-                     r.lateTouchdownSearchVelocity, "non-negative");
+    return keyMustBe(
+        "phase_resetting.late_touchdown_search_speed_foot_rt_world",
+        r.lateTouchdownSearchVelocity, "non-negative");
   }
   if (config.dcmStepAdjustment.gain < 0.0)
     return keyMustBe("dcm_step_adjustment.gain", config.dcmStepAdjustment.gain,
@@ -637,13 +640,16 @@ absl::Status validateHlip(const ContactPlanningConfig& config) {
   const std::array<std::pair<const char* absl_nonnull, scalar_t>,
                    kBlendRangeKeys>
       blendRanges{{
-          {"hlip.blend.max_commanded_velocity_x",
+          {"hlip.blend.cmd_max_linvel_base_rt_world_ewrt_heading_x",
            h.blend.maxCommandedVelocityX},
-          {"hlip.blend.max_commanded_velocity_y",
+          {"hlip.blend.cmd_max_linvel_base_rt_world_ewrt_heading_y",
            h.blend.maxCommandedVelocityY},
-          {"hlip.blend.max_commanded_yaw_rate", h.blend.maxCommandedYawRate},
-          {"hlip.blend.max_com_velocity_x", h.blend.maxComVelocityX},
-          {"hlip.blend.max_com_velocity_y", h.blend.maxComVelocityY},
+          {"hlip.blend.cmd_max_angvel_base_rt_world_ewrt_world_z",
+           h.blend.maxCommandedYawRate},
+          {"hlip.blend.max_linvel_com_rt_world_ewrt_heading_x",
+           h.blend.maxComVelocityX},
+          {"hlip.blend.max_linvel_com_rt_world_ewrt_heading_y",
+           h.blend.maxComVelocityY},
       }};
   for (const std::pair<const char* absl_nonnull, scalar_t>& entry :
        blendRanges) {

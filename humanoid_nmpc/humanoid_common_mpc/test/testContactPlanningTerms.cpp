@@ -1648,8 +1648,8 @@ TEST(
 
   // Exactness on a complete assignment is the other half of the contract: there
   // the bound has to be reached, i.e. the partial assignment that IS complete
-  // evaluates to the same number as itself. That is trivially true here, so the
-  // statement worth pinning is that the horizon's contribution is the event
+  // evaluates to the same number as itself. That is trivially true here, so we
+  // pin that the horizon's contribution is the event
   // count and nothing else - a zero price is free whatever happens.
   ContactPlanningConfig freePrice = config;
   freePrice.contactSwitch.cost = 0.0;
@@ -2050,7 +2050,7 @@ TEST(
  * StepWidthCost appeared in no test anywhere in the repository, which is
  * remarkable for a term that is in the default cost list of every shipped
  * formulation and that is the only thing holding the two feet apart laterally
- * once the heading model is on. It is also the most intricate of the foothold
+ * once the heading model is on. It is also the most involved of the foothold
  * costs, because it is the one that is linearized: the lateral separation
  * e_y(theta) . (p_L - p_R) is not linear in the heading, so the term keeps the
  * axis e_y at the NOMINAL heading of the node and adds the first-order heading

@@ -111,11 +111,11 @@ class StepsTest(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertEqual(ran, ["a", "b", "c"], "a failing step stopped the run")
         text = output.getvalue()
-        self.assertIn("🔍 1/3 Running a...", text)
-        self.assertIn("🔍 3/3 Running c...", text)
-        self.assertIn("💡 fix a", text)
-        self.assertNotIn("💡 fix b", text)
-        self.assertIn("❌ Lint failed in: a (skipped: c)", text)
+        self.assertIn("1/3 Running a...", text)
+        self.assertIn("3/3 Running c...", text)
+        self.assertIn("Hint: fix a", text)
+        self.assertNotIn("Hint: fix b", text)
+        self.assertIn("Lint failed in: a (skipped: c)", text)
 
     def test_a_clean_run_passes(self):
         fake = (
@@ -135,7 +135,7 @@ class StepsTest(unittest.TestCase):
 class OnlyTest(unittest.TestCase):
     def test_by_default_every_check_and_step(self):
         selected, steps = lint_code._parse_only(None)
-        self.assertEqual(selected, checks.names())
+        self.assertEqual(selected, checks.default_names())
         self.assertEqual(steps, lint_code.STEP_NAMES)
         self.assertIn("token-checks", steps)
         self.assertIn("cpplint", steps)
@@ -158,7 +158,7 @@ class OnlyTest(unittest.TestCase):
 
     def test_the_token_checks_step_alone_runs_every_check(self):
         selected, steps = lint_code._parse_only("token-checks")
-        self.assertEqual(selected, checks.names())
+        self.assertEqual(selected, checks.default_names())
         self.assertEqual(steps, frozenset({"token-checks"}))
 
     def test_an_unknown_name(self):

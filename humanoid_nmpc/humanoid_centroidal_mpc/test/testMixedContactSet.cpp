@@ -234,11 +234,11 @@ TEST_F(MixedContactSetTest, theInputIsTheForcesThenTheWrenchesThenTheJoints) {
   // three entries of its block.
   const vector_t input = probeInput();
   const vector6_t handWrench =
-      model.getContactWrench(input, /*contactIndex=*/1);
+      model.getWrenchContactEwrtParam(input, /*contactIndex=*/1);
   EXPECT_EQ(handWrench.head<kForceDim>(), input.segment<kForceDim>(kForceDim));
   EXPECT_TRUE(handWrench.tail<kTorqueDim>().isZero(0.0));
   vector_t written = vector_t::Zero(model.getInputDim());
-  model.setContactWrench(written, handWrench, /*contactIndex=*/1);
+  model.setWrenchContactEwrtParam(written, handWrench, /*contactIndex=*/1);
   EXPECT_EQ(written.segment<kForceDim>(kForceDim),
             input.segment<kForceDim>(kForceDim));
   EXPECT_TRUE(written.segment<kForceDim>(2 * kForceDim).isZero(0.0))
@@ -277,7 +277,7 @@ TEST_F(MixedContactSetTest, theDynamicsAreTheHandDerivedMomentumRate) {
       totalMoment += input.segment<kTorqueDim>(start + kForceDim);
     }
   }
-  const vector3_t gravity(0.0, 0.0, -kGravitationalAcceleration);
+  const vector3_t gravity(0.0, 0.0, -kGravityMagnitude);
   const vector3_t linearRate = totalForce / mass + gravity;
   const vector3_t angularRate = totalMoment / mass;
 
@@ -458,7 +458,7 @@ TEST_F(MixedContactSetTest, aPatchFrameConeIsTheWorldConeOfTheRotatedForce) {
           .toRotationMatrix();
   const OnePatchReferenceManager flat(mpc, ContactPatchFrame());
   const OnePatchReferenceManager tilted(
-      mpc, ContactPatchFrame{.worldToPatchRotation = worldToPatch,
+      mpc, ContactPatchFrame{.rotmatWorldRtSurface = worldToPatch,
                              .normalOffset = 0.0});
   const vector_t state = probeState();
   const vector_t input = probeInput();
@@ -542,7 +542,7 @@ TEST_F(MixedContactSetTest, theWeightIsSharedAmongTheActiveContacts) {
   CentroidalMpcInterface& mpc = interface();
   const CentroidalMpcRobotModel<scalar_t>& model = mpc.getMpcRobotModel();
   const scalar_t weight =
-      mpc.getCentroidalModelInfo().robotMass * kGravitationalAcceleration;
+      mpc.getCentroidalModelInfo().robotMass * kGravityMagnitude;
   const std::unique_ptr<CentroidalWeightCompInitializer> initializer(
       mpc.getInitializer().clone());
   const vector_t state = mpc.getInitialState();
@@ -553,7 +553,8 @@ TEST_F(MixedContactSetTest, theWeightIsSharedAmongTheActiveContacts) {
   setMode(mpc, kAllFour);
   initializer->compute(/*time=*/0.0, state, /*nextTime=*/0.1, input, nextState);
   for (size_t i = 0; i < kNumPointContacts + kNumSurfaceContacts; ++i) {
-    EXPECT_NEAR(model.getContactForce(input, i).z(), 0.25 * weight, kTolerance)
+    EXPECT_NEAR(model.getForceContactEwrtParam(input, i).z(), 0.25 * weight,
+                kTolerance)
         << "contact " << i;
   }
   // The reference of the input costs shares it the same way.
@@ -564,11 +565,13 @@ TEST_F(MixedContactSetTest, theWeightIsSharedAmongTheActiveContacts) {
 
   setMode(mpc, ModeNumber::kStance);
   initializer->compute(/*time=*/0.0, state, /*nextTime=*/0.1, input, nextState);
-  EXPECT_TRUE(model.getContactForce(input, /*contactIndex=*/0).isZero(0.0));
-  EXPECT_TRUE(model.getContactForce(input, /*contactIndex=*/1).isZero(0.0));
-  EXPECT_NEAR(model.getContactForce(input, /*contactIndex=*/2).z(),
+  EXPECT_TRUE(
+      model.getForceContactEwrtParam(input, /*contactIndex=*/0).isZero(0.0));
+  EXPECT_TRUE(
+      model.getForceContactEwrtParam(input, /*contactIndex=*/1).isZero(0.0));
+  EXPECT_NEAR(model.getForceContactEwrtParam(input, /*contactIndex=*/2).z(),
               0.5 * weight, kTolerance);
-  EXPECT_NEAR(model.getContactForce(input, /*contactIndex=*/3).z(),
+  EXPECT_NEAR(model.getForceContactEwrtParam(input, /*contactIndex=*/3).z(),
               0.5 * weight, kTolerance);
 }
 

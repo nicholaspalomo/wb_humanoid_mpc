@@ -121,14 +121,14 @@ class FootCollisionCbfConstraintTest : public ::testing::Test {
     const CentroidalMpcRobotModel<scalar_t>& model = atlas_.wrenchModel();
     vector_t moved = jointsMoved(state, duration);
     const vector3_t angularVelocity(kBaseAngularVelocity.data());
-    const vector4_t coefficients = model.getBaseOrientation(state);
+    const vector4_t coefficients = model.getQuatBaseRtWorldXyzw(state);
     const Eigen::Quaterniond orientation(
         Eigen::Map<const Eigen::Quaterniond>(coefficients.data()));
     const Eigen::Quaterniond turned =
         orientation *
         Eigen::Quaterniond(Eigen::AngleAxisd(duration * angularVelocity.norm(),
                                              angularVelocity.normalized()));
-    model.setBaseOrientation(moved, vector4_t(turned.coeffs()));
+    model.setQuatBaseRtWorldXyzw(moved, vector4_t(turned.coeffs()));
     return moved;
   }
 

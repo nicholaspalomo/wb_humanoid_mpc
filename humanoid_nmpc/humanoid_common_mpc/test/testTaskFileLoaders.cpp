@@ -133,13 +133,14 @@ TEST(SwingTrajectorySettings, AreReadFromTheirBlock) {
   const mpc_config::TaskFile task =
       taskFileOf("swing.textproto",
                  "swing_trajectory_config {\n  swing_height: 0.12\n  "
-                 "lift_off_velocity: 0.2\n  touch_down_velocity: -0.3\n}\n");
+                 "liftoff_linvel_foot_rt_world_ewrt_world_z: 0.2\n  "
+                 "touchdown_linvel_foot_rt_world_ewrt_world_z: -0.3\n}\n");
   const absl::StatusOr<SwingTrajectoryPlanner::Config> config =
       swingTrajectorySettingsFromConfig(task.swing_trajectory_config);
   ASSERT_TRUE(config.ok()) << config.status();
   EXPECT_DOUBLE_EQ(config->swingHeight, 0.12);
-  EXPECT_DOUBLE_EQ(config->liftOffVelocity, 0.2);
-  EXPECT_DOUBLE_EQ(config->touchDownVelocity, -0.3);
+  EXPECT_DOUBLE_EQ(config->liftoffLinvelFootRtWorldEwrtWorldZ, 0.2);
+  EXPECT_DOUBLE_EQ(config->touchdownLinvelFootRtWorldEwrtWorldZ, -0.3);
 }
 
 TEST(TaskFile,
@@ -176,7 +177,8 @@ TEST(EndEffectorKinematicsWeights,
   EXPECT_DOUBLE_EQ(weights->contactAngularVelocityErrorWeight(2), 0.25);
 
   mpc_config::TaskSpaceWeights infinite = task.task_space_foot_cost.weights;
-  infinite.pos_x = std::numeric_limits<double>::infinity();
+  infinite.pos_x =  // NOLINT(frame-naming): a TaskSpaceWeights weight field
+      std::numeric_limits<double>::infinity();
   const absl::StatusOr<EndEffectorKinematicsWeights> refused =
       endEffectorKinematicsWeightsFromConfig(infinite,
                                              "task_space_foot_cost.weights");
@@ -192,7 +194,7 @@ TEST(ContactRectangle, IsReadAroundTheContactsCenterPoint) {
                  "contacts {\n"
                  "  contact_rectangle { x_min: -0.1 x_max: 0.15 y_min: -0.05 "
                  "y_max: 0.05 }\n"
-                 "  contact_frame_translation { z: -0.02 }\n"
+                 "  pos_contact_rt_link_ewrt_link { z: -0.02 }\n"
                  "}\n");
   const absl::StatusOr<ContactRectangle> rectangle =
       contactRectangleFromConfig(task.contacts, settings, /*contactIndex=*/1);
@@ -204,7 +206,7 @@ TEST(ContactRectangle, IsReadAroundTheContactsCenterPoint) {
   ASSERT_TRUE(center.ok()) << center.status();
   EXPECT_EQ(center->frameName, "leg_contact");
   EXPECT_EQ(center->parentJointName, "hip");
-  EXPECT_DOUBLE_EQ(center->translationFromParent.z(), -0.02);
+  EXPECT_DOUBLE_EQ(center->posContactRtLinkEwrtLink.z(), -0.02);
 }
 
 TEST(ContactRectangle,

@@ -227,8 +227,9 @@ class HlipPlanningIntegrationTest : public ::testing::Test {
   void planAt(scalar_t time, scalar_t commandedVelocityX) {
     const vector_t state = interface_->getInitialState();
     vector_t target = vector_t::Zero(state.size());
-    interface_->getMpcRobotModel().setBasePoseEulerZyx(
-        target, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
+    interface_->getMpcRobotModel().setPoseeulerzyxBaseRtWorld(
+        target,
+        interface_->getMpcRobotModel().getPoseeulerzyxBaseRtWorld(state));
     target(0) = commandedVelocityX;
     planWithTarget(time, target);
   }
@@ -328,8 +329,8 @@ TEST_F(HlipPlanningIntegrationTest,
   const scalar_t yawInertia =
       40.0;  // any positive value; the target carries m * I_zz * omega / m
   vector_t target = vector_t::Zero(state.size());
-  interface_->getMpcRobotModel().setBasePoseEulerZyx(
-      target, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
+  interface_->getMpcRobotModel().setPoseeulerzyxBaseRtWorld(
+      target, interface_->getMpcRobotModel().getPoseeulerzyxBaseRtWorld(state));
   target(5) = yawInertia * commandedYawRate /
               interface_->getCentroidalModelInfo().robotMass;
 
@@ -470,8 +471,8 @@ TEST_F(HlipPlanningIntegrationTest,
         }
       };
   vector_t target = vector_t::Zero(state.size());
-  interface_->getMpcRobotModel().setBasePoseEulerZyx(
-      target, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
+  interface_->getMpcRobotModel().setPoseeulerzyxBaseRtWorld(
+      target, interface_->getMpcRobotModel().getPoseeulerzyxBaseRtWorld(state));
   scalar_t time = 0.0;
   const std::function<void()> runCycle = [&]() {
     referenceManager_->preSolverRun(time, time + horizon, state,
@@ -575,7 +576,8 @@ TEST_F(HlipPlanningIntegrationTest,
   // offset measured at the cycle that wrote it (the initial state here).
   const vector_t state = interface_->getInitialState();
   const vector2_t comOffsetFromBase =
-      centerOfMass(state) - robotModel.getBasePosition(state).head<2>();
+      centerOfMass(state) -
+      robotModel.getPosBaseRtWorldEwrtWorld(state).head<2>();
   size_t comparedPoints = 0;
   for (size_t i = 0; i < target.timeTrajectory.size(); ++i) {
     const scalar_t time = target.timeTrajectory[i];
@@ -594,7 +596,8 @@ TEST_F(HlipPlanningIntegrationTest,
     EXPECT_NEAR(referenceVelocity.y(), plannedVelocity->y(), 1.0e-9)
         << "at t=" << time;
     const vector2_t referenceBase =
-        robotModel.getBasePosition(target.stateTrajectory[i]).head<2>();
+        robotModel.getPosBaseRtWorldEwrtWorld(target.stateTrajectory[i])
+            .head<2>();
     EXPECT_NEAR(referenceBase.x() + comOffsetFromBase.x(), plannedPosition->x(),
                 1.0e-9)
         << "at t=" << time;
@@ -632,8 +635,8 @@ TEST_F(HlipPlanningIntegrationTest,
   const scalar_t horizon = interface_->mpcSettings().timeHorizon_;
   const size_t inputDim = interface_->getEffectiveMpcRobotModel().getInputDim();
   vector_t target = vector_t::Zero(state.size());
-  interface_->getMpcRobotModel().setBasePoseEulerZyx(
-      target, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
+  interface_->getMpcRobotModel().setPoseeulerzyxBaseRtWorld(
+      target, interface_->getMpcRobotModel().getPoseeulerzyxBaseRtWorld(state));
   target(0) = commandedVelocityX;
   referenceManager_->setTargetTrajectories(
       TargetTrajectories({0.0}, {target}, {vector_t::Zero(inputDim)}));
@@ -768,8 +771,9 @@ TEST_F(HlipPlanningIntegrationTest,
   const vector_t state = interface_->getInitialState();
   const scalar_t horizon = interface_->mpcSettings().timeHorizon_;
   vector_t operatorState = vector_t::Zero(state.size());
-  interface_->getMpcRobotModel().setBasePoseEulerZyx(
-      operatorState, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
+  interface_->getMpcRobotModel().setPoseeulerzyxBaseRtWorld(
+      operatorState,
+      interface_->getMpcRobotModel().getPoseeulerzyxBaseRtWorld(state));
   operatorState(0) = 0.5;
 
   // No new plan: a cycle whose solver horizon runs half a horizon past the
@@ -791,11 +795,13 @@ TEST_F(HlipPlanningIntegrationTest,
     const vector_t& knot = reference.stateTrajectory[i];
     if (time > plan.endTime() + 1.0e-9) {
       ++tailKnots;
-      EXPECT_NEAR(robotModel.getBasePosition(knot).x(),
-                  robotModel.getBasePosition(operatorState).x(), 1.0e-9)
+      EXPECT_NEAR(robotModel.getPosBaseRtWorldEwrtWorld(knot).x(),
+                  robotModel.getPosBaseRtWorldEwrtWorld(operatorState).x(),
+                  1.0e-9)
           << "at t=" << time;
-      EXPECT_NEAR(robotModel.getBasePosition(knot).y(),
-                  robotModel.getBasePosition(operatorState).y(), 1.0e-9)
+      EXPECT_NEAR(robotModel.getPosBaseRtWorldEwrtWorld(knot).y(),
+                  robotModel.getPosBaseRtWorldEwrtWorld(operatorState).y(),
+                  1.0e-9)
           << "at t=" << time;
       EXPECT_NEAR(robotModel.getBaseComLinearVelocity(knot).x(), 0.5, 1.0e-9)
           << "at t=" << time;
@@ -819,7 +825,7 @@ TEST_F(HlipPlanningIntegrationTest,
   // Control: what the clamped lookups would have written there is far from the
   // operator's reference.
   const vector2_t operatorBase =
-      robotModel.getBasePosition(operatorState).head<2>();
+      robotModel.getPosBaseRtWorldEwrtWorld(operatorState).head<2>();
   EXPECT_GT((plan.comPosition.back() - operatorBase).norm(), 0.1);
 
   EXPECT_TRUE(referenceManager_->getPlannedDcm(initTime).has_value())

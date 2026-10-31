@@ -52,10 +52,10 @@ FakeRobotBackend::Trajectory standingStill(
   return [initialState](double time, robot::model::RobotState& state) {
     state = initialState;
     state.setTime(time);
-    state.setRootLinearVelocityInLocalFrame(vector3_t::Zero());
-    state.setRootAngularVelocityInLocalFrame(vector3_t::Zero());
-    state.setImuLinearAccelerationInLocalFrame(
-        initialState.getRootRotationLocalToWorldFrame().inverse() *
+    state.setLinvelBaseRtWorldEwrtBase(vector3_t::Zero());
+    state.setAngvelBaseRtWorldEwrtBase(vector3_t::Zero());
+    state.setSpecforceBaseRtWorldEwrtBase(
+        initialState.getQuatBaseRtWorld().inverse() *
         vector3_t(0.0, 0.0, kGravity));
   };
 }

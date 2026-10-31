@@ -43,8 +43,8 @@ namespace ocs2::humanoid {
  * foot, and of the joint limits, the foot collision and its barrier function
  * (with the barrier function's rate gamma, a parameter of its generated
  * library). Only these are hot: the geometric coefficients beside them
- * (friction_coefficient, min_normal_force, ...) are baked into the constraints
- * when the problem is built.
+ * (friction_coefficient, min_force_contact_ewrt_contact_z, ...) are baked into
+ * the constraints when the problem is built.
  *
  * WHICH delta is written into a cone depends on the penalty that is actually
  * installed, not on the file, and the factory's own
@@ -53,11 +53,12 @@ namespace ocs2::humanoid {
  * whose `delta` is the width of its quadratic relaxation and is read straight
  * from the file. An UN-gated cone - the contact-implicit formulation - is
  * wrapped in a SquaredHingePenalty built with delta = 0, because a hinge's
- * delta is the OFFSET of its zero, and the whole point of the hinge there is
+ * delta is the OFFSET of its zero, and the hinge is used there so
  * that its zero sits exactly on the cone that a foot at zero wrench lies on.
  * Writing the barrier's delta into it would move that zero into the interior
- * and reinstate the very force floor that dropping `min_normal_force` and the
- * friction cone's parabolic margin exists to remove.
+ * and reinstate the very force floor that dropping
+ * `min_force_contact_ewrt_contact_z` and the friction cone's parabolic margin
+ * exists to remove.
  *
  * Not thread-safe (HotFieldApplier).
  */

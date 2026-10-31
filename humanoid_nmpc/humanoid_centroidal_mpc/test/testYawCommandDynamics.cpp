@@ -83,8 +83,8 @@ constexpr Eigen::Index kBaseYawRateIndex = 5;
 }  // namespace
 
 /**
- * Tests the physics of the velocity command mapping used by the DRC Atlas
- * walking command path.
+ * Tests the physical momentum of the velocity command mapping used by the DRC
+ * Atlas walking command path.
  *
  * The centroidal state carries the normalized momentum h = [p / m, L / m]. A
  * commanded base twist must land in it as the momentum that twist actually
@@ -134,7 +134,7 @@ class YawCommandDynamicsTest : public ::testing::Test {
                                    const vector_t& state) {
     TargetTrajectories target;
     for (int i = 0; i < kFilterSettlingCalls; ++i) {
-      target = calculator_->commandedVelocityToTargetTrajectories(
+      target = calculator_->velocityCommandToTargetTrajectories(
           command, /*initTime=*/0.0, state,
           /*measuredMotion=*/BasePlanarMotion{});
     }
@@ -340,8 +340,7 @@ TEST_F(YawCommandDynamicsTest, YawMomentumTargetIsInvariantToBaseYaw) {
 
   for (const scalar_t baseYaw : {0.7, -1.9, 2.8}) {
     vector_t turned = initialState_;
-    robotModel_->setBaseOrientationEulerZyx(turned,
-                                            vector3_t(baseYaw, 0.0, 0.0));
+    robotModel_->setEulerzyxBaseRtWorld(turned, vector3_t(baseYaw, 0.0, 0.0));
     const vector6_t h =
         settledMomentumTarget(vector4_t(0.0, 0.0, 0.0, yawRate), turned);
     EXPECT_NEAR(h(5), reference(5), 1.0e-9) << "base yaw " << baseYaw;
@@ -397,7 +396,7 @@ TEST_F(YawCommandDynamicsTest,
   // normalized angular momentum the state carries.
   const scalar_t yawRate = 0.3;
   vector_t state = initialState_;
-  robotModel_->setBaseOrientationEulerZyx(state, vector3_t(0.7, 0.0, 0.0));
+  robotModel_->setEulerzyxBaseRtWorld(state, vector3_t(0.7, 0.0, 0.0));
   const matrix3_t Ig = lockedInertia(state);
   state.segment<3>(3) =
       Ig.col(2) *
@@ -411,8 +410,8 @@ TEST_F(YawCommandDynamicsTest,
   // frame is the heading.
   const vector_t q = robotModel_->getGeneralizedCoordinates(state);
   const scalar_t acomYaw =
-      twistHeading(acom->acomAttitude(robotModel_->getBaseOrientation(state),
-                                      robotModel_->getJointAngles(state)));
+      yawOf(acom->acomAttitude(robotModel_->getQuatBaseRtWorldXyzw(state),
+                               robotModel_->getJointAngles(state)));
   EXPECT_NEAR(input.heading, acomYaw, 1.0e-12);
   EXPECT_NEAR(input.yaw, input.heading, 1.0e-12);
   EXPECT_GT(std::abs(acomYaw - 0.7), 1.0e-4)
@@ -462,9 +461,9 @@ TEST_F(YawCommandDynamicsTest,
 
   // What differentiating the target's base yaw over its first stretch gives for
   // a robot at rest: half the command.
-  const scalar_t yaw0 = robotModel_->getBaseOrientationEulerZyx(
+  const scalar_t yaw0 = robotModel_->getEulerzyxBaseRtWorld(
       robotModel_->getDesiredState(target, /*time=*/0.0))(0);
-  const scalar_t yaw1 = robotModel_->getBaseOrientationEulerZyx(
+  const scalar_t yaw1 = robotModel_->getEulerzyxBaseRtWorld(
       robotModel_->getDesiredState(target, /*time=*/0.2))(0);
   EXPECT_NEAR((yaw1 - yaw0) / 0.2, 0.5 * yawRate, 1.0e-6)
       << "the blended ramp is why the base yaw is not the command source";
@@ -481,7 +480,7 @@ TEST_F(YawCommandDynamicsTest,
   // and with a turned base: the momentum channel is a base-frame-invariant
   // quantity and the inertia the manager derives matches the calculator's.
   vector_t turning = initialState_;
-  robotModel_->setBaseOrientationEulerZyx(turning, vector3_t(1.1, 0.0, 0.0));
+  robotModel_->setEulerzyxBaseRtWorld(turning, vector3_t(1.1, 0.0, 0.0));
   turning.segment<3>(3) = lockedInertia(turning).col(2) * (yawRate / mass_);
   referenceManager->setTargetTrajectories(
       settledTarget(vector4_t(0.0, 0.0, 0.0, yawRate), turning));

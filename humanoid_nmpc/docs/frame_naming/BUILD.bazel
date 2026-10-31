@@ -1,0 +1,6 @@
+# The frame-naming convention. README.md's vocabulary tables are the ones //tools/hooks:test_frame_naming compares with
+# tools/hooks/frame_naming.py.
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["README.md"])

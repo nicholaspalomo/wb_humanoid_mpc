@@ -38,16 +38,16 @@ path, in the `config/` layout above.
 Edit a file and save it, or move the sliders of the tuning GUI (`humanoid_nmpc/remote_control/README.md`, "Tuning the
 configuration").
 
-- **Strict.** A file is parsed strictly: an unknown or misspelled field, a value of the wrong type or a field given
+- A file is parsed strictly: an unknown or misspelled field, a value of the wrong type or a field given
   twice is an error naming the file, line and column. At start-up it stops the process; a running stack refuses the
   edit, logs why, and keeps the values it runs with.
-- **By name.** Weights and states name what they weigh, never an index: `{x y z}` blocks
-  (`state_weights { base_position { x: 0 y: 0 z: 0 } }`), the base orientation as Euler angles
-  (`base_orientation { yaw: 0 pitch: 0 roll: 85 }`, which one layer maps onto the MPC's unit-quaternion state:
+- Weights and states name what they weigh, never an index: `{x y z}` blocks
+  (`state_weights { pos_base_rt_world_ewrt_world { x: 0 y: 0 z: 0 } }`), the base orientation as Euler angles
+  (`eulerzyx_base_rt_world { yaw: 0 pitch: 0 roll: 85 }`, which one layer maps onto the MPC's unit-quaternion state:
   humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 2.10), and every joint of the MPC model exactly once, in any order
   (`joint_positions { joint: "back_bkz" value: 5 }`). A block that names a joint the model does not have, or misses
   one, is refused with the joint's name.
-- **What applies when.** The schemas mark each field `RELOAD_HOT` or `RELOAD_START_UP`
+- The schemas mark each field `RELOAD_HOT` or `RELOAD_START_UP`
   (`humanoid_nmpc/humanoid_mpc_config/tuning_options.proto`). A running MPC, centroidal or whole-body, polls its task
   file, its contact planner's file and its reference file about once a second, applies the hot fields, and logs every
   changed start-up field of the task file that it reads as taking effect at its next start. The robot process reloads
@@ -57,12 +57,12 @@ configuration").
   are seeded from the checkout at every start; an editor's save of a checkout file reaches the running robot process
   at its next start, or at once with `bazel run //humanoid_nmpc/remote_control:push_robot_config -- <file>`
   (`tools/deploy/README.md`, "Simulation").
-- **The GUI.** The MPC Parameters, Joint PD Gains and Command Limits tabs are rendered from the schemas, so a field
+- In the GUI, the MPC Parameters, Joint PD Gains and Command Limits tabs are rendered from the schemas, so a field
   added to a schema (with its conversion in C++) appears on its tab without GUI code. A slider moved on the first two
   publishes the whole edited file to the running stack (`operator/mpc_parameters`, `operator/pd_gains`) without
   writing it; `enable_online_tuning: false` in the task file locks all three tabs. **Save** writes the edited values into the
-  file and keeps every other byte of it - comments, blank lines, LINT directives, the spelling of the values not
-  changed - replacing the file atomically, so that no watcher reads half a file; the file as first loaded is kept
+  file and keeps every other byte of it (comments, blank lines, LINT directives, and the spelling of unchanged
+  values), replacing the file atomically so that no watcher reads half a file; the file as first loaded is kept
   beside it as `<file>.bak`, which git ignores and the robot filegroups leave out (`bazel/robot_files.bzl`). It then
   sends the exact text it wrote of each file the robot reads to the robot process (`operator/config_save`), which
   checks it as it would at start-up, stores it and answers: the tab says whether the robot saved it, found it

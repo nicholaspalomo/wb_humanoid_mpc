@@ -61,10 +61,10 @@ The dummy's own flag: `--ipc_node` (default `robot`). It does not read `--gait_f
 
 Both take the shared flags of [`humanoid_common_mpc_app/node`](../humanoid_common_mpc_app/node/README.md#the-command-line).
 
-`:test_wb_mpc_node` (large: it builds the G1 whole-body CppAD libraries on a cold cache) runs the node with the real SQP
-solver against a scripted robot and operator over loopback buses - observation in and policy out, resets through the
-observation counters, the velocity command reaching the motion manager and the next policy - checks that it resets to
-exactly the target the controller hands its in-process link, and runs the dummy simulator against it for four seconds:
+`:test_wb_mpc_node` (large: it builds the G1 whole-body CppAD libraries on a cold cache) runs the node with the SQP
+solver against a scripted robot and operator over loopback buses (observation in and policy out, resets through the
+observation counters, the velocity command reaching the motion manager and the next policy), checks that it resets to
+the target the controller hands its in-process link, and runs the dummy simulator against it for four seconds:
 it stands, the policies flow, and no reset after the start-up one.
 
 ## The robot process (robot side)
@@ -95,10 +95,10 @@ of the wrong type stops the process with the file, line and column, and a retire
 | `robot_models/unitree_g1/g1_wb_mpc/config/controller/joint_pd_gains.textproto` | `JointPdGainsFile` | the robot process's MRT joint controller, beside the task file (`config/controller/`) |
 | `humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto` | `GaitFile` | the MPC node's motion manager |
 
-**Tuning.** The weights and values are addressed by name, not by position: `state_weights { base_position { z: ... } }`,
-the base orientation in Euler angles ZYX (`base_orientation { yaw: ... pitch: ... roll: ... }`), a joint as
+**Tuning.** The weights and values are addressed by name, not by position: `state_weights { pos_base_rt_world_ewrt_world { z: ... } }`,
+the base orientation in Euler angles ZYX (`eulerzyx_base_rt_world { yaw: ... pitch: ... roll: ... }`), a joint as
 `joint_positions { joint: "left_knee_joint" value: ... }`. The MPC's state holds the orientation as a unit quaternion
-and the base angular velocity in the body frame, so `base_angular_velocity { yaw: ... pitch: ... roll: ... }` weighs
+and the base angular velocity in the body frame, so `angvel_base_rt_world_ewrt_base { yaw: ... pitch: ... roll: ... }` weighs
 and sets the body angular velocity about z, y and x; one layer maps the Euler-written rows onto the state
 (humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 2.10). The MPC node's parameter updater applies an edit of the task
 file's `RELOAD_HOT` fields, and of the reference file's command limits, before the next solve; every other field takes

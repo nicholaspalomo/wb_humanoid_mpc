@@ -270,8 +270,9 @@ void PlannedMotionReferenceManager::plannedPathSwings(
     absl::StatusOr<ContactSwingTrajectory> segment =
         ContactSwingTrajectory::Create(
             times[k] + offset, times[k + 1] + offset,
-            ContactSwingEndpoint{.position = start, .normal = direction},
-            ContactSwingEndpoint{.position = end,
+            ContactSwingEndpoint{.posContactRtWorldEwrtWorld = start,
+                                 .normal = direction},
+            ContactSwingEndpoint{.posContactRtWorldEwrtWorld = end,
                                  .normal = way.norm() > kStill
                                                ? vector3_t(-direction)
                                                : direction},
@@ -326,7 +327,7 @@ std::vector<ContactSwingTrajectory> PlannedMotionReferenceManager::swingsOf(
       // In the air from the plan's start: from where it was at the first
       // solve, departing along its target's normal.
       if (!liftOffPositions_[contactIndex].has_value()) continue;
-      liftOff.position = *liftOffPositions_[contactIndex];
+      liftOff.posContactRtWorldEwrtWorld = *liftOffPositions_[contactIndex];
       liftOff.normal = target->normal;
     } else {
       std::optional<PlannedContactPhase> leaving =
@@ -339,20 +340,22 @@ std::vector<ContactSwingTrajectory> PlannedMotionReferenceManager::swingsOf(
       // and lifting off later: from where it is; otherwise from the pad it
       // will lift off from.
       if (liftOffTime <= initTime) {
-        liftOff.position =
+        liftOff.posContactRtWorldEwrtWorld =
             liftOffPositions_[contactIndex].value_or(leaving->targetPosition);
       } else if (inContactNow && leaving->startTime <=
                                      initTime - offset + kPhaseTimeTolerance) {
         // The phase it rests in now: a later one, after a touch-down within
         // the horizon, starts at its own pad.
-        liftOff.position = measuredContactPositions_[contactIndex];
+        liftOff.posContactRtWorldEwrtWorld =
+            measuredContactPositions_[contactIndex];
       } else {
-        liftOff.position = leaving->targetPosition;
+        liftOff.posContactRtWorldEwrtWorld = leaving->targetPosition;
       }
       liftOff.normal = leaving->normal;
     }
-    const ContactSwingEndpoint touchDown{.position = target->targetPosition,
-                                         .normal = target->normal};
+    const ContactSwingEndpoint touchDown{
+        .posContactRtWorldEwrtWorld = target->targetPosition,
+        .normal = target->normal};
     absl::StatusOr<ContactSwingTrajectory> swing =
         ContactSwingTrajectory::Create(
             liftOffTime, touchDownTime, liftOff, touchDown, settings_.swing,

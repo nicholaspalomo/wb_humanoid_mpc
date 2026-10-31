@@ -131,7 +131,7 @@ HipYawRange deriveHipYawRange(const PinocchioInterface::Model& model,
     // were angles bounded the foot yaw of a joint that has no limit at all to
     // +-1.01 rad, a number that comes from the unit-circle representation and
     // means nothing here. An unbounded joint turns all the way round, so its
-    // honest range is the full circle, which the heading model clips to [-pi,
+    // physical range is the full circle, which the heading model clips to [-pi,
     // pi] regardless.
     range.lower = -M_PI;
     range.upper = M_PI;

@@ -321,8 +321,7 @@ absl::StatusOr<ChartVelocityMaps> chartVelocityMapsAt(
     // (C3): column i of dT_B/dt is d(T_B(Theta) e_i)/dTheta times dTheta/dt.
     maps.velocityMapRate.block<3, 1>(kRootRotationStart,
                                      kRootRotationStart + column) =
-        localAngularVelocityEulerZyxJacobian(angles, vector3_t::Unit(column)) *
-        rates;
+        bodyRateEulerZyxJacobian(angles, vector3_t::Unit(column)) * rates;
   }
   return maps;
 }

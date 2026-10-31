@@ -228,9 +228,10 @@ void dumpProblem(ValueDump& dump,
        ModeNumber::kRf, ModeNumber::kStance, ModeNumber::kLf,
        ModeNumber::kStance});
   vector_t targetState = initialState;
-  vector3_t targetBasePosition = robotModel.getBasePosition(targetState);
+  vector3_t targetBasePosition =
+      robotModel.getPosBaseRtWorldEwrtWorld(targetState);
   targetBasePosition.x() += kTargetDistance;
-  robotModel.setBasePosition(targetState, targetBasePosition);
+  robotModel.setPosBaseRtWorldEwrtWorld(targetState, targetBasePosition);
   const size_t inputDim = robotModel.getInputDim();
   const vector_t zeroInput =
       vector_t::Zero(static_cast<Eigen::Index>(inputDim));

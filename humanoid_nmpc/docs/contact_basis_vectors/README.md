@@ -25,8 +25,6 @@ regularization every robot ships are the defaults, which is what has always run.
 loop and have not been validated in simulation yet, so nothing switches to them on its own; section 7 says how to
 select them.
 
----
-
 ## 1. Block diagram
 
 ```
@@ -57,10 +55,8 @@ select them.
 ```
 
 `M = blkdiag(B_0, B_1, I_joints)` is the constant map from the basis-vector input to the wrench-space input with
-every wrench in its local contact frame (`BasisInputsModelDecorator::getLocalBasisToWrenchMap`). The dynamics rotate
+every wrench in its local contact frame (`BasisInputsModelDecorator::getLocalBasisGeneratorMap`). The dynamics rotate
 each $B_i \lambda_i$ into the world frame inside the CppAD tape, so they do not use $M$.
-
----
 
 ## 2. The contact wrench cone of a rectangular footprint
 
@@ -88,8 +84,8 @@ and its facets, half a sector away at $\theta_k = 2\pi k / N$, are
 $$\mu \cos(\pi/N)\, F_z - (\cos\theta_k F_x + \sin\theta_k F_y) \ge 0.$$
 
 The tangential ratio it admits runs from $\mu\cos(\pi/N)$ in a facet direction (`inscribedFrictionCoefficient`) to
-$\mu$ at an edge, and never exceeds $\mu$. The pyramid used to be **circumscribed** - facets at $\mu F_z$, edges at
-$\mu / \cos(\pi/N)$ - which admitted up to 41 % more friction than the ground provides at $N = 4$ (a ratio of
+$\mu$ at an edge, and never exceeds $\mu$. The pyramid used to be **circumscribed** (facets at $\mu F_z$, edges at
+$\mu / \cos(\pi/N)$), which admitted up to 41 % more friction than the ground provides at $N = 4$ (a ratio of
 $0.707$ for $\mu = 0.5$). `testContactWrenchConeRows` sweeps 7200 directions for every $N$ and checks the bound.
 
 ### 2.2 The V-representation: corner forces along the edges
@@ -140,11 +136,11 @@ $2 \cdot 10^5$ at the largest allowed $N = 8$. For $N = 4$ it reproduces Caron's
 
 **What the torsion rows bound.** They bound the yaw moment the corner friction can supply given the rest of the wrench,
 not the yaw moment about a fixed point. The previous rows, $|\tau_z + p_y F_x - p_x F_y| \le \mu_t F_z$ about the patch
-point $p$, rejected a lateral force applied at an off-center CoP - a wrench four corner forces produce without any
-twisting - as soon as its moment arm times the force exceeded $\mu_t F_z$: on a 0.4 m foot, $0.3 F_z$ sideways at the
+point $p$, rejected a lateral force applied at an off-center CoP (a wrench four corner forces produce without any
+twisting) as soon as its moment arm times the force exceeded $\mu_t F_z$: on a 0.4 m foot, $0.3 F_z$ sideways at the
 toe was refused. `torsional_friction_coefficient` therefore no longer enters the cone; the online contact planner still
 reads it as its per-foot yaw torque budget, capped at the cone's torsion limit for a normal force at the footprint
-center, $\mu'(X + Y) F_z$ at $N = 4$ (`torsionLimitsOfNormalForceAt`).
+center, $\mu'(X + Y) F_z$ at $N = 4$ (`computeLimitsPerNewtonTorqueContactEwrtContactZ`).
 
 **The affine offsets.** $F_{\min}$ is the offset of the normal-force row; the gripper force $F_g$ is an extra normal
 force at the footprint center seen by the friction and torsion rows (not by the CoP rows), i.e. $b = u \cdot (0, 0, F_g,
@@ -160,18 +156,18 @@ least-squares residual (tightness); the generators are extreme rays of the rows.
 
 `exact_wrench_cone` is the V-representation of section 2.2: $4N$ columns, $g_{k,c}$ at column $4k + c$, with the
 corners in the order $(x_{\max}, y_{\max}), (x_{\max}, y_{\min}), (x_{\min}, y_{\max}), (x_{\min}, y_{\min})$. Its conic
-hull **is** the cone wrench mode enforces - neither larger nor smaller - and no smaller set achieves that, because every
+hull **is** the cone wrench mode enforces (neither larger nor smaller), and no smaller set achieves that, because every
 extreme ray has to be a generator. It costs input dimension: 16 scalings per foot for $N = 4$ instead of 11.
 
 ## 4. Why the shipped set is only an inner approximation
 
 `conservative_inner_approximation` has $N + 7$ columns: the $N$ friction edges applied at the patch point, one pure
 normal force at the patch point, a normal force at each of the four footprint corners, and a normal force at the patch
-point with the upper and the lower torsion limit the cone allows there (`torsionLimitsOfNormalForceAt`). Every column
+point with the upper and the lower torsion limit the cone allows there (`computeLimitsPerNewtonTorqueContactEwrtContactZ`). Every column
 has $F_z = 1$, so at $F_z = 1$ the scalings are convex weights, and each column spends its weight on **one** of the
 three limits: the friction edges carry all the tangential force, the corner rays all the center-of-pressure excursion
 from $p$, the torsion rays all the torsion. The three therefore share one budget, while the cone lets them trade off
-against each other only through the torsion facets. The set is **sound** - every column is inside the cone - but
+against each other only through the torsion facets. The set is **sound** (every column is inside the cone) but
 strongly conservative:
 
 * its projection onto the force alone is exact: any force of the friction pyramid, applied at the patch point with no
@@ -186,7 +182,7 @@ wrenches (`testContactWrenchConeBasisMatrix` logs the figure for every geometry 
 recovery all want tangential force with the center of pressure near an edge of the foot, which is exactly what this
 set cannot express - so basis mode with this set plans with a much smaller contact-wrench set than wrench mode does.
 
-**What no generator set can represent.** `min_normal_force` and `gripper_force` are affine offsets of the cone, and a
+**What no generator set can represent.** `min_force_contact_ewrt_contact_z` and `grip_force_contact_ewrt_contact_z` are affine offsets of the cone, and a
 conic combination is homogeneous ($\lambda = 0$ always gives $W = 0$). Neither is enforced in basis mode, and
 `CentroidalMpcInterface` warns when either is configured.
 
@@ -244,9 +240,9 @@ the updater refuses such a reload and keeps the running $R$.
 
 ## 6. Writing a wrench into the input
 
-`BasisInputsModelDecorator::setContactWrench` (and the world-frame setters built on it) has to find $\lambda \ge 0$ with
+`BasisInputsModelDecorator::setWrenchContactEwrtParam` (and the world-frame setters built on it) has to find $\lambda \ge 0$ with
 $B\lambda = W$. The minimum-norm $B^+ W$ spreads the load over every generator and is used when it is already
-non-negative. When it is not, clamping it at zero - what the setter used to do - changes the wrench even though an
+non-negative. When it is not, clamping it at zero (what the setter used to do) changes the wrench even though an
 exact non-negative solution exists: the weight of the robot seen from a stance foot pitched by 15 degrees came back
 7 % too large with a 6 % sideways force on Atlas. The setter now solves the non-negative least-squares problem
 (Lawson-Hanson, `solveNonNegativeLeastSquares`) instead, which reproduces every wrench inside the cone of $B$ exactly
@@ -279,8 +275,8 @@ an unknown name with a message that names its field and lists the valid names:
 The parameterization and the generator set fix the input dimension, so they take effect at the next start; a hot
 reload that changes the parameterization is reported by the parameter updater rather than applied. The tuning GUI
 labels the `contacts` sliders to match: the geometry of the cone and of the footprint `(restart)`, and the barrier of a
-block the selected parameterization does not read - the soft wrench cone's under `basis_vectors`, the basis blocks
-under `wrench` - `(not applicable: ...)`. The `use_contact_basis_vector_inputs` boolean that used to select the
+block the selected parameterization does not read (the soft wrench cone's under `basis_vectors`, the basis blocks
+under `wrench`) `(not applicable: ...)`. The `use_contact_basis_vector_inputs` boolean that used to select the
 parameterization is a retired field of the task file: a file that carries it is refused when it is read, whatever its
 value, with a message naming its replacement. The
 whole-body MPC implements the wrench parameterization only and refuses `basis_vectors`. A value of any of these fields
@@ -303,11 +299,11 @@ the library default of the config (mu 0.7, 5 N) in place without a word.
 Every CppAD tape built on the basis-vector input depends on the parameterization: its input dimension is
 $n_b N_{\text{contacts}} + n_j$, and some tapes (the external-torque cost, the contact-moment constraint) embed $B$
 itself. `basisInputsLibraryKey(B_0, B_1)` returns `basis<n_b>_<16 hex digits>`, a content hash of the bases that is
-stable across processes and platforms, and `kWrenchInputsLibraryKey` is its wrench-mode counterpart. The dynamics
+stable across processes and platforms, and `kWrenchInputsLibraryName` is its wrench-mode counterpart. The dynamics
 library carries the key in its name (`dynamics_basis11_...`), and `CentroidalMpcInterface` appends the key of the
-parameterization to the CppAD model folder before any term is built - below the folder's state-layout tag,
+parameterization to the CppAD model folder before any term is built (below the folder's state-layout tag,
 `cppad_code_gen/cppad_centroidal_mpc_<robot>/translation_spherical_quaternion_v1/wrench_inputs` or
-`.../basis11_<hash>` (`kStateLayoutTag`, humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 3.2) - so
+`.../basis11_<hash>`, `kStateLayoutTag`, humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 3.2), so
 every taped term is keyed by it. Every robot ships `model_settings.recompile_libraries_cpp_ad: false`, and OCS2 loads a
 cached library by name: before it checked the loaded library's domain and range, switching the parameterization or the
 basis without that key loaded a library built for another input dimension and the process exited on its first

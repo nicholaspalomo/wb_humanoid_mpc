@@ -50,10 +50,10 @@ TargetTrajectories wbMpcResetTargetTrajectories(
   // Keep only the heading of the base orientation, so that the target base is
   // upright: the heading quaternion of the observed attitude, its twist about
   // the world z axis with the tilt dropped (design decision D9). A measured
-  // attitude, so it is written as one (setBaseOrientation).
-  mpcRobotModel.setBaseOrientation(
-      targetState,
-      headingQuaternion(mpcRobotModel.getBaseOrientation(targetState)));
+  // attitude, so it is written as one (setQuatBaseRtWorldXyzw).
+  mpcRobotModel.setQuatBaseRtWorldXyzw(
+      targetState, verticalTwistFromQuaternion(
+                       mpcRobotModel.getQuatBaseRtWorldXyzw(targetState)));
 
   const vector_t targetInput =
       weightCompensatingInput(pinocchioInterface, {true, true}, mpcRobotModel);

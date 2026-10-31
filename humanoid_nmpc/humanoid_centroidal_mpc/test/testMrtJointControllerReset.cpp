@@ -159,12 +159,13 @@ class ControllerHarness {
                 const vector3_t& baseVelocity = vector3_t::Zero()) {
     const CentroidalMpcRobotModel<scalar_t>& model = stack_.model();
     robotState_.setConfigurationToZero();
-    robotState_.setRootPositionInWorldFrame(model.getBasePosition(state));
-    const quaternion_t orientation(model.getBaseOrientation(state));
-    robotState_.setRootRotationLocalToWorldFrame(orientation);
-    robotState_.setRootLinearVelocityInLocalFrame(
+    robotState_.setPosBaseRtWorldEwrtWorld(
+        model.getPosBaseRtWorldEwrtWorld(state));
+    const quaternion_t orientation(model.getQuatBaseRtWorldXyzw(state));
+    robotState_.setQuatBaseRtWorld(orientation);
+    robotState_.setLinvelBaseRtWorldEwrtBase(
         orientation.toRotationMatrix().transpose() * baseVelocity);
-    robotState_.setRootAngularVelocityInLocalFrame(vector3_t::Zero());
+    robotState_.setAngvelBaseRtWorldEwrtBase(vector3_t::Zero());
     const vector_t joints = model.getJointAngles(state);
     for (size_t i = 0; i < mpcJointIndices_.size(); ++i)
       robotState_.setJointPosition(mpcJointIndices_[i], joints[i]);
@@ -609,9 +610,9 @@ TEST(MrtJointControllerReset,
   // JOINT_PD and holds the controller; the remote control re-centers its
   // sticks.
   vector_t fallen = state;
-  vector3_t fallenEulerZyx = model.getBaseOrientationEulerZyx(state);
+  vector3_t fallenEulerZyx = model.getEulerzyxBaseRtWorld(state);
   fallenEulerZyx(2) = 1.2;  // rolled over by 1.2 rad
-  model.setBaseOrientationEulerZyx(fallen, fallenEulerZyx);
+  model.setEulerzyxBaseRtWorld(fallen, fallenEulerZyx);
   harness.setState(fallen, vector3_t(0.0, -1.0, -0.5));
   harness.controller().requestMpcResetAndHold();
   harness.controller().setControlMode("JOINT_PD");
@@ -640,8 +641,8 @@ TEST(MrtJointControllerReset,
       harness.controller().getCommandData().mpcInitObservation_;
   EXPECT_GE(solvedFrom.time, entryTime)
       << "the policy in use was solved before the entry into WB_MPC";
-  EXPECT_LT((model.getBasePoseEulerZyx(solvedFrom.state) -
-             model.getBasePoseEulerZyx(held))
+  EXPECT_LT((model.getPoseeulerzyxBaseRtWorld(solvedFrom.state) -
+             model.getPoseeulerzyxBaseRtWorld(held))
                 .cwiseAbs()
                 .maxCoeff(),
             1.0e-9)

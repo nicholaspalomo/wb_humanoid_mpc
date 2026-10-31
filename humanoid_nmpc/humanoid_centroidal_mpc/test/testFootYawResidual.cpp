@@ -245,7 +245,7 @@ TEST(FootYawResidual,
   const scalar_t time = DrcAtlasContactTestModel::kQueryTime;
   ASSERT_TRUE(cost.isActive(time))
       << "the swing foot cost is not active, so nothing was checked";
-  ASSERT_EQ(atlas.wrenchModel().getBaseOrientationEulerZyx(state)(0), 0.0)
+  ASSERT_EQ(atlas.wrenchModel().getEulerzyxBaseRtWorld(state)(0), 0.0)
       << "the case under test: a base yaw of exactly zero";
   // The foot's own yaw is what the residual sees: R10 exactly zero is where the
   // legacy residual has no derivative
@@ -440,10 +440,11 @@ TEST(FootCostParameters, TheHeightReferenceIsTheSwingPlannersOnAnyGround) {
         const vector_t parameters =
             cost.getParameters(times[i], target, PreComputation());
         EXPECT_EQ(parameters(kReferenceZIndex),
-                  planner.getZpositionConstraint(kSwingFoot, times[i]))
+                  planner.getDesPosFootRtWorldEwrtWorldZ(kSwingFoot, times[i]))
             << "t = " << times[i];
-        EXPECT_EQ(parameters(kReferenceZVelocityIndex),
-                  planner.getZvelocityConstraint(kSwingFoot, times[i]))
+        EXPECT_EQ(
+            parameters(kReferenceZVelocityIndex),
+            planner.getDesLinvelFootRtWorldEwrtWorldZ(kSwingFoot, times[i]))
             << "t = " << times[i];
         EXPECT_GT(parameters(kReferenceZIndex), terrainHeight)
             << "a swing foot is referenced above the ground, t = " << times[i];

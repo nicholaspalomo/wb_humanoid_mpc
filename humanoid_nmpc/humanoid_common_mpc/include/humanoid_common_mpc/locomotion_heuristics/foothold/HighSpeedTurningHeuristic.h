@@ -48,7 +48,7 @@ namespace ocs2::humanoid {
  * once: it "tended to fall outwards along the turning radius as if it were an
  * object slipping off a spinning plate", the outer leading foot running out of
  * workspace with no contact foot left able to stabilize the body. The framework
- * surfaced the cross term v x omega as statistically significant, and only
+ * identified the cross term v x omega as statistically significant, and only
  * afterwards did Bledt recognize what it was - the foot placement that lines up
  * with the resultant of gravity and the centripetal acceleration, which is what
  * animals visibly do when they corner (section 4.3, equation 4.31, figure
@@ -57,7 +57,7 @@ namespace ocs2::humanoid {
  * It only exists because the designer had thought to put `pdot x omega` into
  * the candidate variable set: the framework fits simple models between
  * variables it is given and cannot invent a product it was never shown. That
- * caveat is Bledt's own (section 4.6) and is worth carrying into any attempt to
+ * caveat is Bledt's own (section 4.6) and applies to any attempt to
  * extend this layer.
  *
  * With omega = psidot e_z and a horizontal velocity the cross product reduces

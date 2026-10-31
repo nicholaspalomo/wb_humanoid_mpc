@@ -47,7 +47,7 @@ using ::ocs2::kYAxisIndex;
 using ::ocs2::kZAxisIndex;
 
 namespace {
-constexpr double kMinDrawnForce =
+constexpr double kMinDrawnForceLinkEwrtWorld =
     1.0e-6;  // [N] a smaller applied force draws no arrow
 // The arrow of a force grows with it, up to kMaxArrowLength.
 constexpr double kMinArrowLength = 0.1;         // [m]
@@ -127,11 +127,12 @@ void ExternalForceVisualization::addArrows(const mjModel* absl_nonnull model,
     // The held push is drawn above; its one-step force would be a second arrow
     // on the same body.
     if (pushHeld && body_id == push.bodyId) continue;
-    const double* absl_nonnull force =
+    const double* absl_nonnull forceLinkEwrtWorld =
         &data->xfrc_applied[kMjSpatialVectorSize * body_id];
-    const double magnitude = norm(force);
-    if (magnitude < kMinDrawnForce) continue;
-    addArrow(&data->xipos[kPositionDim * body_id], force, magnitude,
+    const double magnitude = norm(forceLinkEwrtWorld);
+    if (magnitude < kMinDrawnForceLinkEwrtWorld) continue;
+    addArrow(&data->xipos[kPositionDim * body_id], forceLinkEwrtWorld,
+             magnitude,
              std::min(kMinArrowLength + kArrowLengthPerNewton * magnitude,
                       kMaxArrowLength),
              scene);

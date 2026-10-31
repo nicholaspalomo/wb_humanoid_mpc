@@ -71,11 +71,13 @@ constexpr ModelSettings::ContactImplicitKey kContactImplicitKeys[] = {
     {.fieldName = "height_reference",
      .field = &ModelSettings::ContactImplicitConfig::heightReference,
      .isWeight = false},
-    {.fieldName = "velocity_reference",
-     .field = &ModelSettings::ContactImplicitConfig::velocityReference,
+    {.fieldName = "scale_linvel_contact_rt_world_ewrt_world_xy",
+     .field = &ModelSettings::ContactImplicitConfig::
+                  scaleLinvelContactRtWorldEwrtWorldXy,
      .isWeight = false},
-    {.fieldName = "angular_velocity_reference",
-     .field = &ModelSettings::ContactImplicitConfig::angularVelocityReference,
+    {.fieldName = "scale_angvel_contact_rt_world_ewrt_world_z",
+     .field = &ModelSettings::ContactImplicitConfig::
+                  scaleAngvelContactRtWorldEwrtWorldZ,
      .isWeight = false},
     {.fieldName = "gap_smoothing",
      .field = &ModelSettings::ContactImplicitConfig::gapSmoothing,

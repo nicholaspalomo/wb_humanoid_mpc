@@ -55,7 +55,7 @@ struct LocomotionHeuristicModelParameters {
   scalar_t totalMass = 0.0;  // [kg]
   // [m/s^2] the model's gravity (modelGravity()), the g of the capture point's
   // sqrt(z / g).
-  scalar_t gravity = kGravitationalAcceleration;
+  scalar_t gravity = kGravityMagnitude;
   scalar_t totalWeight = 0.0;  // [N] totalMass * gravity, precomputed because
                                // every wrench heuristic divides by it
   /** [m] center of mass above the mean foot height in the nominal standing

@@ -120,7 +120,7 @@ class ObservationNormalizer:
     std: np.ndarray
 
     def normalize(self, observations: jax.Array) -> jax.Array:
-        """Returns the normalized observations, of the shape of `observations`."""
+        """Returns the normalized observations, with the same shape as `observations`."""
         return (observations - self.mean) / self.std
 
 

@@ -45,11 +45,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "mujoco_sim_interface/viewer/ViewerNames.h"
 
 /*
- * The dodgeball through the real simulator, headless, on the shipped Atlas
+ * The dodgeball through MuJoCo, headless, on the shipped Atlas
  * scene: the glue between Projectile's pure functions and the simulation loop,
- * which is where the bugs that no unit test could see lived - a ball id that
+ * which is where the bugs that no unit test could see showed up (a ball id that
  * was never resolved, a damping loop that still damped the ball, a mass that
- * reached one throw path and not the other.
+ * reached one throw path and not the other).
  */
 
 namespace robot::mujoco_sim_interface {
@@ -132,9 +132,9 @@ bool isParked(const MujocoSimInterface& sim) {
   const Snapshot snapshot(sim);
   const std::array<double, 3> ball = snapshot.ball();
   const int ballGeom = sim.getModel()->body_geomadr[sim.projectileBodyId()];
-  return std::abs(ball[0] - kProjectileParkPosition[0]) < 1.0e-6 &&
-         std::abs(ball[1] - kProjectileParkPosition[1]) < 1.0e-6 &&
-         std::abs(ball[2] - kProjectileParkPosition[2]) < 1.0e-6 &&
+  return std::abs(ball[0] - kParkPosBallRtWorldEwrtWorld[0]) < 1.0e-6 &&
+         std::abs(ball[1] - kParkPosBallRtWorldEwrtWorld[1]) < 1.0e-6 &&
+         std::abs(ball[2] - kParkPosBallRtWorldEwrtWorld[2]) < 1.0e-6 &&
          sim.getModel()->geom_contype[ballGeom] == 0;
 }
 
@@ -149,10 +149,11 @@ MujocoSimInterface::DodgeballThrow aimedThrow(
     const std::array<double, 3>& offset, double flightTime, double mass) {
   MujocoSimInterface::DodgeballThrow command;
   for (int axis = 0; axis < 3; ++axis) {
-    command.spawnOffset[axis] = offset[axis];
-    command.launchVelocity[axis] = -offset[axis] / flightTime;
+    command.spawnPosBallRtBaseEwrtHeading[axis] = offset[axis];
+    command.launchLinvelBallRtWorldEwrtHeading[axis] =
+        -offset[axis] / flightTime;
   }
-  command.launchVelocity[2] += 0.5 * kGravity * flightTime;
+  command.launchLinvelBallRtWorldEwrtHeading[2] += 0.5 * kGravity * flightTime;
   command.flightTime = flightTime;
   command.mass = mass;
   return command;
@@ -195,8 +196,8 @@ TEST(SimDodgeball, TorqueTogglesNeverDampTheBall) {
       makeSim(/*gantryLocked=*/true);
   const mjModel* absl_nonnull model = sim->getModel();
   const int ball = sim->projectileBodyId();
-  for (const bool torques : {true, false, true}) {
-    if (torques) {
+  for (const bool jointTorquesOn : {true, false, true}) {
+    if (jointTorquesOn) {
       sim->enableTorques();
     } else {
       sim->disableTorques();
@@ -206,7 +207,7 @@ TEST(SimDodgeball, TorqueTogglesNeverDampTheBall) {
     for (int dof = 6; dof < model->nv; ++dof) {
       if (isProjectileDof(model, ball, dof)) {
         EXPECT_EQ(model->dof_damping[dof], 0.0)
-            << "torques " << torques << " dof " << dof;
+            << "torques " << jointTorquesOn << " dof " << dof;
       }
     }
   }

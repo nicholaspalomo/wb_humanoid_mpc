@@ -108,16 +108,17 @@ static_assert(std::is_same_v<decltype(RobotStateSample::joint_names),
 static_assert(std::is_same_v<decltype(RobotStateSample::contact_flags),
                              std::vector<bool>>);
 static_assert(
-    std::is_same_v<decltype(RobotStateSample::measured_contact_wrenches),
+    std::is_same_v<decltype(RobotStateSample::meas_wrench_contacts_ewrt_world),
                    std::vector<Wrench>>);
-static_assert(std::is_same_v<decltype(JointTargets::positions),
+static_assert(std::is_same_v<decltype(JointTargets::joint_positions),
                              std::map<std::string, double>>);
 static_assert(std::is_same_v<decltype(Spheres::radii), Eigen::VectorXf>);
 static_assert(std::is_same_v<decltype(TargetContactPatch::kind),
                              TargetContactPatch::Kind>);
 // Presence, not a `bool valid`: a foot without a target has no pose.
-static_assert(std::is_same_v<decltype(TargetContactPatch::pose),
-                             std::optional<TargetContactPatch::Pose>>);
+static_assert(
+    std::is_same_v<decltype(TargetContactPatch::des_pose_foot_rt_world),
+                   std::optional<TargetContactPatch::Pose>>);
 static_assert(std::is_enum_v<ControllerType> &&
               !std::is_convertible_v<ControllerType, int>);
 
@@ -325,12 +326,13 @@ TEST(MpcPolicyTest, AHandWrittenPolicyLandsInTheMessageFields) {
   policy.controller_type = ControllerType::kLinear;
   TargetContactPatch patch;
   patch.kind = TargetContactPatch::Kind::kNextSwing;
-  patch.pose = TargetContactPatch::Pose{
+  patch.des_pose_foot_rt_world = TargetContactPatch::Pose{
       .x = 0.25, .y = -0.1, .z = 0.0, .yaw = 0.5, .yaw_planned = true};
   policy.annotations.target_contact_patches.push_back(patch);
   // A foot without a target: no pose.
-  policy.annotations.target_contact_patches.push_back(TargetContactPatch{
-      .kind = TargetContactPatch::Kind::kStance, .pose = std::nullopt});
+  policy.annotations.target_contact_patches.push_back(
+      TargetContactPatch{.kind = TargetContactPatch::Kind::kStance,
+                         .des_pose_foot_rt_world = std::nullopt});
 
   humanoid_mpc_msgs::MpcPolicy proto;
   ToProto(policy, &proto);
@@ -349,9 +351,17 @@ TEST(MpcPolicyTest, AHandWrittenPolicyLandsInTheMessageFields) {
   ASSERT_EQ(proto.annotations().target_contact_patches_size(), 2);
   EXPECT_EQ(proto.annotations().target_contact_patches(0).kind(),
             humanoid_mpc_msgs::TargetContactPatch::KIND_NEXT_SWING);
-  ASSERT_TRUE(proto.annotations().target_contact_patches(0).has_pose());
-  EXPECT_EQ(proto.annotations().target_contact_patches(0).pose().x(), 0.25);
-  EXPECT_FALSE(proto.annotations().target_contact_patches(1).has_pose());
+  ASSERT_TRUE(proto.annotations()
+                  .target_contact_patches(0)
+                  .has_des_pose_foot_rt_world());
+  EXPECT_EQ(proto.annotations()
+                .target_contact_patches(0)
+                .des_pose_foot_rt_world()
+                .x(),
+            0.25);
+  EXPECT_FALSE(proto.annotations()
+                   .target_contact_patches(1)
+                   .has_des_pose_foot_rt_world());
 
   MpcPolicy back;
   ASSERT_TRUE(FromProto(proto, &back).ok());
@@ -370,18 +380,20 @@ TEST(RobotStateSampleTest, AHandWrittenSampleLandsInTheMessageFields) {
   RobotStateSample sample;
   sample.time = 2.5;
   sample.control_mode = "WB_MPC";
-  sample.base_orientation_world.w = 1.0;
+  sample.quat_base_rt_world.w = 1.0;
   sample.joint_names = {"left_knee", "right_knee"};
   sample.joint_positions = Eigen::Vector2d(0.1, -0.2);
   sample.contact_flags = {true, false};
-  Wrench wrench;
-  wrench.force.z = 400.0;
-  sample.measured_contact_wrenches = {wrench, Wrench()};
+  Wrench measWrenchContactEwrtWorld;
+  // NOLINTNEXTLINE(frame-naming): a component of a frame-generic value
+  measWrenchContactEwrtWorld.force.z = 400.0;
+  sample.meas_wrench_contacts_ewrt_world = {measWrenchContactEwrtWorld,
+                                            Wrench()};
 
   humanoid_mpc_msgs::RobotStateSample proto;
   ToProto(sample, &proto);
   EXPECT_EQ(proto.control_mode(), "WB_MPC");
-  EXPECT_EQ(proto.base_orientation_world().w(), 1.0);
+  EXPECT_EQ(proto.quat_base_rt_world().w(), 1.0);
   ASSERT_EQ(proto.joint_names_size(), 2);
   EXPECT_EQ(proto.joint_names(1), "right_knee");
   ASSERT_EQ(proto.joint_positions_size(), 2);
@@ -389,7 +401,8 @@ TEST(RobotStateSampleTest, AHandWrittenSampleLandsInTheMessageFields) {
   ASSERT_EQ(proto.contact_flags_size(), 2);
   EXPECT_TRUE(proto.contact_flags(0));
   EXPECT_FALSE(proto.contact_flags(1));
-  EXPECT_EQ(proto.measured_contact_wrenches(0).force().z(), 400.0);
+  // NOLINTNEXTLINE(frame-naming): a component of a frame-generic value
+  EXPECT_EQ(proto.meas_wrench_contacts_ewrt_world(0).force().z(), 400.0);
 
   RobotStateSample back;
   ASSERT_TRUE(FromProto(proto, &back).ok());

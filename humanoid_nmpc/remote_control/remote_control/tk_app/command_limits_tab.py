@@ -51,7 +51,7 @@ _PROBLEM_COLOR = "#e74c3c"
 def _disabled_banner(reason: str) -> str:
     """The banner of a tab whose online tuning is off, for `reason` (empty: the task file's enable_online_tuning)."""
     return (
-        "🔒 Online Tuning Disabled"
+        "Online Tuning Disabled"
         f" ({reason or 'enable_online_tuning: false in the task file'})"
     )
 
@@ -78,7 +78,7 @@ class CommandLimitsTab(ttk.Frame):
         robot_saver: the GUI's saver of the robot's copies (robot_config_save.RobotConfigSaver); None: Save writes
             the laptop's file only, and says so.
         on_saved: called after the laptop's file was saved, before it is sent to the robot (the GUI follows the file's
-            default_base_height with it); None: nothing is.
+            nom_pos_base_rt_world_ewrt_world_z with it); None: nothing is.
         **kwargs: the options of the tab's ttk.Frame.
     """
 
@@ -139,7 +139,7 @@ class CommandLimitsTab(ttk.Frame):
 
         buttons = ttk.Frame(self)
         buttons.pack(fill="x", padx=8, pady=4)
-        self.save_btn = ttk.Button(buttons, text="💾 Save", command=self.save)
+        self.save_btn = ttk.Button(buttons, text="Save", command=self.save)
         self.save_btn.pack(side="left")
         ttk.Button(buttons, text="↩ Reload", command=self.reload).pack(
             side="left", padx=6

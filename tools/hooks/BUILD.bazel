@@ -53,9 +53,11 @@ py_library(
         ":argument_comments",
         ":boost_usage",
         ":check_types",
+        ":claudisms",
         ":cpp_google_style",
         ":cpp_totw",
         ":euler_boundary",
+        ":frame_naming",
         ":include_style",
         ":inclusive_language",
         ":license_header",
@@ -393,6 +395,29 @@ py_test(
     ],
 )
 
+# Frame-dependent quantities are named by their frames (humanoid_nmpc/docs/frame_naming/README.md).
+py_library(
+    name = "frame_naming",
+    srcs = ["frame_naming.py"],
+    deps = [
+        ":check_types",
+        ":cpp_source",
+        ":lint_files",
+    ],
+)
+
+py_test(
+    name = "test_frame_naming",
+    size = "small",
+    srcs = ["test_frame_naming.py"],
+    data = ["//humanoid_nmpc/docs/frame_naming:README.md"],
+    deps = [
+        ":check_test_support",
+        ":frame_naming",
+        ":lint_code",
+    ],
+)
+
 py_library(
     name = "euler_boundary",
     srcs = ["euler_boundary.py"],
@@ -627,6 +652,25 @@ py_test(
 )
 
 py_library(
+    name = "claudisms",
+    srcs = ["claudisms.py"],
+    deps = [
+        ":check_types",
+        ":lint_files",
+    ],
+)
+
+py_test(
+    name = "test_claudisms",
+    size = "small",
+    srcs = ["test_claudisms.py"],
+    deps = [
+        ":check_test_support",
+        ":claudisms",
+    ],
+)
+
+py_library(
     name = "python_imports",
     srcs = ["python_imports.py"],
     deps = [
@@ -696,7 +740,7 @@ compile_pip_requirements(
     tags = ["manual"],
 )
 
-# The configurations work with the real tools, from the lock (the @lint_deps hub), hermetically.
+# The configurations work with the tools from the lock (the @lint_deps hub) hermetically.
 py_test(
     name = "test_lint_tool_configs",
     size = "small",

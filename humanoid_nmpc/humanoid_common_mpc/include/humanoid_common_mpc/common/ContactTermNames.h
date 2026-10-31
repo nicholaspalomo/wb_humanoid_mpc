@@ -54,7 +54,7 @@ namespace ocs2::humanoid::contact_term {
 // (contactConstraintsAreScheduleGated()).
 inline constexpr absl::string_view kContactWrenchCone = "_contactWrenchCone";
 inline constexpr absl::string_view kFrictionForceCone = "_frictionForceCone";
-inline constexpr absl::string_view kContactMomentXY = "_contactMomentXY";
+inline constexpr absl::string_view kContactMomentXYName = "_contactMomentXY";
 // The friction cone a 3-DoF contact takes where a 6-DoF one takes the contact
 // wrench cone (PointFrictionConeConstraint).
 inline constexpr absl::string_view kPointFrictionCone = "_pointFrictionCone";
@@ -62,12 +62,14 @@ inline constexpr absl::string_view kPointFrictionCone = "_pointFrictionCone";
 // (humanoid_nmpc/docs/contact_implicit_mpc/README.md).
 inline constexpr absl::string_view kContactComplementarity =
     "_contactComplementarity";
-inline constexpr absl::string_view kForceWeightedSlip = "_forceWeightedSlip";
+inline constexpr absl::string_view kForceWeightedSlipName =
+    "_forceWeightedSlip";
 inline constexpr absl::string_view kGroundPenetration = "_groundPenetration";
 // The swing-foot vertical servo listed as a hard constraint, and as a soft one,
 // which the contact-implicit formulation requires.
-inline constexpr absl::string_view kNormalVelocity = "_normalVelocity";
-inline constexpr absl::string_view kNormalVelocitySoft = "_normalVelocitySoft";
+inline constexpr absl::string_view kNormalVelocityName = "_normalVelocity";
+inline constexpr absl::string_view kNormalVelocitySoftName =
+    "_normalVelocitySoft";
 // The terms of a tracked multi-contact plan: the swing servo of any contact
 // (ContactSwingConstraint), the landing alignment of a 6-DoF one
 // (SwingLandingAlignmentConstraint) and the collision sphere kept out of the

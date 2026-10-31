@@ -85,8 +85,8 @@ PointFrictionConeConstraint::PointFrictionConeConstraint(
       mpcRobotModelPtr_(&mpcRobotModel),
       contactIndex_(contactIndex),
       scheduleGated_(scheduleGated),
-      forceInputJacobian_(
-          contactForceInputJacobian(mpcRobotModel, contactIndex)) {
+      inputJacobianForceContactEwrtParam_(
+          inputJacobianForceContactEwrtParam(mpcRobotModel, contactIndex)) {
   const ContactWrenchConeRows rows = buildFrictionPyramidRows(
       scheduleGated
           ? config
@@ -106,12 +106,13 @@ vector_t PointFrictionConeConstraint::getValue(
     const vector_t& /*state*/,
     const vector_t& input,
     const PreComputation& /*preComp*/) const {
-  const matrix3_t worldToPatch =
+  const matrix3_t rotmatWorldRtSurface =
       referenceManagerPtr_->getContactPatchFrame(contactIndex_, time)
-          .worldToPatchRotation;
-  const vector3_t forceInPatch =
-      worldToPatch * mpcRobotModelPtr_->getContactForce(input, contactIndex_);
-  return A_f_ * forceInPatch + b_;
+          .rotmatWorldRtSurface;
+  const vector3_t forceContactEwrtSurface =
+      rotmatWorldRtSurface *
+      mpcRobotModelPtr_->getForceContactEwrtParam(input, contactIndex_);
+  return A_f_ * forceContactEwrtSurface + b_;
 }
 
 VectorFunctionLinearApproximation
@@ -120,15 +121,17 @@ PointFrictionConeConstraint::getLinearApproximation(
     const vector_t& state,
     const vector_t& input,
     const PreComputation& /*preComp*/) const {
-  const matrix3_t worldToPatch =
+  const matrix3_t rotmatWorldRtSurface =
       referenceManagerPtr_->getContactPatchFrame(contactIndex_, time)
-          .worldToPatchRotation;
-  const vector3_t forceInPatch =
-      worldToPatch * mpcRobotModelPtr_->getContactForce(input, contactIndex_);
+          .rotmatWorldRtSurface;
+  const vector3_t forceContactEwrtSurface =
+      rotmatWorldRtSurface *
+      mpcRobotModelPtr_->getForceContactEwrtParam(input, contactIndex_);
   VectorFunctionLinearApproximation linearApproximation;
-  linearApproximation.f = A_f_ * forceInPatch + b_;
+  linearApproximation.f = A_f_ * forceContactEwrtSurface + b_;
   linearApproximation.dfdx = matrix_t::Zero(b_.size(), state.size());
-  linearApproximation.dfdu = A_f_ * worldToPatch * forceInputJacobian_;
+  linearApproximation.dfdu =
+      A_f_ * rotmatWorldRtSurface * inputJacobianForceContactEwrtParam_;
   return linearApproximation;
 }
 

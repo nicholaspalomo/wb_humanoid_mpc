@@ -234,7 +234,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
     output_path = _resolved_output_path(args.output_path)
     print("=" * 60)
-    print("🚀 Initializing Behavioral Cloning Pretraining from MPC Rollouts")
+    print("Initializing Behavioral Cloning Pretraining from MPC Rollouts")
     print(f"   Demos Path:   {args.demos_path or '(Synthetic / Stub)'}")
     print(f"   Epochs:       {args.epochs}")
     print(f"   Batch Size:   {args.batch_size}")
@@ -246,7 +246,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             observations = np.array(f["observations"])
             actions = np.array(f["actions"])
     else:
-        print("ℹ️ Using synthetic demonstrations for warmstart stub.")
+        print("Using synthetic demonstrations for warmstart stub.")
         rng = np.random.default_rng(args.seed)
         observations = rng.standard_normal(
             (_SYNTHETIC_SAMPLES, _SYNTHETIC_OBS_DIM)
@@ -265,7 +265,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     actor_critic.save_checkpoint(output_path, result.params, result.normalizer)
     print(
-        "✅ Behavioral cloning pretraining completed; checkpoint saved to"
+        "Behavioral cloning pretraining completed; checkpoint saved to"
         f" {output_path}"
     )
 

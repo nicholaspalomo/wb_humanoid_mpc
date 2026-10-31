@@ -81,11 +81,11 @@ absl::StatusOr<scalar_t> gainOrFallback(std::optional<double> value,
 absl::StatusOr<scalar_t> requiredGain(std::optional<double> value,
                                       absl::string_view path) {
   if (!value.has_value()) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("[JointPdGains] ", path,
-                     " is not set; default_gains sets kp, kd and torque_limit, "
-                     "as the controllers "
-                     "have no gains of their own."));
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[JointPdGains] ", path,
+        " is not set; default_gains sets kp, kd and max_joint_torque, "
+        "as the controllers "
+        "have no gains of their own."));
   }
   RETURN_IF_ERROR(checkGain(*value, path));
   return *value;
@@ -96,7 +96,7 @@ absl::StatusOr<scalar_t> requiredGain(std::optional<double> value,
 absl::StatusOr<JointPdGainsDefaults> gainSet(
     std::optional<double> kp,
     std::optional<double> kd,
-    std::optional<double> torqueLimit,
+    std::optional<double> maxJointTorque,
     absl::string_view path,
     const JointPdGainsDefaults& fallback) {
   JointPdGainsDefaults gains;
@@ -105,9 +105,9 @@ absl::StatusOr<JointPdGainsDefaults> gainSet(
   ASSIGN_OR_RETURN(gains.kd,
                    gainOrFallback(kd, absl::StrCat(path, ".kd"), fallback.kd));
   ASSIGN_OR_RETURN(
-      gains.torqueLimit,
-      gainOrFallback(torqueLimit, absl::StrCat(path, ".torque_limit"),
-                     fallback.torqueLimit));
+      gains.maxJointTorque,
+      gainOrFallback(maxJointTorque, absl::StrCat(path, ".max_joint_torque"),
+                     fallback.maxJointTorque));
   return gains;
 }
 
@@ -158,9 +158,9 @@ absl::StatusOr<JointPdGains> jointPdGainsFromConfig(
                    requiredGain(fileDefaults.kp, "default_gains.kp"));
   ASSIGN_OR_RETURN(resolvedDefaults.kd,
                    requiredGain(fileDefaults.kd, "default_gains.kd"));
-  ASSIGN_OR_RETURN(
-      resolvedDefaults.torqueLimit,
-      requiredGain(fileDefaults.torque_limit, "default_gains.torque_limit"));
+  ASSIGN_OR_RETURN(resolvedDefaults.maxJointTorque,
+                   requiredGain(fileDefaults.max_joint_torque,
+                                "default_gains.max_joint_torque"));
 
   absl::flat_hash_set<absl::string_view> robotJoints(mpcJointNames.begin(),
                                                      mpcJointNames.end());
@@ -176,7 +176,7 @@ absl::StatusOr<JointPdGains> jointPdGainsFromConfig(
     const std::string path =
         absl::StrCat("joint_gains[joint=", entry.joint, "]");
     ASSIGN_OR_RETURN(const JointPdGainsDefaults gains,
-                     gainSet(entry.kp, entry.kd, entry.torque_limit, path,
+                     gainSet(entry.kp, entry.kd, entry.max_joint_torque, path,
                              resolvedDefaults));
     if (!named.emplace(entry.joint, gains).second) {
       return absl::InvalidArgumentError(
@@ -204,7 +204,7 @@ absl::StatusOr<JointPdGains> jointPdGainsFromConfig(
     const Eigen::Index index = static_cast<Eigen::Index>(i);
     gains.mpcJointKp[index] = it->second.kp;
     gains.mpcJointKd[index] = it->second.kd;
-    gains.mpcJointTorqueLimit[index] = it->second.torqueLimit;
+    gains.mpcJointTorqueLimit[index] = it->second.maxJointTorque;
   }
   for (size_t i = 0; i < otherJointNames.size(); ++i) {
     const absl::flat_hash_map<std::string, JointPdGainsDefaults>::const_iterator
@@ -213,7 +213,7 @@ absl::StatusOr<JointPdGains> jointPdGainsFromConfig(
     const Eigen::Index index = static_cast<Eigen::Index>(i);
     gains.otherJointKp[index] = it->second.kp;
     gains.otherJointKd[index] = it->second.kd;
-    gains.otherJointTorqueLimit[index] = it->second.torqueLimit;
+    gains.otherJointTorqueLimit[index] = it->second.maxJointTorque;
   }
   return gains;
 }

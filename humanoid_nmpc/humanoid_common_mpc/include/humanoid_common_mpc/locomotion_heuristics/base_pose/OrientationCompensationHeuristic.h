@@ -53,8 +53,8 @@ namespace ocs2::humanoid {
  * are a better approximation when the body is closer to level at speed
  * (section 4.3, figure 4-12).
  *
- * On this controller it is shaping a reference that is currently a hard zero at
- * every speed, so it is the first thing in the layer worth sweeping.
+ * On this controller it shapes a reference that is currently a hard zero at
+ * every speed, making it the first term in the layer to sweep.
  *
  * Like every LocomotionHeuristic, its const methods are safe to call
  * concurrently; configure() is not, and must not run while they do.

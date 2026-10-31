@@ -121,7 +121,7 @@ void QuadraticCostWeightsApplier::apply(HotUpdateTarget& target) {
   // state cost when the problem carries the CoM + ACoM cost, so a reload must
   // do the same or a slider drag silently re-introduces base-pose tracking.
   // Read off the running problem, never the reloaded file.
-  const BasePoseWeights basePose =
+  const BasePoseWeights basePoseWeights =
       carriesTerm(*running.stateCostPtr,
                   std::string(ComAndAcomTrackingCost::kRunningTermName))
           ? BasePoseWeights::kZeroedForComAndAcomTracking
@@ -135,7 +135,7 @@ void QuadraticCostWeightsApplier::apply(HotUpdateTarget& target) {
   const std::optional<matrix_t> Q = convertedOrReported(
       checkedTuningWeights(
           trackingStateWeightsFromConfig(task.state_weights, target.layout(),
-                                         "state_weights", basePose),
+                                         "state_weights", basePoseWeights),
           target, "state_weights"),
       target.source(), "state_weights");
   std::optional<matrix_t> R;
@@ -149,9 +149,9 @@ void QuadraticCostWeightsApplier::apply(HotUpdateTarget& target) {
         scaling.has_value()) {
       Q_final = convertedOrReported(
           checkedTuningWeights(
-              terminalStateWeightsFromConfig(task.final_state_weights, *scaling,
-                                             target.layout(),
-                                             "final_state_weights", basePose),
+              terminalStateWeightsFromConfig(
+                  task.final_state_weights, *scaling, target.layout(),
+                  "final_state_weights", basePoseWeights),
               target, "final_state_weights"),
           target.source(), "final_state_weights");
     }

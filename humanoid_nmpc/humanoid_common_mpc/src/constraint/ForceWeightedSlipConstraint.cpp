@@ -46,9 +46,9 @@ ForceWeightedSlipConstraint::Create(
     const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
     const MpcRobotModelBase<scalar_t>& mpcRobotModel,
     size_t contactPointIndex,
-    scalar_t forceReference,
-    scalar_t velocityReference,
-    scalar_t angularVelocityReference) {
+    scalar_t scaleForceContactEwrtParamZ,
+    scalar_t scaleLinvelContactRtWorldEwrtWorldXy,
+    scalar_t scaleAngvelContactRtWorldEwrtWorldZ) {
   if (endEffectorKinematics.getIds().size() != 1) {
     return absl::InvalidArgumentError(
         absl::StrCat("[ForceWeightedSlipConstraint] expects exactly one "
@@ -57,73 +57,81 @@ ForceWeightedSlipConstraint::Create(
                      endEffectorKinematics.getIds().size()));
   }
   // Negated comparisons, so that NaN is refused too.
-  if (!(forceReference > 0.0)) {
+  if (!(scaleForceContactEwrtParamZ > 0.0)) {
     return absl::InvalidArgumentError(
         absl::StrCat("[ForceWeightedSlipConstraint] the force reference must "
                      "be positive, got ",
-                     forceReference,
+                     scaleForceContactEwrtParamZ,
                      "; it is the robot's weight, robotMass * g, taken from "
                      "the URDF rather than configured"));
   }
-  if (!(velocityReference > 0.0)) {
-    return absl::InvalidArgumentError(absl::StrCat(
-        "[ForceWeightedSlipConstraint] contact_implicit.velocity_reference "
-        "must be positive, got ",
-        velocityReference));
-  }
-  if (!(angularVelocityReference > 0.0)) {
+  if (!(scaleLinvelContactRtWorldEwrtWorldXy > 0.0)) {
     return absl::InvalidArgumentError(absl::StrCat(
         "[ForceWeightedSlipConstraint] "
-        "contact_implicit.angular_velocity_reference must be positive, got ",
-        angularVelocityReference));
+        "contact_implicit.scale_linvel_contact_rt_world_ewrt_world_xy "
+        "must be positive, got ",
+        scaleLinvelContactRtWorldEwrtWorldXy));
+  }
+  if (!(scaleAngvelContactRtWorldEwrtWorldZ > 0.0)) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("[ForceWeightedSlipConstraint] "
+                     "contact_implicit.scale_angvel_contact_rt_world_ewrt_"
+                     "world_z must be positive, got ",
+                     scaleAngvelContactRtWorldEwrtWorldZ));
   }
   // The constructor is private, so std::make_unique cannot call it (ToTW #134).
   return absl::WrapUnique(new ForceWeightedSlipConstraint(
-      endEffectorKinematics, mpcRobotModel, contactPointIndex, forceReference,
-      velocityReference, angularVelocityReference));
+      endEffectorKinematics, mpcRobotModel, contactPointIndex,
+      scaleForceContactEwrtParamZ, scaleLinvelContactRtWorldEwrtWorldXy,
+      scaleAngvelContactRtWorldEwrtWorldZ));
 }
 
 ForceWeightedSlipConstraint::ForceWeightedSlipConstraint(
     const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
     const MpcRobotModelBase<scalar_t>& mpcRobotModel,
     size_t contactPointIndex,
-    scalar_t forceReference,
-    scalar_t velocityReference,
-    scalar_t angularVelocityReference)
+    scalar_t scaleForceContactEwrtParamZ,
+    scalar_t scaleLinvelContactRtWorldEwrtWorldXy,
+    scalar_t scaleAngvelContactRtWorldEwrtWorldZ)
     : StateInputConstraint(ConstraintOrder::Linear),
       endEffectorKinematicsPtr_(endEffectorKinematics.clone()),
       contactPointIndex_(contactPointIndex),
-      inverseForceReference_(1.0 / forceReference),
-      inverseTwistReference_(1.0 / velocityReference,
-                             1.0 / velocityReference,
-                             1.0 / angularVelocityReference),
-      normalForceRow_(normalContactForceRow(mpcRobotModel, contactPointIndex)) {
-}
+      inverseScaleForceContactEwrtParamZ_(1.0 / scaleForceContactEwrtParamZ),
+      inverseScaleSlip_(1.0 / scaleLinvelContactRtWorldEwrtWorldXy,
+                        1.0 / scaleLinvelContactRtWorldEwrtWorldXy,
+                        1.0 / scaleAngvelContactRtWorldEwrtWorldZ),
+      inputRowForceContactEwrtParamZ_(
+          inputRowForceContactEwrtParamZ(mpcRobotModel, contactPointIndex)) {}
 
 ForceWeightedSlipConstraint::ForceWeightedSlipConstraint(
     const ForceWeightedSlipConstraint& rhs)
     : StateInputConstraint(rhs),
       endEffectorKinematicsPtr_(rhs.endEffectorKinematicsPtr_->clone()),
       contactPointIndex_(rhs.contactPointIndex_),
-      inverseForceReference_(rhs.inverseForceReference_),
-      inverseTwistReference_(rhs.inverseTwistReference_),
-      normalForceRow_(rhs.normalForceRow_) {}
+      inverseScaleForceContactEwrtParamZ_(
+          rhs.inverseScaleForceContactEwrtParamZ_),
+      inverseScaleSlip_(rhs.inverseScaleSlip_),
+      inputRowForceContactEwrtParamZ_(rhs.inputRowForceContactEwrtParamZ_) {}
 
 vector_t ForceWeightedSlipConstraint::getValue(
     scalar_t /*time*/,
     const vector_t& state,
     const vector_t& input,
     const PreComputation& /*preComp*/) const {
-  const vector3_t velocity =
-      endEffectorKinematicsPtr_->getVelocity(state, input).front();
-  const vector3_t angularVelocity =
-      endEffectorKinematicsPtr_->getAngularVelocity(state, input).front();
-  const scalar_t normalForce =
-      normalForceRow_.dot(input) * inverseForceReference_;
-  vector3_t twist;
-  twist << velocity.head<kHorizontalPositionDim>(),
-      angularVelocity(kZAxisIndex);
-  return vector_t(normalForce * twist.cwiseProduct(inverseTwistReference_));
+  const vector3_t linvelContactRtWorldEwrtWorld =
+      endEffectorKinematicsPtr_->getLinvelEesRtWorldEwrtWorld(state, input)
+          .front();
+  const vector3_t angvelContactRtWorldEwrtWorld =
+      endEffectorKinematicsPtr_->getAngvelEesRtWorldEwrtWorld(state, input)
+          .front();
+  const scalar_t scaledForceContactEwrtParamZ =
+      inputRowForceContactEwrtParamZ_.dot(input) *
+      inverseScaleForceContactEwrtParamZ_;
+  vector3_t scaledSlip;
+  scaledSlip << linvelContactRtWorldEwrtWorld.head<kHorizontalPositionDim>(),
+      angvelContactRtWorldEwrtWorld(kZAxisIndex);
+  return vector_t(scaledForceContactEwrtParamZ *
+                  scaledSlip.cwiseProduct(inverseScaleSlip_));
 }
 
 VectorFunctionLinearApproximation
@@ -132,41 +140,48 @@ ForceWeightedSlipConstraint::getLinearApproximation(
     const vector_t& state,
     const vector_t& input,
     const PreComputation& /*preComp*/) const {
-  const VectorFunctionLinearApproximation velocity =
-      endEffectorKinematicsPtr_->getVelocityLinearApproximation(state, input)
-          .front();
-  const VectorFunctionLinearApproximation angularVelocity =
+  const VectorFunctionLinearApproximation linvelContactRtWorldEwrtWorld =
       endEffectorKinematicsPtr_
-          ->getAngularVelocityLinearApproximation(state, input)
+          ->getLinearApproximationLinvelEesRtWorldEwrtWorld(state, input)
           .front();
-  const scalar_t normalForce =
-      normalForceRow_.dot(input) * inverseForceReference_;
+  const VectorFunctionLinearApproximation angvelContactRtWorldEwrtWorld =
+      endEffectorKinematicsPtr_
+          ->getLinearApproximationAngvelEesRtWorldEwrtWorld(state, input)
+          .front();
+  const scalar_t scaledForceContactEwrtParamZ =
+      inputRowForceContactEwrtParamZ_.dot(input) *
+      inverseScaleForceContactEwrtParamZ_;
 
   // The constrained components of the twist: the two tangential linear
   // velocities and the spin about the normal, each divided by a reference in
   // its own units so that the three rows are comparable dimensionless numbers.
-  const vector3_t twist =
-      (vector3_t() << velocity.f.head<kHorizontalPositionDim>(),
-       angularVelocity.f(kZAxisIndex))
+  const vector3_t scaledSlip =
+      (vector3_t()
+           << linvelContactRtWorldEwrtWorld.f.head<kHorizontalPositionDim>(),
+       angvelContactRtWorldEwrtWorld.f(kZAxisIndex))
           .finished()
-          .cwiseProduct(inverseTwistReference_);
-  matrix_t dTwistdx(kNumConstraints, velocity.dfdx.cols());
-  dTwistdx << velocity.dfdx.topRows<kHorizontalPositionDim>(),
-      angularVelocity.dfdx.row(kZAxisIndex);
-  dTwistdx = inverseTwistReference_.asDiagonal() * dTwistdx;
-  matrix_t dTwistdu(kNumConstraints, velocity.dfdu.cols());
-  dTwistdu << velocity.dfdu.topRows<kHorizontalPositionDim>(),
-      angularVelocity.dfdu.row(kZAxisIndex);
-  dTwistdu = inverseTwistReference_.asDiagonal() * dTwistdu;
+          .cwiseProduct(inverseScaleSlip_);
+  matrix_t dScaledSlipdx(kNumConstraints,
+                         linvelContactRtWorldEwrtWorld.dfdx.cols());
+  dScaledSlipdx
+      << linvelContactRtWorldEwrtWorld.dfdx.topRows<kHorizontalPositionDim>(),
+      angvelContactRtWorldEwrtWorld.dfdx.row(kZAxisIndex);
+  dScaledSlipdx = inverseScaleSlip_.asDiagonal() * dScaledSlipdx;
+  matrix_t dScaledSlipdu(kNumConstraints,
+                         linvelContactRtWorldEwrtWorld.dfdu.cols());
+  dScaledSlipdu
+      << linvelContactRtWorldEwrtWorld.dfdu.topRows<kHorizontalPositionDim>(),
+      angvelContactRtWorldEwrtWorld.dfdu.row(kZAxisIndex);
+  dScaledSlipdu = inverseScaleSlip_.asDiagonal() * dScaledSlipdu;
 
   VectorFunctionLinearApproximation approximation;
-  approximation.f = normalForce * twist;
-  approximation.dfdx = normalForce * dTwistdx;
+  approximation.f = scaledForceContactEwrtParamZ * scaledSlip;
+  approximation.dfdx = scaledForceContactEwrtParamZ * dScaledSlipdx;
   // d(f_hat v_hat) / du = f_hat dv_hat/du + v_hat (df_hat/du), the second term
   // being the constant normal-force row carrying the force scale.
-  approximation.dfdu =
-      normalForce * dTwistdu +
-      (twist * inverseForceReference_) * normalForceRow_.transpose();
+  approximation.dfdu = scaledForceContactEwrtParamZ * dScaledSlipdu +
+                       (scaledSlip * inverseScaleForceContactEwrtParamZ_) *
+                           inputRowForceContactEwrtParamZ_.transpose();
   return approximation;
 }
 

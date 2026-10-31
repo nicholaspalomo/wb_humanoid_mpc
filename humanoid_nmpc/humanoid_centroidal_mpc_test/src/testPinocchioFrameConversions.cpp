@@ -62,7 +62,8 @@ class TestPinocchioFrameConversions : public ::testing::Test {
    */
   vector_t levelConfiguration(scalar_t hipPitchAngle) const {
     vector_t state = mpcRobotModel_.getNeutralState();
-    mpcRobotModel_.setBasePosition(state, vector3_t(0.0, 0.0, 0.8415));
+    mpcRobotModel_.setPosBaseRtWorldEwrtWorld(state,
+                                              vector3_t(0.0, 0.0, 0.8415));
     vector_t joints =
         vector_t::Zero(static_cast<Eigen::Index>(mpcRobotModel_.getJointDim()));
     joints(0) = hipPitchAngle;
@@ -77,8 +78,8 @@ class TestPinocchioFrameConversions : public ::testing::Test {
     vector_t state = mpcRobotModel_.getNeutralState();
     vector3_t position = vector3_t::Random();
     position.z() = 0.88;
-    mpcRobotModel_.setBasePosition(state, position);
-    mpcRobotModel_.setBaseOrientation(state, vector4_t::Random());
+    mpcRobotModel_.setPosBaseRtWorldEwrtWorld(state, position);
+    mpcRobotModel_.setQuatBaseRtWorldXyzw(state, vector4_t::Random());
     mpcRobotModel_.setJointAngles(
         state, vector_t::Random(
                    static_cast<Eigen::Index>(mpcRobotModel_.getJointDim())));

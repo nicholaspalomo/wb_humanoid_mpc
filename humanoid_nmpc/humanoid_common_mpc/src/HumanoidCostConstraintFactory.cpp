@@ -154,9 +154,9 @@ HumanoidCostConstraintFactory::HumanoidCostConstraintFactory(
  * -2*mu/delta there - with the shipped center-of-pressure settings, mu = 0.6
  * and delta = 0.03, that is a derivative of -40 per row - so it would pay the
  * solver to leave the origin, i.e. to invent a normal force on a foot in the
- * air. That is precisely the failure that dropping `minNormalForce` and the
- * friction cone's parabolic margin exists to remove, and a log barrier would
- * put it straight back.
+ * air. That is precisely the failure that dropping
+ * `minForceContactEwrtContactZ` and the friction cone's parabolic margin exists
+ * to remove, and a log barrier would put it straight back.
  *
  * The squared hinge is zero in value AND zero in derivative at zero slack, and
  * quadratic below it, which is what a unilateral condition whose solution lies

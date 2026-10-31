@@ -87,11 +87,12 @@ vector_t turnedAboutWorldZ(const CentroidalMpcRobotModel<scalar_t>& model,
   // [m c_dot; L_G] / m, both in the world frame.
   turned.head<3>() = turn * state.head<3>();
   turned.segment<3>(3) = turn * state.segment<3>(3);
-  model.setBasePosition(turned, turn * model.getBasePosition(state));
-  model.setBaseOrientation(
+  model.setPosBaseRtWorldEwrtWorld(
+      turned, turn * model.getPosBaseRtWorldEwrtWorld(state));
+  model.setQuatBaseRtWorldXyzw(
       turned,
       quaternionProduct(quaternionFromEulerZyx(vector3_t(angle, 0.0, 0.0)),
-                        model.getBaseOrientation(state)));
+                        model.getQuatBaseRtWorldXyzw(state)));
   return turned;
 }
 
@@ -111,10 +112,10 @@ void expectTurned(const CentroidalMpcRobotModel<scalar_t>& model,
         << "state entry " << i;
   }
   const matrix3_t rotation =
-      quaternionRotationMatrix<scalar_t>(model.getBaseOrientation(turned));
+      quaternionRotationMatrix<scalar_t>(model.getQuatBaseRtWorldXyzw(turned));
   const matrix3_t expectedRotation =
       yawRotation(angle) *
-      quaternionRotationMatrix<scalar_t>(model.getBaseOrientation(state));
+      quaternionRotationMatrix<scalar_t>(model.getQuatBaseRtWorldXyzw(state));
   EXPECT_LE((rotation - expectedRotation).cwiseAbs().maxCoeff(), kTolerance)
       << "the orientation, as a rotation";
 }
@@ -148,11 +149,11 @@ TEST_P(CentroidalCommandYawEquivariance,
   vector_t state =
       vector_t::Zero(static_cast<Eigen::Index>(model.getStateDim()));
   state.head<6>() << 0.05, -0.02, 0.01, 0.003, -0.002, 0.004;
-  model.setBasePosition(state, vector3_t(1.0, 2.0, 0.75));
-  model.setBaseOrientationEulerZyx(state, vector3_t(3.1, 0.0, 0.0));
+  model.setPosBaseRtWorldEwrtWorld(state, vector3_t(1.0, 2.0, 0.75));
+  model.setEulerzyxBaseRtWorld(state, vector3_t(3.1, 0.0, 0.0));
   model.setJointAngles(state, *joints);
   const vector_t turnedState = turnedAboutWorldZ(model, state, kTurn);
-  ASSERT_LT(model.getBaseOrientationEulerZyx(turnedState)(0), -2.9)
+  ASSERT_LT(model.getEulerzyxBaseRtWorld(turnedState)(0), -2.9)
       << "the turned heading is across the cut";
   const vector4_t command(0.4, -0.2, 0.0, 0.5);
   for (const CommandKind kind : {CommandKind::kVelocity, CommandKind::kPose}) {
@@ -161,14 +162,14 @@ TEST_P(CentroidalCommandYawEquivariance,
     std::vector<TargetTrajectories> targets;
     for (const vector_t& start : {state, turnedState}) {
       (*calculator)->reset();
-      targets.push_back(kind == CommandKind::kPose
-                            ? (*calculator)
-                                  ->commandedPositionToTargetTrajectories(
-                                      command, kInitTime, start)
-                            : (*calculator)
-                                  ->commandedVelocityToTargetTrajectories(
-                                      command, kInitTime, start,
-                                      /*measuredMotion=*/BasePlanarMotion{}));
+      targets.push_back(
+          kind == CommandKind::kPose
+              ? (*calculator)
+                    ->poseCommandToTargetTrajectories(command, kInitTime, start)
+              : (*calculator)
+                    ->velocityCommandToTargetTrajectories(
+                        command, kInitTime, start,
+                        /*measuredMotion=*/BasePlanarMotion{}));
     }
     const TargetTrajectories& target = targets[0];
     const TargetTrajectories& turnedTarget = targets[1];

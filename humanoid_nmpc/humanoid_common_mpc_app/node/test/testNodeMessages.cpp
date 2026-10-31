@@ -58,10 +58,10 @@ humanoid_mpc_msgs::WalkingVelocityCommand commandMessage(double vx,
                                                          double height,
                                                          double yawRate) {
   humanoid_mpc_msgs::WalkingVelocityCommand message;
-  message.set_linear_velocity_x(vx);
-  message.set_linear_velocity_y(vy);
-  message.set_desired_pelvis_height(height);
-  message.set_angular_velocity_z(yawRate);
+  message.set_cmd_linvel_base_rt_world_ewrt_heading_x(vx);
+  message.set_cmd_linvel_base_rt_world_ewrt_heading_y(vy);
+  message.set_cmd_pos_base_rt_world_ewrt_world_z(height);
+  message.set_cmd_angvel_base_rt_world_ewrt_world_z(yawRate);
   return message;
 }
 
@@ -70,10 +70,10 @@ TEST(WalkingVelocityCommandFromProto, PassesACommandInsideTheRangesThrough) {
       walkingVelocityCommandFromProto(commandMessage(
           /*vx=*/0.5, /*vy=*/-0.25, /*height=*/0.8, /*yawRate=*/0.125));
   ASSERT_TRUE(command.ok()) << command.status();
-  EXPECT_EQ(command->linear_velocity_x, 0.5);
-  EXPECT_EQ(command->linear_velocity_y, -0.25);
-  EXPECT_EQ(command->desired_pelvis_height, 0.8);
-  EXPECT_EQ(command->angular_velocity_z, 0.125);
+  EXPECT_EQ(command->cmd_linvel_base_rt_world_ewrt_heading_x, 0.5);
+  EXPECT_EQ(command->cmd_linvel_base_rt_world_ewrt_heading_y, -0.25);
+  EXPECT_EQ(command->cmd_pos_base_rt_world_ewrt_world_z, 0.8);
+  EXPECT_EQ(command->cmd_angvel_base_rt_world_ewrt_world_z, 0.125);
 }
 
 TEST(WalkingVelocityCommandFromProto, ClampsToTheNormalizedRanges) {
@@ -81,19 +81,25 @@ TEST(WalkingVelocityCommandFromProto, ClampsToTheNormalizedRanges) {
       walkingVelocityCommandFromProto(commandMessage(
           /*vx=*/3.0, /*vy=*/2.0, /*height=*/5.0, /*yawRate=*/7.0));
   ASSERT_TRUE(high.ok()) << high.status();
-  EXPECT_EQ(high->linear_velocity_x, kMaxNormalizedVelocity);
-  EXPECT_EQ(high->linear_velocity_y, kMaxNormalizedVelocity);
-  EXPECT_EQ(high->desired_pelvis_height, kMaxPelvisHeight);
-  EXPECT_EQ(high->angular_velocity_z, kMaxNormalizedVelocity);
+  EXPECT_EQ(high->cmd_linvel_base_rt_world_ewrt_heading_x,
+            kMaxNormalizedVelocity);
+  EXPECT_EQ(high->cmd_linvel_base_rt_world_ewrt_heading_y,
+            kMaxNormalizedVelocity);
+  EXPECT_EQ(high->cmd_pos_base_rt_world_ewrt_world_z, kMaxPelvisHeight);
+  EXPECT_EQ(high->cmd_angvel_base_rt_world_ewrt_world_z,
+            kMaxNormalizedVelocity);
 
   const absl::StatusOr<WalkingVelocityCommand> low =
       walkingVelocityCommandFromProto(commandMessage(
           /*vx=*/-3.0, /*vy=*/-2.0, /*height=*/0.0, /*yawRate=*/-7.0));
   ASSERT_TRUE(low.ok()) << low.status();
-  EXPECT_EQ(low->linear_velocity_x, -kMaxNormalizedVelocity);
-  EXPECT_EQ(low->linear_velocity_y, -kMaxNormalizedVelocity);
-  EXPECT_EQ(low->desired_pelvis_height, kMinPelvisHeight);
-  EXPECT_EQ(low->angular_velocity_z, -kMaxNormalizedVelocity);
+  EXPECT_EQ(low->cmd_linvel_base_rt_world_ewrt_heading_x,
+            -kMaxNormalizedVelocity);
+  EXPECT_EQ(low->cmd_linvel_base_rt_world_ewrt_heading_y,
+            -kMaxNormalizedVelocity);
+  EXPECT_EQ(low->cmd_pos_base_rt_world_ewrt_world_z, kMinPelvisHeight);
+  EXPECT_EQ(low->cmd_angvel_base_rt_world_ewrt_world_z,
+            -kMaxNormalizedVelocity);
 }
 
 TEST(WalkingVelocityCommandFromProto,
@@ -104,7 +110,8 @@ TEST(WalkingVelocityCommandFromProto,
       walkingVelocityCommandFromProto(commandMessage(
           /*vx=*/nan, /*vy=*/0.0, /*height=*/0.8, /*yawRate=*/0.0));
   EXPECT_EQ(notANumber.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_NE(notANumber.status().message().find("linear_velocity_x"),
+  EXPECT_NE(notANumber.status().message().find(
+                "cmd_linvel_base_rt_world_ewrt_heading_x"),
             absl::string_view::npos)
       << notANumber.status();
 
@@ -112,8 +119,9 @@ TEST(WalkingVelocityCommandFromProto,
       walkingVelocityCommandFromProto(commandMessage(
           /*vx=*/0.0, /*vy=*/0.0, /*height=*/infinity, /*yawRate=*/0.0));
   EXPECT_EQ(infinite.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_NE(infinite.status().message().find("desired_pelvis_height"),
-            absl::string_view::npos)
+  EXPECT_NE(
+      infinite.status().message().find("cmd_pos_base_rt_world_ewrt_world_z"),
+      absl::string_view::npos)
       << infinite.status();
 }
 
@@ -129,17 +137,24 @@ TEST(ClampWalkingVelocityCommand, IsTheClampOfTheConversion) {
                                /*desired_pelvis_h=*/1.7, /*v_yaw=*/-2.5)}) {
     const WalkingVelocityCommand clamped = clampWalkingVelocityCommand(command);
     const absl::StatusOr<WalkingVelocityCommand> converted =
-        walkingVelocityCommandFromProto(commandMessage(
-            command.linear_velocity_x, command.linear_velocity_y,
-            command.desired_pelvis_height, command.angular_velocity_z));
+        walkingVelocityCommandFromProto(
+            commandMessage(command.cmd_linvel_base_rt_world_ewrt_heading_x,
+                           command.cmd_linvel_base_rt_world_ewrt_heading_y,
+                           command.cmd_pos_base_rt_world_ewrt_world_z,
+                           command.cmd_angvel_base_rt_world_ewrt_world_z));
     ASSERT_TRUE(converted.ok()) << converted.status();
-    EXPECT_EQ(clamped.linear_velocity_x, converted->linear_velocity_x);
-    EXPECT_EQ(clamped.linear_velocity_y, converted->linear_velocity_y);
-    EXPECT_EQ(clamped.desired_pelvis_height, converted->desired_pelvis_height);
-    EXPECT_EQ(clamped.angular_velocity_z, converted->angular_velocity_z);
-    EXPECT_LE(std::abs(clamped.linear_velocity_x), kMaxNormalizedVelocity);
-    EXPECT_GE(clamped.desired_pelvis_height, kMinPelvisHeight);
-    EXPECT_LE(clamped.desired_pelvis_height, kMaxPelvisHeight);
+    EXPECT_EQ(clamped.cmd_linvel_base_rt_world_ewrt_heading_x,
+              converted->cmd_linvel_base_rt_world_ewrt_heading_x);
+    EXPECT_EQ(clamped.cmd_linvel_base_rt_world_ewrt_heading_y,
+              converted->cmd_linvel_base_rt_world_ewrt_heading_y);
+    EXPECT_EQ(clamped.cmd_pos_base_rt_world_ewrt_world_z,
+              converted->cmd_pos_base_rt_world_ewrt_world_z);
+    EXPECT_EQ(clamped.cmd_angvel_base_rt_world_ewrt_world_z,
+              converted->cmd_angvel_base_rt_world_ewrt_world_z);
+    EXPECT_LE(std::abs(clamped.cmd_linvel_base_rt_world_ewrt_heading_x),
+              kMaxNormalizedVelocity);
+    EXPECT_GE(clamped.cmd_pos_base_rt_world_ewrt_world_z, kMinPelvisHeight);
+    EXPECT_LE(clamped.cmd_pos_base_rt_world_ewrt_world_z, kMaxPelvisHeight);
   }
   // A value that is not finite is the conversion's to refuse; the clamp passes
   // it on.
@@ -147,8 +162,8 @@ TEST(ClampWalkingVelocityCommand, IsTheClampOfTheConversion) {
       /*v_x=*/std::numeric_limits<double>::quiet_NaN(), /*v_y=*/0.0,
       /*desired_pelvis_h=*/0.8,
       /*v_yaw=*/0.0);
-  EXPECT_TRUE(
-      std::isnan(clampWalkingVelocityCommand(notANumber).linear_velocity_x));
+  EXPECT_TRUE(std::isnan(clampWalkingVelocityCommand(notANumber)
+                             .cmd_linvel_base_rt_world_ewrt_heading_x));
 }
 
 TargetContactPose pose(TargetContactPose::Kind kind, scalar_t x) {
@@ -175,29 +190,31 @@ TEST(FillViewerAnnotations, SendsOnePatchPerFootAndTheScaledCommand) {
             static_cast<int>(kNumContacts));
   const humanoid_mpc_msgs::TargetContactPatch& left =
       annotations.target_contact_patches(0);
-  ASSERT_TRUE(left.has_pose());
+  ASSERT_TRUE(left.has_des_pose_foot_rt_world());
   EXPECT_EQ(left.kind(),
             humanoid_mpc_msgs::TargetContactPatch::KIND_SWING_IN_FLIGHT);
-  EXPECT_EQ(left.pose().x(), 0.4);
-  EXPECT_EQ(left.pose().y(), -0.4);
-  EXPECT_EQ(left.pose().z(), 0.02);
-  EXPECT_EQ(left.pose().yaw(), 0.3);
-  EXPECT_TRUE(left.pose().yaw_planned());
+  EXPECT_EQ(left.des_pose_foot_rt_world().x(), 0.4);
+  EXPECT_EQ(left.des_pose_foot_rt_world().y(), -0.4);
+  EXPECT_EQ(left.des_pose_foot_rt_world().z(), 0.02);
+  EXPECT_EQ(left.des_pose_foot_rt_world().yaw(), 0.3);
+  EXPECT_TRUE(left.des_pose_foot_rt_world().yaw_planned());
   EXPECT_EQ(annotations.target_contact_patches(1).kind(),
             humanoid_mpc_msgs::TargetContactPatch::KIND_NEXT_SWING);
-  EXPECT_EQ(annotations.scaled_velocity_x(), 0.3);
-  EXPECT_EQ(annotations.scaled_velocity_y(), -0.1);
-  EXPECT_EQ(annotations.scaled_yaw_rate(), 0.2);
+  EXPECT_EQ(annotations.scaled_cmd_linvel_base_rt_world_ewrt_heading_x(), 0.3);
+  EXPECT_EQ(annotations.scaled_cmd_linvel_base_rt_world_ewrt_heading_y(), -0.1);
+  EXPECT_EQ(annotations.scaled_cmd_angvel_base_rt_world_ewrt_world_z(), 0.2);
 }
 
 TEST(FillViewerAnnotations,
      SendsNoPatchWithoutAContactPlannerAndReplacesWhatTheMessageHeld) {
   humanoid_mpc_msgs::ViewerAnnotations annotations;
-  annotations.add_target_contact_patches()->mutable_pose()->set_x(1.0);
+  annotations.add_target_contact_patches()
+      ->mutable_des_pose_foot_rt_world()
+      ->set_x(1.0);
   fillViewerAnnotations(/*targetContactPoses=*/nullptr,
                         WalkingVelocityCommand(), &annotations);
   EXPECT_EQ(annotations.target_contact_patches_size(), 0);
-  EXPECT_EQ(annotations.scaled_velocity_x(), 0.0);
+  EXPECT_EQ(annotations.scaled_cmd_linvel_base_rt_world_ewrt_heading_x(), 0.0);
 }
 
 TEST(TargetContactPatchToProto, SendsNoPoseForAPoseThatIsInvalidOrNotFinite) {
@@ -205,17 +222,17 @@ TEST(TargetContactPatchToProto, SendsNoPoseForAPoseThatIsInvalidOrNotFinite) {
   broken.yaw = std::numeric_limits<scalar_t>::quiet_NaN();
   humanoid_mpc_msgs::TargetContactPatch patch;
   targetContactPatchToProto(broken, &patch);
-  EXPECT_FALSE(patch.has_pose());
+  EXPECT_FALSE(patch.has_des_pose_foot_rt_world());
   EXPECT_EQ(patch.kind(), humanoid_mpc_msgs::TargetContactPatch::KIND_STANCE);
 
   // A patch that had a pose loses it: the message is replaced, not merged.
   targetContactPatchToProto(
       pose(TargetContactPose::Kind::kNextSwing, /*x=*/0.2), &patch);
-  ASSERT_TRUE(patch.has_pose());
+  ASSERT_TRUE(patch.has_des_pose_foot_rt_world());
   TargetContactPose invalid = pose(TargetContactPose::Kind::kStance, /*x=*/0.0);
   invalid.valid = false;
   targetContactPatchToProto(invalid, &patch);
-  EXPECT_FALSE(patch.has_pose());
+  EXPECT_FALSE(patch.has_des_pose_foot_rt_world());
   EXPECT_EQ(patch.kind(), humanoid_mpc_msgs::TargetContactPatch::KIND_STANCE);
 }
 
@@ -240,7 +257,7 @@ TEST(TargetContactPatchToProto,
     EXPECT_EQ(patch.kind(), kind.second);
     EXPECT_NE(patch.kind(),
               humanoid_mpc_msgs::TargetContactPatch::KIND_UNSPECIFIED);
-    EXPECT_TRUE(patch.has_pose());
+    EXPECT_TRUE(patch.has_des_pose_foot_rt_world());
   }
 }
 

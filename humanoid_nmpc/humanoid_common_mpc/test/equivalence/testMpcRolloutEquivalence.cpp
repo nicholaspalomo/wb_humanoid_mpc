@@ -370,12 +370,12 @@ TEST_P(MpcRolloutEquivalence, AcrossAYawOfPiTheRolloutTurnsOnThroughTheCut) {
   for (size_t node = 0; node + 1 < rollouts.production[0].size(); ++node) {
     const vector_t& state = rollouts.production[0][node];
     const vector_t& next = rollouts.production[0][node + 1];
-    EXPECT_LE(mpc.manifold().getMaximumRotationAngle(
+    EXPECT_LE(mpc.manifold().getMaximumTangentAngle(
                   mpc.manifold().difference(state, next)),
               0.05)
         << "node " << node;
-    wrapped = wrapped || (mpc.model().getBaseHeading(state) > 2.5 &&
-                          mpc.model().getBaseHeading(next) < -2.5);
+    wrapped = wrapped || (mpc.model().getYawBaseRtWorld(state) > 2.5 &&
+                          mpc.model().getYawBaseRtWorld(next) < -2.5);
   }
   EXPECT_TRUE(wrapped) << "the heading reading never wrapped";
   expectSamePhysicalTrajectory(mpc, rollouts);
@@ -425,7 +425,7 @@ TEST_P(MpcRolloutEquivalence,
   size_t lowestNode = 0;
   for (size_t node = 0; node < rollouts.production[0].size(); ++node) {
     const vector_t& state = rollouts.production[0][node];
-    const vector4_t xi = mpc.model().getBaseOrientation(state);
+    const vector4_t xi = mpc.model().getQuatBaseRtWorldXyzw(state);
     EXPECT_NEAR(xi.norm(), 1.0, 1.0e-14) << "node " << node;
     const scalar_t bodyXDown = quaternionRotationMatrix(xi)(2, 0);
     if (bodyXDown < lowest) {

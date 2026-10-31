@@ -5,13 +5,13 @@ package humanoid_mpc_msgs;
 import "humanoid_mpc_msgs/vector3.proto";
 import "nproto/options.proto";
 
-// Force and torque in the world frame, in that order.
+// Force and torque, in that order; the field that holds a Wrench names its point and frame.
 // Next ID: 3
 message Wrench {
   option (nproto.generate_struct) = "ocs2::humanoid::msgs::Wrench";
 
   reserved 3 to max;
 
-  Vector3 force = 1;
-  Vector3 torque = 2;
+  Vector3 force = 1;  // NOLINT(frame-naming): a component of a frame-generic value; the enclosing field names the frames
+  Vector3 torque = 2;  // NOLINT(frame-naming): a component of a frame-generic value; the enclosing field names the frames
 }

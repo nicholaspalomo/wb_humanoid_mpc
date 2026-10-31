@@ -279,8 +279,8 @@ def unicast_port_range(network: NetworkConfig) -> PortRange:
 
 def _entry_key(field: str, index: int, name: str) -> str:
     """'nodes[1] (mpc)': the position of an entry in the file, and its name when it has one."""
-    position = f"{field}[{index}]"
-    return f"{position} ({name})" if name else position
+    indexed_field = f"{field}[{index}]"
+    return f"{indexed_field} ({name})" if name else indexed_field
 
 
 def _field_key(field: str, index: int, name: str, member: str) -> str:

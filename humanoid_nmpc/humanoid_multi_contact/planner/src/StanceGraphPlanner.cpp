@@ -1009,7 +1009,7 @@ contactWrenches(RobotStanceModel& model,
       minimumTorqueUtilization(model, equilibrium);
   if (!torques.ok()) return wrenches;
   const WrenchGenerators& generators = equilibrium.generators();
-  const double weight = model.mass() * kGravitationalAcceleration;
+  const double weight = model.mass() * kGravityMagnitude;
   std::vector<Eigen::Vector3d> forces(onTerrain.stance.size(),
                                       Eigen::Vector3d::Zero());
   std::vector<Eigen::Vector3d> torquesAbout(onTerrain.stance.size(),

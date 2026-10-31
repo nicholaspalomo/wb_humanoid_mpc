@@ -53,19 +53,19 @@ class SplineCpg {
   SplineCpg& operator=(SplineCpg&&) = default;
   ~SplineCpg() = default;
 
-  scalar_t position(scalar_t time) const;
+  scalar_t value(scalar_t time) const;
 
-  scalar_t velocity(scalar_t time) const;
+  scalar_t derivative(scalar_t time) const;
 
-  scalar_t acceleration(scalar_t time) const;
+  scalar_t secondDerivative(scalar_t time) const;
 
   /**
-   * Returns the derivative of position(time) with respect to the lift-off time,
+   * Returns the derivative of value(time) with respect to the lift-off time,
    * with the apex time (the mean of the two ends) moving along with it.
    */
   scalar_t startTimeDerivative(scalar_t time) const;
 
-  /** Returns the derivative of position(time) with respect to the touch-down
+  /** Returns the derivative of value(time) with respect to the touch-down
    * time, as startTimeDerivative(). */
   scalar_t finalTimeDerivative(scalar_t time) const;
 

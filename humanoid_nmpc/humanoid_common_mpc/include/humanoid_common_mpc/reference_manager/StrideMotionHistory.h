@@ -39,18 +39,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The planar motion of the base at the attitude `orientation` (quaternion
- * coefficients x, y, z, w; unit) moving at the world-frame twist `twistWorld` =
- * [v_W, w_W] (MpcRobotModelBase::getBaseTwistInWorldFrame()), at one instant:
- * the velocity R_z(psi_h)^T (v_W,x, v_W,y) in the heading frame and the heading
+ * The planar motion of the base at the attitude `quatBaseRtWorldXyzw`
+ * (quaternion coefficients x, y, z, w; unit) moving at the world-frame twist
+ * `twistBaseRtWorldEwrtWorld` = [v_W, w_W]
+ * (MpcRobotModelBase::getTwistBaseRtWorldEwrtWorld()), at one instant: the
+ * velocity R_z(psi_h)^T (v_W,x, v_W,y) in the heading frame and the heading
  * rate d psi_h / dt = J_HT(xi).row(0) R(xi)^T w_W, the heading row of the
  * heading-tilt Jacobian (headingTiltJacobian(), d psi_h / d(dphi) for the body
  * increment dphi = w_B dt) times the body angular velocity. Exact; the heading
  * rate differs from the world yaw rate w_W,z by (theta dphi/dt - dtheta/dt phi)
  * / 2 at second order in the tilt.
  */
-BasePlanarMotion instantaneousPlanarMotion(const vector4_t& orientation,
-                                           const vector6_t& twistWorld);
+BasePlanarMotion instantaneousPlanarMotion(
+    const vector4_t& quatBaseRtWorldXyzw,
+    const vector6_t& twistBaseRtWorldEwrtWorld);
 
 /**
  * The mean planar motion of the base over its last stride, from the measured
@@ -79,7 +81,7 @@ BasePlanarMotion instantaneousPlanarMotion(const vector4_t& orientation,
  * What is averaged, and why it is exact. Only the measured base pose is needed,
  * no velocity:
  *   - the heading rate: the twist heading psi_h of the base attitude
- * (MpcRobotModelBase::getBaseHeading()), unwrapped into Psi from sample to
+ * (MpcRobotModelBase::getYawBaseRtWorld()), unwrapped into Psi from sample to
  * sample, has the mean (Psi(t) - Psi(t - W)) / W, the exact integral of d psi_h
  * / dt. It is a function of the base's orientation alone: no joint motion
  * enters it (design README section 2.9). It is the rate the commands and the
@@ -166,15 +168,16 @@ class StrideMotionHistory {
   void reset();
 
   /**
-   * Appends the measured base at `time` [s]: the position `positionXy` [m] of
-   * its origin in the world's ground plane and its twist heading `heading`
-   * [rad], on any branch. When the history (re)starts with this sample (see the
-   * class comment), `seed` is called once for the motion before it; otherwise
-   * it is not called. A sample at the time of the last one is dropped.
+   * Appends the measured base at `time` [s]: the position
+   * `posBaseRtWorldEwrtWorldXy` [m] of its origin in the world's ground plane
+   * and its twist heading `yawBaseRtWorld` [rad], on any branch. When the
+   * history (re)starts with this sample (see the class comment), `seed` is
+   * called once for the motion before it; otherwise it is not called. A sample
+   * at the time of the last one is dropped.
    */
   void addSample(scalar_t time,
-                 const vector2_t& positionXy,
-                 scalar_t heading,
+                 const vector2_t& posBaseRtWorldEwrtWorldXy,
+                 scalar_t yawBaseRtWorld,
                  absl::FunctionRef<BasePlanarMotion()> seed);
 
   /**
@@ -218,7 +221,7 @@ class StrideMotionHistory {
   std::deque<Sample> samples_;
   // The base position of samples_.back(), to which the next displacement is
   // taken.
-  vector2_t lastPosition_ = vector2_t::Zero();
+  vector2_t prevPosBaseRtWorldEwrtWorldXy_ = vector2_t::Zero();
   // The motion before the first sample; read only while samples_.front() is
   // that sample (firstSampleKept_).
   BasePlanarMotion seed_;

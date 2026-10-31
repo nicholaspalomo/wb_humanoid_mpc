@@ -136,10 +136,10 @@ void HumanoidPreComputation::request(RequestSet request,
   const std::function<EndEffectorKinematicsLinearVelConstraint::Config(size_t)>
       eeNormalVelConConfig = [&](size_t footIndex) {
         EndEffectorKinematicsLinearVelConstraint::Config config;
-        config.b =
-            (vector_t(1) << -swingTrajectoryPlannerPtr_->getZvelocityConstraint(
-                 footIndex, t))
-                .finished();
+        config.b = (vector_t(1)
+                    << -swingTrajectoryPlannerPtr_
+                            ->getDesLinvelFootRtWorldEwrtWorldZ(footIndex, t))
+                       .finished();
         config.Av = (matrix_t(1, kPositionDim) << 0.0, 0.0, 1.0).finished();
         // The gain comes from this object, not from the shared ModelSettings,
         // so that the parameter updater can retune it per worker thread while
@@ -147,7 +147,8 @@ void HumanoidPreComputation::request(RequestSet request,
         if (!numerics::almost_eq(positionErrorGainZ_, /*y=*/0.0)) {
           config.b(0) -=
               positionErrorGainZ_ *
-              swingTrajectoryPlannerPtr_->getZpositionConstraint(footIndex, t);
+              swingTrajectoryPlannerPtr_->getDesPosFootRtWorldEwrtWorldZ(
+                  footIndex, t);
           config.Ax =
               (matrix_t(1, kPositionDim) << 0.0, 0.0, positionErrorGainZ_)
                   .finished();
@@ -174,7 +175,7 @@ void HumanoidPreComputation::request(RequestSet request,
     for (size_t i = 0; i < footHeightReferences_.size(); ++i) {
       eeNormalVelConConfigs_[i] = eeNormalVelConConfig(i);
       footHeightReferences_[i] =
-          swingTrajectoryPlannerPtr_->getZpositionConstraint(i, t);
+          swingTrajectoryPlannerPtr_->getDesPosFootRtWorldEwrtWorldZ(i, t);
     }
     // The generalized swing planner's references of every contact, read by
     // the contact_swing terms (ContactSwingConstraint).

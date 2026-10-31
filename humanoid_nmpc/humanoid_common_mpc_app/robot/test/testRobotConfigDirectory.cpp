@@ -71,7 +71,7 @@ constexpr char kTask[] =
     "robot_name: \"g1\" }\n";
 constexpr char kReference[] =
     "# proto-message: "
-    "humanoid_mpc_config.ReferenceFile\ntarget_displacement_velocity: 0.5\n";
+    "humanoid_mpc_config.ReferenceFile\nref_speed_base_rt_world: 0.5\n";
 constexpr char kGains[] =
     "# proto-message: humanoid_mpc_config.JointPdGainsFile\ndefault_gains { "
     "kp: 100.0 }\n";

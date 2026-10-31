@@ -63,8 +63,10 @@ constexpr scalar_t kFiniteDifferenceTolerance = 1.0e-7;
 // The tape's variables (a world rotation vector applied to R0) and parameters
 // (R0 column by column, then n).
 constexpr Eigen::Index kVariableDim = kRotationTangentDim;
-constexpr Eigen::Index kRotationEntries = kPositionDim * kPositionDim;
-constexpr Eigen::Index kParameterDim = kRotationEntries + kPositionDim;
+constexpr Eigen::Index kRotationMatrixCoefficients =
+    kPositionDim * kPositionDim;
+constexpr Eigen::Index kParameterDim =
+    kRotationMatrixCoefficients + kPositionDim;
 
 vector3_t randomUnitVector(std::mt19937& generator) {
   std::normal_distribution<scalar_t> normal(0.0, 1.0);
@@ -97,7 +99,7 @@ VECTOR3_T<SCALAR_T> perturbedTilt(
   const MATRIX3_T<SCALAR_T> rotation =
       Eigen::Map<const MATRIX3_T<SCALAR_T>>(p.data());
   const VECTOR3_T<SCALAR_T> planeNormal =
-      p.template segment<kPositionDim>(kRotationEntries);
+      p.template segment<kPositionDim>(kRotationMatrixCoefficients);
   return tiltAngleToPlane<SCALAR_T>(
       worldRotated<SCALAR_T>(
           VECTOR3_T<SCALAR_T>(x.template head<kRotationTangentDim>()),
@@ -107,7 +109,7 @@ VECTOR3_T<SCALAR_T> perturbedTilt(
 
 vector_t parametersOf(const matrix3_t& rotation, const vector3_t& planeNormal) {
   vector_t p(kParameterDim);
-  p << Eigen::Map<const vector_t>(rotation.data(), kRotationEntries),
+  p << Eigen::Map<const vector_t>(rotation.data(), kRotationMatrixCoefficients),
       planeNormal;
   return p;
 }

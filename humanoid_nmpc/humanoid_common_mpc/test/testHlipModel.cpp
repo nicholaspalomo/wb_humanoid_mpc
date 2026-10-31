@@ -122,7 +122,7 @@ TEST(HlipModel, stepToStepMapComposesTheFlows) {
 }
 
 TEST(HlipModel, deadbeatGainIsNilpotent) {
-  // The whole point of the H-LIP step controller: A + B K has both eigenvalues
+  // Core property of the H-LIP step controller: A + B K has both eigenvalues
   // at zero, so the error is gone after two steps without a single tuned gain.
   for (const HlipModel& model : {makePaperModel(), makeDoubleSupportModel()}) {
     const HlipModel::Matrix2 closedLoop =

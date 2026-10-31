@@ -49,7 +49,7 @@ namespace {
 Eigen::MatrixXd generatorForces(const RobotStanceModel& model,
                                 const StaticEquilibrium& equilibrium) {
   const WrenchGenerators& generators = equilibrium.generators();
-  const double weight = model.mass() * kGravitationalAcceleration;
+  const double weight = model.mass() * kGravityMagnitude;
   Eigen::MatrixXd forces(model.model().nv, generators.size());
   for (int g = 0; g < generators.size(); ++g) {
     const int candidate =

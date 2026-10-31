@@ -64,7 +64,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /**
  * The speed setters of TargetTrajectoriesCalculatorBase: a pose command reaches
  * its target in the time the distance takes at the set speed, starting level at
- * the measured heading. setTargetRotationVelocity assigned its own parameter to
+ * the measured heading. setRefRateYawBaseRtWorld assigned its own parameter to
  * itself and so set nothing; it had no caller, so fixing it changed no
  * behavior. Built on the G1 whole-body calculator, which needs no Pinocchio
  * model. Also the calculator's Create(): the typed reference file and its path
@@ -125,8 +125,8 @@ class TargetTrajectoriesCalculatorSettersTest : public ::testing::Test {
    * reach its target. */
   scalar_t timeToTarget(const vector4_t& poseCommand) {
     const TargetTrajectories targets =
-        calculator_->commandedPositionToTargetTrajectories(
-            poseCommand, kInitTime, initState_);
+        calculator_->poseCommandToTargetTrajectories(poseCommand, kInitTime,
+                                                     initState_);
     return targets.timeTrajectory.back() - kInitTime;
   }
 
@@ -153,10 +153,10 @@ void expectTheReferenceTurnsBy(const MpcRobotModelBase<scalar_t>& model,
                        TargetTrajectoriesCalculatorBase::kMaxKnotYawSpacing)));
   ASSERT_EQ(targets.stateTrajectory.size(), parts + 1);
   for (size_t i = 1; i < targets.stateTrajectory.size(); ++i) {
-    const scalar_t step =
-        std::remainder(model.getBaseHeading(targets.stateTrajectory[i]) -
-                           model.getBaseHeading(targets.stateTrajectory[i - 1]),
-                       2.0 * M_PI);
+    const scalar_t step = std::remainder(
+        model.getYawBaseRtWorld(targets.stateTrajectory[i]) -
+            model.getYawBaseRtWorld(targets.stateTrajectory[i - 1]),
+        2.0 * M_PI);
     EXPECT_LE(std::abs(step),
               TargetTrajectoriesCalculatorBase::kMaxKnotYawSpacing + 1.0e-12)
         << "knot " << i;
@@ -166,16 +166,16 @@ void expectTheReferenceTurnsBy(const MpcRobotModelBase<scalar_t>& model,
   const scalar_t duration = targets.timeTrajectory.back() - startTime;
   scalar_t turned = 0.0;
   scalar_t previousHeading =
-      model.getBaseHeading(model.getDesiredState(targets, startTime));
+      model.getYawBaseRtWorld(model.getDesiredState(targets, startTime));
   for (int sample = 1; sample <= kSamples; ++sample) {
     const vector_t desired = model.getDesiredState(
         targets,
         startTime + duration * static_cast<scalar_t>(sample) / kSamples);
-    const scalar_t heading = model.getBaseHeading(desired);
+    const scalar_t heading = model.getYawBaseRtWorld(desired);
     const scalar_t step = std::remainder(heading - previousHeading, 2.0 * M_PI);
     EXPECT_GT(step * turn, 0.0)
         << "the reference turns against the command at sample " << sample;
-    const vector3_t eulerZyx = model.getBaseOrientationEulerZyx(desired);
+    const vector3_t eulerZyx = model.getEulerzyxBaseRtWorld(desired);
     EXPECT_NEAR(eulerZyx(1), 0.0, 1.0e-12) << "sample " << sample;
     EXPECT_NEAR(eulerZyx(2), 0.0, 1.0e-12) << "sample " << sample;
     turned += step;
@@ -192,7 +192,7 @@ TEST_F(TargetTrajectoriesCalculatorSettersTest,
   // turns the commanded way. Either way the time is the turn at the rotation
   // velocity.
   const scalar_t fileVelocity =
-      reference_.target_rotation_velocity.value_or(0.0);
+      reference_.ref_rate_yaw_base_rt_world.value_or(0.0);
   ASSERT_GT(fileVelocity, 0.0);
   const absl::StatusOr<ReferenceSettings> settings =
       referenceSettingsFromConfig(reference_);
@@ -202,24 +202,22 @@ TEST_F(TargetTrajectoriesCalculatorSettersTest,
     const vector4_t turn(0.0, 0.0, 0.0, turnDegrees);
     const scalar_t yaw = turnDegrees * M_PI / 180.0;
     EXPECT_DOUBLE_EQ(timeToTarget(turn), std::abs(yaw) / fileVelocity);
-    expectTheReferenceTurnsBy(
-        *model_,
-        calculator_->commandedPositionToTargetTrajectories(turn, kInitTime,
-                                                           initState_),
-        yaw);
+    expectTheReferenceTurnsBy(*model_,
+                              calculator_->poseCommandToTargetTrajectories(
+                                  turn, kInitTime, initState_),
+                              yaw);
 
     // Speeds other than the file's, so that a setter that sets nothing cannot
     // pass.
     for (const scalar_t factor : {0.5, 2.0, 3.0}) {
       const scalar_t velocity = factor * fileVelocity;
-      calculator_->setTargetRotationVelocity(velocity);
+      calculator_->setRefRateYawBaseRtWorld(velocity);
       EXPECT_DOUBLE_EQ(timeToTarget(turn), std::abs(yaw) / velocity)
           << "rotation velocity " << velocity;
-      expectTheReferenceTurnsBy(
-          *model_,
-          calculator_->commandedPositionToTargetTrajectories(turn, kInitTime,
-                                                             initState_),
-          yaw);
+      expectTheReferenceTurnsBy(*model_,
+                                calculator_->poseCommandToTargetTrajectories(
+                                    turn, kInitTime, initState_),
+                                yaw);
     }
 
     // A reload of the reference file puts the file's speed back.
@@ -239,17 +237,16 @@ TEST_F(TargetTrajectoriesCalculatorSettersTest,
   constexpr scalar_t kPitch = 0.1;
   constexpr scalar_t kRoll = -0.12;
   vector_t state = initState_;
-  model_->setBaseOrientationEulerZyx(state,
-                                     vector3_t(kStoredYaw, kPitch, kRoll));
+  model_->setEulerzyxBaseRtWorld(state, vector3_t(kStoredYaw, kPitch, kRoll));
   const TargetTrajectories targets =
-      calculator_->commandedPositionToTargetTrajectories(
+      calculator_->poseCommandToTargetTrajectories(
           vector4_t(0.0, 0.0, 0.0, kTurnDegrees), kInitTime, state);
   ASSERT_EQ(targets.stateTrajectory.size(), 2);
   const vector6_t first =
-      model_->getBasePoseEulerZyx(targets.stateTrajectory.front());
+      model_->getPoseeulerzyxBaseRtWorld(targets.stateTrajectory.front());
   const vector6_t last =
-      model_->getBasePoseEulerZyx(targets.stateTrajectory.back());
-  EXPECT_EQ(first(3), model_->getBaseHeading(state));
+      model_->getPoseeulerzyxBaseRtWorld(targets.stateTrajectory.back());
+  EXPECT_EQ(first(3), model_->getYawBaseRtWorld(state));
   EXPECT_NEAR(
       first(3),
       std::remainder(kStoredYaw - 2.0 * std::atan(std::tan(kPitch / 2.0) *
@@ -261,7 +258,8 @@ TEST_F(TargetTrajectoriesCalculatorSettersTest,
   const scalar_t yaw = kTurnDegrees * M_PI / 180.0;
   EXPECT_NEAR(last(3) - first(3), yaw, 1.0e-12);
   EXPECT_NEAR(targets.timeTrajectory.back() - kInitTime,
-              yaw / reference_.target_rotation_velocity.value_or(0.0), 1.0e-12);
+              yaw / reference_.ref_rate_yaw_base_rt_world.value_or(0.0),
+              1.0e-12);
 }
 
 TEST_F(TargetTrajectoriesCalculatorSettersTest,
@@ -270,12 +268,12 @@ TEST_F(TargetTrajectoriesCalculatorSettersTest,
   // velocity.
   const vector4_t step(1.0, 0.0, 0.0, 0.0);
   const scalar_t fileVelocity =
-      reference_.target_displacement_velocity.value_or(0.0);
+      reference_.ref_speed_base_rt_world.value_or(0.0);
   ASSERT_GT(fileVelocity, 0.0);
   EXPECT_DOUBLE_EQ(timeToTarget(step), 1.0 / fileVelocity);
   for (const scalar_t factor : {0.5, 2.0, 3.0}) {
     const scalar_t velocity = factor * fileVelocity;
-    calculator_->setTargetDisplacementVelocity(velocity);
+    calculator_->setRefSpeedBaseRtWorld(velocity);
     EXPECT_DOUBLE_EQ(timeToTarget(step), 1.0 / velocity)
         << "displacement velocity " << velocity;
   }
@@ -288,18 +286,18 @@ TEST_F(TargetTrajectoriesCalculatorSettersTest, TheTwoSpeedsAreIndependent) {
   const vector4_t step(1.0, 0.0, 0.0, 0.0);
   const scalar_t turnTime = timeToTarget(turn);
   const scalar_t stepTime = timeToTarget(step);
-  calculator_->setTargetDisplacementVelocity(
-      4.0 * reference_.target_displacement_velocity.value_or(0.0));
+  calculator_->setRefSpeedBaseRtWorld(
+      4.0 * reference_.ref_speed_base_rt_world.value_or(0.0));
   EXPECT_EQ(timeToTarget(turn), turnTime);
-  calculator_->setTargetRotationVelocity(
-      4.0 * reference_.target_rotation_velocity.value_or(0.0));
+  calculator_->setRefRateYawBaseRtWorld(
+      4.0 * reference_.ref_rate_yaw_base_rt_world.value_or(0.0));
   EXPECT_NE(timeToTarget(turn), turnTime);
   const absl::StatusOr<ReferenceSettings> settings =
       referenceSettingsFromConfig(reference_);
   ASSERT_TRUE(settings.ok()) << settings.status();
   calculator_->applyCommandLimits(*settings);
-  calculator_->setTargetRotationVelocity(
-      4.0 * reference_.target_rotation_velocity.value_or(0.0));
+  calculator_->setRefRateYawBaseRtWorld(
+      4.0 * reference_.ref_rate_yaw_base_rt_world.value_or(0.0));
   EXPECT_EQ(timeToTarget(step), stepTime);
 }
 
@@ -310,15 +308,13 @@ TEST_F(TargetTrajectoriesCalculatorSettersTest,
   const std::unique_ptr<WBMpcTargetTrajectoriesCalculator> typed = checkedValue(
       WBMpcTargetTrajectoriesCalculator::Create(reference_, *model_, kHorizon));
   const vector4_t turn(0.0, 0.0, 0.0, kTurnDegrees);
-  EXPECT_EQ(
-      typed->commandedPositionToTargetTrajectories(turn, kInitTime, initState_)
-          .timeTrajectory.back(),
-      timeToTarget(turn));
+  EXPECT_EQ(typed->poseCommandToTargetTrajectories(turn, kInitTime, initState_)
+                .timeTrajectory.back(),
+            timeToTarget(turn));
   const vector4_t step(1.0, 0.5, 0.0, 0.0);
-  EXPECT_EQ(
-      typed->commandedPositionToTargetTrajectories(step, kInitTime, initState_)
-          .timeTrajectory.back(),
-      timeToTarget(step));
+  EXPECT_EQ(typed->poseCommandToTargetTrajectories(step, kInitTime, initState_)
+                .timeTrajectory.back(),
+            timeToTarget(step));
 }
 
 TEST_F(TargetTrajectoriesCalculatorSettersTest,
@@ -328,10 +324,11 @@ TEST_F(TargetTrajectoriesCalculatorSettersTest,
   std::ifstream in(referenceFile_);
   std::string reference((std::istreambuf_iterator<char>(in)),
                         std::istreambuf_iterator<char>());
-  const std::string key = "\nmax_rotation_velocity: ";
+  const std::string key = "\ncmd_max_angvel_base_rt_world_ewrt_world_z: ";
   const size_t value = reference.find(key);
   ASSERT_NE(value, std::string::npos)
-      << "the shipped reference file no longer carries max_rotation_velocity";
+      << "the shipped reference file no longer carries "
+         "cmd_max_angvel_base_rt_world_ewrt_world_z";
   const size_t valueStart = value + key.size();
   reference.replace(valueStart,
                     reference.find_first_of(" \n", valueStart) - valueStart,
@@ -386,10 +383,11 @@ TEST_F(TargetTrajectoriesCalculatorSettersTest,
   std::ifstream in(referenceFile_);
   std::string reference((std::istreambuf_iterator<char>(in)),
                         std::istreambuf_iterator<char>());
-  const std::string line = "\ndefault_base_height: ";
+  const std::string line = "\nnom_pos_base_rt_world_ewrt_world_z: ";
   const size_t start = reference.find(line);
   ASSERT_NE(start, std::string::npos)
-      << "the shipped reference file no longer carries default_base_height";
+      << "the shipped reference file no longer carries "
+         "nom_pos_base_rt_world_ewrt_world_z";
   reference.erase(start + 1, reference.find('\n', start + 1) - start);
   const std::string withoutHeight =
       (std::filesystem::path(testing::TempDir()) /
@@ -405,8 +403,8 @@ TEST_F(TargetTrajectoriesCalculatorSettersTest,
   EXPECT_TRUE(absl::StartsWith(created.status().message(),
                                absl::StrCat(withoutHeight, ": ")))
       << created.status();
-  EXPECT_TRUE(
-      absl::StrContains(created.status().message(), "default_base_height"))
+  EXPECT_TRUE(absl::StrContains(created.status().message(),
+                                "nom_pos_base_rt_world_ewrt_world_z"))
       << created.status();
 }
 

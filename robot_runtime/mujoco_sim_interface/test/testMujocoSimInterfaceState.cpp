@@ -183,52 +183,56 @@ TEST(SimFreeJoint, TheReportedBaseVelocitiesAreTheOnesMujocoIntegrates) {
     const std::unique_ptr<MujocoSimInterface> probe = makeSim();
     ASSERT_NE(probe, nullptr);
     model::RobotState initial = publishedState(*probe);
-    const Eigen::Quaterniond attitude =
+    const Eigen::Quaterniond quatBaseRtWorld =
         Eigen::Quaterniond(normal(generator), normal(generator),
                            normal(generator), normal(generator))
             .normalized();
-    initial.setRootRotationLocalToWorldFrame(attitude);
-    initial.setRootLinearVelocityInLocalFrame(
+    initial.setQuatBaseRtWorld(quatBaseRtWorld);
+    initial.setLinvelBaseRtWorldEwrtBase(
         vector3_t(normal(generator), normal(generator), normal(generator)));
-    initial.setRootAngularVelocityInLocalFrame(
+    initial.setAngvelBaseRtWorldEwrtBase(
         vector3_t(normal(generator), normal(generator), normal(generator)));
     const std::unique_ptr<MujocoSimInterface> sim = makeSim(initial);
     ASSERT_NE(sim, nullptr);
 
     // The state the simulator was given is the state it reports.
     const model::RobotState start = publishedState(*sim);
-    EXPECT_TRUE(
-        start.getRootRotationLocalToWorldFrame().isApprox(attitude, 1.0e-12));
-    EXPECT_TRUE(start.getRootLinearVelocityInLocalFrame().isApprox(
-        initial.getRootLinearVelocityInLocalFrame(), 1.0e-12));
-    EXPECT_TRUE(start.getRootAngularVelocityInLocalFrame().isApprox(
-        initial.getRootAngularVelocityInLocalFrame(), 1.0e-12));
+    EXPECT_TRUE(start.getQuatBaseRtWorld().isApprox(quatBaseRtWorld, 1.0e-12));
+    EXPECT_TRUE(start.getLinvelBaseRtWorldEwrtBase().isApprox(
+        initial.getLinvelBaseRtWorldEwrtBase(), 1.0e-12));
+    EXPECT_TRUE(start.getAngvelBaseRtWorldEwrtBase().isApprox(
+        initial.getAngvelBaseRtWorldEwrtBase(), 1.0e-12));
 
     // And MuJoCo moves the base by them: the position by the world-frame linear
     // velocity, the attitude by the body-frame angular velocity, q1 = q0
     // exp(omega dt / 2), to first order in the one step.
     sim->simulationStep();
     const model::RobotState stepped = publishedState(*sim);
-    const vector3_t positionRate = (stepped.getRootPositionInWorldFrame() -
-                                    start.getRootPositionInWorldFrame()) /
-                                   kTimestep;
-    const vector3_t linearWorld = stepped.getRootRotationLocalToWorldFrame() *
-                                  stepped.getRootLinearVelocityInLocalFrame();
-    EXPECT_LT((positionRate - linearWorld).norm(), 1.0e-9)
+    const vector3_t fdLinvelBaseRtWorldEwrtWorld =
+        (stepped.getPosBaseRtWorldEwrtWorld() -
+         start.getPosBaseRtWorldEwrtWorld()) /
+        kTimestep;
+    const vector3_t linvelBaseRtWorldEwrtWorld =
+        stepped.getQuatBaseRtWorld() * stepped.getLinvelBaseRtWorldEwrtBase();
+    EXPECT_LT(
+        (fdLinvelBaseRtWorldEwrtWorld - linvelBaseRtWorldEwrtWorld).norm(),
+        1.0e-9)
         << "sample " << sample << ": MuJoCo integrates qpos with the new qvel";
     const Eigen::Quaterniond relative =
-        start.getRootRotationLocalToWorldFrame().conjugate() *
-        stepped.getRootRotationLocalToWorldFrame();
+        start.getQuatBaseRtWorld().conjugate() * stepped.getQuatBaseRtWorld();
     const Eigen::AngleAxisd rotation(relative);
-    const vector3_t bodyRate = rotation.angle() * rotation.axis() / kTimestep;
-    EXPECT_LT((bodyRate - stepped.getRootAngularVelocityInLocalFrame()).norm(),
-              1.0e-6 * (1.0 + bodyRate.norm()))
+    const vector3_t fdAngvelBaseRtWorldEwrtBase =
+        rotation.angle() * rotation.axis() / kTimestep;
+    EXPECT_LT(
+        (fdAngvelBaseRtWorldEwrtBase - stepped.getAngvelBaseRtWorldEwrtBase())
+            .norm(),
+        1.0e-6 * (1.0 + fdAngvelBaseRtWorldEwrtBase.norm()))
         << "sample " << sample;
   }
 }
 
 // The base's accelerometer
-// (RobotState::getImuLinearAccelerationInLocalFrame()): the specific force R^T
+// (RobotState::getSpecforceBaseRtWorldEwrtBase()): the specific force R^T
 // (a - g) of the base frame's origin, in the base frame. In free fall, with no
 // joint torque, every body falls with g and the accelerometer reads zero
 // whatever the attitude; under a joint torque the base accelerates, and the
@@ -247,20 +251,19 @@ TEST(SimFreeJoint, TheAccelerometerReadsTheSpecificForceOfTheBase) {
         makeSim(/*initialState=*/std::nullopt, fallingScene.c_str());
     ASSERT_NE(probe, nullptr);
     model::RobotState initial = publishedState(*probe);
-    initial.setRootRotationLocalToWorldFrame(
+    initial.setQuatBaseRtWorld(
         Eigen::Quaterniond(normal(generator), normal(generator),
                            normal(generator), normal(generator))
             .normalized());
-    initial.setRootLinearVelocityInLocalFrame(
+    initial.setLinvelBaseRtWorldEwrtBase(
         vector3_t(normal(generator), normal(generator), normal(generator)));
     const std::unique_ptr<MujocoSimInterface> sim =
         makeSim(initial, fallingScene.c_str());
     ASSERT_NE(sim, nullptr);
     for (int step = 0; step < 5; ++step) {
       sim->simulationStep();
-      EXPECT_LT(
-          publishedState(*sim).getImuLinearAccelerationInLocalFrame().norm(),
-          1.0e-9)
+      EXPECT_LT(publishedState(*sim).getSpecforceBaseRtWorldEwrtBase().norm(),
+                1.0e-9)
           << "sample " << sample << ", free fall";
     }
 
@@ -284,14 +287,16 @@ TEST(SimFreeJoint, TheAccelerometerReadsTheSpecificForceOfTheBase) {
     const model::RobotState before = publishedState(*sim);
     sim->simulationStep();
     const model::RobotState after = publishedState(*sim);
-    const vector3_t velocityBefore = before.getRootRotationLocalToWorldFrame() *
-                                     before.getRootLinearVelocityInLocalFrame();
-    const vector3_t velocityAfter = after.getRootRotationLocalToWorldFrame() *
-                                    after.getRootLinearVelocityInLocalFrame();
+    const vector3_t prevLinvelBaseRtWorldEwrtWorld =
+        before.getQuatBaseRtWorld() * before.getLinvelBaseRtWorldEwrtBase();
+    const vector3_t linvelBaseRtWorldEwrtWorld =
+        after.getQuatBaseRtWorld() * after.getLinvelBaseRtWorldEwrtBase();
     const vector3_t expected =
-        after.getRootRotationLocalToWorldFrame().inverse() *
-        ((velocityAfter - velocityBefore) / kTimestep - gravity);
-    const vector3_t reading = after.getImuLinearAccelerationInLocalFrame();
+        after.getQuatBaseRtWorld().inverse() *
+        ((linvelBaseRtWorldEwrtWorld - prevLinvelBaseRtWorldEwrtWorld) /
+             kTimestep -
+         gravity);
+    const vector3_t reading = after.getSpecforceBaseRtWorldEwrtBase();
     EXPECT_GT((reading).norm(), 1.0e-3)
         << "sample " << sample << ": the torque moves the base";
     EXPECT_LT((reading - expected).norm(), 1.0e-6 * (1.0 + expected.norm()))
@@ -374,22 +379,23 @@ struct Momentum {
   Eigen::Vector3d angular = Eigen::Vector3d::Zero();
 };
 
+// NOLINTNEXTLINE(frame-naming): angular momentum about the world origin, which the grammar cannot name (frame1 = frame2)
 Momentum robotMomentum(const mjModel* absl_nonnull model, const mjData& data) {
   constexpr int kRoot = 1;
   const double mass = model->body_subtreemass[kRoot];
   const Eigen::Vector3d com(data.subtree_com[3 * kRoot],
                             data.subtree_com[3 * kRoot + 1],
                             data.subtree_com[3 * kRoot + 2]);
-  const Eigen::Vector3d comVelocity(data.subtree_linvel[3 * kRoot],
-                                    data.subtree_linvel[3 * kRoot + 1],
-                                    data.subtree_linvel[3 * kRoot + 2]);
+  const Eigen::Vector3d linvelComRtWorldEwrtWorld(
+      data.subtree_linvel[3 * kRoot], data.subtree_linvel[3 * kRoot + 1],
+      data.subtree_linvel[3 * kRoot + 2]);
   const Eigen::Vector3d spin(data.subtree_angmom[3 * kRoot],
                              data.subtree_angmom[3 * kRoot + 1],
                              data.subtree_angmom[3 * kRoot + 2]);
-  Momentum momentum;
-  momentum.linear = mass * comVelocity;
-  momentum.angular = spin + com.cross(momentum.linear);
-  return momentum;
+  Momentum result;
+  result.linear = mass * linvelComRtWorldEwrtWorld;
+  result.angular = spin + com.cross(result.linear);
+  return result;
 }
 
 // The ball hits the base's origin head on. Its impulse J must (1) conserve
@@ -410,14 +416,16 @@ TEST(SimFallbackImpulse,
   const ForwardState before = forwardSnapshot(*sim);
   const Eigen::Vector3d point(before.data->xpos[3], before.data->xpos[4],
                               before.data->xpos[5]);
+  // NOLINTNEXTLINE(frame-naming): angular momentum about the world origin, which the grammar cannot name (frame1 = frame2)
   const Momentum initial = robotMomentum(model, *before.data);
   ASSERT_LT(initial.linear.norm(), 1.0e-12);
 
   MujocoSimInterface::DodgeballThrow throwCommand;
-  const Eigen::Vector3d velocity(
+  const Eigen::Vector3d launchLinvelBallRtWorldEwrtWorld(
       -3.0, 1.5, 1.0);  // in the yaw frame of an unyawed base: the world frame
   for (int axis = 0; axis < 3; ++axis)
-    throwCommand.launchVelocity[axis] = velocity[axis];
+    throwCommand.launchLinvelBallRtWorldEwrtHeading[axis] =
+        launchLinvelBallRtWorldEwrtWorld[axis];
   throwCommand.flightTime =
       0.0;  // arrives on this step, so gravity takes nothing off on the way
   throwCommand.mass = 1.2;
@@ -430,32 +438,37 @@ TEST(SimFallbackImpulse,
   const Eigen::Vector3d impulse(snapshot.push.impulseWorld[0],
                                 snapshot.push.impulseWorld[1],
                                 snapshot.push.impulseWorld[2]);
-  const Eigen::Vector3d normal = velocity.normalized();
+  const Eigen::Vector3d normal = launchLinvelBallRtWorldEwrtWorld.normalized();
   ASSERT_GT(impulse.norm(), 0.0);
   EXPECT_LT((impulse.normalized() - normal).norm(), 1.0e-12)
       << "a head-on impact pushes along the ball's velocity";
 
   // (1) The restitution law on the measured velocity of the struck point.
   const model::RobotState state = publishedState(*sim);
-  const double pointSpeed = (state.getRootRotationLocalToWorldFrame() *
-                             state.getRootLinearVelocityInLocalFrame())
-                                .dot(normal);
-  const double ballSpeed = velocity.norm() - impulse.norm() / throwCommand.mass;
-  EXPECT_NEAR(pointSpeed - ballSpeed, dodgeball.restitution * velocity.norm(),
-              1.0e-3 * velocity.norm());
+  const double pointSpeed =
+      (state.getQuatBaseRtWorld() * state.getLinvelBaseRtWorldEwrtBase())
+          .dot(normal);
+  const double ballSpeed = launchLinvelBallRtWorldEwrtWorld.norm() -
+                           impulse.norm() / throwCommand.mass;
+  EXPECT_NEAR(pointSpeed - ballSpeed,
+              dodgeball.restitution * launchLinvelBallRtWorldEwrtWorld.norm(),
+              1.0e-3 * launchLinvelBallRtWorldEwrtWorld.norm());
   // (2) and (3) The robot's momenta.
+  // NOLINTNEXTLINE(frame-naming): angular momentum about the world origin, which the grammar cannot name (frame1 = frame2)
   const Momentum final = robotMomentum(model, *after.data);
   // To first order in the step: the momenta are read at the configuration after
   // it, the impulse acted at the one before.
   EXPECT_LT((final.linear - impulse).norm(), 1.0e-3 * impulse.norm());
-  const Eigen::Vector3d moment = point.cross(impulse);
-  EXPECT_LT((final.angular - moment).norm(), 1.0e-3 * moment.norm())
+  const Eigen::Vector3d angularImpulse = point.cross(impulse);
+  EXPECT_LT((final.angular - angularImpulse).norm(),
+            1.0e-3 * angularImpulse.norm())
       << "the moment of the push at the base's origin";
   // The base's center of mass is off its origin, so the moment is not that of a
   // push at the center of mass.
   const Eigen::Vector3d baseCom(before.data->xipos[3], before.data->xipos[4],
                                 before.data->xipos[5]);
-  EXPECT_GT((moment - baseCom.cross(impulse)).norm(), 0.01 * moment.norm());
+  EXPECT_GT((angularImpulse - baseCom.cross(impulse)).norm(),
+            0.01 * angularImpulse.norm());
 }
 
 TEST(ProjectileImpactImpulse,

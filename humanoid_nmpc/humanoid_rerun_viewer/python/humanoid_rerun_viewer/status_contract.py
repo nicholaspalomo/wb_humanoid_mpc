@@ -27,9 +27,9 @@
 
 """The entities the bridge writes from robot/fsm_state, mpc/status and robot/loop_timing, and about itself.
 
-The text logs are what an operator reads: an FSM change, a failing solver, a loop that overran. The scalars are the few
-numbers worth a plot: the solve time, the loop period, its wake-up lateness, the loop's overruns, missed periods and
-drops, the policy's age.
+The text logs are what an operator reads: an FSM change, a failing solver, a loop that overran. The scalars are the
+numbers plotted as time series: the solve time, the loop period, its wake-up lateness, the loop's overruns, missed
+periods and drops, the policy's age.
 """
 
 import dataclasses

@@ -60,11 +60,11 @@ class TelemetrySamplerTest : public ::testing::Test {
         state_(description_),
         action_(description_) {
     state_.setTime(1.25);
-    state_.setRootPositionInWorldFrame(vector3_t(0.1, -0.2, 0.9));
-    state_.setRootRotationLocalToWorldFrame(
+    state_.setPosBaseRtWorldEwrtWorld(vector3_t(0.1, -0.2, 0.9));
+    state_.setQuatBaseRtWorld(
         quaternion_t(Eigen::AngleAxis<scalar_t>(0.3, vector3_t::UnitZ())));
-    state_.setRootLinearVelocityInLocalFrame(vector3_t(0.5, 0.0, -0.1));
-    state_.setRootAngularVelocityInLocalFrame(vector3_t(0.0, 0.2, 0.0));
+    state_.setLinvelBaseRtWorldEwrtBase(vector3_t(0.5, 0.0, -0.1));
+    state_.setAngvelBaseRtWorldEwrtBase(vector3_t(0.0, 0.2, 0.0));
     for (size_t joint = 0; joint < description_.getNumJoints(); ++joint) {
       state_.setJointPosition(joint, 0.01 * static_cast<scalar_t>(joint));
       state_.setJointVelocity(joint, -0.02 * static_cast<scalar_t>(joint));
@@ -117,12 +117,12 @@ TEST_F(TelemetrySamplerTest,
 
   EXPECT_DOUBLE_EQ(sample.time, 1.25);
   EXPECT_EQ(sample.control_mode, "GRAVITY_COMP");
-  EXPECT_DOUBLE_EQ(sample.base_position_world.z, 0.9);
-  const quaternion_t orientation = state_.getRootRotationLocalToWorldFrame();
-  EXPECT_DOUBLE_EQ(sample.base_orientation_world.w, orientation.w());
-  EXPECT_DOUBLE_EQ(sample.base_orientation_world.z, orientation.z());
-  EXPECT_DOUBLE_EQ(sample.base_linear_velocity_local.x, 0.5);
-  EXPECT_DOUBLE_EQ(sample.base_angular_velocity_local.y, 0.2);
+  EXPECT_DOUBLE_EQ(sample.pos_base_rt_world_ewrt_world.z, 0.9);
+  const quaternion_t orientation = state_.getQuatBaseRtWorld();
+  EXPECT_DOUBLE_EQ(sample.quat_base_rt_world.w, orientation.w());
+  EXPECT_DOUBLE_EQ(sample.quat_base_rt_world.z, orientation.z());
+  EXPECT_DOUBLE_EQ(sample.linvel_base_rt_world_ewrt_base.x, 0.5);
+  EXPECT_DOUBLE_EQ(sample.angvel_base_rt_world_ewrt_base.y, 0.2);
   ASSERT_EQ(sample.joint_names, jointNamesByIndex(description_))
       << "every joint, by name, in the order of the arrays";
   const Eigen::Index numJoints =
@@ -147,9 +147,9 @@ TEST_F(TelemetrySamplerTest,
         robot_test::valueOrFail(action_.at(index)).feed_forward_effort);
   }
   EXPECT_EQ(sample.contact_flags, (std::vector<bool>{true, false}));
-  ASSERT_EQ(sample.measured_contact_wrenches.size(), kNumContacts);
-  EXPECT_DOUBLE_EQ(sample.measured_contact_wrenches[0].force.z, 300.0);
-  EXPECT_DOUBLE_EQ(sample.measured_contact_wrenches[1].force.z, 0.5);
+  ASSERT_EQ(sample.meas_wrench_contacts_ewrt_world.size(), kNumContacts);
+  EXPECT_DOUBLE_EQ(sample.meas_wrench_contacts_ewrt_world[0].force.z, 300.0);
+  EXPECT_DOUBLE_EQ(sample.meas_wrench_contacts_ewrt_world[1].force.z, 0.5);
 
   // What the communication thread publishes on robot/state, and what a
   // subscriber reads back.

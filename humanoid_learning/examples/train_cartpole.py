@@ -519,7 +519,7 @@ def main() -> None:
         args.output_dir = os.path.join(workspace_dir, args.output_dir)
 
     print("=" * 70)
-    print("🚀 Google Brax & MuJoCo MJX Cartpole PPO Training")
+    print("Google Brax & MuJoCo MJX Cartpole PPO Training")
     print(f"   Parallel Envs:       {args.num_envs}")
     print(f"   Total Timesteps:     {args.total_timesteps:,}")
     print(f"   Evaluation Epochs:   {args.num_evals}")
@@ -549,11 +549,11 @@ def main() -> None:
             mujoco.mj_forward(env.mj_model, eval_data)
             viewer = mujoco_viewer.launch_passive(env.mj_model, eval_data)
             viewer.sync()
-            print("🖥️ Live 3D MuJoCo Viewer initialized on display :99!")
+            print("Live 3D MuJoCo Viewer initialized on display :99!")
         # The live viewer is optional; GLFW and the display fail differently by platform, and training goes on without it.
         # pylint: disable-next=broad-exception-caught  # The live viewer is optional.
         except Exception as e:
-            print(f"⚠️ Could not launch live 3D viewer: {e}")
+            print(f"Warning: Could not launch live 3D viewer: {e}")
             viewer = None
 
     metrics_history: dict[str, list[float]] = {
@@ -582,9 +582,9 @@ def main() -> None:
             metrics_history["loss"].append(loss_val)
 
         pole_icon = (
-            "🟢 UP"
+            "UP"
             if eval_reward > 100.0
-            else ("🟡 BALANCING" if eval_reward > 20.0 else "🔴 FALLEN")
+            else ("BALANCING" if eval_reward > 20.0 else "FALLEN")
         )
         print(
             f"Step {num_steps:>6d} | Eval Reward: {eval_reward:>+7.2f} | Loss:"
@@ -594,7 +594,7 @@ def main() -> None:
         plot_path = os.path.join(args.output_dir, "training_curves.png")
         plot_training_curves(metrics_history, plot_path)
 
-    print("\n🏁 Launching Brax PPO Training Loop...\n")
+    print("\nLaunching Brax PPO Training Loop...\n")
 
     # Run Brax PPO training
     make_inference_fn, params, _ = ppo.train(
@@ -628,14 +628,14 @@ def main() -> None:
         num_steps=args.episode_length,
     )
     print(
-        f"\n🎬 [Final Visualization Saved] -> {final_gif_path} (Return of the"
+        f"\n[Final Visualization Saved] -> {final_gif_path} (Return of the"
         " deterministic policy from a 0.35 rad tilt, scored as training's"
         f" evaluations: {eval_score:.1f})"
     )
 
     # Live 3D playback in VNC if viewer is active
     if viewer is not None and viewer.is_running() and eval_data is not None:
-        print("🖥️ Running live playback in 3D MuJoCo viewer...")
+        print("Running live playback in 3D MuJoCo viewer...")
         with viewer.lock():
             eval_data.qpos[0] = 0.0
             eval_data.qpos[1] = 0.35
@@ -674,9 +674,9 @@ def main() -> None:
         viewer = None
 
     print(f'\n{"=" * 70}')
-    print("🎉 Brax PPO Training Completed Successfully!")
+    print("Brax PPO Training Completed Successfully!")
     print(
-        "📁 All animated GIFs and metric plots saved in:"
+        "All animated GIFs and metric plots saved in:"
         f" {os.path.abspath(args.output_dir)}/"
     )
     print(

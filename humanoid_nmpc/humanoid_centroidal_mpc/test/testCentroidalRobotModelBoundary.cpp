@@ -191,7 +191,7 @@ std::vector<LoadedRobot> loadRobots() {
 /**
  * The twist heading of the ZYX Euler angles `eulerZyx` = (psi, theta, phi) in
  * closed form, psi - 2 atan(tan(theta / 2) tan(phi / 2)) wrapped into [-pi, pi]
- * (orientation/BaseOrientation.h twistHeading()).
+ * (orientation/BaseOrientation.h yawOf()).
  */
 scalar_t twistHeadingOfEulerZyx(const vector3_t& eulerZyx) {
   return std::remainder(
@@ -302,8 +302,9 @@ TEST(CentroidalRobotModelBoundary, TheTuningLayoutAgreesWithTheIndexAccessors) {
     EXPECT_EQ(getTuningLayoutDim(layout), model.getStateTangentDim());
     EXPECT_EQ(getTuningLayoutStateDim(layout), model.getStateDim());
     const std::vector<std::string> names = {
-        "normalized_linear_momentum", "normalized_angular_momentum",
-        "base_position", "base_orientation", "joint_positions"};
+        "mnorm_linmom_com_rt_world_ewrt_world",
+        "mnorm_angmom_com_rt_world_ewrt_world", "pos_base_rt_world_ewrt_world",
+        "eulerzyx_base_rt_world", "joint_positions"};
     ASSERT_EQ(layout.segments.size(), names.size());
     for (size_t i = 0; i < names.size(); ++i) {
       const TuningSegment& segment = layout.segments[i];
@@ -317,15 +318,15 @@ TEST(CentroidalRobotModelBoundary, TheTuningLayoutAgreesWithTheIndexAccessors) {
       const bool afterTheQuaternion = i > 3;
       EXPECT_EQ(segment.stateStart, *tuningStart + (afterTheQuaternion ? 1 : 0))
           << segment.name;
-      EXPECT_EQ(segment.stateDim, segment.name == "base_orientation"
+      EXPECT_EQ(segment.stateDim, segment.name == "eulerzyx_base_rt_world"
                                       ? kQuaternionOrientationStateDim
                                       : segment.tuningDim)
           << segment.name;
     }
     const TuningSegment* absl_nullable position =
-        findSegment(layout, "base_position");
+        findSegment(layout, "pos_base_rt_world_ewrt_world");
     const TuningSegment* absl_nullable orientation =
-        findSegment(layout, "base_orientation");
+        findSegment(layout, "eulerzyx_base_rt_world");
     const TuningSegment* absl_nullable joints =
         findSegment(layout, "joint_positions");
     ASSERT_NE(position, nullptr);
@@ -340,8 +341,8 @@ TEST(CentroidalRobotModelBoundary, TheTuningLayoutAgreesWithTheIndexAccessors) {
 
     // The accessors write where the layout says.
     vector_t state = model.getNeutralState();
-    model.setBasePosition(state, vector3_t(1.0, 2.0, 3.0));
-    model.setBaseOrientationEulerZyx(state, vector3_t(0.4, 0.5, 0.6));
+    model.setPosBaseRtWorldEwrtWorld(state, vector3_t(1.0, 2.0, 3.0));
+    model.setEulerzyxBaseRtWorld(state, vector3_t(0.4, 0.5, 0.6));
     model.setJointAngles(
         state, vector_t::Constant(
                    static_cast<Eigen::Index>(model.getJointDim()), 7.0));
@@ -376,28 +377,28 @@ TEST(
       const vector6_t pose =
           (vector6_t() << 0.3, -0.2, 0.91, yaw, -0.05, 0.07).finished();
       vector_t written = state;
-      model.setBasePoseEulerZyx(written, pose);
-      const vector6_t read = model.getBasePoseEulerZyx(written);
+      model.setPoseeulerzyxBaseRtWorld(written, pose);
+      const vector6_t read = model.getPoseeulerzyxBaseRtWorld(written);
       EXPECT_EQ(vector3_t(read.head<3>()), vector3_t(pose.head<3>()));
       EXPECT_NEAR(wrapped(read(3) - yaw), 0.0, 1.0e-12);
       EXPECT_GT(read(3), -M_PI);
       EXPECT_LE(read(3), M_PI);
       EXPECT_NEAR(read(4), pose(4), 1.0e-12);
       EXPECT_NEAR(read(5), pose(5), 1.0e-12);
-      EXPECT_EQ(model.getBaseOrientationEulerZyx(written),
+      EXPECT_EQ(model.getEulerzyxBaseRtWorld(written),
                 vector3_t(read.tail<3>()));
       // The heading is not the yaw: it is the twist of the attitude (design
       // decision D9), wrapped.
-      EXPECT_NEAR(model.getBaseHeading(written),
+      EXPECT_NEAR(model.getYawBaseRtWorld(written),
                   twistHeadingOfEulerZyx(pose.tail<3>()), 1.0e-12);
       EXPECT_EQ(written.head<6>(), state.head<6>());
       EXPECT_EQ(written.tail(joints), state.tail(joints));
       vector_t orientationOnly = state;
-      model.setBaseOrientationEulerZyx(orientationOnly, pose.tail<3>());
-      EXPECT_EQ(model.getBaseOrientationEulerZyx(orientationOnly),
+      model.setEulerzyxBaseRtWorld(orientationOnly, pose.tail<3>());
+      EXPECT_EQ(model.getEulerzyxBaseRtWorld(orientationOnly),
                 vector3_t(read.tail<3>()));
-      EXPECT_EQ(model.getBasePosition(orientationOnly),
-                model.getBasePosition(state));
+      EXPECT_EQ(model.getPosBaseRtWorldEwrtWorld(orientationOnly),
+                model.getPosBaseRtWorldEwrtWorld(state));
     }
 
     // set(get(x)) reproduces the rotation to round-off (the quaternion itself
@@ -414,19 +415,21 @@ TEST(
                                M_PI * uniform(generator));
       const vector4_t attitude =
           (sample % 2 == 0 ? 1.0 : -1.0) * quaternionFromEulerZyx(eulerZyx);
-      model.setBaseOrientation(state, attitude);
+      model.setQuatBaseRtWorldXyzw(state, attitude);
       vector_t copy = state;
-      model.setBasePoseEulerZyx(copy, model.getBasePoseEulerZyx(state));
-      EXPECT_LE(rotationAngleBetween(model.getBaseOrientation(copy),
-                                     model.getBaseOrientation(state)),
+      model.setPoseeulerzyxBaseRtWorld(copy,
+                                       model.getPoseeulerzyxBaseRtWorld(state));
+      EXPECT_LE(rotationAngleBetween(model.getQuatBaseRtWorldXyzw(copy),
+                                     model.getQuatBaseRtWorldXyzw(state)),
                 kRoundTripRotationTolerance)
           << attitude.transpose();
       vector_t orientationCopy = state;
-      model.setBaseOrientationEulerZyx(orientationCopy,
-                                       model.getBaseOrientationEulerZyx(state));
-      EXPECT_LE(rotationAngleBetween(model.getBaseOrientation(orientationCopy),
-                                     model.getBaseOrientation(state)),
-                kRoundTripRotationTolerance)
+      model.setEulerzyxBaseRtWorld(orientationCopy,
+                                   model.getEulerzyxBaseRtWorld(state));
+      EXPECT_LE(
+          rotationAngleBetween(model.getQuatBaseRtWorldXyzw(orientationCopy),
+                               model.getQuatBaseRtWorldXyzw(state)),
+          kRoundTripRotationTolerance)
           << attitude.transpose();
       const Eigen::Index orientationStart =
           static_cast<Eigen::Index>(model.getBaseOrientationStartIndex());
@@ -479,9 +482,9 @@ TEST(CentroidalRobotModelBoundary, InterpolationSlerpsTheAttitudeAcrossPi) {
     const MpcRobotModelBase<scalar_t>& model = *robot.model;
     vector_t first = model.getNeutralState();
     vector_t second = model.getNeutralState();
-    model.setBasePoseEulerZyx(
+    model.setPoseeulerzyxBaseRtWorld(
         first, (vector6_t() << 0.0, 0.0, 0.9, 3.0, 0.0, 0.0).finished());
-    model.setBasePoseEulerZyx(
+    model.setPoseeulerzyxBaseRtWorld(
         second, (vector6_t() << 0.4, 0.1, 0.9, 3.5, 0.0, 0.0).finished());
     const vector_t input =
         vector_t::Zero(static_cast<Eigen::Index>(model.getInputDim()));
@@ -491,15 +494,15 @@ TEST(CentroidalRobotModelBoundary, InterpolationSlerpsTheAttitudeAcrossPi) {
     // The knots' headings straddle +-pi; the slerp turns the short way, by 0.5
     // rad, not the long way round.
     const vector_t midpoint = model.getDesiredState(targets, /*time=*/0.5);
-    EXPECT_NEAR(model.getBaseHeading(midpoint), wrapped(3.25), 1.0e-12);
-    EXPECT_NEAR(model.getBaseOrientationEulerZyx(midpoint)(0), wrapped(3.25),
+    EXPECT_NEAR(model.getYawBaseRtWorld(midpoint), wrapped(3.25), 1.0e-12);
+    EXPECT_NEAR(model.getEulerzyxBaseRtWorld(midpoint)(0), wrapped(3.25),
                 1.0e-12);
-    EXPECT_NEAR(model.getBaseOrientation(midpoint).norm(), 1.0, 1.0e-15);
-    EXPECT_EQ(vector3_t(model.getBasePosition(midpoint)),
+    EXPECT_NEAR(model.getQuatBaseRtWorldXyzw(midpoint).norm(), 1.0, 1.0e-15);
+    EXPECT_EQ(vector3_t(model.getPosBaseRtWorldEwrtWorld(midpoint)),
               vector3_t(0.2, 0.05, 0.9));
     // A quarter of the way: the slerp's heading is linear in time.
     EXPECT_NEAR(
-        model.getBaseHeading(model.getDesiredState(targets, /*time=*/0.25)),
+        model.getYawBaseRtWorld(model.getDesiredState(targets, /*time=*/0.25)),
         wrapped(3.125), 1.0e-12);
     // The orientation block is the manifold's slerp bit for bit, every other
     // row LinearInterpolation's bit for bit. The whole vector is not the
@@ -578,7 +581,7 @@ TEST(CentroidalRobotModelBoundary, TuningValuesMapOntoTheQuaternionState) {
     for (const std::string& part :
          {std::string("stateFromTuning"),
           std::string("centroidal tuning layout"),
-          std::string("base_orientation 3 (yaw, pitch, roll)")}) {
+          std::string("eulerzyx_base_rt_world 3 (yaw, pitch, roll)")}) {
       EXPECT_TRUE(absl::StrContains(tooLong.status().message(), part))
           << "'" << part << "' missing from: " << tooLong.status();
     }
@@ -606,29 +609,30 @@ TEST(CentroidalRobotModelBoundary,
     EXPECT_EQ(neutral, expectedNeutral)
         << "at rest at the origin, the identity quaternion (x, y, z, w) = (0, "
            "0, 0, 1)";
-    EXPECT_EQ(model.getBaseOrientation(neutral), vector4_t(0.0, 0.0, 0.0, 1.0));
+    EXPECT_EQ(model.getQuatBaseRtWorldXyzw(neutral),
+              vector4_t(0.0, 0.0, 0.0, 1.0));
 
     for (const vector3_t& euler :
          {vector3_t(kLargeYaws[0], 0.12, -0.31),
           vector3_t(kLargeYaws[1], -0.4, 0.2), vector3_t(1.3, 0.05, 0.0)}) {
       SCOPED_TRACE(euler.transpose());
       const vector_t state = stateWithEulerAngles(model, euler);
-      const vector4_t xi = model.getBaseOrientation(state);
+      const vector4_t xi = model.getQuatBaseRtWorldXyzw(state);
       EXPECT_LT((xi - quaternionFromEulerZyx(euler)).cwiseAbs().maxCoeff(),
                 1.0e-16);
       EXPECT_NEAR(xi.norm(), 1.0, 1.0e-15);
       // The heading is the twist of the state's quaternion, in (-pi, pi]: the
       // yaw, wrapped, less the coupling of the pitch and the roll.
-      EXPECT_EQ(model.getBaseHeading(state), twistHeading(xi));
-      EXPECT_NEAR(model.getBaseHeading(state), twistHeadingOfEulerZyx(euler),
+      EXPECT_EQ(model.getYawBaseRtWorld(state), yawOf(xi));
+      EXPECT_NEAR(model.getYawBaseRtWorld(state), twistHeadingOfEulerZyx(euler),
                   1.0e-12);
-      EXPECT_GT(model.getBaseHeading(state), -M_PI);
-      EXPECT_LE(model.getBaseHeading(state), M_PI);
+      EXPECT_GT(model.getYawBaseRtWorld(state), -M_PI);
+      EXPECT_LE(model.getYawBaseRtWorld(state), M_PI);
 
       // Written as a measured attitude: the same rotation, nothing else moved.
       vector_t written = model.getNeutralState();
       written.setConstant(0.25);
-      model.setBaseOrientation(written, xi);
+      model.setQuatBaseRtWorldXyzw(written, xi);
       EXPECT_EQ(vector4_t(written.segment<4>(orientationStart)),
                 safelyNormalizedQuaternion(xi));
       EXPECT_EQ(written.head(orientationStart),
@@ -636,7 +640,7 @@ TEST(CentroidalRobotModelBoundary,
       EXPECT_EQ(written.tail(static_cast<Eigen::Index>(model.getJointDim())),
                 vector_t::Constant(
                     static_cast<Eigen::Index>(model.getJointDim()), 0.25));
-      const vector3_t read = model.getBaseOrientationEulerZyx(written);
+      const vector3_t read = model.getEulerzyxBaseRtWorld(written);
       EXPECT_NEAR(read(0), wrapped(euler(0)), 1.0e-12);
       EXPECT_NEAR(read(1), euler(1), 1.0e-12);
       EXPECT_NEAR(read(2), euler(2), 1.0e-12);
@@ -648,19 +652,18 @@ TEST(CentroidalRobotModelBoundary,
         vector_t scaled = written;
         scaled.segment<4>(orientationStart) *= scale;
         EXPECT_LT(
-            (model.getBaseOrientation(scaled) -
-             std::copysign(1.0, scale) * model.getBaseOrientation(written))
+            (model.getQuatBaseRtWorldXyzw(scaled) -
+             std::copysign(1.0, scale) * model.getQuatBaseRtWorldXyzw(written))
                 .cwiseAbs()
                 .maxCoeff(),
             1.0e-15)
             << "scale " << scale;
-        EXPECT_LT((model.getBaseOrientationEulerZyx(scaled) - read)
-                      .cwiseAbs()
-                      .maxCoeff(),
-                  1.0e-14)
+        EXPECT_LT(
+            (model.getEulerzyxBaseRtWorld(scaled) - read).cwiseAbs().maxCoeff(),
+            1.0e-14)
             << "scale " << scale;
-        EXPECT_NEAR(model.getBaseHeading(scaled), model.getBaseHeading(written),
-                    1.0e-14)
+        EXPECT_NEAR(model.getYawBaseRtWorld(scaled),
+                    model.getYawBaseRtWorld(written), 1.0e-14)
             << "scale " << scale;
       }
     }
@@ -676,12 +679,12 @@ TEST(CentroidalRobotModelBoundary, TheHeadingIsRegularAtAPitchOf90Degrees) {
     // ZYX yaw is not defined.
     const vector_t state =
         stateWithEulerAngles(model, vector3_t(0.3, M_PI / 2.0, 0.2));
-    EXPECT_NEAR(model.getBaseHeading(state), 0.1, 1.0e-12);
+    EXPECT_NEAR(model.getYawBaseRtWorld(state), 0.1, 1.0e-12);
     // The same attitude, with the yaw and the roll moved together, has the same
     // heading.
     const vector_t sameAttitude =
         stateWithEulerAngles(model, vector3_t(0.5, M_PI / 2.0, 0.4));
-    EXPECT_NEAR(model.getBaseHeading(sameAttitude), 0.1, 1.0e-12);
+    EXPECT_NEAR(model.getYawBaseRtWorld(sameAttitude), 0.1, 1.0e-12);
   }
 }
 
@@ -699,7 +702,7 @@ TEST(CentroidalRobotModelBoundary, TheTangentMapsAreTheirDerivatives) {
                            angle(generator)));
       const Eigen::Index orientationStart =
           static_cast<Eigen::Index>(model.getBaseOrientationStartIndex());
-      const vector4_t xi = model.getBaseOrientation(state);
+      const vector4_t xi = model.getQuatBaseRtWorldXyzw(state);
 
       // The body rotation of a move dxi of the stored quaternion: R(x + dxi) =
       // R(x) Exp(J dxi), J = E^+(xi) (3 x 4). The radial direction xi does not
@@ -716,9 +719,9 @@ TEST(CentroidalRobotModelBoundary, TheTangentMapsAreTheirDerivatives) {
         minus(orientationStart + j) -= kFiniteDifferenceStep;
         const vector3_t column =
             (bodyRotation(rotation,
-                          rotationOf(model.getBaseOrientation(plus))) -
+                          rotationOf(model.getQuatBaseRtWorldXyzw(plus))) -
              bodyRotation(rotation,
-                          rotationOf(model.getBaseOrientation(minus)))) /
+                          rotationOf(model.getQuatBaseRtWorldXyzw(minus)))) /
             (2.0 * kFiniteDifferenceStep);
         EXPECT_LT((column - rotationJacobian.col(j)).cwiseAbs().maxCoeff(),
                   kFiniteDifferenceTolerance)
@@ -884,7 +887,7 @@ TEST(CentroidalRobotModelBoundary,
       const pinocchio::Motion baseVelocity = pinocchio::getVelocity(
           pinocchioModel, data, /*jointId=*/1, pinocchio::LOCAL_WORLD_ALIGNED);
       const vector6_t twist =
-          model.getBaseTwistInWorldFrame(state, jointVelocities);
+          model.getTwistBaseRtWorldEwrtWorld(state, jointVelocities);
       EXPECT_LT((twist.head<3>() - baseVelocity.linear()).cwiseAbs().maxCoeff(),
                 1.0e-9)
           << twist.transpose();
@@ -894,11 +897,12 @@ TEST(CentroidalRobotModelBoundary,
           << twist.transpose();
       // The body angular velocity v holds, turned into the world: w_W = R(xi)
       // w_B.
-      EXPECT_LT((twist.tail<3>() - rotationOf(model.getBaseOrientation(state)) *
-                                       vector3_t(velocity.segment<3>(3)))
-                    .cwiseAbs()
-                    .maxCoeff(),
-                1.0e-9);
+      EXPECT_LT(
+          (twist.tail<3>() - rotationOf(model.getQuatBaseRtWorldXyzw(state)) *
+                                 vector3_t(velocity.segment<3>(3)))
+              .cwiseAbs()
+              .maxCoeff(),
+          1.0e-9);
 
       // Without the joint velocities it is the robot's twist with its joints
       // locked, off by the joints' angular momentum over the locked inertia:
@@ -910,7 +914,7 @@ TEST(CentroidalRobotModelBoundary,
       const vector3_t jointAngularMomentum =
           momentumMatrix.bottomRows<3>().rightCols(joints) * jointVelocities;
       const vector6_t lockedTwist =
-          model.getBaseTwistInWorldFrame(state, vector_t::Zero(joints));
+          model.getTwistBaseRtWorldEwrtWorld(state, vector_t::Zero(joints));
       const vector3_t lockedError = lockedTwist.tail<3>() - twist.tail<3>();
       EXPECT_LT((lockedError - lockedInertia.inverse() * jointAngularMomentum)
                     .cwiseAbs()
@@ -961,26 +965,27 @@ TEST(
       for (Eigen::Index joint = 0; joint < joints; ++joint)
         jointVelocities(joint) = 3.0 * uniform(generator);
 
-      const matrix3_t rotation = rotationOf(model.getBaseOrientation(state));
+      const matrix3_t rotation =
+          rotationOf(model.getQuatBaseRtWorldXyzw(state));
       const matrix3_t inertiaWorld = rotation *
                                      robot->info->centroidalInertiaNominal *
                                      rotation.transpose();
       const vector3_t angularVelocity =
           inertiaWorld.inverse() * (robot->info->robotMass * angularMomentum);
       const vector3_t linearVelocity =
-          linearMomentum +
-          angularVelocity.cross(rotation *
-                                robot->info->comToBasePositionNominal);
+          linearMomentum + angularVelocity.cross(
+                               rotation * robot->info->nomPosBaseRtComEwrtBase);
       const vector6_t twist =
-          model.getBaseTwistInWorldFrame(state, jointVelocities);
+          model.getTwistBaseRtWorldEwrtWorld(state, jointVelocities);
       EXPECT_LT((twist.head<3>() - linearVelocity).cwiseAbs().maxCoeff(),
                 1.0e-11)
           << twist.transpose();
       EXPECT_LT((twist.tail<3>() - angularVelocity).cwiseAbs().maxCoeff(),
                 1.0e-11)
           << twist.transpose();
-      EXPECT_EQ(model.getBaseTwistInWorldFrame(state, vector_t::Zero(joints)),
-                twist)
+      EXPECT_EQ(
+          model.getTwistBaseRtWorldEwrtWorld(state, vector_t::Zero(joints)),
+          twist)
           << "the joints do not enter";
       EXPECT_GT(angularVelocity.norm(), 1.0e-2)
           << "the momentum must turn the body";
@@ -999,9 +1004,9 @@ TEST(CentroidalRobotModelBoundaryDeathTest,
   const vector_t state = model.getNeutralState();
   const Eigen::Index joints = static_cast<Eigen::Index>(model.getJointDim());
   EXPECT_DEATH(
-      model.getBaseTwistInWorldFrame(state, vector_t::Zero(joints - 1)),
+      model.getTwistBaseRtWorldEwrtWorld(state, vector_t::Zero(joints - 1)),
       "one joint velocity per MPC joint");
-  EXPECT_DEATH(model.getBaseTwistInWorldFrame(state, vector_t::Zero(0)),
+  EXPECT_DEATH(model.getTwistBaseRtWorldEwrtWorld(state, vector_t::Zero(0)),
                "one joint velocity per MPC joint");
 }
 
@@ -1060,13 +1065,13 @@ TEST(CentroidalRobotModelBoundary, TheDecoratorForwardsTheLayoutAgnosticApi) {
 
   const vector_t state =
       stateWithEulerAngles(model, vector3_t(kLargeYaws[1], 0.3, -0.2));
-  EXPECT_EQ(decorator.getBaseOrientation(state),
-            model.getBaseOrientation(state));
-  EXPECT_EQ(decorator.getBaseHeading(state), model.getBaseHeading(state));
-  EXPECT_EQ(decorator.getBasePoseEulerZyx(state),
-            model.getBasePoseEulerZyx(state));
-  EXPECT_EQ(decorator.getBaseOrientationEulerZyx(state),
-            model.getBaseOrientationEulerZyx(state));
+  EXPECT_EQ(decorator.getQuatBaseRtWorldXyzw(state),
+            model.getQuatBaseRtWorldXyzw(state));
+  EXPECT_EQ(decorator.getYawBaseRtWorld(state), model.getYawBaseRtWorld(state));
+  EXPECT_EQ(decorator.getPoseeulerzyxBaseRtWorld(state),
+            model.getPoseeulerzyxBaseRtWorld(state));
+  EXPECT_EQ(decorator.getEulerzyxBaseRtWorld(state),
+            model.getEulerzyxBaseRtWorld(state));
   EXPECT_EQ(decorator.getNeutralState(), model.getNeutralState());
   EXPECT_EQ(decorator.getBaseRotationTangentJacobian(state),
             model.getBaseRotationTangentJacobian(state));
@@ -1074,18 +1079,20 @@ TEST(CentroidalRobotModelBoundary, TheDecoratorForwardsTheLayoutAgnosticApi) {
             model.getPinocchioTangentJacobian(state));
   const vector_t jointVelocities = vector_t::LinSpaced(
       static_cast<Eigen::Index>(model.getJointDim()), -1.0, 1.0);
-  EXPECT_EQ(decorator.getBaseTwistInWorldFrame(state, jointVelocities),
-            model.getBaseTwistInWorldFrame(state, jointVelocities));
+  EXPECT_EQ(decorator.getTwistBaseRtWorldEwrtWorld(state, jointVelocities),
+            model.getTwistBaseRtWorldEwrtWorld(state, jointVelocities));
   EXPECT_EQ(
       decorator.getTargetPlanarCommand(state, /*compositeYawInertia=*/2.5),
       model.getTargetPlanarCommand(state, /*compositeYawInertia=*/2.5));
   vector_t decoratorWritten = state;
   vector_t modelWritten = state;
-  decorator.setBasePoseEulerZyx(decoratorWritten, vector6_t::Constant(0.5));
-  model.setBasePoseEulerZyx(modelWritten, vector6_t::Constant(0.5));
+  decorator.setPoseeulerzyxBaseRtWorld(decoratorWritten,
+                                       vector6_t::Constant(0.5));
+  model.setPoseeulerzyxBaseRtWorld(modelWritten, vector6_t::Constant(0.5));
   EXPECT_EQ(decoratorWritten, modelWritten);
-  decorator.setBaseOrientation(decoratorWritten, vector4_t(0.1, 0.2, 0.3, 0.9));
-  model.setBaseOrientation(modelWritten, vector4_t(0.1, 0.2, 0.3, 0.9));
+  decorator.setQuatBaseRtWorldXyzw(decoratorWritten,
+                                   vector4_t(0.1, 0.2, 0.3, 0.9));
+  model.setQuatBaseRtWorldXyzw(modelWritten, vector4_t(0.1, 0.2, 0.3, 0.9));
   EXPECT_EQ(decoratorWritten, modelWritten);
   const absl::StatusOr<vector_t> decoratorTuning =
       decorator.tuningFromState(state);
@@ -1113,14 +1120,13 @@ TEST(CentroidalRobotModelBoundaryDeathTest,
   ASSERT_TRUE(robot.ok()) << robot.status();
   const MpcRobotModelBase<scalar_t>& model = *robot->model;
   vector_t state = model.getNeutralState();
-  EXPECT_DEATH(model.getBaseAngularVelocityLocal(state),
+  EXPECT_DEATH(model.getAngvelBaseRtWorldEwrtBase(state),
                "holds no base angular velocity");
-  EXPECT_DEATH(model.setBaseAngularVelocityLocal(state, vector3_t::Zero()),
+  EXPECT_DEATH(model.setAngvelBaseRtWorldEwrtBase(state, vector3_t::Zero()),
                "holds no base angular velocity");
-  EXPECT_DEATH(
-      model.setBaseAngularVelocityFromWorldYawRate(state, /*yawRate=*/0.3),
-      "holds no base angular velocity");
-  EXPECT_DEATH(model.getBaseAngularVelocityLocalJacobian(state),
+  EXPECT_DEATH(model.setTurnAngvelBaseRtWorldEwrtBase(state, /*yawRate=*/0.3),
+               "holds no base angular velocity");
+  EXPECT_DEATH(model.getJacobianAngvelBaseRtWorldEwrtBase(state),
                "holds no base angular velocity");
 }
 
@@ -1135,7 +1141,7 @@ TEST(CentroidalRobotModelBoundaryDeathTest,
   const CentroidalMpcRobotModel<ad_scalar_t> modelCppAd(
       *robot->modelSettings, pinocchioInterfaceCppAd, infoCppAd);
   const vector_t state = robot->model->getNeutralState();
-  EXPECT_DEATH(modelCppAd.getBaseTwistInWorldFrame(
+  EXPECT_DEATH(modelCppAd.getTwistBaseRtWorldEwrtWorld(
                    state, vector_t::Zero(static_cast<Eigen::Index>(
                               robot->model->getJointDim()))),
                "no double-precision Pinocchio model");

@@ -96,7 +96,7 @@ bool carriesContactTerm(const OptimalControlProblem& ocp,
 struct Penalties {
   std::optional<RelaxedBarrierPenalty::Config> wrenchCone;
   std::optional<RelaxedBarrierPenalty::Config> frictionCone;
-  std::optional<RelaxedBarrierPenalty::Config> contactMoment;
+  std::optional<RelaxedBarrierPenalty::Config> contactMomentXyPenalty;
   std::optional<PieceWisePolynomialBarrierPenalty::Config> jointLimits;
   std::optional<PieceWisePolynomialBarrierPenalty::Config> collision;
   std::optional<PieceWisePolynomialBarrierPenalty::Config> collisionCbf;
@@ -126,8 +126,8 @@ Penalties penaltiesOf(HotUpdateTarget& target) {
         "the barrier of contacts.friction_force_cone_soft_constraint");
   }
   if (carriesContactTerm(running, contactNames,
-                         contact_term::kContactMomentXY)) {
-    penalties.contactMoment = convertedOrReported(
+                         contact_term::kContactMomentXYName)) {
+    penalties.contactMomentXyPenalty = convertedOrReported(
         contactMomentXyBarrierFromConfig(task.contacts), target.source(),
         "contacts.contact_moment_xy_soft_constraint");
   }
@@ -196,10 +196,10 @@ void ConstraintPenaltiesApplier::apply(HotUpdateTarget& target) {
           ocp, contactNames, contact_term::kFrictionForceCone,
           *penalties.frictionCone);
     }
-    if (penalties.contactMoment.has_value()) {
+    if (penalties.contactMomentXyPenalty.has_value()) {
       setConePenalty<ContactMomentXYConstraintCppAd>(
-          ocp, contactNames, contact_term::kContactMomentXY,
-          *penalties.contactMoment);
+          ocp, contactNames, contact_term::kContactMomentXYName,
+          *penalties.contactMomentXyPenalty);
     }
     if (penalties.jointLimits.has_value()) {
       updateTermIfPresent<JointLimitsSoftConstraint>(

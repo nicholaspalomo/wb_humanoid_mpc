@@ -124,11 +124,11 @@ TEST(MultiContactTaskFile, everyCandidateIsAContactWithItsGeometry) {
     const ContactCenterPoint& center = rectangle.getContactCenterPoint();
     EXPECT_EQ(center.parentJointName, candidate.parentJoint);
     EXPECT_TRUE(
-        center.translationFromParent.isApprox(candidate.offset, kTolerance))
-        << center.translationFromParent.transpose();
+        center.posContactRtLinkEwrtLink.isApprox(candidate.offset, kTolerance))
+        << center.posContactRtLinkEwrtLink.transpose();
     EXPECT_TRUE(
-        center.rotationFromParent.isApprox(candidate.padRotation, kTolerance))
-        << center.rotationFromParent;
+        center.rotmatContactRtLink.isApprox(candidate.padRotation, kTolerance))
+        << center.rotmatContactRtLink;
     ASSERT_TRUE(candidate.rectangle.has_value());
     EXPECT_DOUBLE_EQ(rectangle.getBounds().x_min, candidate.rectangle->xMin);
     EXPECT_DOUBLE_EQ(rectangle.getBounds().x_max, candidate.rectangle->xMax);

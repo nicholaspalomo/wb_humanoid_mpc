@@ -44,9 +44,9 @@ namespace robot::mujoco_sim_interface {
  * attitude's twist about the world vertical, design D9) and the heading rate.
  */
 struct BaseVelocityCommand {
-  double velocityX = 0.0;  // [m/s] forward
-  double velocityY = 0.0;  // [m/s] lateral
-  double yawRate = 0.0;    // [rad/s] about the world vertical
+  double cmdLinvelBaseRtWorldEwrtHeadingX = 0.0;  // [m/s] forward
+  double cmdLinvelBaseRtWorldEwrtHeadingY = 0.0;  // [m/s] lateral
+  double cmdRateYawBaseRtWorld = 0.0;  // [rad/s] about the world vertical
 };
 
 /**

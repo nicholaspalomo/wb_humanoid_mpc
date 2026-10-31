@@ -50,7 +50,7 @@ struct ParameterizationEntry {
 // The single place a parameterization is added.
 // LINT.IfChange(contact_input_parameterization_registry)
 constexpr std::array<ParameterizationEntry, 2> kParameterizationRegistry = {{
-    {.name = kWrenchContactInputParameterization,
+    {.name = kWrenchContactInputParameterizationName,
      .parameterization = ContactInputParameterization::kWrench},
     {.name = kBasisVectorsContactInputParameterization,
      .parameterization = ContactInputParameterization::kBasisVectors},

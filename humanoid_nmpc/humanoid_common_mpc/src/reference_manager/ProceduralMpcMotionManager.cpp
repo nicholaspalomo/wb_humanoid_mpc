@@ -81,12 +81,12 @@ ProceduralMpcMotionManager::Create(
     std::shared_ptr<SwitchedModelReferenceManager>
         switchedModelReferenceManagerPtr,
     const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-    VelocityTargetToTargetTrajectories velocityTargetToTargetTrajectories) {
+    VelocityTargetToTargetTrajectories velocityCommandToTargetTrajectories) {
   // The constructor is private, so std::make_unique cannot reach it.
   std::unique_ptr<ProceduralMpcMotionManager> manager =
       absl::WrapUnique(new ProceduralMpcMotionManager(
           std::move(switchedModelReferenceManagerPtr), mpcRobotModel,
-          std::move(velocityTargetToTargetTrajectories)));
+          std::move(velocityCommandToTargetTrajectories)));
   RETURN_IF_ERROR(manager->applyCommandLimits(referenceSettings));
   ASSIGN_OR_RETURN(manager->gaitMap_, gaitMapFromConfig(gaitFile));
   RETURN_IF_ERROR(checkEveryGaitIsLoaded(
@@ -112,7 +112,7 @@ ProceduralMpcMotionManager::Create(
     std::shared_ptr<SwitchedModelReferenceManager>
         switchedModelReferenceManagerPtr,
     const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-    VelocityTargetToTargetTrajectories velocityTargetToTargetTrajectories) {
+    VelocityTargetToTargetTrajectories velocityCommandToTargetTrajectories) {
   ASSIGN_OR_RETURN(const mpc_config::GaitFile gait, loadGaitFile(gaitFile));
   ASSIGN_OR_RETURN(const mpc_config::ReferenceFile reference,
                    loadReferenceFile(referenceFile));
@@ -123,7 +123,7 @@ ProceduralMpcMotionManager::Create(
   }
   absl::StatusOr<std::unique_ptr<ProceduralMpcMotionManager>> manager = Create(
       gait, *referenceSettings, std::move(switchedModelReferenceManagerPtr),
-      mpcRobotModel, std::move(velocityTargetToTargetTrajectories));
+      mpcRobotModel, std::move(velocityCommandToTargetTrajectories));
   if (!manager.ok()) {
     return withConfigFile(manager.status(), gaitFile);
   }
@@ -134,13 +134,13 @@ ProceduralMpcMotionManager::ProceduralMpcMotionManager(
     std::shared_ptr<SwitchedModelReferenceManager>
         switchedModelReferenceManagerPtr,
     const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-    VelocityTargetToTargetTrajectories velocityTargetToTargetTrajectories)
+    VelocityTargetToTargetTrajectories velocityCommandToTargetTrajectories)
     : switchedModelReferenceManagerPtr_(
           std::move(switchedModelReferenceManagerPtr)),
       gaitSchedulePtr_(switchedModelReferenceManagerPtr_->getGaitSchedule()),
       mpcRobotModelPtr_(&mpcRobotModel),
-      velocityTargetToTargetTrajectoriesFun_(
-          std::move(velocityTargetToTargetTrajectories)) {}
+      velocityCommandToTargetTrajectoriesFun_(
+          std::move(velocityCommandToTargetTrajectories)) {}
 
 absl::Status ProceduralMpcMotionManager::checkEveryGaitIsLoaded(
     const std::map<std::string, ModeSequenceTemplate>& gaitMap,
@@ -186,14 +186,16 @@ scalar_t ProceduralMpcMotionManager::strideAt(scalar_t time) const {
 /******************************************************************************************************/
 
 absl::Status ProceduralMpcMotionManager::setVelocityCommandAccelerationLimits(
-    scalar_t maxLinearAcceleration, scalar_t maxAngularAcceleration) {
-  if (std::isnan(maxLinearAcceleration) || std::isnan(maxAngularAcceleration)) {
+    scalar_t cmdMaxLinaccBaseRtWorldEwrtHeadingXy,
+    scalar_t cmdMaxAngaccBaseRtWorldEwrtWorldZ) {
+  if (std::isnan(cmdMaxLinaccBaseRtWorldEwrtHeadingXy) ||
+      std::isnan(cmdMaxAngaccBaseRtWorldEwrtWorldZ)) {
     return absl::InvalidArgumentError(
         "[ProceduralMpcMotionManager] the velocity command acceleration limits "
         "must be numbers");
   }
-  maxLinearAcceleration_ = maxLinearAcceleration;
-  maxAngularAcceleration_ = maxAngularAcceleration;
+  cmdMaxLinaccBaseRtWorldEwrtHeadingXy_ = cmdMaxLinaccBaseRtWorldEwrtHeadingXy;
+  cmdMaxAngaccBaseRtWorldEwrtWorldZ_ = cmdMaxAngaccBaseRtWorldEwrtWorldZ;
   return absl::OkStatus();
 }
 
@@ -201,22 +203,22 @@ vector4_t ProceduralMpcMotionManager::rateLimitVelocityCommand(
     const vector4_t& target,
     const vector4_t& current,
     scalar_t dt,
-    scalar_t maxLinearAcceleration,
-    scalar_t maxAngularAcceleration) {
+    scalar_t cmdMaxLinaccBaseRtWorldEwrtHeadingXy,
+    scalar_t cmdMaxAngaccBaseRtWorldEwrtWorldZ) {
   vector4_t limited = target;
   if (dt <= 0.0) return current;
-  if (maxLinearAcceleration > 0.0) {
+  if (cmdMaxLinaccBaseRtWorldEwrtHeadingXy > 0.0) {
     const vector2_t delta = target.head<kHorizontalPositionDim>() -
                             current.head<kHorizontalPositionDim>();
-    const scalar_t maxDelta = maxLinearAcceleration * dt;
+    const scalar_t maxDelta = cmdMaxLinaccBaseRtWorldEwrtHeadingXy * dt;
     limited.head<kHorizontalPositionDim>() =
         delta.norm() > maxDelta
             ? vector2_t(current.head<kHorizontalPositionDim>() +
                         delta * (maxDelta / delta.norm()))
             : target.head<kHorizontalPositionDim>();
   }
-  if (maxAngularAcceleration > 0.0) {
-    const scalar_t maxDelta = maxAngularAcceleration * dt;
+  if (cmdMaxAngaccBaseRtWorldEwrtWorldZ > 0.0) {
+    const scalar_t maxDelta = cmdMaxAngaccBaseRtWorldEwrtWorldZ * dt;
     constexpr int kYawRateIndex =
         WalkingVelocityCommand::kAngularVelocityZIndex;
     limited(kYawRateIndex) =
@@ -234,12 +236,17 @@ vector4_t ProceduralMpcMotionManager::rateLimitVelocityCommand(
 absl::Status ProceduralMpcMotionManager::applyCommandLimits(
     const ReferenceSettings& settings) {
   // LINT.IfChange(apply_command_limits)
-  maxDisplacementVelocityX_.store(settings.maxDisplacementVelocityX);
-  maxDisplacementVelocityY_.store(settings.maxDisplacementVelocityY);
-  maxDeltaPelvisHeight_.store(settings.maxDeltaPelvisHeight);
-  maxRotationVelocity_.store(settings.maxRotationVelocity);
+  cmdMaxLinvelBaseRtWorldEwrtHeadingX_.store(
+      settings.cmdMaxLinvelBaseRtWorldEwrtHeadingX);
+  cmdMaxLinvelBaseRtWorldEwrtHeadingY_.store(
+      settings.cmdMaxLinvelBaseRtWorldEwrtHeadingY);
+  cmdMaxErrPosBaseRtWorldEwrtWorldZ_.store(
+      settings.cmdMaxErrPosBaseRtWorldEwrtWorldZ);
+  cmdMaxAngvelBaseRtWorldEwrtWorldZ_.store(
+      settings.cmdMaxAngvelBaseRtWorldEwrtWorldZ);
   RETURN_IF_ERROR(setVelocityCommandAccelerationLimits(
-      settings.maxLinearAcceleration, settings.maxAngularAcceleration));
+      settings.cmdMaxLinaccBaseRtWorldEwrtHeadingXy,
+      settings.cmdMaxAngaccBaseRtWorldEwrtWorldZ));
   return velocityCommandFilter_.setBreakFrequency(
       settings.velocityCommandFilterBreakFrequency);
   // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/config/reference/ReferenceFromConfig.cpp:hot_reference_file_fields)
@@ -300,9 +307,12 @@ ProceduralMpcMotionManager::getScaledWalkingVelocityCommand() {
 WalkingVelocityCommand ProceduralMpcMotionManager::scaleWalkingVelocityCommand(
     const WalkingVelocityCommand& rawVelocityCommand) const {
   WalkingVelocityCommand scaledCommand = rawVelocityCommand;
-  scaledCommand.linear_velocity_x *= maxDisplacementVelocityX_;
-  scaledCommand.linear_velocity_y *= maxDisplacementVelocityY_;
-  scaledCommand.angular_velocity_z *= maxRotationVelocity_;
+  scaledCommand.cmd_linvel_base_rt_world_ewrt_heading_x *=
+      cmdMaxLinvelBaseRtWorldEwrtHeadingX_;
+  scaledCommand.cmd_linvel_base_rt_world_ewrt_heading_y *=
+      cmdMaxLinvelBaseRtWorldEwrtHeadingY_;
+  scaledCommand.cmd_angvel_base_rt_world_ewrt_world_z *=
+      cmdMaxAngvelBaseRtWorldEwrtWorldZ_;
   return scaledCommand;
 }
 
@@ -315,23 +325,26 @@ bool ProceduralMpcMotionManager::transitionToFasterGait(
     const BasePlanarMotion* absl_nullable strideMeanMotion,
     const GaitModeStateConfig& cfg) {
   const bool fasterGaitRequested =
-      (std::abs(velCommandVec(0)) > cfg.maxLinVelCmd ||
-       std::abs(velCommandVec(1)) > cfg.maxLinVelCmd ||
+      (std::abs(velCommandVec(0)) > cfg.cmdMaxLinvelBaseRtWorldEwrtHeadingXy ||
+       std::abs(velCommandVec(1)) > cfg.cmdMaxLinvelBaseRtWorldEwrtHeadingXy ||
        std::abs(velCommandVec(WalkingVelocityCommand::kAngularVelocityZIndex)) >
-           cfg.maxAngVelCmd);
-  const scalar_t linearThreshold = cfg.maxLinVelCmd - cfg.linVelErrorThresh;
-  const scalar_t angularThreshold = cfg.maxAngVelCmd - cfg.angVelErrorThresh;
+           cfg.cmdMaxAngvelBaseRtWorldEwrtWorldZ);
+  const scalar_t linearThreshold = cfg.cmdMaxLinvelBaseRtWorldEwrtHeadingXy -
+                                   cfg.maxErrLinvelBaseRtWorldEwrtHeadingXy;
+  const scalar_t angularThreshold = cfg.cmdMaxAngvelBaseRtWorldEwrtWorldZ -
+                                    cfg.maxErrAngvelBaseRtWorldEwrtWorldZ;
   // Without a measured window the switch reads no motion: it goes only where
   // every motion would pass, i.e. where a threshold is below zero (|m| > c
   // holds for every m exactly when c < 0).
   if (strideMeanMotion == nullptr)
     return fasterGaitRequested &&
            (linearThreshold < 0.0 || angularThreshold < 0.0);
-  const vector2_t& velocity = strideMeanMotion->velocityInHeadingFrame;
+  const vector2_t& measLinvelBaseRtWorldEwrtHeadingXy =
+      strideMeanMotion->linvelBaseRtWorldEwrtHeadingXy;
   const bool withinMaxSpeedErrorThreshold =
-      (std::abs(velocity(0)) > linearThreshold ||
-       std::abs(velocity(1)) > linearThreshold ||
-       std::abs(strideMeanMotion->headingRate) > angularThreshold);
+      (std::abs(measLinvelBaseRtWorldEwrtHeadingXy(0)) > linearThreshold ||
+       std::abs(measLinvelBaseRtWorldEwrtHeadingXy(1)) > linearThreshold ||
+       std::abs(strideMeanMotion->rateYawBaseRtWorld) > angularThreshold);
   return fasterGaitRequested && withinMaxSpeedErrorThreshold;
 }
 
@@ -344,10 +357,10 @@ bool ProceduralMpcMotionManager::transitionToSlowerGait(
     const BasePlanarMotion* absl_nullable strideMeanMotion,
     const GaitModeStateConfig& cfg) {
   const bool slowerGaitRequested =
-      (std::abs(velCommandVec(0)) < cfg.minLinVelCmd &&
-       std::abs(velCommandVec(1)) < cfg.minLinVelCmd &&
+      (std::abs(velCommandVec(0)) < cfg.cmdMinLinvelBaseRtWorldEwrtHeadingXy &&
+       std::abs(velCommandVec(1)) < cfg.cmdMinLinvelBaseRtWorldEwrtHeadingXy &&
        std::abs(velCommandVec(WalkingVelocityCommand::kAngularVelocityZIndex)) <
-           cfg.minAngVelCmd);
+           cfg.cmdMinAngvelBaseRtWorldEwrtWorldZ);
   // Without a measured window no motion is known to be slow enough: no c has
   // |m| < c for every m.
   if (strideMeanMotion == nullptr) return false;
@@ -358,13 +371,16 @@ bool ProceduralMpcMotionManager::transitionToSlowerGait(
   // sway let a robot still walking down whenever it dipped below the thresholds
   // and held a stopped one up while it swayed past them (design README
   // section 2.9).
-  const vector2_t& velocity = strideMeanMotion->velocityInHeadingFrame;
-  const scalar_t linearThreshold = cfg.minLinVelCmd + cfg.linVelErrorThresh;
+  const vector2_t& measLinvelBaseRtWorldEwrtHeadingXy =
+      strideMeanMotion->linvelBaseRtWorldEwrtHeadingXy;
+  const scalar_t linearThreshold = cfg.cmdMinLinvelBaseRtWorldEwrtHeadingXy +
+                                   cfg.maxErrLinvelBaseRtWorldEwrtHeadingXy;
   const bool baseSpeedSlowEnough =
-      (std::abs(velocity(0)) < linearThreshold &&
-       std::abs(velocity(1)) < linearThreshold &&
-       std::abs(strideMeanMotion->headingRate) <
-           cfg.minAngVelCmd + cfg.angVelErrorThresh);
+      (std::abs(measLinvelBaseRtWorldEwrtHeadingXy(0)) < linearThreshold &&
+       std::abs(measLinvelBaseRtWorldEwrtHeadingXy(1)) < linearThreshold &&
+       std::abs(strideMeanMotion->rateYawBaseRtWorld) <
+           cfg.cmdMinAngvelBaseRtWorldEwrtWorldZ +
+               cfg.maxErrAngvelBaseRtWorldEwrtWorldZ);
   return slowerGaitRequested && baseSpeedSlowEnough;
 }
 
@@ -392,20 +408,20 @@ BasePlanarMotion ProceduralMpcMotionManager::instantaneousMotionOf(
   const vector_t jointVelocities =
       model.getJointVelocities(initState, observedInput_);
   return instantaneousPlanarMotion(
-      model.getBaseOrientation(initState),
-      model.getBaseTwistInWorldFrame(initState, jointVelocities));
+      model.getQuatBaseRtWorldXyzw(initState),
+      model.getTwistBaseRtWorldEwrtWorld(initState, jointVelocities));
 }
 
 BasePlanarMotion ProceduralMpcMotionManager::updateMeasuredMotion(
     scalar_t initTime, const vector_t& initState) {
   const MpcRobotModelBase<scalar_t>& model = *mpcRobotModelPtr_;
-  strideMotion_.addSample(
-      initTime,
-      vector2_t(
-          model.getBasePosition(initState).head<kHorizontalPositionDim>()),
-      model.getBaseHeading(initState), [this, initTime, &initState]() {
-        return instantaneousMotionOf(initTime, initState);
-      });
+  strideMotion_.addSample(initTime,
+                          vector2_t(model.getPosBaseRtWorldEwrtWorld(initState)
+                                        .head<kHorizontalPositionDim>()),
+                          model.getYawBaseRtWorld(initState),
+                          [this, initTime, &initState]() {
+                            return instantaneousMotionOf(initTime, initState);
+                          });
   // The gaits that no longer run: every one before the one running now.
   while (scheduledGaits_.size() > 1 && scheduledGaits_[1].startTime <= initTime)
     scheduledGaits_.erase(scheduledGaits_.begin());
@@ -441,7 +457,8 @@ void ProceduralMpcMotionManager::preSolverRun(
   } else {
     rampedVelocityCommand_ = rateLimitVelocityCommand(
         filteredVelCommand, rampedVelocityCommand_, initTime - lastRampTime_,
-        maxLinearAcceleration_, maxAngularAcceleration_);
+        cmdMaxLinaccBaseRtWorldEwrtHeadingXy_,
+        cmdMaxAngaccBaseRtWorldEwrtWorldZ_);
   }
   lastRampTime_ = initTime;
   filteredVelCommand = rampedVelocityCommand_;
@@ -453,7 +470,7 @@ void ProceduralMpcMotionManager::preSolverRun(
 
   // Update TargetTrajectories
   TargetTrajectories targetTrajectories =
-      velocityTargetToTargetTrajectoriesFun_(
+      velocityCommandToTargetTrajectoriesFun_(
           filteredVelCommand, initTime, finalTime, initState, measuredMotion);
   switchedModelReferenceManagerPtr_->setTargetTrajectories(targetTrajectories);
 
@@ -478,8 +495,9 @@ void ProceduralMpcMotionManager::preSolverRun(
         transitionToFasterGait(filteredVelCommand, strideMeanMotion,
                                currentCfg)) {
       LOG(INFO) << "filteredVelCommand: " << filteredVelCommand.transpose();
-      LOG(INFO) << "Linear limits: " << currentCfg.minLinVelCmd << ", "
-                << currentCfg.maxLinVelCmd;
+      LOG(INFO) << "Linear limits: "
+                << currentCfg.cmdMinLinvelBaseRtWorldEwrtHeadingXy << ", "
+                << currentCfg.cmdMaxLinvelBaseRtWorldEwrtHeadingXy;
       ++currentGaitMode_;
       currentGaitCommand_ = gaitModeStates_[currentGaitMode_].gaitCommand;
       LOG(INFO) << "ProceduralMpcMotionManager: Increasing to gait:"
@@ -489,8 +507,9 @@ void ProceduralMpcMotionManager::preSolverRun(
                transitionToSlowerGait(filteredVelCommand, strideMeanMotion,
                                       currentCfg)) {
       LOG(INFO) << "filteredVelCommand: " << filteredVelCommand.transpose();
-      LOG(INFO) << "Linear limits: " << currentCfg.minLinVelCmd << ", "
-                << currentCfg.maxLinVelCmd;
+      LOG(INFO) << "Linear limits: "
+                << currentCfg.cmdMinLinvelBaseRtWorldEwrtHeadingXy << ", "
+                << currentCfg.cmdMaxLinvelBaseRtWorldEwrtHeadingXy;
       --currentGaitMode_;
       currentGaitCommand_ = gaitModeStates_[currentGaitMode_].gaitCommand;
       LOG(INFO) << "ProceduralMpcMotionManager: Decreasing to gait:"

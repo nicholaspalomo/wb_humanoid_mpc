@@ -45,7 +45,7 @@ namespace ocs2 {
  * [m/s^2] The magnitude of the gravitational acceleration every model, cost, heuristic and simulation of the repository
  * assumes: 9.81, not the standard 9.80665. Gravity points along -z (ocs2_core/Dimensions.h, kZAxisIndex).
  */
-inline constexpr double kGravitationalAcceleration = 9.81;
+inline constexpr double kGravityMagnitude = 9.81;
 
 /** The submultiples of a second in one second: the factors of a time in seconds to one in ms, us and ns. */
 inline constexpr double kMillisecondsPerSecond = 1.0e3;

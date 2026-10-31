@@ -55,8 +55,8 @@ namespace ocs2::humanoid {
 
 /** Task-space reference of a swing foot, provided by a contact planner. */
 struct SwingFootReference {
-  vector3_t position = vector3_t::Zero();
-  vector3_t linearVelocity = vector3_t::Zero();
+  vector3_t desPosFootRtWorldEwrtWorld = vector3_t::Zero();
+  vector3_t desLinvelFootRtWorldEwrtWorld = vector3_t::Zero();
   std::optional<scalar_t> yaw;  // [rad] planned foot yaw, present with the
                                 // contact planner's heading model
 };
@@ -311,11 +311,12 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * `xNominal` with only the locomotion heuristics' base-pose offsets applied:
    * roll, pitch and height, at `time`, and the rate channel made the derivative
    * of the shaped attitude. On a state that stores the body angular velocity
-   * (the whole body's) it is shapedBodyAngularVelocity(): the command's turn
-   * stays as it was in the world, and the rate of a periodic tilt is added. On
-   * a state that stores the centroidal momentum, the angular momentum of the
-   * tilt rate, I_G tiltAngularVelocityInWorld() / m with the composite inertia
-   * I_G latched at the last solve (zero before it), is added to the target's.
+   * (the whole body's) it is computeShapedAngvelBaseRtWorldEwrtBase(): the
+   * command's turn stays as it was in the world, and the rate of a periodic
+   * tilt is added. On a state that stores the centroidal momentum, the angular
+   * momentum of the tilt rate, I_G computeTiltAngvelBaseRtWorldEwrtWorld() / m
+   * with the composite inertia I_G latched at the last solve (zero before it),
+   * is added to the target's.
    *
    * The single definition of the shaped base pose, used by every cost that
    * regularizes the base pose - the running state costs through
@@ -324,7 +325,7 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * towards the shaped one. Returns `xNominal` untouched, bit for bit, when no
    * base-pose heuristic is listed.
    */
-  vector_t shapeBasePose(scalar_t time, const vector_t& xNominal) const;
+  vector_t shapePoseBaseRtWorld(scalar_t time, const vector_t& xNominal) const;
 
   /**
    * [rad/s] The body angular velocity of the shaped attitude Theta_n(t) +
@@ -336,9 +337,9 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * is zero, as a velocity-command knot's is. Singular at a nominal pitch of
    * +-90 degrees. Exposed for the unit test.
    */
-  static vector3_t shapedBodyAngularVelocity(
+  static vector3_t computeShapedAngvelBaseRtWorldEwrtBase(
       const vector3_t& nominalEulerZyx,
-      const vector3_t& nominalBodyAngularVelocity,
+      const vector3_t& nomAngvelBaseRtWorldEwrtBase,
       const vector3_t& shapedEulerZyx,
       const vector3_t& offsetEulerZyxRates);
 
@@ -349,7 +350,7 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * nominal world rate when the nominal's roll rate is zero. Exposed for the
    * unit test.
    */
-  static vector3_t tiltAngularVelocityInWorld(
+  static vector3_t computeTiltAngvelBaseRtWorldEwrtWorld(
       const vector3_t& shapedEulerZyx, const vector3_t& offsetEulerZyxRates);
 
   /**
@@ -357,7 +358,7 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * default reference manager returns the commanded CoM velocity as a heuristic
    * to prevent the swing foot from dragging behind the robot during locomotion.
    */
-  virtual std::optional<vector2_t> getSwingFootVelocityReference(
+  virtual std::optional<vector2_t> getSwingRefLinvelFootRtWorldEwrtWorldXy(
       size_t contactIndex, scalar_t time) const;
 
   /**
@@ -375,11 +376,11 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * The state reference of the running costs at `time`: the knots of
    * `targetTrajectories` interpolated in the robot model's layout
    * (MpcRobotModelBase::getDesiredState), with the procedural arm swing about
-   * the REFERENCE's heading and the base-pose heuristics (shapeBasePose())
-   * applied. `targetTrajectories` is not empty. It does not depend on `state`,
-   * so that the Gauss-Newton gradient of a cost that holds it constant is the
-   * cost's exact gradient; the parameter is kept for the costs' calling
-   * convention.
+   * the REFERENCE's heading and the base-pose heuristics
+   * (shapePoseBaseRtWorld()) applied. `targetTrajectories` is not empty. It
+   * does not depend on `state`, so that the Gauss-Newton gradient of a cost
+   * that holds it constant is the cost's exact gradient; the parameter is kept
+   * for the costs' calling convention.
    */
   vector_t getDesiredState(const TargetTrajectories& targetTrajectories,
                            const vector_t& state,
@@ -451,16 +452,16 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * therefore answers this from the untouched copy of what the operator
    * published.
    */
-  virtual vector2_t getCommandedVelocity(scalar_t time) const;
+  virtual vector2_t getCmdLinvelBaseRtWorldEwrtWorldXy(scalar_t time) const;
 
   /**
    * [rad/s] The operator's commanded yaw rate at `time`, recovered from the
    * angular channel of the target's momentum.
    *
-   * The counterpart of getCommandedVelocity(), and needed for the same reason:
-   * two of Bledt's foothold heuristics are functions of the turn rate and one
-   * of his force heuristics is a function of the turn rate and the speed
-   * together.
+   * The counterpart of getCmdLinvelBaseRtWorldEwrtWorldXy(), and needed for the
+   * same reason: two of Bledt's foothold heuristics are functions of the turn
+   * rate and one of his force heuristics is a function of the turn rate and the
+   * speed together.
    *
    * Read from the target as the model reads a knot's command
    * (MpcRobotModelBase::getTargetPlanarCommand()): a whole-body knot stores the
@@ -478,15 +479,15 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * outright, so differentiating it would recover the reference's own smoothing
    * rather than the operator's command.
    */
-  virtual scalar_t getCommandedYawRate(scalar_t time) const;
+  virtual scalar_t getCmdRateYawBaseRtWorld(scalar_t time) const;
 
   /** A planar velocity command at one instant: the world velocity of the base
    * and its yaw rate. Passive data. */
   struct PlanarCommandAt {
     /** [m/s] (x, y) in the world frame. */
-    vector2_t velocityWorld = vector2_t::Zero();
+    vector2_t cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t::Zero();
     /** [rad/s] */
-    scalar_t yawRate = 0.0;
+    scalar_t cmdRateYawBaseRtWorld = 0.0;
   };
 
   /** The change of the base's planar pose over a time. Passive data. */
@@ -520,9 +521,9 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * (sinc(theta / 2) - cos(theta / 2)), about |v_0| dt theta^2 / 12. Exposed
    * for the unit test.
    */
-  static PlanarPoseChange commandedPoseChange(const PlanarCommandAt& start,
-                                              const PlanarCommandAt& end,
-                                              scalar_t duration);
+  static PlanarPoseChange integratePlanarCommand(const PlanarCommandAt& start,
+                                                 const PlanarCommandAt& end,
+                                                 scalar_t duration);
 
   /** The divergent component of motion of a reduced-order plan, and the
    * pendulum it belongs to. */
@@ -624,17 +625,17 @@ class SwitchedModelReferenceManager : public ReferenceManager {
   // work it did before.
   bool hasMeasuredState_ = false;
   scalar_t lastSolveTime_ = 0.0;
-  vector2_t measuredBasePosition_{vector2_t::Zero()};
-  scalar_t measuredBaseYaw_ = 0.0;
+  vector2_t measPosBaseRtWorldEwrtWorldXy_{vector2_t::Zero()};
+  scalar_t measYawBaseRtWorld_ = 0.0;
   /// Where each foot was the last time it was measured in contact, i.e. where
   /// it lifted off from.
-  feet_array_t<vector2_t> liftOffPositions_{
+  feet_array_t<vector2_t> liftoffPosFeetRtWorldEwrtWorldXy_{
       makeFeetArray(vector2_t(vector2_t::Zero()))};
   /// [m/s] measured CoM linear velocity, and [m] measured CoM height above the
   /// mean foot height, at the last solve. Latched for the foothold heuristics,
   /// which are feedback laws on where the robot actually is rather than on the
   /// plan; filled only while a foothold heuristic is listed.
-  vector2_t measuredComVelocity_{vector2_t::Zero()};
+  vector2_t measLinvelComRtWorldEwrtWorldXy_{vector2_t::Zero()};
   scalar_t measuredComHeight_ = 0.0;
   /// [kg] the robot's mass (the weight of the wrench heuristics' context), and
   /// [kg m^2] the yaw component of its composite inertia about the center of
@@ -645,8 +646,8 @@ class SwitchedModelReferenceManager : public ReferenceManager {
   scalar_t yawInertia_ = 0.0;
   /// [kg m^2] The composite rotational inertia about the center of mass, in
   /// world axes, at the last solve (zero before the first): what
-  /// shapeBasePose() turns a tilt rate into angular momentum with. yawInertia_
-  /// is its (z, z) entry.
+  /// shapePoseBaseRtWorld() turns a tilt rate into angular momentum with.
+  /// yawInertia_ is its (z, z) entry.
   matrix3_t compositeInertia_{matrix3_t::Zero()};
   /**
    * The command (v_x, v_y, yaw rate) of the target at `time`, as the model
@@ -666,14 +667,14 @@ class SwitchedModelReferenceManager : public ReferenceManager {
                                            scalar_t time) const;
   /** A planar base pose: the horizontal position and the yaw. */
   struct PlanarBasePose {
-    vector2_t position = vector2_t::Zero();  // [m] world frame
-    scalar_t yaw = 0.0;                      // [rad]
+    vector2_t posBaseRtWorldEwrtWorldXy = vector2_t::Zero();  // [m]
+    scalar_t yawBaseRtWorld = 0.0;                            // [rad]
   };
 
   /**
    * The base pose predicted at `time`: the last measurement carried forward by
    * the target's command at the last solve and at `time`
-   * (commandedPoseChange(): exact on the arc of a turning velocity command).
+   * (integratePlanarCommand(): exact on the arc of a turning velocity command).
    */
   PlanarBasePose predictedBaseAt(scalar_t time) const;
 

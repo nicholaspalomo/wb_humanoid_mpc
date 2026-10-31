@@ -818,7 +818,7 @@ TEST(PolicyConversionTest, LeavesTheFieldsTheMpcNodeOwns) {
   message.mutable_solver_status()->set_healthy(true);
   message.mutable_annotations()
       ->add_target_contact_patches()
-      ->mutable_pose()
+      ->mutable_des_pose_foot_rt_world()
       ->set_x(1.0);
   ASSERT_TRUE(policyToProto(policy.commandData, policy.primalSolution,
                             policy.performanceIndex, &message)

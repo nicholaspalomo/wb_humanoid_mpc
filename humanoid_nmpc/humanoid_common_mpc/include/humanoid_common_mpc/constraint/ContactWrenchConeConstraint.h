@@ -68,7 +68,7 @@ namespace ocs2::humanoid {
  * have the tangential ratio mu): mu cos(pi/N) (Fz_local + F_grip) -
  * (cos(theta_k) Fx_local + sin(theta_k) Fy_local) >= 0, theta_k = 2 pi k / N
  *  2. Normal force lower bound:
- *     Fz_local - minNormalForce >= 0
+ *     Fz_local - minForceContactEwrtContactZ >= 0
  *  3. Center of pressure (CoP) within the footprint [x_min, x_max] x [y_min,
  * y_max]: tau_x_local - y_min * Fz_local >= 0 -tau_x_local + y_max * Fz_local
  * >= 0 -tau_y_local - x_min * Fz_local >= 0 tau_y_local + x_max * Fz_local >= 0
@@ -84,7 +84,7 @@ namespace ocs2::humanoid {
  * moment about the center but no free torsion - is not rejected. The torsional
  * limit follows from the friction at the corners: torsionalFrictionCoefficient
  * no longer enters the rows (the online contact planner still reads it, capped
- * by torsionLimitsOfNormalForceAt()).
+ * by computeLimitsPerNewtonTorqueContactEwrtContactZ()).
  *
  * THE FRAME. The rows are written in the contact's own frame, not in the
  * world's: the rectangle is the sole, and on a sole resting flat on a surface
@@ -146,21 +146,21 @@ class ContactWrenchConeConstraint final : public StateInputConstraint {
     static constexpr scalar_t kDefaultFrictionCoefficient = 0.7;
     static constexpr scalar_t kDefaultTorsionalFrictionCoefficient = 0.05;
     /** [N] */
-    static constexpr scalar_t kDefaultMinNormalForce = 5.0;
+    static constexpr scalar_t kNomMinForceContactEwrtContactZ = 5.0;
 
     explicit Config(
         size_t numBasisVectorsParam = kDefaultNumBasisVectors,
         scalar_t frictionCoefficientParam = kDefaultFrictionCoefficient,
         scalar_t torsionalFrictionCoefficientParam =
             kDefaultTorsionalFrictionCoefficient,
-        scalar_t minNormalForceParam = kDefaultMinNormalForce,
-        scalar_t gripperForceParam = 0.0,
+        scalar_t minForceContactEwrtContactZ = kNomMinForceContactEwrtContactZ,
+        scalar_t gripForceContactEwrtContactZ = 0.0,
         vector3_t patchOffsetParam = vector3_t::Zero())
         : numBasisVectors(numBasisVectorsParam),
           frictionCoefficient(frictionCoefficientParam),
           torsionalFrictionCoefficient(torsionalFrictionCoefficientParam),
-          minNormalForce(minNormalForceParam),
-          gripperForce(gripperForceParam),
+          minForceContactEwrtContactZ(minForceContactEwrtContactZ),
+          gripForceContactEwrtContactZ(gripForceContactEwrtContactZ),
           patchOffset(std::move(patchOffsetParam)) {}
     // The ranges are checked by validateConfig(), not here: a constructor
     // cannot report which task-file key is wrong, and the assert()s that stood
@@ -178,10 +178,10 @@ class ContactWrenchConeConstraint final : public StateInputConstraint {
      * torsion limit follows from the friction at the footprint corners.
      */
     scalar_t torsionalFrictionCoefficient;
-    scalar_t minNormalForce;
+    scalar_t minForceContactEwrtContactZ;
     /** [N] An adhesion seen by the friction and torsion rows as an extra normal
      * force at the footprint center. */
-    scalar_t gripperForce;
+    scalar_t gripForceContactEwrtContactZ;
     /** The point the conservative basis generators are applied at
      * (contactPatchReferencePoint()); zero: the center. */
     vector3_t patchOffset;
@@ -193,11 +193,11 @@ class ContactWrenchConeConstraint final : public StateInputConstraint {
    * the hard `zero_wrench` constraint has already pinned its wrench to zero.
    * When false - the contact-implicit formulation, which removes `zero_wrench`
    * - the cone is enforced at every node, and the two affine offsets that
-   * assume a loaded foot (`minNormalForce`, `gripperForce`) are dropped,
-   * because a foot in flight carries no wrench and must not be asked for a
-   * minimum normal force. What is left is the homogeneous cone, which the zero
-   * wrench satisfies exactly and which is the same set
-   *                       ContactWrenchConeBasisMatrix verifies its generators
+   * assume a loaded foot (`minForceContactEwrtContactZ`,
+   * `gripForceContactEwrtContactZ`) are dropped, because a foot in flight
+   * carries no wrench and must not be asked for a minimum normal force. What is
+   * left is the homogeneous cone, which the zero wrench satisfies exactly and
+   * which is the same set ContactWrenchConeBasisMatrix verifies its generators
    * against. See humanoid_nmpc/docs/contact_implicit_mpc/README.md.
    */
   ContactWrenchConeConstraint(
@@ -235,7 +235,7 @@ class ContactWrenchConeConstraint final : public StateInputConstraint {
    * as [force, moment] in six consecutive entries - the wrench-space layout
    * this term writes its Jacobian in - and InvalidArgument otherwise.
    */
-  static absl::Status checkWrenchSpaceInput(
+  static absl::Status checkWrenchInputLayout(
       const MpcRobotModelBase<scalar_t>& mpcRobotModel,
       size_t contactPointIndex);
 
@@ -266,12 +266,13 @@ class ContactWrenchConeConstraint final : public StateInputConstraint {
    * OkStatus when every value of `config` is in range: numBasisVectors from 3
    * (the facets of the friction pyramid) to Config::kMaxNumBasisVectors,
    * frictionCoefficient finite and positive, torsionalFrictionCoefficient,
-   * minNormalForce and gripperForce finite and non-negative, and patchOffset
-   * finite. Otherwise InvalidArgument naming the field of kConfigField to
-   * change and the value it holds. contactWrenchConeConfigFromConfig(),
-   * Create() and ContactWrenchConeBasisMatrix::Create() all check through this
-   * one function; buildLocalWrenchConeRows() and the constructor CHECK it, for
-   * the callers that bypass all three.
+   * minForceContactEwrtContactZ and gripForceContactEwrtContactZ finite and
+   * non-negative, and patchOffset finite. Otherwise InvalidArgument naming the
+   * field of kConfigField to change and the value it holds.
+   * contactWrenchConeConfigFromConfig(), Create() and
+   * ContactWrenchConeBasisMatrix::Create() all check through this one function;
+   * buildLocalWrenchConeRows() and the constructor CHECK it, for the callers
+   * that bypass all three.
    */
   static absl::Status validateConfig(const Config& config);
 
@@ -364,7 +365,7 @@ class ContactWrenchConeConstraint final : public StateInputConstraint {
   matrix_t A_tau_local_;
 
   /// Constant offsets of A_f_local * f_local + A_tau_local * tau_local +
-  /// b_local >= 0: -minNormalForce and the gripper force terms.
+  /// b_local >= 0: -minForceContactEwrtContactZ and the gripper force terms.
   vector_t b_local_;
 };
 
@@ -374,11 +375,12 @@ class ContactWrenchConeConstraint final : public StateInputConstraint {
  *   A_f * F_local + A_tau * tau_local + b >= 0   (element-wise)
  *
  * `b` holds the non-homogeneous offsets (the gripper force and
- * -minNormalForce). Dropping it leaves the homogeneous cone, which is the set a
- * conic combination of wrench generators has to stay inside. The rows come in
- * the order of the ContactWrenchConeConstraint class comment: numFrictionRows
- * friction facets, one normal-force row, the four center-of-pressure rows, and
- * the torsion rows from torsionRowStart() to the end.
+ * -minForceContactEwrtContactZ). Dropping it leaves the homogeneous cone, which
+ * is the set a conic combination of wrench generators has to stay inside. The
+ * rows come in the order of the ContactWrenchConeConstraint class comment:
+ * numFrictionRows friction facets, one normal-force row, the four
+ * center-of-pressure rows, and the torsion rows from torsionRowStart() to the
+ * end.
  */
 struct ContactWrenchConeRows {
   /** The rows between the friction facets and the torsion rows: the
@@ -403,16 +405,16 @@ struct ContactWrenchConeRows {
 
   /** Row values of the full constraint. The wrench is admissible when every
    * entry is non-negative. */
-  vector_t evaluate(const vector6_t& wrenchLocal) const {
-    return A_f * wrenchLocal.head<kForceDim>() +
-           A_tau * wrenchLocal.tail<kTorqueDim>() + b;
+  vector_t evaluate(const vector6_t& wrenchContactEwrtContact) const {
+    return A_f * wrenchContactEwrtContact.head<kForceDim>() +
+           A_tau * wrenchContactEwrtContact.tail<kTorqueDim>() + b;
   }
 
   /** Row values of the homogeneous cone (without `b`), which every wrench-cone
    * generator has to satisfy. */
-  vector_t evaluateCone(const vector6_t& wrenchLocal) const {
-    return A_f * wrenchLocal.head<kForceDim>() +
-           A_tau * wrenchLocal.tail<kTorqueDim>();
+  vector_t evaluateCone(const vector6_t& wrenchContactEwrtContact) const {
+    return A_f * wrenchContactEwrtContact.head<kForceDim>() +
+           A_tau * wrenchContactEwrtContact.tail<kTorqueDim>();
   }
 };
 
@@ -504,7 +506,7 @@ struct TorsionInterval {
  * on a footprint corner; nullopt when the point is off the footprint, where no
  * yaw moment makes the wrench admissible.
  */
-std::optional<TorsionInterval> torsionLimitsOfNormalForceAt(
+std::optional<TorsionInterval> computeLimitsPerNewtonTorqueContactEwrtContactZ(
     const ContactWrenchConeRows& rows, const vector2_t& point);
 
 }  // namespace ocs2::humanoid

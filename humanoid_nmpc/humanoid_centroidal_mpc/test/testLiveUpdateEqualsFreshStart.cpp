@@ -508,7 +508,7 @@ class Stack {
             [calculatorPtr](const vector4_t& velocity, scalar_t initTime,
                             scalar_t /*finalTime*/, const vector_t& initState,
                             const BasePlanarMotion& measuredMotion) {
-              return calculatorPtr->commandedVelocityToTargetTrajectories(
+              return calculatorPtr->velocityCommandToTargetTrajectories(
                   velocity, initTime, initState, measuredMotion);
             });
     EXPECT_TRUE(motionManager.ok()) << motionManager.status();
@@ -851,7 +851,7 @@ TEST(LiveUpdateEqualsFreshStart,
 void expectEveryBaseOrientationRowWeighed(Stack& reloaded) {
   const absl::StatusOr<size_t> orientationRow = tuningSegmentStart(
       reloaded.interface().getMpcRobotModel().getTuningLayout(),
-      "base_orientation");
+      "eulerzyx_base_rt_world");
   ASSERT_TRUE(orientationRow.ok()) << orientationRow.status();
   size_t weighed = 0;
   for (OptimalControlProblem& ocp : reloaded.solver().getOcpDefinitions()) {
@@ -916,12 +916,12 @@ TEST(LiveUpdateEqualsFreshStart,
   // Without the CoM + ACoM cost, so that the factory weighs the base-pose
   // blocks of Q and Q_final rather than zeroes them.
   const std::set<std::string> baseOrientation = {
-      "state_weights.base_orientation.yaw",
-      "state_weights.base_orientation.pitch",
-      "state_weights.base_orientation.roll",
-      "final_state_weights.base_orientation.yaw",
-      "final_state_weights.base_orientation.pitch",
-      "final_state_weights.base_orientation.roll"};
+      "state_weights.eulerzyx_base_rt_world.yaw",
+      "state_weights.eulerzyx_base_rt_world.pitch",
+      "state_weights.eulerzyx_base_rt_world.roll",
+      "final_state_weights.eulerzyx_base_rt_world.yaw",
+      "final_state_weights.eulerzyx_base_rt_world.pitch",
+      "final_state_weights.eulerzyx_base_rt_world.roll"};
   expectALiveUpdateIsAFreshStart(
       otherHeuristicsWithoutAcomAtlas(shippedAtlas()), baseOrientation,
       expectEveryBaseOrientationRowWeighed);
@@ -951,12 +951,12 @@ TEST_P(LiveUpdateWeightsEqualFreshStart, WithEveryOrientationRowMoved) {
   // weigh the base pose themselves. EngineAI SA01 ends its horizon with the DCM
   // cost, so its final_state_weights reach no running term.
   const std::set<std::string> moved = {
-      "state_weights.base_orientation.yaw",
-      "state_weights.base_orientation.pitch",
-      "state_weights.base_orientation.roll",
-      "final_state_weights.base_orientation.yaw",
-      "final_state_weights.base_orientation.pitch",
-      "final_state_weights.base_orientation.roll"};
+      "state_weights.eulerzyx_base_rt_world.yaw",
+      "state_weights.eulerzyx_base_rt_world.pitch",
+      "state_weights.eulerzyx_base_rt_world.roll",
+      "final_state_weights.eulerzyx_base_rt_world.yaw",
+      "final_state_weights.eulerzyx_base_rt_world.pitch",
+      "final_state_weights.eulerzyx_base_rt_world.roll"};
   const CentroidalMpcConfig edited = editedFile(*config, moved);
   Stack live(*config, Stack::Updater::kRegistered, files);
   ASSERT_TRUE(live.ok());
@@ -1050,7 +1050,7 @@ scalar_t stanceFootHeightReference(Stack& stack) {
        foot < stack.interface().modelSettings().contactNames.size(); ++foot) {
     if (referenceManager.isInContact(stack.time(), foot)) {
       return referenceManager.getSwingTrajectoryPlanner()
-          ->getZpositionConstraint(foot, stack.time());
+          ->getDesPosFootRtWorldEwrtWorldZ(foot, stack.time());
     }
   }
   return std::numeric_limits<scalar_t>::quiet_NaN();
@@ -1221,7 +1221,7 @@ void dumpTerms(OptimalControlProblem& ocp, Dump& dump) {
                       exact(complementarity->getTerrainHeight()));
     } else if (ForceWeightedSlipConstraint* absl_nullable slip =
                    dynamic_cast<ForceWeightedSlipConstraint*>(&constraint)) {
-      absl::StrAppend(&value, " | ", exact(slip->getInverseTwistReference()));
+      absl::StrAppend(&value, " | ", exact(slip->getInverseScaleSlip()));
     } else if (ZeroVelocityConstraintCppAd* absl_nullable zeroVelocity =
                    dynamic_cast<ZeroVelocityConstraintCppAd*>(&constraint)) {
       absl::StrAppend(&value, " | ",
@@ -1285,11 +1285,12 @@ Dump dumpOf(Stack& stack) {
   const SwingTrajectoryPlanner::Config& swing =
       stack.referenceManager().getSwingTrajectoryPlanner()->getConfig();
   dump["swingTrajectoryPlanner"] = absl::StrJoin(
-      {exact(swing.liftOffVelocity), exact(swing.touchDownVelocity),
+      {exact(swing.liftoffLinvelFootRtWorldEwrtWorldZ),
+       exact(swing.touchdownLinvelFootRtWorldEwrtWorldZ),
        exact(swing.swingHeight), exact(swing.swingTimeScale),
        exact(swing.touchDownHeightOffset),
-       exact(swing.impactProximityFactorLiftOffVelocity),
-       exact(swing.impactProximityFactorTouchDownVelocity),
+       exact(swing.impactProximityFactorLiftoffSlope),
+       exact(swing.impactProximityFactorTouchdownSlope),
        exact(swing.impactProximityFactorMidPointValue),
        exact(swing.swingPitchAngle), exact(swing.swingPitchRiseFraction),
        exact(swing.swingPitchFallFraction)},

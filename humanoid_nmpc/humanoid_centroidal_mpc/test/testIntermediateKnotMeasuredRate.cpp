@@ -86,22 +86,22 @@ struct PlanarPose {
 /**
  * `start` moved for `duration` by RK4 (2000 steps) of the unicycle dp/dt =
  * R_z(psi) v, dpsi/dt = omega, at the constant body planar twist
- * (`velocityInHeadingFrame`, `yawRate`): independent of the calculator's closed
- * form.
+ * (`linvelBaseRtWorldEwrtHeadingXy`, `yawRate`): independent of the
+ * calculator's closed form.
  */
 PlanarPose integrated(const PlanarPose& start,
-                      const vector2_t& velocityInHeadingFrame,
+                      const vector2_t& linvelBaseRtWorldEwrtHeadingXy,
                       scalar_t yawRate,
                       scalar_t duration) {
   constexpr int kSteps = 2000;
   const scalar_t step = duration / kSteps;
   PlanarPose pose = start;
   for (int i = 0; i < kSteps; ++i) {
-    const vector2_t k1 = rotated(pose.heading, velocityInHeadingFrame);
-    const vector2_t k23 =
-        rotated(pose.heading + 0.5 * step * yawRate, velocityInHeadingFrame);
+    const vector2_t k1 = rotated(pose.heading, linvelBaseRtWorldEwrtHeadingXy);
+    const vector2_t k23 = rotated(pose.heading + 0.5 * step * yawRate,
+                                  linvelBaseRtWorldEwrtHeadingXy);
     const vector2_t k4 =
-        rotated(pose.heading + step * yawRate, velocityInHeadingFrame);
+        rotated(pose.heading + step * yawRate, linvelBaseRtWorldEwrtHeadingXy);
     pose.position += step / 6.0 * (k1 + 4.0 * k23 + k4);
     pose.heading += step * yawRate;
   }
@@ -112,7 +112,7 @@ PlanarPose integrated(const PlanarPose& start,
  * (-pi, pi]. */
 PlanarPose planarPoseOf(const MpcRobotModelBase<scalar_t>& model,
                         const vector_t& knot) {
-  const vector6_t pose = model.getBasePoseEulerZyx(knot);
+  const vector6_t pose = model.getPoseeulerzyxBaseRtWorld(knot);
   return PlanarPose{.position = vector2_t(pose(0), pose(1)),
                     .heading = pose(3)};
 }
@@ -125,17 +125,18 @@ scalar_t wrapped(scalar_t angle) {
 
 /**
  * The parts velocityCommandKnots() cuts a segment into: knotSubdivisionCount()
- * of the segment that moves at `velocityInHeadingFrame` and turns at `yawRate`
- * for `duration`, its knots carrying the velocity target `targetVelocity`.
+ * of the segment that moves at `linvelBaseRtWorldEwrtHeadingXy` and turns at
+ * `yawRate` for `duration`, its knots carrying the velocity target
+ * `targetVelocity`.
  */
-size_t segmentParts(const vector2_t& velocityInHeadingFrame,
+size_t segmentParts(const vector2_t& linvelBaseRtWorldEwrtHeadingXy,
                     scalar_t yawRate,
                     scalar_t duration,
                     const vector2_t& targetVelocity) {
   return TargetTrajectoriesCalculatorBase::knotSubdivisionCount(
       TargetTrajectoriesCalculatorBase::KnotSegmentExtent{
           .yawChange = yawRate * duration,
-          .arcLength = velocityInHeadingFrame.norm() * duration,
+          .arcLength = linvelBaseRtWorldEwrtHeadingXy.norm() * duration,
           .targetSpeed = targetVelocity.norm()});
 }
 
@@ -153,8 +154,8 @@ std::vector<PlanarPose> expectedEnds(const PlanarPose& start,
                                      scalar_t commandYawRate,
                                      scalar_t horizon) {
   const PlanarPose intermediate = integrated(
-      start, 0.5 * (measured.velocityInHeadingFrame + commandVelocity),
-      0.5 * (measured.headingRate + commandYawRate),
+      start, 0.5 * (measured.linvelBaseRtWorldEwrtHeadingXy + commandVelocity),
+      0.5 * (measured.rateYawBaseRtWorld + commandYawRate),
       kFirstSegmentShare * horizon);
   const PlanarPose last =
       integrated(intermediate, commandVelocity, commandYawRate,
@@ -170,10 +171,11 @@ TEST(
   // turning; the command not turning either.
   const PlanarPose start{.position = vector2_t(0.5, -0.3), .heading = 1.0};
   const BasePlanarMotion measured{
-      .velocityInHeadingFrame = vector2_t(0.2, -0.1), .headingRate = 0.0};
+      .linvelBaseRtWorldEwrtHeadingXy = vector2_t(0.2, -0.1),
+      .rateYawBaseRtWorld = 0.0};
   const vector4_t command(0.3, 0.1, 0.0, 0.0);
   const TargetTrajectories targets =
-      stack.targetCalculator().commandedVelocityToTargetTrajectories(
+      stack.targetCalculator().velocityCommandToTargetTrajectories(
           command, kInitTime, standingAt(stack, start), measured);
   ASSERT_EQ(targets.stateTrajectory.size(), 3);
   // p(0.7 T) - p0 = 0.7 T (v_m + v_c) / 2 in the world: the integral of a
@@ -182,8 +184,8 @@ TEST(
       kFirstCommandFactor * vector2_t(command(0), command(1));
   const vector2_t expected =
       kFirstSegmentShare * stack.horizon() *
-      rotated(/*angle=*/1.0,
-              0.5 * (measured.velocityInHeadingFrame + commandVelocity));
+      rotated(/*angle=*/1.0, 0.5 * (measured.linvelBaseRtWorldEwrtHeadingXy +
+                                    commandVelocity));
   const vector2_t moved =
       planarPoseOf(stack.model(), targets.stateTrajectory[1]).position -
       start.position;
@@ -196,12 +198,13 @@ TEST(IntermediateKnotMeasuredRate, TheKnotsLieOnTheArcOfTheirTwist) {
   AtlasReferenceStack stack;
   const PlanarPose start{.position = vector2_t(-1.0, 2.0), .heading = -2.5};
   const BasePlanarMotion measured{
-      .velocityInHeadingFrame = vector2_t(0.25, -0.05), .headingRate = 0.6};
+      .linvelBaseRtWorldEwrtHeadingXy = vector2_t(0.25, -0.05),
+      .rateYawBaseRtWorld = 0.6};
   // The command the calculator used to see after its per-call filter (1 - 0.8
   // of it), so that the knots stay unsubdivided.
   const vector4_t command(0.1, 0.04, 0.0, 0.18);
   const TargetTrajectories targets =
-      stack.targetCalculator().commandedVelocityToTargetTrajectories(
+      stack.targetCalculator().velocityCommandToTargetTrajectories(
           command, kInitTime, standingAt(stack, start), measured);
   ASSERT_EQ(targets.stateTrajectory.size(), 3);
   const std::vector<PlanarPose> expected = expectedEnds(
@@ -220,9 +223,10 @@ TEST(IntermediateKnotMeasuredRate, TheKnotsLieOnTheArcOfTheirTwist) {
   const vector2_t chord =
       start.position +
       kFirstSegmentShare * stack.horizon() *
-          rotated(start.heading, 0.5 * (measured.velocityInHeadingFrame +
-                                        kFirstCommandFactor *
-                                            vector2_t(command(0), command(1))));
+          rotated(
+              start.heading,
+              0.5 * (measured.linvelBaseRtWorldEwrtHeadingXy +
+                     kFirstCommandFactor * vector2_t(command(0), command(1))));
   EXPECT_GT((chord - expected[1].position).norm(), 1.0e-2);
 }
 
@@ -230,14 +234,15 @@ TEST(IntermediateKnotMeasuredRate,
      EveryKnotsMomentumIsTheCommandInItsHeadingFrame) {
   AtlasReferenceStack stack;
   const PlanarPose start{.position = vector2_t(0.0, 0.0), .heading = 0.4};
-  const BasePlanarMotion measured{.velocityInHeadingFrame = vector2_t(0.1, 0.0),
-                                  .headingRate = 0.8};
+  const BasePlanarMotion measured{
+      .linvelBaseRtWorldEwrtHeadingXy = vector2_t(0.1, 0.0),
+      .rateYawBaseRtWorld = 0.8};
   // The command the calculator used to see after its per-call filter (1 - 0.8
   // of it), so that the knots stay unsubdivided.
   const vector4_t command(0.08, -0.04, 0.0, 0.2);
   const vector_t initState = standingAt(stack, start);
   const TargetTrajectories targets =
-      stack.targetCalculator().commandedVelocityToTargetTrajectories(
+      stack.targetCalculator().velocityCommandToTargetTrajectories(
           command, kInitTime, initState, measured);
   ASSERT_EQ(targets.stateTrajectory.size(), 3);
   // The momentum of the measured body turning at the command: L = I_G e_z
@@ -297,19 +302,21 @@ TEST(IntermediateKnotMeasuredRate,
   // the yaw spacing, six here, where the chord of the turning velocity target
   // needs more.
   const PlanarPose start{.position = vector2_t(0.2, 0.1), .heading = 0.3};
-  const BasePlanarMotion measured{.velocityInHeadingFrame = vector2_t(0.3, 0.1),
-                                  .headingRate = 9.0};
+  const BasePlanarMotion measured{
+      .linvelBaseRtWorldEwrtHeadingXy = vector2_t(0.3, 0.1),
+      .rateYawBaseRtWorld = 9.0};
   const vector4_t command(0.5, 0.0, 0.0, 1.0);
   const TargetTrajectories targets =
-      stack.targetCalculator().commandedVelocityToTargetTrajectories(
+      stack.targetCalculator().velocityCommandToTargetTrajectories(
           command, kInitTime, standingAt(stack, start), measured);
   const scalar_t horizon = stack.horizon();
   const vector2_t commandVelocity =
       kFirstCommandFactor * vector2_t(command(0), command(1));
   const scalar_t commandYawRate = kFirstCommandFactor * command(3);
   const vector2_t meanVelocity =
-      0.5 * (measured.velocityInHeadingFrame + commandVelocity);
-  const scalar_t meanYawRate = 0.5 * (measured.headingRate + commandYawRate);
+      0.5 * (measured.linvelBaseRtWorldEwrtHeadingXy + commandVelocity);
+  const scalar_t meanYawRate =
+      0.5 * (measured.rateYawBaseRtWorld + commandYawRate);
   ASSERT_GT(kFirstSegmentShare * horizon * meanYawRate, M_PI);
   const size_t firstParts = segmentParts(
       meanVelocity, meanYawRate, kFirstSegmentShare * horizon, commandVelocity);
@@ -355,11 +362,12 @@ TEST(IntermediateKnotMeasuredRate,
   // rate is |w_B| / rho there), has its yaw rate clamped to that turn.
   AtlasReferenceStack stack;
   const PlanarPose start{.position = vector2_t(0.0, 0.0), .heading = -0.2};
-  const BasePlanarMotion measured{.velocityInHeadingFrame = vector2_t(0.1, 0.0),
-                                  .headingRate = 600.0};
+  const BasePlanarMotion measured{
+      .linvelBaseRtWorldEwrtHeadingXy = vector2_t(0.1, 0.0),
+      .rateYawBaseRtWorld = 600.0};
   const vector4_t command(0.5, 0.0, 0.0, 1.0);
   const TargetTrajectories targets =
-      stack.targetCalculator().commandedVelocityToTargetTrajectories(
+      stack.targetCalculator().velocityCommandToTargetTrajectories(
           command, kInitTime, standingAt(stack, start), measured);
   const size_t firstParts =
       TargetTrajectoriesCalculatorBase::kMaxKnotSubdivisions;
@@ -391,20 +399,20 @@ TEST(IntermediateKnotMeasuredRate,
   // m/s forward, 0.25 m/s to the side and 1 rad/s, in steady state (the
   // measured motion the command), the three knots alone would put the reference
   // 0.074 m and 0.074 m/s off the arc between them; cut, it stays within
-  // kMaxKnotPositionDeviation and kMaxKnotVelocityDeviation of it at every time
-  // of the horizon.
+  // kKnotMaxErrPosBaseRtWorldEwrtWorld and
+  // kKnotMaxErrLinvelBaseRtWorldEwrtWorld of it at every time of the horizon.
   AtlasReferenceStack stack;
   const PlanarPose start{.position = vector2_t(0.4, -0.7), .heading = -1.1};
   const vector2_t velocity(1.2, 0.25);
   const scalar_t yawRate = 1.0;
-  const BasePlanarMotion measured{.velocityInHeadingFrame = velocity,
-                                  .headingRate = yawRate};
+  const BasePlanarMotion measured{.linvelBaseRtWorldEwrtHeadingXy = velocity,
+                                  .rateYawBaseRtWorld = yawRate};
   // kFirstCommandFactor of the command reaches the knots.
   const vector4_t command(velocity(0) / kFirstCommandFactor,
                           velocity(1) / kFirstCommandFactor, 0.0,
                           yawRate / kFirstCommandFactor);
   const TargetTrajectories targets =
-      stack.targetCalculator().commandedVelocityToTargetTrajectories(
+      stack.targetCalculator().velocityCommandToTargetTrajectories(
           command, kInitTime, standingAt(stack, start), measured);
   const scalar_t horizon = stack.horizon();
   const size_t parts =
@@ -436,12 +444,16 @@ TEST(IntermediateKnotMeasuredRate,
   }
   EXPECT_LE(
       worstPosition,
-      TargetTrajectoriesCalculatorBase::kMaxKnotPositionDeviation + 1.0e-9);
+      TargetTrajectoriesCalculatorBase::kKnotMaxErrPosBaseRtWorldEwrtWorld +
+          1.0e-9);
   EXPECT_LE(
       worstVelocity,
-      TargetTrajectoriesCalculatorBase::kMaxKnotVelocityDeviation + 1.0e-9);
-  EXPECT_GT(worstPosition,
-            0.5 * TargetTrajectoriesCalculatorBase::kMaxKnotPositionDeviation)
+      TargetTrajectoriesCalculatorBase::kKnotMaxErrLinvelBaseRtWorldEwrtWorld +
+          1.0e-9);
+  EXPECT_GT(
+      worstPosition,
+      0.5 *
+          TargetTrajectoriesCalculatorBase::kKnotMaxErrPosBaseRtWorldEwrtWorld)
       << "the samples are between the knots";
   // Between the three knots alone the chord of the first segment is off the arc
   // by rho (1 - cos(0.35)), rho = |v| / omega.
@@ -456,7 +468,7 @@ TEST(IntermediateKnotMeasuredRate, AtRestTheKnotsAreTheCommandsAlone) {
   const PlanarPose start{.position = vector2_t(0.0, 0.0), .heading = 1.3};
   const vector4_t command(0.5, 0.0, 0.0, 0.0);
   const TargetTrajectories targets =
-      stack.targetCalculator().commandedVelocityToTargetTrajectories(
+      stack.targetCalculator().velocityCommandToTargetTrajectories(
           command, kInitTime, standingAt(stack, start),
           /*measuredMotion=*/BasePlanarMotion{});
   ASSERT_EQ(targets.stateTrajectory.size(), 3);

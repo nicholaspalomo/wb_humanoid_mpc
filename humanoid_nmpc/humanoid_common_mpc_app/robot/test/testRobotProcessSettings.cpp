@@ -193,7 +193,7 @@ TEST(RobotProcessSettings,
 TEST(RobotProcessSettings, EveryFieldIsRead) {
   const absl::StatusOr<RobotProcessSettings> settings = settingsOfText(
       "contact_estimator: \"robot_state\"\n"
-      "sim_contact_force_threshold: 8\n"
+      "sim_min_force_mjcontact_ewrt_mjcontact_x: 8\n"
       "sim_contact_timeline_window: 3\n"
       "sim_visualizations: [\"zmp\", \"dcm\"]\n"
       "gantry_hold: \"kinematic_teleport\"\n"

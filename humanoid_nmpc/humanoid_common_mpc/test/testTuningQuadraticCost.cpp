@@ -365,9 +365,9 @@ class TuningQuadraticCostTest : public ::testing::TestWithParam<ShippedRobot> {
     // A yaw error within 2.5 rad, away from +-pi, where the heading row jumps.
     const vector3_t eulerZyx = randomEulerZyx(generator);
     std::uniform_real_distribution<scalar_t> yawError(-2.5, 2.5);
-    model_->setBaseOrientationEulerZyx(state_, eulerZyx);
+    model_->setEulerzyxBaseRtWorld(state_, eulerZyx);
     const vector3_t referenceTilt = randomEulerZyx(generator);
-    model_->setBaseOrientationEulerZyx(
+    model_->setEulerzyxBaseRtWorld(
         reference_.state, vector3_t(eulerZyx(0) + yawError(generator),
                                     referenceTilt(1), referenceTilt(2)));
   }
@@ -564,7 +564,7 @@ TEST_P(TuningQuadraticCostTest,
   const std::optional<size_t> angularVelocityStart = stateStartOf(
       model_->getTuningLayout(), TuningSegmentKind::kZyxOrderedAngularVelocity);
   const absl::StatusOr<size_t> yawRow =
-      tuningSegmentStart(model_->getTuningLayout(), "base_orientation");
+      tuningSegmentStart(model_->getTuningLayout(), "eulerzyx_base_rt_world");
   ASSERT_TRUE(yawRow.ok()) << yawRow.status();
   const matrix_t P = levelTangentJacobian(model_->getTuningLayout());
   for (size_t trial = 0; trial < 12; ++trial) {
@@ -576,8 +576,8 @@ TEST_P(TuningQuadraticCostTest,
         vector3_t(referenceYaw, 0.0, 0.0),
         vector3_t(referenceYaw, tilt(generator), 0.0),
         vector3_t(referenceYaw, 0.0, tilt(generator))};
-    model_->setBaseOrientationEulerZyx(state, vector3_t(yaw, 0.0, 0.0));
-    model_->setBaseOrientationEulerZyx(
+    model_->setEulerzyxBaseRtWorld(state, vector3_t(yaw, 0.0, 0.0));
+    model_->setEulerzyxBaseRtWorld(
         referenceState, referenceAttitudes[trial % referenceAttitudes.size()]);
     if (angularVelocityStart.has_value()) {
       state.segment<3>(static_cast<Eigen::Index>(*angularVelocityStart))
@@ -882,15 +882,15 @@ matrix_t randomBlock(Eigen::Index rows,
 }
 
 /**
- * The shape of the whole-body Jacobian on a quaternion layout, n joints: base
+ * The blocks of the whole-body Jacobian on a quaternion layout, n joints: base
  * position (identity), orientation (3 x 4 at the quaternion), joints, base
  * linear velocity (identities shifted by the quaternion's extra row), the
  * angular velocity rows (one 3 x 3 block at the angular-velocity slots and one
  * 3 x 4 at the quaternion, sharing the orientation block's columns) and the
  * joint velocities.
  */
-TuningDeviationApproximation quaternionWholeBodyShape(size_t joints,
-                                                      std::mt19937& generator) {
+TuningDeviationApproximation unitQuaternionWholeBodyShape(
+    size_t joints, std::mt19937& generator) {
   const size_t tuningDim = 2 * (6 + joints);
   TuningDeviationApproximation approximation;
   approximation.residual =
@@ -926,7 +926,7 @@ TEST(TuningGaussNewtonTest,
   std::mt19937 generator(23);
   constexpr size_t kJoints = 7;
   const TuningDeviationApproximation approximation =
-      quaternionWholeBodyShape(kJoints, generator);
+      unitQuaternionWholeBodyShape(kJoints, generator);
   const Eigen::Index tuningDim = approximation.residual.size();
   const Eigen::Index stateDim = tuningDim + 1;
   const matrix_t Q = randomWeights(tuningDim, generator);

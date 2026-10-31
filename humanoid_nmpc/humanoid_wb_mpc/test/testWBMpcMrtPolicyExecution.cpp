@@ -150,7 +150,7 @@ class PolicyExecution : public ::testing::Test {
     controller_ = *std::move(controller);
     ASSERT_NE(link_, nullptr);
     state_ = std::make_unique<robot::model::RobotState>(*description_);
-    state_->setRootPositionInWorldFrame(vector3_t(0.0, 0.0, 0.75));
+    state_->setPosBaseRtWorldEwrtWorld(vector3_t(0.0, 0.0, 0.75));
     for (size_t joint = 0; joint < description_->getNumJoints(); ++joint)
       state_->setJointPosition(joint, /*jointPosition=*/0.1);
     action_ = std::make_unique<robot::model::RobotJointAction>(*description_);
@@ -370,7 +370,7 @@ TEST_F(
     for (const scalar_t sign : {1.0, -1.0, 1.0}) {
       quaternion_t measured;
       measured.coeffs() = sign * orientation.coeffs();
-      state_->setRootRotationLocalToWorldFrame(measured);
+      state_->setQuatBaseRtWorld(measured);
       // The policy's own anchors carry the plan's sign; the measured
       // quaternion's sign is the one that changes.
       link_->deliver(policyOf(std::make_unique<ManifoldLinearController>(
@@ -406,7 +406,7 @@ TEST_F(
       const scalar_t tolerance =
           1.0e-12 * std::max(1.0, std::abs(actions[0][i]));
       EXPECT_NEAR(actions[2][i], actions[0][i], tolerance)
-          << "the action had not settled: entry " << i;
+          << "the action had not converged: entry " << i;
       EXPECT_NEAR(actions[1][i], actions[0][i], tolerance)
           << "the action at -xi, entry " << i;
     }

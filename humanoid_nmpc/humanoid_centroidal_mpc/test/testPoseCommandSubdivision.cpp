@@ -102,17 +102,17 @@ PoseCommand poseCommand(AtlasReferenceStack& stack,
   const vector_t initState =
       stack.standingAt(stack.initialState(), /*x=*/0.3, /*y=*/-0.2, heading);
   PoseCommand pose;
-  pose.targets = stack.targetCalculator().commandedPositionToTargetTrajectories(
+  pose.targets = stack.targetCalculator().poseCommandToTargetTrajectories(
       command, kInitTime, initState);
   pose.ends.startTime = pose.targets.timeTrajectory.front();
   pose.ends.targetTime = pose.targets.timeTrajectory.back();
-  const vector3_t position = model.getBasePosition(initState);
-  pose.ends.start << position, model.getBaseHeading(initState), 0.0, 0.0;
+  const vector3_t position = model.getPosBaseRtWorldEwrtWorld(initState);
+  pose.ends.start << position, model.getYawBaseRtWorld(initState), 0.0, 0.0;
   const vector2_t displacement(
       std::cos(heading) * command(0) - std::sin(heading) * command(1),
       std::sin(heading) * command(0) + std::cos(heading) * command(1));
   pose.ends.target << position.head<2>() + displacement,
-      model.getBasePosition(pose.targets.stateTrajectory.back())(2),
+      model.getPosBaseRtWorldEwrtWorld(pose.targets.stateTrajectory.back())(2),
       pose.ends.start(3) + command(3) * M_PI / 180.0, 0.0, 0.0;
   return pose;
 }
@@ -148,8 +148,8 @@ void expectTheCommandedTurnOnTheLinearEulerReference(
     SCOPED_TRACE(i);
     EXPECT_GT(targets.timeTrajectory[i], targets.timeTrajectory[i - 1]);
     const scalar_t step =
-        wrapped(model.getBaseHeading(targets.stateTrajectory[i]) -
-                model.getBaseHeading(targets.stateTrajectory[i - 1]));
+        wrapped(model.getYawBaseRtWorld(targets.stateTrajectory[i]) -
+                model.getYawBaseRtWorld(targets.stateTrajectory[i - 1]));
     EXPECT_LE(std::abs(step),
               TargetTrajectoriesCalculatorBase::kMaxKnotYawSpacing + 1.0e-12);
     EXPECT_GT(step * commandedTurn, 0.0)
@@ -167,15 +167,15 @@ void expectTheCommandedTurnOnTheLinearEulerReference(
        time <= pose.ends.targetTime + 0.1 + 1.0e-9; time += kGridStep) {
     const vector_t reference = model.getDesiredState(targets, time);
     const vector6_t expected = linearEulerPoseAt(pose.ends, time);
-    const vector6_t read = model.getBasePoseEulerZyx(reference);
+    const vector6_t read = model.getPoseeulerzyxBaseRtWorld(reference);
     largestHeadingError = std::max(
         largestHeadingError,
-        std::abs(wrapped(model.getBaseHeading(reference) - expected(3))));
+        std::abs(wrapped(model.getYawBaseRtWorld(reference) - expected(3))));
     largestPositionError =
         std::max(largestPositionError,
                  (read.head<3>() - expected.head<3>()).cwiseAbs().maxCoeff());
     largestTilt = std::max(largestTilt, read.tail<2>().cwiseAbs().maxCoeff());
-    EXPECT_NEAR(model.getBaseOrientation(reference).norm(), 1.0, 1.0e-15)
+    EXPECT_NEAR(model.getQuatBaseRtWorldXyzw(reference).norm(), 1.0, 1.0e-15)
         << "t = " << time;
   }
   EXPECT_LE(largestHeadingError, 1.0e-12);
@@ -193,8 +193,8 @@ TEST(PoseCommandSubdivision, ATurnOf270DegreesTurnsPlus270Degrees) {
   // other way round, which their slerp would take.
   const CentroidalMpcRobotModel<scalar_t>& model = stack.model();
   EXPECT_NEAR(
-      wrapped(model.getBaseHeading(pose.targets.stateTrajectory.back()) -
-              model.getBaseHeading(pose.targets.stateTrajectory.front())),
+      wrapped(model.getYawBaseRtWorld(pose.targets.stateTrajectory.back()) -
+              model.getYawBaseRtWorld(pose.targets.stateTrajectory.front())),
       -0.5 * M_PI, 1.0e-12);
 }
 
@@ -216,8 +216,8 @@ TEST(PoseCommandSubdivision, ATurnOf720DegreesTurnsTwiceAround) {
                                                   /*commandedTurn=*/4.0 * M_PI);
   const CentroidalMpcRobotModel<scalar_t>& model = stack.model();
   EXPECT_NEAR(
-      wrapped(model.getBaseHeading(pose.targets.stateTrajectory.back()) -
-              model.getBaseHeading(pose.targets.stateTrajectory.front())),
+      wrapped(model.getYawBaseRtWorld(pose.targets.stateTrajectory.back()) -
+              model.getYawBaseRtWorld(pose.targets.stateTrajectory.front())),
       0.0, 1.0e-12);
 }
 

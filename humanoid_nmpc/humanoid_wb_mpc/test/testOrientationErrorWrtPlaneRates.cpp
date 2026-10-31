@@ -617,7 +617,7 @@ TEST(OrientationErrorWrtPlaneRates,
     SCOPED_TRACE(rateCase.name);
     ASSERT_LT(
         1.0 + rateCase.motion.initialRotation.col(2).dot(rateCase.planeNormal),
-        kOrientationErrorWrtPlaneAntiParallelThreshold);
+        kPlaneNormalAntiParallelThreshold);
     const TapedRates taped = tapedRatesAt(rateCase);
     EXPECT_LE(
         relativeDeviation(taped.rate, 0.5 * rateCase.motion.angularVelocity,
@@ -652,8 +652,7 @@ TEST(OrientationErrorWrtPlaneRates,
     if (!comparedWithDifferences(rateCase.regime)) {
       // Near the guard, outside it: finite, and not differenced, whose steps
       // the guard's threshold would bound.
-      EXPECT_GE(onePlusCosineOf(rateCase),
-                kOrientationErrorWrtPlaneAntiParallelThreshold);
+      EXPECT_GE(onePlusCosineOf(rateCase), kPlaneNormalAntiParallelThreshold);
       ++nearGuard;
       continue;
     }

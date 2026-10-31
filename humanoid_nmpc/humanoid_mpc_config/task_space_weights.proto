@@ -14,6 +14,8 @@ message TaskSpaceWeights {
 
   reserved 19 to max;
 
+  // NOLINTBEGIN(frame-naming): a weight per axis of a task-space cost's errors, whose frames the cost names (link_name,
+  // the world axes, the ground's tilt), a tuning knob (README section 5)
   double pos_x = 1 [default = 0.0];
   double pos_y = 2 [default = 0.0];
   double pos_z = 3 [default = 0.0];
@@ -37,4 +39,5 @@ message TaskSpaceWeights {
   double ang_acceleration_x = 16 [default = 0.0];
   double ang_acceleration_y = 17 [default = 0.0];
   double ang_acceleration_z = 18 [default = 0.0];
+  // NOLINTEND(frame-naming)
 }

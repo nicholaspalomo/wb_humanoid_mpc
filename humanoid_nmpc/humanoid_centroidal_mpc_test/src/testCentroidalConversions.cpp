@@ -69,14 +69,14 @@ scalar_t spread(size_t i, scalar_t phase) {
  */
 vector_t makeState(const CentroidalModelInfo& info) {
   vector_t state = vector_t::Zero(static_cast<Eigen::Index>(info.stateDim));
-  centroidal_model::getNormalizedMomentum(state, info) << 0.4, -0.1, 0.05, 0.03,
-      -0.02, 0.08;
-  centroidal_model::getBasePosition(state, info) << 0.1, -0.2, 0.75;
+  centroidal_model::getMnormCmomComRtWorldEwrtWorld(state, info) << 0.4, -0.1,
+      0.05, 0.03, -0.02, 0.08;
+  centroidal_model::getPosBaseRtWorldEwrtWorld(state, info) << 0.1, -0.2, 0.75;
   const Eigen::Quaterniond orientation =
       Eigen::AngleAxisd(0.4, vector3_t::UnitZ()) *
       Eigen::AngleAxisd(0.1, vector3_t::UnitY()) *
       Eigen::AngleAxisd(-0.05, vector3_t::UnitX());
-  centroidal_model::getBaseQuaternion(state, info) = orientation.coeffs();
+  centroidal_model::getQuatBaseRtWorldXyzw(state, info) = orientation.coeffs();
   for (size_t i = 0; i < info.actuatedDofNum; ++i) {
     centroidal_model::getJointAngles(state, info)(
         static_cast<Eigen::Index>(i)) = 0.3 * spread(i, /*phase=*/0.7);
@@ -90,11 +90,11 @@ vector_t makeInput(const CentroidalModelInfo& info) {
   for (size_t i = 0; i < info.numThreeDofContacts + info.numSixDofContacts;
        ++i) {
     const scalar_t sign = i % 2 == 0 ? 1.0 : -1.0;
-    centroidal_model::getContactForces(input, i, info) << 20.0 * sign, -10.0,
-        200.0 + 30.0 * sign;
+    centroidal_model::getForceContactEwrtWorld(input, i, info) << 20.0 * sign,
+        -10.0, 200.0 + 30.0 * sign;
     if (i >= info.numThreeDofContacts)
-      centroidal_model::getContactTorques(input, i, info) << 1.0, -2.0 * sign,
-          0.5;
+      centroidal_model::getTorqueContactEwrtWorld(input, i, info) << 1.0,
+          -2.0 * sign, 0.5;
   }
   vector_t jointVelocities(info.actuatedDofNum);
   for (Eigen::Index i = 0; i < jointVelocities.size(); ++i)
@@ -153,7 +153,8 @@ TEST(TestCentroidalConversions,
   // Pinocchio's centroidal momentum of the whole body at (q, v) is the momentum
   // the state carries.
   const vector6_t momentum =
-      info.robotMass * centroidal_model::getNormalizedMomentum(state, info);
+      info.robotMass *
+      centroidal_model::getMnormCmomComRtWorldEwrtWorld(state, info);
   pinocchio::Data data(model);
   const vector6_t wholeBodyMomentum =
       pinocchio::computeCentroidalMomentum(model, data, q, v).toVector();
@@ -187,12 +188,14 @@ TEST(TestCentroidalConversions,
   const vector_t state = makeState(info);
   const vector_t q = mapping.getPinocchioJointPosition(state);
   ASSERT_EQ(static_cast<size_t>(q.size()), info.configurationDim);
-  EXPECT_EQ(vector3_t(q.head<3>()),
-            vector3_t(centroidal_model::getBasePosition(state, info)));
-  EXPECT_LT((q.segment<4>(3) - centroidal_model::getBaseQuaternion(state, info))
-                .cwiseAbs()
-                .maxCoeff(),
-            1.0e-15);
+  EXPECT_EQ(
+      vector3_t(q.head<3>()),
+      vector3_t(centroidal_model::getPosBaseRtWorldEwrtWorld(state, info)));
+  EXPECT_LT(
+      (q.segment<4>(3) - centroidal_model::getQuatBaseRtWorldXyzw(state, info))
+          .cwiseAbs()
+          .maxCoeff(),
+      1.0e-15);
   EXPECT_EQ(q.tail(static_cast<Eigen::Index>(info.actuatedDofNum)),
             centroidal_model::getJointAngles(state, info));
 
@@ -201,7 +204,7 @@ TEST(TestCentroidalConversions,
   // same configuration.
   for (const scalar_t scale : {0.5, 2.0, -1.0}) {
     vector_t scaled = state;
-    centroidal_model::getBaseQuaternion(scaled, info) *= scale;
+    centroidal_model::getQuatBaseRtWorldXyzw(scaled, info) *= scale;
     const vector_t scaledQ = mapping.getPinocchioJointPosition(scaled);
     EXPECT_NEAR(scaledQ.segment<4>(3).norm(), 1.0, 1.0e-15)
         << "scale " << scale;
@@ -239,20 +242,20 @@ TEST(TestCentroidalConversions,
         for (size_t i = 0;
              i < info.numThreeDofContacts + info.numSixDofContacts; ++i) {
           const vector3_t force =
-              centroidal_model::getContactForces(input, i, info);
+              centroidal_model::getForceContactEwrtWorld(input, i, info);
           rate.head<3>() += force;
           rate.tail<3>() +=
               (data.oMf[info.endEffectorFrameIndices[i]].translation() - com)
                   .cross(force);
           if (i >= info.numThreeDofContacts)
             rate.tail<3>() +=
-                centroidal_model::getContactTorques(input, i, info);
+                centroidal_model::getTorqueContactEwrtWorld(input, i, info);
         }
         return rate;
       };
 
   const vector_t input = makeInput(info);
-  const vector6_t rate = info.robotMass * getNormalizedCentroidalMomentumRate(
+  const vector6_t rate = info.robotMass * getMnormRateCmomComRtWorldEwrtWorld(
                                               pinocchioInterface, info, input);
   const vector6_t expected = expectedRate(input);
   EXPECT_LT((rate - expected).norm(), 1.0e-9 * expected.norm())
@@ -262,11 +265,15 @@ TEST(TestCentroidalConversions,
   // Positive control: the moments depend on where each foot is, so exchanging
   // the feet's forces changes the rate.
   vector_t exchanged = input;
-  centroidal_model::getContactForces(exchanged, /*contactIndex=*/0, info) =
-      centroidal_model::getContactForces(input, /*contactIndex=*/1, info);
-  centroidal_model::getContactForces(exchanged, /*contactIndex=*/1, info) =
-      centroidal_model::getContactForces(input, /*contactIndex=*/0, info);
-  EXPECT_GT((info.robotMass * getNormalizedCentroidalMomentumRate(
+  centroidal_model::getForceContactEwrtWorld(exchanged, /*contactIndex=*/0,
+                                             info) =
+      centroidal_model::getForceContactEwrtWorld(input, /*contactIndex=*/1,
+                                                 info);
+  centroidal_model::getForceContactEwrtWorld(exchanged, /*contactIndex=*/1,
+                                             info) =
+      centroidal_model::getForceContactEwrtWorld(input, /*contactIndex=*/0,
+                                                 info);
+  EXPECT_GT((info.robotMass * getMnormRateCmomComRtWorldEwrtWorld(
                                   pinocchioInterface, info, exchanged) -
              rate)
                 .norm(),

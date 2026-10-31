@@ -51,7 +51,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * (mjModel::opt.gravity), the Pinocchio model of the MPC
  * (pinocchio::Model::gravity, which the whole-body dynamics, the DCM terminal
  * cost, the contact planner and the capture point read through modelGravity()),
- * the centroidal dynamics' kGravitationalAcceleration, and the gravity the GUI
+ * the centroidal dynamics' kGravityMagnitude, and the gravity the GUI
  * aims the dodgeball with. None of them is a configuration key, so a scene or a
  * URDF is the only place one could change, and this is where it would show.
  */
@@ -131,7 +131,7 @@ TEST_P(ShippedRobotGravity, TheSimulatorTheMpcAndTheGuiRunOneGravity) {
   EXPECT_EQ(simulated, modeled)
       << robot.name
       << ": the simulator and the MPC's model fall under different gravities";
-  EXPECT_EQ(modeled, vector3_t(0.0, 0.0, -kGravitationalAcceleration))
+  EXPECT_EQ(modeled, vector3_t(0.0, 0.0, -kGravityMagnitude))
       << robot.name
       << ": the Pinocchio model and the centroidal dynamics use different "
          "gravities";
@@ -139,7 +139,7 @@ TEST_P(ShippedRobotGravity, TheSimulatorTheMpcAndTheGuiRunOneGravity) {
       modelGravity(pinocchioInterface->getModel());
   ASSERT_TRUE(pendulumGravity.ok())
       << robot.name << ": " << pendulumGravity.status();
-  EXPECT_EQ(*pendulumGravity, kGravitationalAcceleration)
+  EXPECT_EQ(*pendulumGravity, kGravityMagnitude)
       << robot.name << ": the MPC's pendulums run on another gravity";
   EXPECT_EQ(*pendulumGravity, kGuiGravity)
       << robot.name << ": the GUI aims the dodgeball under another gravity";
@@ -158,15 +158,14 @@ INSTANTIATE_TEST_SUITE_P(
 
 TEST(ModelGravityTest, IsTheMagnitudeOfADownwardGravityAndRefusesAnyOther) {
   pinocchio::ModelTpl<scalar_t> model;
-  EXPECT_EQ(modelGravity(model).value_or(0.0), kGravitationalAcceleration)
+  EXPECT_EQ(modelGravity(model).value_or(0.0), kGravityMagnitude)
       << "Pinocchio's default is the dynamics' gravity";
   constexpr scalar_t kMarsGravity = 3.71;  // [m/s^2]
   model.gravity.linear(vector3_t(0.0, 0.0, -kMarsGravity));
   EXPECT_EQ(modelGravity(model).value_or(0.0), kMarsGravity);
   for (const vector3_t& refused :
-       {vector3_t(0.0, 0.0, kGravitationalAcceleration),
-        vector3_t(0.0, 0.0, 0.0),
-        vector3_t(1.0, 0.0, -kGravitationalAcceleration),
+       {vector3_t(0.0, 0.0, kGravityMagnitude), vector3_t(0.0, 0.0, 0.0),
+        vector3_t(1.0, 0.0, -kGravityMagnitude),
         vector3_t(0.0, 0.0, std::nan(""))}) {
     model.gravity.linear(refused);
     EXPECT_EQ(modelGravity(model).status().code(),

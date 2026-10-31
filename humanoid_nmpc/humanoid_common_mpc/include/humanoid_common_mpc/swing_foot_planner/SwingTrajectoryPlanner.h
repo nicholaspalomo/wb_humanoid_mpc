@@ -61,8 +61,8 @@ class SwingTrajectoryPlanner {
     static constexpr scalar_t kDefaultSwingPitchRiseFraction = 0.25;
     static constexpr scalar_t kDefaultSwingPitchFallFraction = 0.15;
 
-    scalar_t liftOffVelocity = 0.0;
-    scalar_t touchDownVelocity = 0.0;
+    scalar_t liftoffLinvelFootRtWorldEwrtWorldZ = 0.0;
+    scalar_t touchdownLinvelFootRtWorldEwrtWorldZ = 0.0;
     scalar_t swingHeight =
         kDefaultSwingHeight;  // [m] apex above the higher of the lift-off and
                               // touch-down heights
@@ -71,9 +71,8 @@ class SwingTrajectoryPlanner {
                                  // scaled down in height and velocity
     scalar_t touchDownHeightOffset = 0.0;
 
-    scalar_t impactProximityFactorLiftOffVelocity =
-        0;  // should lesser or equal 0
-    scalar_t impactProximityFactorTouchDownVelocity =
+    scalar_t impactProximityFactorLiftoffSlope = 0;  // should lesser or equal 0
+    scalar_t impactProximityFactorTouchdownSlope =
         0;  // should be greater or equal to 0
     scalar_t impactProximityFactorMidPointValue =
         kDefaultImpactProximityFactorMidPointValue;  // should be between 0 and
@@ -100,19 +99,19 @@ class SwingTrajectoryPlanner {
    * A swing extended past its planned touch-down while the foot searches for
    * the ground (late touch-down). The height reference of that swing is the
    * planned swing's spline up to the planned touch-down, continued as a
-   * straight descent at `descentVelocity` from the planned touch-down height
-   * until the extended touch-down of the schedule; the pitch and the impact
-   * proximity hold their touch-down values. Re-fitting the spline over the
-   * extended swing instead moved its apex, raised the reference at the current
-   * time by several millimeters at every extension step and then drove the foot
-   * down at the spline's slope (about 0.35 m/s) rather than at the search
-   * velocity.
+   * straight descent at `descentSpeedFootRtWorld` from the planned touch-down
+   * height until the extended touch-down of the schedule; the pitch and the
+   * impact proximity hold their touch-down values. Re-fitting the spline over
+   * the extended swing instead moved its apex, raised the reference at the
+   * current time by several millimeters at every extension step and then drove
+   * the foot down at the spline's slope (about 0.35 m/s) rather than at the
+   * search velocity.
    */
   struct GroundSearch {
     scalar_t liftOffTime = 0.0;  // identifies the swing in the schedule
     scalar_t plannedTouchDownTime =
         0.0;  // where the planned swing, and with it the spline, ends
-    scalar_t descentVelocity =
+    scalar_t descentSpeedFootRtWorld =
         0.0;  // [m/s] downward rate of the height reference past the planned
               // touch-down (>= 0)
   };
@@ -139,11 +138,11 @@ class SwingTrajectoryPlanner {
               const feet_array_t<scalar_array_t>& touchDownHeightSequence,
               const feet_array_t<std::optional<GroundSearch>>& groundSearches);
 
-  scalar_t getZaccelerationConstraint(size_t leg, scalar_t time) const;
+  scalar_t getDesLinaccFootRtWorldEwrtWorldZ(size_t leg, scalar_t time) const;
 
-  scalar_t getZvelocityConstraint(size_t leg, scalar_t time) const;
+  scalar_t getDesLinvelFootRtWorldEwrtWorldZ(size_t leg, scalar_t time) const;
 
-  scalar_t getZpositionConstraint(size_t leg, scalar_t time) const;
+  scalar_t getDesPosFootRtWorldEwrtWorldZ(size_t leg, scalar_t time) const;
 
   scalar_t getImpactProximityFactor(size_t leg, scalar_t time) const;
 
@@ -245,7 +244,7 @@ class SwingTrajectoryPlanner {
     // planned touch-down height.
     bool searching = false;
     scalar_t descentStartHeight = 0.0;
-    scalar_t descentVelocity = 0.0;
+    scalar_t descentSpeedFootRtWorld = 0.0;
   };
 
   /** The height and impact-proximity references of one swing. */

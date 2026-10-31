@@ -198,13 +198,13 @@ class WholeBodyController {
    */
   void measure(const vector4_t& orientation) {
     robotState_.setConfigurationToZero();
-    robotState_.setRootPositionInWorldFrame(vector3_t(0.1, -0.05, 0.76));
+    robotState_.setPosBaseRtWorldEwrtWorld(vector3_t(0.1, -0.05, 0.76));
     const quaternion_t rotation(orientation);
-    robotState_.setRootRotationLocalToWorldFrame(rotation);
-    robotState_.setRootLinearVelocityInLocalFrame(rotation.conjugate() *
-                                                  vector3_t(0.2, 0.05, 0.0));
-    robotState_.setRootAngularVelocityInLocalFrame(
-        rotation.conjugate() * vector3_t(0.0, 0.0, kTurnRate));
+    robotState_.setQuatBaseRtWorld(rotation);
+    robotState_.setLinvelBaseRtWorldEwrtBase(rotation.conjugate() *
+                                             vector3_t(0.2, 0.05, 0.0));
+    robotState_.setAngvelBaseRtWorldEwrtBase(rotation.conjugate() *
+                                             vector3_t(0.0, 0.0, kTurnRate));
     for (size_t i = 0; i < mpcJointIndices_.size(); ++i) {
       robotState_.setJointPosition(
           mpcJointIndices_[i], 0.1 * std::sin(0.7 * static_cast<scalar_t>(i)));
@@ -389,7 +389,7 @@ TEST(WBMrtObservationDoubleCover,
               canonical.controller().getLatestPolicyInput());
     // The heading the canonical stream reads is continuous across the flip: a
     // step of the turn, never a jump.
-    const scalar_t heading = model.getBaseHeading(
+    const scalar_t heading = model.getYawBaseRtWorld(
         canonical.controller().getCurrentObservation().state);
     if (cycle > 0) {
       EXPECT_NEAR(std::remainder(heading - previousHeading, 2.0 * M_PI),

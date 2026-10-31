@@ -13,7 +13,7 @@ This fork keeps only the SQP, the solver the humanoid NMPC runs (see "What this 
 
 ![legged-robot](https://leggedrobotics.github.io/ocs2/_static/gif/legged_robot.gif)
 
-OCS2 handles general path constraints through Augmented Lagrangian or relaxed barrier methods. To facilitate the application of OCS2 in robotic tasks, it provides the user with additional tools to set up the system dynamics (such as kinematic or dynamic models) and cost/constraints (such as self-collision avoidance and end-effector tracking) from a URDF model. The library also provides an automatic differentiation tool to calculate derivatives of the system dynamics, constraints, and cost. Upstream OCS2 also ships ROS interfaces for deployment on robots; this fork has none, and the humanoid NMPC talks over its own IPC bus instead (`humanoid_nmpc/docs/distributed_runtime/README.md`). The toolbox’s efficient and numerically stable implementations in conjunction with its user-friendly interface have paved the way for employing it on numerous robotic applications with limited onboard computation power.
+OCS2 handles general path constraints through Augmented Lagrangian or relaxed barrier methods. To facilitate the application of OCS2 in robotic tasks, it provides the user with additional tools to set up the system dynamics (such as kinematic or dynamic models) and cost/constraints (such as self-collision avoidance and end-effector tracking) from a URDF model. The library also provides an automatic differentiation tool to calculate derivatives of the system dynamics, constraints, and cost. Upstream OCS2 also ships ROS interfaces for deployment on robots; this fork has none, and the humanoid NMPC talks over its own IPC bus instead (`humanoid_nmpc/docs/distributed_runtime/README.md`). The toolbox's efficient and numerically stable implementations and user-friendly interface enable employing it on numerous robotic applications with limited onboard computation power.
 
 For more information refer to the project's [Documentation Page](https://leggedrobotics.github.io/ocs2/) 
 
@@ -98,9 +98,10 @@ or that nothing here uses, is removed rather than ported:
   evaluated (`getOrientationError` and `getOrientationErrorLinearApproximation`, their pure virtual functions in
   `EndEffectorKinematics` and the `<model>_orientationError` library, which a model folder generated before keeps
   unused), the constructor without an update callback, which nothing called, and the public taping functions
-  `get*CppAd`, which only its own CppAD functions called. Those call file-local copies and capture what they read by
-  value, where they held references to the constructor's locals and to the object, which a copy of the class (a
-  `CppAdInterface` copies its function) taping after construction (`CppAdInterface::getTapeOperationCount()`) read
+  `get*CppAd`, which only its own CppAD functions called. Those call file-local copies
+  (`computePosEesRtWorldEwrtWorld` and its siblings) and capture what they read by value, where they held
+  references to the constructor's locals and to the object, which a copy of the class (a `CppAdInterface` copies its
+  function) taping after construction (`CppAdInterface::getTapeOperationCount()`) read
   after both were gone; the flow map of `PinocchioCentroidalDynamicsAD` likewise copies the Pinocchio interface and the
   model info it held by reference. The remaining libraries are taped and generated as before;
 - the catkin and CMake scaffolding: the `ocs2` metapackage, `sqp/blasfeo_catkin`, `core/cmake`, `doc` and the Jenkins

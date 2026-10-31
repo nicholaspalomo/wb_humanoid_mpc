@@ -82,7 +82,7 @@ class DodgeballTab(ttk.Frame):
         header.pack(fill="x", padx=10, pady=(10, 4))
         ttk.Label(
             header,
-            text="🏐 Dodgeball",
+            text="Dodgeball",
             font=("Helvetica", 12, "bold"),
         ).pack(side="left")
         ttk.Label(
@@ -178,7 +178,7 @@ class DodgeballTab(ttk.Frame):
 
         self.throw_button = ttk.Button(
             controls,
-            text="🏐 Throw dodgeball",
+            text="Throw dodgeball",
             command=self.throw,
         )
         self.throw_button.pack(side="right")

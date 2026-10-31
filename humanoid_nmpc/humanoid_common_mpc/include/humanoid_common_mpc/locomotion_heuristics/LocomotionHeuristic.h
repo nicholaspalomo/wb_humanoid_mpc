@@ -39,6 +39,7 @@ namespace ocs2::humanoid {
 struct LocomotionHeuristicConfig;
 struct LocomotionHeuristicModelParameters;
 
+// NOLINTBEGIN(claudisms): cited paper title
 /**
  * One regularization heuristic of Gerardo Bledt's Regularized Predictive
  * Control, "Regularized Predictive Control Framework for Robust Dynamic Legged
@@ -46,14 +47,13 @@ struct LocomotionHeuristicModelParameters;
  *
  * RPC does not add a cost term. It SHAPES THE REFERENCE that a quadratic cost
  * already regularizes against, so that the optimizer starts from, and is biased
- * towards, a solution a legged robot is known to want - while remaining free to
+ * towards, a solution a legged robot is known to want, while remaining free to
  * depart from it where the dynamics pay better (dissertation section 3.1). This
  * class is that idea: a pure function from the robot's situation to an OFFSET
  * of one reference channel, summed with the offsets of every other listed
  * heuristic and added to the reference the controller would have used anyway.
  *
- * Three consequences of "offset" that are load-bearing and are relied on
- * throughout the layer:
+ * Three consequences of "offset" are relied on throughout the layer:
  *  - an empty list is EXACTLY the previous behavior, bit for bit, because the
  * sum of no offsets is zero and nothing is recomputed;
  *  - the order of the names in the task file is documentary, because addition
@@ -73,6 +73,7 @@ struct LocomotionHeuristicModelParameters;
  * SwitchedModelReferenceManager::captureMeasuredState() and handed over in the
  * per-call context.
  */
+// NOLINTEND(claudisms)
 class LocomotionHeuristic {
  public:
   virtual ~LocomotionHeuristic() = default;

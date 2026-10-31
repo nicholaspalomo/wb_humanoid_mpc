@@ -134,10 +134,11 @@ TEST(RobotRealtimeAllocations,
       fsm.set_sequence(static_cast<uint64_t>(round + 1));
       mailbox.onFsmCommand(fsm);
       humanoid_mpc_msgs::JointTargets targets;
-      (*targets.mutable_positions())[description.getJointName(0)] = 0.1 * round;
+      (*targets.mutable_joint_positions())[description.getJointName(0)] =
+          0.1 * round;
       mailbox.onJointTargets(targets);
       humanoid_mpc_msgs::WalkingVelocityCommand walk;
-      walk.set_desired_pelvis_height(0.9);
+      walk.set_cmd_pos_base_rt_world_ewrt_world_z(0.9);
       mailbox.onWalkingVelocityCommand(walk);
       humanoid_mpc_config::MpcParameterUpdate parameters;
       parameters.mutable_task()->set_contact_estimator(
@@ -321,7 +322,7 @@ TEST(RobotRealtimeAllocations,
     sim.updateInterfaceStateFromRobot();
     sim.getRobotJointAction().at(0)->feed_forward_effort = 0.0;
     sim.applyJointAction();
-    sim.takeMeasuredFootForces(left, right);
+    sim.takeMeasForceFeetEwrtWorld(left, right);
     if (index % 10 == 0) sim.enableTorques();
     if (index % 10 == 5) sim.disableTorques();
     if (index == 20) sim.throwDodgeball(throwCommand);
@@ -349,7 +350,7 @@ TEST(
   const robot::model::RobotDescription description =
       robot_test::atlasDescription();
   robot::model::RobotState initial(description);
-  initial.setRootPositionInWorldFrame(vector3_t(0.0, 0.0, 0.95));
+  initial.setPosBaseRtWorldEwrtWorld(vector3_t(0.0, 0.0, 0.95));
   robot_test::FakeRobotBackend backend(robot_test::atlasDescription(), initial);
   robot::model::ContactEstimatorRegistry estimators;
   robot_test::ScriptedRobotController controller;

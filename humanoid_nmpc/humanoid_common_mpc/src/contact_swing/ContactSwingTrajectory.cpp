@@ -66,7 +66,8 @@ bool isFinite(const vector3_t& vector) {
  * normal. */
 absl::Status checkEndpoint(const ContactSwingEndpoint& endpoint,
                            absl::string_view what) {
-  if (!isFinite(endpoint.position) || !isFinite(endpoint.normal)) {
+  if (!isFinite(endpoint.posContactRtWorldEwrtWorld) ||
+      !isFinite(endpoint.normal)) {
     return absl::InvalidArgumentError(absl::StrCat(
         "[ContactSwingTrajectory] the ", what, " point is not finite."));
   }
@@ -154,12 +155,12 @@ void ContactSwingTrajectory::setControlPoints(
     const ContactSwingEndpoint& touchDown,
     scalar_t controlDistance) {
   controlDistance_ = controlDistance;
-  controlPoints_[kLiftOffPoint] = liftOff.position;
+  controlPoints_[kLiftOffPoint] = liftOff.posContactRtWorldEwrtWorld;
   controlPoints_[kLiftControlPoint] =
-      liftOff.position + controlDistance * liftOff.normal;
+      liftOff.posContactRtWorldEwrtWorld + controlDistance * liftOff.normal;
   controlPoints_[kTouchDownControlPoint] =
-      touchDown.position + controlDistance * touchDown.normal;
-  controlPoints_[kTouchDownPoint] = touchDown.position;
+      touchDown.posContactRtWorldEwrtWorld + controlDistance * touchDown.normal;
+  controlPoints_[kTouchDownPoint] = touchDown.posContactRtWorldEwrtWorld;
 }
 
 vector3_t ContactSwingTrajectory::pointAt(scalar_t s) const {
@@ -190,8 +191,9 @@ ContactSwingReference ContactSwingTrajectory::reference(scalar_t time) const {
       sigma * sigma * (kSmoothstepSquareFactor - kSmoothstepCubeFactor * sigma);
   const scalar_t sRate =
       kSmoothstepRateFactor * sigma * (1.0 - sigma) / duration;
-  return ContactSwingReference{.position = pointAt(s),
-                               .linearVelocity = sRate * tangentAt(s)};
+  return ContactSwingReference{
+      .posContactRtWorldEwrtWorld = pointAt(s),
+      .linvelContactRtWorldEwrtWorld = sRate * tangentAt(s)};
 }
 
 }  // namespace ocs2::humanoid

@@ -71,12 +71,12 @@ struct ContactKinematics::Model {
   // a reference.
   Model(const pinocchio::Model& pinocchioModel,
         std::vector<pinocchio::FrameIndex> frames,
-        std::vector<vector3_t> frameOffsets,
+        std::vector<vector3_t> posContactsRtLinkEwrtLink,
         std::vector<Joint> robotJoints)
       : model(pinocchioModel),
         data(model),
         contactFrames(std::move(frames)),
-        offsets(std::move(frameOffsets)),
+        posContactsRtLinkEwrtLink(std::move(posContactsRtLinkEwrtLink)),
         joints(std::move(robotJoints)),
         q(pinocchio::neutral(model)),
         v(vector_t::Zero(model.nv)) {}
@@ -84,7 +84,7 @@ struct ContactKinematics::Model {
   pinocchio::Model model;
   pinocchio::Data data;
   std::vector<pinocchio::FrameIndex> contactFrames;
-  std::vector<vector3_t> offsets;
+  std::vector<vector3_t> posContactsRtLinkEwrtLink;
   /** The model joints the robot names; the others stay neutral. */
   std::vector<Joint> joints;
   vector_t q;
@@ -132,7 +132,7 @@ absl::StatusOr<std::unique_ptr<ContactKinematics>> ContactKinematics::Create(
   if (!model.ok()) return model.status();
 
   std::vector<pinocchio::FrameIndex> frames;
-  std::vector<vector3_t> offsets;
+  std::vector<vector3_t> posContactsRtLinkEwrtLink;
   std::vector<std::string> names;
   for (const ContactPointSpec& contact : contacts) {
     const std::vector<std::string>::const_iterator found = std::find_if(
@@ -146,7 +146,7 @@ absl::StatusOr<std::unique_ptr<ContactKinematics>> ContactKinematics::Create(
     }
     frames.push_back(model->getFrameId(*found));
     names.push_back(*found);
-    offsets.push_back(contact.offsetInFrame);
+    posContactsRtLinkEwrtLink.push_back(contact.posContactRtLinkEwrtLink);
   }
 
   absl::flat_hash_map<std::string, size_t> robotJointByName;
@@ -176,7 +176,8 @@ absl::StatusOr<std::unique_ptr<ContactKinematics>> ContactKinematics::Create(
                                        .continuous = continuous});
   }
   std::unique_ptr<Model> kinematics = std::make_unique<Model>(
-      *model, std::move(frames), std::move(offsets), std::move(modelJoints));
+      *model, std::move(frames), std::move(posContactsRtLinkEwrtLink),
+      std::move(modelJoints));
   return absl::WrapUnique(new ContactKinematics(
       std::move(kinematics), std::move(names), jointNames.size()));
 }
@@ -187,9 +188,10 @@ ContactKinematics::ContactKinematics(std::unique_ptr<Model> model,
     : model_(std::move(model)),
       contactFrameNames_(std::move(contactFrameNames)),
       numRobotJoints_(numRobotJoints),
-      gravity_(model_->model.gravity.linear()),
-      contactPositions_(contactFrameNames_.size(), vector3_t::Zero()),
-      contactVelocities_(contactFrameNames_.size(), vector3_t::Zero()) {}
+      gravityEwrtWorld_(model_->model.gravity.linear()),
+      posContactsRtBaseEwrtBase_(contactFrameNames_.size(), vector3_t::Zero()),
+      linvelContactsRtBaseEwrtBase_(contactFrameNames_.size(),
+                                    vector3_t::Zero()) {}
 
 ContactKinematics::~ContactKinematics() = default;
 
@@ -197,13 +199,13 @@ void ContactKinematics::update(const vector_t& jointPositions,
                                const vector_t& jointVelocities) {
   Model& kinematics = *model_;
   for (const Model::Joint& joint : kinematics.joints) {
-    const scalar_t position =
+    const scalar_t jointPosition =
         jointPositions[static_cast<Eigen::Index>(joint.robotJoint)];
     if (joint.continuous) {
-      kinematics.q[joint.qIndex] = std::cos(position);
-      kinematics.q[joint.qIndex + 1] = std::sin(position);
+      kinematics.q[joint.qIndex] = std::cos(jointPosition);
+      kinematics.q[joint.qIndex + 1] = std::sin(jointPosition);
     } else {
-      kinematics.q[joint.qIndex] = position;
+      kinematics.q[joint.qIndex] = jointPosition;
     }
     kinematics.v[joint.vIndex] =
         jointVelocities[static_cast<Eigen::Index>(joint.robotJoint)];
@@ -213,18 +215,21 @@ void ContactKinematics::update(const vector_t& jointPositions,
   for (size_t contact = 0; contact < kinematics.contactFrames.size();
        ++contact) {
     const pinocchio::FrameIndex frame = kinematics.contactFrames[contact];
-    const pinocchio::SE3& placement = pinocchio::updateFramePlacement(
+    const pinocchio::SE3& poseLinkRtBase = pinocchio::updateFramePlacement(
         kinematics.model, kinematics.data, frame);
-    const vector3_t offsetInBase =
-        placement.rotation() * kinematics.offsets[contact];
-    contactPositions_[contact] = placement.translation() + offsetInBase;
+    const vector3_t posContactRtLinkEwrtBase =
+        poseLinkRtBase.rotation() *
+        kinematics.posContactsRtLinkEwrtLink[contact];
+    posContactsRtBaseEwrtBase_[contact] =
+        poseLinkRtBase.translation() + posContactRtLinkEwrtBase;
     // The frame origin's velocity in the base axes, then the offset point's on
     // the same rigid body.
-    const pinocchio::Motion velocity =
+    const pinocchio::Motion twistLinkRtBaseEwrtBase =
         pinocchio::getFrameVelocity(kinematics.model, kinematics.data, frame,
                                     pinocchio::LOCAL_WORLD_ALIGNED);
-    contactVelocities_[contact] =
-        velocity.linear() + velocity.angular().cross(offsetInBase);
+    linvelContactsRtBaseEwrtBase_[contact] =
+        twistLinkRtBaseEwrtBase.linear() +
+        twistLinkRtBaseEwrtBase.angular().cross(posContactRtLinkEwrtBase);
   }
 }
 

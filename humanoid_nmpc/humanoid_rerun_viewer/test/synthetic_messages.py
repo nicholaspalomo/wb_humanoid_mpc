@@ -121,7 +121,7 @@ def full_telemetry(
 def _pose(
     robot: robot_model_instance_pb2.RobotModelInstance, x: float, yaw: float
 ) -> None:
-    pose = robot.link_poses.add()
+    pose = robot.pose_links_rt_world.add()
     pose.position.x, pose.position.y, pose.position.z = x, 0.1, 0.8
     pose.orientation.w = math.cos(yaw / 2.0)
     pose.orientation.z = math.sin(yaw / 2.0)

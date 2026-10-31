@@ -192,7 +192,7 @@ TEST_F(RobotDescriptionTest, FindJointDescription) {
   EXPECT_EQ(shoulderDesc->min_angle, -1.57);
   EXPECT_EQ(shoulderDesc->max_angle, 1.57);
   EXPECT_EQ(shoulderDesc->max_effort, 100.0);
-  EXPECT_EQ(shoulderDesc->max_velocity, 2.0);
+  EXPECT_EQ(shoulderDesc->max_joint_velocity, 2.0);
 
   const JointDescription* absl_nullable elbowDesc =
       robotDesc.findJointDescription("elbow_joint");
@@ -200,7 +200,7 @@ TEST_F(RobotDescriptionTest, FindJointDescription) {
   EXPECT_EQ(elbowDesc->min_angle, -2.0);
   EXPECT_EQ(elbowDesc->max_angle, 2.0);
   EXPECT_EQ(elbowDesc->max_effort, 80.0);
-  EXPECT_EQ(elbowDesc->max_velocity, 1.5);
+  EXPECT_EQ(elbowDesc->max_joint_velocity, 1.5);
 
   EXPECT_EQ(robotDesc.findJointDescription("nonexistent_joint"), nullptr);
 }
@@ -255,7 +255,7 @@ TEST_F(RobotDescriptionTest, JointDescriptionStringifiesItsLimits) {
   jointDesc.id = 42;
   jointDesc.min_angle = -1.5;
   jointDesc.max_angle = 1.5;
-  jointDesc.max_velocity = 2.0;
+  jointDesc.max_joint_velocity = 2.0;
   jointDesc.max_effort = 100.0;
 
   const std::string output = absl::StrCat(jointDesc);

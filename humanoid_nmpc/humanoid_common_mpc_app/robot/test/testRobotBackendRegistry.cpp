@@ -67,7 +67,7 @@ RobotBackendOptions atlasOptions() {
   options.urdfFile = robot_test::kAtlasUrdf;
   options.mjcfFile = robot_test::kAtlasScene;
   options.initialState.emplace(description);
-  options.initialState->setRootPositionInWorldFrame(vector3_t(0.0, 0.0, 0.95));
+  options.initialState->setPosBaseRtWorldEwrtWorld(vector3_t(0.0, 0.0, 0.95));
   options.contactFrameNames = modelSettings.contactNames;
   options.contactParentJointNames = modelSettings.contactParentJointNames;
   options.simulator.contactForceThreshold = 7.0;
@@ -94,7 +94,7 @@ TEST(RobotBackendRegistry, TheMujocoBackendIsBuiltByName) {
             robot::mujoco_sim_interface::kNoViewerName);
   (*backend)->hardware().updateInterfaceStateFromRobot();
   EXPECT_GT(
-      (*backend)->hardware().getRobotState().getRootPositionInWorldFrame().z(),
+      (*backend)->hardware().getRobotState().getPosBaseRtWorldEwrtWorld().z(),
       0.5);
 
   // The contact estimator only a simulator has.
@@ -168,7 +168,7 @@ TEST(MujocoRobotBackend, TheSimulatorConfigurationComesFromTheOptions) {
   EXPECT_EQ(
       config->viewer.names,
       std::vector<std::string>{robot::mujoco_sim_interface::kNoViewerName});
-  EXPECT_DOUBLE_EQ(config->contactForceThreshold, 7.0);
+  EXPECT_DOUBLE_EQ(config->minForceMjcontactEwrtMjcontactX, 7.0);
   EXPECT_EQ(config->gantryHold, "kinematic_teleport");
   EXPECT_EQ(config->projectile, "dodgeball");
   EXPECT_DOUBLE_EQ(config->ragdollJointDamping, 12.5);
@@ -177,7 +177,7 @@ TEST(MujocoRobotBackend, TheSimulatorConfigurationComesFromTheOptions) {
   if (!config->initialState.has_value()) {
     FAIL() << "the task file sets an initial state";
   }
-  EXPECT_DOUBLE_EQ(config->initialState->getRootPositionInWorldFrame().z(),
+  EXPECT_DOUBLE_EQ(config->initialState->getPosBaseRtWorldEwrtWorld().z(),
                    0.95);
 
   // Without visualizations named, the viewer's default set.

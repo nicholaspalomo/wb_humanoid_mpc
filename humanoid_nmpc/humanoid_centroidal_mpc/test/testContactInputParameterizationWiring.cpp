@@ -133,7 +133,7 @@ TEST_F(ContactInputParameterizationWiringTest,
                         task.contact_input_parameterization = "basis";
                       },
                       {"contact_input_parameterization",
-                       std::string(kWrenchContactInputParameterization),
+                       std::string(kWrenchContactInputParameterizationName),
                        std::string(kBasisVectorsContactInputParameterization)});
 }
 
@@ -230,7 +230,7 @@ TEST_F(
   expectRefusedNaming("planner_without_torsion",
                       [](mpc_config::TaskFile& task) {
                         task.contact_input_parameterization =
-                            kWrenchContactInputParameterization;
+                            kWrenchContactInputParameterizationName;
                         for (std::string& constraint : task.soft_constraints) {
                           if (constraint == "contact_wrench_cone")
                             constraint = "friction_force_cone";

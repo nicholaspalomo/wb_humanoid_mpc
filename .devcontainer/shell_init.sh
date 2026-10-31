@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# Container shell setup — sourced by .bashrc inside the Docker container
+# Container shell setup - sourced by .bashrc inside the Docker container
 # Provides: Bazel/make tab completion, the Bazel environment (setup_env.sh), git completion
 # ==============================================================================
 

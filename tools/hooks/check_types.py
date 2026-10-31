@@ -186,6 +186,10 @@ class Check:
       fix_source: Rewrites a file so that the check passes, or None when the check cannot fix its findings.
       fixed_by_format: True when `make format` applies fix_source: a rewrite that cannot change behavior.
       hint: What to do about a finding, printed once under the findings of the check.
+      opt_in: True while the rename the check measures is under way: lint_code runs it only when `--only` names it, and
+        `make lint`, the pre-commit hook and CI leave it out. Only `frame-naming` sets it, until the Verify phase of the
+        rename (humanoid_nmpc/docs/frame_naming/README.md, section 9) deletes it; test_lint_enforcement.py allows no
+        other.
     """
 
     name: str
@@ -196,6 +200,7 @@ class Check:
     fix_source: FixFunction | None = None
     fixed_by_format: bool = False
     hint: str = ""
+    opt_in: bool = False
 
     def applies_to(self, path: str) -> bool:
         """True when this check reads the file at `path` (relative to the repository root)."""

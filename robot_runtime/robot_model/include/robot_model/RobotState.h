@@ -44,8 +44,8 @@ namespace robot::model {
 
 /** The measured state of one joint. */
 struct JointState {
-  scalar_t position = 0.0;
-  scalar_t velocity = 0.0;
+  scalar_t jointPosition = 0.0;
+  scalar_t jointVelocity = 0.0;
   scalar_t measuredEffort = 0.0;
 
   JointState() = default;
@@ -65,34 +65,35 @@ class RobotState {
   explicit RobotState(const RobotDescription& robotDescription,
                       size_t contactSize = kDefaultContactSize);
 
-  // orientation of the root joint wrt world frame, corresponds to the passive
-  // rotation from local to world R_l_to_w
-  quaternion_t getRootRotationLocalToWorldFrame() const {
-    return rootOrientation_;
-  }
-  vector3_t getRootPositionInWorldFrame() const { return rootPosition_; }
-
-  vector3_t getRootLinearVelocityInLocalFrame() const {
-    return rootLinearVelocity_;
-  }
-  vector3_t getRootAngularVelocityInLocalFrame() const {
-    return rootAngularVelocity_;
+  // The orientation of the root (base) frame in the world frame: the rotation
+  // R with v_world = R v_base.
+  quaternion_t getQuatBaseRtWorld() const { return quatBaseRtWorld_; }
+  vector3_t getPosBaseRtWorldEwrtWorld() const {
+    return posBaseRtWorldEwrtWorld_;
   }
 
-  // orientation of the root joint wrt world frame, corresponds to the passive
-  // rotation from local to world R_l_to_w
-  void setRootRotationLocalToWorldFrame(const quaternion_t& orientation) {
-    rootOrientation_ = orientation;
+  vector3_t getLinvelBaseRtWorldEwrtBase() const {
+    return linvelBaseRtWorldEwrtBase_;
   }
-  void setRootPositionInWorldFrame(const vector3_t& position) {
-    rootPosition_ = position;
+  vector3_t getAngvelBaseRtWorldEwrtBase() const {
+    return angvelBaseRtWorldEwrtBase_;
   }
 
-  void setRootLinearVelocityInLocalFrame(const vector3_t& linearVelocity) {
-    rootLinearVelocity_ = linearVelocity;
+  // As getQuatBaseRtWorld().
+  void setQuatBaseRtWorld(const quaternion_t& quatBaseRtWorld) {
+    quatBaseRtWorld_ = quatBaseRtWorld;
   }
-  void setRootAngularVelocityInLocalFrame(const vector3_t& angularVelocity) {
-    rootAngularVelocity_ = angularVelocity;
+  void setPosBaseRtWorldEwrtWorld(const vector3_t& posBaseRtWorldEwrtWorld) {
+    posBaseRtWorldEwrtWorld_ = posBaseRtWorldEwrtWorld;
+  }
+
+  void setLinvelBaseRtWorldEwrtBase(
+      const vector3_t& linvelBaseRtWorldEwrtBase) {
+    linvelBaseRtWorldEwrtBase_ = linvelBaseRtWorldEwrtBase;
+  }
+  void setAngvelBaseRtWorldEwrtBase(
+      const vector3_t& angvelBaseRtWorldEwrtBase) {
+    angvelBaseRtWorldEwrtBase_ = angvelBaseRtWorldEwrtBase;
   }
 
   /**
@@ -105,12 +106,12 @@ class RobotState {
    * root's position and linear velocity are what a backend measures (the
    * simulator: the truth) and what a state estimator replaces.
    */
-  vector3_t getImuLinearAccelerationInLocalFrame() const {
-    return imuLinearAcceleration_;
+  vector3_t getSpecforceBaseRtWorldEwrtBase() const {
+    return specforceBaseRtWorldEwrtBase_;
   }
-  void setImuLinearAccelerationInLocalFrame(
-      const vector3_t& linearAcceleration) {
-    imuLinearAcceleration_ = linearAcceleration;
+  void setSpecforceBaseRtWorldEwrtBase(
+      const vector3_t& specforceBaseRtWorldEwrtBase) {
+    specforceBaseRtWorldEwrtBase_ = specforceBaseRtWorldEwrtBase;
   }
 
   /** True when `jointId` is a joint of the robot description. */
@@ -129,7 +130,7 @@ class RobotState {
    */
   scalar_t getJointPosition(size_t jointId) const {
     return jointStateMap_[jointId]
-        ->position;  // NOLINT(bugprone-unchecked-optional-access): the precondition above.
+        ->jointPosition;  // NOLINT(bugprone-unchecked-optional-access): the precondition above.
   }
   /** getJointPosition(), checked: an id that is not a joint ends the process.
    * Not for the realtime path. */
@@ -140,7 +141,7 @@ class RobotState {
    * joint. */
   scalar_t getJointVelocity(size_t jointId) const {
     return jointStateMap_[jointId]
-        ->velocity;  // NOLINT(bugprone-unchecked-optional-access): the precondition above.
+        ->jointVelocity;  // NOLINT(bugprone-unchecked-optional-access): the precondition above.
   }
   /** As getCheckedJointPosition(), for the velocity. */
   scalar_t getCheckedJointVelocity(size_t jointId) const;
@@ -151,7 +152,7 @@ class RobotState {
       const std::vector<E>& jointIds,
       scalar_t defaultValue =
           std::numeric_limits<scalar_t>::quiet_NaN()) const {
-    return jointStateMap_.toVector(jointIds, &RobotState::positionOf,
+    return jointStateMap_.toVector(jointIds, &RobotState::jointPositionOf,
                                    defaultValue);
   }
 
@@ -161,30 +162,30 @@ class RobotState {
       const std::vector<E>& jointIds,
       scalar_t defaultValue =
           std::numeric_limits<scalar_t>::quiet_NaN()) const {
-    return jointStateMap_.toVector(jointIds, &RobotState::velocityOf,
+    return jointStateMap_.toVector(jointIds, &RobotState::jointVelocityOf,
                                    defaultValue);
   }
 
-  //  The joint positions into `positions`, resized to jointIds.size(): no
+  //  The joint positions into `jointPositions`, resized to jointIds.size(): no
   //  allocation once it has that size (the control thread's form).
   template <typename E>
   void getJointPositions(const std::vector<E>& jointIds,
-                         vector_t& positions,
+                         vector_t& jointPositions,
                          scalar_t defaultValue =
                              std::numeric_limits<scalar_t>::quiet_NaN()) const {
-    jointStateMap_.writeVector(jointIds, &RobotState::positionOf, positions,
-                               defaultValue);
+    jointStateMap_.writeVector(jointIds, &RobotState::jointPositionOf,
+                               jointPositions, defaultValue);
   }
 
-  //  The joint velocities into `velocities`, as getJointPositions() above.
+  //  The joint velocities into `jointVelocities`, as getJointPositions() above.
   template <typename E>
   void getJointVelocities(
       const std::vector<E>& jointIds,
-      vector_t& velocities,
+      vector_t& jointVelocities,
       scalar_t defaultValue =
           std::numeric_limits<scalar_t>::quiet_NaN()) const {
-    jointStateMap_.writeVector(jointIds, &RobotState::velocityOf, velocities,
-                               defaultValue);
+    jointStateMap_.writeVector(jointIds, &RobotState::jointVelocityOf,
+                               jointVelocities, defaultValue);
   }
 
   /** The flag of contact point `index`, which must be below
@@ -215,22 +216,22 @@ class RobotState {
   const JointState* absl_nullable findJoint(size_t jointId) const;
   JointState* absl_nullable findJoint(size_t jointId);
 
-  static scalar_t positionOf(const JointState& jointState) {
-    return jointState.position;
+  static scalar_t jointPositionOf(const JointState& jointState) {
+    return jointState.jointPosition;
   }
-  static scalar_t velocityOf(const JointState& jointState) {
-    return jointState.velocity;
+  static scalar_t jointVelocityOf(const JointState& jointState) {
+    return jointState.jointVelocity;
   }
 
   JointIdMap<JointState> jointStateMap_;
 
   scalar_t time_ = 0.0;
 
-  vector3_t rootPosition_;
-  vector3_t rootLinearVelocity_;
-  quaternion_t rootOrientation_;
-  vector3_t rootAngularVelocity_;
-  vector3_t imuLinearAcceleration_;
+  vector3_t posBaseRtWorldEwrtWorld_;
+  vector3_t linvelBaseRtWorldEwrtBase_;
+  quaternion_t quatBaseRtWorld_;
+  vector3_t angvelBaseRtWorldEwrtBase_;
+  vector3_t specforceBaseRtWorldEwrtBase_;
   std::vector<bool> contactFlags_;
 };
 

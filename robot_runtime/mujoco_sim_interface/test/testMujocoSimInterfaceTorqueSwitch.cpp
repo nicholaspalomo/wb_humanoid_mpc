@@ -131,7 +131,7 @@ std::unique_ptr<MujocoSimInterface> makeSim() {
 
 /** Applies a pure feedforward torque of `torque` on every joint, as the control
  * thread would. */
-void applyFeedforward(MujocoSimInterface& sim, double torque) {
+void applyFeedforward(MujocoSimInterface& sim, double jointTorque) {
   model::RobotJointAction& action = sim.getRobotJointAction();
   for (size_t joint = 0; joint < sim.getRobotDescription().getNumJoints();
        ++joint) {
@@ -140,7 +140,7 @@ void applyFeedforward(MujocoSimInterface& sim, double torque) {
     model::JointAction& jointAction = *slot;
     jointAction.kp = 0.0;
     jointAction.kd = 0.0;
-    jointAction.feed_forward_effort = torque;
+    jointAction.feed_forward_effort = jointTorque;
   }
   sim.applyJointAction();
 }
@@ -314,7 +314,7 @@ TEST(SimTorqueSwitch, TheFeetsForcesComeFromThePublishedStep) {
   vector3_t left = vector3_t::Constant(1.0);
   vector3_t right = vector3_t::Constant(1.0);
   sim->simulationStep();
-  sim->takeMeasuredFootForces(left, right);
+  sim->takeMeasForceFeetEwrtWorld(left, right);
   EXPECT_TRUE(left.isZero());
   EXPECT_TRUE(right.isZero());
 }

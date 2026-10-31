@@ -82,15 +82,15 @@ enum class BasePoseWeights {
  * The state weights a running quadratic state cost is set up with, at start-up
  * (HumanoidCostConstraintFactory) and on a live reload
  * (QuadraticCostWeightsApplier) alike: stateWeightsFromConfig() of `weights`
- * (the field `fieldPath`), its base-pose block as `basePose` says. The cost's
- * TuningLayoutDeviation then maps these Euler-written rows onto the state, the
- * one mapping of the weights in both paths.
+ * (the field `fieldPath`), its base-pose block as `basePoseWeights` says. The
+ * cost's TuningLayoutDeviation then maps these Euler-written rows onto the
+ * state, the one mapping of the weights in both paths.
  */
 absl::StatusOr<matrix_t> trackingStateWeightsFromConfig(
     const mpc_config::StateWeights& weights,
     const StateInputLayout& layout,
     absl::string_view fieldPath,
-    BasePoseWeights basePose);
+    BasePoseWeights basePoseWeights);
 
 /**
  * The state weights of the quadratic terminal cost, in both paths:
@@ -103,7 +103,7 @@ absl::StatusOr<matrix_t> terminalStateWeightsFromConfig(
     scalar_t terminalCostScaling,
     const StateInputLayout& layout,
     absl::string_view fieldPath,
-    BasePoseWeights basePose);
+    BasePoseWeights basePoseWeights);
 
 /** The state vector (tuningDimension(layout), on the rows of
  * tuningLayoutOf(layout)) of `values`: initial_state. */

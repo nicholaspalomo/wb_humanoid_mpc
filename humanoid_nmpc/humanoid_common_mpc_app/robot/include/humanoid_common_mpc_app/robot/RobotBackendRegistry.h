@@ -54,10 +54,10 @@ namespace ocs2::humanoid {
 struct SimulatorSettings {
   /**
    * [N] Normal force above which a contact point counts as touching
-   * (`sim_contact_force_threshold`); by default the simulator's.
+   * (`sim_min_force_mjcontact_ewrt_mjcontact_x`); by default the simulator's.
    */
   double contactForceThreshold = ::robot::mujoco_sim_interface::
-      MujocoSimConfig::kDefaultContactForceThreshold;
+      MujocoSimConfig::kNomMinForceMjcontactEwrtMjcontactX;
   /** [s] Window of the viewer's contact timeline
    * (`sim_contact_timeline_window`); by default the simulator's. */
   double contactTimelineWindow =
@@ -74,7 +74,8 @@ struct SimulatorSettings {
   double ragdollJointDamping = ::robot::mujoco_sim_interface::MujocoSimConfig::
       kDefaultRagdollJointDamping;
   /** [m] The base height below which the robot is reset
-   * (`sim_auto_reset_base_height`); by default the simulator's. */
+   * (`sim_auto_reset_min_pos_base_rt_world_ewrt_world_z`); by default the
+   * simulator's. */
   double autoResetBaseHeight = ::robot::mujoco_sim_interface::MujocoSimConfig::
       kDefaultAutoResetBaseHeight;
 };

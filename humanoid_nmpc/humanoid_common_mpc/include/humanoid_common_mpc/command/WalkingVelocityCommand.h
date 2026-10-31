@@ -49,30 +49,37 @@ struct WalkingVelocityCommand {
   static constexpr int kAngularVelocityZIndex = 3;
 
   /** [m] The pelvis height above the ground of a command that sets none. */
-  static constexpr scalar_t kDefaultDesiredPelvisHeight = 0.8;
+  static constexpr scalar_t kNomCmdPosBaseRtWorldEwrtWorldZ = 0.8;
 
   WalkingVelocityCommand() = default;
   WalkingVelocityCommand(scalar_t v_x,
                          scalar_t v_y,
                          scalar_t desired_pelvis_h,
                          scalar_t v_yaw)
-      : linear_velocity_x(v_x),
-        linear_velocity_y(v_y),
-        desired_pelvis_height(desired_pelvis_h),
-        angular_velocity_z(v_yaw) {}
+      : cmd_linvel_base_rt_world_ewrt_heading_x(v_x),
+        cmd_linvel_base_rt_world_ewrt_heading_y(v_y),
+        cmd_pos_base_rt_world_ewrt_world_z(desired_pelvis_h),
+        cmd_angvel_base_rt_world_ewrt_world_z(v_yaw) {}
   explicit WalkingVelocityCommand(const vector4_t& velCommand)
-      : linear_velocity_x(velCommand(kLinearVelocityXIndex)),
-        linear_velocity_y(velCommand(kLinearVelocityYIndex)),
-        desired_pelvis_height(velCommand(kDesiredPelvisHeightIndex)),
-        angular_velocity_z(velCommand(kAngularVelocityZIndex)) {}
-  scalar_t linear_velocity_x = 0.0;
-  scalar_t linear_velocity_y = 0.0;
-  scalar_t desired_pelvis_height = kDefaultDesiredPelvisHeight;  // Above ground
-  scalar_t angular_velocity_z = 0.0;
+      : cmd_linvel_base_rt_world_ewrt_heading_x(
+            velCommand(kLinearVelocityXIndex)),
+        cmd_linvel_base_rt_world_ewrt_heading_y(
+            velCommand(kLinearVelocityYIndex)),
+        cmd_pos_base_rt_world_ewrt_world_z(
+            velCommand(kDesiredPelvisHeightIndex)),
+        cmd_angvel_base_rt_world_ewrt_world_z(
+            velCommand(kAngularVelocityZIndex)) {}
+  scalar_t cmd_linvel_base_rt_world_ewrt_heading_x = 0.0;
+  scalar_t cmd_linvel_base_rt_world_ewrt_heading_y = 0.0;
+  scalar_t cmd_pos_base_rt_world_ewrt_world_z =
+      kNomCmdPosBaseRtWorldEwrtWorldZ;  // Above ground
+  scalar_t cmd_angvel_base_rt_world_ewrt_world_z = 0.0;
 
   vector4_t toVector() const {
-    return vector4_t(linear_velocity_x, linear_velocity_y,
-                     desired_pelvis_height, angular_velocity_z);
+    return vector4_t(cmd_linvel_base_rt_world_ewrt_heading_x,
+                     cmd_linvel_base_rt_world_ewrt_heading_y,
+                     cmd_pos_base_rt_world_ewrt_world_z,
+                     cmd_angvel_base_rt_world_ewrt_world_z);
   }
 };
 }  // namespace ocs2::humanoid

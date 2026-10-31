@@ -86,7 +86,8 @@ constexpr absl::string_view kTaskFile =
 
 // The nominal standing pose of config/command/reference.textproto. Keep the two
 // in sync: this test prints the sole and contact-frame heights that
-// default_base_height and contacts.contact_frame_translation are derived from.
+// nom_pos_base_rt_world_ewrt_world_z and contacts.pos_contact_rt_link_ewrt_link
+// are derived from.
 // LINT.IfChange(sa01_nominal_pose)
 constexpr double kNominalBaseHeight = 0.8135;
 constexpr double kNominalHipPitch = -0.30;
@@ -204,7 +205,8 @@ void printContactFrameHeights(PinocchioInterface& pinocchioInterface,
               << formatFixed(data.oMf[frameId].translation(), /*precision=*/5);
   }
   LOG(INFO) << absl::StrFormat(
-      "base height : %.5f m (reference.textproto default_base_height)",
+      "base height : %.5f m (reference.textproto "
+      "nom_pos_base_rt_world_ewrt_world_z)",
       q[model.joints[1].idx_q() + 2]);
   LOG(INFO) << "CoM         : " << com.transpose();
   LOG(INFO) << "CoM height above the contact frames: "

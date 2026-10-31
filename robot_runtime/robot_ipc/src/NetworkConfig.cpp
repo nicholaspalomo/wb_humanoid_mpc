@@ -119,8 +119,9 @@ absl::Status withSource(absl::string_view source, const absl::Status& status) {
 std::string entryKey(absl::string_view field,
                      size_t index,
                      absl::string_view name) {
-  const std::string position = absl::StrCat(field, "[", index, "]");
-  return name.empty() ? position : absl::StrCat(position, " (", name, ")");
+  const std::string indexedField = absl::StrCat(field, "[", index, "]");
+  return name.empty() ? indexedField
+                      : absl::StrCat(indexedField, " (", name, ")");
 }
 
 std::string fieldKey(absl::string_view field,

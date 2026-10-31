@@ -69,9 +69,9 @@ void FootConstraintSoftWeightsApplier::apply(HotUpdateTarget& target) {
   // Atlas), or not at all (the contact-implicit formulation). No soft
   // normal_velocity in every schedule-gated configuration.
   setSoftTermWeight(target.problems(), target.contactNames(),
-                    kZeroVelocityTermSuffix, gains->softConstraintWeight);
+                    kZeroVelocityTermNameSuffix, gains->softConstraintWeight);
   setSoftTermWeight(target.problems(), target.contactNames(),
-                    contact_term::kNormalVelocitySoft,
+                    contact_term::kNormalVelocitySoftName,
                     gains->normalVelocitySoftConstraintWeight);
 
   // position_error_gain_z has to reach the PRE-COMPUTATION as well as the

@@ -53,7 +53,7 @@ jobs:
       run: |
         if [ -n "$(git status --porcelain)" ]; then
           echo "changes=true" >> $GITHUB_OUTPUT
-          echo "❌ Files were modified by 'make format'"
+          echo "Files were modified by 'make format'"
           echo ""
           echo "Modified files:"
           git status --porcelain
@@ -62,7 +62,7 @@ jobs:
           git diff
         else
           echo "changes=false" >> $GITHUB_OUTPUT
-          echo "✅ No formatting changes needed"
+          echo "No formatting changes needed"
         fi
 
     # The repository's linter (make lint): IFTTT directives, whitespace, clang-format, black, the token checks of
@@ -75,7 +75,7 @@ jobs:
     - name: Display formatting instructions
       if: steps.format-check.outputs.changes == 'true'
       run: |
-        echo "❌ Code formatting check failed!"
+        echo "Code formatting check failed!"
         echo ""
         echo "To fix all formatting issues, run:"
         echo ""

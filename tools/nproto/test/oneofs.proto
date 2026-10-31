@@ -14,7 +14,7 @@ message Oneofs {
 
   reserved 11 to max;
 
-  // The shape of something.
+  // Geometric shape of an object.
   oneof shape {
     double radius = 1;
     // A second double alternative: the variant tells them apart by index.

@@ -338,16 +338,15 @@ void WBMpcMrtJointController::updateMpcState(
   // the robot model's measurement helpers: q of the measured base pose and
   // joint positions, v of the base velocities the robot measures in the base
   // frame and of the joint velocities.
-  const quaternion_t rootOrientation =
-      robotState.getRootRotationLocalToWorldFrame();
+  const quaternion_t rootOrientation = robotState.getQuatBaseRtWorld();
   robotState.getJointPositions(mpcJointIndices_, mpcJointPositions_);
   robotState.getJointVelocities(mpcJointIndices_, mpcJointVelocities_);
   mpcRobotModel_.fillGeneralizedCoordinatesFromMeasurement(
-      robotState.getRootPositionInWorldFrame(), rootOrientation.coeffs(),
+      robotState.getPosBaseRtWorldEwrtWorld(), rootOrientation.coeffs(),
       mpcJointPositions_, mpcState.head(mpcRobotModel_.getConfigurationDim()));
   mpcRobotModel_.fillGeneralizedVelocitiesFromMeasurement(
-      rootOrientation.coeffs(), robotState.getRootLinearVelocityInLocalFrame(),
-      robotState.getRootAngularVelocityInLocalFrame(), mpcJointVelocities_,
+      rootOrientation.coeffs(), robotState.getLinvelBaseRtWorldEwrtBase(),
+      robotState.getAngvelBaseRtWorldEwrtBase(), mpcJointVelocities_,
       mpcState.tail(mpcRobotModel_.getVelocityDim()));
 }
 
@@ -485,15 +484,14 @@ const vector_t& WBMpcMrtJointController::computeGravityCompensation(
   // In the workspaces, sized by the constructor: the Pinocchio configuration q
   // of the measured robot, as updateMpcState() writes it into the head of the
   // MPC state.
-  const quaternion_t rootOrientation =
-      robotState.getRootRotationLocalToWorldFrame();
+  const quaternion_t rootOrientation = robotState.getQuatBaseRtWorld();
   robotState.getJointPositions(mpcJointIndices_, mpcJointPositions_);
   mpcRobotModel_.fillGeneralizedCoordinatesFromMeasurement(
-      robotState.getRootPositionInWorldFrame(), rootOrientation.coeffs(),
+      robotState.getPosBaseRtWorldEwrtWorld(), rootOrientation.coeffs(),
       mpcJointPositions_, gravityCoordinates_);
   // The joint rows of g(q): nle(q, 0) of the model, without its allocations on
   // the composite root.
-  return rigidBodyDynamics_->gravityTorques(gravityCoordinates_);
+  return rigidBodyDynamics_->gravityJointTorques(gravityCoordinates_);
 }
 
 scalar_t WBMpcMrtJointController::nominalJointPosition(
@@ -679,7 +677,7 @@ void WBMpcMrtJointController::computeJointControlAction(
 
   // The passive modes: independent of the MPC and of the solver.
   if (control_mode::isPassive(controlMode_)) {
-    if (controlMode_ == control_mode::kZeroTorque) {
+    if (controlMode_ == control_mode::kZeroJointTorque) {
       fillZeroTorqueAction(robotState, robotJointAction);
     } else if (controlMode_ == control_mode::kJointPd) {
       fillJointPdAction(robotState, robotJointAction);
@@ -800,9 +798,9 @@ void WBMpcMrtJointController::executePolicy(
   // are (fixed-size copies).
   const std::array<vector6_t, kNumContacts> footWrenches =
       contactWrenchGate_.apply(
-          {mpcRobotModel_.getContactWrenchInWorldFrame(
+          {mpcRobotModel_.getWrenchContactEwrtWorld(
                mpcPolicyState, mpcPolicyInput, /*contactIndex=*/0),
-           mpcRobotModel_.getContactWrenchInWorldFrame(
+           mpcRobotModel_.getWrenchContactEwrtWorld(
                mpcPolicyState, mpcPolicyInput, /*contactIndex=*/1)});
   // The inverse dynamics of the planned state [q, v] and joint accelerations,
   // on views of the policy's state and input and on preallocated workspaces: q
@@ -866,13 +864,13 @@ void WBMpcMrtJointController::fillWeightCompensationAction(
   feet_array_t<vector6_t> footWrenches;
   for (size_t i = 0; i < kNumContacts; ++i) {
     if (numStanceLegs > 0 && measuredContactFlags_[i]) {
-      mpcRobotModel_.setContactForce(
+      mpcRobotModel_.setForceContactEwrtParam(
           mpcPolicyInput,
           vector3_t(0.0, 0.0,
                     robotWeight_ / static_cast<scalar_t>(numStanceLegs)),
           i);
     }
-    footWrenches[i] = mpcRobotModel_.getContactWrenchInWorldFrame(
+    footWrenches[i] = mpcRobotModel_.getWrenchContactEwrtWorld(
         mpcPolicyState, mpcPolicyInput, i);
   }
   latestPolicyInput_ = mpcPolicyInput;
@@ -914,7 +912,7 @@ TargetTrajectories WBMpcMrtJointController::currentObservationToResetTrajectory(
   if (mpcLink_->isHealthy()) {
     LOG(INFO) << "Resetting MPC to current state: base pose "
               << mpcRobotModel_
-                     .getBasePoseEulerZyx(
+                     .getPoseeulerzyxBaseRtWorld(
                          resetTargetTrajectories.stateTrajectory.front())
                      .transpose();
   }

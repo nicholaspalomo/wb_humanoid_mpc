@@ -100,8 +100,8 @@ struct ControllerSettingsUpdate {
  * merged into the posture   -> TripleBuffer of the whole posture
  *   operator/dodgeball_throw         DodgeballThrow  ->
  * dodgeballThrowFromMessage() -> SpscQueue<DodgeballThrow>
- *   operator/walking_velocity_command  desired_pelvis_height, clamped -> atomic
- * gantry height operator/mpc_parameters          MpcParameterUpdate
+ *   operator/walking_velocity_command  cmd_pos_base_rt_world_ewrt_world_z,
+ * clamped -> atomic gantry height operator/mpc_parameters MpcParameterUpdate
  * (humanoid_mpc_config) -> controllerSideSettingsFromConfig() of its task file,
  * estimator built -> SpscQueue<ControllerSettingsUpdate> operator/pd_gains
  * JointPdGainsUpdate (humanoid_mpc_config) -> the controller's setPdGains() (it

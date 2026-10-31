@@ -334,7 +334,7 @@ void dumpContacts(ValueDump& dump,
     dump.addString(joinPath(path, "frameName"), center.frameName);
     dump.addString(joinPath(path, "parentJointName"), center.parentJointName);
     dump.addMatrix(joinPath(path, "translationFromParent"),
-                   center.translationFromParent);
+                   center.posContactRtLinkEwrtLink);
     const PolygonBounds& bounds = rectangle->getBounds();
     dump.addDoubles(joinPath(path, "bounds"),
                     {bounds.x_min, bounds.x_max, bounds.y_min, bounds.y_max});
@@ -348,8 +348,10 @@ void dumpContacts(ValueDump& dump,
                    cone->frictionCoefficient);
     dump.addDouble("contact_wrench_cone.torsionalFrictionCoefficient",
                    cone->torsionalFrictionCoefficient);
-    dump.addDouble("contact_wrench_cone.minNormalForce", cone->minNormalForce);
-    dump.addDouble("contact_wrench_cone.gripperForce", cone->gripperForce);
+    dump.addDouble("contact_wrench_cone.minNormalForce",
+                   cone->minForceContactEwrtContactZ);
+    dump.addDouble("contact_wrench_cone.gripperForce",
+                   cone->gripForceContactEwrtContactZ);
     dump.addMatrix("contact_wrench_cone.patchOffset", cone->patchOffset);
   } else {
     addError(dump, "contact_wrench_cone", cone.status());
@@ -388,7 +390,8 @@ void dumpContacts(ValueDump& dump,
                    friction->frictionCoefficient);
     dump.addDouble("friction_force_cone.regularization",
                    friction->regularization);
-    dump.addDouble("friction_force_cone.gripperForce", friction->gripperForce);
+    dump.addDouble("friction_force_cone.gripperForce",
+                   friction->gripForceContactEwrtSurfaceZ);
     dump.addDouble("friction_force_cone.hessianDiagonalShift",
                    friction->hessianDiagonalShift);
   } else {
@@ -545,13 +548,15 @@ void dumpReference(ValueDump& dump,
   if (reference.ok()) {
     dump.addDoubles(
         "reference.settings",
-        {reference->targetDisplacementVelocity,
-         reference->targetRotationVelocity, reference->maxDisplacementVelocityX,
-         reference->maxDisplacementVelocityY, reference->maxDeltaPelvisHeight,
-         reference->maxRotationVelocity, reference->maxLinearAcceleration,
-         reference->maxAngularAcceleration,
+        {reference->refSpeedBaseRtWorld, reference->refRateYawBaseRtWorld,
+         reference->cmdMaxLinvelBaseRtWorldEwrtHeadingX,
+         reference->cmdMaxLinvelBaseRtWorldEwrtHeadingY,
+         reference->cmdMaxErrPosBaseRtWorldEwrtWorldZ,
+         reference->cmdMaxAngvelBaseRtWorldEwrtWorldZ,
+         reference->cmdMaxLinaccBaseRtWorldEwrtHeadingXy,
+         reference->cmdMaxAngaccBaseRtWorldEwrtWorldZ,
          reference->velocityCommandFilterBreakFrequency,
-         reference->defaultBaseHeight});
+         reference->nomPosBaseRtWorldEwrtWorldZ});
     dump.addBool(
         "reference.targetJointStateInterpolationTimeConstant.has_value",
         reference->targetJointStateInterpolationTimeConstant.has_value());

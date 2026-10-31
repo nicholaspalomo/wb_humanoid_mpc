@@ -189,9 +189,10 @@ INSTANTIATE_TEST_SUITE_P(WholeBodyBlocks,
 // is moved whatever it ships with, so that a zero a future tuning ships cannot
 // drop its row from the equality.
 constexpr std::array<absl::string_view, 4> kOrientationWeightBlocks = {
-    "state_weights.base_orientation", "final_state_weights.base_orientation",
-    "state_weights.base_angular_velocity",
-    "final_state_weights.base_angular_velocity"};
+    "state_weights.eulerzyx_base_rt_world",
+    "final_state_weights.eulerzyx_base_rt_world",
+    "state_weights.angvel_base_rt_world_ewrt_base",
+    "final_state_weights.angvel_base_rt_world_ewrt_base"};
 
 /** `task` with every weight of kOrientationWeightBlocks moved by
  * LeafStep::kMoved: each nonzero, a yaw of 0 made 0.1. */
@@ -299,16 +300,17 @@ TEST(WholeBodyLiveUpdate,
   // A block the file leaves out weighs nothing, and fails here.
   const mpc_config::YawPitchRoll unweighted;
   expectEveryRowWeighted(
-      edited.state_weights.base_orientation.value_or(unweighted),
+      edited.state_weights.eulerzyx_base_rt_world.value_or(unweighted),
       kOrientationWeightBlocks[0]);
   expectEveryRowWeighted(
-      edited.final_state_weights.base_orientation.value_or(unweighted),
+      edited.final_state_weights.eulerzyx_base_rt_world.value_or(unweighted),
       kOrientationWeightBlocks[1]);
   expectEveryRowWeighted(
-      edited.state_weights.base_angular_velocity.value_or(unweighted),
+      edited.state_weights.angvel_base_rt_world_ewrt_base.value_or(unweighted),
       kOrientationWeightBlocks[2]);
   expectEveryRowWeighted(
-      edited.final_state_weights.base_angular_velocity.value_or(unweighted),
+      edited.final_state_weights.angvel_base_rt_world_ewrt_base.value_or(
+          unweighted),
       kOrientationWeightBlocks[3]);
 
   WholeBodySolverStack live(file, Updater::kRegistered);
@@ -343,11 +345,11 @@ TEST(WholeBodyLiveUpdate,
       EXPECT_FALSE(reloaded.weights[i] == started.weights[i])
           << reloaded.names[i] << " was not reloaded";
       EXPECT_NE(firstRowWeight(live.interface(), reloaded.weights[i],
-                               "base_orientation"),
+                               "eulerzyx_base_rt_world"),
                 0.0)
           << reloaded.names[i];
       EXPECT_NE(firstRowWeight(live.interface(), reloaded.weights[i],
-                               "base_angular_velocity"),
+                               "angvel_base_rt_world_ewrt_base"),
                 0.0)
           << reloaded.names[i];
     }

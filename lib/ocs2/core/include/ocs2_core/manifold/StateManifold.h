@@ -100,15 +100,15 @@ class StateManifold {
   virtual void project(vector_t& x) const = 0;
 
   /** The largest rotation angle [rad] any rotation block of the tangent vector dx describes; 0 without rotations. */
-  virtual scalar_t getMaximumRotationAngle(const vector_t& dx) const = 0;
+  virtual scalar_t getMaximumTangentAngle(const vector_t& dx) const = 0;
 
   /**
    * Whether every rotation block of the ambient state x describes a rotation; true without rotation blocks. A unit
-   * quaternion block at or below kQuaternionNormalizationEpsilon (UnitQuaternionMath.h), the zero quaternion included,
+   * quaternion block at or below kUnitQuaternionNormalizationEpsilon (UnitQuaternionMath.h), the zero quaternion included,
    * does not: retract() cannot move it off its scale and difference() reads every attitude as no rotation away from it,
    * so a solver iterating from it would keep it whatever it measures later.
    */
-  virtual bool hasRepresentableRotations(const vector_t& x) const = 0;
+  virtual bool hasRepresentableAttitudes(const vector_t& x) const = 0;
 
   /** J <- J E(x): the columns of a Jacobian (any rows x ambient) become tangent columns (rows x tangent). */
   virtual void pullBackStateColumns(const vector_t& x, matrix_t& J) const = 0;
@@ -140,7 +140,7 @@ class StateManifold {
    * with Pi the projection onto the manifold and Jr^-1 the inverse right Jacobian of each rotation block (identity on
    * Euclidean blocks). An empty dfdu (no rows) is left as it is.
    *
-   * Precondition: every unit-quaternion block of Phi is longer than kQuaternionNormalizationEpsilon
+   * Precondition: every unit-quaternion block of Phi is longer than kUnitQuaternionNormalizationEpsilon
    * (UnitQuaternionMath.h), as the flow of a state on the manifold over one step is (|Phi| = 1 + O(dt^2) at worst). Then
    * E+(Pi(Phi)) Pi'(Phi) = 2 G(Phi)' / |Phi|^2. At or below the guard the safe norm reads 1 and the maps are 2 G(Phi)'
    * instead, which is not the derivative of the gap (the projection has none at Phi = 0); the gap f itself, through the

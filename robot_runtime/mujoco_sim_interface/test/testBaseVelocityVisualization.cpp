@@ -122,7 +122,9 @@ TEST(BaseVelocityVisualization,
 
   OwnedScene scene(model.get(), /*maxGeoms=*/16);
   BaseVelocityVisualization::addArrows(
-      model.get(), &data, BaseVelocityCommand{.velocityX = speed}, scene.get());
+      model.get(), &data,
+      BaseVelocityCommand{.cmdLinvelBaseRtWorldEwrtHeadingX = speed},
+      scene.get());
 
   ASSERT_EQ(scene.get().ngeom, 2)
       << "a measured and a commanded velocity arrow, and no yaw-rate arrow";
@@ -156,11 +158,11 @@ TEST(BaseVelocityVisualization,
   // q_z(pi/2) (x) q_y(0.3), w first.
   const double heading = std::numbers::pi / 2.0;
   const double pitch = 0.3;
-  const mjtNum yawQuaternion[4] = {std::cos(heading / 2.0), 0.0, 0.0,
-                                   std::sin(heading / 2.0)};
-  const mjtNum pitchQuaternion[4] = {std::cos(pitch / 2.0), 0.0,
-                                     std::sin(pitch / 2.0), 0.0};
-  mju_mulQuat(&data.qpos[3], yawQuaternion, pitchQuaternion);
+  const mjtNum quatHeadingRtWorldWxyz[4] = {std::cos(heading / 2.0), 0.0, 0.0,
+                                            std::sin(heading / 2.0)};
+  const mjtNum quatBaseRtHeadingWxyz[4] = {std::cos(pitch / 2.0), 0.0,
+                                           std::sin(pitch / 2.0), 0.0};
+  mju_mulQuat(&data.qpos[3], quatHeadingRtWorldWxyz, quatBaseRtHeadingWxyz);
   data.qvel[5] = 0.4;  // a measured angular velocity about the base's own z
                        // axis (MuJoCo's free-joint qvel is local)
   mj_forward(model.get(), &data);
@@ -169,7 +171,9 @@ TEST(BaseVelocityVisualization,
   const double speed = 0.5;
   BaseVelocityVisualization::addArrows(
       model.get(), &data,
-      BaseVelocityCommand{.velocityX = speed, .yawRate = 0.7}, scene.get());
+      BaseVelocityCommand{.cmdLinvelBaseRtWorldEwrtHeadingX = speed,
+                          .cmdRateYawBaseRtWorld = 0.7},
+      scene.get());
 
   ASSERT_EQ(scene.get().ngeom, 3)
       << "the commanded velocity arrow and the two yaw-rate arrows (the base "

@@ -114,7 +114,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * for the foot normal v_n and the plane normal n, and M(x) = de/dw (plus 1/2 n
  * v_n' where the yaw rate about the normal is constrained) the map from the
  * angular velocity to the rate of the residual
- * (getAngularVelocityToOrientationErrorRateMap()). getLinearApproximation()
+ * (getTiltRateMapAngvelEeRtWorldEwrtWorld()). getLinearApproximation()
  * holds M at its value at the point, so it reports J = Ax [dp/dx; de/dx] +
  * Av_lin dv/dx + Av_ang M(x) dw/dx,     dfdu = Av_lin dv/du + Av_ang M(x)
  * dw/du, whose input Jacobian is exact (M reads no input) and whose state
@@ -183,8 +183,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * exercise it (design README section 6, risk 3): where the arm swing is active,
  * SwitchedModelReferenceManager::getDesiredState shifts the shoulder and elbow
  * references by -/+0.15 sin(2 pi (phase - 0.15)) (cos h v_x + sin h v_y), h =
- * getBaseHeading() of the node's state, and StateInputQuadraticCost reports a
- * Jacobian that holds that reference constant: it lacks -sum_j Q_jj (q_j -
+ * getYawBaseRtWorld() of the node's state, and StateInputQuadraticCost reports
+ * a Jacobian that holds that reference constant: it lacks -sum_j Q_jj (q_j -
  * ref_j) (d ref_j / dh) (dh / dx), d ref_j / dh = -/+0.15 sin(2 pi (phase -
  * 0.15)) v_lat with v_lat = -sin h v_x + cos h v_y. The walking reference these
  * points use (MpcEquivalenceFixture::walkingReference()) commands no velocity,
@@ -339,7 +339,9 @@ DroppedTerm droppedRateMapTerm(EndEffectorKinematicsTwistConstraint& constraint,
       .errorBound = matrix_t::Zero(rows, tangentDim),
       .truncation = matrix_t::Zero(rows, tangentDim),
       .footAngularVelocity =
-          kinematics.getTwist(point.state, point.input).front().tail<3>(),
+          kinematics.getTwistEesRtWorldEwrtWorld(point.state, point.input)
+              .front()
+              .tail<3>(),
       .mapApplied = false,
       .mappedTiltRate = vector3_t::Zero(),
       .flowTiltRate = vector3_t::Zero(),
@@ -359,10 +361,9 @@ DroppedTerm droppedRateMapTerm(EndEffectorKinematicsTwistConstraint& constraint,
       vector_t moved;
       manifold.retract(point.state, vector_t::Unit(tangentDim, i),
                        kStepFractions[s] * kBoundedDifferenceStep, moved);
-      samples[s] =
-          angularGains *
-          (constraint.getAngularVelocityToOrientationErrorRateMap(moved) *
-           dropped.footAngularVelocity);
+      samples[s] = angularGains *
+                   (constraint.getTiltRateMapAngvelEeRtWorldEwrtWorld(moved) *
+                    dropped.footAngularVelocity);
     }
     Differenced column = extrapolate(samples, kBoundedDifferenceStep);
     dropped.value.col(i) = column.value;
@@ -373,7 +374,7 @@ DroppedTerm droppedRateMapTerm(EndEffectorKinematicsTwistConstraint& constraint,
   const matrix3_t projection =
       matrix3_t::Identity() - normal * normal.transpose();
   const matrix3_t map =
-      constraint.getAngularVelocityToOrientationErrorRateMap(point.state);
+      constraint.getTiltRateMapAngvelEeRtWorldEwrtWorld(point.state);
   const matrix_t tiltJacobian =
       kinematics
           .getOrientationErrorWrtPlaneLinearApproximation(point.state, {normal})

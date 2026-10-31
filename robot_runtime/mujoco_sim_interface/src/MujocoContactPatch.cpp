@@ -153,11 +153,12 @@ int addContactPatchGeoms(mjvScene* absl_nullable scene,
     const mjtNum size[kPositionDim] = {0.5 * (bounds.xMax - bounds.xMin),
                                        0.5 * (bounds.yMax - bounds.yMin),
                                        kSlabHalfThickness};
-    const mjtNum pos[kPositionDim] = {patch.x + c * cx - s * cy,
-                                      patch.y + s * cx + c * cy,
-                                      patch.z + kSlabHalfThickness};
+    const mjtNum slabPosSurfaceRtWorldEwrtWorld[kPositionDim] = {
+        patch.x + c * cx - s * cy, patch.y + s * cx + c * cy,
+        patch.z + kSlabHalfThickness};
     mjvGeom* absl_nonnull slab = nextGeom();
-    mjv_initGeom(slab, mjGEOM_BOX, size, pos, mat, rgba);
+    mjv_initGeom(slab, mjGEOM_BOX, size, slabPosSurfaceRtWorldEwrtWorld, mat,
+                 rgba);
     finish(slab);
   }
 

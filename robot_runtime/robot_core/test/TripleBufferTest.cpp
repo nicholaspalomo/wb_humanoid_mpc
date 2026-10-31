@@ -251,7 +251,7 @@ TEST(TripleBufferTest, ReaderNeverBlocksBoundedLatency) {
       std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count() /
       kNumReads;
 
-  // Reader should never block — avg latency should be well under 1µs
+  // Reader should never block - avg latency should be well under 1µs
   EXPECT_LT(avgNs, 1000) << "Average read latency " << avgNs
                          << "ns exceeds 1µs";
 }

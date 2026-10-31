@@ -111,9 +111,9 @@ void ScriptedRobotController::computeJointControlAction(
   }
   {
     absl::MutexLock lock(mutex_);
-    rootPosition_ = robotState.getRootPositionInWorldFrame();
-    rootLinearVelocity_ = robotState.getRootLinearVelocityInLocalFrame();
-    const bool zeroTorque = mode_ == control_mode::kZeroTorque;
+    rootPosition_ = robotState.getPosBaseRtWorldEwrtWorld();
+    rootLinearVelocity_ = robotState.getLinvelBaseRtWorldEwrtBase();
+    const bool zeroTorque = mode_ == control_mode::kZeroJointTorque;
     for (size_t joint = 0; joint < nominal_.size(); ++joint) {
       std::optional<robot::model::JointAction>& action = jointAction.at(joint);
       if (!action.has_value()) continue;

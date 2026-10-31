@@ -96,14 +96,15 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
    * runs the solves back to back.
    * @param [in] pdGainsFile: the robot's joint_pd_gains.textproto
    * (loadJointPdGains()), required: the controller has no gains of its own.
-   * Reloaded by pollPdGainsFile(). Its torque_limit bounds every feedforward
-   * torque the controller commands, as in the centroidal controller.
+   * Reloaded by pollPdGainsFile(). Its max_joint_torque bounds every
+   * feedforward torque the controller commands, as in the centroidal
+   * controller.
    * @return The errors of loadRequiredJointPdGains(), naming the file:
    * InvalidArgument when `pdGainsFile` is empty, cannot be read or is refused
-   * (a default_gains without kp, kd and torque_limit included), NotFound when
-   * it does not exist - at start-up there are no gains in use to keep. NotFound
-   * naming the joint when `modelSettings` names a joint (an MPC joint or a
-   * fixed one) that `robotDescription` does not have, and the error of
+   * (a default_gains without kp, kd and max_joint_torque included), NotFound
+   * when it does not exist - at start-up there are no gains in use to keep.
+   * NotFound naming the joint when `modelSettings` names a joint (an MPC joint
+   * or a fixed one) that `robotDescription` does not have, and the error of
    *         checkContactFramesExist() for contact frames the Pinocchio model
    * does not have.
    */
@@ -151,9 +152,9 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
    * measurement - the joint targets and the feedforward - while its feedback
    * acts on the error at the measurement time (LookaheadPolicyEvaluator): a
    * robot exactly on a moving plan gets exactly the feedforward. Every
-   * feedforward torque is clamped to its joint's torque_limit, in every mode,
-   * and the joints outside the MPC hold the nominal posture in every mode but
-   * SAFETY and ZERO_TORQUE.
+   * feedforward torque is clamped to its joint's max_joint_torque, in every
+   * mode, and the joints outside the MPC hold the nominal posture in every mode
+   * but SAFETY and ZERO_TORQUE.
    *
    * In the passive modes, the hold of WB_MPC, its weight compensation before a
    * policy and the execution of a policy it allocates nothing once the
@@ -433,7 +434,7 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
   scalar_t nominalJointPosition(const ::robot::model::RobotState& robotState,
                                 size_t index) const;
   /** `torque` clamped to the torque limit of MPC joint `mpcJoint` (|ff| <=
-   * torque_limit). Control thread. */
+   * max_joint_torque). Control thread. */
   scalar_t clampedMpcJointFeedforward(size_t mpcJoint, scalar_t torque) const;
   /**
    * The action of the joints outside the MPC in JOINT_PD, GRAVITY_COMP (kpScale

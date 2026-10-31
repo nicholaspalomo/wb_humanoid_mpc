@@ -77,7 +77,8 @@ MujocoRobotBackend::makeConfig(const RobotBackendOptions& options) {
   config.initialState = *options.initialState;
   config.contactFrameNames = options.contactFrameNames;
   config.contactParentJointNames = options.contactParentJointNames;
-  config.contactForceThreshold = options.simulator.contactForceThreshold;
+  config.minForceMjcontactEwrtMjcontactX =
+      options.simulator.contactForceThreshold;
   config.contactTimelineWindow = options.simulator.contactTimelineWindow;
   if (options.simulator.visualizations.has_value()) {
     config.visualizations = *options.simulator.visualizations;
@@ -157,8 +158,8 @@ void MujocoRobotBackend::readMeasuredContactForces(
     std::array<vector3_t, kNumContacts>& forces) {
   static_assert(kNumContacts == kBipedFootCount,
                 "the simulator has a force sensor in each of two feet "
-                "(takeMeasuredFootForces())");
-  simulator_->takeMeasuredFootForces(forces[0], forces[1]);
+                "(takeMeasForceFeetEwrtWorld())");
+  simulator_->takeMeasForceFeetEwrtWorld(forces[0], forces[1]);
 }
 
 void MujocoRobotBackend::registerContactEstimators(

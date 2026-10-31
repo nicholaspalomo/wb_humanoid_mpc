@@ -65,8 +65,8 @@ constexpr double kMinimumFaceAlignment = 0.7071;
 RobotConfiguration configurationOf(const MpcRobotModelBase<scalar_t>& model,
                                    const vector_t& state) {
   RobotConfiguration configuration;
-  configuration.basePosition = model.getBasePosition(state);
-  configuration.baseOrientation.coeffs() = model.getBaseOrientation(state);
+  configuration.basePosition = model.getPosBaseRtWorldEwrtWorld(state);
+  configuration.baseOrientation.coeffs() = model.getQuatBaseRtWorldXyzw(state);
   configuration.baseOrientation.normalize();
   configuration.jointNames = model.modelSettings.mpcModelJointNames;
   configuration.jointPositions = model.getJointAngles(state);
@@ -83,8 +83,8 @@ PlanKnot knotOf(const MpcTrajectory& trajectory,
   const vector_t& input = trajectory.inputs[k];
   PlanKnot knot;
   knot.time = trajectory.times[k];
-  knot.base_position = model.getBasePosition(state);
-  Eigen::Vector4d orientation = model.getBaseOrientation(state);
+  knot.base_position = model.getPosBaseRtWorldEwrtWorld(state);
+  Eigen::Vector4d orientation = model.getQuatBaseRtWorldXyzw(state);
   orientation.normalize();
   knot.base_orientation_xyzw = orientation;
   knot.joint_positions = model.getJointAngles(state);
@@ -101,9 +101,9 @@ PlanKnot knotOf(const MpcTrajectory& trajectory,
     }
     config::MultiContactPlan::ContactWrench wrench;
     wrench.contact = contactSet.candidate(candidates[i]).name;
-    wrench.force = model.getContactForce(input, i);
+    wrench.force = model.getForceContactEwrtParam(input, i);
     if (contactSet.candidate(candidates[i]).kind == ContactKind::kSurface) {
-      wrench.torque = model.getContactMoment(input, i);
+      wrench.torque = model.getTorqueContactEwrtParam(input, i);
     }
     knot.contact_wrenches.push_back(std::move(wrench));
   }

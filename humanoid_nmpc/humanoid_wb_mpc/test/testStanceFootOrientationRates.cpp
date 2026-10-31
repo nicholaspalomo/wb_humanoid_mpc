@@ -472,7 +472,7 @@ AssembledLaw assembledLaw(const ModelSettings::FootConstraintConfig& gains,
 scalar_t groundHeightOf(const StanceFootModels& models) {
   return models.interface->getSwitchedModelReferenceManagerPtr()
       ->getSwingTrajectoryPlanner()
-      ->getZpositionConstraint(kFoot, kTime);
+      ->getDesPosFootRtWorldEwrtWorldZ(kFoot, kTime);
 }
 
 TEST(StanceFootOrientationRates,

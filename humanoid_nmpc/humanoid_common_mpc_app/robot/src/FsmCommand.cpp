@@ -38,7 +38,7 @@ namespace ocs2::humanoid {
 
 std::optional<FsmCommandKind> parseFsmCommand(absl::string_view command) {
   // LINT.IfChange(fsm_command_names)
-  if (command == control_mode::kZeroTorque || command == "DISABLE_TORQUES")
+  if (command == control_mode::kZeroJointTorque || command == "DISABLE_TORQUES")
     return FsmCommandKind::kZeroTorque;
   if (command == control_mode::kJointPd) return FsmCommandKind::kJointPd;
   if (command == control_mode::kGravityComp)
@@ -58,7 +58,7 @@ std::optional<FsmCommandKind> parseFsmCommand(absl::string_view command) {
 absl::string_view fsmCommandModeName(FsmCommandKind kind) {
   switch (kind) {
     case FsmCommandKind::kZeroTorque:
-      return control_mode::kZeroTorque;
+      return control_mode::kZeroJointTorque;
     case FsmCommandKind::kJointPd:
       return control_mode::kJointPd;
     case FsmCommandKind::kGravityComp:

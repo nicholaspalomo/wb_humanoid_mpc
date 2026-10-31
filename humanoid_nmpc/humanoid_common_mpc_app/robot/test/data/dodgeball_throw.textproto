@@ -5,19 +5,19 @@
 # the Python payload test, so a key renamed on either side of the wire fails a test on that side.
 azimuth_deg: 30.0
 elevation_deg: 15.0
-distance: 3.0
-speed: 9.0
+cmd_dist_ball_rt_base: 3.0
+cmd_speed_ball_rt_world: 9.0
 mass: 1.2
-spawn_offset {
+spawn_pos_ball_rt_base_ewrt_heading {
   x: 2.509549
   y: 1.448889
   z: 0.776457
 }
-launch_velocity {
+launch_linvel_ball_rt_world_ewrt_heading {
   x: -7.762142
   y: -4.481475
   z: -0.815798
 }
 flight_time: 0.323306
-launch_speed: 9.0
+launch_speed_ball_rt_world: 9.0
 impact_momentum: 11.771877

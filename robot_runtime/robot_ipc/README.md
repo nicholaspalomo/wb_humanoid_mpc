@@ -29,7 +29,7 @@ flowchart LR
   (Cyclone DDS's rule; `validateTopicName()`), so a DDS tool such as `ddsls` shows the bus's own names. Any process
   may publish any topic, and a process receives its own topics too. DDS discovery matches writers and readers, so
   processes start in any order and survive each other's restarts.
-- **Wire protocol**: every sample is one `robot_ipc::Envelope` (`idl/Envelope.idl`):
+- On the wire, every sample is one `robot_ipc::Envelope` (`idl/Envelope.idl`):
 
   ```idl
   @final struct Envelope {
@@ -44,16 +44,16 @@ flowchart LR
   (`:envelope_type_support`); the Python bus declares the same struct (`python/robot_ipc/envelope.py`) and packs the
   payload as one `bytes` object in the same XCDR encoding. The C++ and the Python bus interoperate on the wire
   (`:cross_language_test`).
-- **Protocol version**: a bus refuses a sample whose `protocol_version` is not its own (`kWireProtocolVersion` in
+- A bus refuses a sample whose `protocol_version` is not its own (`kWireProtocolVersion` in
   `WireProtocol.h`, `WIRE_PROTOCOL_VERSION` in Python), counts it as `rejected` and logs (rate-limited) which version
   the peer speaks, so that two checkouts that drifted apart say so instead of misparsing each other. Version 1 was the
   four-frame ZeroMQ framing that came before. Bump the version with every change of the envelope, in both languages at
   once (`LINT.IfChange(wire_protocol)`).
-- **Delivery**, per subscription: `kLatest` (`"latest"`) hands over only the newest sample of the topic each time the
+- Per subscription, `kLatest` (`"latest"`) hands over only the newest sample of the topic each time the
   IO thread drains the topic's DDS reader, and drops the older ones unparsed; `kAll` (`"all"`) hands over every sample
   in order. The reader keeps `latestDeliveryHistoryDepth` (4) or `allDeliveryHistoryDepth` (256) samples while the IO
   thread is busy.
-- **Order across topics**: a drain takes up to `maxMessagesPerDrain` samples across the topics and dispatches them in
+- Across topics, a drain takes up to `maxMessagesPerDrain` samples across the topics and dispatches them in
   the order they were written, by their source timestamps, which every bus makes strictly increasing across its topics:
   `kLatest`'s newest sample at the place it was written. Samples `A1 B1 C1 B2` of the topics A (`kAll`), B (`kLatest`)
   and C (`kAll`) taken in one drain reach the handlers as `A1 C1 B2`. DDS gives no such guarantee across drains: the
@@ -190,9 +190,9 @@ transport { max_message_size_bytes: 1400 socket_receive_buffer_bytes: 8388608 }
 | `transport` | `max_message_size_bytes` (MaxMessageSize, default 14720 B; 1400 B on Wi-Fi keeps a datagram in one frame), `socket_receive_buffer_bytes`, `socket_send_buffer_bytes`, `writer_unacked_bytes_limit` (8 MiB), `max_processes_per_host` (20), `lease_duration_ms` (3000), `simulated_send_loss_per_mille` (Internal/Test/XmitLossiness: tests and rehearsals only) |
 
 Both loaders parse it strictly: a syntax error, an unknown field (the retired `port` and `bind_host` of the ZeroMQ
-nodes included) or a value of the wrong type names the file, the line and the column; an invalid entry - a duplicate
-name, a wildcard host (`0.0.0.0` names no machine), a topic that is no DDS name, an unknown profile, a publisher that is
-no node, a domain whose ports would pass 65535 - names the entry.
+nodes included) or a value of the wrong type names the file, the line and the column; an invalid entry (a duplicate
+name, a wildcard host such as `0.0.0.0`, a topic that is no DDS name, an unknown profile, a publisher that is
+no node, or a domain whose ports would pass 65535) names the entry.
 
 **The Cyclone DDS configuration** is generated from the file (`DomainConfig.h`, `python/robot_ipc/domain_config.py`,
 the same text in both languages) and passed to `dds_create_domain()`: no XML file, and `CYCLONEDDS_URI` is never read

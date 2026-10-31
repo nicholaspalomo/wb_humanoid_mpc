@@ -192,8 +192,10 @@ class OcpQpHpipmSolver {
     scalar_t regPrim = kDefaultPrimalRegularization;
     int warmStart = 0;
     int predCorr = 1;
-    int hpipmMode = kHpipmModeBalance;  // hpipm_mode: 0 SPEED_ABS, 1 SPEED, 2
-                                        // BALANCE, 3 ROBUST
+    int hpipmMode =
+        kHpipmModeBalance;  // hpipm_mode: 0 SPEED_ABS, 1 SPEED, 2
+                            // BALANCE, 3 ROBUST  // NOLINT(claudisms): HPIPM
+                            // mode enumerator
   };
 
   OcpQpHpipmSolver();

@@ -43,13 +43,13 @@ The aspect does not propagate: `//...` already names every first-party target, a
 visited. For each `cc_library`, `cc_binary` and `cc_test` outside `lib/`, `tools/ifttt-lint/` and `testdata/` it runs
 one action per source file.
 
-- **Translation units.** Each `.cpp` is a translation unit. Its header filter shows the diagnostics of every first-party
+- Each `.cpp` is a translation unit. Its header filter shows the diagnostics of every first-party
   header (`FIRST_PARTY_HEADER_FILTER`) except the generated ones checked into the tree (`GENERATED_FILES`). Some checks
   locate a finding in a header from a `.cpp`'s context: `readability-identifier-naming` (at the declaration, with the
   fix-its of every use), `modernize-use-default-member-init` and `readability-inconsistent-declaration-parameter-name`.
-- **Headers.** Each header is a main file of its own (`-x c++-header`) and shows only its own diagnostics, which also
+- Each header is a main file of its own (`-x c++-header`) and shows only its own diagnostics, which also
   proves that it is self-contained.
-- **Generated code.** Generated `.pb.h` and `.nproto.h` files are inputs, never linted. Their generators are held to
+- Generated `.pb.h` and `.nproto.h` files are inputs, never linted. Their generators are held to
   the rules instead.
 
 The compile flags are the build's, with these changes:

@@ -82,7 +82,7 @@ absl::StatusOr<std::unique_ptr<ContactFeatureFunction>> ballFeatures(
     const AdVector3 center = state.head<kPositionDim>();
     const AdVector3 velocity = state.segment<kPositionDim>(kPositionDim);
     const AdVector3 force = input.head<kPositionDim>();
-    const ad_scalar_t weight(kBallMass * kGravitationalAcceleration);
+    const ad_scalar_t weight(kBallMass * kGravityMagnitude);
     const AdVector3 pad =
         center - ad_scalar_t(kBallRadius) * AdVector3::UnitZ();
     const AdVector3 normal = terrain.normal<ad_scalar_t>(pad);
@@ -102,7 +102,7 @@ absl::StatusOr<std::unique_ptr<ContactFeatureFunction>> ballFeatures(
         terrain.sphereDistance<ad_scalar_t>(center, ad_scalar_t(kBallRadius));
     features.segment<kPositionDim>(momentumRateRow(1)) =
         force / ad_scalar_t(kBallMass) -
-        ad_scalar_t(kGravitationalAcceleration) * AdVector3::UnitZ();
+        ad_scalar_t(kGravityMagnitude) * AdVector3::UnitZ();
     return features;
   };
   return ContactFeatureFunction::Create(
@@ -118,7 +118,7 @@ vector_t BallDynamics::computeFlowMap(scalar_t /*time*/,
   vector_t flow(kBallStateDim);
   flow.head<kPositionDim>() = state.tail<kPositionDim>();
   flow.tail<kPositionDim>() = input / kBallMass;
-  flow(kBallStateDim - 1) -= kGravitationalAcceleration;
+  flow(kBallStateDim - 1) -= kGravityMagnitude;
   return flow;
 }
 

@@ -36,8 +36,8 @@ namespace ocs2::humanoid {
 
 namespace {
 
-constexpr scalar_t kMinimumTwistNormSquared =
-    kMinimumTwistNorm * kMinimumTwistNorm;
+constexpr scalar_t kMinimumHeadingCoefficientsNormSquared =
+    kMinimumHeadingCoefficientsNorm * kMinimumHeadingCoefficientsNorm;
 
 /** The tilt tau = (tau_x, tau_y) and the swing's vector part s_xy: rotations
  * about the two horizontal axes. */
@@ -73,7 +73,8 @@ scalar_t wrapAngleDifference(scalar_t angle) {
  * that reads that coefficient, rather than being read as the identity.
  */
 bool isInsideNormalizationGuard(const vector4_t& xi) {
-  return xi.squaredNorm() <= kQuaternionNormGuard * kQuaternionNormGuard;
+  return xi.squaredNorm() <=
+         kUnitQuaternionNormGuard * kUnitQuaternionNormGuard;
 }
 
 /**
@@ -81,7 +82,7 @@ bool isInsideNormalizationGuard(const vector4_t& xi) {
  * w > 0, or w = 0 < z, of design decision D9. It flips with (z, w), so sign *
  * (z, w) is the same pair for xi and -xi, bit for bit. 1 at z = w = 0.
  */
-scalar_t twistHemisphereSign(scalar_t z, scalar_t w) {
+scalar_t headingHemisphereSign(scalar_t z, scalar_t w) {
   return (w < 0.0 || (w == 0.0 && z < 0.0)) ? -1.0 : 1.0;
 }
 
@@ -91,7 +92,7 @@ struct TwistSwingSplit {
   /** xi_hat = (x, y, z, w). */
   vector4_t unitQuaternion;
   /** rho = |(z, w)| of xi_hat. */
-  scalar_t twistNorm = 0.0;
+  scalar_t headingCoefficientsNorm = 0.0;
   /** q_t = (0, 0, headingSin, headingCos), the heading quaternion, a unit
    * quaternion in the hemisphere of xi_hat. */
   scalar_t headingCos = 1.0;
@@ -101,7 +102,7 @@ struct TwistSwingSplit {
   scalar_t swingW = 1.0;
 };
 
-TwistSwingSplit splitTwistSwing(const vector4_t& xi) {
+TwistSwingSplit twistSwingSplitFromQuaternion(const vector4_t& xi) {
   TwistSwingSplit split;
   // Inside the guard the safe normalization leaves xi unchanged, and xi_hat =
   // xi is not a unit quaternion: its swing would have n and rho of the order of
@@ -117,17 +118,17 @@ TwistSwingSplit splitTwistSwing(const vector4_t& xi) {
   const scalar_t y = split.unitQuaternion(kQuaternionYIndex);
   const scalar_t z = split.unitQuaternion(kQuaternionZIndex);
   const scalar_t w = split.unitQuaternion(kQuaternionWIndex);
-  split.twistNorm = std::sqrt(z * z + w * w);
-  if (split.twistNorm > kMinimumTwistNorm) {
-    split.headingCos = w / split.twistNorm;
-    split.headingSin = z / split.twistNorm;
+  split.headingCoefficientsNorm = std::sqrt(z * z + w * w);
+  if (split.headingCoefficientsNorm > kMinimumHeadingCoefficientsNorm) {
+    split.headingCos = w / split.headingCoefficientsNorm;
+    split.headingSin = z / split.headingCoefficientsNorm;
   } else if (z != 0.0 || w != 0.0) {
     // Upside down: the same unit quaternion from the angle, without dividing by
     // a vanishing rho. The angle is taken of (z, w) brought to the hemisphere w
     // > 0 (or w = 0 < z) and the sign is put back afterwards, so that -xi gives
     // exactly -q_t and therefore exactly the same swing; atan2(z, w) of the raw
     // coefficients would differ between xi and -xi by pi only to round-off.
-    const scalar_t hemisphere = twistHemisphereSign(z, w);
+    const scalar_t hemisphere = headingHemisphereSign(z, w);
     const scalar_t halfHeading = std::atan2(hemisphere * z, hemisphere * w);
     split.headingCos = hemisphere * std::cos(halfHeading);
     split.headingSin = hemisphere * std::sin(halfHeading);
@@ -151,7 +152,7 @@ scalar_t tiltScale(scalar_t swingVectorNorm, scalar_t swingW) {
   if (swingVectorNorm >= kTiltSeriesThreshold) {
     return 2.0 * std::atan2(swingVectorNorm, swingW) / swingVectorNorm;
   }
-  const scalar_t rho = std::max(swingW, kMinimumTwistNorm);
+  const scalar_t rho = std::max(swingW, kMinimumHeadingCoefficientsNorm);
   return (2.0 / rho) * (1.0 - swingVectorNorm * swingVectorNorm /
                                   (kTiltSeriesCubicDivisor * rho * rho));
 }
@@ -162,8 +163,8 @@ vector2_t tiltFromSplit(const TwistSwingSplit& split) {
 
 /** The heading psi_h in (-pi, pi], from the twist coefficients brought to the
  * hemisphere z_w >= 0. */
-scalar_t headingFromTwist(scalar_t z, scalar_t w) {
-  if (twistHemisphereSign(z, w) < 0.0) {
+scalar_t headingFromCoefficients(scalar_t z, scalar_t w) {
+  if (headingHemisphereSign(z, w) < 0.0) {
     z = -z;
     w = -w;
   }
@@ -185,7 +186,8 @@ headingTiltAmbientGradient(const TwistSwingSplit& split) {
   const scalar_t y = split.unitQuaternion(kQuaternionYIndex);
   const scalar_t z = split.unitQuaternion(kQuaternionZIndex);
   const scalar_t w = split.unitQuaternion(kQuaternionWIndex);
-  const scalar_t rho = std::max(split.twistNorm, kMinimumTwistNorm);
+  const scalar_t rho =
+      std::max(split.headingCoefficientsNorm, kMinimumHeadingCoefficientsNorm);
 
   Eigen::Matrix<scalar_t, kRotationTangentDim, kQuaternionCoefficients>
       gradient;
@@ -199,11 +201,12 @@ headingTiltAmbientGradient(const TwistSwingSplit& split) {
   numeratorGradient <<  w, z,  y, x,
                        -z, w, -x, y;
   // clang-format on
-  const Eigen::Matrix<scalar_t, 1, kQuaternionCoefficients> twistNormGradient(
-      0.0, 0.0, z / rho, w / rho);
+  const Eigen::Matrix<scalar_t, 1, kQuaternionCoefficients>
+      headingCoefficientsNormGradient(0.0, 0.0, z / rho, w / rho);
   const vector2_t& swingXy = split.swingXy;
   const Eigen::Matrix<scalar_t, kTiltDim, kQuaternionCoefficients>
-      swingGradient = (numeratorGradient - swingXy * twistNormGradient) / rho;
+      swingGradient =
+          (numeratorGradient - swingXy * headingCoefficientsNormGradient) / rho;
 
   // tau = kappa(n, rho) s_xy: d tau = kappa d s_xy + s_xy ((d kappa / dn) / n
   // s_xy^T d s_xy + d kappa / d rho  d rho).
@@ -216,20 +219,22 @@ headingTiltAmbientGradient(const TwistSwingSplit& split) {
     kappaNormDerivativeOverNorm =
         (2.0 * swingW / (squaredNorm + swingW * swingW) - kappa) / squaredNorm;
   } else {
-    const scalar_t seriesRho = std::max(swingW, kMinimumTwistNorm);
+    const scalar_t seriesRho =
+        std::max(swingW, kMinimumHeadingCoefficientsNorm);
     kappaNormDerivativeOverNorm =
         -kTiltSeriesSlopeNumerator /
         (kTiltSeriesCubicDivisor * seriesRho * seriesRho * seriesRho);
   }
   const scalar_t swingSquaredNorm =
       std::max(swingVectorNorm * swingVectorNorm + swingW * swingW,
-               kMinimumTwistNormSquared);
-  const scalar_t kappaTwistDerivative = -2.0 / swingSquaredNorm;
+               kMinimumHeadingCoefficientsNormSquared);
+  const scalar_t kappaRhoDerivative = -2.0 / swingSquaredNorm;
   const Eigen::Matrix<scalar_t, kTiltDim, kQuaternionCoefficients>
-      tiltGradient = kappa * swingGradient +
-                     swingXy * (kappaNormDerivativeOverNorm *
-                                    swingXy.transpose() * swingGradient +
-                                kappaTwistDerivative * twistNormGradient);
+      tiltGradient =
+          kappa * swingGradient +
+          swingXy * (kappaNormDerivativeOverNorm * swingXy.transpose() *
+                         swingGradient +
+                     kappaRhoDerivative * headingCoefficientsNormGradient);
 
   gradient.row(kPitchRow) = tiltGradient.row(kYAxisIndex);  // pitch: tau_y
   gradient.row(kRollRow) = tiltGradient.row(kXAxisIndex);   // roll: tau_x
@@ -247,9 +252,8 @@ vector3_t headingTiltResidualFromSplit(const vector4_t& xi,
                                        const vector4_t& xiReference) {
   const vector2_t tilt = tiltFromSplit(split);
   const vector2_t tiltReference = tiltVector(xiReference);
-  return vector3_t(
-      wrapAngleDifference(twistHeading(xi) - twistHeading(xiReference)),
-      tilt(1) - tiltReference(1), tilt(0) - tiltReference(0));
+  return vector3_t(wrapAngleDifference(yawOf(xi) - yawOf(xiReference)),
+                   tilt(1) - tiltReference(1), tilt(0) - tiltReference(0));
 }
 
 }  // namespace
@@ -275,40 +279,41 @@ configurationTangentLift(const vector4_t& xi) {
   return quaternionTangentMapPseudoInverse<scalar_t>(xi);
 }
 
-scalar_t twistHeading(const vector4_t& xi) {
-  // The zero quaternion's heading inside the guard, as splitTwistSwing() reads
-  // it. Above it atan2 is invariant to the scale of its arguments, so the raw
-  // coefficients serve.
+scalar_t yawOf(const vector4_t& xi) {
+  // The zero quaternion's heading inside the guard, as
+  // twistSwingSplitFromQuaternion() reads it. Above it atan2 is invariant to
+  // the scale of its arguments, so the raw coefficients serve.
   if (isInsideNormalizationGuard(xi)) return 0.0;
-  return headingFromTwist(xi(kQuaternionZIndex), xi(kQuaternionWIndex));
+  return headingFromCoefficients(xi(kQuaternionZIndex), xi(kQuaternionWIndex));
 }
 
-vector4_t headingQuaternion(const vector4_t& xi) {
-  const TwistSwingSplit split = splitTwistSwing(xi);
+vector4_t verticalTwistFromQuaternion(const vector4_t& xi) {
+  const TwistSwingSplit split = twistSwingSplitFromQuaternion(xi);
   return vector4_t(0.0, 0.0, split.headingSin, split.headingCos);
 }
 
-vector4_t swingQuaternion(const vector4_t& xi) {
-  const TwistSwingSplit split = splitTwistSwing(xi);
+vector4_t swingFromQuaternion(const vector4_t& xi) {
+  const TwistSwingSplit split = twistSwingSplitFromQuaternion(xi);
   return vector4_t(split.swingXy(0), split.swingXy(1), 0.0, split.swingW);
 }
 
 vector2_t tiltVector(const vector4_t& xi) {
-  return tiltFromSplit(splitTwistSwing(xi));
+  return tiltFromSplit(twistSwingSplitFromQuaternion(xi));
 }
 
 vector3_t headingTiltResidual(const vector4_t& xi,
                               const vector4_t& xiReference) {
-  return headingTiltResidualFromSplit(xi, splitTwistSwing(xi), xiReference);
+  return headingTiltResidualFromSplit(xi, twistSwingSplitFromQuaternion(xi),
+                                      xiReference);
 }
 
 matrix3_t headingTiltJacobian(const vector4_t& xi) {
-  return headingTiltJacobianFromSplit(splitTwistSwing(xi));
+  return headingTiltJacobianFromSplit(twistSwingSplitFromQuaternion(xi));
 }
 
 HeadingTiltError headingTiltError(const vector4_t& xi,
                                   const vector4_t& xiReference) {
-  const TwistSwingSplit split = splitTwistSwing(xi);
+  const TwistSwingSplit split = twistSwingSplitFromQuaternion(xi);
   return HeadingTiltError{
       .residual = headingTiltResidualFromSplit(xi, split, xiReference),
       .jacobianBodyTangent = headingTiltJacobianFromSplit(split),

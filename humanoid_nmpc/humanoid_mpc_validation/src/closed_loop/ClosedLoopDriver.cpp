@@ -82,7 +82,7 @@ InitialStateGap initialStateGapOf(const vector_t& delta,
                                   const StateManifold& stateManifold) {
   // A tangent vector on the manifold, whose rotation blocks the manifold
   // measures.
-  return {.rotation = stateManifold.getMaximumRotationAngle(delta),
+  return {.rotation = stateManifold.getMaximumTangentAngle(delta),
           .norm = delta.norm()};
 }
 
@@ -126,10 +126,10 @@ void ClosedLoopDriver::setGuiVelocityCommand(const Eigen::Vector4d& message) {
   // The message the GUI publishes, applied as the MPC node applies a received
   // one.
   humanoid_mpc_msgs::WalkingVelocityCommand proto;
-  proto.set_linear_velocity_x(message(0));
-  proto.set_linear_velocity_y(message(1));
-  proto.set_desired_pelvis_height(message(2));
-  proto.set_angular_velocity_z(message(3));
+  proto.set_cmd_linvel_base_rt_world_ewrt_heading_x(message(0));
+  proto.set_cmd_linvel_base_rt_world_ewrt_heading_y(message(1));
+  proto.set_cmd_pos_base_rt_world_ewrt_world_z(message(2));
+  proto.set_cmd_angvel_base_rt_world_ewrt_world_z(message(3));
   const absl::Status applied =
       node::applyWalkingVelocityCommand(proto, *motionManager_);
   if (!applied.ok())
@@ -438,7 +438,7 @@ absl::Status ClosedLoopDriver::initializeCommandPath(
           [calculatorPtr](const vector4_t& velocityTarget, scalar_t initTime,
                           scalar_t /*finalTime*/, const vector_t& initState,
                           const BasePlanarMotion& measuredMotion) {
-            return calculatorPtr->commandedVelocityToTargetTrajectories(
+            return calculatorPtr->velocityCommandToTargetTrajectories(
                 velocityTarget, initTime, initState, measuredMotion);
           };
   ASSIGN_OR_RETURN(

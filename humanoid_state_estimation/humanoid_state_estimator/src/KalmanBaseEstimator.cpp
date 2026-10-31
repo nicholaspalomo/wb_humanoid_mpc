@@ -48,25 +48,28 @@ namespace ocs2::humanoid::estimation {
 namespace {
 
 constexpr Eigen::Index kDim = 3;
-constexpr char kBasePosition[] = "base_position";
-constexpr char kBaseVelocity[] = "base_velocity";
-constexpr char kImuAcceleration[] = "imu_acceleration";
+/** The names of the filter's base channels and of its input, the world
+ * acceleration a = R f + g. */
+constexpr char kStatePosBaseRtWorldEwrtWorld[] = "base_position";
+constexpr char kStateLinvelBaseRtWorldEwrtWorld[] = "base_velocity";
+constexpr char kInputLinaccBaseRtWorldEwrtWorld[] = "imu_acceleration";
 /** The state channels in their order: the base position, the base velocity,
  * then one per contact point. */
-constexpr size_t kBasePositionChannel = 0;
-constexpr size_t kBaseVelocityChannel = 1;
+constexpr size_t kChannelPosBaseRtWorldEwrtWorld = 0;
+constexpr size_t kChannelLinvelBaseRtWorldEwrtWorld = 1;
 constexpr size_t kFirstContactChannel = 2;
 /** The measurements of one stance contact point: relative position (3),
  * velocity (3) and height (1). */
 constexpr Eigen::Index kMeasurementRowsPerContact = 7;
-constexpr size_t kRelativePositionMeasurement = 0;
-constexpr size_t kVelocityMeasurement = 1;
-constexpr size_t kHeightMeasurement = 2;
+/** Their slots in ContactMeasurements::measurements. */
+constexpr size_t kSlotMeasPosContactRtBaseEwrtWorld = 0;
+constexpr size_t kSlotMeasLinvelBaseRtWorldEwrtWorld = 1;
+constexpr size_t kSlotMeasPosContactRtWorldEwrtWorldZ = 2;
 /** The standard deviations reset() starts the estimate with: the base [m],
  * [m/s], and its contact points [m]. */
-constexpr scalar_t kInitialPositionStd = 0.01;
-constexpr scalar_t kInitialVelocityStd = 0.1;
-constexpr scalar_t kInitialContactStd = 0.01;
+constexpr scalar_t kInitialPositionNoiseStd = 0.01;
+constexpr scalar_t kInitialVelocityNoiseStd = 0.1;
+constexpr scalar_t kInitialContactNoiseStd = 0.01;
 
 matrix_t identity() {
   return matrix_t::Identity(kDim, kDim);
@@ -132,26 +135,28 @@ KalmanBaseEstimator::KalmanBaseEstimator(
 absl::Status KalmanBaseEstimator::build() {
   const size_t numContacts = kinematics_->numContacts();
   const matrix_t eye = identity();
-  initialStates_.push_back(
-      {.name = kBasePosition,
-       .state = vector_t::Zero(kDim),
-       .stateCovariance = kInitialPositionStd * kInitialPositionStd * eye});
-  initialStates_.push_back(
-      {.name = kBaseVelocity,
-       .state = vector_t::Zero(kDim),
-       .stateCovariance = kInitialVelocityStd * kInitialVelocityStd * eye});
+  initialStates_.push_back({.name = kStatePosBaseRtWorldEwrtWorld,
+                            .state = vector_t::Zero(kDim),
+                            .stateCovariance = kInitialPositionNoiseStd *
+                                               kInitialPositionNoiseStd * eye});
+  initialStates_.push_back({.name = kStateLinvelBaseRtWorldEwrtWorld,
+                            .state = vector_t::Zero(kDim),
+                            .stateCovariance = kInitialVelocityNoiseStd *
+                                               kInitialVelocityNoiseStd * eye});
 
   // The blocks that depend on dt are written by update(); their values here
   // only size them.
-  processModel_.push_back({.stateName = kBasePosition,
-                           .stateTransition = {{kBaseVelocity, eye}},
-                           .controlInputMatrix = {{kImuAcceleration, eye}},
-                           .processNoiseCovariance = eye});
-  processModel_.push_back({.stateName = kBaseVelocity,
-                           .controlInputMatrix = {{kImuAcceleration, eye}},
-                           .processNoiseCovariance = eye});
+  processModel_.push_back(
+      {.stateName = kStatePosBaseRtWorldEwrtWorld,
+       .stateTransition = {{kStateLinvelBaseRtWorldEwrtWorld, eye}},
+       .controlInputMatrix = {{kInputLinaccBaseRtWorldEwrtWorld, eye}},
+       .processNoiseCovariance = eye});
+  processModel_.push_back(
+      {.stateName = kStateLinvelBaseRtWorldEwrtWorld,
+       .controlInputMatrix = {{kInputLinaccBaseRtWorldEwrtWorld, eye}},
+       .processNoiseCovariance = eye});
   inputs_.push_back(
-      {.name = kImuAcceleration,
+      {.name = kInputLinaccBaseRtWorldEwrtWorld,
        .input = vector_t::Zero(kDim),
        .inputNoiseCovariance =
            config_.imuAccelerationNoise * config_.imuAccelerationNoise * eye});
@@ -163,7 +168,8 @@ absl::Status KalmanBaseEstimator::build() {
     initialStates_.push_back(
         {.name = state,
          .state = vector_t::Zero(kDim),
-         .stateCovariance = kInitialContactStd * kInitialContactStd * eye});
+         .stateCovariance =
+             kInitialContactNoiseStd * kInitialContactNoiseStd * eye});
     processModel_.push_back(
         {.stateName = state, .processNoiseCovariance = eye});
     ContactMeasurements measurements;
@@ -171,13 +177,14 @@ absl::Status KalmanBaseEstimator::build() {
     measurements.measurements.push_back(
         {.name = absl::StrCat("contact_", contact, "_relative_position"),
          .measurement = vector_t::Zero(kDim),
-         .measurementModel = {{state, eye}, {kBasePosition, -eye}},
+         .measurementModel = {{state, eye},
+                              {kStatePosBaseRtWorldEwrtWorld, -eye}},
          .measurementNoiseCovariance = config_.kinematicPositionNoise *
                                        config_.kinematicPositionNoise * eye});
     measurements.measurements.push_back(
         {.name = absl::StrCat("contact_", contact, "_velocity"),
          .measurement = vector_t::Zero(kDim),
-         .measurementModel = {{kBaseVelocity, eye}},
+         .measurementModel = {{kStateLinvelBaseRtWorldEwrtWorld, eye}},
          .measurementNoiseCovariance = config_.kinematicVelocityNoise *
                                        config_.kinematicVelocityNoise * eye});
     measurements.measurements.push_back(
@@ -190,15 +197,18 @@ absl::Status KalmanBaseEstimator::build() {
   }
 
   // The maps are final from here on, so the pointers into them stay valid.
-  positionVelocityBlock_ = &processModel_[kBasePositionChannel]
-                                .stateTransition.find(kBaseVelocity)
-                                ->second;
-  positionInputBlock_ = &processModel_[kBasePositionChannel]
-                             .controlInputMatrix.find(kImuAcceleration)
-                             ->second;
-  velocityInputBlock_ = &processModel_[kBaseVelocityChannel]
-                             .controlInputMatrix.find(kImuAcceleration)
-                             ->second;
+  transitionDtBlock_ =
+      &processModel_[kChannelPosBaseRtWorldEwrtWorld]
+           .stateTransition.find(kStateLinvelBaseRtWorldEwrtWorld)
+           ->second;
+  inputHalfDtSquaredBlock_ =
+      &processModel_[kChannelPosBaseRtWorldEwrtWorld]
+           .controlInputMatrix.find(kInputLinaccBaseRtWorldEwrtWorld)
+           ->second;
+  inputDtBlock_ =
+      &processModel_[kChannelLinvelBaseRtWorldEwrtWorld]
+           .controlInputMatrix.find(kInputLinaccBaseRtWorldEwrtWorld)
+           ->second;
 
   RETURN_IF_ERROR(filter_.reset(initialStates_));
   RETURN_IF_ERROR(filter_.reserve(
@@ -206,18 +216,23 @@ absl::Status KalmanBaseEstimator::build() {
   return readEstimate();
 }
 
-absl::Status KalmanBaseEstimator::reset(const vector3_t& basePosition,
-                                        const vector3_t& baseLinearVelocity,
-                                        const quaternion_t& orientation,
-                                        const vector_t& jointPositions,
-                                        const vector_t& jointVelocities) {
+absl::Status KalmanBaseEstimator::reset(
+    const vector3_t& posBaseRtWorldEwrtWorld,
+    const vector3_t& linvelBaseRtWorldEwrtWorld,
+    const quaternion_t& quatBaseRtWorld,
+    const vector_t& jointPositions,
+    const vector_t& jointVelocities) {
   kinematics_->update(jointPositions, jointVelocities);
-  const matrix3_t rotation = orientation.normalized().toRotationMatrix();
-  initialStates_[kBasePositionChannel].state = basePosition;
-  initialStates_[kBaseVelocityChannel].state = baseLinearVelocity;
+  const matrix3_t rotmatBaseRtWorld =
+      quatBaseRtWorld.normalized().toRotationMatrix();
+  initialStates_[kChannelPosBaseRtWorldEwrtWorld].state =
+      posBaseRtWorldEwrtWorld;
+  initialStates_[kChannelLinvelBaseRtWorldEwrtWorld].state =
+      linvelBaseRtWorldEwrtWorld;
   for (size_t contact = 0; contact < contacts_.size(); ++contact) {
     initialStates_[kFirstContactChannel + contact].state =
-        basePosition + rotation * kinematics_->contactPositionInBase(contact);
+        posBaseRtWorldEwrtWorld +
+        rotmatBaseRtWorld * kinematics_->posContactRtBaseEwrtBase(contact);
   }
   RETURN_IF_ERROR(filter_.resetEstimate(initialStates_));
   return readEstimate();
@@ -225,9 +240,9 @@ absl::Status KalmanBaseEstimator::reset(const vector3_t& basePosition,
 
 absl::Status KalmanBaseEstimator::update(
     scalar_t dt,
-    const quaternion_t& orientation,
-    const vector3_t& angularVelocityInBase,
-    const vector3_t& imuLinearAccelerationInBase,
+    const quaternion_t& quatBaseRtWorld,
+    const vector3_t& angvelBaseRtWorldEwrtBase,
+    const vector3_t& specforceBaseRtWorldEwrtBase,
     const vector_t& jointPositions,
     const vector_t& jointVelocities,
     const std::vector<bool>& contactFlags) {
@@ -248,22 +263,25 @@ absl::Status KalmanBaseEstimator::update(
                      jointPositions.size(), " and ", jointVelocities.size(),
                      " entries for ", kinematics_->numJoints(), " joints"));
   }
-  const matrix3_t rotation = orientation.normalized().toRotationMatrix();
+  const matrix3_t rotmatBaseRtWorld =
+      quatBaseRtWorld.normalized().toRotationMatrix();
 
   // The prediction: the world acceleration a = R f + g drives p and v.
-  inputs_[0].input =
-      rotation * imuLinearAccelerationInBase + kinematics_->gravity();
-  positionVelocityBlock_->setIdentity();
-  *positionVelocityBlock_ *= dt;
-  positionInputBlock_->setIdentity();
-  *positionInputBlock_ *= 0.5 * dt * dt;
-  velocityInputBlock_->setIdentity();
-  *velocityInputBlock_ *= dt;
-  processModel_[kBasePositionChannel].processNoiseCovariance.setIdentity();
-  processModel_[kBasePositionChannel].processNoiseCovariance *=
+  inputs_[0].input = rotmatBaseRtWorld * specforceBaseRtWorldEwrtBase +
+                     kinematics_->gravityEwrtWorld();
+  transitionDtBlock_->setIdentity();
+  *transitionDtBlock_ *= dt;
+  inputHalfDtSquaredBlock_->setIdentity();
+  *inputHalfDtSquaredBlock_ *= 0.5 * dt * dt;
+  inputDtBlock_->setIdentity();
+  *inputDtBlock_ *= dt;
+  processModel_[kChannelPosBaseRtWorldEwrtWorld]
+      .processNoiseCovariance.setIdentity();
+  processModel_[kChannelPosBaseRtWorldEwrtWorld].processNoiseCovariance *=
       config_.basePositionRandomWalk * config_.basePositionRandomWalk * dt;
-  processModel_[kBaseVelocityChannel].processNoiseCovariance.setIdentity();
-  processModel_[kBaseVelocityChannel].processNoiseCovariance *=
+  processModel_[kChannelLinvelBaseRtWorldEwrtWorld]
+      .processNoiseCovariance.setIdentity();
+  processModel_[kChannelLinvelBaseRtWorldEwrtWorld].processNoiseCovariance *=
       config_.baseVelocityRandomWalk * config_.baseVelocityRandomWalk * dt;
   for (size_t contact = 0; contact < contacts_.size(); ++contact) {
     const scalar_t randomWalk = contactFlags[contact]
@@ -280,18 +298,20 @@ absl::Status KalmanBaseEstimator::update(
   kinematics_->update(jointPositions, jointVelocities);
   for (size_t contact = 0; contact < contacts_.size(); ++contact) {
     if (!contactFlags[contact]) continue;
-    const vector3_t& positionInBase =
-        kinematics_->contactPositionInBase(contact);
-    const vector3_t& velocityInBase =
-        kinematics_->contactVelocityInBase(contact);
+    const vector3_t& posContactRtBaseEwrtBase =
+        kinematics_->posContactRtBaseEwrtBase(contact);
+    const vector3_t& linvelContactRtBaseEwrtBase =
+        kinematics_->linvelContactRtBaseEwrtBase(contact);
     std::vector<KalmanFilterMeasurement>& measurements =
         contacts_[contact].measurements;
-    measurements[kRelativePositionMeasurement].measurement =
-        rotation * positionInBase;
-    measurements[kVelocityMeasurement].measurement =
-        -(rotation *
-          (angularVelocityInBase.cross(positionInBase) + velocityInBase));
-    measurements[kHeightMeasurement].measurement(0) = config_.contactHeight;
+    measurements[kSlotMeasPosContactRtBaseEwrtWorld].measurement =
+        rotmatBaseRtWorld * posContactRtBaseEwrtBase;
+    measurements[kSlotMeasLinvelBaseRtWorldEwrtWorld].measurement =
+        -(rotmatBaseRtWorld *
+          (angvelBaseRtWorldEwrtBase.cross(posContactRtBaseEwrtBase) +
+           linvelContactRtBaseEwrtBase));
+    measurements[kSlotMeasPosContactRtWorldEwrtWorldZ].measurement(0) =
+        config_.contactHeight;
     absl::Status corrected = filter_.correct(measurements);
     if (!corrected.ok()) {
       RETURN_IF_ERROR(readEstimate());
@@ -302,14 +322,16 @@ absl::Status KalmanBaseEstimator::update(
 }
 
 absl::Status KalmanBaseEstimator::readEstimate() {
-  RETURN_IF_ERROR(filter_.getState(kBasePosition, positionEstimate_));
-  RETURN_IF_ERROR(filter_.getState(kBaseVelocity, velocityEstimate_));
-  basePosition_ = positionEstimate_.state;
-  baseLinearVelocity_ = velocityEstimate_.state;
+  RETURN_IF_ERROR(filter_.getState(kStatePosBaseRtWorldEwrtWorld,
+                                   filterStatePosBaseRtWorldEwrtWorld_));
+  RETURN_IF_ERROR(filter_.getState(kStateLinvelBaseRtWorldEwrtWorld,
+                                   filterStateLinvelBaseRtWorldEwrtWorld_));
+  posBaseRtWorldEwrtWorld_ = filterStatePosBaseRtWorldEwrtWorld_.state;
+  linvelBaseRtWorldEwrtWorld_ = filterStateLinvelBaseRtWorldEwrtWorld_.state;
   return absl::OkStatus();
 }
 
-absl::StatusOr<vector3_t> KalmanBaseEstimator::contactPosition(
+absl::StatusOr<vector3_t> KalmanBaseEstimator::posContactRtWorldEwrtWorld(
     size_t contact) const {
   if (contact >= contacts_.size()) {
     return absl::OutOfRangeError(

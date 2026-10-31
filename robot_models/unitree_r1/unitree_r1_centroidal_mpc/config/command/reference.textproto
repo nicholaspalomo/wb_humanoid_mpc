@@ -1,12 +1,12 @@
 # proto-file: humanoid_nmpc/humanoid_mpc_config/reference_file.proto
 # proto-message: humanoid_mpc_config.ReferenceFile
-target_displacement_velocity: 0.5
-target_rotation_velocity: 0.5
+ref_speed_base_rt_world: 0.5
+ref_rate_yaw_base_rt_world: 0.5
 
-max_displacement_velocity_x: 2.0
-max_displacement_velocity_y: 1.0
-max_delta_pelvis_height: 0.3
-max_rotation_velocity: 1.0
+cmd_max_linvel_base_rt_world_ewrt_heading_x: 2.0
+cmd_max_linvel_base_rt_world_ewrt_heading_y: 1.0
+cmd_max_err_pos_base_rt_world_ewrt_world_z: 0.3
+cmd_max_angvel_base_rt_world_ewrt_world_z: 1.0
 # First-order low-pass filter on the operator's velocity command, run on the solver time ahead of the acceleration
 # ramps: break frequency f_c [Hz], time constant 1 / (2 pi f_c). 0 switches it off and the command passes through
 # unchanged, which is what every robot has effectively run so far: the "5 Hz" filter this key replaces never updated
@@ -20,7 +20,7 @@ target_joint_state_interpolation_time_constant: 0.5
 # hip, knee and ankle pitch below, with the ankles leveling the soles: the URDF rolls the hip pitch joint's frame by 25
 # degrees, so ankle pitch = hip pitch = -knee / 2 left each sole pitched by 0.79 and rolled by 0.30 degrees and its
 # contact frame 6.2 mm above the ground (robot_models/tests/test_default_stance.py).
-default_base_height: 0.7337
+nom_pos_base_rt_world_ewrt_world_z: 0.7337
 default_joint_state { joint: "left_hip_pitch_joint" value: -0.15 }
 default_joint_state { joint: "left_hip_roll_joint" value: 0.0 }
 default_joint_state { joint: "left_hip_yaw_joint" value: 0.0 }

@@ -259,7 +259,7 @@ constexpr std::array<Coefficient<ImpulseScalingBlock, ImpulseScalingParameters>,
          .parameter = &ImpulseScalingParameters::maximumForceRatio},
     }};
 
-// maximum_force is optional (optionalPositive()).
+// max_force_com_ewrt_world_xy is optional (optionalPositive()).
 constexpr std::array<Coefficient<CentripetalAccelerationBlock,
                                  CentripetalAccelerationParameters>,
                      2>
@@ -350,9 +350,10 @@ absl::StatusOr<LocomotionHeuristicConfig> locomotionHeuristicConfigFromConfig(
   // (CentripetalAccelerationParameters::maximumForce 0).
   ASSIGN_OR_RETURN(
       heuristics.centripetalAcceleration.maximumForce,
-      optionalPositive(heuristic::kCentripetalAcceleration, "maximum_force",
-                       config.centripetal_acceleration.maximum_force,
-                       /*absent=*/0.0));
+      optionalPositive(
+          heuristic::kCentripetalAcceleration, "max_force_com_ewrt_world_xy",
+          config.centripetal_acceleration.max_force_com_ewrt_world_xy,
+          /*absent=*/0.0));
   RETURN_IF_ERROR(heuristics.validate());
   return heuristics;
 }

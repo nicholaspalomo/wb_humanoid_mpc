@@ -270,10 +270,10 @@ humanoid_mpc_msgs::WalkingVelocityCommand velocityCommand(double vx,
                                                           double height,
                                                           double yawRate) {
   humanoid_mpc_msgs::WalkingVelocityCommand message;
-  message.set_linear_velocity_x(vx);
-  message.set_linear_velocity_y(vy);
-  message.set_desired_pelvis_height(height);
-  message.set_angular_velocity_z(yawRate);
+  message.set_cmd_linvel_base_rt_world_ewrt_heading_x(vx);
+  message.set_cmd_linvel_base_rt_world_ewrt_heading_y(vy);
+  message.set_cmd_pos_base_rt_world_ewrt_world_z(height);
+  message.set_cmd_angvel_base_rt_world_ewrt_world_z(yawRate);
   return message;
 }
 
@@ -354,8 +354,9 @@ TEST(MpcNodeRuntime,
   ASSERT_TRUE(harness.create().ok());
   const ReferenceSettings limits =
       commandLimits(harness.stack().referenceFile());
-  const scalar_t maxVelocityX = limits.maxDisplacementVelocityX;
-  const scalar_t maxRotationVelocity = limits.maxRotationVelocity;
+  const scalar_t maxVelocityX = limits.cmdMaxLinvelBaseRtWorldEwrtHeadingX;
+  const scalar_t cmdMaxAngvelBaseRtWorldEwrtWorldZ =
+      limits.cmdMaxAngvelBaseRtWorldEwrtWorldZ;
 
   ProceduralMpcMotionManager& motionManager = harness.stack().motionManager();
   ASSERT_TRUE(harness.sendAsOperator(
@@ -364,22 +365,27 @@ TEST(MpcNodeRuntime,
                       /*yawRate=*/-0.25),
       [&]() {
         return motionManager.getScaledWalkingVelocityCommand()
-                   .linear_velocity_x != 0.0;
+                   .cmd_linvel_base_rt_world_ewrt_heading_x != 0.0;
       }));
   const WalkingVelocityCommand scaled =
       motionManager.getScaledWalkingVelocityCommand();
-  EXPECT_DOUBLE_EQ(scaled.linear_velocity_x, 0.5 * maxVelocityX);
-  EXPECT_EQ(scaled.linear_velocity_y, 0.0);
-  EXPECT_DOUBLE_EQ(scaled.angular_velocity_z, -0.25 * maxRotationVelocity);
+  EXPECT_DOUBLE_EQ(scaled.cmd_linvel_base_rt_world_ewrt_heading_x,
+                   0.5 * maxVelocityX);
+  EXPECT_EQ(scaled.cmd_linvel_base_rt_world_ewrt_heading_y, 0.0);
+  EXPECT_DOUBLE_EQ(scaled.cmd_angvel_base_rt_world_ewrt_world_z,
+                   -0.25 * cmdMaxAngvelBaseRtWorldEwrtWorldZ);
 
   // The annotations of the next policy carry the scaled command the solve
   // started from.
   const std::optional<humanoid_mpc_msgs::MpcPolicy> policy =
       harness.solve(harness.observation(/*time=*/2.0, /*sequence=*/1));
   if (!policy.has_value()) FAIL() << "no policy";
-  EXPECT_EQ(policy->annotations().scaled_velocity_x(),
-            scaled.linear_velocity_x);
-  EXPECT_EQ(policy->annotations().scaled_yaw_rate(), scaled.angular_velocity_z);
+  EXPECT_EQ(
+      policy->annotations().scaled_cmd_linvel_base_rt_world_ewrt_heading_x(),
+      scaled.cmd_linvel_base_rt_world_ewrt_heading_x);
+  EXPECT_EQ(
+      policy->annotations().scaled_cmd_angvel_base_rt_world_ewrt_world_z(),
+      scaled.cmd_angvel_base_rt_world_ewrt_world_z);
   // Under the gait schedule there is no contact planner, so no target contact
   // patch.
   EXPECT_EQ(policy->annotations().target_contact_patches_size(), 0);
@@ -401,8 +407,10 @@ TEST(MpcNodeRuntime,
       }));
   const WalkingVelocityCommand after =
       motionManager.getScaledWalkingVelocityCommand();
-  EXPECT_EQ(after.linear_velocity_x, before.linear_velocity_x);
-  EXPECT_EQ(after.angular_velocity_z, before.angular_velocity_z);
+  EXPECT_EQ(after.cmd_linvel_base_rt_world_ewrt_heading_x,
+            before.cmd_linvel_base_rt_world_ewrt_heading_x);
+  EXPECT_EQ(after.cmd_angvel_base_rt_world_ewrt_world_z,
+            before.cmd_angvel_base_rt_world_ewrt_world_z);
 }
 
 TEST(MpcNodeRuntime,
@@ -417,10 +425,10 @@ TEST(MpcNodeRuntime,
                       /*yawRate=*/-0.25),
       [&]() {
         return motionManager.getScaledWalkingVelocityCommand()
-                   .linear_velocity_x != 0.0;
+                   .cmd_linvel_base_rt_world_ewrt_heading_x != 0.0;
       }));
-  const scalar_t walkingHeight =
-      motionManager.getScaledWalkingVelocityCommand().desired_pelvis_height;
+  const scalar_t walkingHeight = motionManager.getScaledWalkingVelocityCommand()
+                                     .cmd_pos_base_rt_world_ewrt_world_z;
 
   // The publisher went away: within the timeout and a check period, the robot
   // is commanded to stand, at its height.
@@ -431,10 +439,10 @@ TEST(MpcNodeRuntime,
   EXPECT_EQ(harness.runtime().statistics().walkingCommandTimeouts, 1u);
   const WalkingVelocityCommand stopped =
       motionManager.getScaledWalkingVelocityCommand();
-  EXPECT_EQ(stopped.linear_velocity_x, 0.0);
-  EXPECT_EQ(stopped.linear_velocity_y, 0.0);
-  EXPECT_EQ(stopped.angular_velocity_z, 0.0);
-  EXPECT_DOUBLE_EQ(stopped.desired_pelvis_height, walkingHeight);
+  EXPECT_EQ(stopped.cmd_linvel_base_rt_world_ewrt_heading_x, 0.0);
+  EXPECT_EQ(stopped.cmd_linvel_base_rt_world_ewrt_heading_y, 0.0);
+  EXPECT_EQ(stopped.cmd_angvel_base_rt_world_ewrt_world_z, 0.0);
+  EXPECT_DOUBLE_EQ(stopped.cmd_pos_base_rt_world_ewrt_world_z, walkingHeight);
   // Once per lost command, not on every check.
   absl::SleepFor(absl::Milliseconds(400));
   EXPECT_EQ(harness.runtime().statistics().walkingCommandTimeouts, 1u);
@@ -445,7 +453,7 @@ TEST(MpcNodeRuntime,
       velocityCommand(/*vx=*/0.4, /*vy=*/0.0, /*height=*/0.8, /*yawRate=*/0.0),
       [&]() {
         return motionManager.getScaledWalkingVelocityCommand()
-                   .linear_velocity_x != 0.0;
+                   .cmd_linvel_base_rt_world_ewrt_heading_x != 0.0;
       }));
 }
 
@@ -458,10 +466,11 @@ TEST(MpcNodeRuntime, WithoutATimeoutTheLastWalkingCommandStays) {
       velocityCommand(/*vx=*/0.5, /*vy=*/0.0, /*height=*/0.8, /*yawRate=*/0.0),
       [&]() {
         return motionManager.getScaledWalkingVelocityCommand()
-                   .linear_velocity_x != 0.0;
+                   .cmd_linvel_base_rt_world_ewrt_heading_x != 0.0;
       }));
   absl::SleepFor(absl::Milliseconds(400));
-  EXPECT_NE(motionManager.getScaledWalkingVelocityCommand().linear_velocity_x,
+  EXPECT_NE(motionManager.getScaledWalkingVelocityCommand()
+                .cmd_linvel_base_rt_world_ewrt_heading_x,
             0.0);
   EXPECT_EQ(harness.runtime().statistics().walkingCommandTimeouts, 0u);
 }
@@ -473,16 +482,16 @@ TEST(ApplyWalkingVelocityCommand,
   AtlasReferenceStack stack;
   ProceduralMpcMotionManager& motionManager = stack.motionManager();
   const scalar_t maxVelocityX =
-      commandLimits(stack.referenceFile()).maxDisplacementVelocityX;
+      commandLimits(stack.referenceFile()).cmdMaxLinvelBaseRtWorldEwrtHeadingX;
 
   ASSERT_TRUE(applyWalkingVelocityCommand(
                   velocityCommand(/*vx=*/3.0, /*vy=*/0.0, /*height=*/0.8,
                                   /*yawRate=*/0.0),
                   motionManager)
                   .ok());
-  EXPECT_DOUBLE_EQ(
-      motionManager.getScaledWalkingVelocityCommand().linear_velocity_x,
-      maxVelocityX)
+  EXPECT_DOUBLE_EQ(motionManager.getScaledWalkingVelocityCommand()
+                       .cmd_linvel_base_rt_world_ewrt_heading_x,
+                   maxVelocityX)
       << "clamped to the stick's stop";
 
   const WalkingVelocityCommand before =
@@ -493,11 +502,12 @@ TEST(ApplyWalkingVelocityCommand,
                       /*yawRate=*/0.0),
       motionManager);
   EXPECT_EQ(refused.code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_EQ(motionManager.getScaledWalkingVelocityCommand().linear_velocity_x,
-            before.linear_velocity_x);
-  EXPECT_EQ(
-      motionManager.getScaledWalkingVelocityCommand().desired_pelvis_height,
-      before.desired_pelvis_height);
+  EXPECT_EQ(motionManager.getScaledWalkingVelocityCommand()
+                .cmd_linvel_base_rt_world_ewrt_heading_x,
+            before.cmd_linvel_base_rt_world_ewrt_heading_x);
+  EXPECT_EQ(motionManager.getScaledWalkingVelocityCommand()
+                .cmd_pos_base_rt_world_ewrt_world_z,
+            before.cmd_pos_base_rt_world_ewrt_world_z);
 }
 
 TEST(MpcNodeRuntime, AParameterUpdateIsAppliedBeforeTheNextSolve) {
@@ -744,7 +754,7 @@ class MotionManagerRecorder final : public SolverSynchronizedModule {
         Solve{.time = initTime,
               .gait = motionManager_->getCurrentGaitCommand(),
               .measuredHeadingRate =
-                  motionManager_->getMeasuredPlanarMotion().headingRate,
+                  motionManager_->getMeasuredPlanarMotion().rateYawBaseRtWorld,
               .measuredOverTheWholeWindow =
                   motionManager_->measuredOverTheWholeWindow()});
   }
@@ -866,9 +876,10 @@ TEST(
       velocityCommand(/*vx=*/0.0, /*vy=*/0.0, /*height=*/0.0, /*yawRate=*/0.3),
       [&]() {
         return motionManager.getScaledWalkingVelocityCommand()
-                   .angular_velocity_z != 0.0;
+                   .cmd_angvel_base_rt_world_ewrt_world_z != 0.0;
       }));
-  ASSERT_GT(motionManager.getScaledWalkingVelocityCommand().angular_velocity_z,
+  ASSERT_GT(motionManager.getScaledWalkingVelocityCommand()
+                .cmd_angvel_base_rt_world_ewrt_world_z,
             0.2)
       << "the turn must ask for more than slow_walk";
 

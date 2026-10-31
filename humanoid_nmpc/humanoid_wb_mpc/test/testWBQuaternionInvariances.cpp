@@ -480,7 +480,7 @@ vector_t walkingState(const WBMpcInterface& interface,
                       const vector6_t& basePose) {
   const WBAccelMpcRobotModel<scalar_t>& model = interface.getMpcRobotModel();
   vector_t state = interface.getInitialState();
-  model.setBasePoseEulerZyx(state, basePose);
+  model.setPoseeulerzyxBaseRtWorld(state, basePose);
   const Eigen::Index joints = static_cast<Eigen::Index>(model.getJointDim());
   vector_t jointAngles = model.getJointAngles(state);
   vector_t jointVelocities(joints);
@@ -493,7 +493,7 @@ vector_t walkingState(const WBMpcInterface& interface,
       vector_t::Zero(static_cast<Eigen::Index>(model.getInputDim()));
   model.setJointVelocities(state, input, jointVelocities);
   model.setBaseLinearVelocity(state, vector3_t(0.3, -0.1, 0.02));
-  model.setBaseAngularVelocityLocal(state, vector3_t(0.05, -0.1, 0.3));
+  model.setAngvelBaseRtWorldEwrtBase(state, vector3_t(0.05, -0.1, 0.3));
   return state;
 }
 
@@ -504,10 +504,10 @@ vector_t walkingInput(WBMpcInterface& interface) {
   vector_t input = weightCompensatingInput(interface.getPinocchioInterface(),
                                            makeFeetArray(true), model);
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    vector6_t wrench = model.getContactWrench(input, contact);
+    vector6_t wrench = model.getWrenchContactEwrtParam(input, contact);
     wrench.head<2>() += vector2_t(15.0, -8.0);
     wrench.tail<3>() += vector3_t(2.0, -1.5, 0.5);
-    model.setContactWrench(input, wrench, contact);
+    model.setWrenchContactEwrtParam(input, wrench, contact);
   }
   const Eigen::Index joints = static_cast<Eigen::Index>(model.getJointDim());
   for (Eigen::Index j = 0; j < joints; ++j)
@@ -520,9 +520,9 @@ vector_t walkingInput(WBMpcInterface& interface) {
 TargetTrajectories levelTarget(const WBMpcInterface& interface) {
   const WBAccelMpcRobotModel<scalar_t>& model = interface.getMpcRobotModel();
   vector_t knot = interface.getInitialState();
-  model.setBasePoseEulerZyx(
-      knot, (vector6_t() << 0.05, -0.02, model.getBasePosition(knot)(2), 1.0,
-             0.0, 0.0)
+  model.setPoseeulerzyxBaseRtWorld(
+      knot, (vector6_t() << 0.05, -0.02,
+             model.getPosBaseRtWorldEwrtWorld(knot)(2), 1.0, 0.0, 0.0)
                 .finished());
   return TargetTrajectories(
       {0.0}, {knot},
@@ -537,7 +537,8 @@ vector_t turnedState(const WBAccelMpcRobotModel<scalar_t>& model,
   const matrix3_t rotation =
       Eigen::AngleAxis<scalar_t>(angle, vector3_t::UnitZ()).toRotationMatrix();
   vector_t turned = state;
-  model.setBasePosition(turned, rotation * model.getBasePosition(state));
+  model.setPosBaseRtWorldEwrtWorld(
+      turned, rotation * model.getPosBaseRtWorldEwrtWorld(state));
   const Eigen::Index orientationStart =
       static_cast<Eigen::Index>(model.getBaseOrientationStartIndex());
   const vector4_t orientation = state.segment<4>(orientationStart);
@@ -557,10 +558,10 @@ vector_t turnedInput(const WBAccelMpcRobotModel<scalar_t>& model,
       Eigen::AngleAxis<scalar_t>(angle, vector3_t::UnitZ()).toRotationMatrix();
   vector_t turned = input;
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    const vector6_t wrench = model.getContactWrench(input, contact);
+    const vector6_t wrench = model.getWrenchContactEwrtParam(input, contact);
     vector6_t turnedWrench;
     turnedWrench << rotation * wrench.head<3>(), rotation * wrench.tail<3>();
-    model.setContactWrench(turned, turnedWrench, contact);
+    model.setWrenchContactEwrtParam(turned, turnedWrench, contact);
   }
   return turned;
 }
@@ -742,8 +743,8 @@ TEST(WBQuaternionInvariances,
         (vector6_t() << 0.0, 0.0, 0.75, -1.0, -M_PI / 2.0, 0.0).finished()}) {
     SCOPED_TRACE(basePose.transpose());
     const vector_t state = walkingState(*interface, basePose);
-    ASSERT_NEAR(std::abs(model.getBaseOrientationEulerZyx(state)(1)),
-                M_PI / 2.0, 1.0e-6);
+    ASSERT_NEAR(std::abs(model.getEulerzyxBaseRtWorld(state)(1)), M_PI / 2.0,
+                1.0e-6);
     for (const scalar_t time : {kStanceTime, kSwingTime}) {
       OptimalControlProblem problem = problemAt(*interface, state, target);
       const EvaluationPoint point{

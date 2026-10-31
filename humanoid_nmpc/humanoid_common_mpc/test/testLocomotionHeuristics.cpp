@@ -509,7 +509,7 @@ TEST(LocomotionHeuristics, ImpulseScalingTargetsBledtsImpulseBudget) {
   EXPECT_NEAR(offset.y(), 0.0, kTol);
   EXPECT_NEAR(offset.z(), weight / (numFeet * 0.6) - weight / 2.0, 1.0e-6);
 
-  // THE IMPULSE BUDGET, which is the whole point of the heuristic. Over one
+  // THE IMPULSE BUDGET. Over one
   // cycle the mean number of feet on the ground is F * beta, so the mean total
   // vertical reference must come back to exactly the robot's weight. Scaling
   // the INSTANTANEOUS weight compensation by 1/beta instead would put W/beta on

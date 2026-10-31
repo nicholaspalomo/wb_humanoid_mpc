@@ -91,7 +91,7 @@ MpcPolicy makePolicy() {
   TargetContactPatch* absl_nonnull patch =
       policy.mutable_annotations()->add_target_contact_patches();
   patch->set_kind(TargetContactPatch::KIND_NEXT_SWING);
-  patch->mutable_pose()->set_x(0.25);
+  patch->mutable_des_pose_foot_rt_world()->set_x(0.25);
   return policy;
 }
 

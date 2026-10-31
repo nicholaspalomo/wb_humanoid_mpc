@@ -71,10 +71,11 @@ void PlannedComOverride::overrideTarget(
     if (!plannedPosition.has_value() || !plannedVelocity.has_value()) continue;
 
     vector_t& stateRef = targetTrajectories.stateTrajectory[i];
-    vector3_t basePosition = mpcRobotModel_->getBasePosition(stateRef);
+    vector3_t basePosition =
+        mpcRobotModel_->getPosBaseRtWorldEwrtWorld(stateRef);
     basePosition.head<kHorizontalPositionDim>() =
         *plannedPosition - comOffsetFromBase;
-    mpcRobotModel_->setBasePosition(stateRef, basePosition);
+    mpcRobotModel_->setPosBaseRtWorldEwrtWorld(stateRef, basePosition);
 
     vector3_t comVelocity = mpcRobotModel_->getBaseComLinearVelocity(stateRef);
     comVelocity.head<kHorizontalPositionDim>() = *plannedVelocity;

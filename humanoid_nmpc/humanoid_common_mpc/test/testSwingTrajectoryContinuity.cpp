@@ -146,12 +146,12 @@ void expectContinuousAtEveryEvent(const SwingTrajectoryPlanner& planner,
     for (const scalar_t event : schedule.eventTimes) {
       const scalar_t before = event - kEventEpsilon;
       const scalar_t after = event + kEventEpsilon;
-      EXPECT_NEAR(planner.getZpositionConstraint(foot, before),
-                  planner.getZpositionConstraint(foot, after),
+      EXPECT_NEAR(planner.getDesPosFootRtWorldEwrtWorldZ(foot, before),
+                  planner.getDesPosFootRtWorldEwrtWorldZ(foot, after),
                   kContinuityTolerance)
           << "foot " << foot << " at " << event;
-      EXPECT_NEAR(planner.getZvelocityConstraint(foot, before),
-                  planner.getZvelocityConstraint(foot, after),
+      EXPECT_NEAR(planner.getDesLinvelFootRtWorldEwrtWorldZ(foot, before),
+                  planner.getDesLinvelFootRtWorldEwrtWorldZ(foot, after),
                   kContinuityTolerance)
           << "foot " << foot << " at " << event;
       EXPECT_NEAR(planner.getImpactProximityFactor(foot, before),
@@ -176,10 +176,11 @@ void expectOneApexPerSwing(const SwingTrajectoryPlanner& planner,
       const scalar_t middle = 0.5 * (swing.liftOff + swing.touchDown);
       const scalar_t scaling = std::min(
           1.0, (swing.touchDown - swing.liftOff) / config.swingTimeScale);
-      EXPECT_NEAR(planner.getZpositionConstraint(foot, middle),
+      EXPECT_NEAR(planner.getDesPosFootRtWorldEwrtWorldZ(foot, middle),
                   terrainHeight + scaling * config.swingHeight, kTol)
           << "foot " << foot << " swing from " << swing.liftOff;
-      EXPECT_NEAR(planner.getZvelocityConstraint(foot, middle), 0.0, kTol);
+      EXPECT_NEAR(planner.getDesLinvelFootRtWorldEwrtWorldZ(foot, middle), 0.0,
+                  kTol);
       EXPECT_NEAR(planner.getImpactProximityFactor(foot, middle),
                   config.impactProximityFactorMidPointValue, kTol);
     }
@@ -266,10 +267,10 @@ TEST(SwingTrajectoryContinuity, ShippedRunGaits) {
 TEST(SwingTrajectoryContinuity, InnerEventsAreContinuousWithEndVelocities) {
   std::mt19937 generator(3);
   SwingTrajectoryPlanner::Config config = continuousConfig();
-  config.liftOffVelocity = 0.4;
-  config.touchDownVelocity = -0.3;
-  config.impactProximityFactorLiftOffVelocity = -2.0;
-  config.impactProximityFactorTouchDownVelocity = 2.0;
+  config.liftoffLinvelFootRtWorldEwrtWorldZ = 0.4;
+  config.touchdownLinvelFootRtWorldEwrtWorldZ = -0.3;
+  config.impactProximityFactorLiftoffSlope = -2.0;
+  config.impactProximityFactorTouchdownSlope = 2.0;
   for (int trial = 0; trial < 300; ++trial) {
     const ModeSchedule schedule = randomSchedule(generator);
     SwingTrajectoryPlanner planner(config, kNumContacts);
@@ -278,22 +279,24 @@ TEST(SwingTrajectoryContinuity, InnerEventsAreContinuousWithEndVelocities) {
       for (const Swing& swing : swingsOf(schedule, foot)) {
         const scalar_t scaling = std::min(
             1.0, (swing.touchDown - swing.liftOff) / config.swingTimeScale);
-        EXPECT_NEAR(
-            planner.getZvelocityConstraint(foot, swing.liftOff + kEventEpsilon),
-            scaling * config.liftOffVelocity, kContinuityTolerance);
-        EXPECT_NEAR(planner.getZvelocityConstraint(
+        EXPECT_NEAR(planner.getDesLinvelFootRtWorldEwrtWorldZ(
+                        foot, swing.liftOff + kEventEpsilon),
+                    scaling * config.liftoffLinvelFootRtWorldEwrtWorldZ,
+                    kContinuityTolerance);
+        EXPECT_NEAR(planner.getDesLinvelFootRtWorldEwrtWorldZ(
                         foot, swing.touchDown - kEventEpsilon),
-                    scaling * config.touchDownVelocity, kContinuityTolerance);
+                    scaling * config.touchdownLinvelFootRtWorldEwrtWorldZ,
+                    kContinuityTolerance);
         for (const scalar_t event : schedule.eventTimes) {
           if (event <= swing.liftOff + kTol || event >= swing.touchDown - kTol)
             continue;
           const scalar_t before = event - kEventEpsilon;
           const scalar_t after = event + kEventEpsilon;
-          EXPECT_NEAR(planner.getZpositionConstraint(foot, before),
-                      planner.getZpositionConstraint(foot, after),
+          EXPECT_NEAR(planner.getDesPosFootRtWorldEwrtWorldZ(foot, before),
+                      planner.getDesPosFootRtWorldEwrtWorldZ(foot, after),
                       kContinuityTolerance);
-          EXPECT_NEAR(planner.getZvelocityConstraint(foot, before),
-                      planner.getZvelocityConstraint(foot, after),
+          EXPECT_NEAR(planner.getDesLinvelFootRtWorldEwrtWorldZ(foot, before),
+                      planner.getDesLinvelFootRtWorldEwrtWorldZ(foot, after),
                       kContinuityTolerance);
           EXPECT_NEAR(planner.getImpactProximityFactor(foot, before),
                       planner.getImpactProximityFactor(foot, after),
@@ -322,7 +325,8 @@ TEST(SwingTrajectoryContinuity, StepUpApproachesFromAbove) {
     scalar_t peak = -1.0;
     for (int i = 0; i <= 400; ++i) {
       const scalar_t time = 1.0 + 0.4 * i / 400.0;
-      const scalar_t height = planner.getZpositionConstraint(/*leg=*/0, time);
+      const scalar_t height =
+          planner.getDesPosFootRtWorldEwrtWorldZ(/*leg=*/0, time);
       peak = std::max(peak, height);
       if (time >= 1.2)
         EXPECT_GE(height, step - kTol) << "step " << step << " at " << time;

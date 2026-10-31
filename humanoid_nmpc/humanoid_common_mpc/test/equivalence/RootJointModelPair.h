@@ -70,7 +70,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * The translation joint's velocity is the time derivative of p in the parent
  * (world) frame, so pd_W is the same in both. SphericalZYX's motion subspace is
  * S(Theta) = T_B(Theta) (its angular rows; the body angular velocity of the
- * Euler rates, eulerZyxRateToLocalAngularVelocityMatrix), Spherical's is the
+ * Euler rates, eulerZyxRateToBodyRateMatrix), Spherical's is the
  * identity on w_B.
  *
  * The chart and its derivatives (derived once here; each test cites the line it
@@ -85,7 +85,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * acceleration    a = J_v a_e + (dJ_v/dt) v_e,  dJ_v/dt = blockdiag(0, dT_B/dt,
  * 0), dT_B/dt dTheta = [d(T_B(Theta) r)/dTheta]_{r = dTheta} dTheta: the time
  * derivative of (C2). Column i of dT_B/dt is [d(T_B e_i)/dTheta] dTheta/dt
- * (localAngularVelocityEulerZyxJacobian). In EulerChart's terms, with the
+ * (bodyRateEulerZyxJacobian). In EulerChart's terms, with the
  * whole-body Euler state x_e = [q_e; v_e] and its physical-tangent Jacobian P_e
  * (EulerChart::physicalTangentJacobian), [v; a] = P_e(x_e) [v_e; a_e]: the top
  * block row of P_e is (C2) and the bottom one (C3). (C4) forces          a
@@ -238,7 +238,7 @@ absl::StatusOr<PinocchioMotion> quaternionMotionOf(
 /**
  * J_v and dJ_v/dt at `eulerMotion`'s configuration and velocity: J_v is the
  * top-left block of EulerChart's P_e (C2), dJ_v/dt is built column by column
- * from EulerBoundary's localAngularVelocityEulerZyxJacobian (C3). Fails like
+ * from EulerBoundary's bodyRateEulerZyxJacobian (C3). Fails like
  * validation::physicalTangentJacobian().
  */
 absl::StatusOr<ChartVelocityMaps> chartVelocityMapsAt(

@@ -76,7 +76,7 @@ struct WrenchHeuristicContext {
  * World frame rather than the input's own frame because that is the frame
  * Bledt's formulae are written in and the one m*omega x v means anything in;
  * the conversion is the model's job, through
- * MpcRobotModelBase::setContactForceInWorldFrame(), which is the identity for
+ * MpcRobotModelBase::setForceContactEwrtWorld(), which is the identity for
  * the direct-wrench parameterization and a thread-safe forward-kinematics
  * rotation for the basis-vector one.
  *

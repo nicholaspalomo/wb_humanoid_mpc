@@ -65,13 +65,15 @@ msgs::DodgeballThrow completeThrow() {
   msgs::DodgeballThrow message;
   message.azimuth_deg = 30.0;
   message.elevation_deg = 15.0;
-  message.distance = 3.0;
-  message.speed = 9.0;
+  message.cmd_dist_ball_rt_base = 3.0;
+  message.cmd_speed_ball_rt_world = 9.0;
   message.mass = 1.2;
-  message.spawn_offset = vector3(/*x=*/2.5, /*y=*/1.4, /*z=*/0.8);
-  message.launch_velocity = vector3(/*x=*/-7.8, /*y=*/-4.5, /*z=*/-0.8);
+  message.spawn_pos_ball_rt_base_ewrt_heading =
+      vector3(/*x=*/2.5, /*y=*/1.4, /*z=*/0.8);
+  message.launch_linvel_ball_rt_world_ewrt_heading =
+      vector3(/*x=*/-7.8, /*y=*/-4.5, /*z=*/-0.8);
   message.flight_time = 0.32;
-  message.launch_speed = 9.0;
+  message.launch_speed_ball_rt_world = 9.0;
   message.impact_momentum = 11.8;
   return message;
 }
@@ -80,12 +82,12 @@ TEST(DodgeballThrowFromMessageTest, ACompleteThrowConverts) {
   const absl::StatusOr<DodgeballThrow> command =
       dodgeballThrowFromMessage(completeThrow());
   ASSERT_TRUE(command.ok()) << command.status();
-  EXPECT_EQ(command->spawnOffset[0], 2.5);
-  EXPECT_EQ(command->spawnOffset[1], 1.4);
-  EXPECT_EQ(command->spawnOffset[2], 0.8);
-  EXPECT_EQ(command->launchVelocity[0], -7.8);
-  EXPECT_EQ(command->launchVelocity[1], -4.5);
-  EXPECT_EQ(command->launchVelocity[2], -0.8);
+  EXPECT_EQ(command->spawnPosBallRtBaseEwrtHeading[0], 2.5);
+  EXPECT_EQ(command->spawnPosBallRtBaseEwrtHeading[1], 1.4);
+  EXPECT_EQ(command->spawnPosBallRtBaseEwrtHeading[2], 0.8);
+  EXPECT_EQ(command->launchLinvelBallRtWorldEwrtHeading[0], -7.8);
+  EXPECT_EQ(command->launchLinvelBallRtWorldEwrtHeading[1], -4.5);
+  EXPECT_EQ(command->launchLinvelBallRtWorldEwrtHeading[2], -0.8);
   EXPECT_EQ(command->flightTime, 0.32);
   EXPECT_EQ(command->mass, 1.2);
 }
@@ -96,16 +98,17 @@ TEST(DodgeballThrowFromMessageTest, EveryValueTheSimulatorUsesIsRequired) {
     std::string field;
   };
   msgs::DodgeballThrow noOffset = completeThrow();
-  noOffset.spawn_offset.reset();
+  noOffset.spawn_pos_ball_rt_base_ewrt_heading.reset();
   msgs::DodgeballThrow noVelocity = completeThrow();
-  noVelocity.launch_velocity.reset();
+  noVelocity.launch_linvel_ball_rt_world_ewrt_heading.reset();
   msgs::DodgeballThrow noFlightTime = completeThrow();
   noFlightTime.flight_time.reset();
   msgs::DodgeballThrow noMass = completeThrow();
   noMass.mass.reset();
   const std::vector<Missing> cases = {
-      {.message = noOffset, .field = "spawn_offset"},
-      {.message = noVelocity, .field = "launch_velocity"},
+      {.message = noOffset, .field = "spawn_pos_ball_rt_base_ewrt_heading"},
+      {.message = noVelocity,
+       .field = "launch_linvel_ball_rt_world_ewrt_heading"},
       {.message = noFlightTime, .field = "flight_time"},
       {.message = noMass, .field = "mass"},
   };
@@ -123,13 +126,15 @@ TEST(DodgeballThrowFromMessageTest, AValueThatIsNotFiniteIsRefusedByItsField) {
   const double nan = std::numeric_limits<double>::quiet_NaN();
   const double inf = std::numeric_limits<double>::infinity();
   msgs::DodgeballThrow velocity = completeThrow();
-  velocity.launch_velocity = vector3(/*x=*/-7.8, /*y=*/nan, /*z=*/-0.8);
+  velocity.launch_linvel_ball_rt_world_ewrt_heading =
+      vector3(/*x=*/-7.8, /*y=*/nan, /*z=*/-0.8);
   EXPECT_THAT(dodgeballThrowFromMessage(velocity).status().message(),
-              HasSubstr("launch_velocity.y is nan"));
+              HasSubstr("launch_linvel_ball_rt_world_ewrt_heading.y is nan"));
   msgs::DodgeballThrow offset = completeThrow();
-  offset.spawn_offset = vector3(/*x=*/2.5, /*y=*/1.4, /*z=*/inf);
+  offset.spawn_pos_ball_rt_base_ewrt_heading =
+      vector3(/*x=*/2.5, /*y=*/1.4, /*z=*/inf);
   EXPECT_THAT(dodgeballThrowFromMessage(offset).status().message(),
-              HasSubstr("spawn_offset.z is inf"));
+              HasSubstr("spawn_pos_ball_rt_base_ewrt_heading.z is inf"));
   msgs::DodgeballThrow mass = completeThrow();
   mass.mass = nan;
   EXPECT_THAT(dodgeballThrowFromMessage(mass).status().message(),
@@ -157,8 +162,8 @@ TEST(DodgeballThrowFromMessageTest,
 TEST(DodgeballThrowFromMessageTest, WhatIsThereForTheRecordIsNotRead) {
   msgs::DodgeballThrow recorded = completeThrow();
   recorded.azimuth_deg = std::numeric_limits<double>::quiet_NaN();
-  recorded.distance = -1.0;
-  recorded.launch_speed = std::numeric_limits<double>::infinity();
+  recorded.cmd_dist_ball_rt_base = -1.0;
+  recorded.launch_speed_ball_rt_world = std::numeric_limits<double>::infinity();
   const absl::StatusOr<DodgeballThrow> command =
       dodgeballThrowFromMessage(recorded);
   ASSERT_TRUE(command.ok()) << command.status();

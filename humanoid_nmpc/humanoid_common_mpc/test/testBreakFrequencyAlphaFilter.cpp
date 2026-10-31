@@ -304,13 +304,13 @@ class VelocityCommandFilterFieldFileTest : public ::testing::Test {
             .string();
     std::ofstream(file)
         << "# proto-message: humanoid_mpc_config.ReferenceFile\n"
-        << "target_displacement_velocity: 0.5\n"
-        << "target_rotation_velocity: 0.5\n"
-        << "max_displacement_velocity_x: 1.0\n"
-        << "max_displacement_velocity_y: 0.5\n"
-        << "max_delta_pelvis_height: 0.1\n"
-        << "max_rotation_velocity: 1.0\n"
-        << "default_base_height: 0.9\n"
+        << "ref_speed_base_rt_world: 0.5\n"
+        << "ref_rate_yaw_base_rt_world: 0.5\n"
+        << "cmd_max_linvel_base_rt_world_ewrt_heading_x: 1.0\n"
+        << "cmd_max_linvel_base_rt_world_ewrt_heading_y: 0.5\n"
+        << "cmd_max_err_pos_base_rt_world_ewrt_world_z: 0.1\n"
+        << "cmd_max_angvel_base_rt_world_ewrt_world_z: 1.0\n"
+        << "nom_pos_base_rt_world_ewrt_world_z: 0.9\n"
         << line << "\n";
     files_.push_back(file);
     return file;

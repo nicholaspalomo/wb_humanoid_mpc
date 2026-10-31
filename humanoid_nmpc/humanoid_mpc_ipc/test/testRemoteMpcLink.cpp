@@ -184,7 +184,7 @@ class RemoteMpcLinkTest : public ::testing::Test {
         [this](const CommandData& /*command*/,
                const PrimalSolution& /*solution*/,
                humanoid_mpc_msgs::ViewerAnnotations* absl_nonnull annotations) {
-          annotations->set_scaled_velocity_x(0.5);
+          annotations->set_scaled_cmd_linvel_base_rt_world_ewrt_heading_x(0.5);
           gate_.pass();
           return absl::OkStatus();
         };

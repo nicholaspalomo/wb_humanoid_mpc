@@ -90,8 +90,9 @@ TEST(ConfigReload, ABlocksOptionsApplyBelowItUnlessAFieldSetsItsOwn) {
       configLeaves(*humanoid_mpc_config::TaskFile::descriptor());
   // A HOT block makes every weight below it hot, through a shared message (Xyz)
   // and a repeated block (JointValue).
-  EXPECT_EQ(leafAt(leaves, "state_weights.base_position.x").reload,
-            ConfigReload::kHot);
+  EXPECT_EQ(
+      leafAt(leaves, "state_weights.pos_base_rt_world_ewrt_world.x").reload,
+      ConfigReload::kHot);
   EXPECT_EQ(leafAt(leaves, "state_weights.joint_positions[*].value").reload,
             ConfigReload::kHot);
   // A START_UP block's own HOT field is hot; its other fields are not.
@@ -130,7 +131,9 @@ TEST(ConfigReload,
   // The robot reads the controller-side settings, the MPC everything with no
   // consumer.
   EXPECT_EQ(leafAt(leaves, "telemetry_frequency").consumer, "robot");
-  EXPECT_EQ(leafAt(leaves, "state_weights.base_position.x").consumer, "");
+  EXPECT_EQ(
+      leafAt(leaves, "state_weights.pos_base_rt_world_ewrt_world.x").consumer,
+      "");
   // A block one formulation reads passes its formulation on, through a shared
   // message.
   EXPECT_THAT(leafAt(leaves, "com_weights.x").formulations,
@@ -148,7 +151,8 @@ TEST(ConfigReload,
       leafAt(leaves, "model_settings.foot_constraint.position_error_gain_z")
           .formulations,
       testing::IsEmpty());
-  EXPECT_THAT(leafAt(leaves, "state_weights.base_position.x").formulations,
+  EXPECT_THAT(leafAt(leaves, "state_weights.pos_base_rt_world_ewrt_world.x")
+                  .formulations,
               testing::IsEmpty())
       << "every formulation reads it";
 }
@@ -195,9 +199,11 @@ TEST(ConfigReload, TheStructureOfAHotRepeatedBlockIsLeftForTheNextStart) {
       *running.add_task_space_costs();
   torso.set_name("torso");
   torso.set_link_name("torso_link");
+  // NOLINTNEXTLINE(frame-naming): a TaskSpaceWeights weight field
   torso.mutable_weights()->set_pos_x(1.0);
 
   humanoid_mpc_config::TaskFile reweighted = running;
+  // NOLINTNEXTLINE(frame-naming): a TaskSpaceWeights weight field
   reweighted.mutable_task_space_costs(0)->mutable_weights()->set_pos_x(2.0);
   EXPECT_THAT(changedPaths(running, reweighted), testing::IsEmpty())
       << "a weight is applied";
@@ -212,7 +218,8 @@ TEST(ConfigReload, TheStructureOfAHotRepeatedBlockIsLeftForTheNextStart) {
       *added.add_task_space_costs();
   head.set_name("head");
   head.set_link_name("head_link");
-  head.mutable_weights()->set_pos_z(5.0);
+  head.mutable_weights()->set_pos_z(  // NOLINT(frame-naming): a weight field
+      5.0);
   EXPECT_THAT(changedPaths(running, added),
               testing::ElementsAre("task_space_costs[1].name",
                                    "task_space_costs[1].link_name"));

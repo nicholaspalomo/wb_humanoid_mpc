@@ -73,13 +73,12 @@ bool SimFallRecovery::isAtRest(
     const std::vector<scalar_t>& nominalJointPositions,
     const std::vector<size_t>& jointIndices,
     const Config& config) {
-  if (baseTiltAngle(robotState.getRootRotationLocalToWorldFrame()) >
-      config.settleTilt)
+  if (baseTiltAngle(robotState.getQuatBaseRtWorld()) > config.settleTilt)
     return false;
-  if (robotState.getRootLinearVelocityInLocalFrame().norm() >
+  if (robotState.getLinvelBaseRtWorldEwrtBase().norm() >
       config.settleLinearSpeed)
     return false;
-  if (robotState.getRootAngularVelocityInLocalFrame().norm() >
+  if (robotState.getAngvelBaseRtWorldEwrtBase().norm() >
       config.settleAngularSpeed)
     return false;
   for (size_t joint : jointIndices) {
@@ -156,8 +155,7 @@ SimFallRecovery::Cycle SimFallRecovery::update(
     cycle.discontinuity = true;
     cycle.cause = DiscontinuityCause::kGantryLocked;
   } else if (!gantryLocked && config_.maxBaseTiltAngle > 0.0) {
-    const scalar_t tilt =
-        baseTiltAngle(robotState.getRootRotationLocalToWorldFrame());
+    const scalar_t tilt = baseTiltAngle(robotState.getQuatBaseRtWorld());
     if (tilt > config_.maxBaseTiltAngle) {
       robotInterface.lockGantry();
       cycle.discontinuity = true;

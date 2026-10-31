@@ -63,13 +63,16 @@ struct KeyboardCommandLimits {
   static constexpr scalar_t kDefaultBaseHeight = 0.7;
 
   /** [v_x m/s, v_y m/s, pelvis height change m, yaw rate rad/s]:
-   * max_displacement_velocity_x, max_displacement_velocity_y,
-   * max_delta_pelvis_height, max_rotation_velocity. */
+   * cmd_max_linvel_base_rt_world_ewrt_heading_x,
+   * cmd_max_linvel_base_rt_world_ewrt_heading_y,
+   * cmd_max_err_pos_base_rt_world_ewrt_world_z,
+   * cmd_max_angvel_base_rt_world_ewrt_world_z. */
   vector4_t limits = vector4_t(kDefaultMaxVelocityX,
                                kDefaultMaxVelocityY,
                                kDefaultMaxDeltaPelvisHeight,
                                kDefaultMaxYawRate);
-  /** [m] default_base_height: the pelvis height a zero height change commands.
+  /** [m] nom_pos_base_rt_world_ewrt_world_z: the pelvis height a zero height
+   * change commands.
    */
   scalar_t defaultBaseHeight = kDefaultBaseHeight;
 };
@@ -97,8 +100,8 @@ absl::StatusOr<vector4_t> parseKeyboardCommandLine(absl::string_view line);
 
 /**
  * The operator/walking_velocity_command of `command`: clamped to +-limits, the
- * velocities normalized by their limits, the pelvis height default_base_height
- * plus the clamped change.
+ * velocities normalized by their limits, the pelvis height
+ * nom_pos_base_rt_world_ewrt_world_z plus the clamped change.
  */
 humanoid_mpc_msgs::WalkingVelocityCommand keyboardCommandToMessage(
     const vector4_t& command, const KeyboardCommandLimits& limits);

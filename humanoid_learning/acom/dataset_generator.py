@@ -414,7 +414,7 @@ class AcomDatasetGenerator:
         # pylint: disable=invalid-name  # I_G, A_omega_j, A_bar_omega: the notation of Chen et al., IROS 2023 (README.md).
         # Place the base at a nominal height with identity orientation.
         #
-        # The identity orientation is LOAD-BEARING, not cosmetic. A_bar_omega is
+        # The identity orientation is required, not cosmetic. A_bar_omega is
         # exactly invariant to base TRANSLATION - angular momentum about the CoM
         # does not see it - which is why the nominal height below is free. It is
         # NOT invariant to base ROTATION: under a base rotation R the locked

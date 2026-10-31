@@ -178,8 +178,8 @@ mpc_config::TaskFile variantTaskFile() {
       task.contacts.contact_wrench_cone_soft_constraint;
   cone.friction_coefficient = 0.5;
   cone.torsional_friction_coefficient = 0.05;
-  cone.min_normal_force = 5.0;
-  cone.gripper_force = 0.0;
+  cone.min_force_contact_ewrt_contact_z = 5.0;
+  cone.grip_force_contact_ewrt_contact_z = 0.0;
   cone.num_basis_vectors = 4;
   cone.mu = 0.2;
   cone.delta = 5.0;

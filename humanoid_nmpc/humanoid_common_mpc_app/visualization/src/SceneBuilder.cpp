@@ -141,7 +141,8 @@ void writeLinkPoses(
   for (size_t link = 0; link < frames.size(); ++link) {
     instance->add_link_names(names[link]);
     const pinocchio::SE3Tpl<scalar_t>& placement = data.oMf[frames[link]];
-    humanoid_mpc_msgs::Pose* absl_nonnull pose = instance->add_link_poses();
+    humanoid_mpc_msgs::Pose* absl_nonnull pose =
+        instance->add_pose_links_rt_world();
     setVector3(placement.translation(), pose->mutable_position());
     const quaternion_t orientation(placement.rotation());
     humanoid_mpc_msgs::Quaternion* absl_nonnull quaternion =
@@ -320,17 +321,18 @@ void SceneBuilder::writeMeasuredFromSample(
 
   // The free flyer's configuration is the position and the quaternion (x, y, z,
   // w).
-  quaternion_t orientation(vector4_t(
-      sample.base_orientation_world.x, sample.base_orientation_world.y,
-      sample.base_orientation_world.z, sample.base_orientation_world.w));
+  quaternion_t orientation(
+      vector4_t(sample.quat_base_rt_world.x, sample.quat_base_rt_world.y,
+                sample.quat_base_rt_world.z, sample.quat_base_rt_world.w));
   if (orientation.norm() > 0.0) {
     orientation.normalize();
   } else {
     orientation = quaternion_t::Identity();
   }
   fullConfiguration_.head<kPositionDim>() =
-      vector3_t(sample.base_position_world.x, sample.base_position_world.y,
-                sample.base_position_world.z);
+      vector3_t(sample.pos_base_rt_world_ewrt_world.x,
+                sample.pos_base_rt_world_ewrt_world.y,
+                sample.pos_base_rt_world_ewrt_world.z);
   fullConfiguration_.segment<kQuaternionCoefficients>(kPositionDim) =
       orientation.coeffs();
   for (const FullModelJoint& joint : fullJoints_) {
@@ -392,7 +394,7 @@ void SceneBuilder::writeObservationMarkers(
       continue;
     }
     const pinocchio::FrameIndex frame = contactFrames_[contact];
-    const vector6_t worldWrench = robotModel_->getContactWrenchInWorldFrame(
+    const vector6_t worldWrench = robotModel_->getWrenchContactEwrtWorld(
         observation.state, planInput, contact);
     if (!cornerForceMappers_[contact].has_value()) {
       addForceArrow(data.oMf[frame].translation(),
@@ -457,7 +459,8 @@ void SceneBuilder::computePlan(const PolicySnapshot& policy) {
     setVector3(
         pinocchio::centerOfMass(model, data, q, /*computeSubtreeComs=*/false),
         comStrip->add_points());
-    setVector3(robotModel_->getBasePosition(state), baseStrip->add_points());
+    setVector3(robotModel_->getPosBaseRtWorldEwrtWorld(state),
+               baseStrip->add_points());
     for (size_t frame = 0; frame < planFrames_.size(); ++frame) {
       setVector3(
           pinocchio::updateFramePlacement(model, data, planFrames_[frame])

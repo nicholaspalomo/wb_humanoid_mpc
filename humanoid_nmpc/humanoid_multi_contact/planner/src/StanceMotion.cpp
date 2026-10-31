@@ -243,7 +243,7 @@ Eigen::VectorXd knotInterpolation(const Eigen::VectorXd& from,
                                   const Eigen::VectorXd& to,
                                   double fraction) {
   Eigen::VectorXd q = from + fraction * (to - from);
-  // The quaternion slerp of the MPC's interpolateWithSlerpedOrientation().
+  // The quaternion slerp of the MPC's interpolateWithSlerpedQuatBaseRtWorld().
   q.segment<kQuaternionCoefficients>(kPositionDim) = quaternionSlerp<double>(
       from.segment<kQuaternionCoefficients>(kPositionDim),
       to.segment<kQuaternionCoefficients>(kPositionDim), fraction);

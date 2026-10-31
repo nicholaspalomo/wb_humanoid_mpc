@@ -143,14 +143,14 @@ void ManifoldScriptedSolver::getPrimalSolution(
 
   const Eigen::Index tangentDim =
       static_cast<Eigen::Index>(stateManifold_->getTangentDim());
-  const vector_t velocity =
+  const vector_t tangentVelocity =
       vector_t::LinSpaced(tangentDim, /*low=*/-0.5, /*high=*/0.5);
   const vector_t jump = vector_t::Constant(tangentDim, 0.05);
   vector_array_t states;
   bool afterEvent = false;
   for (const AnnotatedTime& time : times) {
     afterEvent = afterEvent || time.event == AnnotatedTime::Event::PostEvent;
-    vector_t step = (time.time - initTime_) * velocity;
+    vector_t step = (time.time - initTime_) * tangentVelocity;
     if (afterEvent) step += jump;
     vector_t state;
     stateManifold_->retract(initState_, step, /*alpha=*/1.0, state);

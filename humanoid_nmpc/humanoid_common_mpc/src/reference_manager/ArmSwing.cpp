@@ -65,9 +65,9 @@ constexpr scalar_t kMinimumDirectionShare = 0.1;
 /** One driven joint, as the derivation sees it at the nominal posture. Passive
  * data. */
 struct ArmJoint {
-  vector3_t position =
-      vector3_t::Zero();               // [m] the joint's origin, in the world
-  vector3_t axis = vector3_t::Zero();  // the unit rotation axis, in the world
+  vector3_t posLinkRtWorldEwrtWorld =
+      vector3_t::Zero();                             // [m] the joint's origin
+  vector3_t axisJointEwrtWorld = vector3_t::Zero();  // the unit rotation axis
   vector3_t carriedCom =
       vector3_t::Zero();  // [m] the center of mass of everything the joint
                           // carries, in the world
@@ -90,13 +90,13 @@ absl::StatusOr<ArmJoint> armJointAt(const pinocchio::Model& model,
         model.joints[joint].nv(), " degrees of freedom, not 1."));
   }
   ArmJoint result;
-  result.position = data.oMi[joint].translation();
+  result.posLinkRtWorldEwrtWorld = data.oMi[joint].translation();
   // The angular rows of the world-frame joint Jacobian
   // (computeJointJacobians()): the joint's axis in the world.
-  result.axis = data.J
-                    .block<kRotationTangentDim, 1>(kPositionDim,
-                                                   model.joints[joint].idx_v())
-                    .normalized();
+  result.axisJointEwrtWorld = data.J
+                                  .block<kRotationTangentDim, 1>(
+                                      kPositionDim, model.joints[joint].idx_v())
+                                  .normalized();
   scalar_t mass = 0.0;
   for (const pinocchio::JointIndex carried : model.subtrees[joint]) {
     const pinocchio::Inertia& inertia = model.inertias[carried];
@@ -118,8 +118,10 @@ absl::StatusOr<ArmJoint> armJointAt(const pinocchio::Model& model,
 absl::StatusOr<scalar_t> shoulderDirection(const ArmJoint& shoulder,
                                            const vector3_t& forward,
                                            absl::string_view jointName) {
-  const vector3_t lever = shoulder.carriedCom - shoulder.position;
-  const scalar_t forwardSpeed = forward.dot(shoulder.axis.cross(lever));
+  const vector3_t lever =
+      shoulder.carriedCom - shoulder.posLinkRtWorldEwrtWorld;
+  const scalar_t forwardSpeed =
+      forward.dot(shoulder.axisJointEwrtWorld.cross(lever));
   if (!(std::abs(forwardSpeed) >= kMinimumDirectionShare * lever.norm())) {
     return absl::InvalidArgumentError(absl::StrCat(
         "[deriveArmSwingDirections] the shoulder joint '", jointName,
@@ -138,12 +140,14 @@ absl::StatusOr<scalar_t> shoulderDirection(const ArmJoint& shoulder,
 absl::StatusOr<scalar_t> elbowDirection(const ArmJoint& elbow,
                                         const ArmJoint& shoulder,
                                         absl::string_view jointName) {
-  const vector3_t forearm = elbow.carriedCom - elbow.position;
-  const vector3_t upperArm = shoulder.position - elbow.position;
+  const vector3_t forearm = elbow.carriedCom - elbow.posLinkRtWorldEwrtWorld;
+  const vector3_t upperArm =
+      shoulder.posLinkRtWorldEwrtWorld - elbow.posLinkRtWorldEwrtWorld;
   const vector3_t normal = forearm.cross(upperArm);
   const scalar_t normalNorm = normal.norm();
   const scalar_t across =
-      (normalNorm > 0.0) ? elbow.axis.dot(normal) / normalNorm : 0.0;
+      (normalNorm > 0.0) ? elbow.axisJointEwrtWorld.dot(normal) / normalNorm
+                         : 0.0;
   if (!(std::abs(across) >= kMinimumDirectionShare)) {
     return absl::InvalidArgumentError(absl::StrCat(
         "[deriveArmSwingDirections] the elbow joint '", jointName,
@@ -211,9 +215,10 @@ absl::StatusOr<ArmSwingDirections> deriveArmSwingDirections(
   pinocchio::forwardKinematics(model, data, q);
   pinocchio::computeJointJacobians(model, data, q);
   // The base's forward axis at the nominal posture, in the world.
-  const vector3_t forward = quaternionRotationMatrix<scalar_t>(
-                                mpcRobotModel.getBaseOrientation(nominalState))
-                                .col(0);
+  const vector3_t forward =
+      quaternionRotationMatrix<scalar_t>(
+          mpcRobotModel.getQuatBaseRtWorldXyzw(nominalState))
+          .col(0);
 
   /** One arm's two joints, by MPC joint index, and where their directions go.
    * Passive data. */

@@ -81,12 +81,12 @@ inline std::string externalTorqueCostName(absl::string_view footName) {
 
 // The suffix of the stance-foot (zero velocity) constraint after the contact's
 // name (zeroVelocityTermName()).
-inline constexpr char kZeroVelocityTermSuffix[] = "_zeroVelocity";
+inline constexpr char kZeroVelocityTermNameSuffix[] = "_zeroVelocity";
 
 /** The stance-foot (zero velocity) constraint of the contact `footName`, hard
  * or soft. */
 inline std::string zeroVelocityTermName(absl::string_view footName) {
-  return absl::StrCat(footName, kZeroVelocityTermSuffix);
+  return absl::StrCat(footName, kZeroVelocityTermNameSuffix);
 }
 
 /** The lambda >= 0 barrier of the basis-vector contact inputs of the contact

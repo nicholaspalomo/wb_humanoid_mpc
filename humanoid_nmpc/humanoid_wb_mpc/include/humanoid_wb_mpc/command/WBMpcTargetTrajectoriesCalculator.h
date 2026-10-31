@@ -96,7 +96,7 @@ class WBMpcTargetTrajectoriesCalculator
    * in pelvis frame
    * @param [in] observation : the current observation
    */
-  TargetTrajectories commandedPositionToTargetTrajectories(
+  TargetTrajectories poseCommandToTargetTrajectories(
       const vector4_t& commadLinePoseTarget,
       scalar_t initTime,
       const vector_t& initState) override;
@@ -107,7 +107,7 @@ class WBMpcTargetTrajectoriesCalculator
    * command in its own heading frame and turning at the commanded yaw rate, the
    * joints at the default posture and still.
    */
-  TargetTrajectories commandedVelocityToTargetTrajectories(
+  TargetTrajectories velocityCommandToTargetTrajectories(
       const vector4_t& commandedVelocities,
       scalar_t initTime,
       const vector_t& initState,

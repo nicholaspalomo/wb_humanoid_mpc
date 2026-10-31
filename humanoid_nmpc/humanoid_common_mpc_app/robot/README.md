@@ -1,7 +1,7 @@
 # humanoid_common_mpc_app/robot
 
 The robot process of the distributed runtime ([`humanoid_nmpc/docs/distributed_runtime/README.md`](../../docs/distributed_runtime/README.md)):
-the binary that runs on the robot's realtime computer, and - with the MuJoCo backend - in simulation, in the same
+the binary that runs on the robot's realtime computer, and (with the MuJoCo backend) in simulation, in the same
 topology. It is the realtime loop over a **robot backend** chosen by name and an **MRT joint controller** of either
 formulation, and the mailboxes, telemetry and FSM around it on the bus.
 
@@ -51,8 +51,8 @@ not read) and these:
 | `--config_seed` | `when_bundle_changes` | when a stored copy is replaced by the bundled file, by name: `when_bundle_changes`, `every_start`, `never` |
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/src/RobotAppFlags.cpp:robot_flags) -->
 
-A setting the process may not take - `SCHED_FIFO` without `CAP_SYS_NICE` or an rtprio limit, `mlockall` without
-`CAP_IPC_LOCK` or a memlock limit, a core outside the container's cpuset - is logged and skipped; the loop runs
+A setting the process may not take (`SCHED_FIFO` without `CAP_SYS_NICE` or an rtprio limit, `mlockall` without
+`CAP_IPC_LOCK` or a memlock limit, a core outside the container's cpuset) is logged and skipped; the loop runs
 regardless. `default` cores are taken from the CPUs the process may use (`sched_getaffinity`), so that a container's
 cpuset (`deploy_robot.sh --cpuset`) gets cores inside it.
 
@@ -73,8 +73,8 @@ runs without a viewer instead. `MUJOCO_EGL_DEVICE_ID` picks the EGL device (a GP
 
 **No optimal control problem on the robot.** The binary builds only what the controller needs:
 `CentroidalMpcInterface::CreateControllerModels()` (the model settings, the Pinocchio model, the centroidal model info,
-the MPC robot model and the effective one - the basis-vector decorator under `contact_input_parameterization:
-"basis_vectors"` - and the initial state) or `WBMpcInterface::CreateControllerModels()`. Nothing is taped, generated or
+the MPC robot model and the effective one, the basis-vector decorator under `contact_input_parameterization:
+"basis_vectors"`, and the initial state) or `WBMpcInterface::CreateControllerModels()`. Nothing is taped, generated or
 loaded with CppAD; the binary still links the formulation library. Its MPC is the MPC node, over the bus; the robot
 binaries have no in-process MPC (`InProcessMpcLink` serves the controller unit tests and the lockstep closed loop of
 `humanoid_nmpc/humanoid_mpc_validation`, which mirrors this process's cycle).
@@ -117,7 +117,7 @@ test-only `FakeRobotBackend`, which does exactly it with a thread in place of th
 1. A `robot::model::RobotHWInterfaceBase` subclass whose driver thread (the robot's EtherCAT or vendor SDK loop) calls
    `publishRobotState()` with every new reading and `takeJointAction()` for every command it sends: the joints, the
    contact flags of its foot sensors, the IMU's orientation and angular velocity as the base's, the IMU's specific force
-   (`setImuLinearAccelerationInLocalFrame()`, at the base's origin and in its frame: an IMU off the origin compensates
+   (`setSpecforceBaseRtWorldEwrtBase()`, at the base's origin and in its frame: an IMU off the origin compensates
    its lever arm), and for the base's position and linear velocity its best guess (the initial pose, a motion capture).
    It executes an action only while `takeJointAction()` says it is fresh.
 2. A `RobotBackend` around it: `acceptsJointAction()` / `enableTorques()` / `enterSafeState()` are the drives' torque
@@ -247,7 +247,7 @@ files](#the-configuration-files)).
 | `operator/fsm_command` | all | `parseFsmCommand()`; a repeat (the sequence of the command accepted last) and an unknown name are dropped |
 | `operator/joint_targets` | latest | merged into the JOINT_PD posture; a joint of another robot is skipped, a value that is not finite refused |
 | `operator/dodgeball_throw` | all | `DodgeballThrow`, `dodgeballThrowFromMessage()`; the newest throw is handed over |
-| `operator/walking_velocity_command` | latest | `desired_pelvis_height`, clamped to 0.2-1.5 m: the gantry height while it is locked |
+| `operator/walking_velocity_command` | latest | `cmd_pos_base_rt_world_ewrt_world_z`, clamped to 0.2-1.5 m: the gantry height while it is locked |
 | `operator/mpc_parameters` | latest | `MpcParameterUpdate`: the task file's `contact_estimator` and `contact_wrench_gate` (`controllerSideSettingsFromConfig()`, as the robot's task-file watcher reads them), as a whole file: no gate block is the instantaneous gate |
 | `operator/pd_gains` | latest | `JointPdGainsUpdate`, the controller's `setPdGains()` |
 | `operator/config_save` | all | `ConfigFileSave`, the configuration store (`ConfigFileStore`): checked and written on its writer thread, answered on `robot/config_save_status` |
@@ -348,8 +348,8 @@ GUI then reports in sync; a file the save did not change otherwise, which it rep
 | `contact_wrench_gate` | the instantaneous gate | `debounce_time`, `ramp_time` [s] of the touch-down shaping; hot-reloaded as `contact_estimator` |
 | `state_estimator` | `"ground_truth"` | the base state the controller is handed (`StateEstimatorRegistry`): `"ground_truth"` the backend's, `"kalman"` estimated from the IMU and the leg kinematics; read at start-up |
 | `kalman_state_estimator` | its defaults | the noise model of `"kalman"` (`kalman_state_estimator_config.proto`): the IMU's noise, the random walks of the base and of the stance and swing feet, the kinematics' noise, the stance feet's height |
-| `sim_contact_force_threshold`, `sim_contact_timeline_window`, `sim_visualizations`, `gantry_hold`, `sim_projectile` | the simulator's; no viewer marker | the MuJoCo backend |
-| `sim_ragdoll_joint_damping`, `sim_auto_reset_base_height` | 20 N m s/rad, 0.2 m | the MuJoCo backend: the robot joints' damping while the torques are off (on, they have the MJCF's own), and the base height below which the robot is reset |
+| `sim_min_force_mjcontact_ewrt_mjcontact_x`, `sim_contact_timeline_window`, `sim_visualizations`, `gantry_hold`, `sim_projectile` | the simulator's; no viewer marker | the MuJoCo backend |
+| `sim_ragdoll_joint_damping`, `sim_auto_reset_min_pos_base_rt_world_ewrt_world_z` | 20 N m s/rad, 0.2 m | the MuJoCo backend: the robot joints' damping while the torques are off (on, they have the MJCF's own), and the base height below which the robot is reset |
 | `sim_max_base_tilt_angle`, `sim_gantry_catch_lift` | absent (off) | the fall recovery ([`docs/mpc_reset`](../../docs/mpc_reset/README.md)) |
 | `mpc_entry_blend_time` | the controller's | [s] the ramp into WB_MPC (centroidal) |
 | `safety_decay_time_constant` | the controller's | [s] the SAFETY decay |
@@ -403,8 +403,8 @@ field.
 | `:test_hardware_supervisor` | the `hardware` supervisor: the FSM commands switch the backend's torques, the gantry commands are ignored, a tilt past the limit under torque switches them off once; the `sim` supervisor refused for a backend that is no simulator; the whole process running its cycles over the bus on the fake backend with either state estimator |
 | `:test_operator_command_mailbox` | FSM commands in order and once, aliases, unknown names; joint targets merged, the newest wins; dodgeballs; the gantry clamp; controller settings resolved, estimators kept alive, unknown names, a whole task file without a gate being the instantaneous gate; PD gains to the controller; the handlers, typed tuning payloads included, on a loopback bus |
 | `:test_sim_fsm_bridge` | the FSM against the headless simulator: torques, gantry, one command per cycle, the slider, controller resets and health in the state, joint targets, the dodgeball |
-| `:test_sim_fall_recovery`, `:test_base_tilt_angle` | the fall recovery against the real simulator (ported), and its reports |
-| `:test_initial_sim_state` | the simulator's initial state from the MPC's in every formulation: the base orientation through the robot model's `getBaseOrientation()` (the stored unit quaternion bit for bit, the rotation of the Euler angles it was set from to round-off, an unwrapped yaw included), the MPC joints by name, every other joint zero |
+| `:test_sim_fall_recovery`, `:test_base_tilt_angle` | the fall recovery against MuJoCo (ported), and its reports |
+| `:test_initial_sim_state` | the simulator's initial state from the MPC's in every formulation: the base orientation through the robot model's `getQuatBaseRtWorldXyzw()` (the stored unit quaternion bit for bit, the rotation of the Euler angles it was set from to round-off, an unwrapped yaw included), the MPC joints by name, every other joint zero |
 | `:config_robot_test` | the typed task file's robot settings and the GUI's typed `DodgeballThrow` (`test/data/dodgeball_throw.textproto`, shared with remote_control's test) converted, every refusal |
 | `:test_telemetry_sampler` | decimation, the sample round-tripped through `robot/state`'s message, the joint names, drops |
 | `:test_robot_backend_registry` | `mujoco` by name (Atlas, `--viewer=none`), an unknown name listing the available ones, the configuration from the options, the viewer settings copied and checked (an unknown viewer, `glfw,none`, a web option out of range refused) |
@@ -417,7 +417,7 @@ field.
 | `:test_robot_app_options` | the core lists, the viewer by name (`web,none` parsed, `vnc` refused listing `glfw, web, none`, nothing after `glfw` or `none`), its precedence (`--viewer`, else the `mujoco_viewer` of `--plot_config`, else `web`; the file not read with `--viewer`), a bad plot configuration refused (an unknown name, a list the registry refuses, a misspelled field at its line and column, another message's file, a missing file), the shipped plot configurations' `web`, the web viewer's port, address and allowed hosts, `--viewer_cores=default` as the allocation's viewer cores, `MUJOCO_EGL_DEVICE_ID`, `LP_NUM_THREADS` for the web viewer's cores and its log line, the `MpcLink` over the remote link handed to the controller once |
 | `:test_realtime_event_log` | the reports' order, wording and drops, the controller's reports through it |
 | `:test_robot_process` | the process without an MPC: a scripted controller, the headless simulator, a loopback bus and an operator - modes, `robot/state`, `robot/fsm_state`, `robot/loop_timing` (skipped periods and lateness included), the period, settings from the GUI and the task file, PD gains, the gantry's resets, health, `stop()`; the cycle that switches the torques on handing the backend its own action; a cycle that throws stopping the loop with the backend in its safe state; a save on the bus stored and applied by the task file's watcher; an MPC parameter update of another configuration installing nothing; the boot report of `runUntilShutdown()` |
-| `//humanoid_nmpc/humanoid_centroidal_mpc_app:test_config_save_end_to_end` | the robot binary as a process with a store: saves of the task file and the PD gains stored, refusals, a restart on the saved task file (its telemetry rate), and stored files the robot refuses - or a start that did not confirm its boot - falling back to the bundle, leaving `.rejected` |
+| `//humanoid_nmpc/humanoid_centroidal_mpc_app:test_config_save_end_to_end` | the robot binary as a process with a store: saves of the task file and the PD gains stored, refusals, a restart on the saved task file (its telemetry rate), and stored files the robot refuses (or a start that did not confirm its boot) falling back to the bundle, leaving `.rejected` |
 | `//humanoid_nmpc/remote_control:test_two_copy_save_end_to_end` | the GUI's tuning tabs against the robot binary with a store: each Save leaves the laptop's bytes in the store, refusals leave it untouched, a restart runs the saved files |
 | `//humanoid_nmpc/humanoid_centroidal_mpc_app:test_centroidal_mpc_robot_end_to_end` | the robot binary as a process against an `MpcServer` and an operator: WB_MPC, a policy applied, the period held, the JOINT_PD hold on link loss, SIGTERM |
 | `//humanoid_nmpc/humanoid_centroidal_mpc_app:test_centroidal_mpc_node` (its last case) | the robot binary and the MPC node binary as two processes, as every simulation launch runs them: WB_MPC, the gantry released, standing, walking forward and stopping without a fall, the period held, fresh policies, `viz/scene` on the bus, SIGTERM |

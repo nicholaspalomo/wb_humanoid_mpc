@@ -63,7 +63,7 @@ class CentroidalMpcRobotModelTest : public ::testing::Test {
 
     // Base pose [px, py, pz] and the ZYX Euler angles [yaw, pitch, roll] of its
     // quaternion
-    model.setBasePoseEulerZyx(
+    model.setPoseeulerzyxBaseRtWorld(
         testState_, (vector6_t() << 0.0, 0.0, 0.85, 0.1, 0.0, 0.0).finished());
 
     // Joint angles
@@ -158,7 +158,7 @@ TEST_F(CentroidalMpcRobotModelTest, GeneralizedCoordinates) {
   // Should contain the base position, the unit quaternion and the joint angles
   EXPECT_DOUBLE_EQ(genCoords[2], 0.85);  // base z position
   EXPECT_EQ(vector4_t(genCoords.segment<4>(3)),
-            model.getBaseOrientation(testState_));
+            model.getQuatBaseRtWorldXyzw(testState_));
   EXPECT_NEAR(genCoords.segment<4>(3).norm(), 1.0, 1.0e-15);
   EXPECT_DOUBLE_EQ(genCoords[7], 0.1);  // first joint angle
 }
@@ -166,7 +166,8 @@ TEST_F(CentroidalMpcRobotModelTest, GeneralizedCoordinates) {
 // Test base pose extraction and setting
 TEST_F(CentroidalMpcRobotModelTest, BasePose) {
   vector6_t basePose =
-      testingModelInterface_.getMpcRobotModel().getBasePoseEulerZyx(testState_);
+      testingModelInterface_.getMpcRobotModel().getPoseeulerzyxBaseRtWorld(
+          testState_);
   EXPECT_EQ(basePose.size(), 6);
   EXPECT_DOUBLE_EQ(basePose[2], 0.85);     // z position
   EXPECT_NEAR(basePose[3], 0.1, 1.0e-15);  // yaw, read back from the quaternion
@@ -175,11 +176,11 @@ TEST_F(CentroidalMpcRobotModelTest, BasePose) {
   vector_t modifiedState = testState_;
   vector6_t newBasePose;
   newBasePose << 1.0, 2.0, 1.0, 0.1, 0.2, 0.3;
-  testingModelInterface_.getMpcRobotModel().setBasePoseEulerZyx(modifiedState,
-                                                                newBasePose);
+  testingModelInterface_.getMpcRobotModel().setPoseeulerzyxBaseRtWorld(
+      modifiedState, newBasePose);
 
   vector6_t retrievedPose =
-      testingModelInterface_.getMpcRobotModel().getBasePoseEulerZyx(
+      testingModelInterface_.getMpcRobotModel().getPoseeulerzyxBaseRtWorld(
           modifiedState);
   EXPECT_TRUE(retrievedPose.isApprox(newBasePose, 1.0e-10));
 }
@@ -187,25 +188,27 @@ TEST_F(CentroidalMpcRobotModelTest, BasePose) {
 // Test base position extraction and setting
 TEST_F(CentroidalMpcRobotModelTest, BasePosition) {
   vector3_t basePos =
-      testingModelInterface_.getMpcRobotModel().getBasePosition(testState_);
+      testingModelInterface_.getMpcRobotModel().getPosBaseRtWorldEwrtWorld(
+          testState_);
   EXPECT_EQ(basePos.size(), 3);
   EXPECT_DOUBLE_EQ(basePos[2], 0.85);
 
   // Test setting position
   vector_t modifiedState = testState_;
   vector3_t newPos(1.5, 2.5, 1.2);
-  testingModelInterface_.getMpcRobotModel().setBasePosition(modifiedState,
-                                                            newPos);
+  testingModelInterface_.getMpcRobotModel().setPosBaseRtWorldEwrtWorld(
+      modifiedState, newPos);
 
   vector3_t retrievedPos =
-      testingModelInterface_.getMpcRobotModel().getBasePosition(modifiedState);
+      testingModelInterface_.getMpcRobotModel().getPosBaseRtWorldEwrtWorld(
+          modifiedState);
   EXPECT_TRUE(retrievedPos.isApprox(newPos, 1.0e-10));
 }
 
 // Test base orientation extraction and setting
 TEST_F(CentroidalMpcRobotModelTest, BaseOrientation) {
   vector3_t baseOri =
-      testingModelInterface_.getMpcRobotModel().getBaseOrientationEulerZyx(
+      testingModelInterface_.getMpcRobotModel().getEulerzyxBaseRtWorld(
           testState_);
   EXPECT_EQ(baseOri.size(), 3);
   EXPECT_NEAR(baseOri[0], 0.1, 1.0e-15);  // yaw, read back from the quaternion
@@ -213,11 +216,11 @@ TEST_F(CentroidalMpcRobotModelTest, BaseOrientation) {
   // Test setting orientation
   vector_t modifiedState = testState_;
   vector3_t newOri(0.05, 0.1, 0.15);
-  testingModelInterface_.getMpcRobotModel().setBaseOrientationEulerZyx(
+  testingModelInterface_.getMpcRobotModel().setEulerzyxBaseRtWorld(
       modifiedState, newOri);
 
   vector3_t retrievedOri =
-      testingModelInterface_.getMpcRobotModel().getBaseOrientationEulerZyx(
+      testingModelInterface_.getMpcRobotModel().getEulerzyxBaseRtWorld(
           modifiedState);
   EXPECT_TRUE(retrievedOri.isApprox(newOri, 1.0e-10));
 }
@@ -285,7 +288,7 @@ TEST_F(CentroidalMpcRobotModelTest, JointVelocities) {
 TEST_F(CentroidalMpcRobotModelTest, ContactWrench) {
   // Test left foot (contact 0)
   vector6_t leftWrench =
-      testingModelInterface_.getMpcRobotModel().getContactWrench(
+      testingModelInterface_.getMpcRobotModel().getWrenchContactEwrtParam(
           testInput_, /*contactIndex=*/0);
   EXPECT_EQ(leftWrench.size(), 6);
   EXPECT_DOUBLE_EQ(leftWrench[2], 400.0);  // Force in z
@@ -293,7 +296,7 @@ TEST_F(CentroidalMpcRobotModelTest, ContactWrench) {
 
   // Test right foot (contact 1)
   vector6_t rightWrench =
-      testingModelInterface_.getMpcRobotModel().getContactWrench(
+      testingModelInterface_.getMpcRobotModel().getWrenchContactEwrtParam(
           testInput_, /*contactIndex=*/1);
   EXPECT_EQ(rightWrench.size(), 6);
   EXPECT_DOUBLE_EQ(rightWrench[2], 400.0);  // Force in z
@@ -303,11 +306,11 @@ TEST_F(CentroidalMpcRobotModelTest, ContactWrench) {
   vector_t modifiedInput = testInput_;
   vector6_t newWrench;
   newWrench << 10.0, 20.0, 500.0, 1.0, 2.0, 3.0;
-  testingModelInterface_.getMpcRobotModel().setContactWrench(
+  testingModelInterface_.getMpcRobotModel().setWrenchContactEwrtParam(
       modifiedInput, newWrench, /*contactIndex=*/0);
 
   vector6_t retrievedWrench =
-      testingModelInterface_.getMpcRobotModel().getContactWrench(
+      testingModelInterface_.getMpcRobotModel().getWrenchContactEwrtParam(
           modifiedInput, /*contactIndex=*/0);
   EXPECT_TRUE(retrievedWrench.isApprox(newWrench, 1.0e-10));
 }
@@ -315,7 +318,7 @@ TEST_F(CentroidalMpcRobotModelTest, ContactWrench) {
 // Test contact force extraction and setting
 TEST_F(CentroidalMpcRobotModelTest, ContactForce) {
   vector3_t leftForce =
-      testingModelInterface_.getMpcRobotModel().getContactForce(
+      testingModelInterface_.getMpcRobotModel().getForceContactEwrtParam(
           testInput_, /*contactIndex=*/0);
   EXPECT_EQ(leftForce.size(), 3);
   EXPECT_DOUBLE_EQ(leftForce[2], 400.0);
@@ -323,11 +326,11 @@ TEST_F(CentroidalMpcRobotModelTest, ContactForce) {
   // Test setting contact force
   vector_t modifiedInput = testInput_;
   vector3_t newForce(50.0, 60.0, 700.0);
-  testingModelInterface_.getMpcRobotModel().setContactForce(
+  testingModelInterface_.getMpcRobotModel().setForceContactEwrtParam(
       modifiedInput, newForce, /*contactIndex=*/1);
 
   vector3_t retrievedForce =
-      testingModelInterface_.getMpcRobotModel().getContactForce(
+      testingModelInterface_.getMpcRobotModel().getForceContactEwrtParam(
           modifiedInput, /*contactIndex=*/1);
   EXPECT_TRUE(retrievedForce.isApprox(newForce, 1.0e-10));
 }
@@ -335,7 +338,7 @@ TEST_F(CentroidalMpcRobotModelTest, ContactForce) {
 // Test contact moment extraction and setting
 TEST_F(CentroidalMpcRobotModelTest, ContactMoment) {
   vector3_t leftMoment =
-      testingModelInterface_.getMpcRobotModel().getContactMoment(
+      testingModelInterface_.getMpcRobotModel().getTorqueContactEwrtParam(
           testInput_, /*contactIndex=*/0);
   EXPECT_EQ(leftMoment.size(), 3);
   EXPECT_DOUBLE_EQ(leftMoment[0], 5.0);
@@ -344,11 +347,11 @@ TEST_F(CentroidalMpcRobotModelTest, ContactMoment) {
   // Test setting contact moment
   vector_t modifiedInput = testInput_;
   vector3_t newMoment(8.0, 9.0, 10.0);
-  testingModelInterface_.getMpcRobotModel().setContactMoment(
+  testingModelInterface_.getMpcRobotModel().setTorqueContactEwrtParam(
       modifiedInput, newMoment, /*contactIndex=*/1);
 
   vector3_t retrievedMoment =
-      testingModelInterface_.getMpcRobotModel().getContactMoment(
+      testingModelInterface_.getMpcRobotModel().getTorqueContactEwrtParam(
           modifiedInput, /*contactIndex=*/1);
   EXPECT_TRUE(retrievedMoment.isApprox(newMoment, 1.0e-10));
 }
@@ -370,8 +373,8 @@ TEST_F(CentroidalMpcRobotModelTest, AdaptBasePoseHeight) {
   scalar_t heightChange = 0.1;
   scalar_t originalHeight = modifiedState[6 + 2];  // Base z position
 
-  testingModelInterface_.getMpcRobotModel().adaptBasePoseHeight(modifiedState,
-                                                                heightChange);
+  testingModelInterface_.getMpcRobotModel().adaptPosBaseRtWorldEwrtWorldZ(
+      modifiedState, heightChange);
 
   EXPECT_DOUBLE_EQ(modifiedState[6 + 2], originalHeight + heightChange);
 }
@@ -413,22 +416,28 @@ TEST_F(CentroidalMpcRobotModelTest, BoundaryConditions) {
       vector_t::Zero(testingModelInterface_.getMpcRobotModel().getInputDim());
 
   EXPECT_NO_THROW(
-      testingModelInterface_.getMpcRobotModel().getBasePoseEulerZyx(zeroState));
+      testingModelInterface_.getMpcRobotModel().getPoseeulerzyxBaseRtWorld(
+          zeroState));
   EXPECT_NO_THROW(
       testingModelInterface_.getMpcRobotModel().getJointAngles(zeroState));
-  EXPECT_NO_THROW(testingModelInterface_.getMpcRobotModel().getContactWrench(
-      zeroInput, /*contactIndex=*/0));
-  EXPECT_NO_THROW(testingModelInterface_.getMpcRobotModel().getContactWrench(
-      zeroInput, /*contactIndex=*/1));
+  EXPECT_NO_THROW(
+      testingModelInterface_.getMpcRobotModel().getWrenchContactEwrtParam(
+          zeroInput, /*contactIndex=*/0));
+  EXPECT_NO_THROW(
+      testingModelInterface_.getMpcRobotModel().getWrenchContactEwrtParam(
+          zeroInput, /*contactIndex=*/1));
 
   // Test contact indices
   for (size_t i = 0; i < 2; ++i) {
-    EXPECT_NO_THROW(testingModelInterface_.getMpcRobotModel().getContactWrench(
-        testInput_, i));
-    EXPECT_NO_THROW(testingModelInterface_.getMpcRobotModel().getContactForce(
-        testInput_, i));
-    EXPECT_NO_THROW(testingModelInterface_.getMpcRobotModel().getContactMoment(
-        testInput_, i));
+    EXPECT_NO_THROW(
+        testingModelInterface_.getMpcRobotModel().getWrenchContactEwrtParam(
+            testInput_, i));
+    EXPECT_NO_THROW(
+        testingModelInterface_.getMpcRobotModel().getForceContactEwrtParam(
+            testInput_, i));
+    EXPECT_NO_THROW(
+        testingModelInterface_.getMpcRobotModel().getTorqueContactEwrtParam(
+            testInput_, i));
   }
 }
 

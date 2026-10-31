@@ -139,9 +139,10 @@ absl::Status checkOracleLayout(const EulerStateLayout& layout,
  * on any other name, which a new block of the tuning layout would need sorted.
  */
 bool isWorldFrameSegment(absl::string_view name) {
-  if (name == "normalized_linear_momentum" ||
-      name == "normalized_angular_momentum" || name == "base_position" ||
-      name == "base_linear_velocity") {
+  if (name == "mnorm_linmom_com_rt_world_ewrt_world" ||
+      name == "mnorm_angmom_com_rt_world_ewrt_world" ||
+      name == "pos_base_rt_world_ewrt_world" ||
+      name == "linvel_base_rt_world_ewrt_world") {
     return true;
   }
   ABSL_CHECK(name == "joint_positions" || name == "joint_velocities")
@@ -410,7 +411,7 @@ vector_t MpcEquivalenceFixture::randomEulerState(
       for (Eigen::Index i = 0; i < 3; ++i)
         state(row + i) =
             uniform(-bounds.maxAbsEulerRate, bounds.maxAbsEulerRate, generator);
-    } else if (segment.name == "base_position") {
+    } else if (segment.name == "pos_base_rt_world_ewrt_world") {
       state.segment<3>(row) << uniform(/*low=*/-1.0, /*high=*/1.0, generator),
           uniform(/*low=*/-1.0, /*high=*/1.0, generator),
           uniform(/*low=*/0.5, /*high=*/1.1, generator);
@@ -429,7 +430,7 @@ vector_t MpcEquivalenceFixture::randomEulerState(
       }
     } else {
       scalar_t halfWidth = bounds.maxAbsLinearVelocity;
-      if (segment.name == "normalized_angular_momentum")
+      if (segment.name == "mnorm_angmom_com_rt_world_ewrt_world")
         halfWidth = bounds.maxAbsNormalizedAngularMomentum;
       if (segment.name == "joint_velocities")
         halfWidth = bounds.maxAbsJointVelocity;
@@ -498,8 +499,8 @@ EquivalenceReference MpcEquivalenceFixture::walkingReference() const {
   }
   const vector_t& start = initialState();
   vector_t ahead = start;
-  model().setBasePosition(
-      ahead, vector3_t(model().getBasePosition(start) +
+  model().setPosBaseRtWorldEwrtWorld(
+      ahead, vector3_t(model().getPosBaseRtWorldEwrtWorld(start) +
                        kWalkingTargetDistance * vector3_t::UnitX()));
   const vector_t zeroInput =
       vector_t::Zero(static_cast<Eigen::Index>(model().getInputDim()));

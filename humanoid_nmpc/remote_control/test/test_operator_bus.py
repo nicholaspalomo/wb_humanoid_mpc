@@ -140,10 +140,10 @@ class TestMessageBuilders(unittest.TestCase):
         self.assertEqual(
             operator_bus.walking_velocity_command(0.5, -0.25, 0.75, 0.8),
             walking_velocity_command_pb2.WalkingVelocityCommand(
-                linear_velocity_x=0.5,
-                linear_velocity_y=-0.25,
-                angular_velocity_z=0.75,
-                desired_pelvis_height=0.8,
+                cmd_linvel_base_rt_world_ewrt_heading_x=0.5,
+                cmd_linvel_base_rt_world_ewrt_heading_y=-0.25,
+                cmd_angvel_base_rt_world_ewrt_world_z=0.75,
+                cmd_pos_base_rt_world_ewrt_world_z=0.8,
             ),
         )
 
@@ -191,9 +191,10 @@ class TestMessageBuilders(unittest.TestCase):
             {"l_leg_kny": 0.5, "r_leg_kny": -0.25}
         )
         self.assertEqual(
-            dict(message.positions), {"l_leg_kny": 0.5, "r_leg_kny": -0.25}
+            dict(message.joint_positions),
+            {"l_leg_kny": 0.5, "r_leg_kny": -0.25},
         )
-        self.assertEqual(dict(operator_bus.joint_targets().positions), {})
+        self.assertEqual(dict(operator_bus.joint_targets().joint_positions), {})
 
 
 class TestFsmCommandSender(unittest.TestCase):
@@ -504,7 +505,7 @@ class TestOperatorBusOverLoopback(unittest.TestCase):
         received = self._publish_until_received(
             publish, topics.OPERATOR_JOINT_TARGETS
         )
-        self.assertEqual(dict(received.positions), targets)
+        self.assertEqual(dict(received.joint_positions), targets)
 
     def test_fsm_commands_arrive_in_order_with_rising_sequences(self):
         self._publish_until_received(

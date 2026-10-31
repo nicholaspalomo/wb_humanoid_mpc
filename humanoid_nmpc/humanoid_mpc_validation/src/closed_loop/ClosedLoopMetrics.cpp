@@ -117,7 +117,7 @@ void ClosedLoopMetrics::addControlCycle(const ControlCycleSample& sample) {
 
   // The base velocity in the heading frame, and the yaw rate in the world,
   // against the reference.
-  const double heading = twistHeading(xi);
+  const double heading = yawOf(xi);
   const double cosHeading = std::cos(heading);
   const double sinHeading = std::sin(heading);
   const Eigen::Vector3d& velocity = sample.baseLinearVelocityWorld;

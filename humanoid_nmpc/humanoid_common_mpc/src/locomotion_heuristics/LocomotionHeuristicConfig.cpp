@@ -106,8 +106,9 @@ absl::Status LocomotionHeuristicConfig::validate() const {
       requireNonNegative(impulseScaling.scale, "impulse_scaling.scale"));
   RETURN_IF_ERROR(requireNonNegative(centripetalAcceleration.scale,
                                      "centripetal_acceleration.scale"));
-  RETURN_IF_ERROR(requireNonNegative(centripetalAcceleration.maximumForce,
-                                     "centripetal_acceleration.maximum_force"));
+  RETURN_IF_ERROR(requireNonNegative(
+      centripetalAcceleration.maximumForce,
+      "centripetal_acceleration.max_force_com_ewrt_world_xy"));
   RETURN_IF_ERROR(requireNonNegative(
       centripetalAcceleration.maximumForceRatioOfWeight,
       "centripetal_acceleration.maximum_force_ratio_of_weight"));
@@ -137,16 +138,17 @@ absl::Status LocomotionHeuristicConfig::validate() const {
                      "stance feet to carry less than the robot weighs even "
                      "while standing."));
   }
-  // `maximum_force: 0` is the documented way to say "use the ratio instead", so
-  // exactly one of the two has to be positive; both at zero would remove the
-  // clamp entirely rather than select a default.
+  // `max_force_com_ewrt_world_xy: 0` is the documented way to say "use the
+  // ratio instead", so exactly one of the two has to be positive; both at zero
+  // would remove the clamp entirely rather than select a default.
   if (!(centripetalAcceleration.maximumForce > 0.0) &&
       !(centripetalAcceleration.maximumForceRatioOfWeight > 0.0)) {
     return absl::InvalidArgumentError(
         "[LocomotionHeuristicConfig] "
         "locomotion_heuristics.centripetal_acceleration needs a force clamp: "
         "set "
-        "maximum_force to a positive value in newtons, or leave it at 0 and "
+        "max_force_com_ewrt_world_xy to a positive value in newtons, or leave "
+        "it at 0 and "
         "set maximum_force_ratio_of_weight to a "
         "positive fraction of body weight. With both at zero nothing bounds a "
         "horizontal force reference that no "

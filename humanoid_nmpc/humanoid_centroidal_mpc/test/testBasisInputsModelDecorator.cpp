@@ -91,8 +91,8 @@ ContactWrenchConeConstraint::Config makeTestConeConfig() {
   config.numBasisVectors = 4;
   config.frictionCoefficient = 0.7;
   config.torsionalFrictionCoefficient = 0.05;
-  config.minNormalForce = 5.0;
-  config.gripperForce = 0.0;
+  config.minForceContactEwrtContactZ = 5.0;
+  config.gripForceContactEwrtContactZ = 0.0;
   return config;
 }
 
@@ -165,7 +165,7 @@ class BasisInputsModelDecoratorTest : public ::testing::Test {
     ASSERT_TRUE(config.ok()) << config.status();
     atlas_ = *std::move(config);
 
-    // Create model settings and pinocchio interface — stored as members to
+    // Create model settings and pinocchio interface - stored as members to
     // avoid dangling references. MpcRobotModelBase stores modelSettings as
     // `const ModelSettings&`, so the object must outlive the model.
     modelSettings_ = std::make_unique<ModelSettings>(checkedValue(
@@ -205,8 +205,9 @@ class BasisInputsModelDecoratorTest : public ::testing::Test {
   /// the base orientation alone determines their orientation in the world.
   vector_t makeState(scalar_t yaw, scalar_t pitch = 0.0) const {
     vector_t state = decorator_->getNeutralState();
-    decorator_->setBasePosition(state, vector3_t(0.0, 0.0, kBaseHeight));
-    decorator_->setBaseOrientationEulerZyx(state, vector3_t(yaw, pitch, 0.0));
+    decorator_->setPosBaseRtWorldEwrtWorld(state,
+                                           vector3_t(0.0, 0.0, kBaseHeight));
+    decorator_->setEulerzyxBaseRtWorld(state, vector3_t(yaw, pitch, 0.0));
     decorator_->setJointAngles(state, vector_t::Zero(jointDim_));
     return state;
   }
@@ -301,16 +302,16 @@ TEST_F(BasisInputsModelDecoratorTest, SetGetContactWrenchRoundTrip) {
   // for one where the minimum-norm scalings alone would not do.
   vector6_t wrench0;
   wrench0 << 10.0, 5.0, 100.0, 1.0, -1.0, 0.5;
-  decorator_->setContactWrench(input, wrench0, /*contactIndex=*/0);
+  decorator_->setWrenchContactEwrtParam(input, wrench0, /*contactIndex=*/0);
 
-  // Get it back — should recover the wrench via B * B⁺ * W (projection onto
+  // Get it back - should recover the wrench via B * B⁺ * W (projection onto
   // column space)
   const matrix_t& B = basisMatrices_[0].getBasisMatrix();
   const matrix_t& B_pinv = basisMatrices_[0].getBasisMatrixPseudoInverse();
   vector6_t W_projected = B * (B_pinv * wrench0);
 
   vector6_t wrench0_recovered =
-      decorator_->getContactWrench(input, /*contactIndex=*/0);
+      decorator_->getWrenchContactEwrtParam(input, /*contactIndex=*/0);
   EXPECT_TRUE(wrench0_recovered.isApprox(W_projected, 1.0e-9))
       << "setContactWrench → getContactWrench should round-trip (modulo "
          "projection):\n"
@@ -323,9 +324,9 @@ TEST_F(
     BasisInputsModelDecoratorTest,
     SetContactWrenchReproducesConeWrenchesWhoseMinimumNormScalingsAreNegative) {
   // This wrench is inside the cone of the basis, but its minimum-norm scalings
-  // have a negative entry. Clamping them at zero - what setContactWrench used
-  // to do - returns a different wrench; the non-negative least-squares solve
-  // must return this one exactly.
+  // have a negative entry. Clamping them at zero - what
+  // setWrenchContactEwrtParam used to do - returns a different wrench; the
+  // non-negative least-squares solve must return this one exactly.
   vector6_t wrench;
   wrench << 10.0, 5.0, 100.0, 1.0, -2.0, 0.5;
   const matrix_t& B = basisMatrices_[0].getBasisMatrix();
@@ -344,14 +345,15 @@ TEST_F(
       << "the old clamp must be visibly wrong here";
 
   vector_t input = vector_t::Zero(decorator_->getInputDim());
-  decorator_->setContactWrench(input, wrench, /*contactIndex=*/0);
+  decorator_->setWrenchContactEwrtParam(input, wrench, /*contactIndex=*/0);
 
   EXPECT_GE(getLambda(input, /*contactIndex=*/0).minCoeff(), 0.0)
       << "the scalings written into the input must be non-negative";
-  EXPECT_TRUE(decorator_->getContactWrench(input, /*contactIndex=*/0)
+  EXPECT_TRUE(decorator_->getWrenchContactEwrtParam(input, /*contactIndex=*/0)
                   .isApprox(wrench, kTol))
       << "set " << wrench.transpose() << ", got back "
-      << decorator_->getContactWrench(input, /*contactIndex=*/0).transpose();
+      << decorator_->getWrenchContactEwrtParam(input, /*contactIndex=*/0)
+             .transpose();
 }
 
 TEST_F(BasisInputsModelDecoratorTest,
@@ -362,9 +364,9 @@ TEST_F(BasisInputsModelDecoratorTest,
   const ContactWrenchConeRows rows = makeTestConeRows();
   ASSERT_LT(rows.evaluateCone(outside).minCoeff(), 0.0);
   vector_t input = vector_t::Zero(decorator_->getInputDim());
-  decorator_->setContactWrench(input, outside, /*contactIndex=*/0);
+  decorator_->setWrenchContactEwrtParam(input, outside, /*contactIndex=*/0);
   EXPECT_GE(getLambda(input, /*contactIndex=*/0).minCoeff(), 0.0);
-  EXPECT_GE(rows.evaluateCone(vector6_t(decorator_->getContactWrench(
+  EXPECT_GE(rows.evaluateCone(vector6_t(decorator_->getWrenchContactEwrtParam(
                                   input, /*contactIndex=*/0)))
                 .minCoeff(),
             -1.0e-9 * outside.norm());
@@ -373,7 +375,7 @@ TEST_F(BasisInputsModelDecoratorTest,
 TEST_F(BasisInputsModelDecoratorTest,
        PitchedStanceFootWeightRoundTripsThroughTheWorldFrameSetter) {
   // The weight-compensation warm start and the MRT's fallback torques write the
-  // world-vertical weight of the robot through setContactForceInWorldFrame.
+  // world-vertical weight of the robot through setForceContactEwrtWorld.
   // Seen from a stance foot pitched by 15 degrees (heel strike, toe-off) that
   // force has a tangential component and its minimum-norm scalings go negative;
   // on the Atlas cone the old clamp returned a wrench 7 % too large with a 6 %
@@ -388,7 +390,7 @@ TEST_F(BasisInputsModelDecoratorTest,
       vector6_t weightInWorld = vector6_t::Zero();
       weightInWorld.head<3>() = weight;
       const vector6_t weightInLocal =
-          decorator_->rotateWrenchWorldToLocal(state, weightInWorld, i);
+          decorator_->computeWrenchContactEwrtContact(state, weightInWorld, i);
       ASSERT_LT(
           (basisMatrices_[i].getBasisMatrixPseudoInverse() * weightInLocal)
               .minCoeff(),
@@ -397,29 +399,25 @@ TEST_F(BasisInputsModelDecoratorTest,
              "a negative entry, or the test exercises nothing";
 
       vector_t input = vector_t::Zero(decorator_->getInputDim());
-      decorator_->setContactForceInWorldFrame(state, input, weight, i);
+      decorator_->setForceContactEwrtWorld(state, input, weight, i);
       EXPECT_GE(getLambda(input, i).minCoeff(), 0.0);
-      EXPECT_LE(
-          (decorator_->getContactForceInWorldFrame(state, input, i) - weight)
-              .norm(),
-          kTol * weight.norm())
+      EXPECT_LE((decorator_->getForceContactEwrtWorld(state, input, i) - weight)
+                    .norm(),
+                kTol * weight.norm())
           << "pitch " << pitch << " contact " << i << ": got "
-          << decorator_->getContactForceInWorldFrame(state, input, i)
-                 .transpose();
-      EXPECT_LE(
-          decorator_->getContactMomentInWorldFrame(state, input, i).norm(),
-          kTol * weight.norm());
+          << decorator_->getForceContactEwrtWorld(state, input, i).transpose();
+      EXPECT_LE(decorator_->getTorqueContactEwrtWorld(state, input, i).norm(),
+                kTol * weight.norm());
     }
     // The same through the helper that builds the whole weight-compensating
     // input.
     const vector_t compensating = weightCompensatingInput(
         *pinocchioInterface_, {true, true}, *decorator_, state);
     for (size_t i = 0; i < kNumContacts; ++i) {
-      EXPECT_LE(
-          (decorator_->getContactForceInWorldFrame(state, compensating, i) -
-           weight)
-              .norm(),
-          1.0e-6)
+      EXPECT_LE((decorator_->getForceContactEwrtWorld(state, compensating, i) -
+                 weight)
+                    .norm(),
+                1.0e-6)
           << "pitch " << pitch;
     }
   }
@@ -458,14 +456,15 @@ TEST_F(BasisInputsModelDecoratorTest, ExactGeneratorSetDecoratesTheSameModel) {
       const vector6_t wrenchWorld = rotateWrench(
           computeContactFrameRotationWithPinocchio(state, i), wrenchLocal);
       vector_t input = vector_t::Zero(exact.getInputDim());
-      exact.setContactWrenchInWorldFrame(state, input, wrenchWorld, i);
+      exact.setWrenchContactEwrtWorld(state, input, wrenchWorld, i);
       EXPECT_GE(
           input.segment(exact.getContactWrenchStartIndices(i), numBasisPerFoot)
               .minCoeff(),
           0.0);
-      EXPECT_TRUE(exact.getContactWrench(input, i).isApprox(wrenchLocal, kTol))
-          << exact.getContactWrench(input, i).transpose();
-      EXPECT_TRUE(exact.getContactWrenchInWorldFrame(state, input, i)
+      EXPECT_TRUE(
+          exact.getWrenchContactEwrtParam(input, i).isApprox(wrenchLocal, kTol))
+          << exact.getWrenchContactEwrtParam(input, i).transpose();
+      EXPECT_TRUE(exact.getWrenchContactEwrtWorld(state, input, i)
                       .isApprox(wrenchWorld, kTol));
       EXPECT_TRUE(input.tail(jointDim_).isZero(0.0));
     }
@@ -478,10 +477,10 @@ TEST_F(BasisInputsModelDecoratorTest, SetGetContactForceRoundTrip) {
 
   vector3_t force1;
   force1 << 5.0, -3.0, 80.0;
-  decorator_->setContactForce(input, force1, /*contactIndex=*/1);
+  decorator_->setForceContactEwrtParam(input, force1, /*contactIndex=*/1);
 
   vector3_t force1_recovered =
-      decorator_->getContactForce(input, /*contactIndex=*/1);
+      decorator_->getForceContactEwrtParam(input, /*contactIndex=*/1);
 
   vector6_t wrench_padded = vector6_t::Zero();
   wrench_padded.head<3>() = force1;
@@ -490,7 +489,7 @@ TEST_F(BasisInputsModelDecoratorTest, SetGetContactForceRoundTrip) {
   vector3_t force_projected = (B * (B_pinv * wrench_padded)).head<3>();
 
   EXPECT_TRUE(force1_recovered.isApprox(force_projected, 1.0e-9))
-      << "setContactForce → getContactForce round-trip:\n"
+      << "setForceContactEwrtParam → getForceContactEwrtParam round-trip:\n"
       << "  set = " << force1.transpose()
       << "\n  got = " << force1_recovered.transpose();
 }
@@ -503,9 +502,10 @@ TEST_F(BasisInputsModelDecoratorTest, ContactsAreIndependent) {
 
   vector6_t wrench0;
   wrench0 << 10.0, 5.0, 100.0, 1.0, -1.0, 0.5;
-  decorator_->setContactWrench(input, wrench0, /*contactIndex=*/0);
+  decorator_->setWrenchContactEwrtParam(input, wrench0, /*contactIndex=*/0);
 
-  vector6_t wrench1 = decorator_->getContactWrench(input, /*contactIndex=*/1);
+  vector6_t wrench1 =
+      decorator_->getWrenchContactEwrtParam(input, /*contactIndex=*/1);
   EXPECT_TRUE(wrench1.isZero(1.0e-12))
       << "Setting contact 0 wrench should not affect contact 1:\n  wrench1 = "
       << wrench1.transpose();
@@ -541,19 +541,19 @@ TEST_F(BasisInputsModelDecoratorTest, CloneProducesWorkingCopy) {
   vector_t input = vector_t::Zero(inputDim);
   vector6_t wrench;
   wrench << 1.0, 2.0, 50.0, 0.1, -0.1, 0.01;
-  cloned->setContactWrench(input, wrench, /*contactIndex=*/0);
+  cloned->setWrenchContactEwrtParam(input, wrench, /*contactIndex=*/0);
 
   vector6_t wrench_recovered =
-      cloned->getContactWrench(input, /*contactIndex=*/0);
+      cloned->getWrenchContactEwrtParam(input, /*contactIndex=*/0);
   EXPECT_FALSE(wrench_recovered.isZero(1.0e-6));
 
   // The clone must carry its own pinocchio copy so that the world-frame
   // accessors keep working after cloning.
   const vector_t state = makeState(kYaw90);
   EXPECT_TRUE(
-      cloned->getContactWrenchInWorldFrame(state, input, /*contactIndex=*/0)
-          .isApprox(decorator_->getContactWrenchInWorldFrame(
-                        state, input, /*contactIndex=*/0),
+      cloned->getWrenchContactEwrtWorld(state, input, /*contactIndex=*/0)
+          .isApprox(decorator_->getWrenchContactEwrtWorld(state, input,
+                                                          /*contactIndex=*/0),
                     kTol));
 
   delete cloned;
@@ -566,9 +566,9 @@ TEST_F(BasisInputsModelDecoratorTest, StateDelegatesMatchWrappedModel) {
 
   vector3_t pos;
   pos << 1.0, 2.0, 0.95;
-  decorator_->setBasePosition(state, pos);
+  decorator_->setPosBaseRtWorldEwrtWorld(state, pos);
 
-  vector3_t pos_recovered = decorator_->getBasePosition(state);
+  vector3_t pos_recovered = decorator_->getPosBaseRtWorldEwrtWorld(state);
   EXPECT_TRUE(pos_recovered.isApprox(pos, 1.0e-12))
       << "Base position should delegate to wrapped model";
 
@@ -605,7 +605,8 @@ TEST_F(BasisInputsModelDecoratorTest, NonNegativeLambdaProducesValidWrench) {
     input(k) = 1.0;
   }
 
-  vector6_t wrench = decorator_->getContactWrench(input, /*contactIndex=*/0);
+  vector6_t wrench =
+      decorator_->getWrenchContactEwrtParam(input, /*contactIndex=*/0);
   EXPECT_GT(wrench(2), 0.0)
       << "Non-negative lambdas should produce positive Fz";
 }
@@ -614,7 +615,7 @@ TEST_F(BasisInputsModelDecoratorTest, NonNegativeLambdaProducesValidWrench) {
 
 TEST_F(BasisInputsModelDecoratorTest,
        LocalBasisToWrenchMapHasBlockDiagonalStructure) {
-  const matrix_t M = decorator_->getLocalBasisToWrenchMap();
+  const matrix_t M = decorator_->getLocalBasisGeneratorMap();
 
   const Eigen::Index expectedRows =
       static_cast<Eigen::Index>(6 * kNumContacts + jointDim_);
@@ -647,7 +648,7 @@ TEST_F(BasisInputsModelDecoratorTest,
   const vector_t state = decorator_->getNeutralState();
   for (size_t i = 0; i < kNumContacts; ++i) {
     EXPECT_TRUE(wrenchInput.segment(6 * i, 6).isApprox(
-        decorator_->getContactWrench(basisInput, i), kTol));
+        decorator_->getWrenchContactEwrtParam(basisInput, i), kTol));
   }
   EXPECT_TRUE(wrenchInput.tail(jointDim_).isApprox(
       decorator_->getJointVelocities(state, basisInput), kTol));
@@ -672,7 +673,7 @@ TEST_F(BasisInputsModelDecoratorTest,
   for (size_t i = 0; i < kNumContacts; ++i) {
     const vector6_t W_local_expected =
         basisMatrices_[i].getBasisMatrix() * getLambda(input, i);
-    const vector6_t W_local = decorator_->getContactWrench(input, i);
+    const vector6_t W_local = decorator_->getWrenchContactEwrtParam(input, i);
     EXPECT_TRUE(W_local.isApprox(W_local_expected, kTol))
         << "Input-only accessor must return B * lambda (local frame) for "
            "contact "
@@ -680,31 +681,30 @@ TEST_F(BasisInputsModelDecoratorTest,
 
     const matrix3_t w_R_l = computeContactFrameRotationWithPinocchio(state, i);
     EXPECT_TRUE(
-        decorator_->getContactFrameRotationLocalToWorld(state, i).isApprox(
-            w_R_l, kTol))
+        decorator_->getRotmatContactRtWorld(state, i).isApprox(w_R_l, kTol))
         << "Decorator contact frame rotation differs from an independent "
            "pinocchio evaluation for contact "
         << i;
 
     const vector6_t W_world_expected = rotateWrench(w_R_l, W_local_expected);
     const vector6_t W_world =
-        decorator_->getContactWrenchInWorldFrame(state, input, i);
+        decorator_->getWrenchContactEwrtWorld(state, input, i);
     EXPECT_TRUE(W_world.isApprox(W_world_expected, kTol))
         << "World-frame wrench must equal blkdiag(w_R_l, w_R_l) * B * lambda "
            "for contact "
         << i << ":\n  got      = " << W_world.transpose()
         << "\n  expected = " << W_world_expected.transpose();
     EXPECT_TRUE(W_world.isApprox(
-        decorator_->rotateWrenchLocalToWorld(state, W_local, i), kTol));
+        decorator_->computeWrenchContactEwrtWorld(state, W_local, i), kTol));
     // The realtime accessor, with the contact frame's orientation handed in, is
     // the same wrench, through the base class.
     const MpcRobotModelBase<scalar_t>& base = *decorator_;
-    EXPECT_TRUE(base.getContactWrenchInWorldFrameGivenRotation(input, w_R_l, i)
+    EXPECT_TRUE(base.getWrenchContactEwrtWorld(input, w_R_l, i)
                     .isApprox(W_world_expected, kTol))
         << "contact " << i;
-    EXPECT_TRUE(decorator_->getContactForceInWorldFrame(state, input, i)
+    EXPECT_TRUE(decorator_->getForceContactEwrtWorld(state, input, i)
                     .isApprox(W_world_expected.head<3>(), kTol));
-    EXPECT_TRUE(decorator_->getContactMomentInWorldFrame(state, input, i)
+    EXPECT_TRUE(decorator_->getTorqueContactEwrtWorld(state, input, i)
                     .isApprox(W_world_expected.tail<3>(), kTol));
 
     // Sanity: for a yawed base the tangential components genuinely differ
@@ -716,7 +716,7 @@ TEST_F(BasisInputsModelDecoratorTest,
         << i;
 
     // Rotating back must recover the local wrench.
-    EXPECT_TRUE(decorator_->rotateWrenchWorldToLocal(state, W_world, i)
+    EXPECT_TRUE(decorator_->computeWrenchContactEwrtContact(state, W_world, i)
                     .isApprox(W_local, kTol));
   }
 }
@@ -772,7 +772,7 @@ TEST_F(BasisInputsModelDecoratorTest, YawedBaseRotatesLocalXForceIntoWorldY) {
     vector6_t W_localX = vector6_t::Zero();
     W_localX(0) = 1.0;
     const vector6_t W_worldX =
-        decorator_->rotateWrenchLocalToWorld(stateYaw90, W_localX, i);
+        decorator_->computeWrenchContactEwrtWorld(stateYaw90, W_localX, i);
     EXPECT_TRUE(W_worldX.head<3>().isApprox(vector3_t(0.0, ySign, 0.0), kTol))
         << "Local +x force must become a world " << (ySign > 0.0 ? "+" : "-")
         << "y force for contact " << i << ", got "
@@ -784,13 +784,14 @@ TEST_F(BasisInputsModelDecoratorTest, YawedBaseRotatesLocalXForceIntoWorldY) {
     vector6_t W_inCone;
     W_inCone << 10.0, 0.0, 100.0, 0.0, 0.0, 0.0;
     vector_t input = vector_t::Zero(decorator_->getInputDim());
-    decorator_->setContactWrench(input, W_inCone, i);
+    decorator_->setWrenchContactEwrtParam(input, W_inCone, i);
     ASSERT_GE(getLambda(input, i).minCoeff(), 0.0);
-    ASSERT_TRUE(decorator_->getContactWrench(input, i).isApprox(W_inCone, kTol))
+    ASSERT_TRUE(decorator_->getWrenchContactEwrtParam(input, i).isApprox(
+        W_inCone, kTol))
         << "A wrench inside the cone must round-trip exactly";
 
     const vector3_t f_world =
-        decorator_->getContactForceInWorldFrame(stateYaw90, input, i);
+        decorator_->getForceContactEwrtWorld(stateYaw90, input, i);
     EXPECT_TRUE(f_world.isApprox(vector3_t(0.0, ySign * 10.0, 100.0), kTol))
         << "Local force (10, 0, 100) should become (0, " << ySign * 10.0
         << ", 100) in the world for contact " << i << ", got "
@@ -820,7 +821,7 @@ TEST_F(BasisInputsModelDecoratorTest,
       const vector6_t W_world_in = rotateWrench(w_R_l, W_local);
 
       vector_t input = vector_t::Zero(decorator_->getInputDim());
-      decorator_->setContactWrenchInWorldFrame(state, input, W_world_in, i);
+      decorator_->setWrenchContactEwrtWorld(state, input, W_world_in, i);
 
       EXPECT_GE(getLambda(input, i).minCoeff(), 0.0)
           << "All lambda must be non-negative (yaw = " << yaw << ", contact "
@@ -832,15 +833,15 @@ TEST_F(BasisInputsModelDecoratorTest,
 
       // The input-only accessor returns the wrench in the local contact frame,
       // i.e. the un-rotated test wrench.
-      EXPECT_TRUE(
-          decorator_->getContactWrench(input, i).isApprox(W_local, kTol))
+      EXPECT_TRUE(decorator_->getWrenchContactEwrtParam(input, i).isApprox(
+          W_local, kTol))
           << "Local wrench mismatch (yaw = " << yaw << ", contact " << i
           << "):\n  got = "
-          << decorator_->getContactWrench(input, i).transpose()
+          << decorator_->getWrenchContactEwrtParam(input, i).transpose()
           << "\n  expected = " << W_local.transpose();
 
       const vector6_t W_world_out =
-          decorator_->getContactWrenchInWorldFrame(state, input, i);
+          decorator_->getWrenchContactEwrtWorld(state, input, i);
       EXPECT_TRUE(W_world_out.isApprox(W_world_in, kTol))
           << "World-frame round trip failed (yaw = " << yaw << ", contact " << i
           << "):\n  set = " << W_world_in.transpose()
@@ -858,18 +859,19 @@ TEST_F(BasisInputsModelDecoratorTest, SetGetContactForceInWorldFrameRoundTrip) {
     const vector3_t f_world_in = w_R_l * f_local;
 
     vector_t input = vector_t::Zero(decorator_->getInputDim());
-    decorator_->setContactForceInWorldFrame(state, input, f_world_in, i);
+    decorator_->setForceContactEwrtWorld(state, input, f_world_in, i);
     EXPECT_GE(getLambda(input, i).minCoeff(), 0.0);
 
-    EXPECT_TRUE(decorator_->getContactForce(input, i).isApprox(f_local, kTol))
+    EXPECT_TRUE(
+        decorator_->getForceContactEwrtParam(input, i).isApprox(f_local, kTol))
         << "Input-only accessor must return the local force";
-    EXPECT_TRUE(decorator_->getContactForceInWorldFrame(state, input, i)
+    EXPECT_TRUE(decorator_->getForceContactEwrtWorld(state, input, i)
                     .isApprox(f_world_in, kTol))
         << "World-frame force round trip failed for contact " << i
         << ":\n  set = " << f_world_in.transpose() << "\n  got = "
-        << decorator_->getContactForceInWorldFrame(state, input, i).transpose();
-    EXPECT_TRUE(decorator_->getContactMomentInWorldFrame(state, input, i)
-                    .isZero(1.0e-9))
+        << decorator_->getForceContactEwrtWorld(state, input, i).transpose();
+    EXPECT_TRUE(
+        decorator_->getTorqueContactEwrtWorld(state, input, i).isZero(1.0e-9))
         << "A pure force must not produce a moment";
   }
 }
@@ -892,41 +894,40 @@ TEST_F(BasisInputsModelDecoratorTest,
     const vector_t input = vector_t::Random(wrenchInputDim_);
 
     for (size_t i = 0; i < kNumContacts; ++i) {
-      EXPECT_TRUE((model.getContactWrenchInWorldFrame(state, input, i) -
-                   model.getContactWrench(input, i))
+      EXPECT_TRUE((model.getWrenchContactEwrtWorld(state, input, i) -
+                   model.getWrenchContactEwrtParam(input, i))
                       .isZero(0.0));
-      EXPECT_TRUE((model.getContactForceInWorldFrame(state, input, i) -
-                   model.getContactForce(input, i))
+      EXPECT_TRUE((model.getForceContactEwrtWorld(state, input, i) -
+                   model.getForceContactEwrtParam(input, i))
                       .isZero(0.0));
-      EXPECT_TRUE((model.getContactMomentInWorldFrame(state, input, i) -
-                   model.getContactMoment(input, i))
+      EXPECT_TRUE((model.getTorqueContactEwrtWorld(state, input, i) -
+                   model.getTorqueContactEwrtParam(input, i))
                       .isZero(0.0));
       // The realtime accessor ignores the contact frame's orientation as well.
       const matrix3_t anyRotation =
           Eigen::AngleAxisd(0.7, vector3_t(1.0, -2.0, 0.5).normalized())
               .toRotationMatrix();
-      EXPECT_TRUE((model.getContactWrenchInWorldFrameGivenRotation(
-                       input, anyRotation, i) -
-                   model.getContactWrench(input, i))
+      EXPECT_TRUE((model.getWrenchContactEwrtWorld(input, anyRotation, i) -
+                   model.getWrenchContactEwrtParam(input, i))
                       .isZero(0.0));
 
       vector6_t wrench;
       wrench << 10.0, 5.0, 100.0, 1.0, -1.0, 0.5;
       vector_t inputSetWrench = vector_t::Zero(wrenchInputDim_);
-      model.setContactWrenchInWorldFrame(state, inputSetWrench, wrench, i);
+      model.setWrenchContactEwrtWorld(state, inputSetWrench, wrench, i);
+      EXPECT_TRUE((model.getWrenchContactEwrtParam(inputSetWrench, i) - wrench)
+                      .isZero(0.0));
       EXPECT_TRUE(
-          (model.getContactWrench(inputSetWrench, i) - wrench).isZero(0.0));
-      EXPECT_TRUE(
-          (model.getContactWrenchInWorldFrame(state, inputSetWrench, i) -
-           wrench)
+          (model.getWrenchContactEwrtWorld(state, inputSetWrench, i) - wrench)
               .isZero(0.0));
 
       const vector3_t force(5.0, -3.0, 80.0);
       vector_t inputSetForce = vector_t::Zero(wrenchInputDim_);
-      model.setContactForceInWorldFrame(state, inputSetForce, force, i);
+      model.setForceContactEwrtWorld(state, inputSetForce, force, i);
+      EXPECT_TRUE((model.getForceContactEwrtParam(inputSetForce, i) - force)
+                      .isZero(0.0));
       EXPECT_TRUE(
-          (model.getContactForce(inputSetForce, i) - force).isZero(0.0));
-      EXPECT_TRUE(model.getContactMoment(inputSetForce, i).isZero(0.0));
+          model.getTorqueContactEwrtParam(inputSetForce, i).isZero(0.0));
     }
   }
 }
@@ -958,13 +959,13 @@ TEST_F(BasisInputsModelDecoratorTest,
     // world-frame force must be purely vertical even though the input stores it
     // in the (yawed) local contact frame.
     const vector3_t f_world =
-        decorator_->getContactForceInWorldFrame(state, inputDoubleContact, i);
+        decorator_->getForceContactEwrtWorld(state, inputDoubleContact, i);
     EXPECT_LT((f_world - expectedForcePerFoot).norm(), kForceTol)
         << "World-frame weight-compensating force for contact " << i
         << " should be " << expectedForcePerFoot.transpose() << ", got "
         << f_world.transpose();
     EXPECT_TRUE(
-        decorator_->getContactMomentInWorldFrame(state, inputDoubleContact, i)
+        decorator_->getTorqueContactEwrtWorld(state, inputDoubleContact, i)
             .isZero(kForceTol))
         << "Weight compensation must not produce a contact moment for contact "
         << i;
@@ -980,8 +981,8 @@ TEST_F(BasisInputsModelDecoratorTest,
   const vector_t inputLeftContact = weightCompensatingInput(
       *pinocchioInterface_, {true, false}, *decorator_, state);
   EXPECT_GE(getLambda(inputLeftContact, /*contactIndex=*/0).minCoeff(), 0.0);
-  EXPECT_LT((decorator_->getContactForceInWorldFrame(state, inputLeftContact,
-                                                     /*contactIndex=*/0) -
+  EXPECT_LT((decorator_->getForceContactEwrtWorld(state, inputLeftContact,
+                                                  /*contactIndex=*/0) -
              vector3_t(0.0, 0.0, totalGravitationalForce))
                 .norm(),
             kForceTol);

@@ -122,10 +122,10 @@ cc_binary(
 )
 # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc_app/README.md:laptop_binaries, //humanoid_nmpc/docs/distributed_runtime/README.md:process_table)
 
-# The node on the DRC Atlas task file with the real SQP solver, over loopback buses: a scripted robot and operator
+# The node on the DRC Atlas task file with the SQP solver, over loopback buses: a scripted robot and operator
 # (observation in, policy out, resets through the observation's counters, the velocity command reaching the motion
 # manager, a parameter document applied before the next solve, the visualization fed), the reset target the controller
-# hands its in-process link, the dummy simulator standing on the node's policies for a few seconds without a reset, and
+# gives its in-process link, the dummy simulator standing on the node's policies for a few seconds without a reset, and
 # the hardware topology end to end: the node binary and the robot binary (MuJoCo, headless) as two processes, the robot
 # standing, walking and stopping on the node's policies. Large: it builds the Atlas MPC's CppAD libraries on a cold
 # cache, once; the end-to-end case's node binary loads them from the same working directory. About 300 s on a 20-core

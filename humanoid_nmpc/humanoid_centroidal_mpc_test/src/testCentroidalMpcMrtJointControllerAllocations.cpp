@@ -142,7 +142,7 @@ TEST(CentroidalMpcMrtJointControllerAllocations,
   ASSERT_TRUE(descriptionOrStatus.ok()) << descriptionOrStatus.status();
   const robot::model::RobotDescription& description = *descriptionOrStatus;
   robot::model::RobotState state(description);
-  state.setRootPositionInWorldFrame(vector3_t(0.0, 0.0, 0.75));
+  state.setPosBaseRtWorldEwrtWorld(vector3_t(0.0, 0.0, 0.75));
   robot::model::RobotJointAction action(description);
   absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>>
       controllerOrStatus = CentroidalMpcMrtJointController::Create(
@@ -272,11 +272,11 @@ class CentroidalControllerOnShippedRobot
     controller_->setEventSink(&sink_);
 
     state_ = std::make_unique<robot::model::RobotState>(*description_);
-    state_->setRootPositionInWorldFrame(vector3_t(0.1, -0.2, 0.9));
-    state_->setRootRotationLocalToWorldFrame(quaternion_t(
+    state_->setPosBaseRtWorldEwrtWorld(vector3_t(0.1, -0.2, 0.9));
+    state_->setQuatBaseRtWorld(quaternion_t(
         Eigen::AngleAxisd(0.2, vector3_t(1.0, 2.0, -1.0).normalized())));
-    state_->setRootLinearVelocityInLocalFrame(vector3_t(0.3, -0.1, 0.2));
-    state_->setRootAngularVelocityInLocalFrame(vector3_t(0.4, 0.5, -0.6));
+    state_->setLinvelBaseRtWorldEwrtBase(vector3_t(0.3, -0.1, 0.2));
+    state_->setAngvelBaseRtWorldEwrtBase(vector3_t(0.4, 0.5, -0.6));
     for (size_t joint = 0; joint < description_->getNumJoints(); ++joint) {
       state_->setJointPosition(
           joint, /*jointPosition=*/0.05 * static_cast<scalar_t>(joint % 5));
@@ -341,21 +341,20 @@ TEST_P(
     updateCentroidalDynamics(reference, info, q);
     const vector6_t momentum =
         getCentroidalMomentumMatrix(reference) * v / info.robotMass;
-    EXPECT_LT(
-        (centroidal_model::getNormalizedMomentum(observation.state, info) -
-         momentum)
-            .cwiseAbs()
-            .maxCoeff(),
-        1.0e-10);
+    EXPECT_LT((centroidal_model::getMnormCmomComRtWorldEwrtWorld(
+                   observation.state, info) -
+               momentum)
+                  .cwiseAbs()
+                  .maxCoeff(),
+              1.0e-10);
     // The base velocity it gives back is the measured one, [dp_W, w_B]: the
     // momentum is A(q) of the measurement.
     const vector3_t measuredLinearVelocity =
-        state_->getRootRotationLocalToWorldFrame() *
-        state_->getRootLinearVelocityInLocalFrame();
+        state_->getQuatBaseRtWorld() * state_->getLinvelBaseRtWorldEwrtBase();
     EXPECT_LT((v.head<3>() - measuredLinearVelocity).cwiseAbs().maxCoeff(),
               1.0e-9)
         << "the observation's base velocity is the measured one";
-    EXPECT_LT((v.segment<3>(3) - state_->getRootAngularVelocityInLocalFrame())
+    EXPECT_LT((v.segment<3>(3) - state_->getAngvelBaseRtWorldEwrtBase())
                   .cwiseAbs()
                   .maxCoeff(),
               1.0e-9);
@@ -379,12 +378,12 @@ TEST_P(
         wrenches[i](2) = computeRobotWeight(reference) /
                          static_cast<scalar_t>(numStanceLegs);
       if (effective.getContactInputDim(i) == kContactWrenchDim) {
-        EXPECT_LT((effective.getContactWrenchInWorldFrame(observation.state,
-                                                          input, i) -
-                   wrenches[i])
-                      .cwiseAbs()
-                      .maxCoeff(),
-                  1.0e-9);
+        EXPECT_LT(
+            (effective.getWrenchContactEwrtWorld(observation.state, input, i) -
+             wrenches[i])
+                .cwiseAbs()
+                .maxCoeff(),
+            1.0e-9);
       }
     }
     const vector_t torques = computeBaseHeldJointTorques<scalar_t>(

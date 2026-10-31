@@ -42,12 +42,12 @@ robot::model::RobotState createInitialSimState(
                                      /*contactSize=*/kNumContacts);
   initState.setConfigurationToZero();
 
-  initState.setRootPositionInWorldFrame(
-      mpcRobotModel.getBasePosition(initMpcState));
+  initState.setPosBaseRtWorldEwrtWorld(
+      mpcRobotModel.getPosBaseRtWorldEwrtWorld(initMpcState));
   // The coefficients (x, y, z, w) of the base orientation, whatever the state
   // stores.
-  initState.setRootRotationLocalToWorldFrame(
-      quaternion_t(mpcRobotModel.getBaseOrientation(initMpcState)));
+  initState.setQuatBaseRtWorld(
+      quaternion_t(mpcRobotModel.getQuatBaseRtWorldXyzw(initMpcState)));
 
   const vector_t mpcJointAngles = mpcRobotModel.getJointAngles(initMpcState);
   const std::vector<robot::joint_index_t> mpcJointIndices =

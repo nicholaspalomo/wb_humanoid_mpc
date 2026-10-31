@@ -66,7 +66,7 @@ class StateEstimator {
    * The state the controller consumes this cycle, from the state `measured` the
    * backend published. The reference stays valid until the next call of
    * estimate() or reset() and the lifetime of `measured` (the ground truth
-   * hands back `measured` itself). Allocates nothing.
+   * returns `measured` itself). Allocates nothing.
    */
   virtual const robot::model::RobotState& estimate(
       const robot::model::RobotState& measured) = 0;

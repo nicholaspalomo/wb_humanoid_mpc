@@ -145,8 +145,8 @@ TEST(FootConstraintsCreate,
                   gains.linearAccelerationErrorGain_xy * acceleration(i);
   }
   const scalar_t groundHeight =
-      referenceManager.getSwingTrajectoryPlanner()->getZpositionConstraint(
-          kContactIndex, /*time=*/0.0);
+      referenceManager.getSwingTrajectoryPlanner()
+          ->getDesPosFootRtWorldEwrtWorldZ(kContactIndex, /*time=*/0.0);
   expected(2) = gains.positionErrorGain_z * (pose(2) - groundHeight) +
                 gains.linearVelocityErrorGain_z * rate(2) +
                 gains.linearAccelerationErrorGain_z * acceleration(2);

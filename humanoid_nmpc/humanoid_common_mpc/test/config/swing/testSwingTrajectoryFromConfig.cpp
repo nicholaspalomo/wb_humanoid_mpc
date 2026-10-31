@@ -125,8 +125,8 @@ TEST(SwingTrajectoryFromConfigTest, EveryFieldReachesASettingOfItsOwn) {
     // Away from the default, and inside the field's range: the lift-off slope
     // of the impact-proximity factor is 0 or negative.
     const double offset =
-        field->name() == "impact_proximity_factor_lift_off_velocity" ? -0.0625
-                                                                     : 0.0625;
+        field->name() == "impact_proximity_factor_liftoff_slope" ? -0.0625
+                                                                 : 0.0625;
     const double value = 0.5 * field->default_value_double() + offset;
     proto.GetReflection()->SetDouble(&proto, field, value);
 
@@ -181,9 +181,9 @@ TEST(SwingTrajectoryFromConfigTest, AValueOutOfItsRangeIsRefusedByName) {
        {OutOfRange{.field = "swing_time_scale", .value = 0.0},
         OutOfRange{.field = "swing_time_scale", .value = -0.1},
         OutOfRange{.field = "swing_height", .value = -0.01},
-        OutOfRange{.field = "impact_proximity_factor_lift_off_velocity",
+        OutOfRange{.field = "impact_proximity_factor_liftoff_slope",
                    .value = 0.1},
-        OutOfRange{.field = "impact_proximity_factor_touch_down_velocity",
+        OutOfRange{.field = "impact_proximity_factor_touchdown_slope",
                    .value = -0.1},
         OutOfRange{.field = "impact_proximity_factor_mid_point_value",
                    .value = -0.1},
@@ -234,13 +234,13 @@ TEST(SwingTrajectoryFromConfigTest, AWrittenValueIsTheSetting) {
   const absl::StatusOr<humanoid_mpc_config::TaskFile> file =
       nproto::ParseTextproto<humanoid_mpc_config::TaskFile>(
           "swing_trajectory_config {\n  swing_height: 0.08\n  "
-          "touch_down_velocity: -0.0\n}\n",
+          "touchdown_linvel_foot_rt_world_ewrt_world_z: -0.0\n}\n",
           "task.textproto");
   ASSERT_TRUE(file.ok()) << file.status();
   const Settings settings = convert(file->swing_trajectory_config());
   EXPECT_EQ(settings.swingHeight, 0.08);
   // A negative zero survives as one.
-  EXPECT_TRUE(std::signbit(settings.touchDownVelocity));
+  EXPECT_TRUE(std::signbit(settings.touchdownLinvelFootRtWorldEwrtWorldZ));
   EXPECT_EQ(settings.swingTimeScale, Settings{}.swingTimeScale);
 }
 

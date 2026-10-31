@@ -127,16 +127,17 @@ ad_vector_t FootCollisionCbfConstraint::constraintFunction(
 
   const std::array<std::string, kNumFootCollisionPoints> frames =
       footCollisionPointFrames(config_.spheres);
-  std::array<ad_vector3_t, kNumFootCollisionPoints> positions;
-  std::array<ad_vector3_t, kNumFootCollisionPoints> velocities;
+  std::array<ad_vector3_t, kNumFootCollisionPoints> posLinksRtWorldEwrtWorld;
+  std::array<ad_vector3_t, kNumFootCollisionPoints> linvelLinksRtWorldEwrtWorld;
   for (size_t point = 0; point < kNumFootCollisionPoints; ++point) {
     const pinocchio::FrameIndex frameId = model.getFrameId(frames[point]);
-    positions[point] =
+    posLinksRtWorldEwrtWorld[point] =
         pinocchio::updateFramePlacement(model, data, frameId).translation();
-    velocities[point] = pinocchio::getFrameVelocity(
-                            model, data, frameId,
-                            pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED)
-                            .linear();
+    linvelLinksRtWorldEwrtWorld[point] =
+        pinocchio::getFrameVelocity(
+            model, data, frameId,
+            pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED)
+            .linear();
   }
 
   // Two spheres touch at a distance of 2 * radius.
@@ -152,15 +153,17 @@ ad_vector_t FootCollisionCbfConstraint::constraintFunction(
     const FootCollisionPair& pair = kFootCollisionPairs[row];
     const size_t first = static_cast<size_t>(pair.first);
     const size_t second = static_cast<size_t>(pair.second);
-    const ad_vector3_t relativePosition = positions[first] - positions[second];
-    const ad_vector3_t relativeVelocity =
-        velocities[first] - velocities[second];
+    const ad_vector3_t errPosLinkRtWorldEwrtWorld =
+        posLinksRtWorldEwrtWorld[first] - posLinksRtWorldEwrtWorld[second];
+    const ad_vector3_t errLinvelLinkRtWorldEwrtWorld =
+        linvelLinksRtWorldEwrtWorld[first] -
+        linvelLinksRtWorldEwrtWorld[second];
     const ad_scalar_t barrier =
-        relativePosition.squaredNorm() -
+        errPosLinkRtWorldEwrtWorld.squaredNorm() -
         (pair.radius == FootCollisionRadius::kKnee ? minDistKneeSquared
                                                    : minDistFootSquared);
     const ad_scalar_t barrierRate =
-        2.0 * relativePosition.dot(relativeVelocity);
+        2.0 * errPosLinkRtWorldEwrtWorld.dot(errLinvelLinkRtWorldEwrtWorld);
     constraintValues[static_cast<Eigen::Index>(row)] =
         barrierRate + gamma * barrier;
   }

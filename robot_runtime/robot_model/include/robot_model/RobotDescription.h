@@ -51,7 +51,7 @@ struct JointDescription {
   joint_index_t id = 0;
   scalar_t min_angle = std::numeric_limits<scalar_t>::lowest();
   scalar_t max_angle = std::numeric_limits<scalar_t>::max();
-  scalar_t max_velocity = std::numeric_limits<scalar_t>::max();
+  scalar_t max_joint_velocity = std::numeric_limits<scalar_t>::max();
   scalar_t max_effort = std::numeric_limits<scalar_t>::max();
 
   /** Formats the joint as `JointDescription { id: ..., min_angle: ..., ... }`
@@ -60,9 +60,9 @@ struct JointDescription {
   friend void AbslStringify(Sink& sink, const JointDescription& joint) {
     absl::Format(&sink,
                  "JointDescription { id: %d, min_angle: %v, max_angle: %v, "
-                 "max_velocity: %v, max_effort: %v }",
-                 joint.id, joint.min_angle, joint.max_angle, joint.max_velocity,
-                 joint.max_effort);
+                 "max_joint_velocity: %v, max_effort: %v }",
+                 joint.id, joint.min_angle, joint.max_angle,
+                 joint.max_joint_velocity, joint.max_effort);
   }
 };
 

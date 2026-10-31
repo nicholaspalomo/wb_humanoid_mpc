@@ -167,8 +167,9 @@ TEST_F(TestContactWrenchConeConstraint, NumberOfConstraintsAndBasisVectors) {
   // Test with N = 4 basis vectors
   ContactWrenchConeConstraint::Config config4(
       kFourBasisVectors, /*frictionCoefficientParam=*/0.7,
-      /*torsionalFrictionCoefficientParam=*/0.05, /*minNormalForceParam=*/5.0,
-      /*gripperForceParam=*/0.0);
+      /*torsionalFrictionCoefficientParam=*/0.05,
+      /*minForceContactEwrtContactZ=*/5.0,
+      /*gripForceContactEwrtContactZ=*/0.0);
   ContactWrenchConeConstraint constraint4(
       *referenceManager_, contactRectangle, kContactPointIndex,
       testingModelInterface_->getPinocchioInterface(),
@@ -179,8 +180,9 @@ TEST_F(TestContactWrenchConeConstraint, NumberOfConstraintsAndBasisVectors) {
   // Test with N = 8 basis vectors
   ContactWrenchConeConstraint::Config config8(
       kEightBasisVectors, /*frictionCoefficientParam=*/0.7,
-      /*torsionalFrictionCoefficientParam=*/0.05, /*minNormalForceParam=*/5.0,
-      /*gripperForceParam=*/0.0);
+      /*torsionalFrictionCoefficientParam=*/0.05,
+      /*minForceContactEwrtContactZ=*/5.0,
+      /*gripForceContactEwrtContactZ=*/0.0);
   ContactWrenchConeConstraint constraint8(
       *referenceManager_, contactRectangle, kContactPointIndex,
       testingModelInterface_->getPinocchioInterface(),
@@ -202,7 +204,7 @@ TEST_F(TestContactWrenchConeConstraint, FrictionConeAndNormalForceValues) {
   ContactWrenchConeConstraint::Config config(
       kFourBasisVectors, kTestMu, /*torsionalFrictionCoefficientParam=*/0.05,
       kTestMinFz,
-      /*gripperForceParam=*/0.0);
+      /*gripForceContactEwrtContactZ=*/0.0);
   ContactWrenchConeConstraint constraint(
       *referenceManager_, contactRectangle, kContactPointIndex,
       testingModelInterface_->getPinocchioInterface(),
@@ -212,11 +214,12 @@ TEST_F(TestContactWrenchConeConstraint, FrictionConeAndNormalForceValues) {
       testingModelInterface_->getMpcRobotModel();
   // Level at the test height: the identity quaternion, the joints straight.
   vector_t state = robotModel.getNeutralState();
-  robotModel.setBasePosition(state, vector3_t(0.0, 0.0, kTestBaseHeight));
+  robotModel.setPosBaseRtWorldEwrtWorld(state,
+                                        vector3_t(0.0, 0.0, kTestBaseHeight));
 
   vector_t input = vector_t::Zero(robotModel.getInputDim());
-  robotModel.setContactForce(input, vector3_t(kTestFx, 0.0, kTestFz),
-                             kContactPointIndex);
+  robotModel.setForceContactEwrtParam(input, vector3_t(kTestFx, 0.0, kTestFz),
+                                      kContactPointIndex);
 
   PreComputation preComp;
   vector_t val = constraint.getValue(/*time=*/0.0, state, input, preComp);
@@ -244,8 +247,9 @@ TEST_F(TestContactWrenchConeConstraint, TorsionRowsAreCaronsClosedForm) {
                                  vector3_t::Zero()));
 
   ContactWrenchConeConstraint::Config config(
-      kFourBasisVectors, kTestMu, kTestMuRot, /*minNormalForceParam=*/0.0,
-      /*gripperForceParam=*/0.0);
+      kFourBasisVectors, kTestMu, kTestMuRot,
+      /*minForceContactEwrtContactZ=*/0.0,
+      /*gripForceContactEwrtContactZ=*/0.0);
   ContactWrenchConeConstraint constraint(
       *referenceManager_, contactRectangle, kContactPointIndex,
       testingModelInterface_->getPinocchioInterface(),
@@ -255,13 +259,14 @@ TEST_F(TestContactWrenchConeConstraint, TorsionRowsAreCaronsClosedForm) {
       testingModelInterface_->getMpcRobotModel();
   // Level at the test height: the identity quaternion, the joints straight.
   vector_t state = robotModel.getNeutralState();
-  robotModel.setBasePosition(state, vector3_t(0.0, 0.0, kTestBaseHeight));
+  robotModel.setPosBaseRtWorldEwrtWorld(state,
+                                        vector3_t(0.0, 0.0, kTestBaseHeight));
 
   vector_t input = vector_t::Zero(robotModel.getInputDim());
   const vector3_t force(0.0, kTestFy, kTestFz);
   const vector3_t moment(0.0, 0.0, kTestMz);
-  robotModel.setContactForce(input, force, kContactPointIndex);
-  robotModel.setContactMoment(input, moment, kContactPointIndex);
+  robotModel.setForceContactEwrtParam(input, force, kContactPointIndex);
+  robotModel.setTorqueContactEwrtParam(input, moment, kContactPointIndex);
 
   PreComputation preComp;
   const vector_t val = constraint.getValue(/*time=*/0.0, state, input, preComp);
@@ -299,8 +304,9 @@ TEST_F(TestContactWrenchConeConstraint, LinearAndQuadraticApproximation) {
 
   ContactWrenchConeConstraint::Config config(
       kFourBasisVectors, /*frictionCoefficientParam=*/0.7,
-      /*torsionalFrictionCoefficientParam=*/0.05, /*minNormalForceParam=*/5.0,
-      /*gripperForceParam=*/0.0);
+      /*torsionalFrictionCoefficientParam=*/0.05,
+      /*minForceContactEwrtContactZ=*/5.0,
+      /*gripForceContactEwrtContactZ=*/0.0);
   ContactWrenchConeConstraint constraint(
       *referenceManager_, contactRectangle, kContactPointIndex,
       testingModelInterface_->getPinocchioInterface(),
@@ -310,13 +316,14 @@ TEST_F(TestContactWrenchConeConstraint, LinearAndQuadraticApproximation) {
       testingModelInterface_->getMpcRobotModel();
   // Level at the test height: the identity quaternion, the joints straight.
   vector_t state = robotModel.getNeutralState();
-  robotModel.setBasePosition(state, vector3_t(0.0, 0.0, kTestBaseHeight));
+  robotModel.setPosBaseRtWorldEwrtWorld(state,
+                                        vector3_t(0.0, 0.0, kTestBaseHeight));
 
   vector_t input = vector_t::Zero(robotModel.getInputDim());
-  robotModel.setContactForce(input, vector3_t(10.0, 5.0, 50.0),
-                             kContactPointIndex);
-  robotModel.setContactMoment(input, vector3_t(0.5, -0.2, 0.1),
-                              kContactPointIndex);
+  robotModel.setForceContactEwrtParam(input, vector3_t(10.0, 5.0, 50.0),
+                                      kContactPointIndex);
+  robotModel.setTorqueContactEwrtParam(input, vector3_t(0.5, -0.2, 0.1),
+                                       kContactPointIndex);
 
   PreComputation preComp;
   VectorFunctionLinearApproximation linApprox =
@@ -382,8 +389,9 @@ TEST_F(TestContactWrenchConeConstraint,
       testingModelInterface_->getModelSettings().mpcModelJointNames;
 
   vector_t state = robotModel.getNeutralState();
-  robotModel.setBasePosition(state, vector3_t(0.0, 0.0, kTestBaseHeight));
-  robotModel.setBaseOrientationEulerZyx(state, vector3_t(0.2, 0.1, -0.05));
+  robotModel.setPosBaseRtWorldEwrtWorld(state,
+                                        vector3_t(0.0, 0.0, kTestBaseHeight));
+  robotModel.setEulerzyxBaseRtWorld(state, vector3_t(0.2, 0.1, -0.05));
   for (const std::string& jointName : {std::string("left_ankle_pitch_joint"),
                                        std::string("left_ankle_roll_joint")}) {
     const std::vector<std::string>::const_iterator joint =
@@ -394,18 +402,19 @@ TEST_F(TestContactWrenchConeConstraint,
   }
 
   vector_t input = vector_t::Zero(robotModel.getInputDim());
-  robotModel.setContactForce(input, vector3_t(40.0, -25.0, 600.0),
-                             kContactPointIndex);
-  robotModel.setContactMoment(input, vector3_t(5.0, -3.0, 2.0),
-                              kContactPointIndex);
+  robotModel.setForceContactEwrtParam(input, vector3_t(40.0, -25.0, 600.0),
+                                      kContactPointIndex);
+  robotModel.setTorqueContactEwrtParam(input, vector3_t(5.0, -3.0, 2.0),
+                                       kContactPointIndex);
 
   for (const bool scheduleGated : {true, false}) {
     const ContactWrenchConeConstraint constraint(
         *referenceManager_, contactRectangle, kContactPointIndex,
         testingModelInterface_->getPinocchioInterface(), robotModel,
         ContactWrenchConeConstraint::Config(
-            kFourBasisVectors, kTestMu, kTestMuRot, /*minNormalForceParam=*/0.0,
-            /*gripperForceParam=*/0.0),
+            kFourBasisVectors, kTestMu, kTestMuRot,
+            /*minForceContactEwrtContactZ=*/0.0,
+            /*gripForceContactEwrtContactZ=*/0.0),
         scheduleGated);
     const PreComputation preComp;
     const matrix_t analytic =
@@ -428,20 +437,21 @@ TEST_F(TestContactWrenchConeConstraint,
 }
 
 TEST_F(TestContactWrenchConeConstraint, RefusesABasisVectorModel) {
-  // The term reads getContactForce/getContactMoment as a WORLD wrench and
-  // writes 3-column Jacobian blocks at the force and moment start indices.
-  // Under BasisInputsModelDecorator both indices are the start of one block of
-  // scalings and the accessors return a LOCAL wrench, so the value would be
-  // rotated twice and the moment block would overwrite the force block. It must
-  // refuse the model rather than build that term.
+  // The term reads getForceContactEwrtParam/getTorqueContactEwrtParam as a
+  // WORLD wrench and writes 3-column Jacobian blocks at the force and moment
+  // start indices. Under BasisInputsModelDecorator both indices are the start
+  // of one block of scalings and the accessors return a LOCAL wrench, so the
+  // value would be rotated twice and the moment block would overwrite the force
+  // block. It must refuse the model rather than build that term.
   const ContactRectangle contactRectangle(
       PolygonBounds(-0.1, 0.1, -0.05, 0.05),
       ContactCenterPoint("foot_l_contact", "left_ankle_roll_joint",
                          vector3_t::Zero()));
   const ContactWrenchConeConstraint::Config coneConfig(
       kFourBasisVectors, /*frictionCoefficientParam=*/0.7,
-      /*torsionalFrictionCoefficientParam=*/0.05, /*minNormalForceParam=*/5.0,
-      /*gripperForceParam=*/0.0);
+      /*torsionalFrictionCoefficientParam=*/0.05,
+      /*minForceContactEwrtContactZ=*/5.0,
+      /*gripForceContactEwrtContactZ=*/0.0);
 
   // Positive control: the wrench-space model is accepted.
   const absl::StatusOr<std::unique_ptr<ContactWrenchConeConstraint>>

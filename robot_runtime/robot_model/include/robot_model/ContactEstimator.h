@@ -50,7 +50,7 @@ namespace robot::model {
  * Implementations are free to use the robot state, the interface they were
  * built with (a simulator, sensors), or any history they keep. In simulation
  * the CheaterSimContactEstimator reads the physics engine's ground truth; the
- * RobotStateContactEstimator hands back the flags the hardware interface wrote
+ * RobotStateContactEstimator returns the flags the hardware interface wrote
  * into the RobotState.
  */
 class ContactEstimator {

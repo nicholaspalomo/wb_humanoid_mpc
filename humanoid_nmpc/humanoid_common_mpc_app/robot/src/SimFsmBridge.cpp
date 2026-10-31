@@ -84,8 +84,8 @@ bool SimFsmBridge::processCommands(std::string& currentModeName) {
                           name);
         simulator_->disableTorques();
       }
-      currentModeName.assign(control_mode::kZeroTorque.data(),
-                             control_mode::kZeroTorque.size());
+      currentModeName.assign(control_mode::kZeroJointTorque.data(),
+                             control_mode::kZeroJointTorque.size());
       publishFsmState(currentModeName);
       return true;
     case FsmCommandKind::kJointPd:

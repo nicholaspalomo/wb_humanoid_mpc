@@ -127,7 +127,7 @@ void dumpModelSettings(ValueDump& dump,
   dump.addDouble(joinPath(footPath, "normalVelocitySoftConstraintWeight"),
                  foot.normalVelocitySoftConstraintWeight);
   dump.addBool(joinPath(footPath, "constrainOrientation"),
-               foot.constrainOrientation);
+               foot.constrainAttitude);
   dump.addBool(joinPath(footPath, "constrainYawRateAboutContactNormal"),
                foot.constrainYawRateAboutContactNormal);
   const ModelSettings::ContactImplicitConfig& implicit =
@@ -139,9 +139,9 @@ void dumpModelSettings(ValueDump& dump,
   dump.addDouble(joinPath(implicitPath, "heightReference"),
                  implicit.heightReference);
   dump.addDouble(joinPath(implicitPath, "velocityReference"),
-                 implicit.velocityReference);
+                 implicit.scaleLinvelContactRtWorldEwrtWorldXy);
   dump.addDouble(joinPath(implicitPath, "angularVelocityReference"),
-                 implicit.angularVelocityReference);
+                 implicit.scaleAngvelContactRtWorldEwrtWorldZ);
   dump.addDouble(joinPath(implicitPath, "penetrationWeight"),
                  implicit.penetrationWeight);
   dump.addDouble(joinPath(implicitPath, "gapSmoothing"), implicit.gapSmoothing);
@@ -230,17 +230,18 @@ void dumpMpcSettings(ValueDump& dump,
 void dumpSwingSettings(ValueDump& dump,
                        absl::string_view path,
                        const SwingTrajectoryPlanner::Config& settings) {
-  dump.addDouble(joinPath(path, "liftOffVelocity"), settings.liftOffVelocity);
+  dump.addDouble(joinPath(path, "liftOffVelocity"),
+                 settings.liftoffLinvelFootRtWorldEwrtWorldZ);
   dump.addDouble(joinPath(path, "touchDownVelocity"),
-                 settings.touchDownVelocity);
+                 settings.touchdownLinvelFootRtWorldEwrtWorldZ);
   dump.addDouble(joinPath(path, "swingHeight"), settings.swingHeight);
   dump.addDouble(joinPath(path, "swingTimeScale"), settings.swingTimeScale);
   dump.addDouble(joinPath(path, "touchDownHeightOffset"),
                  settings.touchDownHeightOffset);
   dump.addDouble(joinPath(path, "impactProximityFactorLiftOffVelocity"),
-                 settings.impactProximityFactorLiftOffVelocity);
+                 settings.impactProximityFactorLiftoffSlope);
   dump.addDouble(joinPath(path, "impactProximityFactorTouchDownVelocity"),
-                 settings.impactProximityFactorTouchDownVelocity);
+                 settings.impactProximityFactorTouchdownSlope);
   dump.addDouble(joinPath(path, "impactProximityFactorMidPointValue"),
                  settings.impactProximityFactorMidPointValue);
   dump.addDouble(joinPath(path, "swingPitchAngle"), settings.swingPitchAngle);
@@ -297,7 +298,7 @@ void dumpJointPdGains(ValueDump& dump,
   dump.addDouble(joinPath(path, "defaults.kp"), gains.defaults.kp);
   dump.addDouble(joinPath(path, "defaults.kd"), gains.defaults.kd);
   dump.addDouble(joinPath(path, "defaults.torqueLimit"),
-                 gains.defaults.torqueLimit);
+                 gains.defaults.maxJointTorque);
   dump.addDouble(joinPath(path, "gravityCompDampingFraction"),
                  gains.gravityCompDampingFraction);
   dump.addDouble(joinPath(path, "maxPolicyJointError"),

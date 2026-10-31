@@ -86,8 +86,10 @@ mpc_config::ContactsConfig completeCone() {
   contacts.contact_wrench_cone_soft_constraint.friction_coefficient = 0.5;
   contacts.contact_wrench_cone_soft_constraint.torsional_friction_coefficient =
       0.05;
-  contacts.contact_wrench_cone_soft_constraint.min_normal_force = 5.0;
-  contacts.contact_wrench_cone_soft_constraint.gripper_force = 0.0;
+  contacts.contact_wrench_cone_soft_constraint
+      .min_force_contact_ewrt_contact_z = 5.0;
+  contacts.contact_wrench_cone_soft_constraint
+      .grip_force_contact_ewrt_contact_z = 0.0;
   contacts.contact_wrench_cone_soft_constraint.num_basis_vectors = 4;
   contacts.contact_rectangle.x_min = -0.12;
   contacts.contact_rectangle.x_max = 0.12;
@@ -197,14 +199,17 @@ TEST(ContactsFromConfigTest, TheWrenchConeNeedsEveryGroundField) {
 
   for (const absl::string_view field :
        {"friction_coefficient", "torsional_friction_coefficient",
-        "min_normal_force", "gripper_force", "num_basis_vectors"}) {
+        "min_force_contact_ewrt_contact_z", "grip_force_contact_ewrt_contact_z",
+        "num_basis_vectors"}) {
     mpc_config::ContactsConfig contacts = completeCone();
     Cone& cone = contacts.contact_wrench_cone_soft_constraint;
     if (field == "friction_coefficient") cone.friction_coefficient.reset();
     if (field == "torsional_friction_coefficient")
       cone.torsional_friction_coefficient.reset();
-    if (field == "min_normal_force") cone.min_normal_force.reset();
-    if (field == "gripper_force") cone.gripper_force.reset();
+    if (field == "min_force_contact_ewrt_contact_z")
+      cone.min_force_contact_ewrt_contact_z.reset();
+    if (field == "grip_force_contact_ewrt_contact_z")
+      cone.grip_force_contact_ewrt_contact_z.reset();
     if (field == "num_basis_vectors") cone.num_basis_vectors.reset();
     const absl::StatusOr<ContactWrenchConeConstraint::Config> refused =
         contactWrenchConeConfigFromConfig(contacts);
@@ -307,7 +312,8 @@ TEST(ContactsFromConfigTest,
   // set.
   const FrictionForceConeConstraint::Config defaults;
   EXPECT_EQ(config->regularization, defaults.regularization);
-  EXPECT_EQ(config->gripperForce, defaults.gripperForce);
+  EXPECT_EQ(config->gripForceContactEwrtSurfaceZ,
+            defaults.gripForceContactEwrtSurfaceZ);
   contacts.friction_force_cone_soft_constraint.friction_coefficient = -0.5;
   EXPECT_TRUE(absl::StrContains(
       frictionForceConeConfigFromConfig(contacts).status().message(),
@@ -349,15 +355,15 @@ TEST(ContactsFromConfigTest,
         absl::StrCat("contacts.friction_force_cone_soft_constraint.",
                      barrier.refusal)))
         << friction;
-    const absl::Status moment =
+    const absl::Status xyBarrier =
         contactMomentXyBarrierFromConfig(contacts).status();
-    EXPECT_EQ(moment.code(), absl::StatusCode::kInvalidArgument)
+    EXPECT_EQ(xyBarrier.code(), absl::StatusCode::kInvalidArgument)
         << barrier.refusal;
     EXPECT_TRUE(absl::StrContains(
-        moment.message(),
+        xyBarrier.message(),
         absl::StrCat("contacts.contact_moment_xy_soft_constraint.",
                      barrier.refusal)))
-        << moment;
+        << xyBarrier;
   }
   mpc_config::ContactsConfig contacts;
   contacts.friction_force_cone_soft_constraint.mu = 0.2;

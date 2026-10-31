@@ -76,7 +76,7 @@ _STATUS_DISPLAY_MS = 5000
 def _disabled_banner(reason: str) -> str:
     """The banner of a tab whose online tuning is off, for `reason` (empty: the task file's enable_online_tuning)."""
     return (
-        "🔒 Online Tuning Disabled"
+        "Online Tuning Disabled"
         f" ({reason or 'enable_online_tuning: false in the task file'})"
     )
 
@@ -216,7 +216,7 @@ class MpcParamsTab(ttk.Frame):
         self.reset_btn.pack(side="left", padx=2)
 
         self.save_btn = ttk.Button(
-            toolbar, text="💾 Save", command=self.save_and_checkpoint
+            toolbar, text="Save", command=self.save_and_checkpoint
         )
         self.save_btn.pack(side="left", padx=(4, 0))
 

@@ -98,12 +98,12 @@ pinocchio::JointModelComposite getBaseJointcomposite() {
 void addContactCenterFrames(const ContactPolygon& contactPolygon,
                             pinocchio::ModelTpl<scalar_t>& model) {
   const ContactCenterPoint& ccp = contactPolygon.getContactCenterPoint();
-  pinocchio::SE3 relPoseToParent(ccp.rotationFromParent,
-                                 ccp.translationFromParent);
+  pinocchio::SE3 contactPlacement(ccp.rotmatContactRtLink,
+                                  ccp.posContactRtLinkEwrtLink);
   pinocchio::Frame contactCenterFrame(ccp.frameName,
                                       model.getJointId(ccp.parentJointName),
                                       model.getFrameId(ccp.parentJointName),
-                                      relPoseToParent, pinocchio::FIXED_JOINT);
+                                      contactPlacement, pinocchio::FIXED_JOINT);
   model.addFrame(contactCenterFrame);
 }
 
@@ -119,27 +119,27 @@ void addCollisionCenterFrames(const ContactPolygon& contactPolygon,
                               pinocchio::ModelTpl<scalar_t>& model) {
   const ContactCenterPoint& ccp = contactPolygon.getContactCenterPoint();
   // Along the contact frame's x axis, which is the parent's for a sole.
-  pinocchio::SE3 relPoseToParentCP1(
-      ccp.rotationFromParent,
-      ccp.translationFromParent +
-          ccp.rotationFromParent *
+  pinocchio::SE3 collisionPointOnePlacement(
+      ccp.rotmatContactRtLink,
+      ccp.posContactRtLinkEwrtLink +
+          ccp.rotmatContactRtLink *
               vector3_t(contactPolygon.getBounds().x_max *
                             kCollisionPointFootprintFraction,
                         0.0, 0.0));
   pinocchio::Frame contactCenterFrameCP1(
       ccp.frameName + "_collision_p_1", model.getJointId(ccp.parentJointName),
-      model.getFrameId(ccp.parentJointName), relPoseToParentCP1,
+      model.getFrameId(ccp.parentJointName), collisionPointOnePlacement,
       pinocchio::FIXED_JOINT);
-  pinocchio::SE3 relPoseToParentCP2(
-      ccp.rotationFromParent,
-      ccp.translationFromParent +
-          ccp.rotationFromParent *
+  pinocchio::SE3 collisionPointTwoPlacement(
+      ccp.rotmatContactRtLink,
+      ccp.posContactRtLinkEwrtLink +
+          ccp.rotmatContactRtLink *
               vector3_t(contactPolygon.getBounds().x_min *
                             kCollisionPointFootprintFraction,
                         0.0, 0.0));
   pinocchio::Frame contactCenterFrameCP2(
       ccp.frameName + "_collision_p_2", model.getJointId(ccp.parentJointName),
-      model.getFrameId(ccp.parentJointName), relPoseToParentCP2,
+      model.getFrameId(ccp.parentJointName), collisionPointTwoPlacement,
       pinocchio::FIXED_JOINT);
   model.addFrame(contactCenterFrameCP1);
   model.addFrame(contactCenterFrameCP2);
@@ -160,21 +160,21 @@ void addContactPolygonFrames(const ContactPolygon& contactPolygon,
   addCollisionCenterFrames(contactPolygon, model);
   const ContactCenterPoint& center = contactPolygon.getContactCenterPoint();
   // The corners are in the contact frame, which the parent's frame rotates by
-  // center.rotationFromParent (the identity for a sole).
+  // center.rotmatContactRtLink (the identity for a sole).
   int nPoints = contactPolygon.getNumberOfContactPoints();
   for (int i = 0; i < nPoints; ++i) {
     vector3_t contactPointTranslation =
-        center.translationFromParent +
-        center.rotationFromParent *
+        center.posContactRtLinkEwrtLink +
+        center.rotmatContactRtLink *
             contactPolygon.getContactPointTranslation(i);
-    pinocchio::SE3 relPoseToParentJoint(center.rotationFromParent,
-                                        contactPointTranslation);
+    pinocchio::SE3 cornerPlacement(center.rotmatContactRtLink,
+                                   contactPointTranslation);
 
     pinocchio::Frame currContactFrame(
         contactPolygon.getPolygonPointFrameName(i),
         model.getJointId(contactPolygon.getParentJointName()),
-        model.getFrameId(contactPolygon.getParentJointName()),
-        relPoseToParentJoint, pinocchio::FIXED_JOINT);
+        model.getFrameId(contactPolygon.getParentJointName()), cornerPlacement,
+        pinocchio::FIXED_JOINT);
     model.addFrame(currContactFrame);
   }
 }

@@ -53,8 +53,8 @@ namespace ocs2::humanoid {
  * This adapter converts u_basis → u_wrench = M · u_basis before delegating,
  * where M = blkdiag(B_0, B_1, ..., I_joints). The wrapped mapping only ever
  * reads the joint-velocity block of the wrench-space input (kinematics do not
- * depend on the contact wrench), so the contact blocks of M — which are
- * expressed in the local contact frame — never influence the result and no
+ * depend on the contact wrench), so the contact blocks of M (expressed in the
+ * local contact frame) never influence the result and no
  * frame rotation is required here. It is used inside CppAD graph compilation so
  * all operations must be compatible with ad_scalar_t.
  *
@@ -71,18 +71,18 @@ class BasisInputsMappingDecorator final
 
   /**
    * @param wrappedMapping    The original pinocchio mapping to delegate to.
-   * @param basisToWrenchMap  The M matrix (double): u_wrench = M * u_basis
+   * @param basisGeneratorMap  The M matrix (double): u_wrench = M * u_basis
    * (wrenchInputDim × basisInputDim).
    * @param wrenchInputDim    Dimension of the wrench-space input vector.
    * @param jointDim          Number of MPC joint velocity entries in the input.
    */
   BasisInputsMappingDecorator(
       std::unique_ptr<PinocchioStateInputMapping<SCALAR>> wrappedMapping,
-      ocs2::matrix_t basisToWrenchMap,
+      ocs2::matrix_t basisGeneratorMap,
       size_t wrenchInputDim,
       size_t jointDim)
       : wrappedMapping_(std::move(wrappedMapping)),
-        M_(std::move(basisToWrenchMap)),
+        M_(std::move(basisGeneratorMap)),
         wrenchInputDim_(wrenchInputDim),
         jointDim_(jointDim) {}
 
@@ -102,7 +102,7 @@ class BasisInputsMappingDecorator final
     wrappedMapping_->setPinocchioInterface(pinocchioInterface);
   }
 
-  /** Joint positions come from the state only — no input transformation needed.
+  /** Joint positions come from the state only - no input transformation needed.
    */
   vector_t getPinocchioJointPosition(const vector_t& state) const override {
     return wrappedMapping_->getPinocchioJointPosition(state);
@@ -115,8 +115,8 @@ class BasisInputsMappingDecorator final
    */
   vector_t getPinocchioJointVelocity(const vector_t& state,
                                      const vector_t& input) const override {
-    const vector_t wrenchInput = M_.template cast<SCALAR>() * input;
-    return wrappedMapping_->getPinocchioJointVelocity(state, wrenchInput);
+    const vector_t wrappedInput = M_.template cast<SCALAR>() * input;
+    return wrappedMapping_->getPinocchioJointVelocity(state, wrappedInput);
   }
 
   /**
@@ -135,11 +135,11 @@ class BasisInputsMappingDecorator final
       const override {
     std::pair<Eigen::Matrix<SCALAR, Eigen::Dynamic, Eigen::Dynamic>,
               Eigen::Matrix<SCALAR, Eigen::Dynamic, Eigen::Dynamic>>
-        wrenchJacobians = wrappedMapping_->getOcs2Jacobian(state, Jq, Jv);
+        wrappedJacobians = wrappedMapping_->getOcs2Jacobian(state, Jq, Jv);
     // Transform input Jacobian: dfdu_basis = dfdu_wrench * M
-    wrenchJacobians.second =
-        wrenchJacobians.second * M_.template cast<SCALAR>();
-    return wrenchJacobians;
+    wrappedJacobians.second =
+        wrappedJacobians.second * M_.template cast<SCALAR>();
+    return wrappedJacobians;
   }
 
  private:

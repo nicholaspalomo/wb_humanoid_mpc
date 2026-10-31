@@ -278,11 +278,13 @@ absl::StatusOr<MpcTrajectory> guessOf(const PlannerRobot& robot,
   const vector_t jointVelocity =
       (model.getJointAngles(end) - model.getJointAngles(start)) / duration;
   const Eigen::Vector3d baseVelocity =
-      (model.getBasePosition(end) - model.getBasePosition(start)) / duration;
+      (model.getPosBaseRtWorldEwrtWorld(end) -
+       model.getPosBaseRtWorldEwrtWorld(start)) /
+      duration;
   const Eigen::Quaterniond startOrientation(
-      Eigen::Vector4d(model.getBaseOrientation(start)));
+      Eigen::Vector4d(model.getQuatBaseRtWorldXyzw(start)));
   const Eigen::Quaterniond endOrientation(
-      Eigen::Vector4d(model.getBaseOrientation(end)));
+      Eigen::Vector4d(model.getQuatBaseRtWorldXyzw(end)));
   // The weight shared by the initial stance's allowed contacts.
   std::vector<size_t> supports;
   for (size_t k = 0; k < robot.allowed.size(); ++k) {
@@ -291,17 +293,16 @@ absl::StatusOr<MpcTrajectory> guessOf(const PlannerRobot& robot,
     }
   }
   const double share =
-      supports.empty()
-          ? 0.0
-          : robot.mass * kGravitationalAcceleration / supports.size();
+      supports.empty() ? 0.0 : robot.mass * kGravityMagnitude / supports.size();
   MpcTrajectory guess;
   guess.times = times;
   for (size_t k = 0; k < times.size(); ++k) {
     const double alpha = (times[k] - times.front()) / duration;
     vector_t state = start;
-    model.setBasePosition(state, (1.0 - alpha) * model.getBasePosition(start) +
-                                     alpha * model.getBasePosition(end));
-    model.setBaseOrientation(
+    model.setPosBaseRtWorldEwrtWorld(
+        state, (1.0 - alpha) * model.getPosBaseRtWorldEwrtWorld(start) +
+                   alpha * model.getPosBaseRtWorldEwrtWorld(end));
+    model.setQuatBaseRtWorldXyzw(
         state, startOrientation.slerp(alpha, endOrientation).coeffs());
     model.setJointAngles(state, (1.0 - alpha) * model.getJointAngles(start) +
                                     alpha * model.getJointAngles(end));
@@ -309,7 +310,8 @@ absl::StatusOr<MpcTrajectory> guessOf(const PlannerRobot& robot,
     vector_t input =
         vector_t::Zero(static_cast<Eigen::Index>(model.getInputDim()));
     for (const size_t contact : supports) {
-      model.setContactForce(input, Eigen::Vector3d(0.0, 0.0, share), contact);
+      model.setForceContactEwrtParam(input, Eigen::Vector3d(0.0, 0.0, share),
+                                     contact);
     }
     model.setJointVelocities(state, input, jointVelocity);
     guess.states.push_back(std::move(state));
@@ -518,8 +520,7 @@ absl::StatusOr<std::vector<StageSolution>> continuationOf(
                       .front()};
   std::vector<ContinuationStage> stages = options.stages;
   for (ContinuationStage& stage : stages) {
-    stage.weights.forceGate.forceScale =
-        robot.mass * kGravitationalAcceleration;
+    stage.weights.forceGate.forceScale = robot.mass * kGravityMagnitude;
   }
   return solveContinuation(
       problem, augmentedGuessOf(guess, robot, options.guessActivation), stages);
@@ -541,8 +542,9 @@ absl::StatusOr<MpcTrajectory> thresholdedGuessOf(
   for (const vector_t& augmented : trajectory.states) {
     const vector_t state = augmented.head(n);
     RobotConfiguration configuration;
-    configuration.basePosition = model.getBasePosition(state);
-    configuration.baseOrientation.coeffs() = model.getBaseOrientation(state);
+    configuration.basePosition = model.getPosBaseRtWorldEwrtWorld(state);
+    configuration.baseOrientation.coeffs() =
+        model.getQuatBaseRtWorldXyzw(state);
     configuration.baseOrientation.normalize();
     configuration.jointNames = model.modelSettings.mpcModelJointNames;
     configuration.jointPositions = model.getJointAngles(state);
@@ -598,7 +600,7 @@ void logStage(const StageSolution& solution,
   if (!VLOG_IS_ON(1)) return;
   const MpcRobotModelBase<scalar_t>& model = robot.models->getMpcRobotModel();
   const size_t n = model.getStateDim();
-  const double weight = robot.mass * kGravitationalAcceleration;
+  const double weight = robot.mass * kGravityMagnitude;
   for (size_t node = 0; node < solution.trajectory.times.size(); ++node) {
     // The robot model reads the joints at the end of its state: the physical
     // part only.
@@ -607,8 +609,9 @@ void logStage(const StageSolution& solution,
     const vector_t input =
         solution.trajectory.inputs[node].head(model.getInputDim());
     RobotConfiguration configuration;
-    configuration.basePosition = model.getBasePosition(state);
-    configuration.baseOrientation.coeffs() = model.getBaseOrientation(state);
+    configuration.basePosition = model.getPosBaseRtWorldEwrtWorld(state);
+    configuration.baseOrientation.coeffs() =
+        model.getQuatBaseRtWorldXyzw(state);
     configuration.baseOrientation.normalize();
     configuration.jointNames = model.modelSettings.mpcModelJointNames;
     configuration.jointPositions = model.getJointAngles(state);
@@ -627,7 +630,8 @@ void logStage(const StageSolution& solution,
           &line, " | %s p=(%.3f %.3f %.3f) d=%.3f c=%.2f f=%.2f",
           loaded.contactSet.candidate(robot.allowed[k]).name, pad.x(), pad.y(),
           pad.z(), loaded.terrain.signedDistance<double>(pad), augmented(n + k),
-          model.getContactForce(input, robot.mpcContacts[k]).norm() / weight);
+          model.getForceContactEwrtParam(input, robot.mpcContacts[k]).norm() /
+              weight);
     }
     VLOG(1) << line;
   }

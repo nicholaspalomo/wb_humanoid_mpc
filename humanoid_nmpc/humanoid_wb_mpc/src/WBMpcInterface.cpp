@@ -297,7 +297,7 @@ absl::Status checkWholeBodyFormulation(const MpcFormulationTasks& tasks,
         "\" is implemented for the centroidal MPC only; the whole-body MPC "
         "optimizes the contact wrenches directly. Set "
         "contact_input_parameterization: \"",
-        kWrenchContactInputParameterization,
+        kWrenchContactInputParameterizationName,
         "\", or delete the field "
         "(humanoid_nmpc/docs/contact_basis_vectors/README.md)."));
   }
@@ -691,7 +691,7 @@ absl::Status WBMpcInterface::addContactTerms(
           factory.makeContactMomentXYConstraint(
               i, absl::StrCat(footName, "_contact_moment_XY_constraint")));
       problemPtr_->softConstraintPtr->add(
-          contact_term::name(footName, contact_term::kContactMomentXY),
+          contact_term::name(footName, contact_term::kContactMomentXYName),
           std::move(contactMomentXYConstraint));
     }
     if (tasks.hasSoftConstraint(MpcSoftConstraintType::kZeroVelocity) &&
@@ -725,7 +725,7 @@ absl::Status WBMpcInterface::addContactTerms(
           std::unique_ptr<StateInputConstraint> normalVelocityConstraint,
           getNormalVelocityConstraint(*eeDynamicsPtr, i));
       problemPtr_->equalityConstraintPtr->add(
-          contact_term::name(footName, contact_term::kNormalVelocity),
+          contact_term::name(footName, contact_term::kNormalVelocityName),
           std::move(normalVelocityConstraint));
     }
     // The same row as a cost; see CentroidalMpcInterface for why the hard form
@@ -740,7 +740,7 @@ absl::Status WBMpcInterface::addContactTerms(
               modelSettings_.footConstraintConfig
                   .normalVelocitySoftConstraintWeight);
       problemPtr_->softConstraintPtr->add(
-          contact_term::name(footName, contact_term::kNormalVelocitySoft),
+          contact_term::name(footName, contact_term::kNormalVelocitySoftName),
           std::make_unique<StateInputSoftConstraint>(
               std::move(normalVelocityConstraint), std::move(penalty)));
     }

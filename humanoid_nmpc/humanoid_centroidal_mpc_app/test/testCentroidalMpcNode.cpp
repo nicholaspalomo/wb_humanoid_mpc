@@ -93,7 +93,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_runtime/robot_ipc/test/TestNetwork.h"
 
 /*
- * The centroidal MPC node on the DRC Atlas task file, with the real SQP solver,
+ * The centroidal MPC node on the DRC Atlas task file, with the SQP solver,
  * served over loopback buses: to a robot and an operator the test scripts, and
  * to the dummy simulator for a few seconds. Builds the CppAD libraries of the
  * Atlas MPC on a cold cache (minutes); every node after the first loads them.
@@ -256,25 +256,28 @@ TEST(CentroidalMpcNode, TheVelocityCommandReachesTheMotionManager) {
   NodeHarness harness;
   ASSERT_TRUE(harness.solve(/*time=*/0.0, /*sequence=*/1).has_value());
   humanoid_mpc_msgs::WalkingVelocityCommand command;
-  command.set_linear_velocity_x(0.5);
-  command.set_desired_pelvis_height(0.8);
-  command.set_angular_velocity_z(-0.25);
+  command.set_cmd_linvel_base_rt_world_ewrt_heading_x(0.5);
+  command.set_cmd_pos_base_rt_world_ewrt_world_z(0.8);
+  command.set_cmd_angvel_base_rt_world_ewrt_world_z(-0.25);
   ProceduralMpcMotionManager& motionManager = harness.node().motionManager();
   ASSERT_TRUE(harness.robot().sendAsOperator(
       topics::kOperatorWalkingVelocityCommand, command, [&]() {
         return motionManager.getScaledWalkingVelocityCommand()
-                   .linear_velocity_x > 0.0;
+                   .cmd_linvel_base_rt_world_ewrt_heading_x > 0.0;
       }));
   const WalkingVelocityCommand scaled =
       motionManager.getScaledWalkingVelocityCommand();
-  EXPECT_LT(scaled.angular_velocity_z, 0.0);
+  EXPECT_LT(scaled.cmd_angvel_base_rt_world_ewrt_world_z, 0.0);
   // The next policy carries it.
   const std::optional<humanoid_mpc_msgs::MpcPolicy> policy =
       harness.solve(/*time=*/0.02, /*sequence=*/2);
   if (!policy.has_value()) GTEST_FAIL() << "the node served no policy";
-  EXPECT_EQ(policy->annotations().scaled_velocity_x(),
-            scaled.linear_velocity_x);
-  EXPECT_EQ(policy->annotations().scaled_yaw_rate(), scaled.angular_velocity_z);
+  EXPECT_EQ(
+      policy->annotations().scaled_cmd_linvel_base_rt_world_ewrt_heading_x(),
+      scaled.cmd_linvel_base_rt_world_ewrt_heading_x);
+  EXPECT_EQ(
+      policy->annotations().scaled_cmd_angvel_base_rt_world_ewrt_world_z(),
+      scaled.cmd_angvel_base_rt_world_ewrt_world_z);
 }
 
 std::string readFile(const std::string& path) {
@@ -437,14 +440,15 @@ TEST(CentroidalMpcNode, ResetsToTheTargetTheControllerHandsItsInProcessLink) {
   const MpcRobotModelBase<scalar_t>& model = interface.getMpcRobotModel();
   for (const scalar_t time : {0.0, 1.5, 12.25}) {
     SystemObservation observation = harness.standing(time);
-    vector3_t basePosition = model.getBasePosition(observation.state);
+    vector3_t basePosition =
+        model.getPosBaseRtWorldEwrtWorld(observation.state);
     basePosition.x() += 0.2 * time;
-    model.setBasePosition(observation.state, basePosition);
-    vector3_t eulerZyx = model.getBaseOrientationEulerZyx(observation.state);
+    model.setPosBaseRtWorldEwrtWorld(observation.state, basePosition);
+    vector3_t eulerZyx = model.getEulerzyxBaseRtWorld(observation.state);
     eulerZyx(1) = 0.03;  // pitch
-    model.setBaseOrientationEulerZyx(observation.state, eulerZyx);
-    centroidal_model::getNormalizedMomentum(observation.state,
-                                            interface.getCentroidalModelInfo())
+    model.setEulerzyxBaseRtWorld(observation.state, eulerZyx);
+    centroidal_model::getMnormCmomComRtWorldEwrtWorld(
+        observation.state, interface.getCentroidalModelInfo())
         .setConstant(0.1);
     expectSameTarget(controllerResetTarget(observation),
                      harness.node().resetTargetTrajectories(observation));
@@ -549,11 +553,11 @@ TEST(CentroidalMpcNode,
       (*node)->interface().getMpcRobotModel();
   const SystemObservation latest = dummySim.loop().latestObservation();
   const vector3_t startPosition =
-      model.getBasePosition(dummySim.initialObservation().state);
-  const vector3_t position = model.getBasePosition(latest.state);
+      model.getPosBaseRtWorldEwrtWorld(dummySim.initialObservation().state);
+  const vector3_t position = model.getPosBaseRtWorldEwrtWorld(latest.state);
   EXPECT_NEAR(position.z(), startPosition.z(), 0.05);
   EXPECT_LT((position - startPosition).head<2>().norm(), 0.05);
-  const vector3_t orientation = model.getBaseOrientationEulerZyx(latest.state);
+  const vector3_t orientation = model.getEulerzyxBaseRtWorld(latest.state);
   EXPECT_LT(std::abs(orientation(1)), 0.1);  // pitch
   EXPECT_LT(std::abs(orientation(2)), 0.1);  // roll
   EXPECT_TRUE(latest.state.allFinite());
@@ -605,9 +609,9 @@ vector3_t basePosition(const test_support::ScriptedOperator& remoteControl) {
       remoteControl.sample();
   if (!sample.has_value())
     return vector3_t::Constant(std::numeric_limits<scalar_t>::quiet_NaN());
-  return vector3_t(sample->base_position_world().x(),
-                   sample->base_position_world().y(),
-                   sample->base_position_world().z());
+  return vector3_t(sample->pos_base_rt_world_ewrt_world().x(),
+                   sample->pos_base_rt_world_ewrt_world().y(),
+                   sample->pos_base_rt_world_ewrt_world().z());
 }
 
 // The hardware topology end to end, as every simulation launch runs it: the MPC

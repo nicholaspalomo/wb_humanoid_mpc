@@ -86,8 +86,8 @@ exports_files([
     "docker/install_llvm_tools.sh",
 ])
 
-# The lint tools' configurations, which //tools/hooks:test_lint_tool_configs runs the real tools with, and the module
-# file whose @lint_deps hub //tools/hooks:test_lint_tool_versions checks.
+# The lint tools' configurations, which //tools/hooks:test_lint_tool_configs runs cpplint, pylint, mypy, isort and black
+# with, and the module file whose @lint_deps hub //tools/hooks:test_lint_tool_versions checks.
 exports_files([
     ".isort.cfg",
     ".pylintrc",

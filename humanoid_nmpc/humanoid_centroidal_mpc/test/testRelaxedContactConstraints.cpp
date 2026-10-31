@@ -150,7 +150,7 @@ class RelaxedContactConstraintsTest : public ::testing::Test {
     // joints are moving.
     vector6_t wrench = vector6_t::Zero();
     wrench(kWrenchForceZIndex) = 400.0;
-    robotModel_->setContactWrench(input_, wrench, kContactLeftIndex);
+    robotModel_->setWrenchContactEwrtParam(input_, wrench, kContactLeftIndex);
     for (size_t index = 0; index < robotModel_->getJointDim(); ++index) {
       input_(robotModel_->getJointVelocitiesStartindex() + index) =
           0.05 * static_cast<scalar_t>(index % 5) - 0.1;
@@ -244,17 +244,20 @@ class RelaxedContactConstraintsTest : public ::testing::Test {
 };
 
 TEST_F(RelaxedContactConstraintsTest, NormalForceRowReadsTheContactBlock) {
-  const vector_t row = normalContactForceRow(*robotModel_, kContactLeftIndex);
+  const vector_t row =
+      inputRowForceContactEwrtParamZ(*robotModel_, kContactLeftIndex);
   ASSERT_EQ(row.size(), static_cast<Eigen::Index>(robotModel_->getInputDim()));
-  EXPECT_NEAR(row.dot(input_),
-              robotModel_->getContactForce(input_, kContactLeftIndex)(2),
-              1.0e-12);
+  EXPECT_NEAR(
+      row.dot(input_),
+      robotModel_->getForceContactEwrtParam(input_, kContactLeftIndex)(2),
+      1.0e-12);
   // The other foot's block and the joint velocities have no bearing on this
   // foot's normal force.
   vector_t otherFootOnly = vector_t::Zero(robotModel_->getInputDim());
   vector6_t wrench = vector6_t::Zero();
   wrench(kWrenchForceZIndex) = 500.0;
-  robotModel_->setContactWrench(otherFootOnly, wrench, kContactRightIndex);
+  robotModel_->setWrenchContactEwrtParam(otherFootOnly, wrench,
+                                         kContactRightIndex);
   EXPECT_NEAR(row.dot(otherFootOnly), 0.0, 1.0e-12);
 }
 
@@ -282,9 +285,10 @@ TEST_F(RelaxedContactConstraintsTest, ComplementarityIsTheForceTimesTheGap) {
   const PreComputation preComp;
   const vector_t value = term.getValue(/*time=*/0.0, state_, input_, preComp);
   ASSERT_EQ(value.size(), 1);
-  EXPECT_NEAR(value(0),
-              robotModel_->getContactForce(input_, kContactLeftIndex)(2) * gap,
-              1.0e-9);
+  EXPECT_NEAR(
+      value(0),
+      robotModel_->getForceContactEwrtParam(input_, kContactLeftIndex)(2) * gap,
+      1.0e-9);
 
   // A foot on the ground may carry any load, and a foot in the air may carry
   // none: both are free of penalty.
@@ -314,7 +318,8 @@ TEST_F(RelaxedContactConstraintsTest,
   ASSERT_GT(spread, 0.02) << "the ankle pitch must actually tilt the sole or "
                              "this test proves nothing";
 
-  const scalar_t soleCenter = eeKinematics_->getPosition(pitched).front()(2);
+  const scalar_t soleCenter =
+      eeKinematics_->getPosEesRtWorldEwrtWorld(pitched).front()(2);
   ASSERT_GT(soleCenter - heights.minCoeff(), 0.01)
       << "the sole center must sit well above the lowest corner";
 
@@ -334,7 +339,7 @@ TEST_F(RelaxedContactConstraintsTest,
   EXPECT_LE(term.getGap(pitched), smoothingBound + 1.0e-12);
   EXPECT_GE(term.getGap(pitched), -1.0e-12);
   const scalar_t normalForce =
-      robotModel_->getContactForce(input_, kContactLeftIndex)(2);
+      robotModel_->getForceContactEwrtParam(input_, kContactLeftIndex)(2);
   EXPECT_LE(std::abs(term.getValue(/*time=*/0.0, pitched, input_, preComp)(0)),
             normalForce * smoothingBound + 1.0e-9);
 
@@ -383,7 +388,7 @@ TEST_F(RelaxedContactConstraintsTest,
   const scalar_t terrainHeight =
       cornerHeights_->getHeights(state_).minCoeff() - heightReference;
   const scalar_t forceReference =
-      robotModel_->getContactForce(input_, kContactLeftIndex)(2);
+      robotModel_->getForceContactEwrtParam(input_, kContactLeftIndex)(2);
   ASSERT_GT(forceReference, 0.0) << "the fixture's input must load this foot "
                                     "for the test to mean anything";
 
@@ -413,12 +418,12 @@ TEST_F(RelaxedContactConstraintsTest,
 
   const PreComputation preComp;
   const scalar_t normalForce =
-      robotModel_->getContactForce(input_, kContactLeftIndex)(2);
+      robotModel_->getForceContactEwrtParam(input_, kContactLeftIndex)(2);
   EXPECT_NEAR(
       term.getValue(/*time=*/0.0, state_, input_, preComp)(0),
       (normalForce / forceReference) * (term.getGap(state_) / heightReference),
       1.0e-9);
-  EXPECT_NEAR(term.getForceReference(), forceReference, 1.0e-9);
+  EXPECT_NEAR(term.getScaleForceContactEwrtParamZ(), forceReference, 1.0e-9);
   EXPECT_NEAR(term.getHeightReference(), heightReference, 1.0e-9);
 }
 
@@ -426,13 +431,13 @@ TEST_F(RelaxedContactConstraintsTest,
        ComplementarityDerivativesMatchFiniteDifferencesUnderNormalization) {
   // The scales multiply both derivative blocks, so a normalization applied to
   // the value but not to the Jacobian would pass every value test above and
-  // quietly hand the solver a wrong gradient.
+  // still hand the solver a wrong gradient.
   const scalar_t terrainHeight =
       cornerHeights_->getHeights(state_).minCoeff() - 0.03;
   expectDerivativesMatchFiniteDifferences(
       *checkedValue(ContactComplementarityConstraint::Create(
           *cornerHeights_, *robotModel_, kContactLeftIndex, terrainHeight,
-          /*forceReference=*/1500.0, /*heightReference=*/0.08)));
+          /*scaleForceContactEwrtParamZ=*/1500.0, /*heightReference=*/0.08)));
 }
 
 TEST_F(RelaxedContactConstraintsTest, SlipIsTheForceTimesTheConstrainedTwist) {
@@ -446,11 +451,12 @@ TEST_F(RelaxedContactConstraintsTest, SlipIsTheForceTimesTheConstrainedTwist) {
   ASSERT_EQ(value.size(), 3)
       << "the two tangential velocities and the spin about the contact normal";
 
-  const vector3_t velocity = eeKinematics_->getVelocity(state_, input_).front();
+  const vector3_t velocity =
+      eeKinematics_->getLinvelEesRtWorldEwrtWorld(state_, input_).front();
   const vector3_t angularVelocity =
-      eeKinematics_->getAngularVelocity(state_, input_).front();
+      eeKinematics_->getAngvelEesRtWorldEwrtWorld(state_, input_).front();
   const scalar_t normalForce =
-      robotModel_->getContactForce(input_, kContactLeftIndex)(2);
+      robotModel_->getForceContactEwrtParam(input_, kContactLeftIndex)(2);
   EXPECT_NEAR(value(0), normalForce * velocity(0), 1.0e-9);
   EXPECT_NEAR(value(1), normalForce * velocity(1), 1.0e-9);
   // The pivot row is what the schedule-gated zero_velocity constraint used to
@@ -574,7 +580,8 @@ TEST_F(RelaxedContactConstraintsTest,
     rock.input = vector_t::Zero(robotModel_->getInputDim());
     vector6_t wrench = vector6_t::Zero();
     wrench(kWrenchForceZIndex) = 800.0;
-    robotModel_->setContactWrench(rock.input, wrench, kContactLeftIndex);
+    robotModel_->setWrenchContactEwrtParam(rock.input, wrench,
+                                           kContactLeftIndex);
     vector_t jointRates =
         vector_t::Zero(static_cast<Eigen::Index>(robotModel_->getJointDim()));
     for (size_t leg = 0; leg < legVelocityIndices.size(); ++leg) {
@@ -622,8 +629,9 @@ TEST_F(RelaxedContactConstraintsTest,
         const std::unique_ptr<ForceWeightedSlipConstraint> termPtr,
         ForceWeightedSlipConstraint::Create(
             *eeKinematics_, *robotModel_, kContactLeftIndex,
-            /*forceReference=*/800.0,
-            /*velocityReference=*/1.0, /*angularVelocityReference=*/1.0));
+            /*scaleForceContactEwrtParamZ=*/800.0,
+            /*scaleLinvelContactRtWorldEwrtWorldXy=*/1.0,
+            /*scaleAngvelContactRtWorldEwrtWorldZ=*/1.0));
     const ForceWeightedSlipConstraint& term = *termPtr;
     const PreComputation preComp;
     const vector_t value =
@@ -729,36 +737,44 @@ TEST_F(RelaxedContactConstraintsTest, SlipScalesEachRowInItsOwnUnits) {
   // exactly as bad as one meter per second, which is not a statement about the
   // robot but about the choice of SI units.
   const scalar_t forceReference = 1500.0;
-  const scalar_t velocityReference = 0.3;
-  const scalar_t angularVelocityReference = 1.0;
+  const scalar_t scaleLinvelContactRtWorldEwrtWorldXy = 0.3;
+  const scalar_t scaleAngvelContactRtWorldEwrtWorldZ = 1.0;
   HUMANOID_ASSERT_OK_AND_ASSIGN(
       const std::unique_ptr<ForceWeightedSlipConstraint> termPtr,
-      ForceWeightedSlipConstraint::Create(
-          *eeKinematics_, *robotModel_, kContactLeftIndex, forceReference,
-          velocityReference, angularVelocityReference));
+      ForceWeightedSlipConstraint::Create(*eeKinematics_, *robotModel_,
+                                          kContactLeftIndex, forceReference,
+                                          scaleLinvelContactRtWorldEwrtWorldXy,
+                                          scaleAngvelContactRtWorldEwrtWorldZ));
   const ForceWeightedSlipConstraint& term = *termPtr;
 
   const PreComputation preComp;
   const vector_t value = term.getValue(/*time=*/0.0, state_, input_, preComp);
-  const vector3_t velocity = eeKinematics_->getVelocity(state_, input_).front();
+  const vector3_t velocity =
+      eeKinematics_->getLinvelEesRtWorldEwrtWorld(state_, input_).front();
   const vector3_t angularVelocity =
-      eeKinematics_->getAngularVelocity(state_, input_).front();
+      eeKinematics_->getAngvelEesRtWorldEwrtWorld(state_, input_).front();
   const scalar_t normalizedForce =
-      robotModel_->getContactForce(input_, kContactLeftIndex)(2) /
+      robotModel_->getForceContactEwrtParam(input_, kContactLeftIndex)(2) /
       forceReference;
 
-  EXPECT_NEAR(value(0), normalizedForce * velocity(0) / velocityReference,
-              1.0e-9);
-  EXPECT_NEAR(value(1), normalizedForce * velocity(1) / velocityReference,
-              1.0e-9);
+  EXPECT_NEAR(
+      value(0),
+      normalizedForce * velocity(0) / scaleLinvelContactRtWorldEwrtWorldXy,
+      1.0e-9);
+  EXPECT_NEAR(
+      value(1),
+      normalizedForce * velocity(1) / scaleLinvelContactRtWorldEwrtWorldXy,
+      1.0e-9);
   EXPECT_NEAR(value(2),
-              normalizedForce * angularVelocity(2) / angularVelocityReference,
+              normalizedForce * angularVelocity(2) /
+                  scaleAngvelContactRtWorldEwrtWorldZ,
               1.0e-9);
 
   // And the yaw row must not pick up the linear scale: with the two references
   // different, swapping them would change the third component, which is exactly
   // the bug this guards.
-  EXPECT_GT(std::abs(1.0 / velocityReference - 1.0 / angularVelocityReference),
+  EXPECT_GT(std::abs(1.0 / scaleLinvelContactRtWorldEwrtWorldXy -
+                     1.0 / scaleAngvelContactRtWorldEwrtWorldZ),
             1.0e-9)
       << "choose different references or this assertion proves nothing";
 }
@@ -768,8 +784,9 @@ TEST_F(RelaxedContactConstraintsTest,
   expectDerivativesMatchFiniteDifferences(
       *checkedValue(ForceWeightedSlipConstraint::Create(
           *eeKinematics_, *robotModel_, kContactLeftIndex,
-          /*forceReference=*/1500.0, /*velocityReference=*/0.3,
-          /*angularVelocityReference=*/1.0)));
+          /*scaleForceContactEwrtParamZ=*/1500.0,
+          /*scaleLinvelContactRtWorldEwrtWorldXy=*/0.3,
+          /*scaleAngvelContactRtWorldEwrtWorldZ=*/1.0)));
 }
 
 TEST_F(RelaxedContactConstraintsTest,

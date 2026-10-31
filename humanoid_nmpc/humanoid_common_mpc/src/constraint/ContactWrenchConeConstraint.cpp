@@ -75,8 +75,8 @@ constexpr scalar_t kFacetDuplicateTolerance = 1.0e-7;
 /** A unit facet normal whose yaw-moment component is below this is a friction
  * or CoP facet, not a torsion facet. */
 constexpr scalar_t kYawComponentThreshold = 1.0e-9;
-/** Slack of torsionLimitsOfNormalForceAt() on the rows that do not involve the
- * yaw moment. */
+/** Slack of computeLimitsPerNewtonTorqueContactEwrtContactZ() on the rows that
+ * do not involve the yaw moment. */
 constexpr scalar_t kTorsionLimitTolerance = 1.0e-12;
 /** The pyramid's edges sit half a sector away from its facets. */
 constexpr scalar_t kPyramidEdgeOffsetInSectors = 0.5;
@@ -90,7 +90,7 @@ matrix3_t skewSymmetric(const vector3_t& v) {
 
 }  // namespace
 
-absl::Status ContactWrenchConeConstraint::checkWrenchSpaceInput(
+absl::Status ContactWrenchConeConstraint::checkWrenchInputLayout(
     const MpcRobotModelBase<scalar_t>& mpcRobotModel,
     size_t contactPointIndex) {
   const size_t wrenchStart =
@@ -142,7 +142,7 @@ ContactWrenchConeConstraint::Create(
     const MpcRobotModelBase<scalar_t>& mpcRobotModel,
     Config config,
     bool scheduleGated) {
-  RETURN_IF_ERROR(checkWrenchSpaceInput(mpcRobotModel, contactPointIndex));
+  RETURN_IF_ERROR(checkWrenchInputLayout(mpcRobotModel, contactPointIndex));
   RETURN_IF_ERROR(checkPinocchioVelocityDim(pinocchioInterface, mpcRobotModel));
   RETURN_IF_ERROR(validateConfig(config));
   RETURN_IF_ERROR(validateFootprint(contactRectangle));
@@ -170,9 +170,9 @@ ContactWrenchConeConstraint::ContactWrenchConeConstraint(
       scheduleGated_(scheduleGated) {
   // The documented guards for the callers that construct directly; Create()
   // returns the same refusals as a Status.
-  const absl::Status wrenchSpace =
-      checkWrenchSpaceInput(mpcRobotModel, contactPointIndex);
-  CHECK(wrenchSpace.ok()) << wrenchSpace.message();
+  const absl::Status wrenchLayout =
+      checkWrenchInputLayout(mpcRobotModel, contactPointIndex);
+  CHECK(wrenchLayout.ok()) << wrenchLayout.message();
   const absl::Status velocityDim =
       checkPinocchioVelocityDim(pinocchioInterface, mpcRobotModel);
   CHECK(velocityDim.ok()) << velocityDim.message();
@@ -222,11 +222,15 @@ absl::Status ContactWrenchConeConstraint::validateConfig(const Config& config) {
       "torsional_friction_coefficient", config.torsionalFrictionCoefficient,
       "finite and non-negative"));
   RETURN_IF_ERROR(checkConeValue(
-      std::isfinite(config.minNormalForce) && config.minNormalForce >= 0.0,
-      "min_normal_force", config.minNormalForce, "finite and non-negative"));
+      std::isfinite(config.minForceContactEwrtContactZ) &&
+          config.minForceContactEwrtContactZ >= 0.0,
+      "min_force_contact_ewrt_contact_z", config.minForceContactEwrtContactZ,
+      "finite and non-negative"));
   RETURN_IF_ERROR(checkConeValue(
-      std::isfinite(config.gripperForce) && config.gripperForce >= 0.0,
-      "gripper_force", config.gripperForce, "finite and non-negative"));
+      std::isfinite(config.gripForceContactEwrtContactZ) &&
+          config.gripForceContactEwrtContactZ >= 0.0,
+      "grip_force_contact_ewrt_contact_z", config.gripForceContactEwrtContactZ,
+      "finite and non-negative"));
   if (!config.patchOffset.allFinite()) {
     return absl::InvalidArgumentError(
         absl::StrCat("[ContactWrenchConeConstraint] the torsional reference "
@@ -257,27 +261,30 @@ absl::Status ContactWrenchConeConstraint::validateFootprint(
 
 ContactWrenchConeConstraint::Config
 ContactWrenchConeConstraint::withoutLoadedFootOffsets(Config config) {
-  // `minNormalForce` and `gripperForce` are the only two entries of `b` (the
-  // others are homogeneous rows). Both are statements about a foot the mode
-  // schedule has declared loaded: the first demands a normal force the foot
-  // cannot produce in flight, the second offers an adhesion it does not have.
-  // An always-active cone evaluated on a foot at zero wrench would report
-  // `-minNormalForce`, i.e. a permanent violation, and the penalty would buy it
-  // off by inventing a normal force. Dropping them leaves the homogeneous cone,
-  // which the zero wrench satisfies exactly.
-  if (config.minNormalForce > 0.0 || config.gripperForce > 0.0) {
+  // `minForceContactEwrtContactZ` and `gripForceContactEwrtContactZ` are the
+  // only two entries of `b` (the others are homogeneous rows). Both are
+  // statements about a foot the mode schedule has declared loaded: the first
+  // demands a normal force the foot cannot produce in flight, the second offers
+  // an adhesion it does not have. An always-active cone evaluated on a foot at
+  // zero wrench would report
+  // `-minForceContactEwrtContactZ`, i.e. a permanent violation, and the penalty
+  // would buy it off by inventing a normal force. Dropping them leaves the
+  // homogeneous cone, which the zero wrench satisfies exactly.
+  if (config.minForceContactEwrtContactZ > 0.0 ||
+      config.gripForceContactEwrtContactZ > 0.0) {
     LOG(WARNING) << "[ContactWrenchConeConstraint] the contact-implicit "
                     "formulation drops "
-                 << kConfigField << ".min_normal_force ("
-                 << config.minNormalForce << " N) and .gripper_force ("
-                 << config.gripperForce
+                 << kConfigField << ".min_force_contact_ewrt_contact_z ("
+                 << config.minForceContactEwrtContactZ
+                 << " N) and .grip_force_contact_ewrt_contact_z ("
+                 << config.gripForceContactEwrtContactZ
                  << " N): an always-active cone cannot demand either of a foot "
                     "in flight. "
                  << "The homogeneous friction, center-of-pressure and "
                     "torsional limits are unchanged.";
   }
-  config.minNormalForce = 0.0;
-  config.gripperForce = 0.0;
+  config.minForceContactEwrtContactZ = 0.0;
+  config.gripForceContactEwrtContactZ = 0.0;
   return config;
 }
 
@@ -340,13 +347,16 @@ std::array<vector2_t, ContactRectangle::kNumCorners> footprintCorners(
 
 namespace {
 
-/** The wrench of the force `force` applied at the planar point `point`, with
- * the moment about the frame origin. */
-vector6_t pointForceWrench(const vector2_t& point, const vector3_t& force) {
-  vector6_t wrench;
-  wrench.head<kForceDim>() = force;
-  wrench.tail<kTorqueDim>() = vector3_t(point.x(), point.y(), 0.0).cross(force);
-  return wrench;
+/** The wrench, in the contact frame and with the moment about its origin, that
+ * the point force `generatorForce` (contact-frame axes) generates at the planar
+ * point `point`. */
+vector6_t generatorWrenchAt(const vector2_t& point,
+                            const vector3_t& generatorForce) {
+  vector6_t generatorWrench;
+  generatorWrench.head<kForceDim>() = generatorForce;
+  generatorWrench.tail<kTorqueDim>() =
+      vector3_t(point.x(), point.y(), 0.0).cross(generatorForce);
+  return generatorWrench;
 }
 
 /** Advances `indices`, a strictly increasing k-subset of {0, ..., numElements -
@@ -354,8 +364,8 @@ vector6_t pointForceWrench(const vector2_t& point, const vector3_t& force) {
 bool nextCombination(std::array<size_t, kFacetSubsetSize>& indices,
                      size_t numElements) {
   constexpr size_t kSubsetSize = static_cast<size_t>(kFacetSubsetSize);
-  for (int64_t position = kFacetSubsetSize - 1; position >= 0; --position) {
-    const size_t slot = static_cast<size_t>(position);
+  for (int64_t index = kFacetSubsetSize - 1; index >= 0; --index) {
+    const size_t slot = static_cast<size_t>(index);
     if (indices[slot] + kSubsetSize < numElements + slot) {
       ++indices[slot];
       for (size_t later = slot + 1; later < kSubsetSize; ++later) {
@@ -438,7 +448,7 @@ std::vector<vector6_t> torsionFacets(
   Eigen::Index column = 0;
   for (const vector3_t& edge : edges) {
     for (const vector2_t& corner : corners) {
-      vector6_t generator = pointForceWrench(corner - planarCenter, edge);
+      vector6_t generator = generatorWrenchAt(corner - planarCenter, edge);
       generator.tail<kTorqueDim>() /= lengthScale;
       scaledGenerators.col(column++) = generator.normalized();
     }
@@ -472,7 +482,7 @@ matrix_t cornerContactWrenchGenerators(
   Eigen::Index column = 0;
   for (const vector3_t& edge : edges) {
     for (const vector2_t& corner : corners) {
-      generators.col(column++) = pointForceWrench(corner, edge);
+      generators.col(column++) = generatorWrenchAt(corner, edge);
     }
   }
   return generators;
@@ -504,13 +514,13 @@ ContactWrenchConeRows buildFrictionPyramidRows(
     rows.A_f(constraintIdx, kXAxisIndex) = -std::cos(theta_k);
     rows.A_f(constraintIdx, kYAxisIndex) = -std::sin(theta_k);
     rows.A_f(constraintIdx, kZAxisIndex) = facetFriction;
-    rows.b(constraintIdx) = facetFriction * config.gripperForce;
+    rows.b(constraintIdx) = facetFriction * config.gripForceContactEwrtContactZ;
     ++constraintIdx;
   }
 
-  // 2. Normal force limit: Fz - minNormalForce >= 0
+  // 2. Normal force limit: Fz - minForceContactEwrtContactZ >= 0
   rows.A_f(constraintIdx, kZAxisIndex) = 1.0;
-  rows.b(constraintIdx) = -config.minNormalForce;
+  rows.b(constraintIdx) = -config.minForceContactEwrtContactZ;
   return rows;
 }
 
@@ -575,12 +585,12 @@ ContactWrenchConeRows buildLocalWrenchConeRows(
   // a normal force at the footprint center.
   const vector2_t center(0.5 * (bounds.x_min + bounds.x_max),
                          0.5 * (bounds.y_min + bounds.y_max));
-  const vector6_t gripperWrench =
-      pointForceWrench(center, vector3_t(0.0, 0.0, config.gripperForce));
+  const vector6_t gripWrenchContactEwrtContact = generatorWrenchAt(
+      center, vector3_t(0.0, 0.0, config.gripForceContactEwrtContactZ));
   for (const vector6_t& torsionRow : torsionRows) {
     rows.A_f.row(constraintIdx) = torsionRow.head<kForceDim>().transpose();
     rows.A_tau.row(constraintIdx) = torsionRow.tail<kTorqueDim>().transpose();
-    rows.b(constraintIdx) = torsionRow.dot(gripperWrench);
+    rows.b(constraintIdx) = torsionRow.dot(gripWrenchContactEwrtContact);
     ++constraintIdx;
   }
 
@@ -590,10 +600,10 @@ ContactWrenchConeRows buildLocalWrenchConeRows(
   return rows;
 }
 
-std::optional<TorsionInterval> torsionLimitsOfNormalForceAt(
+std::optional<TorsionInterval> computeLimitsPerNewtonTorqueContactEwrtContactZ(
     const ContactWrenchConeRows& rows, const vector2_t& point) {
   const vector_t values =
-      rows.evaluateCone(pointForceWrench(point, vector3_t::UnitZ()));
+      rows.evaluateCone(generatorWrenchAt(point, vector3_t::UnitZ()));
   TorsionInterval limits{.lower = -std::numeric_limits<scalar_t>::infinity(),
                          .upper = std::numeric_limits<scalar_t>::infinity()};
   for (Eigen::Index row = 0; row < values.size(); ++row) {
@@ -635,18 +645,19 @@ vector_t ContactWrenchConeConstraint::getValue(
   const pinocchio::FrameIndex frameID = getContactFrameIndex(
       *pinocchioInterfacePtr_, *mpcRobotModelPtr_, contactPointIndex_);
 
-  const matrix3_t w_R_l = getRotationMatrixLocalToWorld(data, frameID);
+  const matrix3_t w_R_l = getRotmatLinkRtWorld(data, frameID);
   const matrix3_t l_R_w = w_R_l.transpose();
 
-  const vector3_t forceInWorld =
-      mpcRobotModelPtr_->getContactForce(input, contactPointIndex_);
-  const vector3_t momentInWorld =
-      mpcRobotModelPtr_->getContactMoment(input, contactPointIndex_);
+  const vector3_t forceContactEwrtWorld =
+      mpcRobotModelPtr_->getForceContactEwrtParam(input, contactPointIndex_);
+  const vector3_t torqueContactEwrtWorld =
+      mpcRobotModelPtr_->getTorqueContactEwrtParam(input, contactPointIndex_);
 
-  const vector3_t forceInLocal = l_R_w * forceInWorld;
-  const vector3_t momentInLocal = l_R_w * momentInWorld;
+  const vector3_t forceContactEwrtContact = l_R_w * forceContactEwrtWorld;
+  const vector3_t torqueContactEwrtContact = l_R_w * torqueContactEwrtWorld;
 
-  return A_f_local_ * forceInLocal + A_tau_local_ * momentInLocal + b_local_;
+  return A_f_local_ * forceContactEwrtContact +
+         A_tau_local_ * torqueContactEwrtContact + b_local_;
 }
 
 VectorFunctionLinearApproximation
@@ -662,18 +673,18 @@ ContactWrenchConeConstraint::getLinearApproximation(
   const pinocchio::FrameIndex frameID = getContactFrameIndex(
       *pinocchioInterfacePtr_, *mpcRobotModelPtr_, contactPointIndex_);
 
-  const matrix3_t w_R_l = getRotationMatrixLocalToWorld(data, frameID);
+  const matrix3_t w_R_l = getRotmatLinkRtWorld(data, frameID);
   const matrix3_t l_R_w = w_R_l.transpose();
 
   const matrix_t A_f_world = A_f_local_ * l_R_w;
   const matrix_t A_tau_world = A_tau_local_ * l_R_w;
 
-  const vector3_t forceInWorld =
-      mpcRobotModelPtr_->getContactForce(input, contactPointIndex_);
-  const vector3_t momentInWorld =
-      mpcRobotModelPtr_->getContactMoment(input, contactPointIndex_);
-  const vector3_t forceInLocal = l_R_w * forceInWorld;
-  const vector3_t momentInLocal = l_R_w * momentInWorld;
+  const vector3_t forceContactEwrtWorld =
+      mpcRobotModelPtr_->getForceContactEwrtParam(input, contactPointIndex_);
+  const vector3_t torqueContactEwrtWorld =
+      mpcRobotModelPtr_->getTorqueContactEwrtParam(input, contactPointIndex_);
+  const vector3_t forceContactEwrtContact = l_R_w * forceContactEwrtWorld;
+  const vector3_t torqueContactEwrtContact = l_R_w * torqueContactEwrtWorld;
 
   // THE STATE DERIVATIVE, through the rotation. With w_R_l' = w_R_l
   // [omega_local]x, the local image of a fixed world vector moves as d(l_R_w
@@ -689,12 +700,12 @@ ContactWrenchConeConstraint::getLinearApproximation(
   const matrix_t angularJacobian =
       frameJacobian.bottomRows<kRotationTangentDim>();
   const matrix_t dfdq =
-      A_f_local_ * skewSymmetric(forceInLocal) * angularJacobian +
-      A_tau_local_ * skewSymmetric(momentInLocal) * angularJacobian;
+      A_f_local_ * skewSymmetric(forceContactEwrtContact) * angularJacobian +
+      A_tau_local_ * skewSymmetric(torqueContactEwrtContact) * angularJacobian;
 
   VectorFunctionLinearApproximation linearApproximation;
-  linearApproximation.f =
-      A_f_local_ * forceInLocal + A_tau_local_ * momentInLocal + b_local_;
+  linearApproximation.f = A_f_local_ * forceContactEwrtContact +
+                          A_tau_local_ * torqueContactEwrtContact + b_local_;
   linearApproximation.dfdx =
       dfdq * mpcRobotModelPtr_->getPinocchioTangentJacobian(state);
   linearApproximation.dfdu =

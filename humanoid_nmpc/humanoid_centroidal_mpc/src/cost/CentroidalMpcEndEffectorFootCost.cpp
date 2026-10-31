@@ -192,9 +192,10 @@ ad_vector_t CentroidalMpcEndEffectorFootCost::costVectorFunction(
       (ad_scalar_t(1.0) - hasYawReference) * orientationError(kZAxisIndex);
 
   ad_vector_t errors(kEndEffectorTaskSpaceErrorDim);
-  errors << (position - reference.getPosition()), orientationError,
-      (linearVelocity - reference.getLinearVelocity()) * impactProximityScaler,
-      (angularVelocity - reference.getAngularVelocity());
+  errors << (position - reference.getPosEeRtWorldEwrtWorld()), orientationError,
+      (linearVelocity - reference.getLinvelEeRtWorldEwrtWorld()) *
+          impactProximityScaler,
+      (angularVelocity - reference.getAngvelEeRtWorldEwrtWorld());
 
   return errors.cwiseProduct(sqrtWeightParams);
 }
@@ -223,7 +224,7 @@ vector_t CentroidalMpcEndEffectorFootCost::getParameters(
   vector_t parameters(kNumParameters);
   parameters.head(kPositionDim) =
       vector3_t(0.0, 0.0,
-                swingPlanner.getZpositionConstraint(
+                swingPlanner.getDesPosFootRtWorldEwrtWorldZ(
                     contactIndex_, time));  // Reference position
   // Plane the foot orientation is tracked against. Flat ground unless a toe-up
   // swing pitch is configured, in which case the normal is tilted back along
@@ -234,7 +235,7 @@ vector_t CentroidalMpcEndEffectorFootCost::getParameters(
       referenceManagerPtr_->getSwingFootPlaneNormal(contactIndex_, time);
   parameters.segment(PlanarReference::kLinearVelocityStart, kPositionDim) =
       vector3_t(0.0, 0.0,
-                swingPlanner.getZvelocityConstraint(
+                swingPlanner.getDesLinvelFootRtWorldEwrtWorldZ(
                     contactIndex_, time));  // Reference linear velocity
   parameters.segment(PlanarReference::kAngularVelocityStart,
                      kRotationTangentDim) =
@@ -255,9 +256,9 @@ vector_t CentroidalMpcEndEffectorFootCost::getParameters(
   const std::optional<SwingFootReference> swingReference =
       referenceManagerPtr_->getSwingFootReference(contactIndex_, time);
   if (swingReference.has_value()) {
-    parameters.head(kPositionDim) = swingReference->position;
+    parameters.head(kPositionDim) = swingReference->desPosFootRtWorldEwrtWorld;
     parameters.segment(PlanarReference::kLinearVelocityStart, kPositionDim) =
-        swingReference->linearVelocity;
+        swingReference->desLinvelFootRtWorldEwrtWorld;
     if (swingReference->yaw.has_value()) {
       parameters[kYawReferenceIndex] = *swingReference->yaw;
       parameters[kHasYawReferenceIndex] = 1.0;
@@ -275,8 +276,8 @@ vector_t CentroidalMpcEndEffectorFootCost::getParameters(
     // foot's in stance). The impact proximity scaler ramps the error to zero
     // near touch-down.
     const std::optional<vector2_t> velocityReference =
-        referenceManagerPtr_->getSwingFootVelocityReference(contactIndex_,
-                                                            time);
+        referenceManagerPtr_->getSwingRefLinvelFootRtWorldEwrtWorldXy(
+            contactIndex_, time);
     if (velocityReference.has_value()) {
       parameters.segment(PlanarReference::kLinearVelocityStart,
                          kHorizontalPositionDim) = *velocityReference;

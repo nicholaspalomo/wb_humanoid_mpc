@@ -68,7 +68,7 @@ struct ContactPlanningModelParameters {
   scalar_t totalMass = 0.0;  // [kg]
   // [m/s^2] the magnitude of the model's gravity, the one its dynamics use:
   // shared.gravity of every configuration.
-  scalar_t gravity = kGravitationalAcceleration;
+  scalar_t gravity = kGravityMagnitude;
   scalar_t comHeight = 0.0;  // [m] center of mass above the mean foot height at
                              // the nominal state
   scalar_t zmpHalfWidthX = 0.0;  // [m] sole footprint half extents (0: unknown)

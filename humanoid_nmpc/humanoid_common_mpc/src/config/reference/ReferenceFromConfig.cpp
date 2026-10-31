@@ -103,16 +103,16 @@ absl::StatusOr<scalar_t> required(absl::string_view field,
 // What the reloaders of a reference file apply (hotReferenceFileFields()).
 // LINT.IfChange(hot_reference_file_fields)
 constexpr absl::string_view kHotReferenceFileFields[] = {
-    "target_displacement_velocity",
-    "target_rotation_velocity",
-    "max_displacement_velocity_x",
-    "max_displacement_velocity_y",
-    "max_delta_pelvis_height",
-    "max_rotation_velocity",
-    "max_linear_acceleration",
-    "max_angular_acceleration",
+    "ref_speed_base_rt_world",
+    "ref_rate_yaw_base_rt_world",
+    "cmd_max_linvel_base_rt_world_ewrt_heading_x",
+    "cmd_max_linvel_base_rt_world_ewrt_heading_y",
+    "cmd_max_err_pos_base_rt_world_ewrt_world_z",
+    "cmd_max_angvel_base_rt_world_ewrt_world_z",
+    "cmd_max_linacc_base_rt_world_ewrt_heading_xy",
+    "cmd_max_angacc_base_rt_world_ewrt_world_z",
     "velocity_command_filter_break_frequency",
-    "default_base_height",
+    "nom_pos_base_rt_world_ewrt_world_z",
 };
 // clang-format off
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/command/TargetTrajectoriesCalculatorBase.cpp:apply_command_limits, //humanoid_nmpc/humanoid_common_mpc/src/reference_manager/ProceduralMpcMotionManager.cpp:apply_command_limits, //humanoid_nmpc/humanoid_mpc_config/reference_file.proto)
@@ -127,33 +127,36 @@ absl::Span<const absl::string_view> hotReferenceFileFields() {
 absl::StatusOr<ReferenceSettings> referenceSettingsFromConfig(
     const mpc_config::ReferenceFile& file) {
   ReferenceSettings settings;
-  ASSIGN_OR_RETURN(
-      settings.targetDisplacementVelocity,
-      required("target_displacement_velocity",
-               file.target_displacement_velocity, Range::kPositive));
-  ASSIGN_OR_RETURN(settings.targetRotationVelocity,
-                   required("target_rotation_velocity",
-                            file.target_rotation_velocity, Range::kPositive));
-  ASSIGN_OR_RETURN(
-      settings.maxDisplacementVelocityX,
-      required("max_displacement_velocity_x", file.max_displacement_velocity_x,
-               Range::kPositive));
-  ASSIGN_OR_RETURN(
-      settings.maxDisplacementVelocityY,
-      required("max_displacement_velocity_y", file.max_displacement_velocity_y,
-               Range::kPositive));
-  ASSIGN_OR_RETURN(settings.maxDeltaPelvisHeight,
-                   required("max_delta_pelvis_height",
-                            file.max_delta_pelvis_height, Range::kNonNegative));
-  ASSIGN_OR_RETURN(settings.maxRotationVelocity,
-                   required("max_rotation_velocity", file.max_rotation_velocity,
+  ASSIGN_OR_RETURN(settings.refSpeedBaseRtWorld,
+                   required("ref_speed_base_rt_world",
+                            file.ref_speed_base_rt_world, Range::kPositive));
+  ASSIGN_OR_RETURN(settings.refRateYawBaseRtWorld,
+                   required("ref_rate_yaw_base_rt_world",
+                            file.ref_rate_yaw_base_rt_world, Range::kPositive));
+  ASSIGN_OR_RETURN(settings.cmdMaxLinvelBaseRtWorldEwrtHeadingX,
+                   required("cmd_max_linvel_base_rt_world_ewrt_heading_x",
+                            file.cmd_max_linvel_base_rt_world_ewrt_heading_x,
                             Range::kPositive));
-  ASSIGN_OR_RETURN(settings.maxLinearAcceleration,
-                   inRange("max_linear_acceleration",
-                           file.max_linear_acceleration, Range::kFinite));
-  ASSIGN_OR_RETURN(settings.maxAngularAcceleration,
-                   inRange("max_angular_acceleration",
-                           file.max_angular_acceleration, Range::kFinite));
+  ASSIGN_OR_RETURN(settings.cmdMaxLinvelBaseRtWorldEwrtHeadingY,
+                   required("cmd_max_linvel_base_rt_world_ewrt_heading_y",
+                            file.cmd_max_linvel_base_rt_world_ewrt_heading_y,
+                            Range::kPositive));
+  ASSIGN_OR_RETURN(settings.cmdMaxErrPosBaseRtWorldEwrtWorldZ,
+                   required("cmd_max_err_pos_base_rt_world_ewrt_world_z",
+                            file.cmd_max_err_pos_base_rt_world_ewrt_world_z,
+                            Range::kNonNegative));
+  ASSIGN_OR_RETURN(settings.cmdMaxAngvelBaseRtWorldEwrtWorldZ,
+                   required("cmd_max_angvel_base_rt_world_ewrt_world_z",
+                            file.cmd_max_angvel_base_rt_world_ewrt_world_z,
+                            Range::kPositive));
+  ASSIGN_OR_RETURN(settings.cmdMaxLinaccBaseRtWorldEwrtHeadingXy,
+                   inRange("cmd_max_linacc_base_rt_world_ewrt_heading_xy",
+                           file.cmd_max_linacc_base_rt_world_ewrt_heading_xy,
+                           Range::kFinite));
+  ASSIGN_OR_RETURN(
+      settings.cmdMaxAngaccBaseRtWorldEwrtWorldZ,
+      inRange("cmd_max_angacc_base_rt_world_ewrt_world_z",
+              file.cmd_max_angacc_base_rt_world_ewrt_world_z, Range::kFinite));
   settings.velocityCommandFilterBreakFrequency =
       file.velocity_command_filter_break_frequency;
   if (const absl::Status valid =
@@ -172,9 +175,10 @@ absl::StatusOr<ReferenceSettings> referenceSettingsFromConfig(
                 *file.target_joint_state_interpolation_time_constant,
                 Range::kPositive));
   }
-  ASSIGN_OR_RETURN(settings.defaultBaseHeight,
-                   required("default_base_height", file.default_base_height,
-                            Range::kPositive));
+  ASSIGN_OR_RETURN(
+      settings.nomPosBaseRtWorldEwrtWorldZ,
+      required("nom_pos_base_rt_world_ewrt_world_z",
+               file.nom_pos_base_rt_world_ewrt_world_z, Range::kPositive));
   return settings;
 }
 

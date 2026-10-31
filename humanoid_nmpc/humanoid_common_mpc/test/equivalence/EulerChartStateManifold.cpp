@@ -75,8 +75,8 @@ vector_t EulerChartStateManifold::eulerStateOf(const vector_t& x) const {
         physical += 4;
         break;
       case EulerStateSegmentKind::kEulerZyxRates:
-        eulerState.segment<3>(euler) = eulerZyxRatesFromLocalAngularVelocity(
-            angles, x.segment<3>(physical));
+        eulerState.segment<3>(euler) =
+            eulerZyxRatesFromBodyRates(angles, x.segment<3>(physical));
         physical += 3;
         break;
     }

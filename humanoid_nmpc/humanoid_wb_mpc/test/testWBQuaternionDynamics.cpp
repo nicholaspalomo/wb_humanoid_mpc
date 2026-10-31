@@ -198,9 +198,9 @@ StateInput randomPoint(const WBAccelMpcRobotModel<scalar_t>& model,
   StateInput point{
       .state = model.getNeutralState(),
       .input = vector_t::Zero(static_cast<Eigen::Index>(model.getInputDim()))};
-  model.setBasePosition(point.state,
-                        vector3_t(0.2 * unit(generator), 0.2 * unit(generator),
-                                  0.75 + 0.05 * unit(generator)));
+  model.setPosBaseRtWorldEwrtWorld(
+      point.state, vector3_t(0.2 * unit(generator), 0.2 * unit(generator),
+                             0.75 + 0.05 * unit(generator)));
   point.state.segment<4>(
       static_cast<Eigen::Index>(model.getBaseOrientationStartIndex())) = xi;
   vector_t jointAngles(joints);
@@ -213,7 +213,7 @@ StateInput randomPoint(const WBAccelMpcRobotModel<scalar_t>& model,
   model.setBaseLinearVelocity(
       point.state,
       vector3_t(unit(generator), unit(generator), 0.3 * unit(generator)));
-  model.setBaseAngularVelocityLocal(
+  model.setAngvelBaseRtWorldEwrtBase(
       point.state,
       vector3_t(unit(generator), unit(generator), unit(generator)));
   vector_t input = point.input;
@@ -224,7 +224,7 @@ StateInput randomPoint(const WBAccelMpcRobotModel<scalar_t>& model,
          200.0 + 100.0 * unit(generator), 5.0 * unit(generator),
          5.0 * unit(generator), 2.0 * unit(generator))
             .finished();
-    model.setContactWrench(point.input, wrench, contact);
+    model.setWrenchContactEwrtParam(point.input, wrench, contact);
   }
   for (Eigen::Index j = 0; j < joints; ++j)
     point.input(point.input.size() - joints + j) = 3.0 * unit(generator);
@@ -498,14 +498,14 @@ TEST(WBQuaternionDynamics,
   // projects every state it outputs onto the manifold.)
   StateInput point =
       randomPoint(model, randomUnitQuaternion(generator), generator);
-  model.setBaseAngularVelocityLocal(point.state,
-                                    5.0 * vector3_t(0.6, -0.48, 0.64));
+  model.setAngvelBaseRtWorldEwrtBase(point.state,
+                                     5.0 * vector3_t(0.6, -0.48, 0.64));
   const vector_t input = vector_t::Zero(point.input.size());
   vector_t still = input;
   model.setJointVelocities(
       point.state, still,
       vector_t::Zero(static_cast<Eigen::Index>(model.getJointDim())));
-  ASSERT_NEAR(model.getBaseAngularVelocityLocal(point.state).norm(), 5.0,
+  ASSERT_NEAR(model.getAngvelBaseRtWorldEwrtBase(point.state).norm(), 5.0,
               1.0e-12);
   const scalar_t rolloutStep = g1->task.rollout.time_step;
   ASSERT_GT(rolloutStep, 0.0);

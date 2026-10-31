@@ -889,7 +889,7 @@ class _Walker:
         try:
             if not self._document.has(path):
                 return None
-            return self._document.position(path)[0]
+            return self._document.line_and_column(path)[0]
         except textproto_document.DocumentError:
             return None
 
@@ -1059,7 +1059,7 @@ def display_label(spec: ParameterSpec, message: Any) -> str:
       message: The file it is of.
 
     Returns:
-      e.g. "normalized_linear_momentum.x", "terrain_height (m) (default)".
+      e.g. "mnorm_linmom_com_rt_world_ewrt_world.x", "terrain_height (m) (default)".
     """
     parts = [spec.label]
     if spec.tuning.unit:

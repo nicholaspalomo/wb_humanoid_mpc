@@ -78,7 +78,7 @@ static constexpr scalar_t kTestTime = 0.5;
 // ==================== Test Fixture ====================
 // Uses a SwitchedModelReferenceManager with the double-stance mode schedule
 // set via the constructor's initial ModeSchedule (active value).
-// NOTE: We do NOT call preSolverRun() — isActive() tests are deferred
+// NOTE: We do NOT call preSolverRun() - isActive() tests are deferred
 // to integration tests (testActiveInStance) since preSolverRun requires
 // a fully valid state vector and swing trajectory planner.
 
@@ -94,7 +94,7 @@ class BasisScalingNonNegativityConstraintTest : public ::testing::Test {
     // Create a reference manager. The mode schedule is set via setModeSchedule
     // but NOT activated via preSolverRun (which would require a valid state).
     // The constraint's getValue/getQuadraticApproximation don't use the
-    // reference manager — only isActive() does.
+    // reference manager - only isActive() does.
     ModeSchedule doubleStanceModeSchedule({0.0, 1.0}, {kModeDoubleStance});
     ModeSequenceTemplate doubleStanceModeSequenceTemplate(
         {0.5, 0.5}, {kModeDoubleStance, kModeDoubleStance});

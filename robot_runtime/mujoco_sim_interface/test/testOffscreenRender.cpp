@@ -274,12 +274,14 @@ TEST(OffscreenRender,
   sim->enableTorques();
   sim->setGantryHeight(sim->getGantryHeight() + 0.05);
   MujocoSimInterface::DodgeballThrow command;
-  command.spawnOffset[0] = 3.0;
-  command.spawnOffset[2] = 0.5;
+  command.spawnPosBallRtBaseEwrtHeading[0] = 3.0;
+  command.spawnPosBallRtBaseEwrtHeading[2] = 0.5;
   command.flightTime = 0.4;
-  command.launchVelocity[0] = -command.spawnOffset[0] / command.flightTime;
-  command.launchVelocity[2] = -command.spawnOffset[2] / command.flightTime +
-                              0.5 * 9.81 * command.flightTime;
+  command.launchLinvelBallRtWorldEwrtHeading[0] =
+      -command.spawnPosBallRtBaseEwrtHeading[0] / command.flightTime;
+  command.launchLinvelBallRtWorldEwrtHeading[2] =
+      -command.spawnPosBallRtBaseEwrtHeading[2] / command.flightTime +
+      0.5 * 9.81 * command.flightTime;
   command.mass = 2.0;
   sim->throwDodgeball(command);
   for (int step = 0; step < 50; ++step) sim->simulationStep();

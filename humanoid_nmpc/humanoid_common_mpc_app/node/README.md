@@ -123,5 +123,5 @@ SIGINT and SIGTERM ask for a clean shutdown (`ShutdownSignal.h`); a second one e
 without a `config_path` at a node with an identity) refused, no parameter subscription without a sink, a target patch per foot under the contact planner, the visualization attacher; network stalls of 0.15 to 0.95 s, across which the motion manager's stride history is bridged, its mean not reading the gait's sway as a turn and the gait switches waiting for a stride free of the stall |
 | `:test_dummy_sim_loop` | the loop against an `MpcServer` with the scripted MPC: synchronized (one policy per update, solved for it), in real time, stopping while it waits, no reset after the first |
 
-The formulation packages test the real MPCs end to end (`humanoid_centroidal_mpc_app:test_centroidal_mpc_node`,
+The formulation packages test both MPCs end to end (`humanoid_centroidal_mpc_app:test_centroidal_mpc_node`,
 `humanoid_wb_mpc_app:test_wb_mpc_node`).

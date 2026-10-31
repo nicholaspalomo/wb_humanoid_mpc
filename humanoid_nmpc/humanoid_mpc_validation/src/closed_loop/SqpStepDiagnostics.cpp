@@ -49,7 +49,7 @@ std::vector<size_t> normalVelocityTermIndices(
   for (const std::string& contactName : contactNames) {
     size_t index = 0;
     if (constraints.getTermIndex(
-            contact_term::name(contactName, contact_term::kNormalVelocity),
+            contact_term::name(contactName, contact_term::kNormalVelocityName),
             index))
       indices.push_back(index);
   }

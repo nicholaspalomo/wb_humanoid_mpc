@@ -96,11 +96,12 @@ const feet_array_t<scalar_t>& ContactWrenchGate::update(
 }
 
 feet_array_t<vector6_t> ContactWrenchGate::apply(
-    feet_array_t<vector6_t> plannedWrenches) const {
-  for (size_t i = 0; i < plannedWrenches.size() && i < scales_.size(); ++i) {
-    plannedWrenches[i] *= scales_[i];
+    feet_array_t<vector6_t> plannedWrenchFeetEwrtWorld) const {
+  for (size_t i = 0;
+       i < plannedWrenchFeetEwrtWorld.size() && i < scales_.size(); ++i) {
+    plannedWrenchFeetEwrtWorld[i] *= scales_[i];
   }
-  return plannedWrenches;
+  return plannedWrenchFeetEwrtWorld;
 }
 
 }  // namespace ocs2::humanoid

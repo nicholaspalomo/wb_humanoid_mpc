@@ -120,7 +120,7 @@ absl::StatusOr<CentroidalMpcConfig> plannerMpcConfigOf(
                    robot::resolveResourcePath(scenario.mpc_reference_file));
   ASSIGN_OR_RETURN(CentroidalMpcConfig config,
                    loadCentroidalMpcConfig(task, reference));
-  config.task.state_weights.base_position =
+  config.task.state_weights.pos_base_rt_world_ewrt_world =
       mpc_config::Xyz{.x = kBaseHorizontalWeight,
                       .y = kBaseHorizontalWeight,
                       .z = kBaseVerticalWeight};
@@ -160,8 +160,8 @@ vector_t mpcStateOf(const MpcRobotModelBase<scalar_t>& model,
                     const RobotConfiguration& configuration) {
   vector_t state =
       vector_t::Zero(static_cast<Eigen::Index>(model.getStateDim()));
-  model.setBasePosition(state, configuration.basePosition);
-  model.setBaseOrientation(state, configuration.baseOrientation.coeffs());
+  model.setPosBaseRtWorldEwrtWorld(state, configuration.basePosition);
+  model.setQuatBaseRtWorldXyzw(state, configuration.baseOrientation.coeffs());
   model.setJointAngles(state, mpcJointsOf(model, configuration.jointNames,
                                           configuration.jointPositions));
   return state;
@@ -229,14 +229,14 @@ absl::StatusOr<MpcTrajectory> mpcTrajectoryOfPlan(
       for (size_t i = 0; i < contactNames.size(); ++i) {
         if (contactNames[i] != wrench.contact) continue;
         if (wrench.force.size() == kForceDim) {
-          model.setContactForce(input, wrench.force, i);
+          model.setForceContactEwrtParam(input, wrench.force, i);
         }
         if (wrench.torque.size() == kTorqueDim &&
             model.getContactInputDim(i) == static_cast<size_t>(kWrenchDim)) {
           vector6_t full;
-          full << model.getContactForce(input, i),
+          full << model.getForceContactEwrtParam(input, i),
               Eigen::Vector3d(wrench.torque);
-          model.setContactWrench(input, full, i);
+          model.setWrenchContactEwrtParam(input, full, i);
         }
       }
     }

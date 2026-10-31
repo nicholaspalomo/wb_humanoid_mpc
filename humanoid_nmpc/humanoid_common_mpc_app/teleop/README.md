@@ -14,7 +14,7 @@ bazel run //humanoid_nmpc/humanoid_common_mpc_app/teleop:velocity_keyboard_comma
 
 Type `v_x v_y delta_height yaw_rate` (m/s, m/s, m, rad/s; words left out are 0, words past the fourth are ignored) and
 Enter. The command is clamped to the command limits of the reference file, normalized by them (the MPC scales it back
-by its own copy), and the pelvis height is `default_base_height` plus the change. The limits are read again before every
+by its own copy), and the pelvis height is `nom_pos_base_rt_world_ewrt_world_z` plus the change. The limits are read again before every
 command, so that a limit changed in the reference file (by hand, or saved from the tuning GUI's Command Limits tab)
 applies to the next command; a file that no longer reads keeps the previous limits, with a warning. A word that is not
 a number sends nothing.
@@ -39,8 +39,8 @@ has written it to DDS, plus 100 ms for DDS to put it on the wire before the bus 
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/teleop/src/VelocityKeyboardCommandMain.cpp:teleop_flags) -->
 
 The fields it reads (`keyboardCommandLimitsFromConfig()`) are the command limits the MPC scales the command back by
-(`max_displacement_velocity_x`, `max_displacement_velocity_y`, `max_delta_pelvis_height`, `max_rotation_velocity`) and
-`default_base_height`; every one is required and the four limits must be positive. The file is parsed strictly, as every
+(`cmd_max_linvel_base_rt_world_ewrt_heading_x`, `cmd_max_linvel_base_rt_world_ewrt_heading_y`, `cmd_max_err_pos_base_rt_world_ewrt_world_z`, `cmd_max_angvel_base_rt_world_ewrt_world_z`) and
+`nom_pos_base_rt_world_ewrt_world_z`; every one is required and the four limits must be positive. The file is parsed strictly, as every
 configuration file ([`humanoid_mpc_config`](../../humanoid_mpc_config/README.md)): an unknown field or a value of the
 wrong type is refused with its file, line and column.
 

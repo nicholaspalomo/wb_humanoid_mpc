@@ -68,7 +68,7 @@ class TestReferenceDefaults(unittest.TestCase):
     def test_positive_control_the_named_entries_are_read(self):
         text = (
             _REFERENCE_HEADER
-            + "default_base_height: 0.8\n"
+            + "nom_pos_base_rt_world_ewrt_world_z: 0.8\n"
             + 'default_joint_state { joint: "left_hip_pitch_joint" value:'
             " -0.15 }\n"
             + 'default_joint_state { joint: "left_knee_joint" value: 0.3 }\n'

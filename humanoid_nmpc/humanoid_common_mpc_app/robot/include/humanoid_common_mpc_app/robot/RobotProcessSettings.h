@@ -89,7 +89,7 @@ struct RobotProcessSettings {
       std::string(estimation::kGroundTruthStateEstimatorName);
   /** `kalman_state_estimator`: the noise model of state_estimator `kalman`. */
   estimation::KalmanBaseEstimator::Config kalmanStateEstimator;
-  /** `sim_contact_force_threshold`, `sim_contact_timeline_window`,
+  /** `sim_min_force_mjcontact_ewrt_mjcontact_x`, `sim_contact_timeline_window`,
    * `sim_visualizations`, `gantry_hold`, `sim_projectile`. */
   SimulatorSettings simulator;
   /** `sim_max_base_tilt_angle`, `sim_gantry_catch_lift`. */

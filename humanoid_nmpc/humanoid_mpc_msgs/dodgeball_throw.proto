@@ -20,18 +20,19 @@ message DodgeballThrow {
   // elevation out of the horizontal plane), its distance from the base [m] and its speed [m/s].
   double azimuth_deg = 1;
   double elevation_deg = 2;
-  double distance = 3;
-  double speed = 4;
+  double cmd_dist_ball_rt_base = 3;
+  double cmd_speed_ball_rt_world = 4;
   // [kg] The ball's mass; required, and positive.
   optional double mass = 5;
   // [m] Where the ball starts, from the base, in the base's yaw frame; required.
-  optional Vector3 spawn_offset = 6;
+  optional Vector3 spawn_pos_ball_rt_base_ewrt_heading = 6;
   // [m/s] The ball's launch velocity, in the base's yaw frame; required.
-  optional Vector3 launch_velocity = 7;
+  optional Vector3 launch_linvel_ball_rt_world_ewrt_heading = 7;
   // [s] Until the ball reaches the base; required, and not negative.
   optional double flight_time = 8;
-  // Documentation only: the launch speed [m/s], which exceeds `speed` when that was too slow to reach the base, and
-  // the momentum the ball arrives with [kg m/s].
-  double launch_speed = 9;
+  // Documentation only: the launch speed [m/s], which exceeds `cmd_speed_ball_rt_world` when that was too slow to reach
+  // the base, and the momentum the ball arrives with [kg m/s].
+  double launch_speed_ball_rt_world = 9;
+  // NOLINTNEXTLINE(frame-naming): the norm of the arriving linear momentum, a scalar that no quantity word names
   double impact_momentum = 10;
 }

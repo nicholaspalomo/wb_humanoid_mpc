@@ -5,19 +5,19 @@
 # limits and the gait schedule below are only read as the MPC's defaults. It is the shipped
 # ../../command/reference.textproto with the four wrist joints, which the multi-contact model unlocks (design section
 # 11, decision 2, humanoid_nmpc/docs/multi_contact_planning/README.md).
-target_displacement_velocity: 0.5
-target_rotation_velocity: 0.5
+ref_speed_base_rt_world: 0.5
+ref_rate_yaw_base_rt_world: 0.5
 
-max_displacement_velocity_x: 1.2
-max_displacement_velocity_y: 0.25
-max_delta_pelvis_height: 0.4
-max_rotation_velocity: 1.0
-max_linear_acceleration: 1.0  # [m/s^2]
-max_angular_acceleration: 2.0  # [rad/s^2]
+cmd_max_linvel_base_rt_world_ewrt_heading_x: 1.2
+cmd_max_linvel_base_rt_world_ewrt_heading_y: 0.25
+cmd_max_err_pos_base_rt_world_ewrt_world_z: 0.4
+cmd_max_angvel_base_rt_world_ewrt_world_z: 1.0
+cmd_max_linacc_base_rt_world_ewrt_heading_xy: 1.0  # [m/s^2]
+cmd_max_angacc_base_rt_world_ewrt_world_z: 2.0  # [rad/s^2]
 velocity_command_filter_break_frequency: 0.0  # [Hz] command low-pass filter, 0 = off
 target_joint_state_interpolation_time_constant: 2.0
 
-default_base_height: 0.8952
+nom_pos_base_rt_world_ewrt_world_z: 0.8952
 # LINT.IfChange(default_joint_state)
 default_joint_state { joint: "back_bkz" value: 0.0 }
 default_joint_state { joint: "back_bky" value: 0.0 }

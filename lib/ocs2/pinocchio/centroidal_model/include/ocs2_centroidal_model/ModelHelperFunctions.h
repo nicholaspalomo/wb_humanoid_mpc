@@ -55,7 +55,7 @@ computeFloatingBaseCentroidalMomentumMatrixInverse(
  * joint block is zero: h = A_b v_b with the base velocity v_b = [dp_W, w_B] of the Composite(Translation, Spherical)
  * root, the CoM c = p_W - R r_nom moving at dc = dp_W + [R r_nom]x R w_B and the nominal inertia about it turning with
  * the base, L = R I_nom R' R w_B. Fixed-size: it allocates nothing, so a realtime thread can call it.
- * @param [in] info: centroidal model information (robotMass, comToBasePositionNominal, centroidalInertiaNominal)
+ * @param [in] info: centroidal model information (robotMass, nomPosBaseRtComEwrtBase, centroidalInertiaNominal)
  * @param [in] q: pinocchio joint positions (generalized coordinates) [p_W, xi, q_j] with a unit quaternion xi
  */
 template <typename SCALAR_T>
@@ -115,7 +115,7 @@ const Eigen::Matrix<SCALAR_T, centroidal_model::kCentroidalMomentumDim, Eigen::D
  *       ocs2::updateCentroidalDynamics(interface, info, q)
  */
 template <typename SCALAR_T>
-Eigen::Matrix<SCALAR_T, kPositionDim, 1> getPositionComToContactPointInWorldFrame(const PinocchioInterfaceTpl<SCALAR_T>& interface,
+Eigen::Matrix<SCALAR_T, kPositionDim, 1> getPosContactRtComEwrtWorld(const PinocchioInterfaceTpl<SCALAR_T>& interface,
                                                                                   const CentroidalModelInfoTpl<SCALAR_T>& info,
                                                                                   size_t contactIndex);
 
@@ -131,7 +131,7 @@ Eigen::Matrix<SCALAR_T, kPositionDim, 1> getPositionComToContactPointInWorldFram
  *       ocs2::updateCentroidalDynamics(interface, info, q)
  */
 template <typename SCALAR_T>
-Eigen::Matrix<SCALAR_T, centroidal_model::kCentroidalMomentumDim, 1> getNormalizedCentroidalMomentumRate(
+Eigen::Matrix<SCALAR_T, centroidal_model::kCentroidalMomentumDim, 1> getMnormRateCmomComRtWorldEwrtWorld(
     const PinocchioInterfaceTpl<SCALAR_T>& interface,
     const CentroidalModelInfoTpl<SCALAR_T>& info,
     const Eigen::Matrix<SCALAR_T, Eigen::Dynamic, 1>& input);

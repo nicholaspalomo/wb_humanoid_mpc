@@ -110,7 +110,7 @@ struct CentroidalModelInfoTpl {
   scalar_t robotMass;                           // total robot mass
   vector_t qPinocchioNominal;                   // nominal robot configuration used in the SRBD model
   matrix3_t centroidalInertiaNominal;           // nominal robot centroidal inertia used in the SRBD model (expressed in nominal base frame)
-  vector3_t comToBasePositionNominal;           // nominal CoM to base position used in the SRBD model (expressed in nominal base frame)
+  vector3_t nomPosBaseRtComEwrtBase;           // nominal CoM to base position used in the SRBD model (expressed in nominal base frame)
 
   /**
    * The sizes above under the names of the layout-agnostic robot model (humanoid_common_mpc's MpcRobotModelBase). The

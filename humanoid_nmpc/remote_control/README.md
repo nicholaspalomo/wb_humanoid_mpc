@@ -37,7 +37,7 @@ hand the topic over:
 | `keyboard_velocity_publisher` | `teleop` | `--reference_file`, `--network_config`, `--ipc_node` |
 | `push_robot_config` | `config_push` | the file; `--network_config`, `--ipc_node` |
 
-The teleoperation publishers start the pelvis height at `--reference_file`'s `default_base_height`, as the GUI's height
+The teleoperation publishers start the pelvis height at `--reference_file`'s `nom_pos_base_rt_world_ewrt_world_z`, as the GUI's height
 slider does; without one they start at 0.8 m, whatever the robot, and say so.
 
 `--network_config` defaults to `config/ipc/network.textproto`. A relative path is looked up in the directory the
@@ -222,7 +222,7 @@ A registry name is a drop-down of the names its registry accepts, which the GUI 
 operator types the name, and the receiving registry checks it. A term list shows its names, read-only.
 
 A row is labeled by its field names: the dotted path from below its block (`joint_positions[back_bkz]`,
-`base_position.x`), each element of a list by its key. The label adds the unit and, where they apply, "restart" (a
+`pos_base_rt_world_ewrt_world.x`), each element of a list by its key. The label adds the unit and, where they apply, "restart" (a
 `RELOAD_START_UP` field; every formulation applies its hot fields live), "not applicable: the whole-body MPC does not
 read it" (a task file field of the other formulation: a task file that names a `centroidal_model` is the centroidal
 MPC's, any other the whole-body MPC's, `config_schema.formulation_of()`), "not applicable:

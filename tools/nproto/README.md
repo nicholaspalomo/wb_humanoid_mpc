@@ -53,7 +53,7 @@ enum ControllerType {
   last component must be the definition's own name.
 - The struct needs a namespace of its own: a name equal to protobuf's own C++ class (`humanoid_mpc_msgs::Vector3` for
   package `humanoid_mpc_msgs`) is refused, as it would collide.
-- **Nested types carry no option.** A message's nested messages and enums become nested C++ types of its struct:
+- Nested types carry no option: a message's nested messages and enums become nested C++ types of its struct:
   `humanoid_mpc_msgs.TargetContactPatch.Kind` is `ocs2::humanoid::msgs::TargetContactPatch::Kind`.
 
 ## Using it from Bazel
@@ -142,12 +142,12 @@ Choices behind the table:
   enum's name in upper snake case and is dropped only when every value has it. The underlying type is `int32_t`,
   as for protobuf enums. An alias (`allow_alias`) is a second enumerator of the same number. `FromProto()` switches
   over the number with one `case static_cast<int32_t>(Kind::kSwing):` per number, the enumerator naming it.
-- **Explicit defaults.** A number field with `[default = ...]` (proto2, edition 2023), of any integer or
+- For explicit defaults, a number field with `[default = ...]` (proto2, edition 2023), of any integer or
   floating-point type, gets the default as a constant of its struct, which is the member's initializer:
   `static constexpr int32_t kDefaultSqpIteration = 10;` and `int32_t sqp_iteration = kDefaultSqpIteration;`. The
   repository names its magic numbers (`magic-number`, tools/hooks/magic_number.py), and code can read the default
   as `SqpSettingsConfig::kDefaultSqpIteration`. A bool, string or enum default stays the initializer itself.
-- **Presence.** A field with explicit presence and no explicit default becomes `std::optional`: proto3 `optional`,
+- For field presence, a field with explicit presence and no explicit default becomes `std::optional`: proto3 `optional`,
   proto2 `optional` without `[default = ...]`, and edition 2023 fields that are not `IMPLICIT`. A message field without
   `optional` is held by value and keeps no presence: `FromProto()` of an absent submessage gives the default struct,
   and `ToProto()` always sets the submessage. Write `optional Foo foo = 1;` (proto3), or `Foo foo = 1
@@ -155,15 +155,15 @@ Choices behind the table:
   "absent" must be told apart from "default": the member is a `std::optional<Foo>`, `ToProto()` clears the field for
   `std::nullopt` and `FromProto()` sets the member exactly when the message has the field. The option is refused on a
   field that is not a singular message, and on a oneof alternative. A proto2 `required` field is a plain member.
-- **Oneofs** are a `std::variant` named after the oneof, whose index 0 (`std::monostate`) means that no alternative is
+- Oneofs are a `std::variant` named after the oneof, whose index 0 (`std::monostate`) means that no alternative is
   set. Alternatives are told apart by index, because two of them may share a type (`double radius`, `double side`):
   the struct declares `static constexpr size_t k<Field>Index` for each, so `value.shape.index() ==
   Oneofs::kSideIndex` and `std::get<Oneofs::kSideIndex>(value.shape)`.
-- **Recursive messages are refused.** Fields are held by value, so a message that contains itself, directly or through
+- Recursive messages are refused. Fields are held by value, so a message that contains itself, directly or through
   other messages (a repeated field included), has no struct. Break the cycle, for instance with an index into a
   repeated field.
-- **Nested types come first.** A nested message referred to by an earlier sibling is declared before it.
-- **Equality** compares every member exactly as `==` does for its type: `NaN != NaN`, `-0.0 == 0.0`, Eigen vectors of
+- Nested types come first: a nested message referred to by an earlier sibling is declared before it.
+- Equality compares every member exactly as `==` does for its type: `NaN != NaN`, `-0.0 == 0.0`, Eigen vectors of
   different sizes are unequal (sizes are compared first), oneofs with the same value in different alternatives are
   unequal, and presence takes part.
 

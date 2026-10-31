@@ -383,20 +383,22 @@ void placeStateJoints(const std::vector<mpc_config::JointValue>& entries,
 template <typename State>
 void placeState(const State& state, LayoutConversion& conversion) {
   const TuningLayout tuningLayout = tuningLayoutOf(conversion.layout());
-  placeStateBlock(state.normalized_linear_momentum,
-                  "normalized_linear_momentum", tuningLayout, conversion);
-  placeStateBlock(state.normalized_angular_momentum,
-                  "normalized_angular_momentum", tuningLayout, conversion);
-  placeStateBlock(state.base_position, "base_position", tuningLayout,
+  placeStateBlock(state.mnorm_linmom_com_rt_world_ewrt_world,
+                  "mnorm_linmom_com_rt_world_ewrt_world", tuningLayout,
                   conversion);
-  placeStateBlock(state.base_orientation, "base_orientation", tuningLayout,
+  placeStateBlock(state.mnorm_angmom_com_rt_world_ewrt_world,
+                  "mnorm_angmom_com_rt_world_ewrt_world", tuningLayout,
                   conversion);
+  placeStateBlock(state.pos_base_rt_world_ewrt_world,
+                  "pos_base_rt_world_ewrt_world", tuningLayout, conversion);
+  placeStateBlock(state.eulerzyx_base_rt_world, "eulerzyx_base_rt_world",
+                  tuningLayout, conversion);
   placeStateJoints(state.joint_positions, "joint_positions", tuningLayout,
                    conversion);
-  placeStateBlock(state.base_linear_velocity, "base_linear_velocity",
-                  tuningLayout, conversion);
-  placeStateBlock(state.base_angular_velocity, "base_angular_velocity",
-                  tuningLayout, conversion);
+  placeStateBlock(state.linvel_base_rt_world_ewrt_world,
+                  "linvel_base_rt_world_ewrt_world", tuningLayout, conversion);
+  placeStateBlock(state.angvel_base_rt_world_ewrt_base,
+                  "angvel_base_rt_world_ewrt_base", tuningLayout, conversion);
   placeStateJoints(state.joint_velocities, "joint_velocities", tuningLayout,
                    conversion);
 }
@@ -424,36 +426,38 @@ void placeInput(const mpc_config::InputWeights& weights,
   const std::string contactsPath = conversion.path("contact_wrenches");
   std::vector<bool> given(conversion.layout().contactNames.size(), false);
   std::vector<std::string> twice;
-  for (const mpc_config::InputWeights::ContactWrench& wrench :
+  // NOLINTBEGIN(frame-naming): InputWeights' per-component weight fields
+  for (const mpc_config::InputWeights::ContactWrench& wrenchWeights :
        weights.contact_wrenches) {
     const absl::flat_hash_map<std::string, Eigen::Index>::const_iterator found =
-        contactIndices.find(wrench.contact);
+        contactIndices.find(wrenchWeights.contact);
     if (found == contactIndices.end()) {
       conversion.addProblem(absl::StrCat(
-          contactsPath, ": '", wrench.contact,
+          contactsPath, ": '", wrenchWeights.contact,
           "' is not a contact of the MPC model (its contacts: ",
           absl::StrJoin(conversion.layout().contactNames, ", "), ")"));
       continue;
     }
     const Eigen::Index index = found->second;
     if (given[static_cast<size_t>(index)]) {
-      twice.push_back(wrench.contact);
+      twice.push_back(wrenchWeights.contact);
       continue;
     }
     given[static_cast<size_t>(index)] = true;
     const std::string element =
-        absl::StrCat("contact_wrenches[contact=", wrench.contact, "]");
+        absl::StrCat("contact_wrenches[contact=", wrenchWeights.contact, "]");
     // A 3-DoF contact's input is its force alone: it has no moment block.
     const size_t contact = static_cast<size_t>(index);
     const Eigen::Index start = static_cast<Eigen::Index>(
         contactInputStart(conversion.layout(), contact));
-    const bool hasMoment =
+    const bool hasMomentWeights =
         contactInputSize(conversion.layout(), contact) == kWrenchDim;
-    conversion.placeBlock(wrench.force, InThisMpc::kPresent,
+    conversion.placeBlock(wrenchWeights.force, InThisMpc::kPresent,
                           absl::StrCat(element, ".force"), start);
-    conversion.placeBlock(wrench.moment, inThisMpcIf(hasMoment),
+    conversion.placeBlock(wrenchWeights.moment, inThisMpcIf(hasMomentWeights),
                           absl::StrCat(element, ".moment"), start + kForceDim);
   }
+  // NOLINTEND(frame-naming)
   conversion.addRepeated(contactsPath, "contact", twice);
   std::vector<std::string> missing;
   for (size_t i = 0; i < given.size(); ++i) {
@@ -541,10 +545,10 @@ absl::StatusOr<matrix_t> trackingStateWeightsFromConfig(
     const mpc_config::StateWeights& weights,
     const StateInputLayout& layout,
     absl::string_view fieldPath,
-    BasePoseWeights basePose) {
+    BasePoseWeights basePoseWeights) {
   ASSIGN_OR_RETURN(matrix_t Q,
                    stateWeightsFromConfig(weights, layout, fieldPath));
-  if (basePose == BasePoseWeights::kZeroedForComAndAcomTracking)
+  if (basePoseWeights == BasePoseWeights::kZeroedForComAndAcomTracking)
     ComAndAcomTrackingCost::zeroBasePoseWeights(Q);
   return Q;
 }
@@ -554,10 +558,10 @@ absl::StatusOr<matrix_t> terminalStateWeightsFromConfig(
     scalar_t terminalCostScaling,
     const StateInputLayout& layout,
     absl::string_view fieldPath,
-    BasePoseWeights basePose) {
+    BasePoseWeights basePoseWeights) {
   ASSIGN_OR_RETURN(matrix_t Q_final,
                    trackingStateWeightsFromConfig(finalStateWeights, layout,
-                                                  fieldPath, basePose));
+                                                  fieldPath, basePoseWeights));
   Q_final *= terminalCostScaling;
   return Q_final;
 }

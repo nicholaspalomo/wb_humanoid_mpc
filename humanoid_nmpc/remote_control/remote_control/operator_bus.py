@@ -479,17 +479,25 @@ class OperatorBus:
 
 
 def walking_velocity_command(
-    linear_velocity_x: float,
-    linear_velocity_y: float,
-    angular_velocity_z: float,
-    desired_pelvis_height: float,
+    cmd_linvel_base_rt_world_ewrt_heading_x: float,
+    cmd_linvel_base_rt_world_ewrt_heading_y: float,
+    cmd_angvel_base_rt_world_ewrt_world_z: float,
+    cmd_pos_base_rt_world_ewrt_world_z: float,
 ) -> walking_velocity_command_pb2.WalkingVelocityCommand:
     """The WalkingVelocityCommand of normalized velocities in [-1, 1] and an absolute pelvis height [m]."""
     return walking_velocity_command_pb2.WalkingVelocityCommand(
-        linear_velocity_x=float(linear_velocity_x),
-        linear_velocity_y=float(linear_velocity_y),
-        angular_velocity_z=float(angular_velocity_z),
-        desired_pelvis_height=float(desired_pelvis_height),
+        cmd_linvel_base_rt_world_ewrt_heading_x=float(
+            cmd_linvel_base_rt_world_ewrt_heading_x
+        ),
+        cmd_linvel_base_rt_world_ewrt_heading_y=float(
+            cmd_linvel_base_rt_world_ewrt_heading_y
+        ),
+        cmd_angvel_base_rt_world_ewrt_world_z=float(
+            cmd_angvel_base_rt_world_ewrt_world_z
+        ),
+        cmd_pos_base_rt_world_ewrt_world_z=float(
+            cmd_pos_base_rt_world_ewrt_world_z
+        ),
     )
 
 
@@ -561,5 +569,5 @@ def joint_targets(
     """The JointTargets of a {joint name: position [rad]} map."""
     message = joint_targets_pb2.JointTargets()
     for name, position in (positions or {}).items():
-        message.positions[str(name)] = float(position)
+        message.joint_positions[str(name)] = float(position)
     return message

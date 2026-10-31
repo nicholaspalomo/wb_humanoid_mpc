@@ -202,10 +202,10 @@ void SqpSolver::runImpl(scalar_t initTime, const vector_t& initState, scalar_t f
   // difference() reads every attitude as no rotation away from it, so the plan would keep it for as long as it is warm
   // started. Thrown as OCS2's solvers report failures (MPC_BASE::run() callers turn it into a failed solve).
   const StateManifold* absl_nullable stateManifold = getStateManifold();
-  if (stateManifold != nullptr && !stateManifold->hasRepresentableRotations(initState)) {
+  if (stateManifold != nullptr && !stateManifold->hasRepresentableAttitudes(initState)) {
     throw std::runtime_error(
         "[SqpSolver] The initial state has a unit-quaternion block without a rotation (its norm at or below "
-        "kQuaternionNormalizationEpsilon, or NaN); no solve can move the attitude off it.");
+        "kUnitQuaternionNormalizationEpsilon, or NaN); no solve can move the attitude off it.");
   }
 
   // Determine time discretization, taking into account event times.
@@ -232,17 +232,17 @@ void SqpSolver::runImpl(scalar_t initTime, const vector_t& initState, scalar_t f
   // start with a state without a rotation, which reads as no rotation away from the initial state and which no step
   // moves: kept, it would hold the plan's attitude there whatever is measured.
   if (stateManifold != nullptr) {
-    const bool everyStateHasARotation = std::all_of(
-        x.begin(), x.end(), [stateManifold](const vector_t& state) { return stateManifold->hasRepresentableRotations(state); });
-    const scalar_t initialRotation =
-        everyStateHasARotation ? stateManifold->getMaximumRotationAngle(stateManifold->difference(x.front(), initState)) : 0.0;
-    if (!everyStateHasARotation || initialRotation > 0.5 * M_PI) {
-      if (everyStateHasARotation) {
-        LOG(WARNING) << "[SqpSolver] The warm start is " << initialRotation
+    const bool everyStateHasAnAttitude = std::all_of(
+        x.begin(), x.end(), [stateManifold](const vector_t& state) { return stateManifold->hasRepresentableAttitudes(state); });
+    const scalar_t initialGapAngle =
+        everyStateHasAnAttitude ? stateManifold->getMaximumTangentAngle(stateManifold->difference(x.front(), initState)) : 0.0;
+    if (!everyStateHasAnAttitude || initialGapAngle > 0.5 * M_PI) {
+      if (everyStateHasAnAttitude) {
+        LOG(WARNING) << "[SqpSolver] The warm start is " << initialGapAngle
                      << " rad away from the initial state (more than pi / 2); initializing from the initial state instead.";
       } else {
         LOG(WARNING) << "[SqpSolver] The warm start has a state without a rotation (a unit-quaternion block at or below "
-                        "kQuaternionNormalizationEpsilon); initializing from the initial state instead.";
+                        "kUnitQuaternionNormalizationEpsilon); initializing from the initial state instead.";
       }
       multiple_shooting::initializeStateInputTrajectories(initState, timeDiscretization, PrimalSolution(), *initializerPtr_, x, u,
                                                           stateManifold);

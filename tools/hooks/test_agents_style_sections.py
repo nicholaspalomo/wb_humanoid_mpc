@@ -52,6 +52,8 @@ STYLE_LABELS = (
     "style_commands",
     "protobuf_rules",
     "orientation_rules",
+    "frame_naming_rules",
+    "claudisms_rules",
 )
 
 # The families of clang-tidy checks .clang-tidy draws from; a backticked name with one of these prefixes is a check.

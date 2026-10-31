@@ -291,8 +291,8 @@ RobotProcess::RobotProcess(robot::ipc::Bus* absl_nonnull bus,
       plannedContactFlags_(kNumContacts, /*value=*/false),
       noContactFlags_() {
   currentMode_.reserve(kModeNameCapacity);
-  currentMode_.assign(control_mode::kZeroTorque.data(),
-                      control_mode::kZeroTorque.size());
+  currentMode_.assign(control_mode::kZeroJointTorque.data(),
+                      control_mode::kZeroJointTorque.size());
   contactEstimatorName_.reserve(
       ControllerSettingsUpdate::kContactEstimatorNameCapacity);
   measuredContactForces_.fill(vector3_t::Zero());

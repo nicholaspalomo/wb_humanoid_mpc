@@ -113,8 +113,10 @@ Eigen::Vector3d commandAt(const ClosedLoopScenario& scenario,
 /** What the base-controller GUI publishes for a physical command
  * (humanoid_mpc_msgs/WalkingVelocityCommand). */
 struct GuiVelocityCommand {
-  /// (linear_velocity_x, linear_velocity_y, desired_pelvis_height,
-  /// angular_velocity_z) as the message carries them: the stick positions in
+  /// (cmd_linvel_base_rt_world_ewrt_heading_x,
+  /// cmd_linvel_base_rt_world_ewrt_heading_y,
+  /// cmd_pos_base_rt_world_ewrt_world_z, cmd_angvel_base_rt_world_ewrt_world_z)
+  /// as the message carries them: the stick positions in
   /// [-1, 1], which ProceduralMpcMotionManager scales by the command limits of
   /// the reference file, and the pelvis height above the ground the GUI's
   /// slider sends.
@@ -126,11 +128,12 @@ struct GuiVelocityCommand {
 
 /**
  * The GUI message that commands `command` (forward, lateral, yaw rate) on a
- * robot with `commandLimits` (max_displacement_velocity_x,
- * max_displacement_velocity_y, max_rotation_velocity of the reference file,
+ * robot with `commandLimits` (cmd_max_linvel_base_rt_world_ewrt_heading_x,
+ * cmd_max_linvel_base_rt_world_ewrt_heading_y,
+ * cmd_max_angvel_base_rt_world_ewrt_world_z of the reference file,
  * GuiCommandScaling), at `pelvisHeight` (the GUI sends the reference file's
- * default_base_height). The sticks are clamped as the controller clamps a
- * received message.
+ * nom_pos_base_rt_world_ewrt_world_z). The sticks are clamped as the controller
+ * clamps a received message.
  */
 GuiVelocityCommand toGuiVelocityCommand(const Eigen::Vector3d& command,
                                         const Eigen::Vector3d& commandLimits,

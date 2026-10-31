@@ -61,7 +61,7 @@ struct DecodedRobotState {
   vector3_t baseLinearVelocity = vector3_t::Zero();
   vector3_t baseAngularVelocity = vector3_t::Zero();
   /** The body angular velocity w_B of the base, in its own frame: the sample's
-   * base_angular_velocity_local. */
+   * angvel_base_rt_world_ewrt_base. */
   vector3_t baseAngularVelocityLocal = vector3_t::Zero();
   /**
    * For display only: the ZYX Euler angles (yaw, pitch, roll) of
@@ -120,7 +120,7 @@ inline constexpr scalar_t kDisplayEulerRateMinCosPitch = 1.0e-6;
  * Returns the ZYX Euler rates (yaw, pitch, roll rate) dTheta/dt = T_B(Theta)^-1
  * w_B of the body angular velocity `angularVelocityLocal` at the ZYX Euler
  * angles `eulerZyx` (yaw, pitch, roll), for display:
- * eulerZyxRatesFromLocalAngularVelocity() of orientation/EulerBoundary.h, and
+ * eulerZyxRatesFromBodyRates() of orientation/EulerBoundary.h, and
  * all three NaN where |cos(pitch)| is below kDisplayEulerRateMinCosPitch or the
  * pitch is not a number. Allocates nothing.
  */

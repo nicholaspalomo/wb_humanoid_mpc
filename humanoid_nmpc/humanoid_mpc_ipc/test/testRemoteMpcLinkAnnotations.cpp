@@ -91,11 +91,12 @@ TEST(RemoteMpcLinkAnnotations,
               contact == 0
                   ? humanoid_mpc_msgs::TargetContactPatch::KIND_NEXT_SWING
                   : humanoid_mpc_msgs::TargetContactPatch::KIND_STANCE);
-          patch->mutable_pose()->set_x(0.1 * contact);
-          patch->mutable_pose()->set_yaw(0.2);
+          patch->mutable_des_pose_foot_rt_world()->set_x(0.1 * contact);
+          patch->mutable_des_pose_foot_rt_world()->set_yaw(0.2);
         }
-        annotations->set_scaled_velocity_x(static_cast<double>(solve));
-        annotations->set_scaled_yaw_rate(-0.3);
+        annotations->set_scaled_cmd_linvel_base_rt_world_ewrt_heading_x(
+            static_cast<double>(solve));
+        annotations->set_scaled_cmd_angvel_base_rt_world_ewrt_world_z(-0.3);
         return absl::OkStatus();
       };
   MpcServer::Config serverConfig;
@@ -118,23 +119,26 @@ TEST(RemoteMpcLinkAnnotations,
   }));
   ASSERT_TRUE((*link)->takeAnnotations(annotations));
   ASSERT_EQ(annotations.target_contact_patches.size(), 2u);
-  if (!annotations.target_contact_patches[0].pose.has_value()) {
+  if (!annotations.target_contact_patches[0]
+           .des_pose_foot_rt_world.has_value()) {
     FAIL() << "the next swing's patch has a pose";
   }
   const msgs::TargetContactPatch& stancePatch =
       annotations.target_contact_patches[1];
-  if (!stancePatch.pose.has_value()) {
+  if (!stancePatch.des_pose_foot_rt_world.has_value()) {
     FAIL() << "the stance patch has a pose";
   }
   EXPECT_EQ(annotations.target_contact_patches[0].kind,
             msgs::TargetContactPatch::Kind::kNextSwing);
   EXPECT_EQ(stancePatch.kind, msgs::TargetContactPatch::Kind::kStance);
-  EXPECT_DOUBLE_EQ(stancePatch.pose->x, 0.1);
-  EXPECT_DOUBLE_EQ(annotations.scaled_yaw_rate, -0.3);
-  EXPECT_GE(annotations.scaled_velocity_x, 1.0);
+  EXPECT_DOUBLE_EQ(stancePatch.des_pose_foot_rt_world->x, 0.1);
+  EXPECT_DOUBLE_EQ(annotations.scaled_cmd_angvel_base_rt_world_ewrt_world_z,
+                   -0.3);
+  EXPECT_GE(annotations.scaled_cmd_linvel_base_rt_world_ewrt_heading_x, 1.0);
   // Taken once: the same policy's annotations are not handed out again; the
   // next accepted policy brings new ones.
-  const double first = annotations.scaled_velocity_x;
+  const double first =
+      annotations.scaled_cmd_linvel_base_rt_world_ewrt_heading_x;
   if (!(*link)->takeAnnotations(annotations)) {
     const uint64_t accepted = (*link)->statistics().policiesAccepted;
     ASSERT_TRUE(waitFor([&]() {
@@ -145,7 +149,7 @@ TEST(RemoteMpcLinkAnnotations,
     }));
     ASSERT_TRUE((*link)->takeAnnotations(annotations));
   }
-  EXPECT_GT(annotations.scaled_velocity_x, first)
+  EXPECT_GT(annotations.scaled_cmd_linvel_base_rt_world_ewrt_heading_x, first)
       << "the annotations of a newer policy";
   (*server)->stop();
   mpcBus->stop();

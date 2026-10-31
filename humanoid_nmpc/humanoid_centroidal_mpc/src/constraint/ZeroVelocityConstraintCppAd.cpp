@@ -98,16 +98,16 @@ void ZeroVelocityConstraintCppAd::configureForEvaluation(
   if (isWorldAligned(patch) &&
       humanoidPreComp.hasFootReferenceHeight(contactPointIndex_)) {
     // Modify to actual ground height
-    eeTwistConstraintPtr_->clearWorldToPatchRotation();
+    eeTwistConstraintPtr_->clearRotmatWorldRtSurface();
     config.b[kZAxisIndex] =
         -config.Ax(kZAxisIndex, kZAxisIndex) *
         humanoidPreComp.getFootReferenceHeight(contactPointIndex_);
     return;
   }
   if (isWorldAligned(patch)) {
-    eeTwistConstraintPtr_->clearWorldToPatchRotation();
+    eeTwistConstraintPtr_->clearRotmatWorldRtSurface();
   } else {
-    eeTwistConstraintPtr_->setWorldToPatchRotation(patch.worldToPatchRotation);
+    eeTwistConstraintPtr_->setRotmatWorldRtSurface(patch.rotmatWorldRtSurface);
   }
   config.b[kZAxisIndex] =
       -config.Ax(kZAxisIndex, kZAxisIndex) * patch.normalOffset;

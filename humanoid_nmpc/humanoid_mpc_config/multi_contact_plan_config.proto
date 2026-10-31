@@ -104,6 +104,7 @@ message MultiContactPlanConfig {
   // active contacts, as without a plan) or "planned_wrenches" (the plan's wrench of every active contact at the plan
   // time, so that the MPC loads and unloads the contacts as the plan does).
   // LINT.IfChange(force_reference_names)
+  // NOLINTNEXTLINE(frame-naming): the registry name of the contact-force reference's source
   string force_reference = 7 [
     default = "weight_share",
     (humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP registry: "multi_contact_force_reference" }
@@ -126,7 +127,7 @@ message MultiContactPlanConfig {
     (humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP unit: "s" minimum: 0 }
   ];
   // [s] Not negative: the longest swing that follows the generalized swing planner's arc. A contact out of contact for
-  // longer (a hand that reaches for a box for half a minute of a slow plan) follows the plan's own pad instead, from
+  // longer (a hand moving toward a box for half a minute of a slow plan) follows the plan's own pad instead, from
   // knot to knot, where the plan has it; 0, the default, swings every contact on an arc.
   double arc_swing_duration_limit = 10 [
     default = 0.0,

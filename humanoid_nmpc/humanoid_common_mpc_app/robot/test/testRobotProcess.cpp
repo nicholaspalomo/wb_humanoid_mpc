@@ -158,8 +158,7 @@ class RobotProcessTest : public ::testing::Test {
     options.urdfFile = robot_test::kAtlasUrdf;
     options.mjcfFile = robot_test::kAtlasScene;
     options.initialState.emplace(*description_);
-    options.initialState->setRootPositionInWorldFrame(
-        vector3_t(0.0, 0.0, 0.95));
+    options.initialState->setPosBaseRtWorldEwrtWorld(vector3_t(0.0, 0.0, 0.95));
     const ModelSettings modelSettings =
         ModelSettings::Create(robot_test::kAtlasTask, robot_test::kAtlasUrdf,
                               "centroidal_mpc_", /*verbose=*/false)

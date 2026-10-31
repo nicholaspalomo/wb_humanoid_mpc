@@ -272,7 +272,7 @@ def main(argv: list[str]) -> int:
             "\n\n".join(
                 [
                     (
-                        "❌ The clang-tidy aspect's self-test failed"
+                        "The clang-tidy aspect's self-test failed"
                         " (tools/clang_tidy/README.md):"
                     ),
                     *failures,

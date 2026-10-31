@@ -95,24 +95,24 @@ class RealtimeRigidBodyDynamics {
 
   /** The joint rows of the generalized gravity g(q) (nv - 6): the torques that
    * hold the joints with the base held. */
-  const vector_t& gravityTorques(const Eigen::Ref<const vector_t>& q);
+  const vector_t& gravityJointTorques(const Eigen::Ref<const vector_t>& q);
 
   /**
    * The joint torques that produce the joint accelerations `qddJoints` (nv - 6)
    * at (q, v) while the feet push on the ground with the world-frame wrenches
-   * `footWrenches` (force, then moment about the origin of the sole frame), the
-   * base being free:
-   *   a_b = M_bb^-1 ((J^T W)_b - nle_b - M_bj qdd_j),    tau_j = M_jb a_b +
-   * M_jj qdd_j + nle_j - (J^T W)_j, the joint rows of M qdd + nle = S^T tau +
-   * J^T W (computeJointTorques() of DynamicsHelperFunctions.h, which builds the
-   * same on the MPC model with vectors of its own). The base acceleration it
-   * solved is getBaseAcceleration().
+   * `wrenchFeetEwrtWorld` (force, then moment about the origin of the sole
+   * frame), the base being free: a_b = M_bb^-1 ((J^T W)_b - nle_b - M_bj
+   * qdd_j),    tau_j = M_jb a_b + M_jj qdd_j + nle_j - (J^T W)_j, the joint
+   * rows of M qdd + nle = S^T tau + J^T W (computeJointTorques() of
+   * DynamicsHelperFunctions.h, which builds the same on the MPC model with
+   * vectors of its own). The base acceleration it solved is
+   * getBaseGeneralizedAcceleration().
    */
   const vector_t& freeBaseJointTorques(
       const Eigen::Ref<const vector_t>& q,
       const Eigen::Ref<const vector_t>& v,
       const Eigen::Ref<const vector_t>& qddJoints,
-      const feet_array_t<vector6_t>& footWrenches);
+      const feet_array_t<vector6_t>& wrenchFeetEwrtWorld);
 
   /**
    * As freeBaseJointTorques(), the base held instead (by the gantry, or as if
@@ -124,23 +124,25 @@ class RealtimeRigidBodyDynamics {
       const Eigen::Ref<const vector_t>& q,
       const Eigen::Ref<const vector_t>& v,
       const Eigen::Ref<const vector_t>& qddJoints,
-      const feet_array_t<vector6_t>& footWrenches);
+      const feet_array_t<vector6_t>& wrenchFeetEwrtWorld);
 
   /** The base acceleration [ddp_W, dw_B] of the MPC model's coordinates that
    * the last freeBaseJointTorques() solved. */
-  const vector6_t& getBaseAcceleration() const { return baseAcceleration_; }
+  const vector6_t& getBaseGeneralizedAcceleration() const {
+    return baseGeneralizedAcceleration_;
+  }
 
   /**
    * The centroidal momentum h = A(q) v at (q, v): the linear momentum, then the
    * angular momentum about the center of mass, both in world axes (Pinocchio's
    * ccrba(); OCS2's computeCentroidalMap() times v on the MPC model).
    */
-  const vector6_t& centroidalMomentum(const Eigen::Ref<const vector_t>& q,
-                                      const Eigen::Ref<const vector_t>& v);
+  const vector6_t& computeCmomComRtWorldEwrtWorld(
+      const Eigen::Ref<const vector_t>& q, const Eigen::Ref<const vector_t>& v);
 
   /** The orientations (sole frame to world) of the contacts' sole frames at q,
    * in the order of the contacts. */
-  const feet_array_t<matrix3_t>& contactFrameRotations(
+  const feet_array_t<matrix3_t>& computeRotmatContactsRtWorld(
       const Eigen::Ref<const vector_t>& q);
 
   /** The twin: the MPC model with a FreeFlyer root. */
@@ -152,31 +154,31 @@ class RealtimeRigidBodyDynamics {
       const feet_array_t<pinocchio::FrameIndex>& contactFrames);
 
   /** q into configuration_ and the twin's velocity [R' dp_W, w_B, dq_j] of (q,
-   * v) into velocity_. */
+   * v) into generalizedVelocity_. */
   void setState(const Eigen::Ref<const vector_t>& q,
                 const Eigen::Ref<const vector_t>& v);
   /** J^T W of the sole frames' LOCAL_WORLD_ALIGNED Jacobians at configuration_
    * into generalizedContactForce_. */
   void computeGeneralizedContactForce(
-      const feet_array_t<vector6_t>& footWrenches);
+      const feet_array_t<vector6_t>& wrenchFeetEwrtWorld);
   /** The rotation (base to world) of configuration_'s base quaternion. */
-  matrix3_t baseRotation() const;
+  matrix3_t rotmatBaseRtWorld() const;
 
   PinocchioInterface::Model model_;
   PinocchioInterface::Data data_;
   feet_array_t<pinocchio::FrameIndex> contactFrames_;
-  vector_t configuration_;  ///< nq
-  vector_t velocity_;       ///< nv, the twin's
-  vector_t acceleration_;   ///< nv, the twin's
-  matrix_t soleJacobian_;   ///< 6 x nv, the twin's LOCAL_WORLD_ALIGNED Jacobian
-                            ///< of one sole frame
+  vector_t configuration_;            ///< nq
+  vector_t generalizedVelocity_;      ///< nv, the twin's
+  vector_t generalizedAcceleration_;  ///< nv, the twin's
+  matrix_t soleJacobian_;  ///< 6 x nv, the twin's LOCAL_WORLD_ALIGNED Jacobian
+                           ///< of one sole frame
   vector_t generalizedContactForce_;  ///< nv, J^T W; its joint rows are those
                                       ///< of the MPC model
   vector_t jointTorques_;             ///< nv - 6
-  vector_t gravityTorques_;           ///< nv - 6
-  vector6_t baseAcceleration_ = vector6_t::Zero();
-  vector6_t centroidalMomentum_ = vector6_t::Zero();
-  feet_array_t<matrix3_t> contactFrameRotations_;
+  vector_t gravityJointTorques_;      ///< nv - 6
+  vector6_t baseGeneralizedAcceleration_ = vector6_t::Zero();
+  vector6_t cmomComRtWorldEwrtWorld_ = vector6_t::Zero();
+  feet_array_t<matrix3_t> rotmatContactsRtWorld_;
 };
 
 }  // namespace ocs2::humanoid

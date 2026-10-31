@@ -119,9 +119,9 @@ class DrcAtlasContactTestModel {
    * The basis-vector model the shipped Atlas runs
    * (`contact_input_parameterization: "basis_vectors"`): its input vector
    * stores non-negative scalings of a LOCAL contact-frame wrench-cone basis, so
-   * getContactWrench() returns a local-frame wrench where the wrench model
-   * returns a world-frame one. That difference is the whole of audit finding
-   * A3.
+   * getWrenchContactEwrtParam() returns a local-frame wrench where the wrench
+   * model returns a world-frame one. That difference is the whole of audit
+   * finding A3.
    */
   const BasisInputsModelDecorator<scalar_t>& basisModel() const {
     return *basisModel_;

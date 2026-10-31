@@ -92,7 +92,8 @@ void CentroidalWeightCompInitializer::compute(scalar_t time,
   }
   nextState = state;
   if (!extendNormalizedMomentum_) {
-    centroidal_model::getNormalizedMomentum(nextState, info_).setZero();
+    centroidal_model::getMnormCmomComRtWorldEwrtWorld(nextState, info_)
+        .setZero();
   }
 }
 

@@ -370,7 +370,7 @@ AcomAttitudeTangentJacobian AngularCenterOfMass::acomAttitudeTangentJacobian(
   // dphi), and Exp(Delta_theta + J dq) = Exp(Delta_theta) (x)
   // Exp(J_r(Delta_theta) J dq), to first order.
   return AcomAttitudeTangentJacobian{
-      .baseOrientation =
+      .baseTangent =
           quaternionRotationMatrix(quaternionExp(joints.offset)).transpose(),
       .jointAngles = so3RightJacobian(joints.offset) * joints.jacobian};
 }

@@ -90,7 +90,7 @@ GuessTrajectory hoveringGuess() {
     x << ballStart(), 0.5;
     guess.states.push_back(x);
     vector_t u = vector_t::Zero(ballLayout().inputDim());
-    u(2) = kBallMass * kGravitationalAcceleration;
+    u(2) = kBallMass * kGravityMagnitude;
     guess.inputs.push_back(u);
   }
   // It starts in the air: c = 0.
@@ -109,7 +109,7 @@ sqp::Settings solverSettings() {
 }
 
 std::vector<ContinuationStage> stages() {
-  const double weight = kBallMass * kGravitationalAcceleration;
+  const double weight = kBallMass * kGravityMagnitude;
   ContinuationStage ghost;
   ghost.name = "ghost";
   ghost.weights.contactInvariant = {
@@ -139,7 +139,7 @@ struct BallTrace {
 
 BallTrace traceOf(const GuessTrajectory& trajectory) {
   BallTrace trace;
-  const double weight = kBallMass * kGravitationalAcceleration;
+  const double weight = kBallMass * kGravityMagnitude;
   for (size_t n = 0; n < trajectory.times.size(); ++n) {
     trace.distances.push_back(trajectory.states[n](2) - kBallRadius);
     trace.forces.push_back(trajectory.inputs[n].head<3>().norm() / weight);

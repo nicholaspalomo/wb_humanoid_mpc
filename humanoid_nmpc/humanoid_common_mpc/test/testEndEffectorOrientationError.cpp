@@ -81,22 +81,23 @@ vector3_t randomRotationVector(std::mt19937& generator) {
 /** The orientation error of computeTaskSpaceErrors() of a link at `current`
  * against `reference`, coefficients (x, y, z, w). */
 template <typename SCALAR_T>
-VECTOR3_T<SCALAR_T> orientationError(const VECTOR4_T<SCALAR_T>& current,
-                                     const VECTOR4_T<SCALAR_T>& reference) {
+VECTOR3_T<SCALAR_T> computeErrRotvecEeRtWorld(
+    const VECTOR4_T<SCALAR_T>& current, const VECTOR4_T<SCALAR_T>& reference) {
   EndEffectorKinematicsCostElement<SCALAR_T> currentElement;
   EndEffectorKinematicsCostElement<SCALAR_T> referenceElement;
-  currentElement.setOrientation(current);
-  referenceElement.setOrientation(reference);
+  currentElement.setQuatEeRtWorld(current);
+  referenceElement.setQuatEeRtWorld(reference);
   return computeTaskSpaceErrors<SCALAR_T>(currentElement, referenceElement)
       .template segment<kRotationTangentDim>(kOrientationErrorStart);
 }
 
-Eigen::Quaterniond worldRotated(const vector3_t& rotationVector,
-                                const Eigen::Quaterniond& orientation) {
-  const scalar_t angle = rotationVector.norm();
-  if (angle == 0.0) return orientation;
-  return Eigen::Quaterniond(Eigen::AngleAxisd(angle, rotationVector / angle)) *
-         orientation;
+Eigen::Quaterniond worldRotated(const vector3_t& errRotvecEeRtWorld,
+                                const Eigen::Quaterniond& quatEeRtWorld) {
+  const scalar_t angle = errRotvecEeRtWorld.norm();
+  if (angle == 0.0) return quatEeRtWorld;
+  return Eigen::Quaterniond(
+             Eigen::AngleAxisd(angle, errRotvecEeRtWorld / angle)) *
+         quatEeRtWorld;
 }
 
 }  // namespace
@@ -108,28 +109,29 @@ TEST(EndEffectorOrientationError, IsTheRotationVectorInWorldAxes) {
     const Eigen::Quaterniond current = randomQuaternion(generator);
     const vector3_t rotation = randomRotationVector(generator);
     const Eigen::Quaterniond reference = worldRotated(rotation, current);
-    EXPECT_LT(
-        (orientationError<scalar_t>(current.coeffs(), reference.coeffs()) -
-         rotation)
-            .norm(),
-        kTol)
+    EXPECT_LT((computeErrRotvecEeRtWorld<scalar_t>(current.coeffs(),
+                                                   reference.coeffs()) -
+               rotation)
+                  .norm(),
+              kTol)
         << "trial " << trial;
     // Either quaternion of either sign and of any positive scale describes the
     // same orientation.
     const vector4_t scaledCurrent = -scale(generator) * current.coeffs();
     const vector4_t scaledReference = scale(generator) * reference.coeffs();
     EXPECT_LT(
-        (orientationError<scalar_t>(scaledCurrent, scaledReference) - rotation)
+        (computeErrRotvecEeRtWorld<scalar_t>(scaledCurrent, scaledReference) -
+         rotation)
             .norm(),
         kTol)
         << "trial " << trial;
   }
   // At the reference the error is zero.
-  const Eigen::Quaterniond orientation = randomQuaternion(generator);
-  EXPECT_LT(
-      orientationError<scalar_t>(orientation.coeffs(), orientation.coeffs())
-          .norm(),
-      kTol);
+  const Eigen::Quaterniond quatEeRtWorld = randomQuaternion(generator);
+  EXPECT_LT(computeErrRotvecEeRtWorld<scalar_t>(quatEeRtWorld.coeffs(),
+                                                quatEeRtWorld.coeffs())
+                .norm(),
+            kTol);
 }
 
 TEST(EndEffectorOrientationError, WeighsTheAngleNotItsHalfSine) {
@@ -145,11 +147,11 @@ TEST(EndEffectorOrientationError, WeighsTheAngleNotItsHalfSine) {
     // theta - 2 sin(theta / 2) = theta^3 / 24 + O(theta^5): the two agree to
     // third order in the angle.
     const scalar_t angle = rotation.norm();
-    EXPECT_LT(
-        (orientationError<scalar_t>(current.coeffs(), reference.coeffs()) -
-         2.0 * halfSine)
-            .norm(),
-        angle * angle * angle / 12.0 + 1.0e-15);
+    EXPECT_LT((computeErrRotvecEeRtWorld<scalar_t>(current.coeffs(),
+                                                   reference.coeffs()) -
+               2.0 * halfSine)
+                  .norm(),
+              angle * angle * angle / 12.0 + 1.0e-15);
   }
 }
 
@@ -165,10 +167,10 @@ TEST(EndEffectorOrientationError, DerivativeAlongAWorldPerturbation) {
     for (int axis = 0; axis < kRotationTangentDim; ++axis) {
       const vector3_t delta = kStep * vector3_t::Unit(axis);
       finiteDifference.col(axis) =
-          (orientationError<scalar_t>(worldRotated(delta, current).coeffs(),
-                                      reference.coeffs()) -
-           orientationError<scalar_t>(worldRotated(-delta, current).coeffs(),
-                                      reference.coeffs())) /
+          (computeErrRotvecEeRtWorld<scalar_t>(
+               worldRotated(delta, current).coeffs(), reference.coeffs()) -
+           computeErrRotvecEeRtWorld<scalar_t>(
+               worldRotated(-delta, current).coeffs(), reference.coeffs())) /
           (2.0 * kStep);
     }
     const matrix3_t expected = -so3RightJacobianInverse<scalar_t>(rotation);
@@ -184,13 +186,13 @@ TEST(EndEffectorOrientationError, TheTapeMatchesTheDoubleOverload) {
   constexpr Eigen::Index kVariableDim = 2 * kQuaternionCoefficients;
   const CppAdInterface::ad_function_t taped = [](const ad_vector_t& x,
                                                  ad_vector_t& y) {
-    y = orientationError<ad_scalar_t>(
+    y = computeErrRotvecEeRtWorld<ad_scalar_t>(
         ad_vector4_t(x.head<kQuaternionCoefficients>()),
         ad_vector4_t(x.tail<kQuaternionCoefficients>()));
   };
   const std::function<vector_t(const vector_t&)> reference =
       [](const vector_t& x) -> vector_t {
-    return orientationError<scalar_t>(
+    return computeErrRotvecEeRtWorld<scalar_t>(
         vector4_t(x.head<kQuaternionCoefficients>()),
         vector4_t(x.tail<kQuaternionCoefficients>()));
   };

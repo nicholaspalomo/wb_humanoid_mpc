@@ -117,10 +117,10 @@ T converted(absl::StatusOr<T> converted) {
 mpc_config::TaskFile reloadedTask(const mpc_config::TaskFile& task) {
   mpc_config::TaskFile reloaded = task;
   reloaded.state_weights.scaling *= 2.0;
-  reloaded.state_weights.base_orientation =
+  reloaded.state_weights.eulerzyx_base_rt_world =
       mpc_config::YawPitchRoll{.yaw = 7.0, .pitch = 11.0, .roll = 13.0};
   reloaded.final_state_weights.scaling *= 3.0;
-  reloaded.final_state_weights.base_orientation =
+  reloaded.final_state_weights.eulerzyx_base_rt_world =
       mpc_config::YawPitchRoll{.yaw = 17.0, .pitch = 19.0, .roll = 23.0};
   reloaded.input_weights.scaling *= 1.5;
   reloaded.terminal_cost_scaling =
@@ -263,16 +263,17 @@ class QuadraticCostWeightsApplierTest : public ::testing::Test {
             .getStateWeights();
 
     // The one conversion both paths use.
-    const BasePoseWeights basePose =
+    const BasePoseWeights basePoseWeights =
         comAndAcomListed ? BasePoseWeights::kZeroedForComAndAcomTracking
                          : BasePoseWeights::kKept;
-    EXPECT_TRUE(Q ==
-                converted(trackingStateWeightsFromConfig(
-                    task.state_weights, layout_, "state_weights", basePose)));
-    EXPECT_TRUE(Q_final == converted(terminalStateWeightsFromConfig(
-                               task.final_state_weights,
-                               task.terminal_cost_scaling.value_or(1.0),
-                               layout_, "final_state_weights", basePose)));
+    EXPECT_TRUE(Q == converted(trackingStateWeightsFromConfig(
+                         task.state_weights, layout_, "state_weights",
+                         basePoseWeights)));
+    EXPECT_TRUE(
+        Q_final ==
+        converted(terminalStateWeightsFromConfig(
+            task.final_state_weights, task.terminal_cost_scaling.value_or(1.0),
+            layout_, "final_state_weights", basePoseWeights)));
 
     // Written in the tuning layout: the state's tangent, not its slots.
     EXPECT_EQ(static_cast<size_t>(Q.rows()), model_->getStateTangentDim());
@@ -330,10 +331,10 @@ TEST_F(QuadraticCostWeightsApplierTest,
   expectFreshStartWeights(reloaded, /*comAndAcomListed=*/false, *solver);
 
   // The orientation rows, yaw included, reach the costs as written.
-  const absl::StatusOr<size_t> orientationRow =
-      tuningSegmentStart(tuningLayoutOf(layout_), "base_orientation");
-  ASSERT_TRUE(orientationRow.ok()) << orientationRow.status();
-  const Eigen::Index yawRow = static_cast<Eigen::Index>(*orientationRow);
+  const absl::StatusOr<size_t> eulerzyxRow =
+      tuningSegmentStart(tuningLayoutOf(layout_), "eulerzyx_base_rt_world");
+  ASSERT_TRUE(eulerzyxRow.ok()) << eulerzyxRow.status();
+  const Eigen::Index yawRow = static_cast<Eigen::Index>(*eulerzyxRow);
   const matrix_t& Q =
       solver->getOcpDefinitions()
           .front()
@@ -351,17 +352,17 @@ TEST_F(
   const mpc_config::TaskFile reloaded = reloadedTask(task_);
   applyWithoutWarning(reloaded, *solver);
   expectFreshStartWeights(reloaded, /*comAndAcomListed=*/true, *solver);
-  const absl::StatusOr<size_t> positionRow =
-      tuningSegmentStart(tuningLayoutOf(layout_), "base_position");
-  ASSERT_TRUE(positionRow.ok()) << positionRow.status();
+  const absl::StatusOr<size_t> posBaseStart = tuningSegmentStart(
+      tuningLayoutOf(layout_), "pos_base_rt_world_ewrt_world");
+  ASSERT_TRUE(posBaseStart.ok()) << posBaseStart.status();
   const matrix_t& Q =
       solver->getOcpDefinitions()
           .back()
           .costPtr
           ->get<TuningQuadraticStateInputCost>(kStateInputQuadraticCostTerm)
           .getStateWeights();
-  EXPECT_TRUE(Q.block(static_cast<Eigen::Index>(*positionRow),
-                      static_cast<Eigen::Index>(*positionRow), 6, 6)
+  EXPECT_TRUE(Q.block(static_cast<Eigen::Index>(*posBaseStart),
+                      static_cast<Eigen::Index>(*posBaseStart), 6, 6)
                   .isZero(0.0));
 }
 

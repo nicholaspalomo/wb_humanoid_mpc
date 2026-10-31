@@ -60,13 +60,13 @@ rule tests.
 
 ## Runtime configurability
 
-- **Parameter reload.** `ContactPlannerModule::setConfig()` applies a new configuration between plans. Every term
+- On a **parameter reload**, `ContactPlannerModule::setConfig()` applies a new configuration between plans. Every term
   re-reads its block (`ContactPlanningProblem::configure()`), and the values are checked once, by
   `ContactPlanningConfig::validateStatus()`, so that an invalid edit leaves the running configuration in place.
-- **Structural reload.** A changed term list re-assembles the problem and the stages through the factory. The warm
+- On a **structural reload**, a changed term list re-assembles the problem and the stages through the factory. The warm
   start (the previous plan and its assignment) survives unless the grid or the variable layout changed
   (`LipContactPlanner::setConfig()`).
-- **Introspection.** `ContactPlanningProblem::summary()` and `LipContactPlanner::getFormulationSummary()` print the layout,
+- For **introspection**, `ContactPlanningProblem::summary()` and `LipContactPlanner::getFormulationSummary()` print the layout,
   every term with its description, the search stages and the planner settings; the module logs it at start-up and after
   every reload that changes it.
 

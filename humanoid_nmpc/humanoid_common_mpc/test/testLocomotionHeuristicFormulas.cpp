@@ -1720,7 +1720,8 @@ TEST(LocomotionHeuristicFormulas, ValidateRejectsEveryOutOfRangeKeyByName) {
        [](LocomotionHeuristicConfig& c) {
          c.centripetalAcceleration.scale = -0.5;
        }},
-      {"locomotion_heuristics.centripetal_acceleration.maximum_force",
+      {"locomotion_heuristics.centripetal_acceleration.max_force_com_ewrt_"
+       "world_xy",
        [](LocomotionHeuristicConfig& c) {
          c.centripetalAcceleration.maximumForce = -10.0;
        }},
@@ -1788,7 +1789,7 @@ TEST(LocomotionHeuristicFormulas, ValidateAcceptsEachRangeBoundary) {
          c.centripetalAcceleration.scale = 0.0;
        }},
       {"centripetal_acceleration.maximum_force_ratio_of_weight = 0 with "
-       "maximum_force set",
+       "max_force_com_ewrt_world_xy set",
        [](LocomotionHeuristicConfig& c) {
          c.centripetalAcceleration.maximumForce = 50.0;
          c.centripetalAcceleration.maximumForceRatioOfWeight = 0.0;
@@ -1860,7 +1861,7 @@ TEST(LocomotionHeuristicFormulas,
        [](LocomotionHeuristicConfig& c, scalar_t v) {
          c.centripetalAcceleration.scale = v;
        }},
-      {"centripetal_acceleration.maximum_force",
+      {"centripetal_acceleration.max_force_com_ewrt_world_xy",
        [](LocomotionHeuristicConfig& c, scalar_t v) {
          c.centripetalAcceleration.maximumForce = v;
        }},

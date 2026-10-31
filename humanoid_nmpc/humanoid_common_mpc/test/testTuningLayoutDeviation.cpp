@@ -346,19 +346,21 @@ class TuningLayoutDeviationTest
         stateManifoldOf(*model_);
     ASSERT_TRUE(manifold.ok()) << manifold.status();
     manifold_ = *std::move(manifold);
-    const absl::StatusOr<size_t> orientationRow =
-        tuningSegmentStart(model_->getTuningLayout(), "base_orientation");
-    ASSERT_TRUE(orientationRow.ok()) << orientationRow.status();
-    orientationRow_ = *orientationRow;
+    const absl::StatusOr<size_t> orientationTuningIndex =
+        tuningSegmentStart(model_->getTuningLayout(), "eulerzyx_base_rt_world");
+    ASSERT_TRUE(orientationTuningIndex.ok()) << orientationTuningIndex.status();
+    orientationTuningIndex_ = *orientationTuningIndex;
     orientationStart_ = model_->getBaseOrientationStartIndex();
     angularVelocityStart_ =
         stateStartOf(model_->getTuningLayout(),
                      TuningSegmentKind::kZyxOrderedAngularVelocity);
     if (angularVelocityStart_.has_value()) {
-      const absl::StatusOr<size_t> angularVelocityRow = tuningSegmentStart(
-          model_->getTuningLayout(), "base_angular_velocity");
-      ASSERT_TRUE(angularVelocityRow.ok()) << angularVelocityRow.status();
-      angularVelocityRow_ = *angularVelocityRow;
+      const absl::StatusOr<size_t> angularVelocityTuningIndex =
+          tuningSegmentStart(model_->getTuningLayout(),
+                             "angvel_base_rt_world_ewrt_base");
+      ASSERT_TRUE(angularVelocityTuningIndex.ok())
+          << angularVelocityTuningIndex.status();
+      angularVelocityTuningIndex_ = *angularVelocityTuningIndex;
     }
   }
 
@@ -373,9 +375,9 @@ class TuningLayoutDeviationTest
                    std::mt19937& generator) const {
     vector_t state = randomVector(
         static_cast<Eigen::Index>(model_->getStateDim()), generator);
-    model_->setBaseOrientationEulerZyx(state, eulerZyx);
+    model_->setEulerzyxBaseRtWorld(state, eulerZyx);
     if (angularVelocityStart_.has_value()) {
-      model_->setBaseAngularVelocityLocal(
+      model_->setAngvelBaseRtWorldEwrtBase(
           state,
           localAngularVelocityFromEulerZyxRates(eulerZyx, eulerZyxRates));
     }
@@ -383,7 +385,9 @@ class TuningLayoutDeviationTest
   }
 
   /** The tuning row of the whole body's angular velocity block. */
-  size_t angularVelocityRow() const { return angularVelocityRow_; }
+  size_t angularVelocityTuningIndex() const {
+    return angularVelocityTuningIndex_;
+  }
 
   /** J E(x): the Jacobian of `approximation` at `state` pulled back to the
    * tangent, the solver's coordinates. */
@@ -418,7 +422,8 @@ class TuningLayoutDeviationTest
   }
 
   /** `state` with its stored quaternion multiplied by `scale`. */
-  vector_t withScaledQuaternion(vector_t state, scalar_t scale) const {
+  vector_t withScaledQuaternionCoefficients(vector_t state,
+                                            scalar_t scale) const {
     state.segment<4>(static_cast<Eigen::Index>(orientationStart_)) *= scale;
     return state;
   }
@@ -428,13 +433,13 @@ class TuningLayoutDeviationTest
   std::shared_ptr<const StateManifold> manifold_;
   // The tuning row of the orientation block, which is also its first tangent
   // row.
-  size_t orientationRow_ = 0;
+  size_t orientationTuningIndex_ = 0;
   // The first state slot of the quaternion.
   size_t orientationStart_ = 0;
   // The whole body's angular velocity block: its first state slot (nullopt on
   // the centroidal layout) and tuning row.
   std::optional<size_t> angularVelocityStart_;
-  size_t angularVelocityRow_ = 0;
+  size_t angularVelocityTuningIndex_ = 0;
 };
 
 TEST_P(TuningLayoutDeviationTest, ItsDimensionsAreTheModelsTangentAndState) {
@@ -465,7 +470,7 @@ TEST_P(TuningLayoutDeviationTest,
   // The quaternion has one state slot more than tuning rows, so every block
   // after it sits one state column further on than its tuning row; the blocks
   // before it at their own rows.
-  ASSERT_EQ(orientationStart_, orientationRow_);
+  ASSERT_EQ(orientationStart_, orientationTuningIndex_);
   std::vector<TuningJacobianIdentityRun> expectedRuns;
   std::vector<DenseBlockPosition> expectedBlocks;
   std::vector<Eigen::Index>
@@ -475,11 +480,11 @@ TEST_P(TuningLayoutDeviationTest,
     // [normalized momentum (6), base position (3)] [orientation] [joints].
     expectedRuns = {
         TuningJacobianIdentityRun{
-            .tuningRow = 0, .stateColumn = 0, .size = orientationRow_},
+            .tuningRow = 0, .stateColumn = 0, .size = orientationTuningIndex_},
         TuningJacobianIdentityRun{.tuningRow = *joints,
                                   .stateColumn = *joints + 1,
                                   .size = jointDim}};
-    expectedBlocks = {DenseBlockPosition{.tuningRow = orientationRow_,
+    expectedBlocks = {DenseBlockPosition{.tuningRow = orientationTuningIndex_,
                                          .stateColumn = orientationStart_}};
     expectedColumns = {4};
   } else {
@@ -491,24 +496,26 @@ TEST_P(TuningLayoutDeviationTest,
     if (!angularVelocityStart_.has_value())
       FAIL() << "the whole-body layout has no angular-velocity block";
     const size_t angularVelocityStart = *angularVelocityStart_;
-    ASSERT_EQ(angularVelocityStart, angularVelocityRow() + 1);
+    ASSERT_EQ(angularVelocityStart, angularVelocityTuningIndex() + 1);
     // [base position] [orientation] [joints, base linear velocity] [angular
     // velocity] [joint velocities].
     expectedRuns = {
         TuningJacobianIdentityRun{
-            .tuningRow = 0, .stateColumn = 0, .size = orientationRow_},
-        TuningJacobianIdentityRun{.tuningRow = *joints,
-                                  .stateColumn = *joints + 1,
-                                  .size = angularVelocityRow() - *joints},
+            .tuningRow = 0, .stateColumn = 0, .size = orientationTuningIndex_},
+        TuningJacobianIdentityRun{
+            .tuningRow = *joints,
+            .stateColumn = *joints + 1,
+            .size = angularVelocityTuningIndex() - *joints},
         TuningJacobianIdentityRun{.tuningRow = *jointVelocities,
                                   .stateColumn = *jointVelocities + 1,
                                   .size = jointDim}};
-    expectedBlocks = {DenseBlockPosition{.tuningRow = orientationRow_,
-                                         .stateColumn = orientationStart_},
-                      DenseBlockPosition{.tuningRow = angularVelocityRow(),
-                                         .stateColumn = angularVelocityStart},
-                      DenseBlockPosition{.tuningRow = angularVelocityRow(),
-                                         .stateColumn = orientationStart_}};
+    expectedBlocks = {
+        DenseBlockPosition{.tuningRow = orientationTuningIndex_,
+                           .stateColumn = orientationStart_},
+        DenseBlockPosition{.tuningRow = angularVelocityTuningIndex(),
+                           .stateColumn = angularVelocityStart},
+        DenseBlockPosition{.tuningRow = angularVelocityTuningIndex(),
+                           .stateColumn = orientationStart_}};
     expectedColumns = {4, 3, 4};
   }
   ASSERT_EQ(approximation.identityRuns.size(), expectedRuns.size());
@@ -569,7 +576,7 @@ TEST_P(TuningLayoutDeviationTest,
 
 TEST_P(TuningLayoutDeviationTest, TheOrientationRowsAreTheHeadingTiltResidual) {
   const TuningLayoutDeviation deviation(model_.get());
-  const Eigen::Index row = static_cast<Eigen::Index>(orientationRow_);
+  const Eigen::Index row = static_cast<Eigen::Index>(orientationTuningIndex_);
   std::mt19937 generator(13);
   for (size_t trial = 0; trial < 20; ++trial) {
     const vector_t state = stateAt(randomEulerZyx(/*maxTilt=*/0.5, generator),
@@ -578,8 +585,8 @@ TEST_P(TuningLayoutDeviationTest, TheOrientationRowsAreTheHeadingTiltResidual) {
         stateAt(randomEulerZyx(/*maxTilt=*/0.5, generator),
                 randomRates(generator), generator);
     const vector3_t expected =
-        headingTiltResidual(model_->getBaseOrientation(state),
-                            model_->getBaseOrientation(reference));
+        headingTiltResidual(model_->getQuatBaseRtWorldXyzw(state),
+                            model_->getQuatBaseRtWorldXyzw(reference));
     EXPECT_TRUE(bitwiseEqual(
         deviation.evaluate(state, reference).segment<3>(row), expected))
         << "trial " << trial;
@@ -645,7 +652,8 @@ TEST_P(TuningLayoutDeviationTest,
   if (!angularVelocityStart_.has_value())
     GTEST_SKIP() << "the centroidal state holds no base angular velocity";
   const TuningLayoutDeviation deviation(model_.get());
-  const Eigen::Index row = static_cast<Eigen::Index>(angularVelocityRow());
+  const Eigen::Index row =
+      static_cast<Eigen::Index>(angularVelocityTuningIndex());
   std::mt19937 generator(17);
   for (size_t trial = 0; trial < 20; ++trial) {
     const vector3_t eulerZyx = randomEulerZyx(/*maxTilt=*/0.5, generator);
@@ -659,12 +667,12 @@ TEST_P(TuningLayoutDeviationTest,
     // P_3 (w_B - R^T R_r w_B,r), with Eigen's rotation matrices.
     const matrix3_t rotation =
         quaternion_t(quaternionFromEulerZyx(eulerZyx)).toRotationMatrix();
-    const matrix3_t referenceRotation =
+    const matrix3_t refRotmatBaseRtWorld =
         quaternion_t(quaternionFromEulerZyx(referenceEulerZyx))
             .toRotationMatrix();
     const vector3_t difference =
         localAngularVelocityFromEulerZyxRates(eulerZyx, rates) -
-        rotation.transpose() * referenceRotation *
+        rotation.transpose() * refRotmatBaseRtWorld *
             localAngularVelocityFromEulerZyxRates(referenceEulerZyx,
                                                   referenceRates);
     const vector3_t expected(difference(2), difference(1), difference(0));
@@ -773,7 +781,8 @@ TEST_P(TuningLayoutDeviationTest,
   // ambient Jacobian orthogonal to xi (E+ xi = 0), so a solver step along xi
   // changes nothing.
   const TuningLayoutDeviation deviation(model_.get());
-  const Eigen::Index orientation = static_cast<Eigen::Index>(orientationStart_);
+  const Eigen::Index orientationStateIndex =
+      static_cast<Eigen::Index>(orientationStart_);
   std::mt19937 generator(59);
   for (size_t trial = 0; trial < 10; ++trial) {
     const vector_t state = stateAt(randomEulerZyx(/*maxTilt=*/0.5, generator),
@@ -783,21 +792,23 @@ TEST_P(TuningLayoutDeviationTest,
                 randomRates(generator), generator);
     const vector_t residual = deviation.evaluate(state, reference);
     for (const scalar_t scale : {0.5, 2.0, 1.0e-3}) {
-      EXPECT_LE(maxAbs(deviation.evaluate(withScaledQuaternion(state, scale),
-                                          reference) -
+      EXPECT_LE(maxAbs(deviation.evaluate(
+                           withScaledQuaternionCoefficients(state, scale),
+                           reference) -
                        residual),
                 1.0e-14 * std::max(1.0, maxAbs(residual)))
           << "scale " << scale << ", trial " << trial;
-      EXPECT_LE(maxAbs(deviation.evaluate(
-                           state, withScaledQuaternion(reference, scale)) -
-                       residual),
-                1.0e-14 * std::max(1.0, maxAbs(residual)))
+      EXPECT_LE(
+          maxAbs(deviation.evaluate(state, withScaledQuaternionCoefficients(
+                                               reference, scale)) -
+                 residual),
+          1.0e-14 * std::max(1.0, maxAbs(residual)))
           << "reference scale " << scale << ", trial " << trial;
     }
     const matrix_t jacobian =
         denseJacobian(deviation.linearize(state, reference), state.size());
-    const vector_t radial =
-        jacobian.middleCols<4>(orientation) * state.segment<4>(orientation);
+    const vector_t radial = jacobian.middleCols<4>(orientationStateIndex) *
+                            state.segment<4>(orientationStateIndex);
     EXPECT_LE(maxAbs(radial), 1.0e-12 * std::max(1.0, maxAbs(jacobian)))
         << "trial " << trial;
   }
@@ -845,10 +856,10 @@ TEST_P(TuningLayoutDeviationTest,
           model_->tuningFromState(reference);
       ASSERT_TRUE(eulerState.ok() && eulerReference.ok());
       vector_t eulerDifferences = *eulerState - *eulerReference;
-      eulerDifferences(static_cast<Eigen::Index>(orientationRow_)) =
-          std::remainder(
-              eulerDifferences(static_cast<Eigen::Index>(orientationRow_)),
-              2.0 * std::numbers::pi);
+      eulerDifferences(static_cast<Eigen::Index>(orientationTuningIndex_)) =
+          std::remainder(eulerDifferences(static_cast<Eigen::Index>(
+                             orientationTuningIndex_)),
+                         2.0 * std::numbers::pi);
       const vector_t eulerDifferenceGradient =
           P.transpose() * Q * eulerDifferences;
       vector_t gradient = tuningGradient(deviation.linearize(state, reference),
@@ -880,7 +891,7 @@ TEST_P(TuningLayoutDeviationTest,
         deviation
             .evaluate(stateAt(levelState, vector3_t::Zero(), generator),
                       stateAt(referenceEulerZyx, vector3_t::Zero(), generator))
-            .segment<3>(orientationRow_);
+            .segment<3>(orientationTuningIndex_);
     const scalar_t yawShift =
         2.0 * std::atan(std::tan(0.5 * referenceEulerZyx(1)) *
                         std::tan(0.5 * referenceEulerZyx(2)));
@@ -914,7 +925,7 @@ TEST_P(
   if (!angularVelocityStart_.has_value())
     GTEST_SKIP() << "the centroidal layout has no angular-velocity rows";
   const TuningLayoutDeviation deviation(model_.get());
-  const size_t row = angularVelocityRow();
+  const size_t row = angularVelocityTuningIndex();
   std::mt19937 generator(37);
   for (size_t trial = 0; trial < 30; ++trial) {
     const vector3_t eulerZyx = randomEulerZyx(/*maxTilt=*/0.6, generator);
@@ -943,13 +954,13 @@ TEST_P(
     const matrix_t tangentBlock =
         tangentJacobian(deviation.linearize(state, reference), state)
             .block(static_cast<Eigen::Index>(row),
-                   static_cast<Eigen::Index>(orientationRow_), 3, 3);
-    const vector3_t a =
-        quaternionRotationMatrix<scalar_t>(model_->getBaseOrientation(state))
-            .transpose() *
-        quaternionRotationMatrix<scalar_t>(
-            model_->getBaseOrientation(reference)) *
-        model_->getBaseAngularVelocityLocal(reference);
+                   static_cast<Eigen::Index>(orientationTuningIndex_), 3, 3);
+    const vector3_t a = quaternionRotationMatrix<scalar_t>(
+                            model_->getQuatBaseRtWorldXyzw(state))
+                            .transpose() *
+                        quaternionRotationMatrix<scalar_t>(
+                            model_->getQuatBaseRtWorldXyzw(reference)) *
+                        model_->getAngvelBaseRtWorldEwrtBase(reference);
     const matrix3_t expectedBlock =
         -headingTiltPermutation() * crossProductMatrix(a);
     EXPECT_LE(maxAbs(tangentBlock - expectedBlock), 1.0e-12)
@@ -967,7 +978,7 @@ TEST_P(
                                           vector3_t(0.5, 0.0, 0.0), generator)),
                       atRest)
           .block(static_cast<Eigen::Index>(row),
-                 static_cast<Eigen::Index>(orientationRow_), 3, 3);
+                 static_cast<Eigen::Index>(orientationTuningIndex_), 3, 3);
   const matrix_t gainedHessian =
       atRestBlock.transpose() * (3.0 * matrix_t::Identity(3, 3)) * atRestBlock;
   EXPECT_NEAR(gainedHessian(0, 0), 0.75, 1.0e-12);
@@ -988,7 +999,7 @@ TEST_P(
   if (!angularVelocityStart_.has_value())
     GTEST_SKIP() << "the centroidal layout has no angular-velocity rows";
   const TuningLayoutDeviation deviation(model_.get());
-  const size_t row = angularVelocityRow();
+  const size_t row = angularVelocityTuningIndex();
   std::mt19937 generator(41);
   std::vector<scalar_t> differences;
   for (const scalar_t referencePitch : {0.2, 0.1, 0.05}) {
@@ -1026,9 +1037,10 @@ TEST_P(TuningLayoutDeviationTest,
   const TuningLayoutDeviation deviation(model_.get());
   std::mt19937 generator(31);
   const matrix_t identity = matrix_t::Identity(3, 3);
-  const Eigen::Index orientationRow =
-      static_cast<Eigen::Index>(orientationRow_);
-  const Eigen::Index rateRow = static_cast<Eigen::Index>(angularVelocityRow());
+  const Eigen::Index orientationTuningIndex =
+      static_cast<Eigen::Index>(orientationTuningIndex_);
+  const Eigen::Index rateRow =
+      static_cast<Eigen::Index>(angularVelocityTuningIndex());
   for (const scalar_t tilt : {0.02, 0.05, 0.1, 0.2, 0.3}) {
     for (size_t direction = 0; direction < 8; ++direction) {
       const scalar_t angle =
@@ -1041,13 +1053,14 @@ TEST_P(TuningLayoutDeviationTest,
                   generator);
       const matrix_t jacobian =
           tangentJacobian(deviation.linearize(state, reference), state);
-      const matrix3_t chart =
-          eulerZyxRateToLocalAngularVelocityMatrix(eulerZyx);
-      const matrix_t orientationBlock =
-          jacobian.block(orientationRow, orientationRow, 3, 3) * chart;
+      const matrix3_t chart = eulerZyxRateToBodyRateMatrix(eulerZyx);
+      const matrix_t orientationSlotsBlock =
+          jacobian.block(orientationTuningIndex, orientationTuningIndex, 3, 3) *
+          chart;
       // ||J_e - I||_max <= 0.6 |tilt|, and the tilt does move it: the yaw row
       // picks up tan(theta / 2) and tan(phi / 2).
-      const scalar_t jacobianDeviation = maxAbs(orientationBlock - identity);
+      const scalar_t jacobianDeviation =
+          maxAbs(orientationSlotsBlock - identity);
       EXPECT_LE(jacobianDeviation, 0.6 * tilt)
           << "tilt " << tilt << ", direction " << direction;
       EXPECT_GE(jacobianDeviation, 0.3 * tilt)
@@ -1055,8 +1068,10 @@ TEST_P(TuningLayoutDeviationTest,
       // ||J_e' Q J_e - Q||_max <= |tilt| ||Q||_max for the task file's diagonal
       // weights.
       const matrix_t Q = randomDiagonalWeights(generator);
-      EXPECT_LE(maxAbs(orientationBlock.transpose() * Q * orientationBlock - Q),
-                tilt * maxAbs(Q))
+      EXPECT_LE(
+          maxAbs(orientationSlotsBlock.transpose() * Q * orientationSlotsBlock -
+                 Q),
+          tilt * maxAbs(Q))
           << "tilt " << tilt << ", direction " << direction;
       if (angularVelocityStart_.has_value()) {
         // The angular-velocity rows' block at their own slots is P_3, through
@@ -1086,11 +1101,12 @@ TEST_P(TuningLayoutDeviationTest,
     const vector_t reference =
         stateAt(randomEulerZyx(/*maxTilt=*/0.5, generator),
                 randomRates(generator), generator);
-    const vector_t negated = withScaledQuaternion(state, /*scale=*/-1.0);
+    const vector_t negated =
+        withScaledQuaternionCoefficients(state, /*scale=*/-1.0);
     const vector_t negatedReference =
-        withScaledQuaternion(reference, /*scale=*/-1.0);
-    ASSERT_TRUE(bitwiseEqual(model_->getBaseOrientation(negated),
-                             -model_->getBaseOrientation(state)));
+        withScaledQuaternionCoefficients(reference, /*scale=*/-1.0);
+    ASSERT_TRUE(bitwiseEqual(model_->getQuatBaseRtWorldXyzw(negated),
+                             -model_->getQuatBaseRtWorldXyzw(state)));
     const vector_t residual = deviation.evaluate(state, reference);
     EXPECT_TRUE(bitwiseEqual(deviation.evaluate(negated, reference), residual))
         << "trial " << trial;
@@ -1110,11 +1126,12 @@ TEST_P(TuningLayoutDeviationTest,
     ASSERT_EQ(negatedApproximation.denseBlocks.size(),
               approximation.denseBlocks.size());
     for (size_t block = 0; block < approximation.denseBlocks.size(); ++block) {
-      const bool atTheQuaternion =
+      const bool atTheQuaternionSlots =
           approximation.denseBlocks[block].stateColumn == orientationStart_;
       const matrix_t expected =
-          atTheQuaternion ? matrix_t(-approximation.denseBlocks[block].value)
-                          : approximation.denseBlocks[block].value;
+          atTheQuaternionSlots
+              ? matrix_t(-approximation.denseBlocks[block].value)
+              : approximation.denseBlocks[block].value;
       EXPECT_TRUE(
           exactlyEqual(negatedApproximation.denseBlocks[block].value, expected))
           << "block " << block << ", trial " << trial << ": max difference "
@@ -1146,19 +1163,19 @@ TEST_P(TuningLayoutDeviationTest,
         tangentJacobian(deviation.linearize(state, reference), state);
     for (const scalar_t turns : {-1.0, 1.0, 2.0}) {
       vector_t turned = state;
-      model_->setBaseOrientationEulerZyx(
+      model_->setEulerzyxBaseRtWorld(
           turned, vector3_t(eulerZyx(0) + 2.0 * std::numbers::pi * turns,
                             eulerZyx(1), eulerZyx(2)));
       // An odd number of turns gives the other quaternion of the same rotation,
       // an even number the same quaternion.
-      const scalar_t alignment = model_->getBaseOrientation(turned).dot(
-          model_->getBaseOrientation(state));
+      const scalar_t alignment = model_->getQuatBaseRtWorldXyzw(turned).dot(
+          model_->getQuatBaseRtWorldXyzw(state));
       EXPECT_NEAR(alignment, std::fmod(turns, 2.0) == 0.0 ? 1.0 : -1.0, 1.0e-12)
           << "turns " << turns;
       for (const bool turnTheReference : {false, true}) {
         vector_t turnedReference = reference;
         if (turnTheReference) {
-          model_->setBaseOrientationEulerZyx(
+          model_->setEulerzyxBaseRtWorld(
               turnedReference,
               vector3_t(referenceEulerZyx(0) + 2.0 * std::numbers::pi * turns,
                         referenceEulerZyx(1), referenceEulerZyx(2)));
@@ -1218,7 +1235,7 @@ TEST(TuningLayoutDeviationDeathTest,
   ASSERT_NE(settings, nullptr);
   const std::unique_ptr<QuaternionLayoutRobotModel> model = modelOfSegments(
       *settings,
-      {TuningSegment{.name = "base_angular_velocity",
+      {TuningSegment{.name = "angvel_base_rt_world_ewrt_base",
                      .kind = TuningSegmentKind::kZyxOrderedAngularVelocity,
                      .tuningDim = 3}});
   EXPECT_DEATH(TuningLayoutDeviation{model.get()}.getTuningDim(),
@@ -1229,7 +1246,7 @@ TEST(TuningLayoutDeviationDeathTest, ASecondOrientationBlockStopsTheProgram) {
   const std::unique_ptr<ModelSettings> settings = settingsOf(kRobots[1]);
   ASSERT_NE(settings, nullptr);
   const std::unique_ptr<QuaternionLayoutRobotModel> model = modelOfSegments(
-      *settings, {TuningSegment{.name = "base_orientation",
+      *settings, {TuningSegment{.name = "eulerzyx_base_rt_world",
                                 .kind = TuningSegmentKind::kEulerZyxOrientation,
                                 .tuningDim = 3},
                   TuningSegment{.name = "head_orientation",

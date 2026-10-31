@@ -117,8 +117,8 @@ ad_vector_t dcmResidual(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd,
       mpcRobotModelAD.getBaseComLinearVelocity(state)
           .head<kHorizontalPositionDim>();
   const std::vector<ad_vector3_t> contactPositions =
-      getContactPositions<ad_scalar_t>(pinocchioInterfaceCppAd,
-                                       mpcRobotModelAD);
+      getPosContactsRtWorldEwrtWorld<ad_scalar_t>(pinocchioInterfaceCppAd,
+                                                  mpcRobotModelAD);
   const ad_vector2_t support =
       (weightLeft * contactPositions[0].head<kHorizontalPositionDim>() +
        weightRight * contactPositions[1].head<kHorizontalPositionDim>()) /

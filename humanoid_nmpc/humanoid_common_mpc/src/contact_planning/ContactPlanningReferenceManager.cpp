@@ -97,8 +97,8 @@ scalar_t baseRotationBetween(const MpcRobotModelBase<scalar_t>& model,
                              const vector_t& a,
                              const vector_t& b) {
   const vector4_t relative = quaternionProduct<scalar_t>(
-      quaternionConjugate<scalar_t>(model.getBaseOrientation(a)),
-      model.getBaseOrientation(b));
+      quaternionConjugate<scalar_t>(model.getQuatBaseRtWorldXyzw(a)),
+      model.getQuatBaseRtWorldXyzw(b));
   return quaternionLog<scalar_t>(relative).norm();
 }
 
@@ -289,11 +289,11 @@ scalar_t ContactPlanningReferenceManager::computeHeading(
   if (acom_) {
     // The twist heading psi_h(xi_a) of the ACoM attitude (design section 2.9),
     // in (-pi, pi].
-    return twistHeading(
-        acom_->acomAttitude(mpcRobotModelPtr_->getBaseOrientation(state),
+    return yawOf(
+        acom_->acomAttitude(mpcRobotModelPtr_->getQuatBaseRtWorldXyzw(state),
                             mpcRobotModelPtr_->getJointAngles(state)));
   }
-  return mpcRobotModelPtr_->getBaseHeading(state);
+  return mpcRobotModelPtr_->getYawBaseRtWorld(state);
 }
 
 feet_array_t<scalar_t> ContactPlanningReferenceManager::readFootYaws() const {
@@ -517,8 +517,9 @@ ContactPlanningConfig ContactPlanningReferenceManager::getConfig() const {
 feet_array_t<vector3_t> ContactPlanningReferenceManager::computeFootPositions(
     const vector_t& state) {
   const vector_t q = mpcRobotModelPtr_->getGeneralizedCoordinates(state);
-  const std::vector<vector3_t> positions = computeContactPositions<scalar_t>(
-      q, pinocchioInterface_, *mpcRobotModelPtr_);
+  const std::vector<vector3_t> positions =
+      computePosContactsRtWorldEwrtWorld<scalar_t>(q, pinocchioInterface_,
+                                                   *mpcRobotModelPtr_);
   feet_array_t<vector3_t> feet;
   for (size_t i = 0; i < kNumContacts; ++i) {
     feet[i] = positions[i];
@@ -769,7 +770,8 @@ void ContactPlanningReferenceManager::modifyReferences(
   const scalar_t heightChange = terrainHeight - previousTerrainHeight;
   if (heightChange != 0.0) {
     for (vector_t& operatorState : operatorTarget_.get().stateTrajectory) {
-      mpcRobotModelPtr_->adaptBasePoseHeight(operatorState, heightChange);
+      mpcRobotModelPtr_->adaptPosBaseRtWorldEwrtWorldZ(operatorState,
+                                                       heightChange);
     }
   }
   updateSwingTrajectories(schedule, ctx, terrainHeight);
@@ -811,7 +813,7 @@ void ContactPlanningReferenceManager::fillExecutionContext(
   ctx.hasPredictedComState = hasPredictedComState_;
   ctx.com = comState_.position;
   ctx.comVelocity = comState_.velocity;
-  ctx.basePosition = mpcRobotModelPtr_->getBasePosition(initState)
+  ctx.basePosition = mpcRobotModelPtr_->getPosBaseRtWorldEwrtWorld(initState)
                          .head<kHorizontalPositionDim>();
   ctx.predictedCom = predictedComState_.position;
   ctx.predictedComVelocity = predictedComState_.velocity;
@@ -987,7 +989,7 @@ void ContactPlanningReferenceManager::updateSwingTrajectories(
         groundSearches[foot] = SwingTrajectoryPlanner::GroundSearch{
             .liftOffTime = search->liftOffTime,
             .plannedTouchDownTime = search->plannedTouchDownTime,
-            .descentVelocity = search->searchVelocity};
+            .descentSpeedFootRtWorld = search->searchVelocity};
         break;
       }
     }
@@ -1096,12 +1098,15 @@ ContactPlanningReferenceManager::getSwingFootReference(size_t contactIndex,
   const vector2_t delta = *landing + adjustment - start;
 
   SwingFootReference reference;
-  reference.position.head<kHorizontalPositionDim>() = start + blend * delta;
-  reference.position(kZAxisIndex) =
-      swingTrajectoryPtr_->getZpositionConstraint(contactIndex, time);
-  reference.linearVelocity.head<kHorizontalPositionDim>() = blendRate * delta;
-  reference.linearVelocity(kZAxisIndex) =
-      swingTrajectoryPtr_->getZvelocityConstraint(contactIndex, time);
+  reference.desPosFootRtWorldEwrtWorld.head<kHorizontalPositionDim>() =
+      start + blend * delta;
+  reference.desPosFootRtWorldEwrtWorld(kZAxisIndex) =
+      swingTrajectoryPtr_->getDesPosFootRtWorldEwrtWorldZ(contactIndex, time);
+  reference.desLinvelFootRtWorldEwrtWorld.head<kHorizontalPositionDim>() =
+      blendRate * delta;
+  reference.desLinvelFootRtWorldEwrtWorld(kZAxisIndex) =
+      swingTrajectoryPtr_->getDesLinvelFootRtWorldEwrtWorldZ(contactIndex,
+                                                             time);
   // Heading model: the foot yaw turns from its lift-off yaw to the planned
   // landing yaw with the same profile.
   if (plan->hasHeading()) {
@@ -1133,7 +1138,7 @@ ContactPlannerInput ContactPlanningReferenceManager::makePlannerInput(
   const HorizontalComState com = computeComState(initState);
   input.comPosition = com.position;
   input.comVelocity = com.velocity;
-  input.yaw = mpcRobotModelPtr_->getBaseHeading(initState);
+  input.yaw = mpcRobotModelPtr_->getYawBaseRtWorld(initState);
 
   const feet_array_t<vector3_t> feet = computeFootPositions(initState);
   for (size_t i = 0; i < kNumContacts; ++i) {

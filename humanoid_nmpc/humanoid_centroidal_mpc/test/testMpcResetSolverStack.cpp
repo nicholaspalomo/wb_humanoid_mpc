@@ -55,7 +55,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "support/AtlasReferenceStack.h"
 
 /*
- * The DRC Atlas centroidal MPC - the real SQP solver on the shipped task file -
+ * The DRC Atlas centroidal MPC (the SQP solver on the shipped task file)
  * through a reset after a fall, closed on its own prediction and synchronous,
  * as the controller's solver thread drives it.
  *
@@ -121,7 +121,7 @@ class SolverStack {
         [calculator](const vector4_t& velocity, scalar_t initTime,
                      scalar_t /*finalTime*/, const vector_t& initState,
                      const BasePlanarMotion& measuredMotion) {
-          return calculator->commandedVelocityToTargetTrajectories(
+          return calculator->velocityCommandToTargetTrajectories(
               velocity, initTime, initState, measuredMotion);
         }));
     motionManager_->setResetHook([calculator]() { calculator->reset(); });
@@ -203,8 +203,8 @@ class SolverStack {
   }
 
   scalar_t baseX() const {
-    return interface_->getMpcRobotModel().getBasePosition(observation_.state)(
-        0);
+    return interface_->getMpcRobotModel().getPosBaseRtWorldEwrtWorld(
+        observation_.state)(0);
   }
 
  private:

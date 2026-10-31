@@ -51,8 +51,8 @@ THE THREE GROUPS IT PRINTS.
     `impulse_scaling`, `centripetal_acceleration`, and the clamps. These follow from geometry, from the gait, or from
     a textbook expression, and this script is the authority for them.
   * Sized from the command limits: `orientation_compensation.pitch_per_forward_velocity`,
-    `height_compensation.height_per_speed`, `translational_stepping`, `in_place_turning`. There is a real choice in
-    these - how much lean, how much crouch - so the script takes it from an explicit, printed assumption.
+    `height_compensation.height_per_speed`, `translational_stepping`, `in_place_turning`. These depend on a design
+    choice (how much lean, how much crouch), so the script takes it from an explicit, printed assumption.
   * Genuinely fitted, and left at zero: the rest of Table C.2. They are what Bledt's extraction framework produces
     from data (chapter 4), and a number invented here would be a guess wearing a derivation's clothes.
 """
@@ -121,9 +121,9 @@ GAIT_FILE = "humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto"
 # which the stack then runs. A field renamed or a default changed in the schemas must change these.
 # LINT.IfChange(derive_parameters_inputs)
 REQUIRED_COMMAND_LIMITS = (
-    "max_displacement_velocity_x",
-    "max_rotation_velocity",
-    "default_base_height",
+    "cmd_max_linvel_base_rt_world_ewrt_heading_x",
+    "cmd_max_angvel_base_rt_world_ewrt_world_z",
+    "nom_pos_base_rt_world_ewrt_world_z",
 )
 FOOT_SEPARATION_DEFAULTS = {
     "max_step_length": 0.5,
@@ -179,7 +179,7 @@ RETIRED_DCM_TERMINAL_COST_KEY = "use_dcm_terminal_cost"
 # first thing anyone should disagree with.
 # ---------------------------------------------------------------------------------------------------------------
 
-#: [rad] How far the base leans into the command at the maximum forward stick. A few degrees carries the center of
+#: [rad] How far the base pitches into the command at the maximum forward stick. A few degrees carries the center of
 #: mass towards the leading edge of the support (dissertation section 4.3) and keeps the body close to level, which on
 #: Bledt's model was also what kept its small-roll-and-pitch approximation valid; the control model here carries the
 #: full base rotation as a quaternion and makes no such approximation.
@@ -381,8 +381,8 @@ def derive_geometry(
     # names[0] is "universe" and names[1] the floating base, so the MPC joints start at 2.
     mpc_joints: list[str] = list(model.names[2:])
     initial_state = task.get("initial_state", {}) or {}
-    position = initial_state.get("base_position", {}) or {}
-    orientation = initial_state.get("base_orientation", {}) or {}
+    position = initial_state.get("pos_base_rt_world_ewrt_world", {}) or {}
+    orientation = initial_state.get("eulerzyx_base_rt_world", {}) or {}
     joint_positions = {
         str(entry.get("joint", "")): float(entry.get("value", 0.0))
         for entry in as_list(initial_state.get("joint_positions"))
@@ -412,10 +412,10 @@ def derive_geometry(
     pin.centerOfMass(model, data, q, False)
 
     # The contact frames are NOT in the URDF: createPinocchioModel() adds them at run time, one per entry of
-    # `contact_parent_joint_names`, offset from that joint by `contacts.contact_frame_translation`. So the foot position
+    # `contact_parent_joint_names`, offset from that joint by `contacts.pos_contact_rt_link_ewrt_link`. So the foot position
     # is computed here the same way rather than looked up by name.
     translation = (
-        task.get("contacts", {}).get("contact_frame_translation", {}) or {}
+        task.get("contacts", {}).get("pos_contact_rt_link_ewrt_link", {}) or {}
     )
     contact_offset = np.array(
         [
@@ -641,9 +641,15 @@ def derive_parameters(
                 "WARNING the reference file has no %s, which the MPC requires"
                 " (it refuses the file); a stand-in is assumed below" % field
             )
-    max_forward = float(limits.get("max_displacement_velocity_x", 1.0))
-    max_yaw_rate = float(limits.get("max_rotation_velocity", 1.0))
-    base_height = float(limits.get("default_base_height", geometry.com_height))
+    max_forward = float(
+        limits.get("cmd_max_linvel_base_rt_world_ewrt_heading_x", 1.0)
+    )
+    max_yaw_rate = float(
+        limits.get("cmd_max_angvel_base_rt_world_ewrt_world_z", 1.0)
+    )
+    base_height = float(
+        limits.get("nom_pos_base_rt_world_ewrt_world_z", geometry.com_height)
+    )
     friction, friction_source = friction_coefficient(task)
     if friction_source is None:
         notes.append(
@@ -693,7 +699,7 @@ def derive_parameters(
     # contact planner, and the two heuristics below - uses ONE length, or they disagree about where the robot is
     # heading. A com_height left out of either file (both shipped robots that have the blocks) is the model's, computed
     # above the way the C++ computeComHeightAboveFeet() computes it; a positive value is an explicit override, and wins, and a
-    # disagreement between it and the model is reported rather than quietly resolved: it means the controller is
+    # disagreement between it and the model is reported rather than silently resolved: it means the controller is
     # reasoning about a pendulum the robot does not have.
     configured_lip = float(
         task.get("dcm_terminal_cost", {}).get("com_height", 0.0)
@@ -1000,7 +1006,7 @@ def derive_parameters(
     needed = (
         geometry.total_mass * max_forward * max_yaw_rate / geometry.total_weight
     )
-    # maximum_force is left out (it has no 0 "off"): the ratio of weight below is the clamp.
+    # max_force_com_ewrt_world_xy is left out (it has no 0 "off"): the ratio of weight below is the clamp.
     out["centripetal_acceleration"] = {
         "scale": 1.0,
         "maximum_force_ratio_of_weight": round(
@@ -1187,8 +1193,8 @@ def compare(
 ) -> int:
     """Prints every coefficient whose shipped value differs from the derivation, or that the task file lacks.
 
-    NOT a test: a coefficient that has been swept in simulation SHOULD differ from its starting point, and that is
-    the whole purpose of sweeping it. This exists so that a gait or a geometry moving out from under a number is
+    NOT a test: a coefficient that has been swept in simulation SHOULD differ from its starting point.
+    This exists so that a gait or a geometry moving out from under a number is
     noticed, and so that the differences can be read as a list of what has been tuned.
 
     Args:

@@ -16,5 +16,5 @@ message RobotModelInstance {
   // "measured", "terminal_state" (the last node of the MPC plan) or "terminal_target" (the reference at that time).
   string name = 1;
   repeated string link_names = 2;
-  repeated Pose link_poses = 3;
+  repeated Pose pose_links_rt_world = 3;
 }

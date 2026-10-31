@@ -269,8 +269,7 @@ std::string urdfFileOf(const AcomRobotCase& robotCase) {
  * in the wrong direction, or a header exported for the wrong robot all show up
  * here and nowhere else.
  *
- * There is a second thing this file gets for free, and it is worth stating
- * because nothing else in the repository has it. The target here is recomputed
+ * In addition, the target here is recomputed
  * with Pinocchio's ccrba on the reduced MPC model, which is an INDEPENDENT
  * implementation of the one that produced the training data -
  * dataset_generator.py reads MuJoCo's subtree_angmom under unit joint
@@ -345,8 +344,8 @@ class AcomAngularVelocityConsistencyTest
   matrix_t connectionJointBlock(const vector_t& q) const {
     const pinocchio::Model& model = pinocchioInterfacePtr_->getModel();
     pinocchio::Data data(model);
-    const vector_t zeroVelocity = vector_t::Zero(model.nv);
-    pinocchio::ccrba(model, data, q, zeroVelocity);
+    const vector_t zeroGeneralizedVelocity = vector_t::Zero(model.nv);
+    pinocchio::ccrba(model, data, q, zeroGeneralizedVelocity);
     const matrix3_t lockedInertia = data.Ig.inertia().matrix();
     const matrix_t jointAngularMomentumMap =
         data.Ag.bottomRows(3).rightCols(numJoints_);
@@ -355,7 +354,8 @@ class AcomAngularVelocityConsistencyTest
 
   /** omega_locked = I_G^-1 L_G, the centroidal angular velocity, in world axes.
    */
-  vector3_t lockedAngularVelocity(const vector_t& q, const vector_t& v) const {
+  vector3_t computeLockedAngularRate(const vector_t& q,
+                                     const vector_t& v) const {
     const pinocchio::Model& model = pinocchioInterfacePtr_->getModel();
     pinocchio::Data data(model);
     pinocchio::ccrba(model, data, q, v);
@@ -376,12 +376,14 @@ class AcomAngularVelocityConsistencyTest
                  // depend on it, but a sane pose is easier to read
     for (Eigen::Index joint = 0; joint < numJoints_; ++joint) {
       const Eigen::Index index = model.nq - numJoints_ + joint;
+      // NOLINTBEGIN(frame-naming): Pinocchio's joint limits (joint space)
       const scalar_t lower = std::isfinite(model.lowerPositionLimit(index))
                                  ? model.lowerPositionLimit(index)
                                  : -kUnlimitedJointHalfRange;
       const scalar_t upper = std::isfinite(model.upperPositionLimit(index))
                                  ? model.upperPositionLimit(index)
                                  : kUnlimitedJointHalfRange;
+      // NOLINTEND(frame-naming)
       std::uniform_real_distribution<scalar_t> distribution(lower, upper);
       q(index) = distribution(generator);
     }
@@ -400,7 +402,7 @@ class AcomAngularVelocityConsistencyTest
 
   /** The base orientation xi of `q`, quaternion coefficients (x, y, z, w), from
    * the root joint's placement. */
-  vector4_t baseOrientationOf(const vector_t& q) const {
+  vector4_t getQuatBaseRtWorldXyzw(const vector_t& q) const {
     const pinocchio::Model& model = pinocchioInterfacePtr_->getModel();
     pinocchio::Data data(model);
     pinocchio::forwardKinematics(model, data, q);
@@ -414,8 +416,8 @@ class AcomAngularVelocityConsistencyTest
    * root joint's velocity coordinates whose local spatial velocity is (0,
    * angularVelocityLocal), whatever coordinates the root joint has.
    */
-  vector_t rootVelocityOf(const vector_t& q,
-                          const vector3_t& angularVelocityLocal) const {
+  vector_t rootGeneralizedVelocityOf(
+      const vector_t& q, const vector3_t& angvelBaseRtWorldEwrtBase) const {
     const pinocchio::Model& model = pinocchioInterfacePtr_->getModel();
     pinocchio::Data data(model);
     pinocchio::computeJointJacobians(model, data, q);
@@ -423,11 +425,12 @@ class AcomAngularVelocityConsistencyTest
     pinocchio::getJointJacobian(model, data, kRootJoint, pinocchio::LOCAL,
                                 jacobian);
     const Eigen::Index rootVelocityDim = model.joints[kRootJoint].nv();
-    vector6_t twist = vector6_t::Zero();
-    twist.tail<3>() = angularVelocityLocal;
+    vector6_t twistBaseRtWorldEwrtBase = vector6_t::Zero();
+    twistBaseRtWorldEwrtBase.tail<3>() = angvelBaseRtWorldEwrtBase;
     vector_t v = vector_t::Zero(model.nv);
-    v.head(rootVelocityDim) =
-        jacobian.leftCols(rootVelocityDim).fullPivLu().solve(twist);
+    v.head(rootVelocityDim) = jacobian.leftCols(rootVelocityDim)
+                                  .fullPivLu()
+                                  .solve(twistBaseRtWorldEwrtBase);
     return v;
   }
 
@@ -438,15 +441,16 @@ class AcomAngularVelocityConsistencyTest
    * `jointVelocities`: R(xi_a) (R(Delta_theta)^T omega_B + J_r(Delta_theta)
    * J_Delta_theta qdot_j), through the tangent Jacobian the MPC cost assembles.
    */
-  vector3_t acomAngularVelocity(const vector_t& q,
-                                const vector3_t& angularVelocityLocal,
-                                const vector_t& jointVelocities) const {
+  vector3_t computeAngvelAcomRtWorldEwrtWorld(
+      const vector_t& q,
+      const vector3_t& angvelBaseRtWorldEwrtBase,
+      const vector_t& jointVelocities) const {
     const vector_t qJoints = q.tail(numJoints_);
     const vector4_t attitude =
-        acomPtr_->acomAttitude(baseOrientationOf(q), qJoints);
+        acomPtr_->acomAttitude(getQuatBaseRtWorldXyzw(q), qJoints);
     const AcomAttitudeTangentJacobian tangent =
         acomPtr_->acomAttitudeTangentJacobian(qJoints);
-    const vector3_t bodyRate = tangent.baseOrientation * angularVelocityLocal +
+    const vector3_t bodyRate = tangent.baseTangent * angvelBaseRtWorldEwrtBase +
                                tangent.jointAngles * jointVelocities;
     return quaternionRotationMatrix(attitude) * bodyRate;
   }
@@ -461,9 +465,9 @@ class AcomAngularVelocityConsistencyTest
    * Exp(Delta_theta) makes the network responsible for.
    */
   matrix_t acomJointRateJacobian(const vector_t& qJoints) const {
-    const matrix3_t offsetRotation = quaternionRotationMatrix(
+    const matrix3_t rotmatAcomRtBase = quaternionRotationMatrix(
         acomPtr_->acomAttitude(vector4_t::UnitW(), qJoints));
-    return offsetRotation *
+    return rotmatAcomRtBase *
            acomPtr_->acomAttitudeTangentJacobian(qJoints).jointAngles;
   }
 
@@ -578,8 +582,9 @@ TEST_P(AcomAngularVelocityConsistencyTest,
   const AcomRobotCase& robotCase = GetParam();
   std::mt19937 generator(981);
   std::mt19937 baseGenerator(1729);
-  std::uniform_real_distribution<scalar_t> velocityDistribution(-1.0, 1.0);
-  std::uniform_real_distribution<scalar_t> baseRotationDistribution(-0.6, 0.6);
+  std::uniform_real_distribution<scalar_t> jointVelocityDistribution(-1.0, 1.0);
+  std::uniform_real_distribution<scalar_t> distributionRotvecBaseRtWorld(-0.6,
+                                                                         0.6);
   const pinocchio::Model& model = pinocchioInterfacePtr_->getModel();
 
   scalar_t worstRelativeError = 0.0;
@@ -588,18 +593,19 @@ TEST_P(AcomAngularVelocityConsistencyTest,
     const vector_t atIdentity = sampleConfiguration(generator);
     vector_t jointVelocities(numJoints_);
     for (Eigen::Index joint = 0; joint < numJoints_; ++joint) {
-      jointVelocities(joint) = velocityDistribution(generator);
+      jointVelocities(joint) = jointVelocityDistribution(generator);
     }
-    const vector3_t baseRotation(baseRotationDistribution(baseGenerator),
-                                 baseRotationDistribution(baseGenerator),
-                                 baseRotationDistribution(baseGenerator));
-    const vector_t q = withRotatedBase(atIdentity, baseRotation);
+    const vector3_t rotvecBaseRtWorld(
+        distributionRotvecBaseRtWorld(baseGenerator),
+        distributionRotvecBaseRtWorld(baseGenerator),
+        distributionRotvecBaseRtWorld(baseGenerator));
+    const vector_t q = withRotatedBase(atIdentity, rotvecBaseRtWorld);
     vector_t v = vector_t::Zero(model.nv);
     v.tail(numJoints_) = jointVelocities;
 
-    const vector3_t acomRate =
-        acomAngularVelocity(q, vector3_t::Zero(), jointVelocities);
-    const vector3_t locked = lockedAngularVelocity(q, v);
+    const vector3_t acomRate = computeAngvelAcomRtWorldEwrtWorld(
+        q, vector3_t::Zero(), jointVelocities);
+    const vector3_t locked = computeLockedAngularRate(q, v);
 
     const scalar_t scale =
         connectionJointBlock(q).norm() * jointVelocities.norm();
@@ -636,19 +642,20 @@ TEST_P(AcomAngularVelocityConsistencyTest,
   // structural error in the attitude or its tangent Jacobian rather than a fit
   // error.
   std::mt19937 generator(4242);
-  const vector3_t angularVelocityLocal(0.3, -0.2, 0.5);
+  const vector3_t angvelBaseRtWorldEwrtBase(0.3, -0.2, 0.5);
   for (int sample = 0; sample < 20; ++sample) {
     const vector_t q = withRotatedBase(sampleConfiguration(generator),
                                        vector3_t(0.25, -0.35, 0.4));
     const vector3_t baseRate =
-        quaternionRotationMatrix(baseOrientationOf(q)) * angularVelocityLocal;
+        quaternionRotationMatrix(getQuatBaseRtWorldXyzw(q)) *
+        angvelBaseRtWorldEwrtBase;
 
-    const vector3_t locked =
-        lockedAngularVelocity(q, rootVelocityOf(q, angularVelocityLocal));
+    const vector3_t locked = computeLockedAngularRate(
+        q, rootGeneralizedVelocityOf(q, angvelBaseRtWorldEwrtBase));
     EXPECT_LT((locked - baseRate).norm(), 1.0e-9)
         << "sample " << sample << ": the base was not driven at omega_B";
-    const vector3_t acomRate = acomAngularVelocity(q, angularVelocityLocal,
-                                                   vector_t::Zero(numJoints_));
+    const vector3_t acomRate = computeAngvelAcomRtWorldEwrtWorld(
+        q, angvelBaseRtWorldEwrtBase, vector_t::Zero(numJoints_));
     EXPECT_LT((acomRate - locked).norm(), 1.0e-9) << "sample " << sample;
     // And it is the base's rate itself, unchanged by the configuration of the
     // joints.
@@ -668,8 +675,8 @@ TEST_P(AcomAngularVelocityConsistencyTest,
   //     its offsets). This one is the real baseline: it captures whatever part
   //     of the connection does not vary with configuration. If the network's
   //     J_l(Delta_theta) J_Delta_theta were barely better than this, the SIREN
-  //     and the whole training pipeline would be buying almost nothing, and the
-  //     honest fix would be to ship the constant matrix.
+  //     and the training pipeline would add almost nothing over shipping the
+  //     constant matrix.
   //
   // A network that collapsed to zero, was exported with zeroed weights, or was
   // trained for a different robot passes every structural test in this package,

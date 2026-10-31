@@ -53,8 +53,8 @@ namespace ocs2::humanoid::config_dump {
  * the final cost. The terms are evaluated on a copy of `problem`. `robotModel`
  * is the robot model whose state and input the problem has (for the centroidal
  * MPC the effective one): the target moves its base through
- * MpcRobotModelBase::setBasePosition(), and the inputs have its getInputDim()
- * entries.
+ * MpcRobotModelBase::setPosBaseRtWorldEwrtWorld(), and the inputs have its
+ * getInputDim() entries.
  */
 void dumpProblem(ValueDump& dump,
                  absl::string_view path,

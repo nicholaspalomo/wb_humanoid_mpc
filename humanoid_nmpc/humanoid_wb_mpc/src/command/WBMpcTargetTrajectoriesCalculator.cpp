@@ -61,7 +61,7 @@ vector_t restingTargetKnot(const MpcRobotModelBase<scalar_t>& model,
                            const vector6_t& basePoseEulerZyx,
                            const vector_t& jointAngles) {
   vector_t knot = vector_t::Zero(model.getStateDim());
-  model.setBasePoseEulerZyx(knot, basePoseEulerZyx);
+  model.setPoseeulerzyxBaseRtWorld(knot, basePoseEulerZyx);
   model.setJointAngles(knot, jointAngles);
   return knot;
 }
@@ -79,7 +79,7 @@ vector_t movingTargetKnot(const MpcRobotModelBase<scalar_t>& model,
   vector_t knot = restingTargetKnot(model, basePoseEulerZyx, jointAngles);
   model.setBaseComLinearVelocity(
       knot, vector3_t(planarVelocityWorld(0), planarVelocityWorld(1), 0.0));
-  model.setBaseAngularVelocityFromWorldYawRate(knot, yawRate);
+  model.setTurnAngvelBaseRtWorldEwrtBase(knot, yawRate);
   return knot;
 }
 
@@ -132,11 +132,11 @@ WBMpcTargetTrajectoriesCalculator::WBMpcTargetTrajectoriesCalculator(
 /******************************************************************************************************/
 
 TargetTrajectories
-WBMpcTargetTrajectoriesCalculator::commandedPositionToTargetTrajectories(
+WBMpcTargetTrajectoriesCalculator::poseCommandToTargetTrajectories(
     const vector4_t& commadLinePoseTarget,
     scalar_t initTime,
     const vector_t& initState) {
-  vector_t currentPose = getCurrentBasePoseTarget(initState);
+  vector_t currentPose = getLevelPoseeulerzyxBaseRtWorld(initState);
 
   const vector_t targetPose =
       getDeltaBaseTarget(commadLinePoseTarget, currentPose);
@@ -156,7 +156,7 @@ WBMpcTargetTrajectoriesCalculator::commandedPositionToTargetTrajectories(
   for (const PoseCommandKnot& knot : knots) {
     timeTrajectory.push_back(knot.time);
     stateTrajectory.push_back(restingTargetKnot(
-        *mpcRobotModelPtr_, knot.basePose, targetJointState_));
+        *mpcRobotModelPtr_, knot.poseeulerzyxBaseRtWorld, targetJointState_));
   }
 
   // desired input trajectory (just right dimensions, they are not used)
@@ -174,7 +174,7 @@ WBMpcTargetTrajectoriesCalculator::commandedPositionToTargetTrajectories(
 /******************************************************************************************************/
 
 TargetTrajectories
-WBMpcTargetTrajectoriesCalculator::commandedVelocityToTargetTrajectories(
+WBMpcTargetTrajectoriesCalculator::velocityCommandToTargetTrajectories(
     const vector4_t& commandedVelocities,
     scalar_t initTime,
     const vector_t& initState,
@@ -191,9 +191,9 @@ WBMpcTargetTrajectoriesCalculator::commandedVelocityToTargetTrajectories(
   vector_array_t stateTrajectory;
   for (const VelocityCommandKnot& knot : knots) {
     timeTrajectory.push_back(knot.time);
-    stateTrajectory.push_back(
-        movingTargetKnot(*mpcRobotModelPtr_, knot.basePose, targetJointState_,
-                         knot.commandedVelocityWorld, knot.commandedYawRate));
+    stateTrajectory.push_back(movingTargetKnot(
+        *mpcRobotModelPtr_, knot.poseeulerzyxBaseRtWorld, targetJointState_,
+        knot.cmdLinvelBaseRtWorldEwrtWorldXy, knot.cmdRateYawBaseRtWorld));
   }
 
   // desired input trajectory (just right dimensions, they are not used)

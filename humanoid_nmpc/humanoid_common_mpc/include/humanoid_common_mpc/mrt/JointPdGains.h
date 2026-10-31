@@ -48,8 +48,8 @@ struct JointPdGainsDefaults {
   scalar_t kp = 0.0;  ///< [N*m/rad]
   scalar_t kd = 0.0;  ///< [N*m*s/rad]
   /// [N*m] The bound of the feedforward torque the controller commands the
-  /// joint, |ff| <= torqueLimit, in every mode.
-  scalar_t torqueLimit = 0.0;
+  /// joint, |ff| <= maxJointTorque, in every mode.
+  scalar_t maxJointTorque = 0.0;
 };
 
 /**

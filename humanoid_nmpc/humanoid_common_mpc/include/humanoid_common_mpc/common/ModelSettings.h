@@ -101,10 +101,10 @@ class ModelSettings {
         kDefaultNormalVelocitySoftConstraintWeight;
     // The rows of the stance constraint, which the file selects by name
     // (model_settings.foot_constraint.stance_constraint,
-    // stanceConstraintNames()): "position" is constrainOrientation false,
+    // stanceConstraintNames()): "position" is constrainAttitude false,
     // "position_and_tilt" true with the yaw rate false,
     // "position_and_orientation" both true.
-    bool constrainOrientation =
+    bool constrainAttitude =
         true;  // When true, constraint is 6D (position+orientation); when
                // false, 3D (position-only)
     // The orientation error with respect to the ground plane only measures the
@@ -155,8 +155,9 @@ class ModelSettings {
     /** The defaults of the fields below, by field. */
     static constexpr scalar_t kDefaultComplementarityWeight = 100.0;
     static constexpr scalar_t kDefaultSlipWeight = 100.0;
-    static constexpr scalar_t kDefaultHeightReference = 0.08;   // [m]
-    static constexpr scalar_t kDefaultVelocityReference = 0.3;  // [m/s]
+    static constexpr scalar_t kDefaultHeightReference = 0.08;  // [m]
+    static constexpr scalar_t kNomScaleLinvelContactRtWorldEwrtWorldXy =
+        0.3;  // [m/s]
     static constexpr scalar_t kDefaultPenetrationWeight = 5.0e4;
     static constexpr scalar_t kDefaultGapSmoothing = 1.0e-3;  // [m]
 
@@ -183,10 +184,10 @@ class ModelSettings {
     scalar_t heightReference =
         kDefaultHeightReference;  // [m] normally the swing apex,
                                   // swing_trajectory_config.swingHeight
-    scalar_t velocityReference =
-        kDefaultVelocityReference;  // [m/s] a sliding speed that would already
-                                    // be a failure
-    scalar_t angularVelocityReference =
+    scalar_t scaleLinvelContactRtWorldEwrtWorldXy =
+        kNomScaleLinvelContactRtWorldEwrtWorldXy;  // [m/s] a sliding speed that
+                                                   // would already be a failure
+    scalar_t scaleAngvelContactRtWorldEwrtWorldZ =
         1.0;  // [rad/s] a pivot rate that would already be a failure
     /**
      * Weight of the one-sided quadratic hinge on h >= 0: the penalty is

@@ -100,10 +100,10 @@ class CentroidalMpcMrtJointController final
    * Reloaded by pollPdGainsFile().
    * @return The errors of loadRequiredJointPdGains(), naming the file:
    * InvalidArgument when `pdGainsFile` is empty, cannot be read or is refused
-   * (a default_gains without kp, kd and torque_limit included), NotFound when
-   * it does not exist - the controller does not start on gains nobody wrote for
-   * the robot. NotFound naming the joint when `modelSettings` names a joint (an
-   * MPC joint or a fixed one) that `robotDescription` does not have.
+   * (a default_gains without kp, kd and max_joint_torque included), NotFound
+   * when it does not exist - the controller does not start on gains nobody
+   * wrote for the robot. NotFound naming the joint when `modelSettings` names a
+   * joint (an MPC joint or a fixed one) that `robotDescription` does not have.
    */
   static absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>>
   Create(const ::robot::model::RobotDescription& robotDescription,
@@ -163,7 +163,8 @@ class CentroidalMpcMrtJointController final
    * measurement - the joint targets and the feedforward - while its feedback
    * acts on the error at the measurement time (LookaheadPolicyEvaluator): a
    * robot exactly on a moving plan gets exactly the feedforward. Every
-   * feedforward torque is clamped to its joint's torque_limit, in every mode.
+   * feedforward torque is clamped to its joint's max_joint_torque, in every
+   * mode.
    *
    * In the passive modes (ZERO_TORQUE, JOINT_PD, GRAVITY_COMP, SAFETY), the
    * hold of WB_MPC, its weight compensation before a policy and the execution
@@ -534,7 +535,7 @@ class CentroidalMpcMrtJointController final
       ::robot::model::RobotJointAction& robotJointAction) const;
 
   /** `torque` clamped to the torque limit of MPC joint `mpcJoint` (|ff| <=
-   * torque_limit). Control thread. */
+   * max_joint_torque). Control thread. */
   scalar_t clampedMpcJointFeedforward(size_t mpcJoint, scalar_t torque) const;
 
   /**

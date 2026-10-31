@@ -41,7 +41,7 @@ namespace ocs2::humanoid::control_mode {
  * computed without the MPC, and the modes that execute the MPC policy.
  */
 // LINT.IfChange(control_mode_names)
-inline constexpr absl::string_view kZeroTorque = "ZERO_TORQUE";
+inline constexpr absl::string_view kZeroJointTorque = "ZERO_TORQUE";
 inline constexpr absl::string_view kJointPd = "JOINT_PD";
 inline constexpr absl::string_view kGravityComp = "GRAVITY_COMP";
 inline constexpr absl::string_view kSafety = "SAFETY";
@@ -54,7 +54,7 @@ inline constexpr absl::string_view kMpcActive = "MPC_ACTIVE";
 /** ZERO_TORQUE, JOINT_PD, GRAVITY_COMP or SAFETY: an action computed without
  * the MPC. */
 inline bool isPassive(absl::string_view mode) {
-  return mode == kZeroTorque || mode == kJointPd || mode == kGravityComp ||
+  return mode == kZeroJointTorque || mode == kJointPd || mode == kGravityComp ||
          mode == kSafety;
 }
 

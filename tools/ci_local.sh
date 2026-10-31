@@ -16,7 +16,7 @@ RUNNER_RESOURCES=(--cpus=4 --memory=16g --memory-swap=20g)
 CI_IMAGE="ubuntu:24.04"
 # LINT.ThenChange(//docker/Dockerfile:ubuntu_release, //.github/workflows/build_test.yml:container_image)
 
-echo "🚀 Running local CI emulator in the workflow's container (${CI_IMAGE})..."
+echo "Running local CI emulator in the workflow's container (${CI_IMAGE})..."
 
 rm -rf "${SCRIPT_DIR}/.bazel" "${SCRIPT_DIR}"/bazel-* 2>/dev/null || true
 
@@ -83,7 +83,7 @@ docker run --rm "${RUNNER_RESOURCES[@]}" "${CI_ENVIRONMENT[@]}" "${GITHUB_ENVIRO
     make lint-tidy
     # LINT.ThenChange(//.github/workflows/build_test.yml:lint_tidy, //.bazelrc:clang_tidy_config)
 
-    echo '✅ Local CI Verification Passed Successfully!'
+    echo 'Local CI Verification Passed Successfully!'
     rm -rf /workspace/.bazel /workspace/bazel-*
 "
 

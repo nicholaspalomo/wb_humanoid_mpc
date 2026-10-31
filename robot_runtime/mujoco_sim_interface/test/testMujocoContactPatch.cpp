@@ -131,9 +131,11 @@ TEST(MujocoContactPatch, DrawsSlabOutlineAndArrowAsDecorGeoms) {
   EXPECT_NEAR(slab.size[1], 0.05, kTol);
   EXPECT_GT(slab.size[2], 0.0);
   EXPECT_LT(slab.size[2], 0.01);
+  // NOLINTBEGIN(frame-naming): MuJoCo's mjvGeom::pos
   EXPECT_NEAR(slab.pos[0], 1.0, kTol);
   EXPECT_NEAR(slab.pos[1], 2.0, kTol);
   EXPECT_NEAR(slab.pos[2], 0.1 + slab.size[2], kTol)
+      // NOLINTEND(frame-naming)
       << "the slab rests on the contact surface";
   EXPECT_NEAR(slab.mat[0], 0.0, kTol);
   EXPECT_NEAR(slab.mat[3], 1.0, kTol);
@@ -150,9 +152,11 @@ TEST(MujocoContactPatch, DrawsSlabOutlineAndArrowAsDecorGeoms) {
     EXPECT_EQ(edge.type, mjGEOM_CAPSULE) << "edge " << i;
     const std::array<double, 3>& a = world[i];
     const std::array<double, 3>& b = world[(i + 1) % world.size()];
+    // NOLINTBEGIN(frame-naming): MuJoCo's mjvGeom::pos
     EXPECT_NEAR(edge.pos[0], 0.5 * (a[0] + b[0]), kTol) << "edge " << i;
     EXPECT_NEAR(edge.pos[1], 0.5 * (a[1] + b[1]), kTol) << "edge " << i;
     EXPECT_GT(edge.pos[2], 2.0 * slab.size[2] + 0.1) << "edge " << i;
+    // NOLINTEND(frame-naming)
     const double length = std::hypot(b[0] - a[0], b[1] - a[1]);
     EXPECT_NEAR(edge.size[2], 0.5 * length, kTol)
         << "edge " << i << " spans its two corners";

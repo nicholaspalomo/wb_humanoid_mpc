@@ -102,7 +102,7 @@ void configureZeroVelocityConstraint(
     const EndEffectorKinematicsTwistConstraint::Config& twistConfig) {
   EndEffectorKinematicsTwistConstraint& twist = constraint.getTwistConstraint();
   // A point contact has its three translation rows whatever the gains say.
-  const bool pose = gains.constrainOrientation &&
+  const bool pose = gains.constrainAttitude &&
                     constraint.getContactKind() ==
                         ZeroVelocityConstraintCppAd::ContactKind::kSurface;
   twist.setNumConstraints(pose ? kPoseTangentDim : kPositionDim);

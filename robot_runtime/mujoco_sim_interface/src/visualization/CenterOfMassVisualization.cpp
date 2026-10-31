@@ -52,12 +52,13 @@ void CenterOfMassVisualization::addSceneGeoms(const VisualizationFrame& frame) {
       .r = 0.2f, .g = 0.5f, .b = 1.0f, .a = 0.9f};  // blue
   constexpr MarkerColor kShadowColor{
       .r = 0.2f, .g = 0.5f, .b = 1.0f, .a = 0.5f};  // translucent blue
-  addSphereGeom(frame.scene, state.com, kCenterOfMassMarkerRadius,
-                kMarkerColor);
-  addVerticalLineGeom(frame.scene, state.com, /*groundHeight=*/0.0,
-                      kShadowLineWidth, kShadowColor);
-  addGroundDiscGeom(frame.scene, state.com[0], state.com[1],
-                    kCenterOfMassMarkerRadius, kShadowColor);
+  addSphereGeom(frame.scene, state.posComRtWorldEwrtWorld,
+                kCenterOfMassMarkerRadius, kMarkerColor);
+  addVerticalLineGeom(frame.scene, state.posComRtWorldEwrtWorld,
+                      /*groundHeight=*/0.0, kShadowLineWidth, kShadowColor);
+  addGroundDiscGeom(frame.scene, state.posComRtWorldEwrtWorld[0],
+                    state.posComRtWorldEwrtWorld[1], kCenterOfMassMarkerRadius,
+                    kShadowColor);
 }
 
 }  // namespace robot::mujoco_sim_interface

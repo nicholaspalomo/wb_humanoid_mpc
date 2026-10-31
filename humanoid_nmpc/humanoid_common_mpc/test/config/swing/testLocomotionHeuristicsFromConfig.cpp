@@ -308,15 +308,15 @@ TEST(LocomotionHeuristicsFromConfigTest,
             LocomotionHeuristicConfig{}.centripetalAcceleration.maximumForce);
   const absl::StatusOr<LocomotionHeuristicConfig> present = convertText(
       "capture_point { com_height_override: 0.9 }\ncentripetal_acceleration { "
-      "maximum_force: 40 }");
+      "max_force_com_ewrt_world_xy: 40 }");
   ASSERT_TRUE(present.ok()) << present.status();
   EXPECT_EQ(present->capturePoint.comHeightOverride, 0.9);
   EXPECT_EQ(present->centripetalAcceleration.maximumForce, 40.0);
   for (const absl::string_view text :
        {"capture_point { com_height_override: 0 }",
         "capture_point { com_height_override: -1 }",
-        "centripetal_acceleration { maximum_force: 0 }",
-        "centripetal_acceleration { maximum_force: -5 }"}) {
+        "centripetal_acceleration { max_force_com_ewrt_world_xy: 0 }",
+        "centripetal_acceleration { max_force_com_ewrt_world_xy: -5 }"}) {
     const absl::StatusOr<LocomotionHeuristicConfig> refused = convertText(text);
     EXPECT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument)
         << text;

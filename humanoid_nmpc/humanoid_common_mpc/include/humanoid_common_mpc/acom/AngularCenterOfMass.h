@@ -58,14 +58,14 @@ struct SirenLayerWeights {
  * orientation moves to xi_hat (x) Exp(dphi) and the joints to q_j + dq_j, the
  * attitude moves to xi_a (x) Exp(dphi_a) with, to first order,
  *
- *   dphi_a = baseOrientation * dphi + jointAngles * dq_j.
+ *   dphi_a = baseTangent * dphi + jointAngles * dq_j.
  *
  * Neither block depends on the base orientation, only on the joints.
  */
 struct AcomAttitudeTangentJacobian {
   /** R(Delta_theta)^T, 3 x 3: the adjoint that carries a body perturbation of
    * the base into the frame of the ACoM. */
-  matrix3_t baseOrientation;
+  matrix3_t baseTangent;
   /** J_r(Delta_theta) J_Delta_theta(q_j), 3 x n_j: the right Jacobian of SO(3)
    * times the network's joint Jacobian. */
   matrix_t jointAngles;
@@ -178,8 +178,8 @@ class AngularCenterOfMass {
    * any nonzero scale gives the same attitude.
    * @param qJoints  The network's joints, getInputDim() of them, in the order
    * of getJointNames().
-   * @return A unit quaternion for every |xi| above kQuaternionNormGuard, in the
-   * hemisphere of xi_hat: -xi gives -xi_a.
+   * @return A unit quaternion for every |xi| above kUnitQuaternionNormGuard, in
+   * the hemisphere of xi_hat: -xi gives -xi_a.
    */
   vector4_t acomAttitude(const vector4_t& xi, const vector_t& qJoints) const;
 

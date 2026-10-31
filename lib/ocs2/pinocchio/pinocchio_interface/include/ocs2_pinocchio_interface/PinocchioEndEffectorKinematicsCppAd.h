@@ -95,24 +95,26 @@ class PinocchioEndEffectorKinematicsCppAd final : public EndEffectorKinematics<s
 
   const std::vector<std::string>& getIds() const override;
 
-  std::vector<vector3_t> getPosition(const vector_t& state) const override;
-  std::vector<vector3_t> getVelocity(const vector_t& state, const vector_t& input) const override;
+  std::vector<vector3_t> getPosEesRtWorldEwrtWorld(const vector_t& state) const override;
+  std::vector<vector3_t> getLinvelEesRtWorldEwrtWorld(const vector_t& state, const vector_t& input) const override;
 
   // This function contains no linear approximation due to the non-minimal quaternion representation of SO(3)
   // Use getOrientationErrorWrtPlaneLinearApproximation if a linear approximation is needed.
-  std::vector<quaternion_t> getOrientation(const vector_t& state) const override;
+  std::vector<quaternion_t> getQuatEesRtWorld(const vector_t& state) const override;
+  // NOLINTNEXTLINE(frame-naming): the plane orientation error has no quantity word yet (TODO in EndEffectorKinematics.h)
   std::vector<vector3_t> getOrientationErrorWrtPlane(const vector_t& state, const std::vector<vector3_t>& planeNormals) const override;
-  std::vector<vector3_t> getAngularVelocity(const vector_t& state, const vector_t& input) const override;
-  std::vector<vector6_t> getTwist(const vector_t& state, const vector_t& input) const override;
+  std::vector<vector3_t> getAngvelEesRtWorldEwrtWorld(const vector_t& state, const vector_t& input) const override;
+  std::vector<vector6_t> getTwistEesRtWorldEwrtWorld(const vector_t& state, const vector_t& input) const override;
 
-  std::vector<VectorFunctionLinearApproximation> getPositionLinearApproximation(const vector_t& state) const override;
-  std::vector<VectorFunctionLinearApproximation> getVelocityLinearApproximation(const vector_t& state,
+  std::vector<VectorFunctionLinearApproximation> getLinearApproximationPosEesRtWorldEwrtWorld(const vector_t& state) const override;
+  std::vector<VectorFunctionLinearApproximation> getLinearApproximationLinvelEesRtWorldEwrtWorld(const vector_t& state,
                                                                                 const vector_t& input) const override;
+  // NOLINTNEXTLINE(frame-naming): the plane orientation error has no quantity word yet (TODO in EndEffectorKinematics.h)
   std::vector<VectorFunctionLinearApproximation> getOrientationErrorWrtPlaneLinearApproximation(
       const vector_t& state, const std::vector<vector3_t>& planeNormals) const override;
-  std::vector<VectorFunctionLinearApproximation> getAngularVelocityLinearApproximation(const vector_t& state,
+  std::vector<VectorFunctionLinearApproximation> getLinearApproximationAngvelEesRtWorldEwrtWorld(const vector_t& state,
                                                                                        const vector_t& input) const override;
-  std::vector<VectorFunctionLinearApproximation> getTwistLinearApproximation(const vector_t& state, const vector_t& input) const override;
+  std::vector<VectorFunctionLinearApproximation> getLinearApproximationTwistEesRtWorldEwrtWorld(const vector_t& state, const vector_t& input) const override;
 
  private:
   PinocchioEndEffectorKinematicsCppAd(const PinocchioEndEffectorKinematicsCppAd& rhs);

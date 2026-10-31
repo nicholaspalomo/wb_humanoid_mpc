@@ -124,7 +124,7 @@ vector3_t eulerZyxRatesForDisplay(const vector3_t& eulerZyx,
         kDisplayEulerRateMinCosPitch)) {
     return vector3_t::Constant(std::numeric_limits<scalar_t>::quiet_NaN());
   }
-  return eulerZyxRatesFromLocalAngularVelocity(eulerZyx, angularVelocityLocal);
+  return eulerZyxRatesFromBodyRates(eulerZyx, angularVelocityLocal);
 }
 
 RobotStateDecoder::RobotStateDecoder(
@@ -186,7 +186,7 @@ absl::Status RobotStateDecoder::decode(const msgs::RobotStateSample& sample,
       return status;
     }
   }
-  const msgs::Quaternion& orientation = sample.base_orientation_world;
+  const msgs::Quaternion& orientation = sample.quat_base_rt_world;
   // From the coefficients in Eigen's storage order (x, y, z, w), not its
   // scalar-first constructor.
   quaternion_t quaternion(
@@ -194,20 +194,20 @@ absl::Status RobotStateDecoder::decode(const msgs::RobotStateSample& sample,
   const scalar_t norm = quaternion.norm();
   if (!std::isfinite(norm) || std::abs(norm - 1.0) > kQuaternionNormTolerance) {
     return absl::InvalidArgumentError(
-        absl::StrCat("robot/state: base_orientation_world has the norm ", norm,
+        absl::StrCat("robot/state: quat_base_rt_world has the norm ", norm,
                      "; it must be a unit quaternion."));
   }
   quaternion.normalize();
   updateJointIndices(sample.joint_names);
 
   state->time = sample.time;
-  state->basePosition = toVector3(sample.base_position_world);
+  state->basePosition = toVector3(sample.pos_base_rt_world_ewrt_world);
   state->baseOrientation = quaternion;
   state->baseRotation = quaternion.toRotationMatrix();
   state->baseLinearVelocity =
-      state->baseRotation * toVector3(sample.base_linear_velocity_local);
+      state->baseRotation * toVector3(sample.linvel_base_rt_world_ewrt_base);
   state->baseAngularVelocityLocal =
-      toVector3(sample.base_angular_velocity_local);
+      toVector3(sample.angvel_base_rt_world_ewrt_base);
   state->baseAngularVelocity =
       state->baseRotation * state->baseAngularVelocityLocal;
   // The display values: the MPC's q below keeps the quaternion.
@@ -238,7 +238,7 @@ absl::Status RobotStateDecoder::decode(const msgs::RobotStateSample& sample,
       state->basePosition, orientationCoefficients, mpcJointPositions_,
       state->generalizedCoordinates);
   robotModel_->fillGeneralizedVelocitiesFromMeasurement(
-      orientationCoefficients, toVector3(sample.base_linear_velocity_local),
+      orientationCoefficients, toVector3(sample.linvel_base_rt_world_ewrt_base),
       state->baseAngularVelocityLocal, mpcJointVelocities_,
       state->generalizedVelocities);
 
@@ -271,11 +271,11 @@ absl::Status RobotStateDecoder::decode(const msgs::RobotStateSample& sample,
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
     vector6_t& wrench = state->measuredContactWrenches[contact];
     wrench.setZero();
-    if (contact < sample.measured_contact_wrenches.size()) {
+    if (contact < sample.meas_wrench_contacts_ewrt_world.size()) {
       wrench.head<kForceDim>() =
-          toVector3(sample.measured_contact_wrenches[contact].force);
+          toVector3(sample.meas_wrench_contacts_ewrt_world[contact].force);
       wrench.tail<kTorqueDim>() =
-          toVector3(sample.measured_contact_wrenches[contact].torque);
+          toVector3(sample.meas_wrench_contacts_ewrt_world[contact].torque);
     }
   }
   return absl::OkStatus();

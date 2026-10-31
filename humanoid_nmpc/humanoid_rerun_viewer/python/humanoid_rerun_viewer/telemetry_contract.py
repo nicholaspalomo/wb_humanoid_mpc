@@ -279,7 +279,7 @@ _BASE_EULER_RATE = (
 )
 _BASE_BODY_ANGULAR_VELOCITY = (
     "the body angular velocity w_B, in the base frame. measured: the sample's"
-    " base_angular_velocity_local; reference: the target trajectory's,"
+    " angvel_base_rt_world_ewrt_base; reference: the target trajectory's,"
     " Pinocchio's v[3:6], 0 where it carries no velocity"
 )
 _BASE_ANGULAR_VELOCITY = (

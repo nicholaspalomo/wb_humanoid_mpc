@@ -90,7 +90,7 @@ struct G1 {
                           .value()),
         description(robot::model::RobotDescription::Create(urdfFile).value()),
         state(description) {
-    state.setRootPositionInWorldFrame(Eigen::Vector3d(0.0, 0.0, kBaseHeight));
+    state.setPosBaseRtWorldEwrtWorld(Eigen::Vector3d(0.0, 0.0, kBaseHeight));
     for (size_t joint = 0; joint < description.getNumJoints(); ++joint) {
       state.setJointPosition(joint, 0.01 * static_cast<double>(joint));
     }

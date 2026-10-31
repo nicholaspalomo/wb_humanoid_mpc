@@ -162,8 +162,8 @@ struct FlowRowBlock {
  * so that each block is held to its own scale: on the whole body the joint
  * accelerations reach 64 against 0.6 for the quaternion's rates, which one
  * scale over the whole vector would hold to 1e-7 relative. The momentum blocks
- * (normalized_linear_momentum, normalized_angular_momentum) take
- * kMomentumRateTolerance, the others kFlowMapTolerance.
+ * (mnorm_linmom_com_rt_world_ewrt_world, mnorm_angmom_com_rt_world_ewrt_world)
+ * take kMomentumRateTolerance, the others kFlowMapTolerance.
  */
 std::vector<FlowRowBlock> flowRowBlocks(const MpcEquivalenceFixture& mpc,
                                         FlowCoordinates coordinates) {
@@ -177,8 +177,7 @@ std::vector<FlowRowBlock> flowRowBlocks(const MpcEquivalenceFixture& mpc,
         segment.kind == validation::EulerStateSegmentKind::kEulerZyxAngles;
     const Eigen::Index size =
         quaternionRows ? 4 : static_cast<Eigen::Index>(segment.dim);
-    const bool momentum = absl::StartsWith(segment.name, "normalized_") &&
-                          absl::EndsWith(segment.name, "_momentum");
+    const bool momentum = absl::StartsWith(segment.name, "mnorm_");
     if (momentum) momentumRows += size;
     blocks.push_back(
         FlowRowBlock{.start = start,
@@ -541,7 +540,8 @@ TurnedWorldCase pitchedCase(const MpcEquivalenceFixture& mpc,
   TurnedWorldCase pitched;
   pitched.turnedEulerState = mpc.randomEulerState(bounds, generator);
   const vector_t turned = mpc.quaternionStateOf(pitched.turnedEulerState);
-  const vector4_t turnedOrientation = mpc.model().getBaseOrientation(turned);
+  const vector4_t turnedOrientation =
+      mpc.model().getQuatBaseRtWorldXyzw(turned);
   std::uniform_real_distribution<scalar_t> angle(-M_PI, M_PI);
   // The orientation in the MPC's world: R_z(yaw) R_y(pitch) R_x(roll), exactly
   // at the requested pitch.
@@ -567,11 +567,12 @@ TEST_P(MpcDynamicsEquivalence,
   for (const scalar_t pitch : {0.5 * M_PI, -0.5 * M_PI, 0.5 * M_PI - 1.0e-4}) {
     SCOPED_TRACE(pitch);
     const TurnedWorldCase pitched = pitchedCase(mpc, pitch, generator);
-    ASSERT_NEAR(std::abs(std::asin(std::clamp(
-                    -quaternionRotationMatrix(
-                        mpc.model().getBaseOrientation(pitched.state))(2, 0),
-                    -1.0, 1.0))),
-                std::abs(pitch), 1.0e-6)
+    ASSERT_NEAR(
+        std::abs(std::asin(std::clamp(
+            -quaternionRotationMatrix(
+                mpc.model().getQuatBaseRtWorldXyzw(pitched.state))(2, 0),
+            -1.0, 1.0))),
+        std::abs(pitch), 1.0e-6)
         << "the case is not at the requested pitch";
     const vector3_t turnedGravity =
         quaternionRotationMatrix(pitched.worldRotation) *
@@ -665,8 +666,8 @@ TEST_P(MpcDynamicsEquivalence, AcrossAYawOfPiTheShootingIntervalIsTheSame) {
     const vector_t below = mpc.quaternionStateOf(eulerState);
     // The Euler yaw jumps by 2 pi; the two quaternions are each other's
     // negative, the same rotation.
-    ASSERT_LE((mpc.model().getBaseOrientation(above) +
-               mpc.model().getBaseOrientation(below))
+    ASSERT_LE((mpc.model().getQuatBaseRtWorldXyzw(above) +
+               mpc.model().getQuatBaseRtWorldXyzw(below))
                   .cwiseAbs()
                   .maxCoeff(),
               1.0e-15);
@@ -739,8 +740,7 @@ TEST_P(MpcDynamicsEquivalence,
       manifold.retract(end, offset, /*alpha=*/1.0, next);
       VectorFunctionLinearApproximation production = interval;
       manifold.pushForwardDynamics(state, next, production);
-      ASSERT_NEAR(manifold.getMaximumRotationAngle(production.f), angle,
-                  1.0e-12)
+      ASSERT_NEAR(manifold.getMaximumTangentAngle(production.f), angle, 1.0e-12)
           << "the gap's rotation is |b|";
 
       const std::function<vector_t(const vector_t&, const vector_t&)> gap =

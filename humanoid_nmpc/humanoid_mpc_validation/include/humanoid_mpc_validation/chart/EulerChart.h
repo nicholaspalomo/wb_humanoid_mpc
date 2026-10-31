@@ -77,7 +77,8 @@ enum class EulerStateSegmentKind {
 
 /** One block of an EulerStateLayout. Passive data. */
 struct EulerStateSegment {
-  /** The task file's name of the block (base_orientation, joint_positions,
+  /** The task file's name of the block (eulerzyx_base_rt_world,
+   * joint_positions,
    * ...), for messages and labels. */
   std::string name;
   EulerStateSegmentKind kind = EulerStateSegmentKind::kEuclidean;
@@ -101,12 +102,14 @@ struct EulerStateLayout {
  * The Euler state of the MPC `layout` describes: its tuning layout
  * (tuningLayoutOf()) block for block, the kEulerZyxOrientation block as
  * kEulerZyxAngles and the kZyxOrderedAngularVelocity block as kEulerZyxRates:
- *   centroidal   normalized_linear_momentum (3), normalized_angular_momentum
- * (3), base_position (3), base_orientation (3, angles), joint_positions (n)
- *   whole body   base_position (3), base_orientation (3, angles),
- * joint_positions (n), base_linear_velocity (3), base_angular_velocity (3,
- * rates), joint_velocities (n) testEulerChart pins the blocks against
- * stateValuesFromConfig(), which places the task file's values.
+ *   centroidal   mnorm_linmom_com_rt_world_ewrt_world (3),
+ * mnorm_angmom_com_rt_world_ewrt_world (3), pos_base_rt_world_ewrt_world (3),
+ * eulerzyx_base_rt_world (3, angles), joint_positions (n) whole body
+ * pos_base_rt_world_ewrt_world (3), eulerzyx_base_rt_world (3, angles),
+ * joint_positions (n), linvel_base_rt_world_ewrt_world (3),
+ * angvel_base_rt_world_ewrt_base (3, rates), joint_velocities (n)
+ * testEulerChart pins the blocks against stateValuesFromConfig(), which places
+ * the task file's values.
  */
 EulerStateLayout eulerStateLayoutOf(const StateInputLayout& layout);
 
@@ -167,7 +170,7 @@ absl::StatusOr<matrix_t> physicalTangentJacobian(
  * d (T_B(Theta) dTheta) / d Theta at the angles `eulerZyx` and the rates
  * `eulerZyxRates` (3 x 3, columns yaw, pitch, roll): the coupling block of the
  * whole-body rates in eulerChartJacobian() and physicalTangentJacobian(). It is
- * EulerBoundary's localAngularVelocityEulerZyxJacobian(), bit for bit.
+ * EulerBoundary's bodyRateEulerZyxJacobian(), bit for bit.
  */
 matrix3_t localAngularVelocityEulerAngleDerivative(
     const vector3_t& eulerZyx, const vector3_t& eulerZyxRates);

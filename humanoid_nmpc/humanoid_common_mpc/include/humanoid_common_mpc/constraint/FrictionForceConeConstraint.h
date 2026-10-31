@@ -56,8 +56,8 @@ namespace ocs2::humanoid {
  * SCHEDULE GATED (the historical form, one row, active only while the mode
  * schedule calls the foot a stance foot):
  *
- *   frictionCoefficient * (Fz + gripperForce) - sqrt(Fx * Fx + Fy * Fy +
- * regularization) >= 0
+ *   frictionCoefficient * (Fz + gripForceContactEwrtSurfaceZ) - sqrt(Fx * Fx +
+ * Fy * Fy + regularization) >= 0
  *
  * The gripper force shifts the origin of the friction cone down in z-direction
  * by the amount of gripping force available. This makes it possible to produce
@@ -118,14 +118,14 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
   /**
    * frictionCoefficient: The coefficient of friction.
    * regularization: A positive number to regulize the friction constraint.
-   * refer to the FrictionForceConeConstraint documentation. gripperForce:
-   * Gripper force in normal direction. hessianDiagonalShift: The Hessian shift
-   * to assure a strictly-convex quadratic constraint approximation. It is
-   *   subtracted from the diagonal of the input Hessian and of the state
-   * Hessian, which is in the ambient state; the solver pulls the state Hessian
-   * back to the tangent, E^T H E, where the quaternion block's E (G(xi) / 2 at
-   * a unit xi, E^T E = I / 4) leaves a quarter of the shift on the three
-   * rotation rows.
+   * refer to the FrictionForceConeConstraint documentation.
+   * gripForceContactEwrtSurfaceZ: Gripper force in normal direction.
+   * hessianDiagonalShift: The Hessian shift to assure a strictly-convex
+   * quadratic constraint approximation. It is subtracted from the diagonal of
+   * the input Hessian and of the state Hessian, which is in the ambient state;
+   * the solver pulls the state Hessian back to the tangent, E^T H E, where the
+   * quaternion block's E (G(xi) / 2 at a unit xi, E^T E = I / 4) leaves a
+   * quarter of the shift on the three rotation rows.
    */
   struct Config {
     static constexpr scalar_t kDefaultFrictionCoefficient = 0.7;
@@ -137,11 +137,11 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
     explicit Config(
         scalar_t frictionCoefficientParam = kDefaultFrictionCoefficient,
         scalar_t regularizationParam = kDefaultRegularization,
-        scalar_t gripperForceParam = 0.0,
+        scalar_t gripForceContactEwrtSurfaceZ = 0.0,
         scalar_t hessianDiagonalShiftParam = kDefaultHessianDiagonalShift)
         : frictionCoefficient(frictionCoefficientParam),
           regularization(regularizationParam),
-          gripperForce(gripperForceParam),
+          gripForceContactEwrtSurfaceZ(gripForceContactEwrtSurfaceZ),
           hessianDiagonalShift(hessianDiagonalShiftParam) {
       ABSL_CHECK_GT(frictionCoefficient, 0.0)
           << "FrictionForceConeConstraint: frictionCoefficient must be "
@@ -155,7 +155,7 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
 
     scalar_t frictionCoefficient;
     scalar_t regularization;
-    scalar_t gripperForce;
+    scalar_t gripForceContactEwrtSurfaceZ;
     scalar_t hessianDiagonalShift;
   };
 
@@ -171,8 +171,8 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
    * pinned its wrench to zero. When false - the contact-implicit formulation,
    * which removes `zero_wrench` - the cone is enforced at every node, in the
    * exact two-row form of the class comment, whose boundary passes through the
-   * zero force; `gripperForce` is dropped as well, because a foot in flight has
-   * no adhesion to offer. See
+   * zero force; `gripForceContactEwrtSurfaceZ` is dropped as well, because a
+   * foot in flight has no adhesion to offer. See
    * humanoid_nmpc/docs/contact_implicit_mpc/README.md.
    */
   FrictionForceConeConstraint(
@@ -202,8 +202,8 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
    * under BasisInputsModelDecorator, and pinning it is what keeps the cone's
    * Jacobian tied to the parameterization actually in use.
    */
-  const matrix_t& getContactForceInputJacobian() const {
-    return contactForceInputJacobian_;
+  const matrix_t& getInputJacobianForceContactEwrtParam() const {
+    return inputJacobianForceContactEwrtParam_;
   }
 
   ~FrictionForceConeConstraint() override = default;
@@ -268,17 +268,17 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
   };
 
   FrictionForceConeConstraint(const FrictionForceConeConstraint& rhs);
-  vector_t coneConstraint(const vector3_t& localForces) const;
+  vector_t coneConstraint(const vector3_t& forceContactEwrtSurface) const;
   /** The rotation p_R_w of the patch the contact touches at `time`
    * (SwitchedModelReferenceManager::getContactPatchFrame()). */
-  matrix3_t worldToPatchRotation(scalar_t time) const;
-  LocalForceDerivatives computeLocalForceDerivatives(
+  matrix3_t getRotmatWorldRtSurface(scalar_t time) const;
+  LocalForceDerivatives computeInputJacobianForceContactEwrtSurface(
       const matrix3_t& t_R_w) const;
   ConeLocalDerivatives computeConeLocalDerivatives(
-      const vector3_t& localForces) const;
+      const vector3_t& forceContactEwrtSurface) const;
   ConeDerivatives computeConeConstraintDerivatives(
       const ConeLocalDerivatives& coneLocalDerivatives,
-      const LocalForceDerivatives& localForceDerivatives) const;
+      const LocalForceDerivatives& inputJacobianForceContactEwrtSurface) const;
 
   matrix_t frictionConeInputDerivative(
       size_t inputDim, const ConeDerivatives& coneDerivatives) const;
@@ -302,10 +302,10 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
   // * lambda`, so that 3x3 write lands on the first three scalings and is wrong
   // in every entry: getValue() evaluated the cone on `B_local * lambda` while
   // the solver was handed the Jacobian of a different function. See
-  // contactForceInputJacobian().
+  // inputJacobianForceContactEwrtParam().
   const size_t contactInputStart_;
   const size_t contactInputDim_;
-  const matrix_t contactForceInputJacobian_;  // 3 x contactInputDim_
+  const matrix_t inputJacobianForceContactEwrtParam_;  // 3 x contactInputDim_
 
   bool isActive_ = true;
   // Fixed by the formulation at load time rather than tuned, so it is const and

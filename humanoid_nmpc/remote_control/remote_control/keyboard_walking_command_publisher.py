@@ -33,7 +33,7 @@
 
 Hold a key to command: the arrow keys walk (up/down forward and back, left/right sideways), `a` and `d` turn, `w` and
 `s` raise and lower the pelvis height target by 1 cm per tick, which starts at the reference file's
-default_base_height. Releasing every key stops the robot. Publishes operator/walking_velocity_command as the `teleop`
+nom_pos_base_rt_world_ewrt_world_z. Releasing every key stops the robot. Publishes operator/walking_velocity_command as the `teleop`
 node at the topic's 25 Hz; Ctrl-C ends it, sends the stop command (zero velocities, the pelvis height kept), since the
 MPC keeps the last command it received, and restores the terminal.
 
@@ -159,10 +159,10 @@ class KeyboardCommand:
 
     def command(self) -> walking_velocity_command_pb2.WalkingVelocityCommand:
         return operator_bus.walking_velocity_command(
-            linear_velocity_x=self.x_vel,
-            linear_velocity_y=self.y_vel,
-            angular_velocity_z=self.yaw_vel,
-            desired_pelvis_height=self.pelvis_height,
+            cmd_linvel_base_rt_world_ewrt_heading_x=self.x_vel,
+            cmd_linvel_base_rt_world_ewrt_heading_y=self.y_vel,
+            cmd_angvel_base_rt_world_ewrt_world_z=self.yaw_vel,
+            cmd_pos_base_rt_world_ewrt_world_z=self.pelvis_height,
         )
 
     def status_line(self) -> str:

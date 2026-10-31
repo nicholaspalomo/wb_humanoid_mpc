@@ -58,10 +58,10 @@ constexpr size_t kStateDim = 6;  // [position(3), rotation vector(3)]
 constexpr size_t kInputDim = 6;  // [linear velocity(3), angular velocity(3)]
 constexpr scalar_t kTol = 1.0e-9;
 
-matrix3_t rotationFromRotationVector(const vector3_t& rotationVector) {
-  const scalar_t angle = rotationVector.norm();
+matrix3_t rotationFromRotationVector(const vector3_t& rotvecEeRtWorld) {
+  const scalar_t angle = rotvecEeRtWorld.norm();
   if (angle < 1.0e-12) return matrix3_t::Identity();
-  return Eigen::AngleAxis<scalar_t>(angle, rotationVector / angle)
+  return Eigen::AngleAxis<scalar_t>(angle, rotvecEeRtWorld / angle)
       .toRotationMatrix();
 }
 
@@ -82,48 +82,53 @@ class AnalyticEndEffectorKinematics final
   }
   const std::vector<std::string>& getIds() const override { return ids_; }
 
-  static vector3_t positionOf(const vector_t& state) { return state.head<3>(); }
-  static matrix3_t rotationOf(const vector_t& state) {
+  static vector3_t getPosEeRtWorldEwrtWorld(const vector_t& state) {
+    return state.head<3>();
+  }
+  static matrix3_t getRotmatEeRtWorld(const vector_t& state) {
     return rotationFromRotationVector(state.segment<3>(3));
   }
 
-  std::vector<vector3_t> getPosition(const vector_t& state) const override {
-    return {positionOf(state)};
-  }
-  std::vector<quaternion_t> getOrientation(
+  std::vector<vector3_t> getPosEesRtWorldEwrtWorld(
       const vector_t& state) const override {
-    return {quaternion_t(rotationOf(state))};
+    return {getPosEeRtWorldEwrtWorld(state)};
   }
-  std::vector<vector3_t> getVelocity(const vector_t& /*state*/,
-                                     const vector_t& input) const override {
+  std::vector<quaternion_t> getQuatEesRtWorld(
+      const vector_t& state) const override {
+    return {quaternion_t(getRotmatEeRtWorld(state))};
+  }
+  std::vector<vector3_t> getLinvelEesRtWorldEwrtWorld(
+      const vector_t& /*state*/, const vector_t& input) const override {
     return {input.head<3>()};
   }
-  std::vector<vector3_t> getAngularVelocity(
+  std::vector<vector3_t> getAngvelEesRtWorldEwrtWorld(
       const vector_t& /*state*/, const vector_t& input) const override {
     return {input.tail<3>()};
   }
-  std::vector<vector6_t> getTwist(const vector_t& /*state*/,
-                                  const vector_t& input) const override {
+  std::vector<vector6_t> getTwistEesRtWorldEwrtWorld(
+      const vector_t& /*state*/, const vector_t& input) const override {
     return {vector6_t(input)};
   }
 
   std::vector<vector3_t> getOrientationErrorWrtPlane(
       const vector_t& state,
       const std::vector<vector3_t>& planeNormals) const override {
-    return {rotationMatrixDistanceToPlane<scalar_t>(rotationOf(state),
+    return {rotationMatrixDistanceToPlane<scalar_t>(getRotmatEeRtWorld(state),
                                                     planeNormals.front())};
   }
 
-  std::vector<VectorFunctionLinearApproximation> getPositionLinearApproximation(
+  std::vector<VectorFunctionLinearApproximation>
+  getLinearApproximationPosEesRtWorldEwrtWorld(
       const vector_t& state) const override {
     VectorFunctionLinearApproximation approx;
-    approx.f = positionOf(state);
+    approx.f = getPosEeRtWorldEwrtWorld(state);
     approx.dfdx = matrix_t::Zero(3, state.size());
     approx.dfdx.leftCols(3).setIdentity();
     return {approx};
   }
 
-  std::vector<VectorFunctionLinearApproximation> getTwistLinearApproximation(
+  std::vector<VectorFunctionLinearApproximation>
+  getLinearApproximationTwistEesRtWorldEwrtWorld(
       const vector_t& state, const vector_t& input) const override {
     VectorFunctionLinearApproximation approx;
     approx.f = input;
@@ -132,7 +137,8 @@ class AnalyticEndEffectorKinematics final
     return {approx};
   }
 
-  std::vector<VectorFunctionLinearApproximation> getVelocityLinearApproximation(
+  std::vector<VectorFunctionLinearApproximation>
+  getLinearApproximationLinvelEesRtWorldEwrtWorld(
       const vector_t& state, const vector_t& input) const override {
     VectorFunctionLinearApproximation approx;
     approx.f = input.head<3>();
@@ -143,8 +149,8 @@ class AnalyticEndEffectorKinematics final
   }
 
   std::vector<VectorFunctionLinearApproximation>
-  getAngularVelocityLinearApproximation(const vector_t& state,
-                                        const vector_t& input) const override {
+  getLinearApproximationAngvelEesRtWorldEwrtWorld(
+      const vector_t& state, const vector_t& input) const override {
     VectorFunctionLinearApproximation approx;
     approx.f = input.tail<3>();
     approx.dfdx = matrix_t::Zero(3, state.size());
@@ -200,16 +206,17 @@ EndEffectorKinematicsTwistConstraint::Config makeFootConfig(
   return config;
 }
 
-vector_t makeState(const vector3_t& position, const vector3_t& rotationVector) {
+vector_t makeState(const vector3_t& posEeRtWorldEwrtWorld,
+                   const vector3_t& rotvecEeRtWorld) {
   vector_t state(kStateDim);
-  state << position, rotationVector;
+  state << posEeRtWorldEwrtWorld, rotvecEeRtWorld;
   return state;
 }
 
-vector_t makeInput(const vector3_t& linearVelocity,
-                   const vector3_t& angularVelocity) {
+vector_t makeInput(const vector3_t& linvelEeRtWorldEwrtWorld,
+                   const vector3_t& angvelEeRtWorldEwrtWorld) {
   vector_t input(kInputDim);
-  input << linearVelocity, angularVelocity;
+  input << linvelEeRtWorldEwrtWorld, angvelEeRtWorldEwrtWorld;
   return input;
 }
 
@@ -231,7 +238,8 @@ TEST_F(TwistConstraintTest, YawRateRowIsInactiveByDefault) {
   const vector_t state =
       makeState(vector3_t::Zero(), vector3_t(0.15, -0.2, 0.5));
   const vector3_t footNormal =
-      AnalyticEndEffectorKinematics::rotationOf(state) * vector3_t::UnitZ();
+      AnalyticEndEffectorKinematics::getRotmatEeRtWorld(state) *
+      vector3_t::UnitZ();
   const vector_t atRest = constraint.getValue(
       /*time=*/0.0, state, makeInput(vector3_t::Zero(), vector3_t::Zero()),
       PreComputation());
@@ -261,12 +269,13 @@ TEST_F(TwistConstraintTest, YawRateAboutTheContactNormalIsConstrained) {
       kinematics_, /*numConstraints=*/6, makeFootConfig());
   constraint.setConstrainYawRateAboutNormal(true);
 
-  for (const vector3_t& rotationVector :
+  for (const vector3_t& rotvecEeRtWorld :
        {vector3_t(0.0, 0.0, 0.0), vector3_t(0.0, 0.0, 0.8),
         vector3_t(0.15, -0.2, 0.5)}) {
-    const vector_t state = makeState(vector3_t::Zero(), rotationVector);
-    const matrix3_t rotation = AnalyticEndEffectorKinematics::rotationOf(state);
-    const vector3_t footNormal = rotation * vector3_t::UnitZ();
+    const vector_t state = makeState(vector3_t::Zero(), rotvecEeRtWorld);
+    const matrix3_t rotmatEeRtWorld =
+        AnalyticEndEffectorKinematics::getRotmatEeRtWorld(state);
+    const vector3_t footNormal = rotmatEeRtWorld * vector3_t::UnitZ();
 
     const vector_t atRest = constraint.getValue(
         /*time=*/0.0, state, makeInput(vector3_t::Zero(), vector3_t::Zero()),
@@ -287,10 +296,11 @@ TEST_F(TwistConstraintTest, AngularBlockOfTheJacobianHasFullRank) {
   EndEffectorKinematicsTwistConstraint constraint(
       kinematics_, /*numConstraints=*/6, makeFootConfig());
   constraint.setConstrainYawRateAboutNormal(true);
-  for (const vector3_t& rotationVector :
+  for (const vector3_t& rotvecEeRtWorld :
        {vector3_t(0.0, 0.0, 0.0), vector3_t(0.3, 0.1, -0.7),
         vector3_t(-0.4, 0.25, 1.2)}) {
-    const vector_t state = makeState(vector3_t(0.1, -0.2, 0.0), rotationVector);
+    const vector_t state =
+        makeState(vector3_t(0.1, -0.2, 0.0), rotvecEeRtWorld);
     const VectorFunctionLinearApproximation approx =
         constraint.getLinearApproximation(
             /*time=*/0.0, state,
@@ -527,7 +537,7 @@ TEST_F(TwistConstraintTest, GroundPlaneNormalIsRespected) {
 
   // Spinning about the slope normal is still detected.
   const vector3_t footNormal =
-      AnalyticEndEffectorKinematics::rotationOf(alignedState) *
+      AnalyticEndEffectorKinematics::getRotmatEeRtWorld(alignedState) *
       vector3_t::UnitZ();
   const vector_t spinning = constraint.getValue(
       /*time=*/0.0, alignedState,
@@ -538,7 +548,7 @@ TEST_F(TwistConstraintTest, GroundPlaneNormalIsRespected) {
 // ==================== The patch frame ====================
 
 /** The rotation vector of `rotation`. */
-vector3_t rotationVectorOf(const matrix3_t& rotation) {
+vector3_t rotationVectorFromMatrix(const matrix3_t& rotation) {
   const Eigen::AngleAxis<scalar_t> angleAxis(rotation);
   return angleAxis.angle() * angleAxis.axis();
 }
@@ -548,30 +558,33 @@ TEST_F(TwistConstraintTest, PatchFrameRowsAreTheWorldRowsOfTheRotatedFoot) {
   // constraint reads of the same foot carried by p_R_w: its position, its
   // orientation, its velocities and the patch's normal are all rotated, and
   // the patch normal is carried onto the world z axis.
-  const matrix3_t worldToPatch =
+  const matrix3_t rotmatWorldRtSurface =
       rotationFromRotationVector(vector3_t(0.25, -0.4, 0.3));
   EndEffectorKinematicsTwistConstraint::Config config = makeFootConfig();
   config.b(2) = -0.3;
   EndEffectorKinematicsTwistConstraint patched(kinematics_,
                                                /*numConstraints=*/6, config);
   patched.setConstrainYawRateAboutNormal(true);
-  patched.setWorldToPatchRotation(worldToPatch);
+  patched.setRotmatWorldRtSurface(rotmatWorldRtSurface);
   EndEffectorKinematicsTwistConstraint world(kinematics_,
                                              /*numConstraints=*/6, config);
   world.setConstrainYawRateAboutNormal(true);
 
-  const vector3_t position(0.1, -0.2, 0.35);
-  const vector3_t rotationVector(0.05, 0.1, -0.2);
-  const vector3_t linearVelocity(0.3, -0.1, 0.2);
-  const vector3_t angularVelocity(-0.2, 0.4, 0.1);
-  const vector_t state = makeState(position, rotationVector);
-  const vector_t input = makeInput(linearVelocity, angularVelocity);
-  const vector_t carriedState = makeState(
-      worldToPatch * position,
-      rotationVectorOf(worldToPatch *
-                       AnalyticEndEffectorKinematics::rotationOf(state)));
+  const vector3_t posEeRtWorldEwrtWorld(0.1, -0.2, 0.35);
+  const vector3_t rotvecEeRtWorld(0.05, 0.1, -0.2);
+  const vector3_t linvelEeRtWorldEwrtWorld(0.3, -0.1, 0.2);
+  const vector3_t angvelEeRtWorldEwrtWorld(-0.2, 0.4, 0.1);
+  const vector_t state = makeState(posEeRtWorldEwrtWorld, rotvecEeRtWorld);
+  const vector_t input =
+      makeInput(linvelEeRtWorldEwrtWorld, angvelEeRtWorldEwrtWorld);
+  const vector_t carriedState =
+      makeState(rotmatWorldRtSurface * posEeRtWorldEwrtWorld,
+                rotationVectorFromMatrix(
+                    rotmatWorldRtSurface *
+                    AnalyticEndEffectorKinematics::getRotmatEeRtWorld(state)));
   const vector_t carriedInput =
-      makeInput(worldToPatch * linearVelocity, worldToPatch * angularVelocity);
+      makeInput(rotmatWorldRtSurface * linvelEeRtWorldEwrtWorld,
+                rotmatWorldRtSurface * angvelEeRtWorldEwrtWorld);
 
   const vector_t value =
       patched.getValue(/*time=*/0.0, state, input, PreComputation());
@@ -589,17 +602,17 @@ TEST_F(TwistConstraintTest, PatchFrameRowsAreTheWorldRowsOfTheRotatedFoot) {
       world.getLinearApproximation(/*time=*/0.0, carriedState, carriedInput,
                                    PreComputation());
   EXPECT_TRUE(patchedLinear.f.isApprox(value, kTol));
-  matrix_t inputRotation = matrix_t::Zero(kInputDim, kInputDim);
-  inputRotation.topLeftCorner<3, 3>() = worldToPatch;
-  inputRotation.bottomRightCorner<3, 3>() = worldToPatch;
+  matrix_t inputFrameChange = matrix_t::Zero(kInputDim, kInputDim);
+  inputFrameChange.topLeftCorner<3, 3>() = rotmatWorldRtSurface;
+  inputFrameChange.bottomRightCorner<3, 3>() = rotmatWorldRtSurface;
   EXPECT_TRUE(
-      patchedLinear.dfdu.isApprox(worldLinear.dfdu * inputRotation, kTol));
+      patchedLinear.dfdu.isApprox(worldLinear.dfdu * inputFrameChange, kTol));
 }
 
 TEST_F(TwistConstraintTest, TheIdentityPatchIsTheWorldFrame) {
   EndEffectorKinematicsTwistConstraint patched(
       kinematics_, /*numConstraints=*/6, makeFootConfig());
-  patched.setWorldToPatchRotation(matrix3_t::Identity());
+  patched.setRotmatWorldRtSurface(matrix3_t::Identity());
   EndEffectorKinematicsTwistConstraint world(kinematics_, /*numConstraints=*/6,
                                              makeFootConfig());
   const vector_t state =
@@ -611,8 +624,8 @@ TEST_F(TwistConstraintTest, TheIdentityPatchIsTheWorldFrame) {
                                            PreComputation()),
                             kTol));
   // Cleared, it evaluates the world-frame rows again.
-  patched.clearWorldToPatchRotation();
-  EXPECT_FALSE(patched.getWorldToPatchRotation().has_value());
+  patched.clearRotmatWorldRtSurface();
+  EXPECT_FALSE(patched.getRotmatWorldRtSurface().has_value());
   EXPECT_EQ(patched.getValue(/*time=*/0.0, state, input, PreComputation()),
             world.getValue(/*time=*/0.0, state, input, PreComputation()));
 }

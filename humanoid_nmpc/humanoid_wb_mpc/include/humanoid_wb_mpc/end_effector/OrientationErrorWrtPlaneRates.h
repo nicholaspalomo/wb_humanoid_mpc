@@ -83,9 +83,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 namespace ocs2::humanoid {
 
-// The guard, kOrientationErrorWrtPlaneAntiParallelThreshold, and the half-angle
-// scaling of the rates, kQuaternionHalfAngleFactor (the orientation error is
-// half the rotation angle to first order, so its rate is half the angular
+// The guard, kPlaneNormalAntiParallelThreshold, and the half-angle
+// scaling of the rates, kUnitQuaternionHalfAngleFactor (the orientation error
+// is half the rotation angle to first order, so its rate is half the angular
 // velocity), are EndEffectorKinematicsTwistConstraint's, which falls back
 // alike.
 
@@ -127,7 +127,7 @@ struct PlaneTilt {
   /** a = v x n. */
   VECTOR3_T<SCALAR_T> axis;
   /** 1 + v.n; the anti-parallel guard applies below
-   * kOrientationErrorWrtPlaneAntiParallelThreshold. */
+   * kPlaneNormalAntiParallelThreshold. */
   SCALAR_T onePlusCosine = SCALAR_T(0.0);
   /** s = sqrt(2 (1 + v.n)) outside the guard; sqrt(2) inside it, where only the
    * fallback is selected. */
@@ -146,15 +146,14 @@ PlaneTilt<SCALAR_T> planeTiltOf(const MATRIX3_T<SCALAR_T>& rotation,
   tilt.onePlusCosine = SCALAR_T(1.0) + tilt.normal.dot(planeNormal);
   // The guard is applied before the square root and the divisions: the branch
   // selected away sees 1 + v.n = 1.
-  const SCALAR_T guarded =
-      ifLessThan(tilt.onePlusCosine,
-                 SCALAR_T(kOrientationErrorWrtPlaneAntiParallelThreshold),
-                 SCALAR_T(1.0), tilt.onePlusCosine);
+  const SCALAR_T guarded = ifLessThan(
+      tilt.onePlusCosine, SCALAR_T(kPlaneNormalAntiParallelThreshold),
+      SCALAR_T(1.0), tilt.onePlusCosine);
   tilt.root = sqrt(SCALAR_T(kSquaredRootPerOnePlusCosine) * guarded);
   return tilt;
 }
 
-/** `fallback` where 1 + v.n < kOrientationErrorWrtPlaneAntiParallelThreshold,
+/** `fallback` where 1 + v.n < kPlaneNormalAntiParallelThreshold,
  * `regular` elsewhere, entry by entry. */
 template <typename SCALAR_T>
 VECTOR3_T<SCALAR_T> selectOutsideAntiParallelGuard(
@@ -163,9 +162,9 @@ VECTOR3_T<SCALAR_T> selectOutsideAntiParallelGuard(
     const VECTOR3_T<SCALAR_T>& regular) {
   VECTOR3_T<SCALAR_T> selected;
   for (Eigen::Index i = 0; i < kRotationTangentDim; ++i) {
-    selected(i) = ifLessThan(
-        onePlusCosine, SCALAR_T(kOrientationErrorWrtPlaneAntiParallelThreshold),
-        fallback(i), regular(i));
+    selected(i) =
+        ifLessThan(onePlusCosine, SCALAR_T(kPlaneNormalAntiParallelThreshold),
+                   fallback(i), regular(i));
   }
   return selected;
 }
@@ -176,7 +175,7 @@ VECTOR3_T<SCALAR_T> selectOutsideAntiParallelGuard(
  * Returns de/dt + 1/2 n (v.w) of the file comment: the rate of the orientation
  * error with respect to the plane of the unit normal `planeNormal`, completed
  * along the normal by half the rotation rate about the end-effector normal; w /
- * 2 where 1 + v.n < kOrientationErrorWrtPlaneAntiParallelThreshold. `rotation`
+ * 2 where 1 + v.n < kPlaneNormalAntiParallelThreshold. `rotation`
  * maps the end-effector frame to the world frame and `angularVelocity` is the
  * end effector's, in the world frame.
  */
@@ -196,9 +195,9 @@ VECTOR3_T<SCALAR_T> orientationErrorWrtPlaneRate(
   const SCALAR_T normalSpinRate = tilt.normal.dot(angularVelocity);
   const VECTOR3_T<SCALAR_T> regular =
       tiltRate +
-      planeNormal * (SCALAR_T(kQuaternionHalfAngleFactor) * normalSpinRate);
+      planeNormal * (SCALAR_T(kUnitQuaternionHalfAngleFactor) * normalSpinRate);
   const VECTOR3_T<SCALAR_T> fallback =
-      angularVelocity * SCALAR_T(kQuaternionHalfAngleFactor);
+      angularVelocity * SCALAR_T(kUnitQuaternionHalfAngleFactor);
   return internal::selectOutsideAntiParallelGuard(tilt.onePlusCosine, fallback,
                                                   regular);
 }
@@ -206,7 +205,7 @@ VECTOR3_T<SCALAR_T> orientationErrorWrtPlaneRate(
 /**
  * Returns the time derivative of orientationErrorWrtPlaneRate() along the
  * motion, d2e/dt2 + 1/2 n (v.alpha) of the file comment; alpha / 2 where 1 +
- * v.n < kOrientationErrorWrtPlaneAntiParallelThreshold. `angularAcceleration`
+ * v.n < kPlaneNormalAntiParallelThreshold. `angularAcceleration`
  * is the time derivative of `angularVelocity`, in the world frame (the angular
  * part of Pinocchio's frame acceleration, LOCAL_WORLD_ALIGNED).
  */
@@ -239,10 +238,11 @@ VECTOR3_T<SCALAR_T> orientationErrorWrtPlaneAcceleration(
       tilt.root;
   const SCALAR_T normalSpinAcceleration = tilt.normal.dot(angularAcceleration);
   const VECTOR3_T<SCALAR_T> regular =
-      tiltAcceleration + planeNormal * (SCALAR_T(kQuaternionHalfAngleFactor) *
-                                        normalSpinAcceleration);
+      tiltAcceleration +
+      planeNormal *
+          (SCALAR_T(kUnitQuaternionHalfAngleFactor) * normalSpinAcceleration);
   const VECTOR3_T<SCALAR_T> fallback =
-      angularAcceleration * SCALAR_T(kQuaternionHalfAngleFactor);
+      angularAcceleration * SCALAR_T(kUnitQuaternionHalfAngleFactor);
   return internal::selectOutsideAntiParallelGuard(tilt.onePlusCosine, fallback,
                                                   regular);
 }

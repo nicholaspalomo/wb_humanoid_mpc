@@ -44,7 +44,7 @@ namespace ocs2::humanoid {
 namespace {
 
 constexpr std::array<absl::string_view, 4> kPassiveModes{
-    control_mode::kZeroTorque, control_mode::kJointPd,
+    control_mode::kZeroJointTorque, control_mode::kJointPd,
     control_mode::kGravityComp, control_mode::kSafety};
 constexpr std::array<absl::string_view, 2> kMpcModes{control_mode::kWbMpc,
                                                      control_mode::kMpcActive};
@@ -74,7 +74,7 @@ TEST(ControlMode, ANameTheFsmDoesNotPublishIsInNeitherFamily) {
 TEST(ControlMode, TheNamesAreTheOnesTheFsmPublishes) {
   // The strings on operator/fsm_command and robot/fsm_state
   // (humanoid_finite_state_machine.py ControlMode).
-  EXPECT_EQ(control_mode::kZeroTorque, "ZERO_TORQUE");
+  EXPECT_EQ(control_mode::kZeroJointTorque, "ZERO_TORQUE");
   EXPECT_EQ(control_mode::kJointPd, "JOINT_PD");
   EXPECT_EQ(control_mode::kGravityComp, "GRAVITY_COMP");
   EXPECT_EQ(control_mode::kSafety, "SAFETY");

@@ -340,9 +340,9 @@ def main(argv: list[str] | None = None) -> int:
         print("\n".join(summary(findings, arguments.root)))
     if findings:
         files = len({finding.path for finding in findings})
-        print(f"❌ clang-tidy: {len(findings)} findings in {files} files.")
+        print(f"clang-tidy: {len(findings)} findings in {files} files.")
         return 1
-    print("✅ clang-tidy: no findings.")
+    print("clang-tidy: no findings.")
     return 0
 
 

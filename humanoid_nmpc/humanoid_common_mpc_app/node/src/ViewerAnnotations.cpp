@@ -60,7 +60,7 @@ void targetContactPatchToProto(
       !std::isfinite(pose.height) || !std::isfinite(pose.yaw))
     return;
   humanoid_mpc_msgs::TargetContactPatch::Pose* absl_nonnull placement =
-      patch->mutable_pose();
+      patch->mutable_des_pose_foot_rt_world();
   placement->set_x(pose.position(0));
   placement->set_y(pose.position(1));
   placement->set_z(pose.height);
@@ -79,9 +79,12 @@ void fillViewerAnnotations(
                                 annotations->add_target_contact_patches());
     }
   }
-  annotations->set_scaled_velocity_x(scaledVelocityCommand.linear_velocity_x);
-  annotations->set_scaled_velocity_y(scaledVelocityCommand.linear_velocity_y);
-  annotations->set_scaled_yaw_rate(scaledVelocityCommand.angular_velocity_z);
+  annotations->set_scaled_cmd_linvel_base_rt_world_ewrt_heading_x(
+      scaledVelocityCommand.cmd_linvel_base_rt_world_ewrt_heading_x);
+  annotations->set_scaled_cmd_linvel_base_rt_world_ewrt_heading_y(
+      scaledVelocityCommand.cmd_linvel_base_rt_world_ewrt_heading_y);
+  annotations->set_scaled_cmd_angvel_base_rt_world_ewrt_world_z(
+      scaledVelocityCommand.cmd_angvel_base_rt_world_ewrt_world_z);
 }
 
 }  // namespace ocs2::humanoid::node

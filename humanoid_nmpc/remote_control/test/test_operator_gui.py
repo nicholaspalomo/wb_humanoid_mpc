@@ -102,11 +102,11 @@ class FakeApp:
 
     def center_velocity_sticks(self) -> None:
         self.sticks = operator_bus.walking_velocity_command(
-            0.0, 0.0, 0.0, self.sticks.desired_pelvis_height
+            0.0, 0.0, 0.0, self.sticks.cmd_pos_base_rt_world_ewrt_world_z
         )
 
     def slider_height(self) -> float:
-        return self.sticks.desired_pelvis_height
+        return self.sticks.cmd_pos_base_rt_world_ewrt_world_z
 
 
 def _as_app(app: FakeApp) -> base_velocity_controller_gui.App:
@@ -158,7 +158,7 @@ class TestOperatorGuiTick(unittest.TestCase):
         )
         gui.tick()
         self.assertEqual(
-            self._walking_commands()[-1].desired_pelvis_height, 0.6
+            self._walking_commands()[-1].cmd_pos_base_rt_world_ewrt_world_z, 0.6
         )
 
     def test_a_connected_controller_drives_the_command_and_the_sticks(self):
@@ -233,10 +233,10 @@ class TestOperatorGuiTick(unittest.TestCase):
         gui.tick()
         # The deflection must not stay: the on-screen sticks were centered.
         last = self._walking_commands()[-1]
-        self.assertEqual(last.linear_velocity_x, 0.0)
-        self.assertEqual(last.linear_velocity_y, 0.0)
-        self.assertEqual(last.angular_velocity_z, 0.0)
-        self.assertAlmostEqual(last.desired_pelvis_height, 0.8)
+        self.assertEqual(last.cmd_linvel_base_rt_world_ewrt_heading_x, 0.0)
+        self.assertEqual(last.cmd_linvel_base_rt_world_ewrt_heading_y, 0.0)
+        self.assertEqual(last.cmd_angvel_base_rt_world_ewrt_world_z, 0.0)
+        self.assertAlmostEqual(last.cmd_pos_base_rt_world_ewrt_world_z, 0.8)
 
     def test_a_controller_that_connects_starts_from_the_slider_height(self):
         controller_command = operator_bus.walking_velocity_command(
@@ -281,9 +281,9 @@ class TestOperatorGuiTick(unittest.TestCase):
         gui.tick()
         self.assertEqual(len(self._walking_commands()), 2)
         stop = self._walking_commands()[-1]
-        self.assertEqual(stop.linear_velocity_x, 0.0)
-        self.assertEqual(stop.linear_velocity_y, 0.0)
-        self.assertEqual(stop.angular_velocity_z, 0.0)
+        self.assertEqual(stop.cmd_linvel_base_rt_world_ewrt_heading_x, 0.0)
+        self.assertEqual(stop.cmd_linvel_base_rt_world_ewrt_heading_y, 0.0)
+        self.assertEqual(stop.cmd_angvel_base_rt_world_ewrt_world_z, 0.0)
         gui.tick()
         # Nothing more is published while unticked.
         self.assertEqual(len(self._walking_commands()), 2)
@@ -428,10 +428,11 @@ class TestTheWindowOnTheBus(unittest.TestCase):
             topics.OPERATOR_WALKING_VELOCITY_COMMAND
         )[-1]
         self.assertAlmostEqual(
-            command.linear_velocity_x, self.app.joystick_left.x_norm
+            command.cmd_linvel_base_rt_world_ewrt_heading_x,
+            self.app.joystick_left.x_norm,
         )
-        self.assertGreater(command.linear_velocity_x, 0.0)
-        self.assertGreater(command.desired_pelvis_height, 0.0)
+        self.assertGreater(command.cmd_linvel_base_rt_world_ewrt_heading_x, 0.0)
+        self.assertGreater(command.cmd_pos_base_rt_world_ewrt_world_z, 0.0)
 
     def test_the_mode_selector_and_the_gantry_checkbox_send_fsm_commands(self):
         self.app.fsm_mode_var.set("JOINT_PD")
@@ -489,14 +490,14 @@ class TestTheWindowOnTheBus(unittest.TestCase):
         tab._publish_to_topic()
         targets = self.bus.messages_on(topics.OPERATOR_JOINT_TARGETS)
         self.assertEqual(len(targets), 1)
-        self.assertEqual(set(targets[0].positions), set(tab.slider_rows))
+        self.assertEqual(set(targets[0].joint_positions), set(tab.slider_rows))
         for name, row in tab.slider_rows.items():
-            self.assertEqual(targets[0].positions[name], row.get_value())
+            self.assertEqual(targets[0].joint_positions[name], row.get_value())
 
 
 @operator_test_support.requires_display
 class TestTheDefaultPelvisHeightFollowsTheReferenceFile(unittest.TestCase):
-    """The height slider centers on the reference file's default_base_height, also after the file changed."""
+    """The height slider centers on the reference file's nom_pos_base_rt_world_ewrt_world_z, also after the file changed."""
 
     def setUp(self):
         directory = tempfile.mkdtemp()
@@ -520,12 +521,14 @@ class TestTheDefaultPelvisHeightFollowsTheReferenceFile(unittest.TestCase):
         self.app.set_default_pelvis_height(self.shipped)
 
     def _commanded_height(self) -> float:
-        return self.app.get_walking_command_msg().desired_pelvis_height
+        return (
+            self.app.get_walking_command_msg().cmd_pos_base_rt_world_ewrt_world_z
+        )
 
     def _save_default(self, height: float) -> None:
         tab = self.app.command_limits_tab
         assert tab.reference is not None
-        tab.reference.set("default_base_height", height)
+        tab.reference.set("nom_pos_base_rt_world_ewrt_world_z", height)
         self.assertTrue(tab.save())
 
     def test_a_saved_default_moves_the_next_command(self):
@@ -552,8 +555,8 @@ class TestTheDefaultPelvisHeightFollowsTheReferenceFile(unittest.TestCase):
         with open(self.reference_file, encoding="utf-8") as file:
             text = file.read()
         edited = text.replace(
-            f"default_base_height: {self.shipped:g}",
-            f"default_base_height: {self.shipped - 0.05:g}",
+            f"nom_pos_base_rt_world_ewrt_world_z: {self.shipped:g}",
+            f"nom_pos_base_rt_world_ewrt_world_z: {self.shipped - 0.05:g}",
         )
         self.assertNotEqual(edited, text, "the edit changed nothing")
         with open(self.reference_file, "w", encoding="utf-8") as file:

@@ -75,20 +75,21 @@ void KalmanStateEstimator::readJoints(const robot::model::RobotState& state) {
 }
 
 void KalmanStateEstimator::writeEstimate() {
-  estimated_.setRootPositionInWorldFrame(estimator_->basePosition());
-  estimated_.setRootLinearVelocityInLocalFrame(
-      estimated_.getRootRotationLocalToWorldFrame().inverse() *
-      estimator_->baseLinearVelocity());
+  estimated_.setPosBaseRtWorldEwrtWorld(estimator_->posBaseRtWorldEwrtWorld());
+  estimated_.setLinvelBaseRtWorldEwrtBase(
+      estimated_.getQuatBaseRtWorld().inverse() *
+      estimator_->linvelBaseRtWorldEwrtWorld());
 }
 
 void KalmanStateEstimator::reset(const robot::model::RobotState& measured) {
   readJoints(measured);
-  const quaternion_t orientation = measured.getRootRotationLocalToWorldFrame();
-  const vector3_t worldVelocity =
-      orientation * measured.getRootLinearVelocityInLocalFrame();
+  const quaternion_t quatBaseRtWorld = measured.getQuatBaseRtWorld();
+  const vector3_t linvelBaseRtWorldEwrtWorld =
+      quatBaseRtWorld * measured.getLinvelBaseRtWorldEwrtBase();
   if (!estimator_
-           ->reset(measured.getRootPositionInWorldFrame(), worldVelocity,
-                   orientation, jointPositions_, jointVelocities_)
+           ->reset(measured.getPosBaseRtWorldEwrtWorld(),
+                   linvelBaseRtWorldEwrtWorld, quatBaseRtWorld, jointPositions_,
+                   jointVelocities_)
            .ok()) {
     failedUpdates_.fetch_add(1, std::memory_order_relaxed);
   }
@@ -104,9 +105,9 @@ const robot::model::RobotState& KalmanStateEstimator::estimate(
   if (std::isfinite(dt) && dt > 0.0) {
     readJoints(measured);
     const absl::Status updated = estimator_->update(
-        dt, measured.getRootRotationLocalToWorldFrame(),
-        measured.getRootAngularVelocityInLocalFrame(),
-        measured.getImuLinearAccelerationInLocalFrame(), jointPositions_,
+        dt, measured.getQuatBaseRtWorld(),
+        measured.getAngvelBaseRtWorldEwrtBase(),
+        measured.getSpecforceBaseRtWorldEwrtBase(), jointPositions_,
         jointVelocities_, measured.getContactFlags());
     if (!updated.ok()) failedUpdates_.fetch_add(1, std::memory_order_relaxed);
     previousTime_ = measured.getTime();

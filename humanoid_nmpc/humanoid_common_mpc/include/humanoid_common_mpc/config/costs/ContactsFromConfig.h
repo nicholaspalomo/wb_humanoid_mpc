@@ -64,8 +64,8 @@ struct BasisRegularizationSettings {
 /**
  * The center point of contact `contactIndex` of `modelSettings`: its entry of
  * contacts.surface_pads (its translation and the rotation of its pad axes)
- * when it has one, otherwise offset by contacts.contact_frame_translation in
- * the parent's orientation.
+ * when it has one, otherwise offset by contacts.pos_contact_rt_link_ewrt_link
+ * in the parent's orientation.
  *
  * @return InvalidArgument when `contactIndex` is not a contact of
  * `modelSettings`, or naming a translation that is not finite or a pad axis

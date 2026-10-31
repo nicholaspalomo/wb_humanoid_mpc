@@ -49,8 +49,8 @@ CONE = "contacts.contact_wrench_cone_soft_constraint"
 CONE_GEOMETRY = (
     "friction_coefficient",
     "torsional_friction_coefficient",
-    "min_normal_force",
-    "gripper_force",
+    "min_force_contact_ewrt_contact_z",
+    "grip_force_contact_ewrt_contact_z",
     "num_basis_vectors",
 )
 BASIS_BLOCKS = (
@@ -141,7 +141,7 @@ class ContactAnnotationTest(unittest.TestCase):
             for path in (
                 "contacts.friction_force_cone_soft_constraint.friction_coefficient",
                 "contacts.contact_rectangle.x_max",
-                "contacts.contact_frame_translation.z",
+                "contacts.pos_contact_rt_link_ewrt_link.z",
             ):
                 with self.subTest(parameterization=parameterization, path=path):
                     self.assertIn("restart", labels[path])

@@ -129,12 +129,12 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
  public:
   /**
    * Builds the target trajectories of the filtered velocity command
-   * `velocityTarget` ([v_x, v_y, pelvis height, yaw rate]) for the solve over
+   * `velocityCommand` ([v_x, v_y, pelvis height, yaw rate]) for the solve over
    * [initTime, finalTime] from `initState`, the robot moving at
    * `measuredMotion` (its stride mean, getMeasuredPlanarMotion()).
    */
   using VelocityTargetToTargetTrajectories =
-      std::function<TargetTrajectories(const vector4_t& velocityTarget,
+      std::function<TargetTrajectories(const vector4_t& velocityCommand,
                                        scalar_t initTime,
                                        scalar_t finalTime,
                                        const vector_t& initState,
@@ -142,12 +142,12 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
 
   struct GaitModeStateConfig {
     std::string gaitCommand = "stance";
-    scalar_t minLinVelCmd;
-    scalar_t maxLinVelCmd;
-    scalar_t minAngVelCmd;
-    scalar_t maxAngVelCmd;
-    scalar_t linVelErrorThresh;
-    scalar_t angVelErrorThresh;
+    scalar_t cmdMinLinvelBaseRtWorldEwrtHeadingXy;
+    scalar_t cmdMaxLinvelBaseRtWorldEwrtHeadingXy;
+    scalar_t cmdMinAngvelBaseRtWorldEwrtWorldZ;
+    scalar_t cmdMaxAngvelBaseRtWorldEwrtWorldZ;
+    scalar_t maxErrLinvelBaseRtWorldEwrtHeadingXy;
+    scalar_t maxErrAngvelBaseRtWorldEwrtWorldZ;
   };
 
   /**
@@ -156,7 +156,7 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
    * `referenceSettings` (referenceSettingsFromConfig() of the robot's reference
    * file).
    *
-   * @param [in] velocityTargetToTargetTrajectories,
+   * @param [in] velocityCommandToTargetTrajectories,
    * switchedModelReferenceManagerPtr: as for the path form below.
    * @return gaitMapFromConfig()'s errors, InvalidArgument when the gait file
    * lacks a gait the velocity command selects (checkEveryGaitIsLoaded()), and
@@ -168,7 +168,7 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
       std::shared_ptr<SwitchedModelReferenceManager>
           switchedModelReferenceManagerPtr,
       const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-      VelocityTargetToTargetTrajectories velocityTargetToTargetTrajectories);
+      VelocityTargetToTargetTrajectories velocityCommandToTargetTrajectories);
 
   /**
    * The motion manager above of the gait file at `gaitFile` and the reference
@@ -180,10 +180,10 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
    * patterns.
    * @param [in] referenceFile: The file path containing the default references
    * and velocity limits.
-   * @param [in] velocityTargetToTargetTrajectories: A function which transforms
-   * the commanded velocities to TargetTrajectories. It runs every solve, right
-   * after the reference manager's own pre-solve hook, so a target calculator
-   *             behind it must build on
+   * @param [in] velocityCommandToTargetTrajectories: A function which
+   * transforms the commanded velocities to TargetTrajectories. It runs every
+   * solve, right after the reference manager's own pre-solve hook, so a target
+   * calculator behind it must build on
    * SwitchedModelReferenceManager::getAppliedTerrainHeight
    *             (TargetTrajectoriesCalculatorBase::setTerrainHeightSource): the
    * commanded base height then stands on the ground this solve applied, and
@@ -199,7 +199,7 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
       std::shared_ptr<SwitchedModelReferenceManager>
           switchedModelReferenceManagerPtr,
       const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-      VelocityTargetToTargetTrajectories velocityTargetToTargetTrajectories);
+      VelocityTargetToTargetTrajectories velocityCommandToTargetTrajectories);
 
   ProceduralMpcMotionManager(
       const ProceduralMpcMotionManager& mpcMotionManager) = delete;
@@ -233,11 +233,11 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
    * solver thread right before it: its input carries the measured joint
    * velocities (getJointVelocities() of its state and input; the centroidal MRT
    * writes them into the input), which the exact base twist of a centroidal
-   * state needs (MpcRobotModelBase::getBaseTwistInWorldFrame()). The runners
-   * call it for every solve: ipc::MpcServer through Hooks::preSolveObserver
-   * (MpcNodeRuntime wires it), and InProcessMpcLink through
-   * Config::solverObservationObserver. preSolverRun() uses it when its time and
-   * state are the solve's own, exactly; otherwise the motion before a
+   * state needs (MpcRobotModelBase::getTwistBaseRtWorldEwrtWorld()). The
+   * runners call it for every solve: ipc::MpcServer through
+   * Hooks::preSolveObserver (MpcNodeRuntime wires it), and InProcessMpcLink
+   * through Config::solverObservationObserver. preSolverRun() uses it when its
+   * time and state are the solve's own, exactly; otherwise the motion before a
    * (re)started history is taken as rest, with a warning.
    */
   void observe(const SystemObservation& observation);
@@ -344,15 +344,17 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
 
   /**
    * Acceleration limits of the velocity reference (reference.textproto
-   * `max_linear_acceleration` [m/s^2] and `max_angular_acceleration` [rad/s^2];
-   * 0 disables the limit, the default). The filtered joypad command is
-   * rate-limited toward its value at every solve, so a stick jump becomes a
-   * ramp the MPC target and the contact planner both follow: the planner then
-   * lengthens the steps progressively instead of answering a step change in the
-   * command. InvalidArgument, and the limits are kept, when either is NaN.
+   * `cmd_max_linacc_base_rt_world_ewrt_heading_xy` [m/s^2] and
+   * `cmd_max_angacc_base_rt_world_ewrt_world_z` [rad/s^2]; 0 disables the
+   * limit, the default). The filtered joypad command is rate-limited toward its
+   * value at every solve, so a stick jump becomes a ramp the MPC target and the
+   * contact planner both follow: the planner then lengthens the steps
+   * progressively instead of answering a step change in the command.
+   * InvalidArgument, and the limits are kept, when either is NaN.
    */
   absl::Status setVelocityCommandAccelerationLimits(
-      scalar_t maxLinearAcceleration, scalar_t maxAngularAcceleration);
+      scalar_t cmdMaxLinaccBaseRtWorldEwrtHeadingXy,
+      scalar_t cmdMaxAngaccBaseRtWorldEwrtWorldZ);
 
   /**
    * Applies the command limits, the command ramps and the command filter of
@@ -371,8 +373,12 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
    */
   absl::Status applyCommandLimits(const ReferenceSettings& settings);
 
-  scalar_t getMaxLinearAcceleration() const { return maxLinearAcceleration_; }
-  scalar_t getMaxAngularAcceleration() const { return maxAngularAcceleration_; }
+  scalar_t getCmdMaxLinaccBaseRtWorldEwrtHeadingXy() const {
+    return cmdMaxLinaccBaseRtWorldEwrtHeadingXy_;
+  }
+  scalar_t getCmdMaxAngaccBaseRtWorldEwrtWorldZ() const {
+    return cmdMaxAngaccBaseRtWorldEwrtWorldZ_;
+  }
   /** The rate-limited reference of the last solve, [v_x, v_y, pelvis height,
    * yaw rate]. */
   const vector4_t& getRampedVelocityCommand() const {
@@ -389,17 +395,19 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
   }
 
   /**
-   * Moves `current` toward `target` by at most maxLinearAcceleration * dt in
-   * the (v_x, v_y) plane (as a vector, so the direction of the change is
-   * preserved) and maxAngularAcceleration * dt in the yaw rate; the pelvis
-   * height passes through. A limit <= 0 lets that part jump to the target.
-   * Exposed for the unit test.
+   * Moves `current` toward `target` by at most
+   * cmdMaxLinaccBaseRtWorldEwrtHeadingXy * dt in the (v_x, v_y) plane (as a
+   * vector, so the direction of the change is preserved) and
+   * cmdMaxAngaccBaseRtWorldEwrtWorldZ * dt in the yaw rate; the pelvis height
+   * passes through. A limit <= 0 lets that part jump to the target. Exposed for
+   * the unit test.
    */
-  static vector4_t rateLimitVelocityCommand(const vector4_t& target,
-                                            const vector4_t& current,
-                                            scalar_t dt,
-                                            scalar_t maxLinearAcceleration,
-                                            scalar_t maxAngularAcceleration);
+  static vector4_t rateLimitVelocityCommand(
+      const vector4_t& target,
+      const vector4_t& current,
+      scalar_t dt,
+      scalar_t cmdMaxLinaccBaseRtWorldEwrtHeadingXy,
+      scalar_t cmdMaxAngaccBaseRtWorldEwrtWorldZ);
 
   /**
    * InvalidArgument naming `gaitFile` and the gait when `gaitMap` lacks a gait
@@ -441,18 +449,20 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
   std::shared_ptr<GaitSchedule> gaitSchedulePtr_;
   const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModelPtr_;
 
-  VelocityTargetToTargetTrajectories velocityTargetToTargetTrajectoriesFun_;
+  VelocityTargetToTargetTrajectories velocityCommandToTargetTrajectoriesFun_;
 
   std::map<std::string, ModeSequenceTemplate> gaitMap_;
 
   // For velocity control mode. The values before Create()'s
   // applyCommandLimits() replaces them.
-  std::atomic<scalar_t> maxDisplacementVelocityX_{
-      kInitialMaxDisplacementVelocityX};
-  std::atomic<scalar_t> maxDisplacementVelocityY_{
-      kInitialMaxDisplacementVelocityY};
-  std::atomic<scalar_t> maxDeltaPelvisHeight_{kInitialMaxDeltaPelvisHeight};
-  std::atomic<scalar_t> maxRotationVelocity_{kInitialMaxRotationVelocity};
+  std::atomic<scalar_t> cmdMaxLinvelBaseRtWorldEwrtHeadingX_{
+      kInitCmdMaxLinvelBaseRtWorldEwrtHeadingX};
+  std::atomic<scalar_t> cmdMaxLinvelBaseRtWorldEwrtHeadingY_{
+      kInitCmdMaxLinvelBaseRtWorldEwrtHeadingY};
+  std::atomic<scalar_t> cmdMaxErrPosBaseRtWorldEwrtWorldZ_{
+      kInitCmdMaxErrPosBaseRtWorldEwrtWorldZ};
+  std::atomic<scalar_t> cmdMaxAngvelBaseRtWorldEwrtWorldZ_{
+      kInitCmdMaxAngvelBaseRtWorldEwrtWorldZ};
 
   // The operator's command filtered on the solver time; off unless
   // reference.textproto sets a break frequency.
@@ -465,8 +475,8 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
 
   // Acceleration-limited velocity reference
   // (setVelocityCommandAccelerationLimits)
-  scalar_t maxLinearAcceleration_ = 0.0;   // [m/s^2] <= 0: off
-  scalar_t maxAngularAcceleration_ = 0.0;  // [rad/s^2] <= 0: off
+  scalar_t cmdMaxLinaccBaseRtWorldEwrtHeadingXy_ = 0.0;  // [m/s^2] <= 0: off
+  scalar_t cmdMaxAngaccBaseRtWorldEwrtWorldZ_ = 0.0;     // [rad/s^2] <= 0: off
   vector4_t rampedVelocityCommand_ = vector4_t::Zero();
   scalar_t lastRampTime_ = 0.0;
   bool rampInitialized_ = false;
@@ -494,7 +504,7 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
       std::shared_ptr<SwitchedModelReferenceManager>
           switchedModelReferenceManagerPtr,
       const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-      VelocityTargetToTargetTrajectories velocityTargetToTargetTrajectories);
+      VelocityTargetToTargetTrajectories velocityCommandToTargetTrajectories);
 
   /** [s] The cycle of the gait `gaitCommand` of the gait map (loaded by
    * Create()): its template's duration. */

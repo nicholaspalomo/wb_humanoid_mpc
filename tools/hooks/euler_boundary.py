@@ -42,14 +42,14 @@ accessors. This check keeps the Euler API out of the code that must not convert:
                   headers ROBOT_MODEL_HEADERS:
                     - an identifier that names the Euler API: one containing `EulerZyx`, `EulerAnglesZyx` or
                       `ZyxEulerAngles` in any capitalization (`EulerZYX`, `eulerZyxFromQuaternion`,
-                      `getBaseOrientationEulerZyx`, `getEulerAnglesZyxDerivativesFromGlobalAngularVelocity`, ...);
+                      `getEulerzyxBaseRtWorld`, `getEulerAnglesZyxDerivativesFromGlobalAngularVelocity`, ...);
                     - an #include of `RotationDerivativesTransforms.h` or `orientation/EulerBoundary.h`.
                   Comments and string literals are not read.
 
 The robot-model headers are the one place in scope that converts: their boundary lines carry `NOLINT(euler-boundary):
 Euler boundary accessor (design section 4.2)` where they name the Euler API (the EulerBoundary.h include and the
-`*EulerZyx` accessors). Any other finding is a conversion in the formulation: read the quaternion (`getBaseOrientation`), the heading
-(`getBaseHeading`) or the body angular velocity instead.
+`*EulerZyx` accessors). Any other finding is a conversion in the formulation: read the quaternion (`getQuatBaseRtWorldXyzw`), the heading
+(`getYawBaseRtWorld`) or the body angular velocity instead.
 
     python3 -m tools.hooks.lint_code --only euler-boundary
 """
@@ -183,8 +183,8 @@ CHECKS = [
             " section 4.2)."
         ),
         hint=(
-            "Read the quaternion (getBaseOrientation), the heading"
-            " (getBaseHeading) or the body angular velocity; convert to Euler"
+            "Read the quaternion (getQuatBaseRtWorldXyzw), the heading"
+            " (getYawBaseRtWorld) or the body angular velocity; convert to Euler"
             " angles only at a conversion point of the design's section 4.2."
         ),
     ),

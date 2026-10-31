@@ -89,7 +89,8 @@ constexpr int kStandingSolves = 20;
 constexpr int kWalkingSolves = 150;
 constexpr scalar_t kWalkingSpeed = 0.6;  // [m/s]
 constexpr scalar_t kCommandLimitX =
-    1.2;  // [m/s] the shipped reference file's max_displacement_velocity_x
+    1.2;  // [m/s] the shipped reference file's
+          // cmd_max_linvel_base_rt_world_ewrt_heading_x
 constexpr scalar_t kScale = 1.04;  // the factor of every real number of E
 constexpr scalar_t kTolerance = 1.0e-9;
 
@@ -219,12 +220,15 @@ void expectSameReferences(AtlasReferenceStack& reloaded,
       ASSERT_EQ(referenceA.has_value(), referenceB.has_value())
           << when << ", foot " << foot << ", t = " << query;
       if (!referenceA.has_value() || !referenceB.has_value()) continue;
-      EXPECT_LT((referenceA->position - referenceB->position).norm(),
+      EXPECT_LT((referenceA->desPosFootRtWorldEwrtWorld -
+                 referenceB->desPosFootRtWorldEwrtWorld)
+                    .norm(),
                 kTolerance)
           << when << ", foot " << foot << ", t = " << query;
-      EXPECT_LT(
-          (referenceA->linearVelocity - referenceB->linearVelocity).norm(),
-          kTolerance)
+      EXPECT_LT((referenceA->desLinvelFootRtWorldEwrtWorld -
+                 referenceB->desLinvelFootRtWorldEwrtWorld)
+                    .norm(),
+                kTolerance)
           << when << ", foot " << foot;
     }
   }

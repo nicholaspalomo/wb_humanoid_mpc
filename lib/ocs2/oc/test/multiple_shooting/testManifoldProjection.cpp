@@ -63,7 +63,7 @@ constexpr scalar_t kSecondOrderTolerance = 1e-6;
 class ManifoldProjectionTest : public ::testing::Test {
  protected:
   ManifoldProjectionTest() {
-    problem_.dynamicsPtr = std::make_unique<RigidBodyAttitudeDynamics>(/*withPosition=*/true);
+    problem_.dynamicsPtr = std::make_unique<RigidBodyAttitudeDynamics>(/*withTranslation=*/true);
     problem_.costPtr->add("cost", std::make_unique<manifold_test::TapedStateInputCost>());
     problem_.equalityConstraintPtr->add("equality", std::make_unique<manifold_test::TapedStateInputConstraint>());
     problem_.stateInequalityConstraintPtr->add("inequality", std::make_unique<manifold_test::TapedStateConstraint>());
@@ -132,7 +132,7 @@ class ManifoldProjectionTest : public ::testing::Test {
     return (a - b).cwiseAbs().maxCoeff();
   }
 
-  std::shared_ptr<const ProductStateManifold> manifold_ = RigidBodyAttitudeDynamics(/*withPosition=*/true).getStateManifold();
+  std::shared_ptr<const ProductStateManifold> manifold_ = RigidBodyAttitudeDynamics(/*withTranslation=*/true).getStateManifold();
   TargetTrajectories targets_ = TargetTrajectories({0.0}, {vector_t::Zero(10)}, {vector_t::Zero(6)});
   OptimalControlProblem problem_;
   DynamicsDiscretizer discretizer_ = selectDynamicsDiscretization(SensitivityIntegratorType::RK4);

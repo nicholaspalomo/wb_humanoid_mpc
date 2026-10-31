@@ -59,7 +59,7 @@ namespace ocs2::humanoid {
  * WHAT THE STATE CARRIES. hardware().getRobotState() is what the backend
  * measures: the joints, the contact flags, the base's orientation and angular
  * velocity (the IMU's on hardware), the IMU's linear acceleration
- * (RobotState::getImuLinearAccelerationInLocalFrame()), and the base's position
+ * (RobotState::getSpecforceBaseRtWorldEwrtBase()), and the base's position
  * and linear velocity, which a simulator knows and a robot does not: a hardware
  * backend reports its best guess (the initial pose, or a motion capture's), and
  * the task file's state_estimator replaces them for the controller (`kalman`).
@@ -122,8 +122,8 @@ class RobotBackend {
   /**
    * The forces the feet measure [N], in contact order (left, right): the force
    * each foot carries in the world frame, +z up while it stands
-   * (robot_state_sample.proto, measured_contact_wrenches); zero where the robot
-   * has no sensor. Realtime thread.
+   * (robot_state_sample.proto, meas_wrench_contacts_ewrt_world); zero where the
+   * robot has no sensor. Realtime thread.
    */
   virtual void readMeasuredContactForces(
       std::array<vector3_t, kNumContacts>& forces) = 0;

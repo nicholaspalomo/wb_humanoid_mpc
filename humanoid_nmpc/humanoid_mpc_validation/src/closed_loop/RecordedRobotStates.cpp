@@ -96,10 +96,10 @@ RobotStateRecord recordRobotState(
     const Eigen::Vector4d& guiCommand) {
   RobotStateRecord record;
   record.time = state.getTime();
-  record.basePosition = state.getRootPositionInWorldFrame();
-  record.baseQuaternion = state.getRootRotationLocalToWorldFrame().coeffs();
-  record.baseLinearVelocityLocal = state.getRootLinearVelocityInLocalFrame();
-  record.baseAngularVelocityLocal = state.getRootAngularVelocityInLocalFrame();
+  record.basePosition = state.getPosBaseRtWorldEwrtWorld();
+  record.baseQuaternion = state.getQuatBaseRtWorld().coeffs();
+  record.baseLinearVelocityLocal = state.getLinvelBaseRtWorldEwrtBase();
+  record.baseAngularVelocityLocal = state.getAngvelBaseRtWorldEwrtBase();
   const std::vector<robot::joint_index_t>& joints =
       description.getJointIndices();
   record.jointPositions.resize(static_cast<Eigen::Index>(joints.size()));
@@ -154,12 +154,12 @@ absl::StatusOr<robot::model::RobotState> toRobotState(
   robot::model::RobotState state(
       description, /*contactSize=*/RobotStateRecord::kNumRecordedContacts);
   state.setTime(record.time);
-  state.setRootPositionInWorldFrame(record.basePosition);
+  state.setPosBaseRtWorldEwrtWorld(record.basePosition);
   Eigen::Quaterniond rotation;
   rotation.coeffs() = record.baseQuaternion;
-  state.setRootRotationLocalToWorldFrame(rotation);
-  state.setRootLinearVelocityInLocalFrame(record.baseLinearVelocityLocal);
-  state.setRootAngularVelocityInLocalFrame(record.baseAngularVelocityLocal);
+  state.setQuatBaseRtWorld(rotation);
+  state.setLinvelBaseRtWorldEwrtBase(record.baseLinearVelocityLocal);
+  state.setAngvelBaseRtWorldEwrtBase(record.baseAngularVelocityLocal);
   for (size_t i = 0; i < jointNames.size(); ++i) {
     const robot::joint_index_t joint = description.getJointIndex(jointNames[i]);
     state.setJointPosition(joint,

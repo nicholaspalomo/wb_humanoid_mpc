@@ -1,7 +1,7 @@
 # Builds cpp-httplib without TLS and without zlib (the single_version_override in MODULE.bazel).
 #
 # The BCR overlay of cpp-httplib 0.46.0 links @boringssl//:ssl and @zlib, defines CPPHTTPLIB_OPENSSL_SUPPORT and
-# CPPHTTPLIB_ZLIB_SUPPORT for its own compile and turns on the parse_headers feature. boringssl would bring
+# CPPHTTPLIB_ZLIB_SUPPORT for its own compile and enables the parse_headers feature. boringssl would bring
 # google_benchmark and googletest 1.17.0.bcr.2 into the module graph, and minimal version selection would raise the
 # repository's googletest to that version. The MuJoCo web viewer serves plain HTTP and defines neither macro, so the
 # header needs neither library. The hunks below remove both deps, both local_defines and the parse_headers feature from

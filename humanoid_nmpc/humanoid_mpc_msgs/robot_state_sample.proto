@@ -19,10 +19,10 @@ message RobotStateSample {
   string control_mode = 2;
 
   // Root of the floating base.
-  Vector3 base_position_world = 3;
-  Quaternion base_orientation_world = 4;
-  Vector3 base_linear_velocity_local = 5;
-  Vector3 base_angular_velocity_local = 6;
+  Vector3 pos_base_rt_world_ewrt_world = 3;
+  Quaternion quat_base_rt_world = 4;
+  Vector3 linvel_base_rt_world_ewrt_base = 5;
+  Vector3 angvel_base_rt_world_ewrt_base = 6;
 
   // Every joint of the RobotDescription, by name; the arrays below are aligned with joint_names. Names are sent with
   // every sample because joint ids are not guaranteed to be ordered alike in two processes.
@@ -43,9 +43,9 @@ message RobotStateSample {
   // Measured contact state and foot wrenches (the simulator's force sensors; zero where the robot has none), in
   // contact order.
   repeated bool contact_flags = 16;
-  // LINT.IfChange(measured_contact_wrenches)
+  // LINT.IfChange(meas_wrench_contacts_ewrt_world)
   // In the world frame: the force each foot carries, the ground reaction less the foot's own weight and inertia, +z up
-  // while the foot stands, as the MPC's contact forces (mujoco_sim_interface footForceInWorldFrame()).
-  repeated Wrench measured_contact_wrenches = 17;
+  // while the foot stands, as the MPC's contact forces (mujoco_sim_interface computeMeasForceFootEwrtWorld()).
+  repeated Wrench meas_wrench_contacts_ewrt_world = 17;
   // LINT.ThenChange(//robot_runtime/mujoco_sim_interface/include/mujoco_sim_interface/MujocoUtils.h:foot_force_frame)
 }

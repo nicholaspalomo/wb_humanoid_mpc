@@ -46,7 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-/** Stretches closer to 1 than this change nothing worth a QP. */
+/** Stretches closer to 1 than this are skipped without solving a QP. */
 constexpr scalar_t kStretchTolerance = 1.0e-3;
 
 /**

@@ -208,9 +208,13 @@ class TestXBoxControllerInterface(unittest.TestCase):
         self.assertIsInstance(
             command, walking_velocity_command_pb2.WalkingVelocityCommand
         )
-        self.assertAlmostEqual(command.linear_velocity_x, 1.0)
-        self.assertEqual(command.linear_velocity_y, 0.0)
-        self.assertAlmostEqual(command.angular_velocity_z, -1.0)
+        self.assertAlmostEqual(
+            command.cmd_linvel_base_rt_world_ewrt_heading_x, 1.0
+        )
+        self.assertEqual(command.cmd_linvel_base_rt_world_ewrt_heading_y, 0.0)
+        self.assertAlmostEqual(
+            command.cmd_angvel_base_rt_world_ewrt_world_z, -1.0
+        )
 
     def test_a_bluetooth_controller_is_read_in_its_layout(self):
         joystick = FakeJoystick(
@@ -226,7 +230,9 @@ class TestXBoxControllerInterface(unittest.TestCase):
         self.assertTrue(controller.bluetooth_connection)
         _, command = controller.get_walking_command_msg()
         assert command is not None
-        self.assertAlmostEqual(command.angular_velocity_z, 1.0)
+        self.assertAlmostEqual(
+            command.cmd_angvel_base_rt_world_ewrt_world_z, 1.0
+        )
 
     def test_the_triggers_move_the_height_at_one_meter_per_second_within_its_range(
         self,
@@ -241,13 +247,14 @@ class TestXBoxControllerInterface(unittest.TestCase):
         _, command = controller.get_walking_command_msg()
         assert command is not None
         self.assertAlmostEqual(
-            command.desired_pelvis_height - start, 1.0 / RATE_HZ
+            command.cmd_pos_base_rt_world_ewrt_world_z - start, 1.0 / RATE_HZ
         )
         for _ in range(int(RATE_HZ) * 2):
             _, command = controller.get_walking_command_msg()
         assert command is not None
         self.assertEqual(
-            command.desired_pelvis_height, controller.max_pelvis_height
+            command.cmd_pos_base_rt_world_ewrt_world_z,
+            controller.max_pelvis_height,
         )
         joystick.axes[xbox_controller_interface.USB_LAYOUT.rt] = -1.0
         joystick.axes[xbox_controller_interface.USB_LAYOUT.lt] = 1.0
@@ -255,7 +262,8 @@ class TestXBoxControllerInterface(unittest.TestCase):
             _, command = controller.get_walking_command_msg()
         assert command is not None
         self.assertEqual(
-            command.desired_pelvis_height, controller.min_pelvis_height
+            command.cmd_pos_base_rt_world_ewrt_world_z,
+            controller.min_pelvis_height,
         )
 
     def test_initial_pelvis_height_sets_the_starting_target(self):
@@ -266,7 +274,9 @@ class TestXBoxControllerInterface(unittest.TestCase):
         )
         _, command = controller.get_walking_command_msg()
         assert command is not None
-        self.assertAlmostEqual(command.desired_pelvis_height, 0.7405)
+        self.assertAlmostEqual(
+            command.cmd_pos_base_rt_world_ewrt_world_z, 0.7405
+        )
 
     def test_a_controller_that_goes_away_is_marked_disconnected(self):
         backend = FakeBackend(FakeJoystick())
@@ -321,7 +331,9 @@ class TestGamepadPoller(unittest.TestCase):
         self.assertTrue(poller.connected)
         command = poller.tick()
         assert command is not None
-        self.assertAlmostEqual(command.linear_velocity_x, 1.0)
+        self.assertAlmostEqual(
+            command.cmd_linvel_base_rt_world_ewrt_heading_x, 1.0
+        )
 
     def test_the_periods_must_be_positive(self):
         controller = xbox_controller_interface.XBoxControllerInterface(
@@ -358,17 +370,19 @@ class TestXBoxWalkingCommandPublisher(unittest.TestCase):
         self.assertEqual(publisher.publish_count, 1)
         message = publisher.last_message
         assert message is not None
-        self.assertAlmostEqual(message.linear_velocity_y, 1.0)
+        self.assertAlmostEqual(
+            message.cmd_linvel_base_rt_world_ewrt_heading_y, 1.0
+        )
 
         backend.joystick = None
         node.tick()
         self.assertEqual(publisher.publish_count, 2)
         message = publisher.last_message
         assert message is not None
-        self.assertEqual(message.linear_velocity_x, 0.0)
-        self.assertEqual(message.linear_velocity_y, 0.0)
-        self.assertEqual(message.angular_velocity_z, 0.0)
-        self.assertAlmostEqual(message.desired_pelvis_height, 0.8)
+        self.assertEqual(message.cmd_linvel_base_rt_world_ewrt_heading_x, 0.0)
+        self.assertEqual(message.cmd_linvel_base_rt_world_ewrt_heading_y, 0.0)
+        self.assertEqual(message.cmd_angvel_base_rt_world_ewrt_world_z, 0.0)
+        self.assertAlmostEqual(message.cmd_pos_base_rt_world_ewrt_world_z, 0.8)
 
         # After stop_ticks, nothing more is published.
         for _ in range(node._stop_ticks):

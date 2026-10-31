@@ -164,16 +164,16 @@ class PlannedHeadingOverrideAcomTest : public ::testing::Test {
    * `eulerZyx` and the fixture's bent joints. */
   vector_t stateAt(const vector3_t& eulerZyx) const {
     vector_t state = model_->getNeutralState();
-    model_->setBasePosition(state, vector3_t(0.2, -0.1, 0.85));
-    model_->setBaseOrientationEulerZyx(state, eulerZyx);
+    model_->setPosBaseRtWorldEwrtWorld(state, vector3_t(0.2, -0.1, 0.85));
+    model_->setEulerzyxBaseRtWorld(state, eulerZyx);
     model_->setJointAngles(state, joints_);
     return state;
   }
 
   /** The twist heading of the ACoM attitude of `state`. */
   scalar_t acomHeadingOf(const vector_t& state) const {
-    return twistHeading(acom_->acomAttitude(model_->getBaseOrientation(state),
-                                            model_->getJointAngles(state)));
+    return yawOf(acom_->acomAttitude(model_->getQuatBaseRtWorldXyzw(state),
+                                     model_->getJointAngles(state)));
   }
 
   /** A fresh ACoM evaluator of the fixture's robot, for a manager to own; null
@@ -227,8 +227,7 @@ TEST_F(PlannedHeadingOverrideAcomTest,
        TheOffsetIsTheTwistOfTheJointRotationAndAddsToALevelBasesYaw) {
   const scalar_t offset = acomHeadingOffset(*acom_, joints_);
   const vector4_t identity(0.0, 0.0, 0.0, 1.0);
-  EXPECT_NEAR(offset, twistHeading(acom_->acomAttitude(identity, joints_)),
-              1.0e-15);
+  EXPECT_NEAR(offset, yawOf(acom_->acomAttitude(identity, joints_)), 1.0e-15);
   EXPECT_GT(std::abs(offset), 1.0e-3)
       << "the joints must turn the ACoM for this to tell the ACoM heading from "
          "the base's";
@@ -286,18 +285,18 @@ TEST_F(PlannedHeadingOverrideAcomTest,
         FAIL() << "the plan has no heading at knot " << knot;
       const scalar_t heading =
           (*slot != nullptr) ? acomHeadingOf(rewritten)
-                             : model_->getBaseOrientationEulerZyx(rewritten)(0);
+                             : model_->getEulerzyxBaseRtWorld(rewritten)(0);
       EXPECT_LT(std::abs(wrapped(heading - *planned)), 1.0e-12)
           << "knot " << knot << (*slot != nullptr ? " (ACoM)" : " (base)");
-      const vector3_t before = model_->getBaseOrientationEulerZyx(knots[knot]);
-      const vector3_t after = model_->getBaseOrientationEulerZyx(rewritten);
+      const vector3_t before = model_->getEulerzyxBaseRtWorld(knots[knot]);
+      const vector3_t after = model_->getEulerzyxBaseRtWorld(rewritten);
       EXPECT_LT((vector2_t(after.tail<2>()) - vector2_t(before.tail<2>()))
                     .cwiseAbs()
                     .maxCoeff(),
                 1.0e-12)
           << "knot " << knot << ": the override changed the pitch or the roll";
-      EXPECT_EQ(model_->getBasePosition(rewritten),
-                model_->getBasePosition(knots[knot]))
+      EXPECT_EQ(model_->getPosBaseRtWorldEwrtWorld(rewritten),
+                model_->getPosBaseRtWorldEwrtWorld(knots[knot]))
           << "knot " << knot;
       EXPECT_EQ(model_->getJointAngles(rewritten),
                 model_->getJointAngles(knots[knot]))
@@ -322,7 +321,7 @@ TEST_F(PlannedHeadingOverrideAcomTest, ATiltedKnotKeepsItsPitchAndRoll) {
       {vector_t::Zero(static_cast<Eigen::Index>(model_->getInputDim()))});
   PlannedHeadingOverride(*model_, &acom_).overrideTarget(context, target);
   const vector3_t after =
-      model_->getBaseOrientationEulerZyx(target.stateTrajectory.front());
+      model_->getEulerzyxBaseRtWorld(target.stateTrajectory.front());
   EXPECT_LT((vector2_t(after.tail<2>()) - vector2_t(0.12, -0.07))
                 .cwiseAbs()
                 .maxCoeff(),
@@ -343,7 +342,7 @@ TEST_F(PlannedHeadingOverrideAcomTest,
       headingReferenceManager();
   ASSERT_NE(manager, nullptr);
   const vector_t state = stateAt(vector3_t(3.5, 0.15, -0.1));
-  EXPECT_EQ(manager->computeHeading(state), model_->getBaseHeading(state))
+  EXPECT_EQ(manager->computeHeading(state), model_->getYawBaseRtWorld(state))
       << "without an evaluator";
 
   manager->setAngularCenterOfMass(makeAcom());
@@ -351,7 +350,8 @@ TEST_F(PlannedHeadingOverrideAcomTest,
   EXPECT_EQ(heading, acomHeadingOf(state));
   EXPECT_GT(heading, -std::numbers::pi);
   EXPECT_LE(heading, std::numbers::pi);
-  EXPECT_GT(std::abs(wrapped(heading - model_->getBaseHeading(state))), 1.0e-3)
+  EXPECT_GT(std::abs(wrapped(heading - model_->getYawBaseRtWorld(state))),
+            1.0e-3)
       << "the ACoM heading must differ from the base's here";
   EXPECT_EQ(
       manager->makePlannerInput(/*initTime=*/0.0, state, vector2_t::Zero())
@@ -390,8 +390,8 @@ TEST_F(
     // Pitched up by exactly 90 degrees about the body y axis of a base at yaw
     // 0.8: the twist heading is finite.
     vector_t vertical = stateAt(vector3_t(0.8, 0.0, 0.0));
-    model_->setBaseOrientation(
-        vertical, quaternionProduct(model_->getBaseOrientation(vertical),
+    model_->setQuatBaseRtWorldXyzw(
+        vertical, quaternionProduct(model_->getQuatBaseRtWorldXyzw(vertical),
                                     quaternionExp(vector3_t(
                                         0.0, 0.5 * std::numbers::pi, 0.0))));
     const scalar_t verticalHeading = manager->computeHeading(vertical);
@@ -409,8 +409,8 @@ TEST_F(
   }
   manager->setAngularCenterOfMass(nullptr);
   EXPECT_EQ(manager->computeHeading(stateAt(vector3_t(0.8, 0.0, 0.0))),
-            model_->getBaseHeading(stateAt(vector3_t(0.8, 0.0, 0.0))));
-  EXPECT_NEAR(model_->getBaseHeading(stateAt(vector3_t(0.8, 0.0, 0.0))), 0.8,
+            model_->getYawBaseRtWorld(stateAt(vector3_t(0.8, 0.0, 0.0))));
+  EXPECT_NEAR(model_->getYawBaseRtWorld(stateAt(vector3_t(0.8, 0.0, 0.0))), 0.8,
               1.0e-12);
 }
 

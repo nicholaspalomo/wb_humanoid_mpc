@@ -388,7 +388,7 @@ scalar_t largestFirstStepRotation(const MpcEquivalenceFixture& mpc,
   scalar_t largest = 0.0;
   for (const vector_t& state : first.solution.stateTrajectory_) {
     largest = std::max(
-        largest, mpc.manifold().getMaximumRotationAngle(
+        largest, mpc.manifold().getMaximumTangentAngle(
                      mpc.manifold().difference(resting.warmStartState, state)));
   }
   return largest;

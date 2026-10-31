@@ -80,8 +80,9 @@ bool isReadByFormulation(absl::Span<const std::string> formulations,
 /** A field of a configuration file's schema that holds values (no message),
  * with the tuning options in effect for it. */
 struct ConfigLeaf {
-  // The path from the file message: "state_weights.base_position.x", and "[*]"
-  // after a repeated block for every element of it
+  // The path from the file message:
+  // "state_weights.pos_base_rt_world_ewrt_world.x", and "[*]" after a repeated
+  // block for every element of it
   // ("task_space_costs[*].weights.pos_x"), as remote_control/config_schema.py
   // writes it.
   std::string path;

@@ -184,15 +184,15 @@ hlip {
   blend {
     sharpness: 40  # rho_1
     threshold: 0.02  # rho_2
-    max_commanded_velocity_x: 0.7  # [m/s]
-    max_commanded_velocity_y: 0.3  # [m/s]
-    max_commanded_yaw_rate: 0.61  # [rad/s] (35 deg/s)
+    cmd_max_linvel_base_rt_world_ewrt_heading_x: 0.7  # [m/s]
+    cmd_max_linvel_base_rt_world_ewrt_heading_y: 0.3  # [m/s]
+    cmd_max_angvel_base_rt_world_ewrt_world_z: 0.61  # [rad/s] (35 deg/s)
     # The measured velocity phi is normalized by. The paper writes v_b for the base velocity; what the planner
     # actually measures and feeds the blend is the CENTER-OF-MASS velocity, so the keys are named for that.
     # Laterally it is the velocity beyond the zero-command stepping orbit's own sway (0.132 m/s on the model's
     # pendulum) that counts.
-    max_com_velocity_x: 0.5  # [m/s]
-    max_com_velocity_y: 0.4  # [m/s]
+    max_linvel_com_rt_world_ewrt_heading_x: 0.5  # [m/s]
+    max_linvel_com_rt_world_ewrt_heading_y: 0.4  # [m/s]
   }
   # LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.textproto:lateral_velocity_limit)
 }
@@ -319,7 +319,7 @@ foothold_regularization {
 # and from rest it favors the short quick steps that accelerate the pendulum fastest. This term draws every swing to
 # the displacement a cyclic gait at the commanded speed needs, d_nom = v_cmd * dt * T_stride / T_swing at the nominal
 # cadence of the gait limits (T_swing = min_swing_duration, T_stride = 2 (min_swing_duration + min_double_support_duration)),
-# and a standing foot to stay put. With the acceleration limit of reference.textproto (max_linear_acceleration) the steps
+# and a standing foot to stay put. With the acceleration limit of reference.textproto (cmd_max_linacc_base_rt_world_ewrt_heading_xy) the steps
 # then lengthen progressively with the ramped command.
 step_length {
   weight: 20  # ||dp_swing - d_nom||^2 per running node and foot
@@ -395,7 +395,7 @@ phase_resetting {
                                              # early_touchdown_min_contact_duration or the debounce alone defeats it. 0 = off.
   max_late_touchdown_extension: 0.15  # [s] total extension budget of a swing past its planned touch-down
   late_touchdown_extension_step: 0.05  # [s] the touch-down is pushed this far ahead of the current time per cycle
-  late_touchdown_search_velocity: 0.05  # [m/s] descent rate of the foot height target while searching for the ground
+  late_touchdown_search_speed_foot_rt_world: 0.05  # [m/s] descent rate of the foot height target while searching for the ground
 }
 # The DCM step adjustment and the cadence modulation measure the deviation of the measured CoM from the NMPC's own
 # predicted trajectory, so they act only on real disturbances and are zero while the robot does what the controller

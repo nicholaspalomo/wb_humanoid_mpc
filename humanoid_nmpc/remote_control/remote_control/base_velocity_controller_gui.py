@@ -117,7 +117,7 @@ class App(tk.Tk):
 
     Attributes:
         default_pelvis_height: The pelvis height the height slider centers on [m]: the reference file's
-            default_base_height, followed when the file changes (poll_reference_file()), or the command line's.
+            nom_pos_base_rt_world_ewrt_world_z, followed when the file changes (poll_reference_file()), or the command line's.
         follows_reference_file_default: Whether a change of the reference file moves default_pelvis_height; False once
             the command line set it (--default_pelvis_height).
     """
@@ -258,11 +258,11 @@ class App(tk.Tk):
 
         # Tab 1: Base Controller
         tab_base = ttk.Frame(self.notebook)
-        self.notebook.add(tab_base, text="🕹️ Base Controller")
+        self.notebook.add(tab_base, text="Base Controller")
 
         # Tab 2: Joint PD Gains
         tab_pd = ttk.Frame(self.notebook)
-        self.notebook.add(tab_pd, text="⚙️ Joint PD Gains")
+        self.notebook.add(tab_pd, text="Joint PD Gains")
         self.joint_pd_tab = joint_pd_tab.JointPdGainsTab(
             tab_pd,
             pd_gains_file=self.pd_gains_file,
@@ -274,7 +274,7 @@ class App(tk.Tk):
 
         # Tab 3: MPC Parameters
         tab_mpc = ttk.Frame(self.notebook)
-        self.notebook.add(tab_mpc, text="📈 MPC Parameters")
+        self.notebook.add(tab_mpc, text="MPC Parameters")
         self.mpc_params_tab = mpc_params_tab.MpcParamsTab(
             tab_mpc,
             task_file=self.task_file,
@@ -293,7 +293,7 @@ class App(tk.Tk):
 
         # Tab 4: Joint Targets (for JOINT_PD mode)
         tab_targets = ttk.Frame(self.notebook)
-        self.notebook.add(tab_targets, text="🎯 Joint Targets")
+        self.notebook.add(tab_targets, text="Joint Targets")
         self.joint_targets_tab = joint_targets_tab.JointTargetsTab(
             tab_targets,
             pd_gains_file=self.pd_gains_file,
@@ -307,13 +307,13 @@ class App(tk.Tk):
         # the parameter updater of the running MPC, of either formulation, watches it and reloads the command limits
         # about a second later. Save also sends the file to the robot's store.
         tab_limits = ttk.Frame(self.notebook)
-        self.notebook.add(tab_limits, text="🎚️ Command Limits")
+        self.notebook.add(tab_limits, text="Command Limits")
         self.command_limits_tab = command_limits_tab.CommandLimitsTab(
             tab_limits,
             reference_file=self.reference_file,
             enable_online_tuning=self.enable_online_tuning,
             robot_saver=robot_saver,
-            # The tab's Save may move default_base_height, which the height slider centers on.
+            # The tab's Save may move nom_pos_base_rt_world_ewrt_world_z, which the height slider centers on.
             on_saved=self.poll_reference_file,
         )
         self.command_limits_tab.pack(fill="both", expand=True)
@@ -325,7 +325,7 @@ class App(tk.Tk):
         # Tab 6: Dodgeball. A disturbance generator for push-recovery testing: the throw is computed here and applied
         # by the MuJoCo simulator, so the tab does nothing on hardware or against the dummy sim.
         tab_dodgeball = ttk.Frame(self.notebook)
-        self.notebook.add(tab_dodgeball, text="🏐 Dodgeball")
+        self.notebook.add(tab_dodgeball, text="Dodgeball")
         self.dodgeball_tab = dodgeball_tab.DodgeballTab(
             tab_dodgeball, throw_publisher=self.dodgeball_publisher
         )
@@ -432,7 +432,7 @@ class App(tk.Tk):
 
         self.gantry_touch_btn = ttk.Button(
             control_frame,
-            text="👇 Touch Ground",
+            text="Touch Ground",
             command=self._on_gantry_touch,
         )
         self.gantry_touch_btn.pack(side="left", padx=5)
@@ -474,7 +474,7 @@ class App(tk.Tk):
         # Starts a Rerun bridge of its own, which opens a native Rerun viewer on the GUI's port (rerun_viewer.py).
         self.rerun_viewer_btn = ttk.Button(
             control_frame,
-            text="📊 Open Rerun viewer",
+            text="Open Rerun viewer",
             command=self._open_rerun_viewer,
         )
         if self.rerun_viewer is None:
@@ -719,7 +719,7 @@ class App(tk.Tk):
         )
 
     def poll_reference_file(self) -> None:
-        """Follows the reference file's default_base_height when the file changed since the last call.
+        """Follows the reference file's nom_pos_base_rt_world_ewrt_world_z when the file changed since the last call.
 
         A change - the Command Limits tab's Save, an editor's, push_robot_config's file - moves the default pelvis height
         to the file's (move_default_pelvis_height()), unless the command line set it; a file that names none or cannot
@@ -747,11 +747,15 @@ class App(tk.Tk):
         self, msg: walking_velocity_command_pb2.WalkingVelocityCommand
     ) -> None:
         self.joystick_left.set_position(
-            msg.linear_velocity_x, msg.linear_velocity_y
+            msg.cmd_linvel_base_rt_world_ewrt_heading_x,
+            msg.cmd_linvel_base_rt_world_ewrt_heading_y,
         )
-        self.joystick_right.set_position(0.0, msg.angular_velocity_z)
+        self.joystick_right.set_position(
+            0.0, msg.cmd_angvel_base_rt_world_ewrt_world_z
+        )
         self.slider.set(
-            (msg.desired_pelvis_height - self.min_height) / self.height_scale
+            (msg.cmd_pos_base_rt_world_ewrt_world_z - self.min_height)
+            / self.height_scale
         )
 
     def get_walking_command_msg(
@@ -759,10 +763,11 @@ class App(tk.Tk):
     ) -> walking_velocity_command_pb2.WalkingVelocityCommand:
         """The command of the on-screen sticks and the height slider."""
         return operator_bus.walking_velocity_command(
-            linear_velocity_x=self.joystick_left.x_norm,
-            linear_velocity_y=self.joystick_left.y_norm,
-            angular_velocity_z=self.joystick_right.y_norm,
-            desired_pelvis_height=self.slider.get() * self.height_scale
+            cmd_linvel_base_rt_world_ewrt_heading_x=self.joystick_left.x_norm,
+            cmd_linvel_base_rt_world_ewrt_heading_y=self.joystick_left.y_norm,
+            cmd_angvel_base_rt_world_ewrt_world_z=self.joystick_right.y_norm,
+            cmd_pos_base_rt_world_ewrt_world_z=self.slider.get()
+            * self.height_scale
             + self.min_height,
         )
 
@@ -1023,7 +1028,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "the height slider's default [m] (default: the reference file's"
-            " default_base_height)"
+            " nom_pos_base_rt_world_ewrt_world_z)"
         ),
     )
     parser.add_argument(

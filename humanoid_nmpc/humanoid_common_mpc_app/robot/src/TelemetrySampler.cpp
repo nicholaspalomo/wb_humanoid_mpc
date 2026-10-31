@@ -52,7 +52,7 @@ msgs::RobotStateSample TelemetrySampler::prototype(
   sample.joint_kd = Eigen::VectorXd::Zero(numJoints);
   sample.joint_feed_forward_efforts = Eigen::VectorXd::Zero(numJoints);
   sample.contact_flags.assign(kNumContacts, false);
-  sample.measured_contact_wrenches.assign(kNumContacts, msgs::Wrench());
+  sample.meas_wrench_contacts_ewrt_world.assign(kNumContacts, msgs::Wrench());
   return sample;
 }
 
@@ -78,25 +78,22 @@ bool TelemetrySampler::sample(
     // Every control mode name fits std::string's small-string buffer, so this
     // copies without allocating.
     slot.control_mode.assign(controlMode.data(), controlMode.size());
-    const vector3_t position = robotState.getRootPositionInWorldFrame();
-    slot.base_position_world = {
+    const vector3_t position = robotState.getPosBaseRtWorldEwrtWorld();
+    slot.pos_base_rt_world_ewrt_world = {
         .x = position.x(), .y = position.y(), .z = position.z()};
-    const quaternion_t orientation =
-        robotState.getRootRotationLocalToWorldFrame();
-    slot.base_orientation_world = {.w = orientation.w(),
-                                   .x = orientation.x(),
-                                   .y = orientation.y(),
-                                   .z = orientation.z()};
-    const vector3_t linearVelocity =
-        robotState.getRootLinearVelocityInLocalFrame();
-    slot.base_linear_velocity_local = {.x = linearVelocity.x(),
-                                       .y = linearVelocity.y(),
-                                       .z = linearVelocity.z()};
-    const vector3_t angularVelocity =
-        robotState.getRootAngularVelocityInLocalFrame();
-    slot.base_angular_velocity_local = {.x = angularVelocity.x(),
-                                        .y = angularVelocity.y(),
-                                        .z = angularVelocity.z()};
+    const quaternion_t orientation = robotState.getQuatBaseRtWorld();
+    slot.quat_base_rt_world = {.w = orientation.w(),
+                               .x = orientation.x(),
+                               .y = orientation.y(),
+                               .z = orientation.z()};
+    const vector3_t linearVelocity = robotState.getLinvelBaseRtWorldEwrtBase();
+    slot.linvel_base_rt_world_ewrt_base = {.x = linearVelocity.x(),
+                                           .y = linearVelocity.y(),
+                                           .z = linearVelocity.z()};
+    const vector3_t angularVelocity = robotState.getAngvelBaseRtWorldEwrtBase();
+    slot.angvel_base_rt_world_ewrt_base = {.x = angularVelocity.x(),
+                                           .y = angularVelocity.y(),
+                                           .z = angularVelocity.z()};
     for (size_t joint = 0; joint < numJoints_; ++joint) {
       const Eigen::Index row = static_cast<Eigen::Index>(joint);
       const std::optional<robot::model::JointAction>& action =
@@ -122,7 +119,7 @@ bool TelemetrySampler::sample(
     }
     for (size_t contact = 0; contact < kNumContacts; ++contact) {
       slot.contact_flags[contact] = measuredContactFlags[contact];
-      msgs::Wrench& wrench = slot.measured_contact_wrenches[contact];
+      msgs::Wrench& wrench = slot.meas_wrench_contacts_ewrt_world[contact];
       wrench.force = {.x = measuredContactForces[contact].x(),
                       .y = measuredContactForces[contact].y(),
                       .z = measuredContactForces[contact].z()};

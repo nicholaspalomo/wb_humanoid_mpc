@@ -7,8 +7,8 @@
 # 0.055 m below the ankle. The leg is therefore 0.8561 m from base_link to the sole fully extended, and the sole is a
 # 0.27 x 0.10 m rectangle. Total mass 33.11 kg.
 
-target_displacement_velocity: 0.5
-target_rotation_velocity: 0.5
+ref_speed_base_rt_world: 0.5
+ref_rate_yaw_base_rt_world: 0.5
 
 # Joystick command limits. These are deliberately below what the leg could deliver: SA01 has not been tuned in
 # simulation yet, and the gait schedule (no contact planner - contact_schedule_source is gait_schedule in task.textproto) fixes
@@ -18,22 +18,22 @@ target_rotation_velocity: 0.5
 # These three are the joypad range contact_planning.textproto hlip.blend.max_commanded_* normalizes by, and the sidestep the
 # H-LIP orbit has to absorb (ContactPlanningConfig::warnings() checks it against hlip.step_width / min_step_width).
 # LINT.IfChange(sa01_command_ranges)
-max_displacement_velocity_x: 0.8
+cmd_max_linvel_base_rt_world_ewrt_heading_x: 0.8
 # Sideways travel is bounded by geometry rather than by the leg: with an alternating gait each foot must move
 # v_y * T_stride per stride, and the feet may not come closer than the 0.15 m hip spacing plus a sole width. At the
 # 0.7 s stride of the default walk, 0.2 m/s already swings the foot separation through 0.14 m.
-max_displacement_velocity_y: 0.2
+cmd_max_linvel_base_rt_world_ewrt_heading_y: 0.2
 # The crouch has 0.043 m of extension left above it and roughly 0.16 m of travel below it before the knee passes
 # 1.2 rad, so the operator gets a symmetric 0.15 m about the nominal height rather than the 0.3 - 0.4 m the taller
 # robots allow.
-max_delta_pelvis_height: 0.15
-max_rotation_velocity: 1.0
+cmd_max_err_pos_base_rt_world_ewrt_world_z: 0.15
+cmd_max_angvel_base_rt_world_ewrt_world_z: 1.0
 # LINT.ThenChange(//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/contact_planning.textproto:sa01_hlip_step_bounds)
 # Acceleration limits of the velocity reference the MPC target follows (0 = off, an unramped reference). A stick jump
 # becomes a ramp, so the steps lengthen progressively instead of answering a step change in the command with short
 # quick steps.
-max_linear_acceleration: 1.0  # [m/s^2] 0 to 0.8 m/s in 0.8 s, about one stride
-max_angular_acceleration: 2.0  # [rad/s^2]
+cmd_max_linacc_base_rt_world_ewrt_heading_xy: 1.0  # [m/s^2] 0 to 0.8 m/s in 0.8 s, about one stride
+cmd_max_angacc_base_rt_world_ewrt_world_z: 2.0  # [rad/s^2]
 # First-order low-pass filter on the operator's velocity command, run on the solver time ahead of the acceleration
 # ramps: break frequency f_c [Hz], time constant 1 / (2 pi f_c). 0 switches it off and the command passes through
 # unchanged, which is what every robot has effectively run so far: the "5 Hz" filter this key replaces never updated
@@ -46,7 +46,7 @@ target_joint_state_interpolation_time_constant: 2.0
 # Base height above the sole in the nominal standing pose below. Measured with MuJoCo on zq_sa01.xml: the sole sits
 # 0.8561 m below base_link with every joint at zero, and the crouch below lowers it by 0.0426 m (5.0%, matching the
 # 5.2% crouch Atlas stands at).
-default_base_height: 0.8135
+nom_pos_base_rt_world_ewrt_world_z: 0.8135
 
 # The nominal standing crouch. The three sagittal angles of each leg sum to zero, so the sole stays parallel to the
 # ground, and the split between them is chosen so that the center of mass falls 4 mm behind the center of the support

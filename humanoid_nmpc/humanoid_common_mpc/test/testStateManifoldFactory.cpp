@@ -69,9 +69,9 @@ StateInputLayout layoutOf(StateInputLayout::Mpc mpc) {
  * A state of `layout` (placed with a quaternion) with distinct entries from
  * `first` on and the unit quaternion `xi` in its orientation block.
  */
-vector_t stateWithOrientation(const TuningLayout& layout,
-                              scalar_t first,
-                              const vector4_t& xi) {
+vector_t stateWithAttitude(const TuningLayout& layout,
+                           scalar_t first,
+                           const vector4_t& xi) {
   vector_t state = vector_t::LinSpaced(
       static_cast<Eigen::Index>(getTuningLayoutStateDim(layout)), first,
       first + 2.2);
@@ -116,9 +116,9 @@ TEST(StateManifoldFactory, AQuaternionLayoutIsTheProductOfItsBlocks) {
     const absl::StatusOr<std::shared_ptr<const ProductStateManifold>>
         reference = ProductStateManifold::create(expected.second);
     ASSERT_TRUE(reference.ok()) << reference.status();
-    const vector_t x0 = stateWithOrientation(
+    const vector_t x0 = stateWithAttitude(
         layout, /*first=*/0.1, vector4_t(0.1, -0.2, 0.3, 0.9).normalized());
-    const vector_t x1 = stateWithOrientation(
+    const vector_t x1 = stateWithAttitude(
         layout, /*first=*/0.35, vector4_t(-0.3, 0.1, 0.2, 0.8).normalized());
     const vector_t delta = (*manifold)->difference(x0, x1);
     EXPECT_EQ(delta, (*reference)->difference(x0, x1));
@@ -154,29 +154,29 @@ TEST(StateManifoldFactory, ALayoutThatDoesNotDescribeTheStateIsRefused) {
   // An orientation placed by hand on another number of state rows than the
   // quaternion's 4, the blocks after it moved to follow on: the 3 of its Euler
   // angles and 5.
-  const std::vector<size_t> malformedOrientationRows = {3, 5};
-  for (const size_t orientationRows : malformedOrientationRows) {
+  const std::vector<size_t> malformedOrientationSlotCounts = {3, 5};
+  for (const size_t orientationSlotCount : malformedOrientationSlotCounts) {
     TuningLayout malformed = placed;
     size_t stateStart = 0;
     for (TuningSegment& segment : malformed.segments) {
       segment.stateStart = stateStart;
       if (segment.kind == TuningSegmentKind::kEulerZyxOrientation)
-        segment.stateDim = orientationRows;
+        segment.stateDim = orientationSlotCount;
       stateStart += segment.stateDim;
     }
     const absl::StatusOr<std::shared_ptr<const StateManifold>>
-        wrongOrientation =
+        malformedManifold =
             stateManifoldOf(malformed, getTuningLayoutStateDim(malformed));
-    ASSERT_FALSE(wrongOrientation.ok())
-        << orientationRows << " orientation rows got a manifold";
-    EXPECT_EQ(wrongOrientation.status().code(),
+    ASSERT_FALSE(malformedManifold.ok())
+        << orientationSlotCount << " orientation rows got a manifold";
+    EXPECT_EQ(malformedManifold.status().code(),
               absl::StatusCode::kInvalidArgument);
-    EXPECT_TRUE(absl::StrContains(wrongOrientation.status().message(),
-                                  "'base_orientation'"))
-        << wrongOrientation.status();
-    EXPECT_TRUE(absl::StrContains(wrongOrientation.status().message(),
+    EXPECT_TRUE(absl::StrContains(malformedManifold.status().message(),
+                                  "'eulerzyx_base_rt_world'"))
+        << malformedManifold.status();
+    EXPECT_TRUE(absl::StrContains(malformedManifold.status().message(),
                                   "as a quaternion, on 4 rows"))
-        << wrongOrientation.status();
+        << malformedManifold.status();
   }
 }
 

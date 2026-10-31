@@ -72,10 +72,14 @@ absl::StatusOr<KeyboardCommandLimits> keyboardCommandLimitsFromConfig(
   // [v_x, v_y, pelvis height change, yaw rate], the order of
   // KeyboardCommandLimits::limits.
   const std::pair<absl::string_view, std::optional<double>> fields[] = {
-      {"max_displacement_velocity_x", file.max_displacement_velocity_x},
-      {"max_displacement_velocity_y", file.max_displacement_velocity_y},
-      {"max_delta_pelvis_height", file.max_delta_pelvis_height},
-      {"max_rotation_velocity", file.max_rotation_velocity},
+      {"cmd_max_linvel_base_rt_world_ewrt_heading_x",
+       file.cmd_max_linvel_base_rt_world_ewrt_heading_x},
+      {"cmd_max_linvel_base_rt_world_ewrt_heading_y",
+       file.cmd_max_linvel_base_rt_world_ewrt_heading_y},
+      {"cmd_max_err_pos_base_rt_world_ewrt_world_z",
+       file.cmd_max_err_pos_base_rt_world_ewrt_world_z},
+      {"cmd_max_angvel_base_rt_world_ewrt_world_z",
+       file.cmd_max_angvel_base_rt_world_ewrt_world_z},
   };
   for (Eigen::Index i = 0; i < limits.limits.size(); ++i) {
     const std::pair<absl::string_view, std::optional<double>>& field =
@@ -92,9 +96,9 @@ absl::StatusOr<KeyboardCommandLimits> keyboardCommandLimitsFromConfig(
                        "normalized by it"));
     }
   }
-  if (absl::Status read =
-          readRequired("default_base_height", file.default_base_height,
-                       &limits.defaultBaseHeight);
+  if (absl::Status read = readRequired("nom_pos_base_rt_world_ewrt_world_z",
+                                       file.nom_pos_base_rt_world_ewrt_world_z,
+                                       &limits.defaultBaseHeight);
       !read.ok()) {
     return read;
   }

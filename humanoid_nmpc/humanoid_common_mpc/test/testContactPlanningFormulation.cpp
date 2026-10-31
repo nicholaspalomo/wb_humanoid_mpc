@@ -521,21 +521,21 @@ TEST(ContactPlanningConfigValidation, EveryRejectionNamesTheKeyToChange) {
        [](ContactPlanningConfig& c) { c.hlip.blend.sharpness = 0.0; }},
       {"hlip.blend.threshold",
        [](ContactPlanningConfig& c) { c.hlip.blend.threshold = 0.0; }},
-      {"hlip.blend.max_commanded_velocity_x",
+      {"hlip.blend.cmd_max_linvel_base_rt_world_ewrt_heading_x",
        [](ContactPlanningConfig& c) {
          c.hlip.blend.maxCommandedVelocityX = 0.0;
        }},
-      {"hlip.blend.max_commanded_velocity_y",
+      {"hlip.blend.cmd_max_linvel_base_rt_world_ewrt_heading_y",
        [](ContactPlanningConfig& c) {
          c.hlip.blend.maxCommandedVelocityY = 0.0;
        }},
-      {"hlip.blend.max_commanded_yaw_rate",
+      {"hlip.blend.cmd_max_angvel_base_rt_world_ewrt_world_z",
        [](ContactPlanningConfig& c) {
          c.hlip.blend.maxCommandedYawRate = 0.0;
        }},
-      {"hlip.blend.max_com_velocity_x",
+      {"hlip.blend.max_linvel_com_rt_world_ewrt_heading_x",
        [](ContactPlanningConfig& c) { c.hlip.blend.maxComVelocityX = 0.0; }},
-      {"hlip.blend.max_com_velocity_y",
+      {"hlip.blend.max_linvel_com_rt_world_ewrt_heading_y",
        [](ContactPlanningConfig& c) { c.hlip.blend.maxComVelocityY = 0.0; }},
   };
   const ContactPlanningConfig valid = modelFreeConfig();
@@ -796,8 +796,9 @@ TEST(ContactPlanningConfigWarnings,
   ASSERT_EQ(narrowWarnings.size(), 1u) << joinWarnings(narrowWarnings);
   EXPECT_TRUE(absl::StrContains(narrowWarnings.front(), "hlip.min_step_width"))
       << narrowWarnings.front();
-  EXPECT_TRUE(absl::StrContains(narrowWarnings.front(),
-                                "hlip.blend.max_commanded_velocity_y"))
+  EXPECT_TRUE(absl::StrContains(
+      narrowWarnings.front(),
+      "hlip.blend.cmd_max_linvel_base_rt_world_ewrt_heading_y"))
       << narrowWarnings.front();
   EXPECT_TRUE(narrow.validateStatus().ok())
       << "a warning, not an error: a shipped file must not stop loading over "

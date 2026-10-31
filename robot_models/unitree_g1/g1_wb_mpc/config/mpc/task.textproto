@@ -11,7 +11,7 @@ telemetry_frequency: 100  # [Hz] robot/state, decimated from the control loop
 # MuJoCo backend of the robot process only. The viewer's contact timeline ('b' toggles it) shows, per contact point,
 # the contact state the executed MPC policy plans against the simulator's ground truth over a sliding window of time.
 sim_contact_timeline_window: 5.0  # [s] width of the sliding window
-sim_contact_force_threshold: 5.0  # [N] normal force above which a contact point counts as touching (ground truth)
+sim_min_force_mjcontact_ewrt_mjcontact_x: 5.0  # [N] normal force above which a contact point counts as touching (ground truth)
 # Fall recovery (SimFallRecovery, humanoid_nmpc/docs/mpc_reset/README.md). sim_max_base_tilt_angle is the tilt of the base
 # past which the simulator catches the robot on the gantry, holding it upright where it is at the gantry height,
 # switching to JOINT_PD (the whole-body MPC is overconstrained against a pinned base) and resetting the controller, which
@@ -29,7 +29,7 @@ sim_max_base_tilt_angle: 1.0  # [rad] positive; absent disables
 sim_gantry_catch_lift: 0.15  # [m] positive; absent skips the settle sequence
 # Measured contact state of the controller, by name (robot_model/ContactEstimatorRegistry.h): the MPC observation mode and
 # which planned contact wrenches the inverse dynamics projects into feedforward torques. One of:
-#   cheater_sim        the ground truth of the physics (normal force above sim_contact_force_threshold); required for the
+#   cheater_sim        the ground truth of the physics (normal force above sim_min_force_mjcontact_ewrt_mjcontact_x); required for the
 #                      phase_resetting execution rule of contact_planning.textproto
 #   robot_state        the contact flags of the RobotState (in MuJoCo the same ground truth)
 #   always_in_contact  every contact point touching: the executed schedule is taken as the measured contact state
@@ -199,13 +199,13 @@ model_settings {
 }
 
 swing_trajectory_config {
-  lift_off_velocity: 0.05
-  touch_down_velocity: 0.0
+  liftoff_linvel_foot_rt_world_ewrt_world_z: 0.05
+  touchdown_linvel_foot_rt_world_ewrt_world_z: 0.0
   swing_height: 0.08
   touch_down_height_offset: -0.001
   swing_time_scale: 0.4
-  impact_proximity_factor_lift_off_velocity: -0.15
-  impact_proximity_factor_touch_down_velocity: 0.3
+  impact_proximity_factor_liftoff_slope: -0.15
+  impact_proximity_factor_touchdown_slope: 0.3
   impact_proximity_factor_mid_point_value: 0.005
 }
 
@@ -249,12 +249,12 @@ mpc {
 
 initial_state {
   # ; Base Pose: [position, orientation] ;;
-  base_position {
+  pos_base_rt_world_ewrt_world {
     x: 0.0  # p_base_x
     y: 0.0  # p_base_y
     z: 0.7911  # p_base_z
   }
-  base_orientation {
+  eulerzyx_base_rt_world {
     yaw: 0.0  # theta_base_z
     pitch: 0.0  # theta_base_y
     roll: 0.0  # theta_base_x
@@ -286,12 +286,12 @@ initial_state {
   joint_positions { joint: "right_elbow_joint" value: 0.0 }
 
   # ; Base Velocity: [velocity, angular velocity] ;;
-  base_linear_velocity {
+  linvel_base_rt_world_ewrt_world {
     x: 0.0  # v_base_x
     y: 0.0  # v_base_y
     z: 0.0  # v_base_z
   }
-  base_angular_velocity {
+  angvel_base_rt_world_ewrt_base {
     yaw: 0.0  # omega_base_z
     pitch: 0.0  # omega_base_y
     roll: 0.0  # omega_base_x
@@ -328,12 +328,12 @@ state_weights {
   scaling: 1e+0
 
   # ; Base Pose: [position, orientation] ;;
-  base_position {
+  pos_base_rt_world_ewrt_world {
     x: 0.0  # p_base_x
     y: 0.0  # p_base_y
     z: 10.0  # p_base_z
   }
-  base_orientation {
+  eulerzyx_base_rt_world {
     yaw: 0.0  # theta_base_z
     pitch: 20.0  # theta_base_y
     roll: 20.0  # theta_base_x
@@ -365,12 +365,12 @@ state_weights {
   joint_positions { joint: "right_elbow_joint" value: 0.4 }
 
   # ; Base Velocities: [linear, angular] ;;
-  base_linear_velocity {
+  linvel_base_rt_world_ewrt_world {
     x: 3.0  # v_base_x
     y: 3.0  # v_base_y
     z: 3.0  # v_base_z
   }
-  base_angular_velocity {
+  angvel_base_rt_world_ewrt_base {
     yaw: 3.0  # omega_base_z
     pitch: 3.0  # omega_base_y
     roll: 3.0  # omega_base_x
@@ -465,12 +465,12 @@ final_state_weights {
   scaling: 1e+0
 
   # ; Base Pose: [position, orientation] ;;
-  base_position {
+  pos_base_rt_world_ewrt_world {
     x: 0.0  # p_base_x
     y: 0.0  # p_base_y
     z: 10.0  # p_base_z
   }
-  base_orientation {
+  eulerzyx_base_rt_world {
     yaw: 0.0  # theta_base_z
     pitch: 20.0  # theta_base_y
     roll: 20.0  # theta_base_x
@@ -502,12 +502,12 @@ final_state_weights {
   joint_positions { joint: "right_elbow_joint" value: 0.4 }
 
   # ; Base Velocities: [linear, angular] ;;
-  base_linear_velocity {
+  linvel_base_rt_world_ewrt_world {
     x: 3.0  # v_base_x
     y: 3.0  # v_base_y
     z: 3.0  # v_base_z
   }
-  base_angular_velocity {
+  angvel_base_rt_world_ewrt_base {
     yaw: 3.0  # omega_base_z
     pitch: 3.0  # omega_base_y
     roll: 3.0  # omega_base_x
@@ -570,7 +570,7 @@ task_space_foot_cost {
 }
 
 contacts {
-  contact_frame_translation {
+  pos_contact_rt_link_ewrt_link {
     # ; Translation vector from parent joint to contact frame ;;
     x: 0.035
     y: 0.0

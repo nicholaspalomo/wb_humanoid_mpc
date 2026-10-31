@@ -72,8 +72,9 @@ StateInputLayout testLayout(StateInputLayout::Mpc mpc) {
 /** An initial_state that gives every block of `layout` distinct values. */
 mpc_config::StateValues distinctValues(const StateInputLayout& layout) {
   mpc_config::StateValues values;
-  values.base_position = mpc_config::Xyz{.x = 1.0, .y = 2.0, .z = 3.0};
-  values.base_orientation =
+  values.pos_base_rt_world_ewrt_world =
+      mpc_config::Xyz{.x = 1.0, .y = 2.0, .z = 3.0};
+  values.eulerzyx_base_rt_world =
       mpc_config::YawPitchRoll{.yaw = 0.4, .pitch = 0.5, .roll = 0.6};
   for (size_t j = 0; j < layout.jointNames.size(); ++j) {
     values.joint_positions.push_back(
@@ -81,14 +82,14 @@ mpc_config::StateValues distinctValues(const StateInputLayout& layout) {
                                .value = 10.0 + static_cast<scalar_t>(j)});
   }
   if (layout.mpc == StateInputLayout::Mpc::kCentroidal) {
-    values.normalized_linear_momentum =
+    values.mnorm_linmom_com_rt_world_ewrt_world =
         mpc_config::Xyz{.x = 7.0, .y = 8.0, .z = 9.0};
-    values.normalized_angular_momentum =
+    values.mnorm_angmom_com_rt_world_ewrt_world =
         mpc_config::Xyz{.x = 4.0, .y = 5.0, .z = 6.0};
   } else {
-    values.base_linear_velocity =
+    values.linvel_base_rt_world_ewrt_world =
         mpc_config::Xyz{.x = 21.0, .y = 22.0, .z = 23.0};
-    values.base_angular_velocity =
+    values.angvel_base_rt_world_ewrt_base =
         mpc_config::YawPitchRoll{.yaw = 0.7, .pitch = 0.8, .roll = 0.9};
     for (size_t j = 0; j < layout.jointNames.size(); ++j) {
       values.joint_velocities.push_back(
@@ -157,29 +158,29 @@ TEST_P(EulerChartLayouts, BlocksAreWhereTheInitialStatePutsThem) {
   EXPECT_EQ(static_cast<size_t>(state->size()), tuningDimension(layout));
   EXPECT_EQ(getPhysicalStateDim(eulerLayout),
             getEulerStateDim(eulerLayout) + 1);
-  const Eigen::Index orientation =
-      static_cast<Eigen::Index>(blockStart(eulerLayout, "base_orientation"));
+  const Eigen::Index orientation = static_cast<Eigen::Index>(
+      blockStart(eulerLayout, "eulerzyx_base_rt_world"));
   EXPECT_EQ(state->segment<3>(orientation), vector3_t(0.4, 0.5, 0.6));
   EXPECT_EQ(state->segment<3>(static_cast<Eigen::Index>(
-                blockStart(eulerLayout, "base_position"))),
+                blockStart(eulerLayout, "pos_base_rt_world_ewrt_world"))),
             vector3_t(1.0, 2.0, 3.0));
   EXPECT_EQ((*state)(static_cast<Eigen::Index>(
                          blockStart(eulerLayout, "joint_positions")) +
                      2),
             12.0);
   if (GetParam() == StateInputLayout::Mpc::kCentroidal) {
-    EXPECT_EQ(state->segment<3>(static_cast<Eigen::Index>(
-                  blockStart(eulerLayout, "normalized_linear_momentum"))),
+    EXPECT_EQ(state->segment<3>(static_cast<Eigen::Index>(blockStart(
+                  eulerLayout, "mnorm_linmom_com_rt_world_ewrt_world"))),
               vector3_t(7.0, 8.0, 9.0));
-    EXPECT_EQ(state->segment<3>(static_cast<Eigen::Index>(
-                  blockStart(eulerLayout, "normalized_angular_momentum"))),
+    EXPECT_EQ(state->segment<3>(static_cast<Eigen::Index>(blockStart(
+                  eulerLayout, "mnorm_angmom_com_rt_world_ewrt_world"))),
               vector3_t(4.0, 5.0, 6.0));
   } else {
     EXPECT_EQ(state->segment<3>(static_cast<Eigen::Index>(
-                  blockStart(eulerLayout, "base_linear_velocity"))),
+                  blockStart(eulerLayout, "linvel_base_rt_world_ewrt_world"))),
               vector3_t(21.0, 22.0, 23.0));
     EXPECT_EQ(state->segment<3>(static_cast<Eigen::Index>(
-                  blockStart(eulerLayout, "base_angular_velocity"))),
+                  blockStart(eulerLayout, "angvel_base_rt_world_ewrt_base"))),
               vector3_t(0.7, 0.8, 0.9));
     EXPECT_EQ((*state)(static_cast<Eigen::Index>(
                            blockStart(eulerLayout, "joint_velocities")) +
@@ -196,13 +197,13 @@ TEST_P(EulerChartLayouts, PhiIsTheEulerBoundaryConversion) {
       physicalStateFromEulerState(euler, layout);
   ASSERT_TRUE(physical.ok()) << physical.status();
   const Eigen::Index angles =
-      static_cast<Eigen::Index>(blockStart(layout, "base_orientation"));
+      static_cast<Eigen::Index>(blockStart(layout, "eulerzyx_base_rt_world"));
   const vector3_t theta = euler.segment<3>(angles);
   EXPECT_EQ(physical->segment<4>(angles), quaternionFromEulerZyx(theta));
   EXPECT_EQ(physical->head(angles), euler.head(angles));
   if (GetParam() == StateInputLayout::Mpc::kWholeBody) {
-    const Eigen::Index rates =
-        static_cast<Eigen::Index>(blockStart(layout, "base_angular_velocity"));
+    const Eigen::Index rates = static_cast<Eigen::Index>(
+        blockStart(layout, "angvel_base_rt_world_ewrt_base"));
     EXPECT_EQ(
         physical->segment<3>(rates + 1),
         localAngularVelocityFromEulerZyxRates(theta, euler.segment<3>(rates)));
@@ -259,7 +260,7 @@ TEST_P(EulerChartLayouts,
     // On the angles the two are related by E+(xi): P_e = E+ dPhi, the T_B block
     // of design section 2.12.
     const Eigen::Index angles =
-        static_cast<Eigen::Index>(blockStart(layout, "base_orientation"));
+        static_cast<Eigen::Index>(blockStart(layout, "eulerzyx_base_rt_world"));
     const vector4_t xi = quaternionFromEulerZyx(euler.segment<3>(angles));
     const matrix_t chart = *eulerChartJacobian(euler, layout);
     const matrix3_t pulled = quaternionTangentMapPseudoInverse(xi) *
@@ -268,19 +269,18 @@ TEST_P(EulerChartLayouts,
                   .cwiseAbs()
                   .maxCoeff(),
               1.0e-14);
-    EXPECT_LT(
-        (tangentJacobian->block<3, 3>(angles, angles) -
-         eulerZyxRateToLocalAngularVelocityMatrix(euler.segment<3>(angles)))
-            .cwiseAbs()
-            .maxCoeff(),
-        1.0e-15);
+    EXPECT_LT((tangentJacobian->block<3, 3>(angles, angles) -
+               eulerZyxRateToBodyRateMatrix(euler.segment<3>(angles)))
+                  .cwiseAbs()
+                  .maxCoeff(),
+              1.0e-15);
   }
 }
 
 TEST_P(EulerChartLayouts,
        TheInverseChartRecoversTheEulerStateWithItsAnglesWrapped) {
   const EulerStateLayout layout = eulerStateLayoutOf(testLayout(GetParam()));
-  const size_t angles = blockStart(layout, "base_orientation");
+  const size_t angles = blockStart(layout, "eulerzyx_base_rt_world");
   std::mt19937 engine(31U);
   for (int trial = 0; trial < 20; ++trial) {
     vector_t euler = randomEulerState(layout, engine);
@@ -331,7 +331,7 @@ TEST(EulerChart, RateCouplingIsTheDerivativeOfTheBodyRate) {
     const matrix3_t derivative =
         localAngularVelocityEulerAngleDerivative(angles, rates);
     // The chart's coupling block comes from the one Euler boundary.
-    EXPECT_EQ(derivative, localAngularVelocityEulerZyxJacobian(angles, rates));
+    EXPECT_EQ(derivative, bodyRateEulerZyxJacobian(angles, rates));
     for (Eigen::Index j = 0; j < 3; ++j) {
       vector3_t plus = angles;
       vector3_t minus = angles;
@@ -352,8 +352,9 @@ TEST(EulerChart, TheSingularityIsWherePitchIsAQuarterTurn) {
       eulerStateLayoutOf(testLayout(StateInputLayout::Mpc::kCentroidal));
   vector_t euler =
       vector_t::Zero(static_cast<Eigen::Index>(getEulerStateDim(layout)));
-  euler(static_cast<Eigen::Index>(blockStart(layout, "base_orientation")) + 1) =
-      0.5 * M_PI;
+  euler(
+      static_cast<Eigen::Index>(blockStart(layout, "eulerzyx_base_rt_world")) +
+      1) = 0.5 * M_PI;
   const absl::StatusOr<matrix_t> tangentJacobian =
       physicalTangentJacobian(euler, layout);
   ASSERT_TRUE(tangentJacobian.ok());

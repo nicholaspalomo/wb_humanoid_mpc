@@ -58,9 +58,9 @@ namespace ocs2::humanoid {
  *
  * Sign convention is the base pose's own: Euler ZYX about a z-up world, in
  * which a POSITIVE pitch rotates the body's +x axis towards -z, i.e. it puts
- * the NOSE DOWN. Leaning into a forward command is therefore a POSITIVE
- * `pitchPerForwardVelocity`, which is also the sign of Bledt's own fitted value
- * (+0.0725 rad per m/s, equation 4.12).
+ * the NOSE DOWN. Pitching forward into a forward command is therefore a
+ * POSITIVE `pitchPerForwardVelocity`, which is also the sign of Bledt's own
+ * fitted value (+0.0725 rad per m/s, equation 4.12).
  */
 struct OrientationCompensationParameters {
   /** [rad] The default of maximumTilt. */
@@ -223,7 +223,7 @@ struct TranslationalSteppingParameters {
  * the foot useful over the stance: the feet lead the hips into the turn instead
  * of trailing them to the end of their workspace (figure 4-10). `psidot` is the
  * COMMANDED yaw rate, taken from the command rather than differentiated from
- * the measured heading, because the whole point is to step where the robot is
+ * the measured heading, because the goal is to step where the robot is
  * being asked to go.
  *
  * The forward term is signed per foot, because a foot to the LEFT of a body
@@ -279,7 +279,7 @@ struct HighSpeedTurningParameters {
  * THIS INSTANT, which is the beta = 1 case; the offset below is the difference
  * between the two, so an empty list is exactly today's behavior.
  *
- * Both clamps are load-bearing rather than defensive: beta goes to zero at the
+ * Both clamps are required rather than defensive: beta goes to zero at the
  * onset of a flight phase, and 1/beta is unbounded there.
  */
 struct ImpulseScalingParameters {
@@ -302,14 +302,14 @@ struct ImpulseScalingParameters {
  *
  * The only heuristic of the ten whose force is HORIZONTAL, which is what makes
  * it the only one that has to be written through
- * MpcRobotModelBase::setContactForceInWorldFrame(): under the basis-vector
+ * MpcRobotModelBase::setForceContactEwrtWorld(): under the basis-vector
  * input parameterization the input lives in the local contact frame, and a
  * horizontal world-frame force has to be rotated into it by the foot's
  * orientation. That rotation is a forward-kinematics pass per node, which is
  * why WrenchHeuristic asks each heuristic whether it needs one and only this
  * one says yes.
  *
- * A CAVEAT WORTH READING BEFORE TURNING IT ON. Bledt's control model is a
+ * CAVEAT BEFORE TURNING IT ON. Bledt's control model is a
  * single rigid body whose force reference is the only thing telling the QP how
  * hard to push. The dynamics here are full centroidal and the state cost
  * already tracks the commanded linear and angular momentum, so m omega x v is
@@ -347,9 +347,9 @@ struct CentripetalAccelerationParameters {
  * the three name lists and one parameter block per heuristic.
  *
  * One aggregate holding every term's struct, rather than a map of type-erased
- * blocks, is the shape ContactPlanningConfig already uses in this repository,
- * and it is the shape of the schema the tuning GUI renders: a parameter block
- * per heuristic, named after it, of plain scalars
+ * blocks, is the structure ContactPlanningConfig already uses in this
+ * repository, and it matches the schema the tuning GUI renders: a parameter
+ * block per heuristic, named after it, of plain scalars
  * (locomotion_heuristics_config.proto).
  */
 struct LocomotionHeuristicConfig {

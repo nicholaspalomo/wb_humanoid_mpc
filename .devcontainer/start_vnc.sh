@@ -196,8 +196,8 @@ reconfigure_wm
 
 # If the services are already running healthy, keep them active
 if is_running; then
-    echo "✅ VNC server is already running on ${VNC_DISPLAY}: http://localhost:${NOVNC_PORT}/vnc.html"
-    echo "🌐 Rerun web viewer: http://localhost:9090/?url=rerun+http://localhost:9876/proxy"
+    echo "VNC server is already running on ${VNC_DISPLAY}: http://localhost:${NOVNC_PORT}/vnc.html"
+    echo "Rerun web viewer: http://localhost:9090/?url=rerun+http://localhost:9876/proxy"
     exit 0
 fi
 
@@ -211,7 +211,7 @@ detached() {
 
 # Clean up stale sockets/locks, but only when the display's X server is actually gone. These commands kill whatever
 # holds the VNC and noVNC ports and delete the X socket, so running them unconditionally would tear down a healthy
-# session that is only missing its window manager -- and leave an orphaned Xvfb that nothing can connect to, because
+# session that is only missing its window manager - and leave an orphaned Xvfb that nothing can connect to, because
 # its socket was removed while it kept running.
 clear_stale_locks() {
     local display="$1" vnc_port="$2" novnc_port="$3"
@@ -251,15 +251,15 @@ echo "============================================="
 echo "  VNC visualization server is ready!"
 echo ""
 echo "  Open in your browser:"
-echo "    🎮 MuJoCo viewer & operator GUI : http://localhost:${NOVNC_PORT}/vnc.html"
-echo "    🌐 Rerun web viewer             : http://localhost:9090/?url=rerun+http://localhost:9876/proxy"
+echo "    MuJoCo viewer & operator GUI : http://localhost:${NOVNC_PORT}/vnc.html"
+echo "    Rerun web viewer             : http://localhost:9090/?url=rerun+http://localhost:9876/proxy"
 
 if [ -n "${LAN_IPS}" ]; then
     echo ""
     echo "  LAN access:"
     for ip in ${LAN_IPS}; do
-        echo "    🎮 MuJoCo viewer & operator GUI : http://${ip}:${NOVNC_PORT}/vnc.html"
-        echo "    🌐 Rerun web viewer             : http://${ip}:9090/?url=rerun+http://${ip}:9876/proxy"
+        echo "    MuJoCo viewer & operator GUI : http://${ip}:${NOVNC_PORT}/vnc.html"
+        echo "    Rerun web viewer             : http://${ip}:9090/?url=rerun+http://${ip}:9876/proxy"
     done
 fi
 

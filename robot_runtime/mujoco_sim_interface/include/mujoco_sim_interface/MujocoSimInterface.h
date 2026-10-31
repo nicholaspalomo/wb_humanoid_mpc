@@ -134,7 +134,7 @@ struct MujocoSimConfig {
   static constexpr double kDefaultRenderFrequencyHz = 60.0;
   /** [N] The normal force above which a contact point counts as touching,
    * unless configured otherwise. */
-  static constexpr double kDefaultContactForceThreshold = 5.0;
+  static constexpr double kNomMinForceMjcontactEwrtMjcontactX = 5.0;
   /** [N m s/rad] The joint damping of the zero-torque ragdoll mode, unless
    * configured otherwise. */
   static constexpr double kDefaultRagdollJointDamping = 20.0;
@@ -174,9 +174,9 @@ struct MujocoSimConfig {
   // model does not exist in the URDF or the MuJoCo scene; the MuJoCo body
   // driven by that joint is the contact body then.
   std::vector<std::string> contactParentJointNames;
-  double contactForceThreshold =
-      kDefaultContactForceThreshold;  // [N] normal force above which a contact
-                                      // point counts as touching
+  double minForceMjcontactEwrtMjcontactX =
+      kNomMinForceMjcontactEwrtMjcontactX;  // [N] normal force above which a
+                                            // contact point counts as touching
   double contactTimelineWindow =
       ContactTimeline::kDefaultWindowSeconds;  // [s] sliding window of the
                                                // contact timeline overlay
@@ -189,7 +189,7 @@ struct MujocoSimConfig {
   double ragdollJointDamping = kDefaultRagdollJointDamping;
   /// [m] The height of the base (its free joint's z) below which the robot has
   /// fallen: it is reset and caught on the gantry. Task file
-  /// `sim_auto_reset_base_height`; finite.
+  /// `sim_auto_reset_min_pos_base_rt_world_ewrt_world_z`; finite.
   double autoResetBaseHeight = kDefaultAutoResetBaseHeight;
 
   // Contact patch of every contact point (same order) in its contact frame,
@@ -315,8 +315,8 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
    * not be called while the thread startSim() started is running.
    */
   void setBaseStateForTesting(
-      const std::array<double, kMjFreeJointQposSize>& basePose,
-      const std::array<double, kMjFreeJointDofs>& baseVelocity);
+      const std::array<double, kMjFreeJointQposSize>& baseQpos,
+      const std::array<double, kMjFreeJointDofs>& baseQvel);
 
   // Virtual Gantry Controls
   /**
@@ -386,11 +386,12 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
    * The forces the feet's force sensors measured in the newest physics step [N]
    * (zero without a sensor), as the physics thread published them: the force
    * each foot carries, in the world frame, +z up while it stands
-   * (footForceInWorldFrame()). For one consumer thread (the robot process's
-   * realtime loop); lock-free, and it reads no mjData, which the physics thread
-   * writes meanwhile.
+   * (computeMeasForceFootEwrtWorld()). For one consumer thread (the robot
+   * process's realtime loop); lock-free, and it reads no mjData, which the
+   * physics thread writes meanwhile.
    */
-  void takeMeasuredFootForces(vector3_t& left, vector3_t& right);
+  void takeMeasForceFeetEwrtWorld(vector3_t& measForceLfootEwrtWorld,
+                                  vector3_t& measForceRfootEwrtWorld);
 
   /**
    * The actuator commands (mjData::ctrl) of the last step. For tests that step
@@ -456,9 +457,9 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
    * struct is the wire format between the two.
    */
   struct DodgeballThrow {
-    double spawnOffset[ocs2::kPositionDim]{
+    double spawnPosBallRtBaseEwrtHeading[ocs2::kPositionDim]{
         0.0, 0.0, 0.0};  // [m] from the base, in the base's yaw frame
-    double launchVelocity[ocs2::kPositionDim]{
+    double launchLinvelBallRtWorldEwrtHeading[ocs2::kPositionDim]{
         0.0, 0.0, 0.0};       // [m/s] in the base's yaw frame
     double flightTime = 0.0;  // [s] until it reaches the base
     double mass = 0.0;        // [kg] always sent by the GUI; clamped to
@@ -501,19 +502,24 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
    */
   void throwDodgeball(const DodgeballThrow& throwCommand);
 
-  void setTargetVelocities(double vx, double vy, double yawRate) {
-    targetVelocityX_.store(vx, std::memory_order_relaxed);
-    targetVelocityY_.store(vy, std::memory_order_relaxed);
-    targetYawRate_.store(yawRate, std::memory_order_relaxed);
+  void setBaseMotionCommand(double cmdLinvelBaseRtWorldEwrtHeadingX,
+                            double cmdLinvelBaseRtWorldEwrtHeadingY,
+                            double cmdRateYawBaseRtWorld) {
+    cmdLinvelBaseRtWorldEwrtHeadingX_.store(cmdLinvelBaseRtWorldEwrtHeadingX,
+                                            std::memory_order_relaxed);
+    cmdLinvelBaseRtWorldEwrtHeadingY_.store(cmdLinvelBaseRtWorldEwrtHeadingY,
+                                            std::memory_order_relaxed);
+    cmdRateYawBaseRtWorld_.store(cmdRateYawBaseRtWorld,
+                                 std::memory_order_relaxed);
   }
-  double getTargetVelocityX() const {
-    return targetVelocityX_.load(std::memory_order_relaxed);
+  double getCmdLinvelBaseRtWorldEwrtHeadingX() const {
+    return cmdLinvelBaseRtWorldEwrtHeadingX_.load(std::memory_order_relaxed);
   }
-  double getTargetVelocityY() const {
-    return targetVelocityY_.load(std::memory_order_relaxed);
+  double getCmdLinvelBaseRtWorldEwrtHeadingY() const {
+    return cmdLinvelBaseRtWorldEwrtHeadingY_.load(std::memory_order_relaxed);
   }
-  double getTargetYawRate() const {
-    return targetYawRate_.load(std::memory_order_relaxed);
+  double getCmdRateYawBaseRtWorld() const {
+    return cmdRateYawBaseRtWorld_.load(std::memory_order_relaxed);
   }
 
  private:
@@ -644,7 +650,7 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   bool hasProjectile() const;
   /// Arms the ball (it collides, gravity acts on it) or parks it (neither).
   void setProjectileArmed(bool armed);
-  /// Returns the ball to kProjectileParkPosition, disarmed and at rest.
+  /// Returns the ball to kParkPosBallRtWorldEwrtWorld, disarmed and at rest.
   void parkProjectile();
   /// Body id of the robot's floating base, i.e. the first body carrying a free
   /// joint; -1 if the model has none.
@@ -661,11 +667,12 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
 
   /// Simulation thread only: brings dof_damping in line with the torque switch,
   /// when it changed since the last step.
-  void applyTorqueSwitch();
+  void applyJointTorqueSwitch();
 
   /// Simulation thread only: the world-frame force the foot of force sensor
-  /// `sensorId` carries (footForceInWorldFrame()); zero for kNoFootForceSensor.
-  vector3_t footSensorForce(int sensorId) const;
+  /// `sensorId` carries (computeMeasForceFootEwrtWorld()); zero for
+  /// kNoFootForceSensor.
+  vector3_t getMeasForceFootEwrtWorld(int sensorId) const;
 
   void simulationLoop();
 
@@ -722,9 +729,11 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   static constexpr size_t kNoSensor = static_cast<size_t>(-1);
   // The feet's force sensors, by sensor id: a <force> sensor on a site of the
   // foot (isFootForceSensor()), or kNoFootForceSensor when the scene has none.
+  // NOLINTBEGIN(frame-naming): the ids of the feet's force sensors, not forces
   static constexpr int kNoFootForceSensor = -1;
   int rightFootForceSensor_ = kNoFootForceSensor;
   int leftFootForceSensor_ = kNoFootForceSensor;
+  // NOLINTEND(frame-naming)
 
   size_t rightFootTouchSensorAddress_{kNoSensor};
   size_t leftFootTouchSensorAddress_{kNoSensor};
@@ -753,19 +762,19 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   std::atomic<bool> zeroTorqueMode_{
       true};  // Start in zero-torque mode by default
   /// Simulation thread only: whether dof_damping holds the ragdoll damping of
-  /// zero-torque mode (applyTorqueSwitch()).
+  /// zero-torque mode (applyJointTorqueSwitch()).
   bool ragdollDampingApplied_ = true;
   /// The scene's own dof_damping (nv), captured before anything wrote it: what
   /// every dof has while the torques are on.
   std::vector<mjtNum> sceneDofDamping_;
 
   /// The feet's measured forces of the newest step, from the simulation thread
-  /// to takeMeasuredFootForces().
+  /// to takeMeasForceFeetEwrtWorld().
   struct MeasuredFootForces {
     vector3_t left = vector3_t::Zero();
     vector3_t right = vector3_t::Zero();
   };
-  TripleBuffer<MeasuredFootForces> footForceBuffer_;
+  TripleBuffer<MeasuredFootForces> bufferedMeasForceFeetEwrtWorld_;
 
   /// Lock-free triple buffer for sim→render state transfer.
   /// Initialized lazily after MuJoCo model is loaded (requires mjModel* for
@@ -782,11 +791,11 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   std::vector<int>
       contactBodyIds_;  // MuJoCo body per contact point, -1 if unresolved
   uint32_t unresolvedContactMask_{0};
-  std::atomic<double> targetVelocityX_{
+  std::atomic<double> cmdLinvelBaseRtWorldEwrtHeadingX_{
       0.0};  // commanded base velocities, from the control thread (see
-             // setTargetVelocities)
-  std::atomic<double> targetVelocityY_{0.0};
-  std::atomic<double> targetYawRate_{0.0};
+             // setBaseMotionCommand)
+  std::atomic<double> cmdLinvelBaseRtWorldEwrtHeadingY_{0.0};
+  std::atomic<double> cmdRateYawBaseRtWorld_{0.0};
   std::atomic<uint32_t> targetContactMask_{0};
   std::atomic<bool> targetContactKnown_{false};
   std::atomic<uint32_t> groundTruthContactMask_{0};
@@ -812,8 +821,9 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   TripleBuffer<DodgeballThrow> dodgeballMailbox_;
   /// Resolved into the world frame and scheduled once the simulation thread has
   /// seen it. Only that thread touches these, so they need no lock.
-  std::array<double, ocs2::kPositionDim> scheduledArrivalVelocity_{
-      {0.0, 0.0, 0.0}};             // [m/s] of the ball, world frame
+  std::array<double, ocs2::kPositionDim>
+      scheduledArrivalLinvelBallRtWorldEwrtWorld_{
+          {0.0, 0.0, 0.0}};         // [m/s] of the ball, world frame
   double scheduledBallMass_ = 0.0;  // [kg] clamped
   double scheduledImpactTime_ =
       -1.0;  // [s] of simulation time; negative means nothing is in flight

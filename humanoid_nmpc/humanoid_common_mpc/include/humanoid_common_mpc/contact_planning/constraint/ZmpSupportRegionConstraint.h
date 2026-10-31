@@ -68,8 +68,8 @@ namespace ocs2::humanoid {
  * is over-admitted by about half the heading offset between the feet, i.e. by
  * up to half a step length.
  *
- * This is not repaired here, and the reason is worth stating rather than
- * leaving it as an open item. Cutting the two missing hull edges needs the row
+ * This is not repaired here, for the following reason. Cutting the two missing
+ * hull edges needs the row
  * n'(zmp - p) <= r with n normal to (p_L - p_R); the foot positions are
  * DECISION VARIABLES, so that row is bilinear and cannot be expressed by
  * LipConstraintBase, which emits affine rows only. It would have to be

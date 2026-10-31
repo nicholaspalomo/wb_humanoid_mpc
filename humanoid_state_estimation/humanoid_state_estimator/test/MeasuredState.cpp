@@ -34,11 +34,11 @@ namespace ocs2::humanoid::estimation::test_support {
 void writeMeasuredState(const WalkingSample& sample,
                         robot::model::RobotState& state) {
   state.setTime(sample.time);
-  state.setRootPositionInWorldFrame(vector3_t::Zero());
-  state.setRootLinearVelocityInLocalFrame(vector3_t::Zero());
-  state.setRootRotationLocalToWorldFrame(sample.orientation);
-  state.setRootAngularVelocityInLocalFrame(sample.angularVelocity);
-  state.setImuLinearAccelerationInLocalFrame(sample.imuLinearAcceleration);
+  state.setPosBaseRtWorldEwrtWorld(vector3_t::Zero());
+  state.setLinvelBaseRtWorldEwrtBase(vector3_t::Zero());
+  state.setQuatBaseRtWorld(sample.quatBaseRtWorld);
+  state.setAngvelBaseRtWorldEwrtBase(sample.angvelBaseRtWorldEwrtBase);
+  state.setSpecforceBaseRtWorldEwrtBase(sample.specforceBaseRtWorldEwrtBase);
   for (size_t joint = 0; joint < kNumJoints; ++joint) {
     state.setJointPosition(
         joint, sample.jointPositions[static_cast<Eigen::Index>(joint)]);

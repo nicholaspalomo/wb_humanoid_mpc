@@ -76,10 +76,10 @@ Eigen::Matrix<Scalar, Eigen::Dynamic, 1> quasiStaticTorques(
     Eigen::Matrix<Scalar, kWrenchDim, 1> wrench =
         Eigen::Matrix<Scalar, kWrenchDim, 1>::Zero();
     wrench.template head<kForceDim>() =
-        centroidal_model::getContactForces(input, i, info);
+        centroidal_model::getForceContactEwrtWorld(input, i, info);
     if (i >= info.numThreeDofContacts) {
       wrench.template tail<kTorqueDim>() =
-          centroidal_model::getContactTorques(input, i, info);
+          centroidal_model::getTorqueContactEwrtWorld(input, i, info);
     }
     tau -= jacobian.transpose() * wrench;
   }

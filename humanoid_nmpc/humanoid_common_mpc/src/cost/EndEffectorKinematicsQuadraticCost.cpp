@@ -109,9 +109,10 @@ vector_t EndEffectorKinematicsQuadraticCost::getParameters(
   // base.
   const vector_t xTarget =
       mpcRobotModelADPtr_->getDesiredState(targetTrajectories, time);
-  const vector_t xRef = referenceManagerPtr_ != nullptr
-                            ? referenceManagerPtr_->shapeBasePose(time, xTarget)
-                            : xTarget;
+  const vector_t xRef =
+      referenceManagerPtr_ != nullptr
+          ? referenceManagerPtr_->shapePoseBaseRtWorld(time, xTarget)
+          : xTarget;
   const vector_t uRef = targetTrajectories.getDesiredInput(time);
 
   vector_t parameters(n_parameters_);
@@ -131,12 +132,14 @@ EndEffectorKinematicsQuadraticCost::getReferenceCostElement(
     const vector_t& input,
     const EndEffectorKinematics<scalar_t>& endEffectorKinematics) {
   EndEffectorKinematicsCostElement<scalar_t> costElement;
-  costElement.setPosition(endEffectorKinematics.getPosition(state)[0]);
-  costElement.setOrientation(endEffectorKinematics.getOrientation(state)[0]);
-  costElement.setLinearVelocity(
-      endEffectorKinematics.getVelocity(state, input)[0]);
-  costElement.setAngularVelocity(
-      endEffectorKinematics.getAngularVelocity(state, input)[0]);
+  costElement.setPosEeRtWorldEwrtWorld(
+      endEffectorKinematics.getPosEesRtWorldEwrtWorld(state)[0]);
+  costElement.setQuatEeRtWorld(
+      endEffectorKinematics.getQuatEesRtWorld(state)[0]);
+  costElement.setLinvelEeRtWorldEwrtWorld(
+      endEffectorKinematics.getLinvelEesRtWorldEwrtWorld(state, input)[0]);
+  costElement.setAngvelEeRtWorldEwrtWorld(
+      endEffectorKinematics.getAngvelEesRtWorldEwrtWorld(state, input)[0]);
   return costElement;
 }
 
@@ -160,18 +163,18 @@ ad_vector_t EndEffectorKinematicsQuadraticCost::costVectorFunction(
   const ad_vector_t v =
       mpcRobotModelADPtr_->getGeneralizedVelocities(state, input);
   pinocchio::forwardKinematics(model, data, q, v);
-  const pinocchio::SE3Tpl<ad_scalar_t> frameData =
+  const pinocchio::SE3Tpl<ad_scalar_t> poseEeRtWorld =
       pinocchio::updateFramePlacement(model, data, frameID_);
 
-  ad_vector_t position = frameData.translation();
-  ad_vector_t linearVelocity =
+  ad_vector_t posEeRtWorldEwrtWorld = poseEeRtWorld.translation();
+  ad_vector_t linvelEeRtWorldEwrtWorld =
       pinocchio::getFrameVelocity(model, data, frameID_, rf).linear();
-  ad_quaternion_t orientation = matrixToQuaternion(frameData.rotation());
-  ad_vector_t angularVelocity =
+  ad_quaternion_t quatEeRtWorld = matrixToQuaternion(poseEeRtWorld.rotation());
+  ad_vector_t angvelEeRtWorldEwrtWorld =
       pinocchio::getFrameVelocity(model, data, frameID_, rf).angular();
   ad_vector_t taskSpaceVec(kEndEffectorCostElementDim);
-  taskSpaceVec << position, orientation.coeffs(), linearVelocity,
-      angularVelocity;
+  taskSpaceVec << posEeRtWorldEwrtWorld, quatEeRtWorld.coeffs(),
+      linvelEeRtWorldEwrtWorld, angvelEeRtWorldEwrtWorld;
   // ad_vector_t errors = ad_vector_t::Zero(12);
   ad_vector_t errors = computeTaskSpaceErrors(
       EndEffectorKinematicsCostElement<ad_scalar_t>(taskSpaceVec),

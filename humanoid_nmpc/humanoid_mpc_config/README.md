@@ -74,20 +74,20 @@ The task file's scalars and lists set the formulation (`costs`, `soft_constraint
   after the options (tools/hooks/proto_file_layout.py, proto_next_id.py). A block used by one file only is nested in
   it; a block used in several places has its file. `config_options.proto` is the one options-only file.
 - **Names** are snake_case (`state_weights`, `abs_tol_ode`, `ssp_duration`); a control of the GUI is labeled by them.
-- **Defaults.** A scalar whose absence means "the default" carries `[default = X]`, the default of the domain struct it
+- For **defaults**, a scalar whose absence means "the default" carries `[default = X]`, the default of the domain struct it
   converts to, and is a plain struct member. A scalar whose absence has its own meaning (unset, the controller's
   default, derived from the robot model as a `com_height` left out is, or required by the formulation that reads it)
   has no default and is a `std::optional`, never a sentinel value such as 0; so is a message field
   marked `[(nproto.optional_message) = true]`. Strings carry `[default = ""]` unless absence means something.
-- **Ranges.** A field's comment states its range, and its conversion refuses a value outside it (NaN included) with an
+- For **ranges**, a field's comment states its range, and its conversion refuses a value outside it (NaN included) with an
   InvalidArgument that names the field, at start-up and on a reload alike, so that a refused reload keeps the running
   value: a time step, a tolerance, a rate, a horizon, a radius, a barrier's `mu` and `delta` positive; the factors of
   the line search in (0, 1); a weight, a weight's `scaling` and `terminal_cost_scaling` at least 0 (a negative one makes
   the quadratic cost and its Gauss-Newton Hessian indefinite). A block whose numbers are all at least 0 carries
   `minimum: 0` in its tuning options, which every number below it inherits and the GUI enforces (typed, dragged and set
   values); the checks in C++ do not rely on it.
-- **An absent list is empty.** A repeated field has no presence: a file that leaves out `telemetry_sinks`,
-  `sim_visualizations` or a term list has none, so the shipped files write every list out.
+- An **absent list is empty**: a repeated field has no presence, so a file that leaves out `telemetry_sinks`,
+  `sim_visualizations` or a term list has none, and the shipped files write every list out.
 - **Weights and states by name**, never by index: `{x y z}` blocks, the base orientation as Euler `{yaw pitch roll}`
   (though the MPC's state holds it as a unit quaternion), and joints as `joint_positions { joint: "back_bkz" value: 5 }`.
   The conversions place each name at the index of the MPC's tuning layout (`StateInputLayout`, `tuningLayoutOf()`),
@@ -214,27 +214,27 @@ and its order on it). The tuning GUI renders every numeric, bool and registry-st
 them, so a new hyperparameter needs a schema field and its conversion, and no GUI code.
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/config_options.proto:config_options) -->
 
-- **Inheritance.** A block's options apply to every field below it unless the field sets its own; `registry` and
+- A block's options **inherit** to every field below it unless the field sets its own; `registry` and
   `base_controller_label` are each field's own, and the `active_when` conditions of the blocks above a field add up. A shared message (`Xyz`,
   `JointValue`) is annotated where it is used.
-- **Labels are field names.** A control is labeled by the dotted path of its field names, each list element by its key
+- Control **labels are field names**: a control is labeled by the dotted path of its field names, each list element by its key
   (`joint_positions[back_bkz]`), with its unit and what the options add ("restart", "not applicable: ..."). There is
   no label option, and the comments of a file are never part of a label.
-- **Registries.** A registry string is a drop-down of the names its registry accepts, which
+- **Registry strings** render as drop-downs of the names their registry accepts, which
   `config_registries.textproto` lists. `bazel run //tools/config_registries:print_config_registries` writes it from
   the linked registries, and `//tools/config_registries:config_registries_test` fails when it and the registries
   differ (tools/config_registries/README.md).
-- **Base Controller drop-downs.** A choice whose options name a `base_controller_label` (`contact_estimator`: "Contact
+- For **Base Controller drop-downs**, a choice whose options name a `base_controller_label` (`contact_estimator`: "Contact
   estimator") is also a drop-down on the GUI's Base Controller tab, with that label, built from the schema and showing
   the value the MPC Parameters tab holds, the default included; no field is special-cased in the GUI.
-- **Consumers.** `consumer` says who reads a field when it is not the MPC (`robot`, `gui`); the consumption test (T4)
+- The **`consumer` option** says who reads a field when it is not the MPC (`robot`, `gui`); the consumption test (T4)
   exempts a field the C++ stack does not read only with what reads it.
-- **Formulations.** `formulations` names the MPC formulations that read a field (`"centroidal"`, `"whole_body"`; empty:
+- The **`formulations` option** names the MPC formulations that read a field (`"centroidal"`, `"whole_body"`; empty:
   every one), inherited like `reload`: `com_weights`, the capture-point costs, the link and leg torque costs,
   `contact_implicit`, `locomotion_heuristics`, the basis-vector blocks of `contacts` and `stance_constraint` are the
   centroidal MPC's; `joint_torque_weights` and the acceleration gains of `foot_constraint` the whole-body MPC's. The GUI
   labels a field the file's formulation does not read "not applicable", and T8 expects a hot field in the applied
-  fields of exactly the formulations that read it.
+  fields of the formulations that read it.
 
 The GUI's side is humanoid_nmpc/remote_control/README.md, "Tuning the configuration".
 

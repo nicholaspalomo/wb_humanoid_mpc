@@ -103,7 +103,7 @@ class CentroidalMpcTargetTrajectoriesCalculator
    * defined in pelvis frame
    * @param [in] observation : the current observation
    */
-  TargetTrajectories commandedPositionToTargetTrajectories(
+  TargetTrajectories poseCommandToTargetTrajectories(
       const vector4_t& commandLinePoseTarget,
       scalar_t initTime,
       const vector_t& initState) override;
@@ -116,7 +116,7 @@ class CentroidalMpcTargetTrajectoriesCalculator
    * with the knot - and the filtered joints, interpolated to the target joints
    * over the second segment.
    */
-  TargetTrajectories commandedVelocityToTargetTrajectories(
+  TargetTrajectories velocityCommandToTargetTrajectories(
       const vector4_t& commandedVelocities,
       scalar_t initTime,
       const vector_t& initState,

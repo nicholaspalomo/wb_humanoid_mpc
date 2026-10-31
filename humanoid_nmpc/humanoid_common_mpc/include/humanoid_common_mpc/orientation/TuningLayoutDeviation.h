@@ -89,19 +89,19 @@ struct TuningDeviationApproximation {
  * the difference x - x_ref of the block's state slots; its Jacobian an identity
  * run.
  *   - kEulerZyxOrientation, rows (yaw, pitch, roll): the heading-tilt residual
- * e_HT(xi, xi_r) of the base orientations xi = getBaseOrientation(x) and xi_r =
- * getBaseOrientation(x_ref) (orientation/BaseOrientation.h, design section
- *     2.8.1): the twist heading error wrapped to (-pi, pi] and the tilt error
- * in the heading frame. Its Jacobian is the dense block J_HT(xi)
+ * e_HT(xi, xi_r) of the base orientations xi = getQuatBaseRtWorldXyzw(x) and
+ * xi_r = getQuatBaseRtWorldXyzw(x_ref) (orientation/BaseOrientation.h, design
+ * section 2.8.1): the twist heading error wrapped to (-pi, pi] and the tilt
+ * error in the heading frame. Its Jacobian is the dense block J_HT(xi)
  * getBaseRotationTangentJacobian(x) at the orientation slots.
  *   - kZyxOrderedAngularVelocity, the whole body's rows (z, y, x) (design
  * decision D8): e_w = P_3 (w_B - R(xi)^T R(xi_r) w_B,r) of the body angular
- * velocities w_B = getBaseAngularVelocityLocal(x) and w_B,r =
- * getBaseAngularVelocityLocal(x_ref), P_3 = antidiag(1, 1, 1). Its Jacobian is
+ * velocities w_B = getAngvelBaseRtWorldEwrtBase(x) and w_B,r =
+ * getAngvelBaseRtWorldEwrtBase(x_ref), P_3 = antidiag(1, 1, 1). Its Jacobian is
  * two dense blocks: P_3 dw_B/d(angular-velocity slots) at those slots, and P_3
  * (dw_B/d(orientation slots) - [a]x getBaseRotationTangentJacobian(x)) at the
  * orientation slots, with a = R(xi)^T R(xi_r) w_B,r
- *     (getBaseAngularVelocityLocalJacobian()).
+ *     (getJacobianAngvelBaseRtWorldEwrtBase()).
  * It reads the orientation only through those four robot-model accessors; the
  * slots hold xi and w_B, and the orientation blocks are 3 x 4. The residual is
  * invariant under xi -> -xi, except the orientation rows' tilt at an exactly
@@ -217,10 +217,10 @@ class TuningLayoutDeviation {
   std::vector<TuningJacobianIdentityRun> identityRuns_;
   // The kEulerZyxOrientation block; nullopt only for a layout without one,
   // which no humanoid robot model has.
-  std::optional<RotationBlock> orientation_;
+  std::optional<RotationBlock> orientationSlots_;
   // The kZyxOrderedAngularVelocity block of the whole body; nullopt on the
-  // centroidal layout. Set only with orientation_.
-  std::optional<RotationBlock> angularVelocity_;
+  // centroidal layout. Set only with orientationSlots_.
+  std::optional<RotationBlock> angularVelocitySlots_;
 };
 
 }  // namespace ocs2::humanoid

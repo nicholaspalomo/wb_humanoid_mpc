@@ -86,8 +86,8 @@ ad_vector_t PinocchioCentroidalDynamicsAD::getValueCppAd(PinocchioInterfaceCppAd
   ad_vector_t stateDerivative(info.stateDim);
 
   // compute center of mass acceleration and derivative of the normalized angular momentum
-  centroidal_model::getNormalizedMomentum(stateDerivative, info) =
-      getNormalizedCentroidalMomentumRate(pinocchioInterfaceCppAd, info, input);
+  centroidal_model::getMnormCmomComRtWorldEwrtWorld(stateDerivative, info) =
+      getMnormRateCmomComRtWorldEwrtWorld(pinocchioInterfaceCppAd, info, input);
 
   // derivatives of the generalized coordinates [p_W, xi, q_j] from the pinocchio velocity [dp_W, w_B, dq_j]: the
   // quaternion row is 1/2 G(xi) w_B of the raw xi of the state (computeConfigurationDerivative())

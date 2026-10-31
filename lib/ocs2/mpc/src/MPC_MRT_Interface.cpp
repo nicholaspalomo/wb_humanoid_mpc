@@ -160,7 +160,7 @@ absl::Status MPC_MRT_Interface::advanceMpc() {
 
   // measure the delay
   if (mpc_.settings().debugPrint_) {
-    LOG(INFO) << "MPC_MRT Benchmarking — Max: " << mpcTimer_.getMaxIntervalInMilliseconds()
+    LOG(INFO) << "MPC_MRT Benchmarking - Max: " << mpcTimer_.getMaxIntervalInMilliseconds()
               << "ms, Avg: " << mpcTimer_.getAverageInMilliseconds() << "ms, Latest: " << mpcTimer_.getLastIntervalInMilliseconds() << "ms";
   }
   return absl::OkStatus();

@@ -16,10 +16,10 @@ message SwingTrajectoryConfig {
   reserved 12 to max;
 
   // [m/s] Vertical foot velocity at lift-off, positive upward.
-  double lift_off_velocity = 1 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "m/s" }];
+  double liftoff_linvel_foot_rt_world_ewrt_world_z = 1 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "m/s" }];
   // [m/s] Vertical foot velocity at touch-down, negative downward. Zero lands with a flat height spline, so the sole
   // hovers just above the ground at the end of the swing.
-  double touch_down_velocity = 2 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "m/s" }];
+  double touchdown_linvel_foot_rt_world_ewrt_world_z = 2 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "m/s" }];
   // [m] Apex of the swing above the higher of its lift-off and touch-down heights (scaled down with a short swing). A swing
   // that spans several phases (FLY | stance of the other foot | FLY in a run) has one apex, at its middle. At least 0.
   double swing_height = 3 [default = 0.1, (humanoid_mpc_config.tuning) = { unit: "m" }];
@@ -30,9 +30,9 @@ message SwingTrajectoryConfig {
   double touch_down_height_offset = 5 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "m" }];
 
   // Slope of the impact-proximity factor at lift-off; zero or negative.
-  double impact_proximity_factor_lift_off_velocity = 6 [default = 0.0];
+  double impact_proximity_factor_liftoff_slope = 6 [default = 0.0];
   // Slope of the impact-proximity factor at touch-down; zero or positive.
-  double impact_proximity_factor_touch_down_velocity = 7 [default = 0.0];
+  double impact_proximity_factor_touchdown_slope = 7 [default = 0.0];
   // Impact-proximity factor at mid-swing, between 0 and 1.
   double impact_proximity_factor_mid_point_value = 8 [default = 0.1];
 

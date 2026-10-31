@@ -96,7 +96,7 @@ def make_policy() -> mpc_policy_pb2.MpcPolicy:
     policy.performance.merit = 10.0
     patch = policy.annotations.target_contact_patches.add()
     patch.kind = target_contact_patch_pb2.TargetContactPatch.KIND_NEXT_SWING
-    patch.pose.x = 0.25
+    patch.des_pose_foot_rt_world.x = 0.25
     return policy
 
 
@@ -191,13 +191,13 @@ class TargetContactPatchTest(unittest.TestCase):
         self,
     ) -> None:
         patch = target_contact_patch_pb2.TargetContactPatch()
-        self.assertFalse(patch.HasField("pose"))
+        self.assertFalse(patch.HasField("des_pose_foot_rt_world"))
         self.assertEqual(
             patch.kind,
             target_contact_patch_pb2.TargetContactPatch.KIND_UNSPECIFIED,
         )
-        patch.pose.x = 0.0
-        self.assertTrue(patch.HasField("pose"))
+        patch.des_pose_foot_rt_world.x = 0.0
+        self.assertTrue(patch.HasField("des_pose_foot_rt_world"))
 
     def test_a_payload_of_the_retired_layout_is_not_read_as_a_pose(
         self,
@@ -205,7 +205,7 @@ class TargetContactPatchTest(unittest.TestCase):
         # valid: true (field 1), kind: 2 (field 2) and x: 0.5 (field 3) of the layout before the pose had presence.
         old = bytes([0x08, 0x01, 0x10, 0x02, 0x19]) + struct.pack("<d", 0.5)
         patch = target_contact_patch_pb2.TargetContactPatch.FromString(old)
-        self.assertFalse(patch.HasField("pose"))
+        self.assertFalse(patch.HasField("des_pose_foot_rt_world"))
         self.assertEqual(
             patch.kind,
             target_contact_patch_pb2.TargetContactPatch.KIND_UNSPECIFIED,

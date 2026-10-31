@@ -265,8 +265,10 @@ TEST(ExternalForceVisualization, AHeldPushIsDrawnAtTheCenterOfMassAndClamped) {
   ASSERT_EQ(scene.ngeom, 1);
   const mjvGeom& arrow = scene.geoms[0];
   // mjvGeom stores single-precision floats.
+  // NOLINTBEGIN(frame-naming): MuJoCo's mjvGeom::pos
   EXPECT_NEAR(arrow.pos[0], state.data->xipos[3 * base + 0], 1.0e-6);
   EXPECT_NEAR(arrow.pos[2], state.data->xipos[3 * base + 2], 1.0e-6);
+  // NOLINTEND(frame-naming)
   EXPECT_NEAR(state.data->xipos[3 * base] - state.data->xpos[3 * base], 0.2,
               1.0e-9);
   EXPECT_LT(arrow.mat[2], -0.9)

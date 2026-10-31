@@ -47,8 +47,9 @@ namespace {
 
 /** The fields of GuiCommandScaling::commandLimits, in its order. */
 constexpr std::array<absl::string_view, 3> kCommandLimitFields = {
-    "max_displacement_velocity_x", "max_displacement_velocity_y",
-    "max_rotation_velocity"};
+    "cmd_max_linvel_base_rt_world_ewrt_heading_x",
+    "cmd_max_linvel_base_rt_world_ewrt_heading_y",
+    "cmd_max_angvel_base_rt_world_ewrt_world_z"};
 
 }  // namespace
 
@@ -57,10 +58,11 @@ absl::StatusOr<GuiCommandScaling> guiCommandScalingFromConfig(
   ASSIGN_OR_RETURN(const ReferenceSettings reference,
                    referenceSettingsFromConfig(file));
   GuiCommandScaling scaling;
-  scaling.commandLimits = Eigen::Vector3d(reference.maxDisplacementVelocityX,
-                                          reference.maxDisplacementVelocityY,
-                                          reference.maxRotationVelocity);
-  scaling.defaultPelvisHeight = reference.defaultBaseHeight;
+  scaling.commandLimits =
+      Eigen::Vector3d(reference.cmdMaxLinvelBaseRtWorldEwrtHeadingX,
+                      reference.cmdMaxLinvelBaseRtWorldEwrtHeadingY,
+                      reference.cmdMaxAngvelBaseRtWorldEwrtWorldZ);
+  scaling.defaultPelvisHeight = reference.nomPosBaseRtWorldEwrtWorldZ;
   // The GUI sends a command as its fraction of these: a limit that is not
   // positive leaves no command to send. Every value is finite
   // (referenceSettingsFromConfig()).

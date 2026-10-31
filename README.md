@@ -6,9 +6,7 @@ This repository contains a Whole-Body Nonlinear Model Predictive Controller (NMP
 
 ![vokoscreenNG-2025-12-21_20-35-31-ezgif com-optimize](https://github.com/user-attachments/assets/daf374ba-fe82-469d-9270-63d18a51bb53)
 
----
-
-## 🤖 MPC Formulations
+## MPC Formulations
 
 ### Centroidal Dynamics MPC
 The centroidal MPC optimizes over the **whole-body kinematics** and the center of mass dynamics, with a choice to use either a Single Rigid Body Dynamics (SRBD) model or the full centroidal dynamics. This approach extends the OCS2 centroidal formulation by generalizing costs and constraints to 6-DoF contacts and arbitrary end-effectors. For theoretical background, see [Sleiman et al., *A Unified MPC Framework for Whole-Body Dynamic Locomotion and Manipulation*](https://arxiv.org/abs/2103.00946).
@@ -68,16 +66,14 @@ The reference layer decides *when* and *where* the feet touch the ground, the NM
 
 Both replaced a top-level boolean, now the retired fields `use_dcm_terminal_cost` and `use_contact_planning`: a task file that still carries one is refused when it is read, with a message naming its replacement. The formulation and the math of both features are described in [humanoid_nmpc/docs/README.md](humanoid_nmpc/docs/README.md).
 
----
-
-## 🦾 Supported Robot Models
+## Supported Robot Models
 
 | Robot Platform | Centroidal NMPC | Whole-Body NMPC | MuJoCo Physics Sim | Dummy Sim |
 |---|:---:|:---:|:---:|:---:|
-| **Unitree G1** | ✅ | ✅ | ✅ | ✅ |
-| **Unitree R1** | ✅ | — | ✅ | ✅ |
-| **DRC Atlas** | ✅ | — | ✅ | ✅ |
-| **EngineAI SA01** | ✅ | — | ✅ | ✅ |
+| **Unitree G1** | Yes | Yes | Yes | Yes |
+| **Unitree R1** | Yes | - | Yes | Yes |
+| **DRC Atlas** | Yes | - | Yes | Yes |
+| **EngineAI SA01** | Yes | - | Yes | Yes |
 | **1X Neo** | *Coming Soon* | *Coming Soon* | *Coming Soon* | *Coming Soon* |
 
 **Unitree G1:**
@@ -88,9 +84,7 @@ Both replaced a top-level boolean, now the retired fields `use_dcm_terminal_cost
 
 ![DRC Atlas](https://github.com/user-attachments/assets/ab7cd9c6-6919-4e9a-b6af-1a67725b5fcf)
 
----
-
-## 🚀 Getting Started
+## Getting Started
 
 ### 1. Repository Setup
 
@@ -151,9 +145,7 @@ make install-hooks
 
 </details>
 
----
-
-## 🛠️ Build & Test Commands
+## Build & Test Commands
 
 The repository includes a top-level `Makefile` for streamlined building and testing:
 
@@ -181,17 +173,15 @@ make clean        # Incremental clean
 make clean-all    # Deep clean including external caches
 ```
 
----
-
-## 🖥️ Launching Simulations
+## Launching Simulations
 
 ### How it runs
 The robot and the MPC are separate processes on a Cyclone DDS + Protocol Buffers bus, as on hardware: the **robot process**
 (the realtime loop: MuJoCo as its backend, the MRT joint controller, the FSM) runs on the robot's computer, the **MPC
 node**, the **remote-control GUI** and the **Rerun bridge** on the laptop
 ([architecture](humanoid_nmpc/docs/distributed_runtime/README.md)). Simulation mirrors that: `make launch-<robot>-sim`
-starts the robot process in the `robot-sim` container - the robot's own slim image and compose file, with its
-`SCHED_FIFO` and locked memory, plus only the MuJoCo viewer's GL - and the laptop side in the dev container, over the
+starts the robot process in the `robot-sim` container (the robot's own slim image and compose file, with its
+`SCHED_FIFO` and locked memory, plus only the MuJoCo viewer's GL) and the laptop side in the dev container, over the
 remote MPC link. Starting a container takes the host's Docker, so run the `-sim` targets **on the host** (Linux); they
 build and run the laptop side inside the dev container through `docker exec` (`DEV_CONTAINER=`). The dummy-sim and
 sandbox targets run anywhere.
@@ -213,15 +203,15 @@ laptop side starts ([Visualization Guide](.devcontainer/README.md#views-browser-
 The laptop side is launched the same way in simulation and on the robot (`launch-<robot>-mpc[-vnc]`).
 <!-- LINT.ThenChange(//Makefile:views) -->
 
-- **Local Linux:** with `VIEWS=display`, the windows draw on the display of the shell the target runs in. From the
+- On **local Linux** with `VIEWS=display`, the windows draw on the display of the shell the target runs in. From the
   host, allow the containers on it once: `xhost +SI:localuser:root +SI:localuser:$(id -un)`.
-- **Remote SSH (Linux host):** forward ports `6080`, `6090`, `9090` and `9876` (`devcontainer.json` does); the default
-  browser view needs nothing else.
-- **macOS (Docker Desktop):** the containers do not share a host network there, so the MuJoCo `-sim` targets do not
+- Over **remote SSH (Linux host)**, forward ports `6080`, `6090`, `9090` and `9876` (`devcontainer.json` does); the
+  default browser view needs nothing else.
+- On **macOS (Docker Desktop)**, the containers do not share a host network, so the MuJoCo `-sim` targets do not
   run; use `make launch-<robot>-dummy-sim` and the sandbox targets, which run entirely in the dev container.
 - **The MuJoCo web viewer** renders offscreen without an X server or VNC. Without `VIEWS=` on the command line the plot
   configuration chooses the viewer (`mujoco_viewer: "web"` in
-  [`plot_config.textproto`](humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto), `PLOT_CONFIG=` names
+  [`plot_config.textproto`](humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto); `PLOT_CONFIG=` selects
   another file). See the [Visualization Guide](.devcontainer/README.md#mujoco-web-viewer).
 
 ### Launch Targets
@@ -282,9 +272,7 @@ make playback-drc-atlas-box-climb   # play the plan in Rerun (RERUN_SINK=, defau
 > **Cleanup Tip:** Run `make kill-sims` at any time to stop what a launch target left running: its launcher, the
 > robot-sim container and a NETEM qdisc.
 
----
-
-## 🕹️ Interactive Controls & Simulation Lifecycle
+## Interactive Controls & Simulation Lifecycle
 
 ### Supervisory Finite State Machine (FSM)
 Simulations launch in a safe **Zero-Torque Mode** suspended on a virtual gantry so the robot settles safely while the MPC solver initializes:
@@ -297,8 +285,8 @@ Simulations launch in a safe **Zero-Torque Mode** suspended on a virtual gantry 
 | `LOCK_GANTRY` / `UNLOCK_GANTRY` | Suspends or releases the virtual gantry holding the floating base. |
 
 State transitions travel on the IPC bus (`humanoid_nmpc/humanoid_mpc_ipc/include/humanoid_mpc_ipc/Topics.h`):
-- **Command Topic:** `operator/fsm_command` (`humanoid_mpc_msgs.FsmCommand`: the command and a sequence number)
-- **State Topic:** `robot/fsm_state` (`humanoid_mpc_msgs.FsmState`: `mode`, `gantry_locked`, `controller_resets`, `mpc_healthy`), published on every change and at 2 Hz, so a GUI that starts late learns the current state (the remote control re-centers its joysticks on a transition into a passive mode, a new lock and a new reset, see humanoid_nmpc/remote_control/README.md)
+- The **command topic** is `operator/fsm_command` (`humanoid_mpc_msgs.FsmCommand`: the command and a sequence number).
+- The **state topic** is `robot/fsm_state` (`humanoid_mpc_msgs.FsmState`: `mode`, `gantry_locked`, `controller_resets`, `mpc_healthy`), published on every change and at 2 Hz, so a GUI that starts late learns the current state (the remote control re-centers its joysticks on a transition into a passive mode, a new lock and a new reset; see [humanoid_nmpc/remote_control/README.md](humanoid_nmpc/remote_control/README.md)).
 
 ### Teleoperation & Root Height Control
 - Use the **Robot Base Controller GUI** or connect an **Xbox Controller** to command velocity vectors ($v_x, v_y, \omega_z$).
@@ -306,26 +294,26 @@ State transitions travel on the IPC bus (`humanoid_nmpc/humanoid_mpc_ipc/include
 
 ![robot_remote_control](https://github.com/user-attachments/assets/779be1da-97a1-4d0c-8f9b-b9d2df88384f)
 
-### 🎛️ Interactive Controller GUI & Parameter Tuning Tabs
+### Interactive Controller GUI & Parameter Tuning Tabs
 
 The joystick GUI (`base_velocity_controller_gui`, [humanoid_nmpc/remote_control/README.md](humanoid_nmpc/remote_control/README.md)) features a dark-themed tabbed interface:
 
-1. **🕹️ Base Controller:**
+1. **Base Controller**
    - Command planar velocities ($v_x, v_y, \omega_z$) via interactive virtual joysticks or physical Xbox gamepad.
    - Adjust root pelvis height and virtual gantry suspension.
    - Switch supervisory FSM modes (`ZERO_TORQUE`, `JOINT_PD`, `GRAVITY_COMP`, `WB_MPC`, `SAFETY`).
-   - A drop-down for every task-file choice the schema marks with `base_controller_label` (`tuning_options.proto`), such as the contact estimator (`contact_estimator`: `"cheater_sim"`, `"always_in_contact"`, ...), showing the value the MPC Parameters tab holds, the default included, and applied live through the parameter topic.
+   - A drop-down for every task-file choice the schema marks with `base_controller_label` (`tuning_options.proto`), such as the contact estimator (`contact_estimator`: `"cheater_sim"`, `"always_in_contact"`, ...), showing the current value in the MPC Parameters tab (the default included) and applied live through the parameter topic.
    - **Open Rerun viewer** starts a Rerun bridge of its own, which opens a native viewer (on port 9877, next to the launch file's web viewer) with the 3D scene and the plot tabs.
 
-2. **⚙️ Joint PD Gains (`joint_pd_gains.textproto`):**
+2. **Joint PD Gains (`joint_pd_gains.textproto`)**
    - A slider and a numeric entry per gain of the file: the default gains and each joint's proportional ($K_p$) and derivative ($K_d$) gain.
-   - **Limb Grouping:** the joints' rows are grouped into torso and spine, left and right leg, left and right arm, and head and neck.
-   - **Global Scaling:** Multipliers ($\times 0.001 \dots \times 2.0$) that scale all $K_p$ and $K_d$ gains simultaneously.
-   - **Robot Model Presets:** Instantly switch between Unitree G1, DRC Atlas, Unitree R1, and EngineAI SA01 gain files.
-   - **💾 Save** writes the laptop's file and sends the same text to the robot's store; the status line shows the
+   - **Limb grouping** organizes the joints' rows into torso and spine, left and right leg, left and right arm, and head and neck.
+   - **Global scaling** multipliers ($\times 0.001 \dots \times 2.0$) scale all $K_p$ and $K_d$ gains simultaneously.
+   - **Robot model presets** switch between Unitree G1, DRC Atlas, Unitree R1, and EngineAI SA01 gain files.
+   - **Save** writes the laptop's file and sends the same text to the robot's store; the status line shows the
      robot's answer.
 
-3. **📈 MPC Parameters (`task.textproto`, and `contact_planning.textproto` for a robot with a contact planner):**
+3. **MPC Parameters (`task.textproto`, and `contact_planning.textproto` for a robot with a contact planner)**
    - A slider, entry, checkbox or choice per number, bool and registry name of the two files, shown block by block in
      the order of the file: the state, input and terminal weights by coordinate and joint name (`state_weights`,
      `input_weights`, `final_state_weights`), the task-space costs, the constraints and barriers, the solver and
@@ -333,21 +321,19 @@ The joystick GUI (`base_velocity_controller_gui`, [humanoid_nmpc/remote_control/
    - Both formulations apply the hot fields live: the parameter updater of the running centroidal or whole-body MPC
      applies an edit before its next solve. A field the running MPC applies only at its next start is labeled
      **(restart)**; one the file's formulation does not read is labeled **not applicable** and says why.
-   - **💾 Save** writes both files on the laptop and sends the task file's text to the robot's store (the
+   - **Save** writes both files on the laptop and sends the task file's text to the robot's store (the
      contact-planning file is the MPC's alone).
 
-4. **🎯 Joint Targets:** a position slider per joint, starting from the reference file's `default_joint_state`, published in `JOINT_PD` only.
-5. **🎚️ Command Limits (`reference.textproto`):** the velocity command limits and reference defaults, which the running MPC reloads when the file is saved; Save also sends the file to the robot's store, which the robot reads at its next start.
-6. **🏐 Dodgeball:** aims and throws a ball at the robot in simulation ([humanoid_nmpc/docs/dodgeball/README.md](humanoid_nmpc/docs/dodgeball/README.md)).
+4. **Joint Targets** provides a position slider per joint, starting from the reference file's `default_joint_state` and published in `JOINT_PD` only.
+5. **Command Limits (`reference.textproto`)** exposes the velocity command limits and reference defaults, which the running MPC reloads when the file is saved; Save also sends the file to the robot's store, which the robot reads at its next start.
+6. **Dodgeball** aims and throws a ball at the robot in simulation ([humanoid_nmpc/docs/dodgeball/README.md](humanoid_nmpc/docs/dodgeball/README.md)).
 
 The tuning tabs are built from the schemas of their files, so a hyperparameter added to a schema appears in the GUI
 with no GUI code. How they publish and save is described in the next section.
 
----
+### Configuration Files and Tuning (textproto)
 
-### ⚙️ Configuration Files and Tuning (textproto)
-
-Every hyperparameter of the MPC, the robot's controller and the tuning GUI lives in a typed textproto, parsed strictly
+Every hyperparameter of the MPC, the robot's controller and the tuning GUI is stored in a typed textproto, parsed strictly
 into the message of its schema in [humanoid_nmpc/humanoid_mpc_config](humanoid_nmpc/humanoid_mpc_config/README.md):
 
 | File | Message | What it sets |
@@ -358,7 +344,7 @@ into the message of its schema in [humanoid_nmpc/humanoid_mpc_config](humanoid_n
 | `.../config/mpc/contact_planning.textproto` | `ContactPlanningFile` | the online contact planner (DRC Atlas and EngineAI SA01) |
 | `humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto` | `GaitFile` | the gaits of the procedural motion manager, shared by every robot |
 
-Each file names its schema in its first two lines, which the parsers check and `make lint` requires. The task file
+Each file specifies its schema in its first two lines, which the parsers check and `make lint` requires. The task file
 starts with the runtime flags of the robot process and the GUI:
 
 ```textproto
@@ -373,12 +359,12 @@ telemetry_frames: "foot_r_contact"
 telemetry_frames: "pelvis"
 ```
 
-- **`telemetry_sinks`:** The telemetry sinks of the robot process, by name (`humanoid_nmpc/humanoid_common_mpc_app/robot/README.md`): `bus` publishes every sample on `robot/state`; a file without a `telemetry_sinks` line turns the telemetry off, and the realtime loop then samples nothing. The retired boolean `enable_telemetry` is refused with this replacement.
-- **`enable_online_tuning`:** When `false`, the GUI disables all sliders, quick multipliers, and save buttons in the **⚙️ Joint PD Gains**, **📈 MPC Parameters**, and **🎚️ Command Limits** tabs, displaying an orange safety badge `🔒 Online Tuning Disabled`.
-- **`telemetry_frames`:** Optional targeted list of Pinocchio frames to monitor. The telemetry engine automatically computes forward kinematics, spatial twists, frame accelerations, and contact wrenches for both measured and MPC desired states.
+- **`telemetry_sinks`** lists the telemetry sinks of the robot process by name (`humanoid_nmpc/humanoid_common_mpc_app/robot/README.md`): `bus` publishes every sample on `robot/state`; a file without a `telemetry_sinks` line turns the telemetry off, and the realtime loop then samples nothing. The retired boolean `enable_telemetry` is refused with this replacement.
+- **`enable_online_tuning`**, when `false`, disables all sliders, quick multipliers, and save buttons in the **Joint PD Gains**, **MPC Parameters**, and **Command Limits** tabs, displaying an orange safety badge `Online Tuning Disabled`.
+- **`telemetry_frames`** is an optional targeted list of Pinocchio frames to monitor. The telemetry engine automatically computes forward kinematics, spatial twists, frame accelerations, and contact wrenches for both measured and MPC desired states.
 
 Weights and states are addressed by name, never by index. Momenta, positions and velocities are `{x y z}` blocks, the
-base orientation is tuned in Euler angles `{yaw pitch roll}` (the MPC's state holds a unit quaternion, and one layer
+base orientation is tuned in Euler angles `{yaw pitch roll}` (the MPC's state stores a unit quaternion, and one layer
 maps the angles onto it: [quaternion_base_orientation](humanoid_nmpc/docs/quaternion_base_orientation/README.md)), and
 joints are named entries; every joint of the MPC model is listed exactly once, and a missing, unknown or fixed joint is
 refused by name:
@@ -386,12 +372,12 @@ refused by name:
 ```textproto
 state_weights {
   scaling: 85
-  normalized_linear_momentum {
+  mnorm_linmom_com_rt_world_ewrt_world {
     x: 10  # h_com_x / robotMass
     y: 10  # h_com_y / robotMass
     z: 15  # h_com_z / robotMass
   }
-  base_orientation {
+  eulerzyx_base_rt_world {
     yaw: 0  # theta_base_z
     pitch: 0  # theta_base_y
     roll: 0  # theta_base_x
@@ -402,11 +388,11 @@ state_weights {
 }
 ```
 
-- **Strict parsing.** A field the schema does not have, a value of the wrong type or a field given twice is an error
-  that names the file, the line and the column (`task.textproto:12:3: ...`). A retired field says what replaced it:
-  `use_dcm_terminal_cost`, for example, says to list `dcm_terminal_cost` under `costs`.
-- **Defaults.** A field left out takes the schema's default (`[default = ...]` in the `.proto`); a repeated field left
-  out is empty.
+- **Strict parsing** rejects any field the schema does not have, a value of the wrong type or a field given twice with
+  an error that reports the file, the line and the column (`task.textproto:12:3: ...`). A retired field states what
+  replaced it: `use_dcm_terminal_cost`, for example, directs you to list `dcm_terminal_cost` under `costs`.
+- **Defaults** come from `[default = ...]` in the `.proto` when a scalar field is omitted; an omitted repeated field is
+  empty.
 - **Named components are strings** (`costs: "dcm_terminal_cost"`, `contact_estimator: "cheater_sim"`,
   `planner { type: "hlip" }`), which their registries resolve, refusing an unknown name with the valid ones.
 
@@ -417,17 +403,17 @@ field as taking effect at the next start. The robot process reads its own copies
 the stored task file for its controller-side settings (`contact_estimator`, `contact_wrench_gate`), and the MRT joint
 controllers watch the stored PD gains file. An editor's save therefore reaches the MPC at once and a running robot at
 its next start, or at once with `bazel run //humanoid_nmpc/remote_control:push_robot_config -- <file>`. A reload is
-the whole file: a field or block it leaves out takes its default, as at start-up, not the value that was running. A
+complete: a field or block it leaves out takes its default, as at start-up, not the value that was running. A
 file that does not parse is logged and the running values stay, and so do those of a block whose conversion is
 refused.
 
-**Tuning in the GUI.** The MPC Parameters and Joint PD Gains tabs publish every change, debounced, as the whole edited
-file - a typed `humanoid_mpc_config.MpcParameterUpdate` (task and contact-planning file) on `operator/mpc_parameters`,
-a `humanoid_mpc_config.JointPdGainsFile` on `operator/pd_gains` - after parsing the edited text strictly, so an edit
-the schema would refuse is reported on the tab and never sent. Nothing is written to disk until **💾 Save**, which
+**Tuning in the GUI.** The MPC Parameters and Joint PD Gains tabs publish every change, debounced, as the edited
+file (`humanoid_mpc_config.MpcParameterUpdate` on `operator/mpc_parameters`, `humanoid_mpc_config.JointPdGainsFile` on
+`operator/pd_gains`) after parsing the edited text strictly, so an edit the schema would refuse is reported on the tab
+and never sent. Nothing is written to disk until **Save**, which
 changes only the values that were edited and keeps every other byte of the file (comments, blank lines, `LINT`
 directives, the spelling of the values not edited), replaces the file atomically so that no file watcher reads half
-of it, and keeps the file as it was before the first save as `<file>.bak`. Save then delivers exactly the text it
+of it, and keeps the file as it was before the first save as `<file>.bak`. Save then delivers the text it
 wrote to the robot's persistent store (`operator/config_save`), which checks it as at start-up, stores it atomically
 and answers; the tab shows "Saved on the laptop and on the robot", the robot's refusal, or that the robot's copy is
 unknown when it did not answer ([humanoid_nmpc/remote_control/README.md](humanoid_nmpc/remote_control/README.md)).
@@ -438,9 +424,7 @@ its `tuning` options (slider range, unit, reload class, or the reason it gets no
 the GUI shows it with no GUI code ([humanoid_nmpc/humanoid_mpc_config/README.md](humanoid_nmpc/humanoid_mpc_config/README.md),
 [humanoid_nmpc/remote_control/README.md](humanoid_nmpc/remote_control/README.md)).
 
----
-
-### 📊 Real-Time Visualization & Telemetry (Rerun)
+### Real-Time Visualization & Telemetry (Rerun)
 
 The Rerun bridge (`humanoid_nmpc/humanoid_rerun_viewer`) draws the robot, the MPC's plan and the telemetry plots in
 [Rerun](https://rerun.io). It only subscribes to the bus, so it runs on any machine of the network file:
@@ -455,15 +439,15 @@ bazel run //humanoid_nmpc/humanoid_rerun_viewer -- --urdf <robot.urdf> --rerun_s
 *(Or click **Open Rerun viewer** in the Base Controller GUI.)*
 
 #### Plot Tabs
-1. **Base Pose & Euler:** the measured floating-base position and orientation against the MPC's reference: the Euler
+1. **Base Pose & Euler** plots the measured floating-base position and orientation against the MPC's reference: the Euler
    angles (roll, pitch, yaw) of the base quaternion, their rates and the body angular velocity. The angles and rates are
    display values, computed by the MPC node; the rates leave a gap within 1e-6 of a pitch of ±90°.
-2. **Base Twist:** the measured base linear and angular velocities (the angular one in the world frame) against the
+2. **Base Twist** plots the measured base linear and angular velocities (the angular one in the world frame) against the
    reference.
-3. **Contact Forces:** the MPC's planned foot contact forces against the forces the simulator's foot sensors measure.
-4. **Joint Dynamics:** joint positions, velocities and efforts against the applied joint targets.
-5. **Generalized Coordinates (Pinocchio):** generalized coordinates and velocities, measured against the reference.
-6. **Frame Kinematics & Acceleration:** the feet's vertical acceleration and velocity, measured against the reference.
+3. **Contact Forces** plots the MPC's planned foot contact forces against the forces the simulator's foot sensors measure.
+4. **Joint Dynamics** plots joint positions, velocities and efforts against the applied joint targets.
+5. **Generalized Coordinates (Pinocchio)** plots generalized coordinates and velocities, measured against the reference.
+6. **Frame Kinematics & Acceleration** plots the feet's vertical acceleration and velocity, measured against the reference.
 
 Further tabs plot the complete groups: every degree of freedom (measured, reference and the MPC's plan), every tracked
 frame of `telemetry_frames`, both contact wrenches and the MPC observation, and the status of the robot loop and the MPC.
@@ -479,8 +463,6 @@ frame of `telemetry_frames`, both contact wrenches and the MPC observation, and 
 
 The entity paths and series names are tabulated in [the bridge's README](humanoid_nmpc/humanoid_rerun_viewer/README.md);
 `bazel run //tools/ipc:ipc_tool -- list` shows what is on the bus.
-
----
 
 ### MuJoCo 3D Viewer Hotkeys & Controls
 When focused in the MuJoCo simulation viewport, use these keyboard shortcuts and mouse inputs. A visualization's key
@@ -513,8 +495,6 @@ panel lists exactly the ones the running robot has.
 | **Shift + Click + Drag** | **Constrained Pan/Orbit** | Constrains mouse orbit/pan motion to the horizontal plane |
 <!-- LINT.ThenChange(//robot_runtime/mujoco_sim_interface/src/visualization/VisualizationRegistry.cpp:visualization_names) -->
 
----
-
 ## ACoM Training Notebook
 
 The Angular Center of Mass (aCOM) network behind `com_and_acom_tracking_cost` and the contact planner's heading model
@@ -529,9 +509,7 @@ trains the network for one robot and exports the C++ weight header `AcomSirenWei
 `humanoid_learning/acom/train_main.py`, which does the same from the command line. Only the DRC Atlas network is
 validated for closed-loop use - see [`humanoid_learning/acom/README.md`](humanoid_learning/acom/README.md).
 
----
-
-## 🧠 Reinforcement Learning with MuJoCo Playground (`humanoid_learning`)
+## Reinforcement Learning with MuJoCo Playground (`humanoid_learning`)
 
 The repository includes a GPU-accelerated RL and imitation learning pipeline built on **Google DeepMind's [MuJoCo Playground](https://github.com/google-deepmind/mujoco_playground)**, **MJX**, **JAX**, and **Brax**.
 
@@ -580,9 +558,7 @@ bazel run //humanoid_learning/export:export_onnx -- --checkpoint_path=checkpoint
 
 </details>
 
----
-
-## 📚 Citation
+## Citation
 
 If you use Whole-Body Humanoid MPC in your academic research, please cite:
 
@@ -595,7 +571,7 @@ If you use Whole-Body Humanoid MPC in your academic research, please cite:
 }
 ```
 
-## 👥 Acknowledgments
+## Acknowledgments
 
 This project was originally created by [Manuel Yves Galliker](https://github.com/manumerous) and open-sourced in collaboration with 1X Technologies.
 

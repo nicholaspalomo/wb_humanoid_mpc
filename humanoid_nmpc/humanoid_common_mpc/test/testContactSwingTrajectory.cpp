@@ -74,10 +74,12 @@ scalar_t stepTerrain(const vector3_t& point) {
 ContactSwingTrajectory stepUp(const ContactSwingSettings& settings) {
   return checkedValue(ContactSwingTrajectory::Create(
       /*liftOffTime=*/1.0, /*touchDownTime=*/2.0,
-      ContactSwingEndpoint{.position = vector3_t(0.0, 0.1, 0.0),
-                           .normal = vector3_t::UnitZ()},
-      ContactSwingEndpoint{.position = vector3_t(0.4, 0.1, 0.15),
-                           .normal = vector3_t::UnitZ()},
+      ContactSwingEndpoint{
+          .posContactRtWorldEwrtWorld = vector3_t(0.0, 0.1, 0.0),
+          .normal = vector3_t::UnitZ()},
+      ContactSwingEndpoint{
+          .posContactRtWorldEwrtWorld = vector3_t(0.4, 0.1, 0.15),
+          .normal = vector3_t::UnitZ()},
       settings, &stepTerrain));
 }
 
@@ -85,13 +87,15 @@ TEST(ContactSwingTrajectory, startsAndEndsAtRestOnItsPoints) {
   const ContactSwingTrajectory swing = stepUp(ContactSwingSettings{});
   for (const scalar_t time : {0.5, 1.0}) {
     const ContactSwingReference start = swing.reference(time);
-    EXPECT_TRUE(start.position.isApprox(vector3_t(0.0, 0.1, 0.0), kTolerance));
-    EXPECT_TRUE(start.linearVelocity.isZero(kTolerance));
+    EXPECT_TRUE(start.posContactRtWorldEwrtWorld.isApprox(
+        vector3_t(0.0, 0.1, 0.0), kTolerance));
+    EXPECT_TRUE(start.linvelContactRtWorldEwrtWorld.isZero(kTolerance));
   }
   for (const scalar_t time : {2.0, 3.0}) {
     const ContactSwingReference end = swing.reference(time);
-    EXPECT_TRUE(end.position.isApprox(vector3_t(0.4, 0.1, 0.15), kTolerance));
-    EXPECT_TRUE(end.linearVelocity.isZero(kTolerance));
+    EXPECT_TRUE(end.posContactRtWorldEwrtWorld.isApprox(
+        vector3_t(0.4, 0.1, 0.15), kTolerance));
+    EXPECT_TRUE(end.linvelContactRtWorldEwrtWorld.isZero(kTolerance));
   }
   EXPECT_TRUE(swing.contains(1.5));
   EXPECT_FALSE(swing.contains(2.5));
@@ -101,11 +105,12 @@ TEST(ContactSwingTrajectory, theVelocityIsTheDerivativeOfThePosition) {
   const ContactSwingTrajectory swing = stepUp(ContactSwingSettings{});
   constexpr scalar_t kStep = 1.0e-6;
   for (const scalar_t time : {1.1, 1.37, 1.5, 1.83}) {
-    const vector3_t difference = (swing.reference(time + kStep).position -
-                                  swing.reference(time - kStep).position) /
-                                 (2.0 * kStep);
-    EXPECT_TRUE(
-        swing.reference(time).linearVelocity.isApprox(difference, 1.0e-6))
+    const vector3_t difference =
+        (swing.reference(time + kStep).posContactRtWorldEwrtWorld -
+         swing.reference(time - kStep).posContactRtWorldEwrtWorld) /
+        (2.0 * kStep);
+    EXPECT_TRUE(swing.reference(time).linvelContactRtWorldEwrtWorld.isApprox(
+        difference, 1.0e-6))
         << time;
   }
 }
@@ -117,17 +122,19 @@ TEST(ContactSwingTrajectory, leavesAndArrivesAlongTheSurfaceNormals) {
   const ContactSwingTrajectory swing =
       checkedValue(ContactSwingTrajectory::Create(
           /*liftOffTime=*/0.0, /*touchDownTime=*/1.0,
-          ContactSwingEndpoint{.position = vector3_t(0.3, 0.2, 0.8),
-                               .normal = vector3_t::UnitZ()},
-          ContactSwingEndpoint{.position = vector3_t(0.6, 0.2, 1.2),
-                               .normal = wallNormal},
+          ContactSwingEndpoint{
+              .posContactRtWorldEwrtWorld = vector3_t(0.3, 0.2, 0.8),
+              .normal = vector3_t::UnitZ()},
+          ContactSwingEndpoint{
+              .posContactRtWorldEwrtWorld = vector3_t(0.6, 0.2, 1.2),
+              .normal = wallNormal},
           ContactSwingSettings{.liftHeight = 0.1, .clearance = 0.0},
           [](const vector3_t& point) { return point.z(); }));
   constexpr scalar_t kNearTheEnds = 1.0e-4;
   const vector3_t leaving =
-      swing.reference(kNearTheEnds).linearVelocity.normalized();
-  const vector3_t arriving =
-      swing.reference(1.0 - kNearTheEnds).linearVelocity.normalized();
+      swing.reference(kNearTheEnds).linvelContactRtWorldEwrtWorld.normalized();
+  const vector3_t arriving = swing.reference(1.0 - kNearTheEnds)
+                                 .linvelContactRtWorldEwrtWorld.normalized();
   EXPECT_GT(leaving.dot(vector3_t::UnitZ()), 0.999) << leaving.transpose();
   EXPECT_GT(arriving.dot(-wallNormal), 0.999) << arriving.transpose();
   // The arc's tangents at its ends are the normals themselves.
@@ -162,10 +169,12 @@ TEST(ContactSwingTrajectory, saysSoWhenNoArcClearsTheTerrain) {
   const ContactSwingTrajectory swing =
       checkedValue(ContactSwingTrajectory::Create(
           /*liftOffTime=*/0.0, /*touchDownTime=*/1.0,
-          ContactSwingEndpoint{.position = vector3_t(0.0, 0.0, 0.0),
-                               .normal = vector3_t::UnitZ()},
-          ContactSwingEndpoint{.position = vector3_t(1.0, 0.0, 0.0),
-                               .normal = vector3_t::UnitZ()},
+          ContactSwingEndpoint{
+              .posContactRtWorldEwrtWorld = vector3_t(0.0, 0.0, 0.0),
+              .normal = vector3_t::UnitZ()},
+          ContactSwingEndpoint{
+              .posContactRtWorldEwrtWorld = vector3_t(1.0, 0.0, 0.0),
+              .normal = vector3_t::UnitZ()},
           ContactSwingSettings{.liftHeight = 0.1, .clearance = 0.05},
           [](const vector3_t& point) {
             return std::min(point.z(),
@@ -179,8 +188,9 @@ TEST(ContactSwingTrajectory, saysSoWhenNoArcClearsTheTerrain) {
 }
 
 TEST(ContactSwingTrajectory, refusesWhatIsNotASwing) {
-  const ContactSwingEndpoint floor{.position = vector3_t::Zero(),
-                                   .normal = vector3_t::UnitZ()};
+  const ContactSwingEndpoint floor{
+      .posContactRtWorldEwrtWorld = vector3_t::Zero(),
+      .normal = vector3_t::UnitZ()};
   const ContactSwingSettings settings;
   const absl::StatusOr<ContactSwingTrajectory> backwards =
       ContactSwingTrajectory::Create(/*liftOffTime=*/1.0,

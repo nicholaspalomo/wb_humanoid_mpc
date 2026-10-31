@@ -53,6 +53,7 @@ MujocoOptionFlagVisualization::contactPoints() {
       /*hotkey=*/'c', mjVIS_CONTACTPOINT);
 }
 std::unique_ptr<MujocoOptionFlagVisualization>
+// NOLINTNEXTLINE(frame-naming): names MuJoCo's mjVIS_CONTACTFORCE flag
 MujocoOptionFlagVisualization::contactForces() {
   return std::make_unique<MujocoOptionFlagVisualization>(
       "mj_contact_forces",

@@ -420,7 +420,8 @@ TEST_F(MpcServerTest, TheHooksSeeEveryPolicyAndAHookThatFailsStopsNothing) {
   hooks.annotationsProvider =
       [](const CommandData& command, const PrimalSolution& /*solution*/,
          humanoid_mpc_msgs::ViewerAnnotations* absl_nonnull annotations) {
-        annotations->set_scaled_velocity_x(command.mpcInitObservation_.time);
+        annotations->set_scaled_cmd_linvel_base_rt_world_ewrt_heading_x(
+            command.mpcInitObservation_.time);
         return absl::OkStatus();
       };
   hooks.postSolveObserver = [&](const CommandData& /*command*/,
@@ -434,7 +435,9 @@ TEST_F(MpcServerTest, TheHooksSeeEveryPolicyAndAHookThatFailsStopsNothing) {
   build(defaultConfig(), std::move(hooks));
   warmUp();
   const humanoid_mpc_msgs::MpcPolicy policy = solveFrom(/*time=*/1.1);
-  EXPECT_EQ(policy.annotations().scaled_velocity_x(), 1.1);
+  EXPECT_EQ(
+      policy.annotations().scaled_cmd_linvel_base_rt_world_ewrt_heading_x(),
+      1.1);
 
   failNext.store(true);
   solveFrom(/*time=*/1.2);
@@ -503,7 +506,8 @@ TEST_F(MpcServerTest,
       [&failNext](
           const CommandData& command, const PrimalSolution& /*solution*/,
           humanoid_mpc_msgs::ViewerAnnotations* absl_nonnull annotations) {
-        annotations->set_scaled_velocity_x(command.mpcInitObservation_.time);
+        annotations->set_scaled_cmd_linvel_base_rt_world_ewrt_heading_x(
+            command.mpcInitObservation_.time);
         return failNext.exchange(false)
                    ? absl::InternalError("annotations failure")
                    : absl::OkStatus();
@@ -514,11 +518,15 @@ TEST_F(MpcServerTest,
   failNext.store(true);
   const humanoid_mpc_msgs::MpcPolicy withoutAnnotations =
       solveFrom(/*time=*/1.1);
-  EXPECT_EQ(withoutAnnotations.annotations().scaled_velocity_x(), 0.0)
+  EXPECT_EQ(withoutAnnotations.annotations()
+                .scaled_cmd_linvel_base_rt_world_ewrt_heading_x(),
+            0.0)
       << "what the provider wrote before it failed is cleared";
   EXPECT_FALSE(withoutAnnotations.time_trajectory().empty());
   const humanoid_mpc_msgs::MpcPolicy annotated = solveFrom(/*time=*/1.2);
-  EXPECT_EQ(annotated.annotations().scaled_velocity_x(), 1.2);
+  EXPECT_EQ(
+      annotated.annotations().scaled_cmd_linvel_base_rt_world_ewrt_heading_x(),
+      1.2);
   // Joined before the hook's state goes out of scope.
   server_->stop();
   EXPECT_TRUE(server_->statistics().healthy);

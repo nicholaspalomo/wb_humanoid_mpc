@@ -16,27 +16,27 @@ through Bazel: `bazel run //tools/launch -- ...`, or the binary `bazel build //t
 
 ## What it does
 
-- **Repository root.** The launcher changes into the repository root and runs every process there, so the paths in
+- The launcher changes into the repository root and runs every process there, so the paths in
   commands are relative to it (`.bazel/bin/...`, `robot_models/...`). The root is `--repo_root`, else the workspace of
   `bazel run`, else the nearest directory above the launch file (or the working directory) that holds `MODULE.bazel`.
-- **Process groups.** Every process starts in its own session and process group, with stdin from `/dev/null`. A
+- Every process starts in its own session and process group, with stdin from `/dev/null`. A
   Ctrl-C in the terminal therefore reaches only the launcher, which stops the processes in order, and a signal to a
   group also reaches what the process started itself.
-- **Output.** Every line a process writes to stdout or stderr is printed behind its `[name]`, colored per process
+- Every line a process writes to stdout or stderr is printed behind its `[name]`, colored per process
   (`--color auto|always|never`; `auto` colors on a terminal unless `NO_COLOR` is set). The launcher's own messages
   carry `[launch]`. Python children get `PYTHONUNBUFFERED=1` unless their environment sets it.
-- **Teardown.** On SIGINT (Ctrl-C), SIGTERM or SIGHUP, or when a `required` process exits, the launcher sends SIGINT
+- On SIGINT (Ctrl-C), SIGTERM or SIGHUP, or when a `required` process exits, the launcher sends SIGINT
   to every process group, waits up to the SIGINT grace period for the groups to empty, then sends SIGTERM and waits
   the SIGTERM grace period, then SIGKILL. A SIGTERM or SIGHUP to the launcher starts at the SIGTERM stage. A second
   Ctrl-C skips to the next stage. A group counts as empty once its leader and every other member have exited, so a
   grandchild that ignores SIGINT still gets SIGTERM after its parent is gone. When every process exits on its own,
   whatever they left running in their groups is stopped the same way before the launcher exits.
-- **Death signal.** Each child is started with `PR_SET_PDEATHSIG` = SIGKILL, so it dies with the launcher even when
+- Each child is started with `PR_SET_PDEATHSIG` = SIGKILL, so it dies with the launcher even when
   the launcher itself is killed with SIGKILL and cannot tear down. The kernel delivers it only to the direct child: its
   own children are left to the group signals of a normal teardown.
-- **Bazel runfiles.** Under `bazel run`, the launcher's runfiles variables (`RUNFILES_DIR`, `RUNFILES_MANIFEST_FILE`,
+- Under `bazel run`, the launcher's runfiles variables (`RUNFILES_DIR`, `RUNFILES_MANIFEST_FILE`,
   ...) and the runfiles entries of `PYTHONPATH` are not passed on, so a child that is a Bazel binary finds its own.
-- **Exit status.** That of the first `required` process that failed (exited non-zero, `128 + N` when killed by signal
+- The exit status is that of the first `required` process that failed (exited non-zero, `128 + N` when killed by signal
   N, 127 when its program does not exist) before the teardown began; 0 otherwise, including after Ctrl-C. A process
   that is not required may fail without changing it. 2 for an invalid launch file or command line.
 
@@ -72,31 +72,31 @@ processes {                    # at least one; started in this order, each after
 ```
 <!-- LINT.ThenChange(//tools/launch/proto/launch_file.proto:launch_file_schema) -->
 
-- **Strictness.** The file is parsed with protobuf's text format (`google.protobuf.text_format.Parse`): an unknown
+- The file is parsed strictly with protobuf's text format (`google.protobuf.text_format.Parse`): an unknown
   field, a value of the wrong type, a field given twice or a syntax error is an error that names the file, the line
   and the column, `my.launch.textproto:5:3: Message type "launch_proto.LaunchFile.Process" has no field named
   "requried".` A typo therefore fails at start-up instead of silently launching a process that is not required. The
   launcher's own checks then name the process (`process 'mpc': 'machine' must be one of ...`) or the variable.
-- **Text format.** Strings take double or single quotes, and a backslash starts an escape (`\n`, `\"`); single quotes
+- In text format, strings take double or single quotes, and a backslash starts an escape (`\n`, `\"`); single quotes
   save escaping the double quotes of a shell command. A repeated field is either one entry per line (`command: "sh"
   command: "-c"`) or a list (`command: ["sh", "-c"]`). `#` starts a comment. Values are typed: a variable's value and a
   command argument are strings (`value: "3"`, not `value: 3`), `required` is `true` or `false`.
-- **Variables.** `{name}` in a command argument or an environment value is replaced by the variable (Python
+- For variables, `{name}` in a command argument or an environment value is replaced by the variable (Python
   `str.format` syntax; write `{{` and `}}` for literal braces, e.g. `${{HOME}}` in a shell command). `{repo_root}`, the
   absolute repository root, is built in. `--set name=value` overrides a variable the file declares; a misspelled name
   is an error, as are a variable declared twice, undefined references, cycles, and anything beyond a plain `{name}`
   (`{a.b}`, `{a:>10}`).
-- **Commands.** The program and each argument are entries of their own: `command: "prog --flag"` is rejected, since
+- In `command`, the program and each argument are entries of their own: `command: "prog --flag"` is rejected, since
   no shell splits it. Use `["sh", "-c", "..."]` for shell syntax.
 <!-- LINT.IfChange(machines) -->
-- **Machines.** `MACHINE_ROBOT` (the robot's realtime computer), selected with `--machine robot`, and
-  `MACHINE_LAPTOP` (MPC, GUI, viewer), selected with `--machine laptop`; the `--machine` names are the enum values
+- For `machine`, `MACHINE_ROBOT` (the robot's realtime computer) is selected with `--machine robot`, and
+  `MACHINE_LAPTOP` (MPC, GUI, viewer) is selected with `--machine laptop`; the `--machine` names are the enum values
   without `MACHINE_`, in lower case. Without `--machine` every process starts, for simulation on one machine.
 <!-- LINT.ThenChange(//tools/launch/proto/launch_file.proto:launch_file_schema) -->
-- **Terminal.** A process with `terminal: true` runs as `<--terminal_command> <command...>`, by default
+- A process with `terminal: true` runs as `<--terminal_command> <command...>`, by default
   `x-terminal-emulator -e`. Its output stays in that terminal.
 <!-- LINT.IfChange(color_modes) -->
-- **Colors.** `--color auto` (default), `always` or `never`.
+- The `--color` flag accepts `auto` (default), `always`, or `never`.
 <!-- LINT.ThenChange(//tools/launch/process_supervisor.py:color_modes) -->
 
 [`examples/example.launch.textproto`](examples/example.launch.textproto) uses every field with placeholder shell

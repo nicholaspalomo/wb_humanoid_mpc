@@ -141,7 +141,7 @@ hlip {
   # [m] lateral distance between the feet of the nominal period-two orbit. SA01's natural stance - both legs
   # vertical - is 0.160 m, and Atlas's 0.25 gives 0.027 m of extra splay over its 0.223 m. SA01 needs a little more
   # than that same splay, for the sidestep rather than for the stance: a held full-stick sidestep
-  # (blend.max_commanded_velocity_y 0.2 m/s over a 0.27 s step) narrows the orbit's trailing side by 0.054 m, and at
+  # (blend.cmd_max_linvel_base_rt_world_ewrt_heading_y 0.2 m/s over a 0.27 s step) narrows the orbit's trailing side by 0.054 m, and at
   # 0.18 that planned the trailing foot at 0.126 m, inside min_step_width, so it was clipped on every step. At 0.19 the
   # narrow side is 0.136 m.
   step_width: 0.19
@@ -163,15 +163,15 @@ hlip {
   blend {
     sharpness: 40  # rho_1
     threshold: 0.02  # rho_2
-    # The joypad range, from reference.textproto's maxDisplacementVelocity* and max_rotation_velocity.
-    max_commanded_velocity_x: 0.8  # [m/s]
-    max_commanded_velocity_y: 0.2  # [m/s]
-    max_commanded_yaw_rate: 0.61  # [rad/s] (35 deg/s)
+    # The joypad range, from reference.textproto's maxDisplacementVelocity* and cmd_max_angvel_base_rt_world_ewrt_world_z.
+    cmd_max_linvel_base_rt_world_ewrt_heading_x: 0.8  # [m/s]
+    cmd_max_linvel_base_rt_world_ewrt_heading_y: 0.2  # [m/s]
+    cmd_max_angvel_base_rt_world_ewrt_world_z: 0.61  # [rad/s] (35 deg/s)
     # The measured velocity phi is normalized by. The paper writes v_b for the base velocity; what the planner
     # actually measures and feeds the blend is the CENTER-OF-MASS velocity, so the keys are named for that.
     # Laterally it is the velocity beyond the zero-command stepping orbit's own sway (0.151 m/s here) that counts.
-    max_com_velocity_x: 0.4  # [m/s]
-    max_com_velocity_y: 0.3  # [m/s]
+    max_linvel_com_rt_world_ewrt_heading_x: 0.4  # [m/s]
+    max_linvel_com_rt_world_ewrt_heading_y: 0.3  # [m/s]
   }
   # LINT.ThenChange(//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/command/reference.textproto:sa01_command_ranges)
 }
@@ -329,7 +329,7 @@ phase_resetting {
                                              # 0 = off.
   max_late_touchdown_extension: 0.13  # [s] total extension budget of a swing past its planned touch-down
   late_touchdown_extension_step: 0.04  # [s] the touch-down is pushed this far ahead of the current time per cycle
-  late_touchdown_search_velocity: 0.05  # [m/s] descent rate of the foot height target while searching for the ground
+  late_touchdown_search_speed_foot_rt_world: 0.05  # [m/s] descent rate of the foot height target while searching for the ground
 }
 # The DCM step adjustment and the cadence modulation measure the deviation of the measured CoM from the NMPC's own
 # predicted trajectory, so they act only on real disturbances and are zero while the robot does what the controller

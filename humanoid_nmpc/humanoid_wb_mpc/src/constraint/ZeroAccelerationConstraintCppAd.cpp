@@ -110,7 +110,7 @@ scalar_t ZeroAccelerationConstraintCppAd::groundTerm(scalar_t time) const {
     return 0.0;
   return positionGains(kHeightRow, kHeightRow) *
          referenceManagerPtr_->getSwingTrajectoryPlanner()
-             ->getZpositionConstraint(contactPointIndex_, time);
+             ->getDesPosFootRtWorldEwrtWorldZ(contactPointIndex_, time);
 }
 
 /******************************************************************************************************/

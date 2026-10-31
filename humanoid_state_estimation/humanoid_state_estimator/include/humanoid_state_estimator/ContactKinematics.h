@@ -55,7 +55,7 @@ struct ContactPointSpec {
    */
   std::vector<std::string> frameNames;
   /** [m] The contact point in the chosen frame. */
-  vector3_t offsetInFrame = vector3_t::Zero();
+  vector3_t posContactRtLinkEwrtLink = vector3_t::Zero();
 };
 
 /**
@@ -110,7 +110,7 @@ class ContactKinematics {
   size_t numJoints() const { return numRobotJoints_; }
   /** [m/s^2] The gravity of the model, in the world (base-aligned at rest)
    * axes: (0, 0, -9.81). */
-  const vector3_t& gravity() const { return gravity_; }
+  const vector3_t& gravityEwrtWorld() const { return gravityEwrtWorld_; }
 
   /**
    * Computes every contact point's position and velocity relative to the base.
@@ -121,13 +121,13 @@ class ContactKinematics {
 
   /** [m] Contact `contact`'s position relative to the base, in the base frame,
    * as of the last update(). */
-  const vector3_t& contactPositionInBase(size_t contact) const {
-    return contactPositions_[contact];
+  const vector3_t& posContactRtBaseEwrtBase(size_t contact) const {
+    return posContactsRtBaseEwrtBase_[contact];
   }
   /** [m/s] Contact `contact`'s velocity relative to the base (J q_dot), in the
    * base frame, as of the last update(). */
-  const vector3_t& contactVelocityInBase(size_t contact) const {
-    return contactVelocities_[contact];
+  const vector3_t& linvelContactRtBaseEwrtBase(size_t contact) const {
+    return linvelContactsRtBaseEwrtBase_[contact];
   }
 
  private:
@@ -143,9 +143,9 @@ class ContactKinematics {
   std::unique_ptr<Model> model_;
   std::vector<std::string> contactFrameNames_;
   size_t numRobotJoints_ = 0;
-  vector3_t gravity_ = vector3_t::Zero();
-  std::vector<vector3_t> contactPositions_;
-  std::vector<vector3_t> contactVelocities_;
+  vector3_t gravityEwrtWorld_ = vector3_t::Zero();
+  std::vector<vector3_t> posContactsRtBaseEwrtBase_;
+  std::vector<vector3_t> linvelContactsRtBaseEwrtBase_;
 };
 
 }  // namespace ocs2::humanoid::estimation

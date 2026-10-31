@@ -170,7 +170,8 @@ TEST(RealtimePolicyEvaluatorTest, APolicyOfOneNodeIsHeld) {
                              /*seed=*/9);
 }
 
-/** The shape of a policy the SQP solves on the toy manifold [E(3), Q, E(5)]. */
+/** Dimensions of a policy the SQP solves on the toy manifold [E(3), Q, E(5)].
+ */
 PolicyShape manifoldShape(size_t nodes,
                           size_t events,
                           ControllerType controllerType) {

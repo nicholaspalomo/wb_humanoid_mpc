@@ -385,9 +385,10 @@ TEST(MujocoSimInterfaceCreate, NumbersOutOfRangeAreRefusedNamingThem) {
                        HasSubstr("sim_ragdoll_joint_damping")));
   config = hingeConfig();
   config.autoResetBaseHeight = std::numeric_limits<double>::quiet_NaN();
-  EXPECT_THAT(MujocoSimInterface::Create(config, hingeUrdf()).status(),
-              StatusIs(absl::StatusCode::kInvalidArgument,
-                       HasSubstr("sim_auto_reset_base_height")));
+  EXPECT_THAT(
+      MujocoSimInterface::Create(config, hingeUrdf()).status(),
+      StatusIs(absl::StatusCode::kInvalidArgument,
+               HasSubstr("sim_auto_reset_min_pos_base_rt_world_ewrt_world_z")));
   config = hingeConfig();
   config.dt = 0.0;
   EXPECT_THAT(MujocoSimInterface::Create(config, hingeUrdf()).status(),

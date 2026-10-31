@@ -40,11 +40,11 @@ namespace robot::model {
 RobotState::RobotState(const RobotDescription& robotDescription,
                        size_t contactSize)
     : jointStateMap_(robotDescription),
-      rootPosition_(vector3_t::Zero()),
-      rootLinearVelocity_(vector3_t::Zero()),
-      rootOrientation_(quaternion_t::Identity()),
-      rootAngularVelocity_(vector3_t::Zero()),
-      imuLinearAcceleration_(vector3_t::Zero()),
+      posBaseRtWorldEwrtWorld_(vector3_t::Zero()),
+      linvelBaseRtWorldEwrtBase_(vector3_t::Zero()),
+      quatBaseRtWorld_(quaternion_t::Identity()),
+      angvelBaseRtWorldEwrtBase_(vector3_t::Zero()),
+      specforceBaseRtWorldEwrtBase_(vector3_t::Zero()),
       contactFlags_(contactSize) {
   for (joint_index_t idx : robotDescription.getJointIndices()) {
     jointStateMap_[idx].emplace();
@@ -71,39 +71,39 @@ JointState* absl_nullable RobotState::findJoint(size_t jointId) {
 void RobotState::setJointPosition(size_t jointId, scalar_t jointPosition) {
   JointState* absl_nullable const joint = findJoint(jointId);
   if (joint != nullptr) {
-    joint->position = jointPosition;
+    joint->jointPosition = jointPosition;
   }
 }
 
 scalar_t RobotState::getCheckedJointPosition(size_t jointId) const {
   const JointState* absl_nullable const joint = findJoint(jointId);
   ABSL_CHECK(joint != nullptr) << "RobotState: no joint " << jointId;
-  return joint->position;
+  return joint->jointPosition;
 }
 
 void RobotState::setJointVelocity(size_t jointId, scalar_t jointVelocity) {
   JointState* absl_nullable const joint = findJoint(jointId);
   if (joint != nullptr) {
-    joint->velocity = jointVelocity;
+    joint->jointVelocity = jointVelocity;
   }
 }
 
 scalar_t RobotState::getCheckedJointVelocity(size_t jointId) const {
   const JointState* absl_nullable const joint = findJoint(jointId);
   ABSL_CHECK(joint != nullptr) << "RobotState: no joint " << jointId;
-  return joint->velocity;
+  return joint->jointVelocity;
 }
 
 void RobotState::setConfigurationToZero() {
-  rootPosition_.setZero();
-  rootOrientation_.setIdentity();
-  rootLinearVelocity_.setZero();
-  rootAngularVelocity_.setZero();
-  imuLinearAcceleration_.setZero();
+  posBaseRtWorldEwrtWorld_.setZero();
+  quatBaseRtWorld_.setIdentity();
+  linvelBaseRtWorldEwrtBase_.setZero();
+  angvelBaseRtWorldEwrtBase_.setZero();
+  specforceBaseRtWorldEwrtBase_.setZero();
 
   for (JointState& joint : jointStateMap_) {
-    joint.position = 0.0;
-    joint.velocity = 0.0;
+    joint.jointPosition = 0.0;
+    joint.jointVelocity = 0.0;
     joint.measuredEffort = 0.0;
   }
 

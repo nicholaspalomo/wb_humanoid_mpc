@@ -67,22 +67,23 @@ struct AngularVelocityError {
 };
 
 /**
- * e_w of design decision D8 for the unit base orientations `orientation` (xi)
- * and `referenceOrientation` (xi_r) and the body angular velocities
- * `angularVelocity` (w_B) and `referenceAngularVelocity` (w_B,r). R(-xi) =
- * R(xi) coefficient for coefficient, so the result is invariant under the sign
- * of either quaternion, bit for bit.
+ * e_w of design decision D8 for the unit base orientations
+ * `quatBaseRtWorldXyzw` (xi) and `refQuatBaseRtWorldXyzw` (xi_r) and the body
+ * angular velocities `angvelBaseRtWorldEwrtBase` (w_B) and
+ * `refAngvelBaseRtWorldEwrtBase` (w_B,r). R(-xi) = R(xi) coefficient for
+ * coefficient, so the result is invariant under the sign of either quaternion,
+ * bit for bit.
  */
-AngularVelocityError angularVelocityError(
-    const vector4_t& orientation,
-    const vector4_t& referenceOrientation,
-    const vector3_t& angularVelocity,
-    const vector3_t& referenceAngularVelocity) {
+AngularVelocityError computeErrAngvelBaseRtWorldEwrtBase(
+    const vector4_t& quatBaseRtWorldXyzw,
+    const vector4_t& refQuatBaseRtWorldXyzw,
+    const vector3_t& angvelBaseRtWorldEwrtBase,
+    const vector3_t& refAngvelBaseRtWorldEwrtBase) {
   const vector3_t referenceInBody =
-      quaternionRotationMatrix<scalar_t>(orientation).transpose() *
-      (quaternionRotationMatrix<scalar_t>(referenceOrientation) *
-       referenceAngularVelocity);
-  const vector3_t difference = angularVelocity - referenceInBody;
+      quaternionRotationMatrix<scalar_t>(quatBaseRtWorldXyzw).transpose() *
+      (quaternionRotationMatrix<scalar_t>(refQuatBaseRtWorldXyzw) *
+       refAngvelBaseRtWorldEwrtBase);
+  const vector3_t difference = angvelBaseRtWorldEwrtBase - referenceInBody;
   // P_3: the body axes (x, y, z) in the rows (z, y, x) of the tuning layout.
   return AngularVelocityError{
       .residual = vector3_t(difference(kZAxisIndex), difference(kYAxisIndex),
@@ -108,7 +109,8 @@ TuningLayoutDeviation::TuningLayoutDeviation(
     addSegment(segment, tuningRow);
     tuningRow += segment.tuningDim;
   }
-  ABSL_CHECK(!angularVelocity_.has_value() || orientation_.has_value())
+  ABSL_CHECK(!angularVelocitySlots_.has_value() ||
+             orientationSlots_.has_value())
       << "TuningLayoutDeviation: the " << describeTuningLayout(layout)
       << " has a base angular velocity block but no base orientation block, "
          "whose rotation its rows are taken in";
@@ -140,18 +142,18 @@ void TuningLayoutDeviation::addSegment(const TuningSegment& segment,
       return;
     }
     case TuningSegmentKind::kEulerZyxOrientation:
-      ABSL_CHECK(!orientation_.has_value())
+      ABSL_CHECK(!orientationSlots_.has_value())
           << "TuningLayoutDeviation: the " << describeTuningLayout(layout)
           << " has a second base orientation block, '" << segment.name << "'";
       ABSL_CHECK_EQ(segment.tuningDim, kRotationTuningDim)
           << "TuningLayoutDeviation: the base orientation block '"
           << segment.name << "' of the " << describeTuningLayout(layout)
           << " is not (yaw, pitch, roll)";
-      orientation_ = RotationBlock{.tuningRow = tuningRow,
-                                   .stateStart = segment.stateStart};
+      orientationSlots_ = RotationBlock{.tuningRow = tuningRow,
+                                        .stateStart = segment.stateStart};
       return;
     case TuningSegmentKind::kZyxOrderedAngularVelocity:
-      ABSL_CHECK(!angularVelocity_.has_value())
+      ABSL_CHECK(!angularVelocitySlots_.has_value())
           << "TuningLayoutDeviation: the " << describeTuningLayout(layout)
           << " has a second base angular velocity block, '" << segment.name
           << "'";
@@ -163,8 +165,8 @@ void TuningLayoutDeviation::addSegment(const TuningSegment& segment,
           << "TuningLayoutDeviation: the base angular velocity block '"
           << segment.name << "' of the " << describeTuningLayout(layout)
           << " has " << segment.stateDim << " state rows";
-      angularVelocity_ = RotationBlock{.tuningRow = tuningRow,
-                                       .stateStart = segment.stateStart};
+      angularVelocitySlots_ = RotationBlock{.tuningRow = tuningRow,
+                                            .stateStart = segment.stateStart};
       return;
   }
   LOG(FATAL) << "TuningLayoutDeviation: the block '" << segment.name
@@ -188,20 +190,21 @@ vector_t TuningLayoutDeviation::differences(
 vector_t TuningLayoutDeviation::evaluate(const vector_t& state,
                                          const vector_t& stateReference) const {
   vector_t residual = differences(state, stateReference);
-  if (!orientation_.has_value()) return residual;
-  const vector4_t orientation = mpcRobotModel_->getBaseOrientation(state);
-  const vector4_t referenceOrientation =
-      mpcRobotModel_->getBaseOrientation(stateReference);
+  if (!orientationSlots_.has_value()) return residual;
+  const vector4_t quatBaseRtWorldXyzw =
+      mpcRobotModel_->getQuatBaseRtWorldXyzw(state);
+  const vector4_t refQuatBaseRtWorldXyzw =
+      mpcRobotModel_->getQuatBaseRtWorldXyzw(stateReference);
   residual.segment<kRotationTangentDim>(
-      static_cast<Eigen::Index>(orientation_->tuningRow)) =
-      headingTiltResidual(orientation, referenceOrientation);
-  if (!angularVelocity_.has_value()) return residual;
+      static_cast<Eigen::Index>(orientationSlots_->tuningRow)) =
+      headingTiltResidual(quatBaseRtWorldXyzw, refQuatBaseRtWorldXyzw);
+  if (!angularVelocitySlots_.has_value()) return residual;
   residual.segment<kRotationTangentDim>(
-      static_cast<Eigen::Index>(angularVelocity_->tuningRow)) =
-      angularVelocityError(
-          orientation, referenceOrientation,
-          mpcRobotModel_->getBaseAngularVelocityLocal(state),
-          mpcRobotModel_->getBaseAngularVelocityLocal(stateReference))
+      static_cast<Eigen::Index>(angularVelocitySlots_->tuningRow)) =
+      computeErrAngvelBaseRtWorldEwrtBase(
+          quatBaseRtWorldXyzw, refQuatBaseRtWorldXyzw,
+          mpcRobotModel_->getAngvelBaseRtWorldEwrtBase(state),
+          mpcRobotModel_->getAngvelBaseRtWorldEwrtBase(stateReference))
           .residual;
   return residual;
 }
@@ -212,50 +215,58 @@ TuningDeviationApproximation TuningLayoutDeviation::linearize(
       .residual = differences(state, stateReference),
       .identityRuns = identityRuns_,
       .denseBlocks = {}};
-  if (!orientation_.has_value()) return approximation;
-  const vector4_t orientation = mpcRobotModel_->getBaseOrientation(state);
-  const vector4_t referenceOrientation =
-      mpcRobotModel_->getBaseOrientation(stateReference);
+  if (!orientationSlots_.has_value()) return approximation;
+  const vector4_t quatBaseRtWorldXyzw =
+      mpcRobotModel_->getQuatBaseRtWorldXyzw(state);
+  const vector4_t refQuatBaseRtWorldXyzw =
+      mpcRobotModel_->getQuatBaseRtWorldXyzw(stateReference);
   // d(body rotation tangent) / d(orientation slots): E+(xi) of the quaternion.
   const matrix_t rotationTangent =
       mpcRobotModel_->getBaseRotationTangentJacobian(state);
   const HeadingTiltError headingTilt =
-      headingTiltError(orientation, referenceOrientation);
+      headingTiltError(quatBaseRtWorldXyzw, refQuatBaseRtWorldXyzw);
   approximation.residual.segment<kRotationTangentDim>(static_cast<Eigen::Index>(
-      orientation_->tuningRow)) = headingTilt.residual;
+      orientationSlots_->tuningRow)) = headingTilt.residual;
   approximation.denseBlocks.reserve(
-      angularVelocity_.has_value() ? kNumDenseBlocksWithAngularVelocity
-                                   : kNumDenseBlocksWithoutAngularVelocity);
+      angularVelocitySlots_.has_value()
+          ? kNumDenseBlocksWithAngularVelocity
+          : kNumDenseBlocksWithoutAngularVelocity);
   approximation.denseBlocks.push_back(TuningJacobianDenseBlock{
-      .tuningRow = orientation_->tuningRow,
-      .stateColumn = orientation_->stateStart,
+      .tuningRow = orientationSlots_->tuningRow,
+      .stateColumn = orientationSlots_->stateStart,
       .value = headingTilt.jacobianBodyTangent * rotationTangent});
-  if (!angularVelocity_.has_value()) return approximation;
+  if (!angularVelocitySlots_.has_value()) return approximation;
 
-  const AngularVelocityError angularVelocity = angularVelocityError(
-      orientation, referenceOrientation,
-      mpcRobotModel_->getBaseAngularVelocityLocal(state),
-      mpcRobotModel_->getBaseAngularVelocityLocal(stateReference));
-  approximation.residual.segment<kRotationTangentDim>(static_cast<Eigen::Index>(
-      angularVelocity_->tuningRow)) = angularVelocity.residual;
-  const BaseAngularVelocityJacobian angularVelocityJacobian =
-      mpcRobotModel_->getBaseAngularVelocityLocalJacobian(state);
+  const AngularVelocityError errAngvelBaseRtWorldEwrtBase =
+      computeErrAngvelBaseRtWorldEwrtBase(
+          quatBaseRtWorldXyzw, refQuatBaseRtWorldXyzw,
+          mpcRobotModel_->getAngvelBaseRtWorldEwrtBase(state),
+          mpcRobotModel_->getAngvelBaseRtWorldEwrtBase(stateReference));
+  approximation.residual.segment<kRotationTangentDim>(
+      static_cast<Eigen::Index>(angularVelocitySlots_->tuningRow)) =
+      errAngvelBaseRtWorldEwrtBase.residual;
+  const BaseAngularVelocityJacobian jacobianAngvelBaseRtWorldEwrtBase =
+      mpcRobotModel_->getJacobianAngvelBaseRtWorldEwrtBase(state);
   approximation.denseBlocks.push_back(TuningJacobianDenseBlock{
-      .tuningRow = angularVelocity_->tuningRow,
-      .stateColumn = angularVelocity_->stateStart,
-      .value = zyxOrderedRows(angularVelocityJacobian.angularVelocitySlots)});
+      .tuningRow = angularVelocitySlots_->tuningRow,
+      .stateColumn = angularVelocitySlots_->stateStart,
+      .value = zyxOrderedRows(
+          jacobianAngvelBaseRtWorldEwrtBase.angularVelocitySlots)});
   // d a / d(body perturbation dphi) = [a]x, so d e_w / d(orientation slots) =
   // P_3 (d w_B / d(slots) - [a]x rotationTangent), column by column: d w_B /
   // d(slot) - a x (the slot's column of rotationTangent).
-  matrix_t orientationColumns = angularVelocityJacobian.orientationSlots;
-  for (Eigen::Index column = 0; column < orientationColumns.cols(); ++column) {
-    orientationColumns.col(column) -= angularVelocity.referenceInBody.cross(
-        vector3_t(rotationTangent.col(column)));
+  matrix_t orientationSlotsColumns =
+      jacobianAngvelBaseRtWorldEwrtBase.orientationSlots;
+  for (Eigen::Index column = 0; column < orientationSlotsColumns.cols();
+       ++column) {
+    orientationSlotsColumns.col(column) -=
+        errAngvelBaseRtWorldEwrtBase.referenceInBody.cross(
+            vector3_t(rotationTangent.col(column)));
   }
-  approximation.denseBlocks.push_back(
-      TuningJacobianDenseBlock{.tuningRow = angularVelocity_->tuningRow,
-                               .stateColumn = orientation_->stateStart,
-                               .value = zyxOrderedRows(orientationColumns)});
+  approximation.denseBlocks.push_back(TuningJacobianDenseBlock{
+      .tuningRow = angularVelocitySlots_->tuningRow,
+      .stateColumn = orientationSlots_->stateStart,
+      .value = zyxOrderedRows(orientationSlotsColumns)});
   return approximation;
 }
 

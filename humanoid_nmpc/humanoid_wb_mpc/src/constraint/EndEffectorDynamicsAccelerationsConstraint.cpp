@@ -69,8 +69,8 @@ EndEffectorDynamicsAccelerationsConstraint::Create(
         " constraints: between 1 and ", kPoseTangentDim));
   }
   const Eigen::Index rows = static_cast<Eigen::Index>(numConstraints);
-  // An empty config is set later, by configure(); a given one has the shape of
-  // the constraint.
+  // An empty config is set later, by configure(); a given one has the
+  // dimensions of the constraint.
   const bool unconfigured = config.b.size() == 0 && config.Ax.size() == 0 &&
                             config.Av.size() == 0 && config.Aa.size() == 0;
   if (!unconfigured && config.b.size() != rows) {

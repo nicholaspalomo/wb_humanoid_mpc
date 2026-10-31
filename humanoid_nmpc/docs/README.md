@@ -6,7 +6,7 @@ robot's `config/mpc/task.textproto`:
 | Selection | Effect |
 | --- | --- |
 | `dcm_terminal_cost` in `costs` | The horizon ends with a Divergent Component of Motion (capture point) viability cost, in place of the quadratic terminal cost `terminal_cost` on `final_state_weights`. The two are alternative ends of the horizon, and start-up refuses a list that names both. |
-| `contact_schedule_source: "contact_planner"` | The contact sequence, the switching times and the footholds are planned online on a reduced model by the contact planner `planner.type` in `contact_planning.textproto` selects - the closed-form H-LIP stepper (`hlip`, both shipped robots) or the mixed-integer program of section 2 (`lip_miqp`) - and replace the clock-driven gait schedule. `gait_schedule`, the default and what every robot ships, is that gait schedule with the nominal footholds. |
+| `contact_schedule_source: "contact_planner"` | The contact sequence, the switching times and the footholds are planned online on a reduced model by the contact planner `planner.type` in `contact_planning.textproto` selects (the closed-form H-LIP stepper `hlip`, used by both shipped robots, or the mixed-integer program `lip_miqp` of section 2) and replace the clock-driven gait schedule. `gait_schedule`, the default and what every robot ships, is that gait schedule with the nominal footholds. |
 
 A third source, `contact_schedule_source: "multi_contact_plan"`, tracks an offline multi-contact plan instead
 (stairs, climbing onto a box, car egress, getting up): the plan's stances are the mode schedule and its states the
@@ -25,22 +25,22 @@ The contact planner itself is chosen by name in `config/mpc/contact_planning.tex
 whole-body formulation by the term lists of `task.textproto`. Two further documents cover the implementation of
 [arXiv:2502.15630](https://arxiv.org/abs/2502.15630) in this repository:
 
-* [hlip_contact_planner](hlip_contact_planner/README.md) — the closed-form H-LIP contact planner, which both shipped
+* [hlip_contact_planner](hlip_contact_planner/README.md) - the closed-form H-LIP contact planner, which both shipped
   robots select (`planner.type: "hlip"`; a file that names no planner gets `lip_miqp`, the library default) in place of
   the mixed-integer planner described in section 2 below.
-* [contact_implicit_mpc](contact_implicit_mpc/README.md) — the relaxed complementarity formulation of contact in the
+* [contact_implicit_mpc](contact_implicit_mpc/README.md) - the relaxed complementarity formulation of contact in the
   whole-body NMPC, which lets the solver depart from the planner's nominal contact sequence. Off by default.
 
 Another covers the code of the mixed-integer planner of section 2:
 
-* [contact_planner_terms](contact_planner_terms/README.md) — how the planner is assembled from named terms (the
+* [contact_planner_terms](contact_planner_terms/README.md) - how the planner is assembled from named terms (the
   problem, model blocks, costs, constraints, logic rules, search stages and execution rules), the code behind the file
   layout of section 2.10.
 
 Another covers how the contact inputs themselves are parameterized, selected by name with
 `contact_input_parameterization` in `task.textproto`:
 
-* [contact_basis_vectors](contact_basis_vectors/README.md) — the basis-vector parameterization of the contact inputs
+* [contact_basis_vectors](contact_basis_vectors/README.md) - the basis-vector parameterization of the contact inputs
   (`contact_input_parameterization: "basis_vectors"`, which the DRC Atlas and the EngineAI SA01 ship; `wrench` is the
   default): the conservative generator set that ships and the exact wrench-cone set, the full-diagonal and null-space
   regularizations of the input cost, the lambda >= 0 barrier that replaces the explicit cone, and how to select each.
@@ -48,37 +48,37 @@ Another covers how the contact inputs themselves are parameterized, selected by 
 Another covers a feature that is not a formulation toggle but a reference-shaping layer over the ones that already
 exist:
 
-* [locomotion_heuristics](locomotion_heuristics/README.md) — the ten regularization heuristics of Bledt's
-  *Regularized Predictive Control Framework for Robust Dynamic Legged Locomotion* (MIT, 2020), selected by name in
+* [locomotion_heuristics](locomotion_heuristics/README.md) - the ten regularization heuristics of Bledt's
+  *Regularized Predictive Control Framework for Robust Dynamic Legged Locomotion* (MIT, 2020), selected by name in <!-- NOLINT(claudisms): cited paper title -->
   the `locomotion_heuristics` block of `task.textproto`. They shape the base-pose, foothold and contact-force references
-  the existing quadratic costs already regularize against — the base's roll and pitch reference in particular is a
+  the existing quadratic costs already regularize against - the base's roll and pitch reference in particular is a
   hard zero today. Every list ships empty, so the layer is an exact no-op until a robot is opted in.
 
 One covers a simulation tool rather than the controller:
 
-* [dodgeball](dodgeball/README.md) — throwing a physical ball at the robot in simulation: the GUI tab that
+* [dodgeball](dodgeball/README.md) - throwing a physical ball at the robot in simulation: the GUI tab that
   aims it, the ball MuJoCo compiles into the scene, and how restitution is expressed in a simulator that has
   no restitution parameter. A directed, repeatable push test, selected with `sim_projectile` in `task.textproto`.
 
 One covers what the controller does when the plant jumps:
 
-* [mpc_reset](mpc_reset/README.md) — the full reset of the MPC (solver, reference manager, gait schedule, contact
+* [mpc_reset](mpc_reset/README.md) - the full reset of the MPC (solver, reference manager, gait schedule, contact
   planner, command ramps, the MRT's policy buffer), when the MRT joint controllers reset and hold the robot, how
   repeated solver failures back off, the gantry catch and settle sequence of the MuJoCo sims (`sim_max_base_tilt_angle`,
   `sim_gantry_catch_lift`), and the swing-foot yaw residual that was not differentiable at the reset pose.
 
 One covers how both MPCs represent the attitude of the floating base:
 
-* [quaternion_base_orientation](quaternion_base_orientation/README.md) — the base orientation as a unit quaternion in
+* [quaternion_base_orientation](quaternion_base_orientation/README.md) - the base orientation as a unit quaternion in
   the state of the centroidal and the whole-body MPC, solved on its state manifold by the vendored OCS2 SQP, with every
-  tuning hyperparameter still written in Euler angles (`base_orientation { yaw pitch roll }`) and mapped into the
+  tuning hyperparameter still written in Euler angles (`eulerzyx_base_rt_world { yaw pitch roll }`) and mapped into the
   quaternion formulation by one layer (`humanoid_common_mpc/orientation`). It derives the formulation, gives the state
   layouts and the tuning map, lists the conversion points, the CppAD layout tag, the manifold policy on the bus and the
   Euler display in Rerun, and what to watch in MuJoCo.
 
 One covers planning for terrain that is not a flat floor, with more contacts than the feet:
 
-* [multi_contact_planning](multi_contact_planning/README.md) — the design (in progress) for climbing stairs, climbing
+* [multi_contact_planning](multi_contact_planning/README.md) - planning for climbing stairs, climbing
   onto a box, getting out of a vehicle and getting up from the ground with the DRC Atlas, using its feet, knees, hands,
   forearms and torso as contacts: Mordatch's contact-invariant optimization adapted to the centroidal SQP, a sampling-based stance-graph
   planner beside it, the static and dynamic stability conditions both must certify, the terrain model, the runtime
@@ -86,11 +86,9 @@ One covers planning for terrain that is not a flat floor, with more contacts tha
 
 And the last covers how the controller runs as processes:
 
-* [distributed_runtime](distributed_runtime/README.md) — the robot process, the MPC node and the operator tools as
+* [distributed_runtime](distributed_runtime/README.md) - the robot process, the MPC node and the operator tools as
   processes on a Cyclone DDS bus with Protocol Buffers messages: the realtime thread, the MPC link and its resets, the
   visualization with Rerun, the launch files and the deployment of the robot side.
-
----
 
 ## 1. DCM terminal cost (`dcm_terminal_cost`)
 
@@ -164,7 +162,7 @@ heuristics resolve too, so they cannot disagree). `DcmTerminalCost::Create` is g
 logs the height and $\omega$ at start-up (1.0805 m and 3.01 rad/s on the DRC Atlas, 0.6124 m and 4.00 rad/s on the
 SA01). A positive `com_height` is an explicit override. $g$ is not a key: the cost, the contact planner and the
 locomotion heuristics take it from the robot model (the magnitude of the Pinocchio model's gravity, which
-`testShippedRobotGravity` pins to the dynamics' `kGravitationalAcceleration` and to every MuJoCo scene's
+`testShippedRobotGravity` pins to the dynamics' `kGravityMagnitude` and to every MuJoCo scene's
 `opt.gravity`), so no pendulum can run on another gravity than the dynamics. A `com_height` of 0 or less (0 meant "the model's" before the
 field was optional) and a negative weight are refused with a Status naming the field, at
 start-up and on a reload, which then keeps the running cost.
@@ -183,14 +181,12 @@ dcm_terminal_cost {
 
 Implementation: `humanoid_centroidal_mpc/cost/DcmTerminalCost.{h,cpp}`; wiring in `CentroidalMpcInterface.cpp`.
 
----
-
 ## 2. Mixed-integer contact planning (`contact_schedule_source: "contact_planner"`, `planner.type: "lip_miqp"`)
 
 Online contact planning is switched on by name, with `contact_schedule_source: "contact_planner"` in the robot's
 `config/mpc/task.textproto` (`gait_schedule`, the clock-driven gait schedule with the nominal footholds, is the default and
 what every robot ships; the registry in `MpcFormulationConfig.h` lists the names and refuses any other, naming the valid
-ones), and `planner.type` in `contact_planning.textproto` - the one place the planner is chosen - names the planner that
+ones), and `planner.type` in `contact_planning.textproto` (the one place the planner is chosen) names the planner that
 runs. The source decides which reference manager the problem is built on, so it takes effect at start-up only; the
 parameter updater warns when a reloaded file names another one. It is implemented for the centroidal MPC only: the
 whole-body MPC refuses `contact_planner`. This section is the mixed-integer one,
@@ -289,15 +285,14 @@ way.
 
 That box and the lateral strip are each a valid *projection* of the hull onto one axis, but what the solver sees is their
 **intersection**, and the intersection of a convex set's projections is its bounding box rather than the set. The two
-coincide only while the feet are level along the heading. Earlier revisions of this section called the result "a
-conservative inner approximation that costs nothing"; that is wrong, and wrong in the unsafe direction. In the transition
+coincide only while the feet are level along the heading. In the transition
 double support of every step the feet are a step apart along the heading, and the admitted region then strictly *contains*
-the hull, over-admitting the far corners by about half the heading offset — up to half a step length. With
+the hull, over-admitting the far corners by about half the heading offset - up to half a step length. With
 $\mathbf{p}_L=(0.2,0.1)$, $\mathbf{p}_R=(0,-0.1)$, $r_x=0.08$, $r_y=0.04$ the point $(0.18,-0.14)$ satisfies both rows
 while the hull's support along $(1,-1)/\sqrt2$ is $0.22$ against that point's $0.32$.
 
-Closing it means cutting the two missing hull edges, whose normal depends on $\mathbf{p}_L-\mathbf{p}_R$ — decision
-variables — so the row is bilinear and has to be linearized about a nominal separation. That changes the feasible set of a
+Closing it means cutting the two missing hull edges, whose normal depends on the decision variables $\mathbf{p}_L-\mathbf{p}_R$,
+so the row is bilinear and has to be linearized about a nominal separation. That changes the feasible set of a
 *soft* constraint the whole-body MPC re-solves against the true wrench cone, so it is a conservatism choice to validate in
 simulation behind its own field, not a correctness repair. See `ZmpSupportRegionConstraint.h`. These constraints are
 *soft* (HPIPM slacks with a quadratic and a linear penalty, `shared.slack_penalty.quadratic` / `.linear`, which a term's
@@ -422,7 +417,7 @@ $\Delta t = 0.1$ s.)
 
 1. Every relaxation is solved with HPIPM (Riccati-based interior point on the stage structure; the one-sided rows are
    masked instead of using loose finite bounds). A relaxation costs well under a millisecond for the planner's sizes.
-2. Search order: best-bound first among the open nodes, with depth-first diving into the rounding direction after each
+2. Search order: best-bound first among the open nodes, with depth-first descent into the rounding direction after each
    branching. Branching picks the first fractional binary in time order, so early decisions are settled first; free
    binaries whose relaxation is already integral are skipped, so any binary can be the next one fixed.
 3. Incumbents come early from (a) the previous plan shifted by the elapsed time (`warm_start_previous_plan`), (b) a
@@ -483,8 +478,8 @@ $\Delta t = 0.1$ s.)
   few long steps and many short ones at the same average speed; from rest it favors the short, quick steps that
   accelerate the pendulum fastest, and a step change in the command (the command filter,
   `velocity_command_filter_break_frequency` in `command/reference.textproto`, ships off) makes every replan re-decide the
-  pattern. Three pieces make the gait progressive and cyclic instead: `max_linear_acceleration` /
-  `max_angular_acceleration` in `command/reference.textproto` rate-limit the velocity reference the MPC target and the planner
+  pattern. Three pieces make the gait progressive and cyclic instead: `cmd_max_linacc_base_rt_world_ewrt_heading_xy` /
+  `cmd_max_angacc_base_rt_world_ewrt_world_z` in `command/reference.textproto` rate-limit the velocity reference the MPC target and the planner
   follow (0 = off); the `step_length` cost draws every swing to the displacement a cyclic gait at the commanded speed
   needs, `d_nom = v_cmd dt T_stride / T_swing` at the nominal cadence of the gait limits, with the residual affine in
   the foot displacement and the relaxed contact binary; and `terminal_dcm.target: "commanded_velocity"` moves the terminal
@@ -547,7 +542,7 @@ phase_resetting {
   early_touchdown_min_advance: 0.04           # [s] a touch-down less than this ahead of schedule is executed as planned
   max_late_touchdown_extension: 0.15          # [s] total extension budget of a swing past its planned touch-down
   late_touchdown_extension_step: 0.05         # [s] the touch-down is pushed this far ahead of the current time per cycle
-  late_touchdown_search_velocity: 0.05        # [m/s] descent rate of the foot height target while searching for the ground
+  late_touchdown_search_speed_foot_rt_world: 0.05        # [m/s] descent rate of the foot height target while searching for the ground
 }
 energy_cadence_modulation {
   gain: 0.01                                  # [s/J] touch-down shift = -gain * (E - E_pred)
@@ -572,7 +567,7 @@ the gate of the inverse dynamics: the feedforward torques project only the plann
 measured in contact (`ContactWrenchGate`), since a foot in the air cannot transmit a wrench whatever
 the executed plan expects there. The estimator is selected by name in the task file, `contact_estimator: "<name>"`, the
 way the costs and constraints of the formulation are: the `ContactEstimatorRegistry` resolves the name and rejects an
-unknown one listing the available names. `robot_state` hands back the flags of the `RobotState`, `always_in_contact`
+unknown one listing the available names. `robot_state` returns the flags of the `RobotState`, `always_in_contact`
 reports every point as touching (the executed schedule then is the measured contact state), and the MuJoCo simulator
 registers `cheater_sim`. A controller built without an estimator uses `robot_state`. The robot process of either
 formulation hot-reloads the name: from the task file the GUI publishes on `operator/mpc_parameters` and from its watched
@@ -591,7 +586,7 @@ applied so far).
 
 In the MuJoCo simulation `contact_estimator: "cheater_sim"` (the default when the field is absent) selects the
 `CheaterSimContactEstimator` (`mujoco_sim_interface/CheaterSimContactEstimator.h`), which reports a contact point as
-touching when the physics carries more than `sim_contact_force_threshold` newtons of normal force between it and anything
+touching when the physics carries more than `sim_min_force_mjcontact_ewrt_mjcontact_x` newtons of normal force between it and anything
 outside the robot (a contact point without a resolvable MuJoCo body keeps reading as touching). With
 `always_in_contact` every swing reads as an early touch-down at its scuffing window, so phase resetting must not be
 enabled in simulation with it (the simulator logs a warning), and every planned contact wrench reaches the inverse
@@ -645,7 +640,7 @@ phase can appear). The extension is repeated every cycle while contact is missin
 extension); when the budget is used up the contact phase proceeds as scheduled. During the extension the xy foot
 reference holds the landing target (its interpolation is timed on the swing without the extension), and the height
 reference is the planned swing's up to the planned touch-down, continued from there as a straight descent at
-`late_touchdown_search_velocity` from the planned touch-down height (`SwingTrajectoryPlanner::GroundSearch`); the pitch and
+`late_touchdown_search_speed_foot_rt_world` from the planned touch-down height (`SwingTrajectoryPlanner::GroundSearch`); the pitch and
 impact-proximity references hold their touch-down values. Re-fitting the height spline over the extended swing, as an
 earlier version did, moved its apex, raised the reference at the current time by several millimeters at every extension
 step and then drove the foot down at the spline's slope of about 0.35 m/s instead of at the search velocity. Contact measured at any time during the extension ends the swing at once
@@ -765,8 +760,8 @@ reduced dynamics of its own, expressed
 in the angular center of mass (ACoM): the whole-body heading `theta` (the ACoM yaw when the robot has an ACoM network,
 the base yaw otherwise) and its rate `omega = L_z / I_zz`, the angular momentum about the vertical through the center
 of mass over the whole-body yaw inertia (taken from the model at every plan; no configuration field sets it). The ACoM
-network is installed whenever the configuration uses the heading model - at start-up, and on a hot reload that switches
-it on (`ContactPlanningReferenceManager::loadHeadingModelEvaluator`) - so a reload gives the same heading as a start
+network is installed whenever the configuration uses the heading model (at start-up, and on a hot reload that switches
+it on via `ContactPlanningReferenceManager::loadHeadingModelEvaluator`), so a reload gives the same heading as a start
 with the same file. A robot without a network keeps the base yaw, with a warning; a network trained on a joint vector
 other than the MPC model's refuses the start, or the reload, with a `Status` naming the mismatched joints.
 

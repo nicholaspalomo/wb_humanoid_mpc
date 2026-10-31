@@ -55,14 +55,16 @@ bool addGroundDiscGeom(mjvScene* absl_nullable scene,
                        double y,
                        double radius,
                        const MarkerColor& color);
-bool addSphereGeom(mjvScene* absl_nullable scene,
-                   const double position[absl_nonnull ocs2::kPositionDim],
-                   double radius,
-                   const MarkerColor& color);
-bool addVerticalLineGeom(mjvScene* absl_nullable scene,
-                         const double position[absl_nonnull ocs2::kPositionDim],
-                         double groundHeight,
-                         double width,
-                         const MarkerColor& color);
+bool addSphereGeom(
+    mjvScene* absl_nullable scene,
+    const double posLocalRtWorldEwrtWorld[absl_nonnull ocs2::kPositionDim],
+    double radius,
+    const MarkerColor& color);
+bool addVerticalLineGeom(
+    mjvScene* absl_nullable scene,
+    const double posLocalRtWorldEwrtWorld[absl_nonnull ocs2::kPositionDim],
+    double groundHeight,
+    double width,
+    const MarkerColor& color);
 
 }  // namespace robot::mujoco_sim_interface

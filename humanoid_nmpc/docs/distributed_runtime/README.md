@@ -146,7 +146,7 @@ topic from the same publisher (an FSM command before the parameter update the GU
 guarantee across drains: the topics are separate readers, and a large sample being repaired may arrive after a small
 one written later.
 
-**After a stall.** A subscriber that falls behind - a stalled process or a slow link - is handed the newest value of a
+**After a stall.** A subscriber that falls behind (a stalled process or a slow link) is handed the newest value of a
 latest-value topic, not a backlog: the writer keeps one sample and the reader four, whichever node publishes it
 (`robot_ipc`'s `BusDeliveryTest.AStalledSubscriberGetsTheNewestLatestValueNotABacklog`). This replaces the per-node
 ZeroMQ send queues (`NodeBusProfile`) that bounded the same backlog before: the bound is now the topic's QoS.
@@ -216,8 +216,8 @@ Every publisher renews its command at 25 Hz, so the half second outlasts a dozen
 The MPC node and the robot process run in two processes, on two machines on the robot, and each reads its own copy of
 the robot's configuration files. The tuning GUI's **Save** therefore writes both: the laptop's file, which the MPC node
 reads and watches, losslessly (comments and untouched values kept), and the robot's, by sending the exact text it wrote
-of every file the robot reads - the task file, the reference file, the PD gains file; not the contact planner's file,
-which only the MPC reads - on `operator/config_save` (`ConfigFileSave`: the file's kind, `robot_name`, `config_path`,
+of every file the robot reads (the task file, the reference file, the PD gains file; not the contact planner's file,
+which only the MPC reads) on `operator/config_save` (`ConfigFileSave`: the file's kind, `robot_name`, `config_path`,
 the schema fingerprint of the file's message, the text and a sequence number).
 
 The robot process keeps its files in a persistent store (`--config_store_dir`; the robot images use
@@ -225,7 +225,7 @@ The robot process keeps its files in a persistent store (`--config_store_dir`; t
 redeploy), seeded from the files bundled in its image
 ([`humanoid_common_mpc_app/robot`](../../humanoid_common_mpc_app/robot/README.md#the-configuration-store),
 [`tools/deploy`](../../../tools/deploy/README.md#the-stored-configuration)). Its `ConfigFileStore` checks a save on the
-bus's IO thread for what is cheap - the configuration, the robot, the schema fingerprint, the size - and then, on a
+bus's IO thread for what is cheap (the configuration, the robot, the schema fingerprint, the size) and then, on a
 writer thread of its own, never the realtime thread, parses it as strictly as at start-up and runs the checks start-up
 runs (`checkRobotConfiguration()`) with the saved file in place of its stored copy. A file it accepts is written
 atomically (the previous copy kept as `.bak`), and its watchers apply it as they apply an edit; the answer goes back on
@@ -416,7 +416,7 @@ entity paths and the telemetry groups the visualization publisher must send: the
   telemetry, by name: `bus` publishes `robot/state`), `telemetry_frequency`, `telemetry_frames`, `rerun_scene_frequency`,
   `rerun_plan_frames`, and the existing controller and simulator fields
   ([`humanoid_common_mpc_app/robot`](../../humanoid_common_mpc_app/robot/README.md#the-task-file)).
-- **Network file**: as above.
+- **Network file** (`config/ipc/network.textproto`): as above.
 
 ## Launching
 

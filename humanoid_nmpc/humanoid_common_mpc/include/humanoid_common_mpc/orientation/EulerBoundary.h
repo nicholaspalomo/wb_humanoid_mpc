@@ -104,7 +104,7 @@ vector3_t eulerZyxFromQuaternion(const vector4_t& xi);
  * quaternionFromEulerZyx(Theta) / d Theta = 1/2 G(xi) T_B(Theta) (design
  * section 2.12).
  */
-matrix3_t eulerZyxRateToLocalAngularVelocityMatrix(const vector3_t& eulerZyx);
+matrix3_t eulerZyxRateToBodyRateMatrix(const vector3_t& eulerZyx);
 
 /** w_B = T_B(Theta) dTheta/dt,
  * ocs2::getLocalAngularVelocityFromEulerAnglesZyxDerivatives. */
@@ -117,16 +117,16 @@ vector3_t localAngularVelocityFromEulerZyxRates(const vector3_t& eulerZyx,
  * ocs2::getEulerAnglesZyxDerivativesFromLocalAngularVelocity. It divides by
  * cos(theta): the rates are not finite at a pitch of +-90 degrees.
  */
-vector3_t eulerZyxRatesFromLocalAngularVelocity(
-    const vector3_t& eulerZyx, const vector3_t& localAngularVelocity);
+vector3_t eulerZyxRatesFromBodyRates(
+    const vector3_t& eulerZyx, const vector3_t& angvelLocalRtWorldEwrtLocal);
 
 /**
  * d w_B / d Theta of w_B = T_B(Theta) dTheta/dt at fixed rates dTheta/dt: the 3
  * x 3 matrix whose columns are the derivatives along yaw (zero: T_B does not
  * depend on the yaw), pitch and roll.
  */
-matrix3_t localAngularVelocityEulerZyxJacobian(const vector3_t& eulerZyx,
-                                               const vector3_t& eulerZyxRates);
+matrix3_t bodyRateEulerZyxJacobian(const vector3_t& eulerZyx,
+                                   const vector3_t& eulerZyxRates);
 
 /******************************************************************************************************/
 /* The Euler tuning layout (design sections 2.3 and 2.10) */
@@ -193,10 +193,11 @@ struct TuningSegment {
  * A tuning layout and the state layout it maps to, as consecutive blocks. The
  * robot models hold theirs, built by tuningLayoutOf()
  * (config/weights/StateInputLayout.h) and placed by placeTuningLayout() (design
- * section 2.3): for example the centroidal [normalized_linear_momentum (3),
- * normalized_angular_momentum (3), base_position (3), base_orientation,
- * joint_positions (nj)]; a layout of kEuclidean blocks only maps a vector to
- * itself.
+ * section 2.3): for example the centroidal
+ * [mnorm_linmom_com_rt_world_ewrt_world (3),
+ * mnorm_angmom_com_rt_world_ewrt_world (3), pos_base_rt_world_ewrt_world (3),
+ * eulerzyx_base_rt_world, joint_positions (nj)]; a layout of kEuclidean blocks
+ * only maps a vector to itself.
  */
 struct TuningLayout {
   /** Names the layout in error messages, e.g. "centroidal". */
@@ -229,8 +230,8 @@ absl::StatusOr<size_t> tuningSegmentStart(const TuningLayout& layout,
 
 /**
  * The layout as text for an error message, e.g.
- * "centroidal tuning layout (35 rows: h 6, p_W 3, base_orientation 3 (yaw,
- * pitch, roll), q_j 23)".
+ * "centroidal tuning layout (35 rows: h 6, p_W 3, eulerzyx_base_rt_world 3
+ * (yaw, pitch, roll), q_j 23)".
  */
 std::string describeTuningLayout(const TuningLayout& layout);
 

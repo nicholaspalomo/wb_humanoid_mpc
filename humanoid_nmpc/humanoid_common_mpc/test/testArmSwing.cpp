@@ -255,7 +255,7 @@ TEST(ArmSwing, EachJointTurnsTheWayThatSwingsItsArmForwardOrFlexesIt) {
 
     const vector3_t forward =
         quaternionRotationMatrix<scalar_t>(
-            robot->model->getBaseOrientation(robot->initialState))
+            robot->model->getQuatBaseRtWorldXyzw(robot->initialState))
             .col(0);
     /** One arm: its joints by MPC index and name, and the derived senses. */
     struct Arm {
@@ -378,9 +378,9 @@ vector_t walkingState(const LoadedRobot& robot,
                       scalar_t heading,
                       scalar_t speed) {
   vector_t state = robot.initialState;
-  vector3_t euler = robot.model->getBaseOrientationEulerZyx(state);
+  vector3_t euler = robot.model->getEulerzyxBaseRtWorld(state);
   euler(0) = heading;
-  robot.model->setBaseOrientationEulerZyx(state, euler);
+  robot.model->setEulerzyxBaseRtWorld(state, euler);
   robot.model->setBaseComLinearVelocity(
       state,
       vector3_t(speed * std::cos(heading), speed * std::sin(heading), 0.0));
@@ -485,10 +485,12 @@ TEST(ArmSwing,
     // Read off the interpolated target exactly as the reference manager reads
     // it, so that the comparison can be exact.
     const vector_t nominal = robot->model->getDesiredState(target, time);
-    const scalar_t nominalHeading = robot->model->getBaseHeading(nominal);
-    const vector3_t velocity = robot->model->getBaseComLinearVelocity(nominal);
-    const scalar_t forwardSpeed = std::cos(nominalHeading) * velocity[0] +
-                                  std::sin(nominalHeading) * velocity[1];
+    const scalar_t nominalHeading = robot->model->getYawBaseRtWorld(nominal);
+    const vector3_t velocityCommand =
+        robot->model->getBaseComLinearVelocity(nominal);
+    const scalar_t forwardSpeed =
+        std::cos(nominalHeading) * velocityCommand[0] +
+        std::sin(nominalHeading) * velocityCommand[1];
     const scalar_t swing =
         std::sin(2 * M_PI * (referenceManager->getPhaseVariable(time) - 0.15)) *
         forwardSpeed;

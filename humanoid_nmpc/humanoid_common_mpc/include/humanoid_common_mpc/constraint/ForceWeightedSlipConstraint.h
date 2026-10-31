@@ -59,7 +59,7 @@ namespace ocs2::humanoid {
  * normal. Those are the three a foot resting on the ground cannot have without
  * sliding or pivoting, and leaving the pivot out is not an option - the
  * schedule-gated `zero_velocity` constraint this term replaces was a full
- * six-row twist constraint with `constrainOrientation`, and a loaded foot free
+ * six-row twist constraint with `constrainAttitude`, and a loaded foot free
  * to yaw walks the robot sideways out from under itself.
  *
  * The other three are deliberately free. The normal velocity is left to
@@ -80,17 +80,17 @@ namespace ocs2::humanoid {
  * layer of this stack assumes the ground is flat - `terrainHeight` is a single
  * configured scalar, and the reduced-order planner assumes it most of all. So
  * the contact normal is the world vertical no matter how the foot is oriented,
- * `velocity.head<2>()` really is the tangential velocity in the contact plane,
- * and `angularVelocity(2)` really is the spin about the contact normal.
- * Rotating the twist into the FOOT's frame, as one might expect from the name
- * "contact frame", would be the bug: it would price the foot's own pitch and
- * roll as tangential slip. On sloped terrain this reasoning stops holding and
- * the twist would have to be rotated into the terrain frame - but so would the
- * wrench cone, the penetration hinge and the swing planner, and none of them
- * support a slope either.
+ * `linvelContactRtWorldEwrtWorld.head<2>()` really is the tangential velocity
+ * in the contact plane, and `angvelContactRtWorldEwrtWorld(2)` really is the
+ * spin about the contact normal. Rotating the twist into the FOOT's frame, as
+ * one might expect from the name "contact frame", would be the bug: it would
+ * price the foot's own pitch and roll as tangential slip. On sloped terrain
+ * this reasoning stops holding and the twist would have to be rotated into the
+ * terrain frame - but so would the wrench cone, the penetration hinge and the
+ * swing planner, and none of them support a slope either.
  *
- * The POINT is the contact frame, which `contact_frame_translation` places on
- * the sole. That is an approximation, and unlike the frame question it is a
+ * The POINT is the contact frame, which `pos_contact_rt_link_ewrt_link` places
+ * on the sole. That is an approximation, and unlike the frame question it is a
  * real one: when the foot rocks about an edge, the sole center moves even
  * though the contact line does not, and the term charges for slip that is not
  * happening. Because the contact frame sits in the plane of the footprint
@@ -155,20 +155,20 @@ class ForceWeightedSlipConstraint final : public StateInputConstraint {
    * @param [in] mpcRobotModel : the robot model, for the input block that
    * carries this contact's force.
    * @param [in] contactPointIndex : the contact this term belongs to.
-   * @param [in] forceReference : [N] the normal force the residual is measured
-   * in, normally the robot's weight.
-   * @param [in] velocityReference : [m/s] the sliding speed the two tangential
-   * rows are measured in.
-   * @param [in] angularVelocityReference : [rad/s] the pivot rate the yaw row
-   * is measured in.
+   * @param [in] scaleForceContactEwrtParamZ : [N] the normal force the residual
+   * is measured in, normally the robot's weight.
+   * @param [in] scaleLinvelContactRtWorldEwrtWorldXy : [m/s] the sliding speed
+   * the two tangential rows are measured in.
+   * @param [in] scaleAngvelContactRtWorldEwrtWorldZ : [rad/s] the pivot rate
+   * the yaw row is measured in.
    */
   static absl::StatusOr<std::unique_ptr<ForceWeightedSlipConstraint>> Create(
       const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
       const MpcRobotModelBase<scalar_t>& mpcRobotModel,
       size_t contactPointIndex,
-      scalar_t forceReference = 1.0,
-      scalar_t velocityReference = 1.0,
-      scalar_t angularVelocityReference = 1.0);
+      scalar_t scaleForceContactEwrtParamZ = 1.0,
+      scalar_t scaleLinvelContactRtWorldEwrtWorldXy = 1.0,
+      scalar_t scaleAngvelContactRtWorldEwrtWorldZ = 1.0);
 
   ~ForceWeightedSlipConstraint() override = default;
   ForceWeightedSlipConstraint& operator=(const ForceWeightedSlipConstraint&) =
@@ -193,18 +193,20 @@ class ForceWeightedSlipConstraint final : public StateInputConstraint {
       const vector_t& input,
       const PreComputation& preComp) const override;
 
-  scalar_t getForceReference() const { return 1.0 / inverseForceReference_; }
-  /** The per-row reciprocal scales, in the row order [v_x, v_y, omega_z];
-   * exposed for the tests. */
-  const vector3_t& getInverseTwistReference() const {
-    return inverseTwistReference_;
+  scalar_t getScaleForceContactEwrtParamZ() const {
+    return 1.0 / inverseScaleForceContactEwrtParamZ_;
   }
-  /** Retunes the two twist references, so that the keys are live in the tuning
+  /** The per-row reciprocal scales of the slip, in the row order [v_x, v_y,
+   * omega_z] of linvelContactRtWorldEwrtWorld and
+   * angvelContactRtWorldEwrtWorld; exposed for the tests. */
+  const vector3_t& getInverseScaleSlip() const { return inverseScaleSlip_; }
+  /** Retunes the two slip scales, so that the keys are live in the tuning
    * dashboard like the weight beside them. */
-  void setTwistReferences(scalar_t velocityReference,
-                          scalar_t angularVelocityReference) {
-    inverseTwistReference_ << 1.0 / velocityReference, 1.0 / velocityReference,
-        1.0 / angularVelocityReference;
+  void setSlipScales(scalar_t scaleLinvelContactRtWorldEwrtWorldXy,
+                     scalar_t scaleAngvelContactRtWorldEwrtWorldZ) {
+    inverseScaleSlip_ << 1.0 / scaleLinvelContactRtWorldEwrtWorldXy,
+        1.0 / scaleLinvelContactRtWorldEwrtWorldXy,
+        1.0 / scaleAngvelContactRtWorldEwrtWorldZ;
   }
 
  private:
@@ -215,16 +217,16 @@ class ForceWeightedSlipConstraint final : public StateInputConstraint {
       const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
       const MpcRobotModelBase<scalar_t>& mpcRobotModel,
       size_t contactPointIndex,
-      scalar_t forceReference,
-      scalar_t velocityReference,
-      scalar_t angularVelocityReference);
+      scalar_t scaleForceContactEwrtParamZ,
+      scalar_t scaleLinvelContactRtWorldEwrtWorldXy,
+      scalar_t scaleAngvelContactRtWorldEwrtWorldZ);
   ForceWeightedSlipConstraint(const ForceWeightedSlipConstraint& rhs);
 
   std::unique_ptr<EndEffectorKinematics<scalar_t>> endEffectorKinematicsPtr_;
   size_t contactPointIndex_;
-  scalar_t inverseForceReference_;
-  vector3_t inverseTwistReference_;
-  vector_t normalForceRow_;
+  scalar_t inverseScaleForceContactEwrtParamZ_;
+  vector3_t inverseScaleSlip_;
+  vector_t inputRowForceContactEwrtParamZ_;
 };
 
 }  // namespace ocs2::humanoid

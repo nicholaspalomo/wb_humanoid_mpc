@@ -275,14 +275,14 @@ class FileMessagesTest(unittest.TestCase):
                 "state-triggered rollout, which the fork no longer has",
             ),
         )
-        for text, message, position, replacement in cases:
+        for text, message, location, replacement in cases:
             with self.subTest(text=text):
-                path = position.split(":", maxsplit=1)[0]
+                path = location.split(":", maxsplit=1)[0]
                 with self.assertRaises(
                     nproto_textproto.TextprotoError
                 ) as caught:
                     nproto_textproto.parse_textproto(text, message, path)
-                self.assertTrue(str(caught.exception).startswith(position))
+                self.assertTrue(str(caught.exception).startswith(location))
                 self.assertIn(replacement, str(caught.exception))
 
     def test_no_retired_name_is_a_live_field(self):

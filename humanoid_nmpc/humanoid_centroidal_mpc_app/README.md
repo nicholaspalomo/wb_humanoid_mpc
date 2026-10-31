@@ -71,10 +71,10 @@ the robot at the plan's first state and stance (the multi-contact dummy sims,
 Both take the shared flags of [`humanoid_common_mpc_app/node`](../humanoid_common_mpc_app/node/README.md#the-command-line)
 (`--robot_name`, `--task_file`, `--reference_file`, `--urdf_file`, `--gait_file`, `--network_config`).
 
-`:test_centroidal_mpc_node` (large: it builds the DRC Atlas CppAD libraries on a cold cache) runs the node with the real
-SQP solver against a scripted robot and operator over loopback buses - observation in and policy out, a solver and a
+`:test_centroidal_mpc_node` (large: it builds the DRC Atlas CppAD libraries on a cold cache) runs the node with the
+SQP solver against a scripted robot and operator over loopback buses (observation in and policy out, a solver and a
 full reset through the observation counters, the velocity command reaching the motion manager and the next policy, a
-task file sent on `operator/mpc_parameters` applied in the next solve and not before - checks that it resets to exactly
+task file sent on `operator/mpc_parameters` applied in the next solve and not before), checks that it resets to
 the target the controller hands its in-process link, and runs the dummy simulator against it for four seconds: it
 stands, one policy per MPC update, and no reset after the start-up one. Its last case runs the hardware topology end to
 end: `:humanoid_centroidal_mpc_node` and `:humanoid_centroidal_mpc_robot` (MuJoCo, no viewer) as two processes on a

@@ -25,7 +25,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""The lint tools' configurations work with the real tools: cpplint, pylint, mypy, isort and black from the lock.
+"""Tests that the lint tools' configurations work with cpplint, pylint, mypy, isort and black from the lock.
 
 Bazel runs this with the @lint_deps hub (tools/hooks/lint_requirements_lock.txt), so it needs neither the dev image nor
 CI's installs: each tool runs as `python -m <tool>` on a fixture in a temporary directory, with the repository's

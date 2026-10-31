@@ -71,7 +71,7 @@ struct MpcRobotModelDimensions {
 /**
  * The Jacobian of the base's body angular velocity w_B with respect to the two
  * blocks of state slots it depends on
- * (MpcRobotModelBase::getBaseAngularVelocityLocalJacobian), as small blocks
+ * (MpcRobotModelBase::getJacobianAngvelBaseRtWorldEwrtBase), as small blocks
  * instead of a row block of the state.
  */
 struct BaseAngularVelocityJacobian {
@@ -86,7 +86,7 @@ struct BaseAngularVelocityJacobian {
 /**
  * The z component of the angular part of a base velocity whose linear part
  * comes first: the yaw rate of the world twist [dp_W, R(xi) w_B] of
- * getBaseTwistInWorldFrame(). In getBaseComVelocity() it is the vertical
+ * getTwistBaseRtWorldEwrtWorld(). In getBaseComVelocity() it is the vertical
  * angular momentum per mass L_z / m only on the centroidal layout; on the whole
  * body that entry is the body roll rate w_x (design defect D18), so a yaw rate
  * is read through getTargetPlanarCommand() instead.
@@ -113,7 +113,7 @@ inline constexpr int kTwistYawRateIndex = kPositionDim + kZAxisIndex;
  * tangent, and Pinocchio's configuration q one more than its velocity v. The
  * accessors cannot fail; those the solver and the control thread call stay
  * unchecked, with the sizes documented as preconditions. The Euler boundary
- * accessors (*EulerZyx, and setBaseAngularVelocityFromWorldYawRate) are for the
+ * accessors (*EulerZyx, and setTurnAngvelBaseRtWorldEwrtBase) are for the
  * human-facing inputs and outputs only - commands and their knots, the
  * locomotion-heuristic seam, telemetry and display - and are in double
  * precision for every SCALAR_T.
@@ -175,7 +175,8 @@ class MpcRobotModelBase {
   virtual size_t getBaseStartindex() const = 0;
   /**
    * The first state slot of the base orientation: its quaternion coefficients
-   * (x, y, z, w), the stateStart of getTuningLayout()'s base_orientation block.
+   * (x, y, z, w), the stateStart of getTuningLayout()'s eulerzyx_base_rt_world
+   * block.
    */
   virtual size_t getBaseOrientationStartIndex() const = 0;
   virtual size_t getJointStartindex() const = 0;
@@ -210,12 +211,20 @@ class MpcRobotModelBase {
   virtual VECTOR_T<SCALAR_T> getGeneralizedCoordinates(
       const VECTOR_T<SCALAR_T>& state) const = 0;
 
-  virtual VECTOR3_T<SCALAR_T> getBasePosition(
+  virtual VECTOR3_T<SCALAR_T> getPosBaseRtWorldEwrtWorld(
       const VECTOR_T<SCALAR_T>& state) const = 0;
 
+  // TODO(frame-naming): frame1 is the CoM in the centroidal model and the base
+  // in the whole-body model; split into getLinvelComRtWorldEwrtWorld and
+  // getLinvelBaseRtWorldEwrtWorld.
+  // NOLINTNEXTLINE(frame-naming): model-dependent frame1, split as noted above
   virtual VECTOR3_T<SCALAR_T> getBaseComLinearVelocity(
       const VECTOR_T<SCALAR_T>& state) const = 0;
 
+  // TODO(frame-naming): the centroidal model returns the normalized centroidal
+  // momentum h, the whole-body model the base velocity [dp_W, w_B]; split into
+  // getMnormCmomComRtWorldEwrtWorld and a base-velocity accessor.
+  // NOLINTNEXTLINE(frame-naming): model-dependent quantity, split as noted above
   virtual VECTOR6_T<SCALAR_T> getBaseComVelocity(
       const VECTOR_T<SCALAR_T>& state) const = 0;
 
@@ -235,13 +244,16 @@ class MpcRobotModelBase {
       VECTOR_T<SCALAR_T>& state,
       const VECTOR_T<SCALAR_T>& generalizedCorrdinates) const = 0;
 
-  virtual void setBasePosition(VECTOR_T<SCALAR_T>& state,
-                               const VECTOR3_T<SCALAR_T>& position) const = 0;
+  virtual void setPosBaseRtWorldEwrtWorld(
+      VECTOR_T<SCALAR_T>& state,
+      const VECTOR3_T<SCALAR_T>& posBaseRtWorldEwrtWorld) const = 0;
 
   /** The counterpart of getBaseComLinearVelocity(), with the same meaning in
    * each model's state layout. */
+  // NOLINTBEGIN(frame-naming): model-dependent frame1, see getBaseComLinearVelocity
   virtual void setBaseComLinearVelocity(
       VECTOR_T<SCALAR_T>& state, const VECTOR3_T<SCALAR_T>& velocity) const = 0;
+  // NOLINTEND(frame-naming)
 
   virtual void setJointAngles(VECTOR_T<SCALAR_T>& state,
                               const VECTOR_T<SCALAR_T>& jointAngles) const = 0;
@@ -251,8 +263,9 @@ class MpcRobotModelBase {
       VECTOR_T<SCALAR_T>& input,
       const VECTOR_T<SCALAR_T>& jointVelocities) const = 0;
 
-  virtual void adaptBasePoseHeight(VECTOR_T<SCALAR_T>& state,
-                                   scalar_t heightChange) const = 0;
+  virtual void adaptPosBaseRtWorldEwrtWorldZ(
+      VECTOR_T<SCALAR_T>& state,
+      scalar_t errPosBaseRtWorldEwrtWorldZ) const = 0;
 
   /******************************************************************************************************/
   /*                                      Base orientation */
@@ -264,20 +277,20 @@ class MpcRobotModelBase {
    * (safelyNormalizedQuaternion(), orientation/BaseOrientation.h; a CppAD
    * conditional on the squared norm, so safe on a tape).
    */
-  virtual VECTOR4_T<SCALAR_T> getBaseOrientation(
+  virtual VECTOR4_T<SCALAR_T> getQuatBaseRtWorldXyzw(
       const VECTOR_T<SCALAR_T>& state) const = 0;
 
   /**
-   * Writes the base orientation `orientation` (quaternion coefficients x, y, z,
-   * w) into `state`, safely normalized. The sign of the coefficients is kept:
-   * xi and -xi are the same rotation.
+   * Writes the base orientation `quatBaseRtWorldXyzw` (quaternion coefficients
+   * x, y, z, w) into `state`, safely normalized. The sign of the coefficients
+   * is kept: xi and -xi are the same rotation.
    */
-  virtual void setBaseOrientation(vector_t& state,
-                                  const vector4_t& orientation) const = 0;
+  virtual void setQuatBaseRtWorldXyzw(
+      vector_t& state, const vector4_t& quatBaseRtWorldXyzw) const = 0;
 
   /**
    * The heading of the base in `state` [rad]: the twist heading
-   * twistHeading(getBaseOrientation(state)) of orientation/BaseOrientation.h
+   * yawOf(getQuatBaseRtWorldXyzw(state)) of orientation/BaseOrientation.h
    * (design decision D9), in (-pi, pi]. The angle about the world z axis of the
    * twist-swing split of the attitude: the ZYX yaw, wrapped, at a single-axis
    * tilt, and about -pitch * roll / 2 away from it otherwise; regular at a
@@ -285,7 +298,7 @@ class MpcRobotModelBase {
    * all of them wrap-safe (cos and sin, wrapped differences,
    * moduloAngleWithReference). Double precision for every SCALAR_T.
    */
-  virtual scalar_t getBaseHeading(const vector_t& state) const = 0;
+  virtual scalar_t getYawBaseRtWorld(const vector_t& state) const = 0;
 
   /******************************************************************************************************/
   /*                  The Euler boundary (quaternion_base_orientation/README.md,
@@ -298,7 +311,7 @@ class MpcRobotModelBase {
    * eulerZyxFromQuaternion of the orientation (orientation/EulerBoundary.h), so
    * the yaw and the roll are in (-pi, pi] and the pitch in [-pi/2, pi/2].
    */
-  virtual vector6_t getBasePoseEulerZyx(const vector_t& state) const = 0;
+  virtual vector6_t getPoseeulerzyxBaseRtWorld(const vector_t& state) const = 0;
 
   /**
    * Writes the base pose [x, y, z, yaw, pitch, roll] into `state`:
@@ -307,17 +320,17 @@ class MpcRobotModelBase {
    * (interpolateStateTrajectory()) takes the shorter way, so consecutive knots
    * of a turn are at most pi / 2 apart (the target calculators subdivide them).
    */
-  virtual void setBasePoseEulerZyx(vector_t& state,
-                                   const vector6_t& basePose) const = 0;
+  virtual void setPoseeulerzyxBaseRtWorld(
+      vector_t& state, const vector6_t& poseeulerzyxBaseRtWorld) const = 0;
 
   /** The ZYX Euler angles (yaw, pitch, roll) of the base in `state`, as
-   * getBasePoseEulerZyx(). */
-  virtual vector3_t getBaseOrientationEulerZyx(const vector_t& state) const = 0;
+   * getPoseeulerzyxBaseRtWorld(). */
+  virtual vector3_t getEulerzyxBaseRtWorld(const vector_t& state) const = 0;
 
   /** Writes the ZYX Euler angles (yaw, pitch, roll) of the base into `state`,
-   * as setBasePoseEulerZyx(). */
-  virtual void setBaseOrientationEulerZyx(vector_t& state,
-                                          const vector3_t& eulerZyx) const = 0;
+   * as setPoseeulerzyxBaseRtWorld(). */
+  virtual void setEulerzyxBaseRtWorld(
+      vector_t& state, const vector3_t& eulerzyxBaseRtWorld) const = 0;
   // NOLINTEND(euler-boundary)
 
   /******************************************************************************************************/
@@ -326,37 +339,38 @@ class MpcRobotModelBase {
   /******************************************************************************************************/
   /*
    * Only for a model whose state holds the base velocity: one whose
-   * getTuningLayout() has a base_angular_velocity block
+   * getTuningLayout() has a angvel_base_rt_world_ewrt_base block
    * (kZyxOrderedAngularVelocity), the whole-body MPC's. The centroidal state
    * holds the centroidal momentum instead, and its model aborts on these.
    */
 
   /** The body angular velocity w_B = (x, y, z) of the base in its own frame, as
    * the state stores it. */
-  virtual vector3_t getBaseAngularVelocityLocal(
+  virtual vector3_t getAngvelBaseRtWorldEwrtBase(
       const vector_t& state) const = 0;
 
-  /** Writes the body angular velocity `angularVelocityLocal` of the base into
-   * `state`. */
-  virtual void setBaseAngularVelocityLocal(
-      vector_t& state, const vector3_t& angularVelocityLocal) const = 0;
+  /** Writes the body angular velocity `angvelBaseRtWorldEwrtBase` of the base
+   * into `state`. */
+  virtual void setAngvelBaseRtWorldEwrtBase(
+      vector_t& state, const vector3_t& angvelBaseRtWorldEwrtBase) const = 0;
 
   /**
-   * Writes the angular velocity of a turn at `yawRate` (rad/s) about the world
-   * z axis into `state`, as a velocity command knot holds it: w_B = R(xi_hat)^T
-   * (0, 0, yawRate) at the orientation `state` already holds, (0, 0, yawRate)
-   * for a level knot. Write the knot's orientation first.
+   * Writes the angular velocity of a turn at `angvelBaseRtWorldEwrtWorldZ`
+   * (rad/s) about the world z axis into `state`, as a velocity command knot
+   * holds it: w_B = R(xi_hat)^T (0, 0, angvelBaseRtWorldEwrtWorldZ) at the
+   * orientation `state` already holds, (0, 0, angvelBaseRtWorldEwrtWorldZ) for
+   * a level knot. Write the knot's orientation first.
    */
-  virtual void setBaseAngularVelocityFromWorldYawRate(
-      vector_t& state, scalar_t yawRate) const = 0;
+  virtual void setTurnAngvelBaseRtWorldEwrtBase(
+      vector_t& state, scalar_t angvelBaseRtWorldEwrtWorldZ) const = 0;
 
   /**
    * d w_B / d(state), as its two nonzero blocks: with respect to the
    * orientation slots (at getBaseOrientationStartIndex()) and to the
    * angular-velocity slots (the stateStart of getTuningLayout()'s
-   * base_angular_velocity block).
+   * angvel_base_rt_world_ewrt_base block).
    */
-  virtual BaseAngularVelocityJacobian getBaseAngularVelocityLocalJacobian(
+  virtual BaseAngularVelocityJacobian getJacobianAngvelBaseRtWorldEwrtBase(
       const vector_t& state) const = 0;
 
   /******************************************************************************************************/
@@ -388,7 +402,7 @@ class MpcRobotModelBase {
    * README section 2.9). One Pinocchio pass on the centroidal model, so call it
    * once per solve, not per node. Double precision only.
    */
-  virtual vector6_t getBaseTwistInWorldFrame(
+  virtual vector6_t getTwistBaseRtWorldEwrtWorld(
       const vector_t& state, const vector_t& jointVelocities) const = 0;
 
   /**
@@ -398,7 +412,7 @@ class MpcRobotModelBase {
    * defect D3).
    *
    * A knot that stores the base velocity answers with its base twist, (v_x,
-   * v_y, w_z) of getBaseTwistInWorldFrame(). A centroidal knot stores the
+   * v_y, w_z) of getTwistBaseRtWorldEwrtWorld(). A centroidal knot stores the
    * normalized momentum of the whole body: its linear part is the CoM velocity,
    * and the turn is the angular momentum h_z = I_zz psidot / m of the body
    * turning about the vertical through its CoM, which comes back out as m h_z /
@@ -511,34 +525,34 @@ class MpcRobotModelBase {
    * and allocate, check, log and throw nothing. The sizes are the caller's
    * precondition, unchecked: `jointPositions` and `jointVelocities` have
    * getJointDim() entries, `q` getConfigurationDim() and `v` getVelocityDim().
-   * `orientation` is the measured base orientation, the quaternion coefficients
-   * (x, y, z, w) of the rotation from the base frame to the world, read through
-   * its safe normalization (a measured quaternion is unit to round-off; one
-   * shorter than the guard is kept as it is).
+   * `quatBaseRtWorldXyzw` is the measured base orientation, the quaternion
+   * coefficients (x, y, z, w) of the rotation from the base frame to the world,
+   * read through its safe normalization (a measured quaternion is unit to
+   * round-off; one shorter than the guard is kept as it is).
    */
 
   /**
-   * Writes the Pinocchio configuration q = [positionWorld, the normalized
-   * orientation, jointPositions] of the measured base position, base
+   * Writes the Pinocchio configuration q = [posBaseRtWorldEwrtWorld, the
+   * normalized orientation, jointPositions] of the measured base position, base
    * orientation and joint positions into `q`.
    */
   virtual void fillGeneralizedCoordinatesFromMeasurement(
-      const vector3_t& positionWorld,
-      const vector4_t& orientation,
+      const vector3_t& posBaseRtWorldEwrtWorld,
+      const vector4_t& quatBaseRtWorldXyzw,
       const vector_t& jointPositions,
       Eigen::Ref<vector_t> q) const = 0;
 
   /**
-   * Writes the Pinocchio velocity v = [R(xi_hat) linearVelocityLocal,
-   * angularVelocityLocal, jointVelocities] of the measured base velocities,
-   * both in the base frame, and joint velocities into `v`: the world-frame
-   * linear velocity and the body angular velocity of the Composite(Translation,
-   * Spherical) root.
+   * Writes the Pinocchio velocity v = [R(xi_hat) linvelBaseRtWorldEwrtBase,
+   * angvelBaseRtWorldEwrtBase, jointVelocities] of the measured base
+   * velocities, both in the base frame, and joint velocities into `v`: the
+   * world-frame linear velocity and the body angular velocity of the
+   * Composite(Translation, Spherical) root.
    */
   virtual void fillGeneralizedVelocitiesFromMeasurement(
-      const vector4_t& orientation,
-      const vector3_t& linearVelocityLocal,
-      const vector3_t& angularVelocityLocal,
+      const vector4_t& quatBaseRtWorldXyzw,
+      const vector3_t& linvelBaseRtWorldEwrtBase,
+      const vector3_t& angvelBaseRtWorldEwrtBase,
       const vector_t& jointVelocities,
       Eigen::Ref<vector_t> v) const = 0;
 
@@ -559,28 +573,31 @@ class MpcRobotModelBase {
    * Whenever a world-frame wrench is required, prefer the state-aware
    * `...InWorldFrame` accessors below, which are frame-correct for every model.
    */
-  virtual VECTOR6_T<SCALAR_T> getContactWrench(const VECTOR_T<SCALAR_T>& input,
-                                               size_t contactIndex) const = 0;
+  virtual VECTOR6_T<SCALAR_T> getWrenchContactEwrtParam(
+      const VECTOR_T<SCALAR_T>& input, size_t contactIndex) const = 0;
 
-  virtual VECTOR3_T<SCALAR_T> getContactForce(const VECTOR_T<SCALAR_T>& input,
-                                              size_t contactIndex) const = 0;
+  virtual VECTOR3_T<SCALAR_T> getForceContactEwrtParam(
+      const VECTOR_T<SCALAR_T>& input, size_t contactIndex) const = 0;
 
-  virtual VECTOR3_T<SCALAR_T> getContactMoment(const VECTOR_T<SCALAR_T>& input,
-                                               size_t contactIndex) const = 0;
+  virtual VECTOR3_T<SCALAR_T> getTorqueContactEwrtParam(
+      const VECTOR_T<SCALAR_T>& input, size_t contactIndex) const = 0;
 
   /******************************************************************************************************/
 
-  virtual void setContactWrench(VECTOR_T<SCALAR_T>& input,
-                                const VECTOR6_T<SCALAR_T>& wrench,
-                                size_t contactIndex) const = 0;
+  virtual void setWrenchContactEwrtParam(
+      VECTOR_T<SCALAR_T>& input,
+      const VECTOR6_T<SCALAR_T>& wrenchContactEwrtParam,
+      size_t contactIndex) const = 0;
 
-  virtual void setContactForce(VECTOR_T<SCALAR_T>& input,
-                               const VECTOR3_T<SCALAR_T>& force,
-                               size_t contactIndex) const = 0;
+  virtual void setForceContactEwrtParam(
+      VECTOR_T<SCALAR_T>& input,
+      const VECTOR3_T<SCALAR_T>& forceContactEwrtParam,
+      size_t contactIndex) const = 0;
 
-  virtual void setContactMoment(VECTOR_T<SCALAR_T>& input,
-                                const VECTOR3_T<SCALAR_T>& moment,
-                                size_t contactIndex) const = 0;
+  virtual void setTorqueContactEwrtParam(
+      VECTOR_T<SCALAR_T>& input,
+      const VECTOR3_T<SCALAR_T>& torqueContactEwrtParam,
+      size_t contactIndex) const = 0;
 
   /******************************************************************************************************/
   /*                              State-aware world-frame contact accessors */
@@ -595,60 +612,60 @@ class MpcRobotModelBase {
    * on the robot configuration. The default implementation assumes the input
    * already stores a world-frame wrench and ignores the state.
    */
-  virtual VECTOR6_T<SCALAR_T> getContactWrenchInWorldFrame(
+  virtual VECTOR6_T<SCALAR_T> getWrenchContactEwrtWorld(
       const VECTOR_T<SCALAR_T>& /*state*/,
       const VECTOR_T<SCALAR_T>& input,
       size_t contactIndex) const {
-    return getContactWrench(input, contactIndex);
+    return getWrenchContactEwrtParam(input, contactIndex);
   }
 
-  virtual VECTOR3_T<SCALAR_T> getContactForceInWorldFrame(
+  virtual VECTOR3_T<SCALAR_T> getForceContactEwrtWorld(
       const VECTOR_T<SCALAR_T>& /*state*/,
       const VECTOR_T<SCALAR_T>& input,
       size_t contactIndex) const {
-    return getContactForce(input, contactIndex);
+    return getForceContactEwrtParam(input, contactIndex);
   }
 
-  virtual VECTOR3_T<SCALAR_T> getContactMomentInWorldFrame(
+  virtual VECTOR3_T<SCALAR_T> getTorqueContactEwrtWorld(
       const VECTOR_T<SCALAR_T>& /*state*/,
       const VECTOR_T<SCALAR_T>& input,
       size_t contactIndex) const {
-    return getContactMoment(input, contactIndex);
+    return getTorqueContactEwrtParam(input, contactIndex);
   }
 
   /**
-   * Returns getContactWrenchInWorldFrame(state, input, contactIndex) with
-   * `contactFrameRotation`, the orientation (contact frame to world) of the
+   * Returns getWrenchContactEwrtWorld(state, input, contactIndex) with
+   * `rotmatContactRtWorld`, the orientation (contact frame to world) of the
    * contact's frame at the state, given instead of computed from the state: for
    * the realtime controllers, which read it off kinematics of their own, and
    * must not allocate - nor does this, for any model. The default ignores the
    * rotation: the input stores a world-frame wrench.
    */
-  virtual VECTOR6_T<SCALAR_T> getContactWrenchInWorldFrameGivenRotation(
+  virtual VECTOR6_T<SCALAR_T> getWrenchContactEwrtWorld(
       const VECTOR_T<SCALAR_T>& input,
-      const MATRIX3_T<SCALAR_T>& /*contactFrameRotation*/,
+      const MATRIX3_T<SCALAR_T>& /*rotmatContactRtWorld*/,
       size_t contactIndex) const {
-    return getContactWrench(input, contactIndex);
+    return getWrenchContactEwrtParam(input, contactIndex);
   }
 
   /**
    * Writes a world-frame contact wrench into the input vector, converting into
    * the input parameterization (and local contact frame) where necessary.
    */
-  virtual void setContactWrenchInWorldFrame(
+  virtual void setWrenchContactEwrtWorld(
       const VECTOR_T<SCALAR_T>& /*state*/,
       VECTOR_T<SCALAR_T>& input,
-      const VECTOR6_T<SCALAR_T>& wrenchInWorld,
+      const VECTOR6_T<SCALAR_T>& wrenchContactEwrtWorld,
       size_t contactIndex) const {
-    setContactWrench(input, wrenchInWorld, contactIndex);
+    setWrenchContactEwrtParam(input, wrenchContactEwrtWorld, contactIndex);
   }
 
-  virtual void setContactForceInWorldFrame(
+  virtual void setForceContactEwrtWorld(
       const VECTOR_T<SCALAR_T>& /*state*/,
       VECTOR_T<SCALAR_T>& input,
-      const VECTOR3_T<SCALAR_T>& forceInWorld,
+      const VECTOR3_T<SCALAR_T>& forceContactEwrtWorld,
       size_t contactIndex) const {
-    setContactForce(input, forceInWorld, contactIndex);
+    setForceContactEwrtParam(input, forceContactEwrtWorld, contactIndex);
   }
 
   /******************************************************************************************************/
@@ -679,7 +696,7 @@ class MpcRobotModelBase {
    * the times, at a node and between states of different sizes the linear
    * result is kept, which is then one of the states.
    */
-  vector_t interpolateWithSlerpedOrientation(
+  vector_t interpolateWithSlerpedQuatBaseRtWorld(
       scalar_t time,
       const scalar_array_t& times,
       const vector_array_t& states) const {
@@ -697,12 +714,13 @@ class MpcRobotModelBase {
       return interpolated;
     const Eigen::Index start =
         static_cast<Eigen::Index>(getBaseOrientationStartIndex());
-    const vector4_t leftOrientation =
+    const vector4_t leftQuatBaseRtWorldXyzw =
         left.segment<kQuaternionCoefficients>(start);
-    const vector4_t rightOrientation =
+    const vector4_t rightQuatBaseRtWorldXyzw =
         right.segment<kQuaternionCoefficients>(start);
     interpolated.segment<kQuaternionCoefficients>(start) =
-        quaternionSlerp<scalar_t>(leftOrientation, rightOrientation,
+        quaternionSlerp<scalar_t>(leftQuatBaseRtWorldXyzw,
+                                  rightQuatBaseRtWorldXyzw,
                                   1.0 - indexAlpha.second);
     return interpolated;
   }

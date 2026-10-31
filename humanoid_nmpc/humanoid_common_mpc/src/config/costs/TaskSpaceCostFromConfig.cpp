@@ -66,6 +66,7 @@ struct KinematicsWeightField {
 
 // The twelve weights of a task-space kinematics cost, in the order of
 // EndEffectorKinematicsWeights::toVector().
+// NOLINTBEGIN(frame-naming): TaskSpaceWeights' per-component weight fields
 constexpr std::array<KinematicsWeightField, 12> kKinematicsWeightFields = {{
     {.name = "pos_x",
      .field = &Weights::pos_x,
@@ -116,6 +117,7 @@ constexpr std::array<KinematicsWeightField, 12> kKinematicsWeightFields = {{
      .weight = &EndEffectorKinematicsWeights::contactAngularVelocityErrorWeight,
      .axis = 2},
 }};
+// NOLINTEND(frame-naming)
 
 /** A weight of the block that the kinematics costs have no term for. */
 struct UnusedWeightField {
@@ -125,6 +127,7 @@ struct UnusedWeightField {
 
 // The acceleration weights, which only the whole-body MPC's foot cost weighs
 // (EndEffectorDynamicsWeights).
+// NOLINTBEGIN(frame-naming): TaskSpaceWeights' per-component weight fields
 constexpr std::array<UnusedWeightField, 6> kAccelerationWeightFields = {{
     {.name = "lin_acceleration_x", .field = &Weights::lin_acceleration_x},
     {.name = "lin_acceleration_y", .field = &Weights::lin_acceleration_y},
@@ -133,6 +136,7 @@ constexpr std::array<UnusedWeightField, 6> kAccelerationWeightFields = {{
     {.name = "ang_acceleration_y", .field = &Weights::ang_acceleration_y},
     {.name = "ang_acceleration_z", .field = &Weights::ang_acceleration_z},
 }};
+// NOLINTEND(frame-naming)
 
 }  // namespace
 

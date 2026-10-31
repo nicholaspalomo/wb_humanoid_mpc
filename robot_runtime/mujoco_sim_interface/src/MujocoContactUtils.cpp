@@ -249,7 +249,7 @@ std::vector<int> resolveContactBodies(
 uint32_t groundTruthContactMask(const mjModel* absl_nonnull model,
                                 const mjData* absl_nonnull data,
                                 const std::vector<int>& contactBodyIds,
-                                double forceThreshold,
+                                double minForceMjcontactEwrtMjcontactX,
                                 int ignoreBodyId) {
   uint32_t mask = 0;
   const size_t numContacts =
@@ -260,10 +260,11 @@ uint32_t groundTruthContactMask(const mjModel* absl_nonnull model,
       continue;  // detected but not active in the constraint solver
     if (contact.geom[0] < 0 || contact.geom[1] < 0)
       continue;  // flex contacts carry no geoms
-    mjtNum force[kMjSpatialVectorSize];
+    mjtNum wrenchMjcontactEwrtMjcontact[kMjSpatialVectorSize];
     mj_contactForce(model, data, c,
-                    force);  // contact frame: force[0] is the normal component
-    if (force[0] < forceThreshold) continue;
+                    wrenchMjcontactEwrtMjcontact);  // [0] is the normal force
+    if (wrenchMjcontactEwrtMjcontact[0] < minForceMjcontactEwrtMjcontactX)
+      continue;
     const int body1 = model->geom_bodyid[contact.geom[0]];
     const int body2 = model->geom_bodyid[contact.geom[1]];
     // Neither the robot nor the ground: a thrown ball touching a foot says
@@ -301,22 +302,27 @@ RobotCentroidalState robotCentroidalState(const mjModel* absl_nullable model,
   state.mass = model->body_subtreemass[state.rootBodyId];
   if (state.mass <= 0.0) return state;
   for (int axis = 0; axis < kPositionDim; ++axis)
-    state.com[axis] = data->subtree_com[kPositionDim * state.rootBodyId + axis];
+    state.posComRtWorldEwrtWorld[axis] =
+        data->subtree_com[kPositionDim * state.rootBodyId + axis];
   // mj_forward does not fill subtree_linvel; the mass-weighted mean of the body
   // center velocities is the same thing.
-  double momentum[kPositionDim] = {0.0, 0.0, 0.0};
+  double linmomComRtWorldEwrtWorld[kPositionDim] = {0.0, 0.0, 0.0};
   for (int body = state.rootBodyId; body < model->nbody; ++body) {
     if (!isInBodySubtree(model, body, state.rootBodyId)) continue;
     const double mass = model->body_mass[body];
     if (mass <= 0.0) continue;
-    mjtNum velocity[kMjSpatialVectorSize];  // [angular, linear] of the body's
-                                            // inertial frame, world orientation
-    mj_objectVelocity(model, data, mjOBJ_BODY, body, velocity, /*flg_local=*/0);
+    // MuJoCo's motion vector, angular first: the velocity of the body's
+    // inertial frame (its center of mass), in world-aligned axes.
+    mjtNum mjTwistLinkRtWorldEwrtWorld[kMjSpatialVectorSize];
+    mj_objectVelocity(model, data, mjOBJ_BODY, body,
+                      mjTwistLinkRtWorldEwrtWorld, /*flg_local=*/0);
     for (int axis = 0; axis < kPositionDim; ++axis)
-      momentum[axis] += mass * velocity[kMjMotionLinearOffset + axis];
+      linmomComRtWorldEwrtWorld[axis] +=
+          mass * mjTwistLinkRtWorldEwrtWorld[kMjMotionLinearOffset + axis];
   }
   for (int axis = 0; axis < kPositionDim; ++axis)
-    state.comVelocity[axis] = momentum[axis] / state.mass;
+    state.linvelComRtWorldEwrtWorld[axis] =
+        linmomComRtWorldEwrtWorld[axis] / state.mass;
   state.valid = true;
   return state;
 }
@@ -324,7 +330,7 @@ RobotCentroidalState robotCentroidalState(const mjModel* absl_nullable model,
 GroundReaction groundReaction(const mjModel* absl_nullable model,
                               const mjData* absl_nullable data,
                               int rootBodyId,
-                              double minNormalForce,
+                              double minForceWorldEwrtWorldZ,
                               int ignoreBodyId) {
   GroundReaction reaction;
   if (model == nullptr || data == nullptr || rootBodyId < 0) return reaction;
@@ -340,61 +346,74 @@ GroundReaction groundReaction(const mjModel* absl_nullable model,
     const bool twoIsRobot = isInBodySubtree(model, body2, rootBodyId);
     if (oneIsRobot == twoIsRobot)
       continue;  // self-contact, or a contact that does not involve the robot
-    mjtNum forceInContactFrame[kMjSpatialVectorSize];
-    mj_contactForce(model, data, c, forceInContactFrame);
+    mjtNum wrenchMjcontactEwrtMjcontact[kMjSpatialVectorSize];
+    mj_contactForce(model, data, c, wrenchMjcontactEwrtMjcontact);
     // The contact frame is stored row-major (rows = the frame axes, the normal
     // first, pointing from geom[0] to geom[1]); the normal force is
     // non-negative along it, so the world-frame force below is the one acting
     // on geom[1].
-    double force[kPositionDim];
+    double forceMjcontactEwrtWorld[kPositionDim];
     for (int axis = 0; axis < kPositionDim; ++axis) {
-      force[axis] =
-          forceInContactFrame[kMjContactNormalRow] *
+      forceMjcontactEwrtWorld[axis] =
+          wrenchMjcontactEwrtMjcontact[kMjContactNormalRow] *
               contact.frame[kMjContactNormalRow * kPositionDim + axis] +
-          forceInContactFrame[kMjContactFirstTangentRow] *
+          wrenchMjcontactEwrtMjcontact[kMjContactFirstTangentRow] *
               contact.frame[kMjContactFirstTangentRow * kPositionDim + axis] +
-          forceInContactFrame[kMjContactSecondTangentRow] *
+          wrenchMjcontactEwrtMjcontact[kMjContactSecondTangentRow] *
               contact.frame[kMjContactSecondTangentRow * kPositionDim + axis];
     }
     if (oneIsRobot) {
-      for (double& f : force)
+      for (double& f : forceMjcontactEwrtWorld)
         f = -f;  // the robot is geom[0]: it receives the reaction
     }
     for (int axis = 0; axis < kPositionDim; ++axis)
-      reaction.force[axis] += force[axis];
+      reaction.forceWorldEwrtWorld[axis] += forceMjcontactEwrtWorld[axis];
     // The moment about the origin, r x f.
-    reaction.moment[kXAxisIndex] +=
-        contact.pos[kYAxisIndex] * force[kZAxisIndex] -
-        contact.pos[kZAxisIndex] * force[kYAxisIndex];
-    reaction.moment[kYAxisIndex] +=
-        contact.pos[kZAxisIndex] * force[kXAxisIndex] -
-        contact.pos[kXAxisIndex] * force[kZAxisIndex];
-    reaction.moment[kZAxisIndex] +=
-        contact.pos[kXAxisIndex] * force[kYAxisIndex] -
-        contact.pos[kYAxisIndex] * force[kXAxisIndex];
+    const mjtNum* absl_nonnull posMjcontactRtWorldEwrtWorld =
+        contact.pos;  // NOLINT(frame-naming): MuJoCo's mjContact::pos
+    reaction.torqueWorldEwrtWorld[kXAxisIndex] +=
+        posMjcontactRtWorldEwrtWorld[kYAxisIndex] *
+            forceMjcontactEwrtWorld[kZAxisIndex] -
+        posMjcontactRtWorldEwrtWorld[kZAxisIndex] *
+            forceMjcontactEwrtWorld[kYAxisIndex];
+    reaction.torqueWorldEwrtWorld[kYAxisIndex] +=
+        posMjcontactRtWorldEwrtWorld[kZAxisIndex] *
+            forceMjcontactEwrtWorld[kXAxisIndex] -
+        posMjcontactRtWorldEwrtWorld[kXAxisIndex] *
+            forceMjcontactEwrtWorld[kZAxisIndex];
+    reaction.torqueWorldEwrtWorld[kZAxisIndex] +=
+        posMjcontactRtWorldEwrtWorld[kXAxisIndex] *
+            forceMjcontactEwrtWorld[kYAxisIndex] -
+        posMjcontactRtWorldEwrtWorld[kYAxisIndex] *
+            forceMjcontactEwrtWorld[kXAxisIndex];
   }
-  if (reaction.force[kZAxisIndex] <= minNormalForce) return reaction;
-  reaction.zmp[kXAxisIndex] =
-      -reaction.moment[kYAxisIndex] / reaction.force[kZAxisIndex];
-  reaction.zmp[kYAxisIndex] =
-      reaction.moment[kXAxisIndex] / reaction.force[kZAxisIndex];
+  if (reaction.forceWorldEwrtWorld[kZAxisIndex] <= minForceWorldEwrtWorldZ)
+    return reaction;
+  reaction.posZmpRtWorldEwrtWorldXy[kXAxisIndex] =
+      -reaction.torqueWorldEwrtWorld[kYAxisIndex] /
+      reaction.forceWorldEwrtWorld[kZAxisIndex];
+  reaction.posZmpRtWorldEwrtWorldXy[kYAxisIndex] =
+      reaction.torqueWorldEwrtWorld[kXAxisIndex] /
+      reaction.forceWorldEwrtWorld[kZAxisIndex];
   reaction.valid = true;
   return reaction;
 }
 
 void divergentComponentOfMotion(
-    const double com[absl_nonnull kPositionDim],
-    const double comVelocity[absl_nonnull kPositionDim],
+    const double posComRtWorldEwrtWorld[absl_nonnull kPositionDim],
+    const double linvelComRtWorldEwrtWorld[absl_nonnull kPositionDim],
     double height,
     double gravity,
-    double dcm[absl_nonnull kHorizontalPositionDim]) {
+    double posDcmRtWorldEwrtWorldXy[absl_nonnull kHorizontalPositionDim]) {
   const double omega =
       std::sqrt(std::max(gravity, 0.0) / std::max(height, kMinPendulumHeight));
   for (int axis = 0; axis < kHorizontalPositionDim; ++axis)
-    dcm[axis] = com[axis] + (omega > 0.0 ? comVelocity[axis] / omega : 0.0);
+    posDcmRtWorldEwrtWorldXy[axis] =
+        posComRtWorldEwrtWorld[axis] +
+        (omega > 0.0 ? linvelComRtWorldEwrtWorld[axis] / omega : 0.0);
 }
 
-std::array<mjtNum, kPositionDim> footForceInWorldFrame(
+std::array<mjtNum, kPositionDim> computeMeasForceFootEwrtWorld(
     const mjModel* absl_nonnull model,
     const mjData* absl_nonnull data,
     int sensorId) {
@@ -404,21 +423,23 @@ std::array<mjtNum, kPositionDim> footForceInWorldFrame(
   // world frame.
   const mjtNum* absl_nonnull siteToWorld =
       data->site_xmat + kMjMatrixSize * model->sensor_objid[sensorId];
-  std::array<mjtNum, kPositionDim> force{};
-  mju_mulMatVec3(force.data(), siteToWorld, reading);
+  std::array<mjtNum, kPositionDim> measForceFootEwrtWorld{};
+  mju_mulMatVec3(measForceFootEwrtWorld.data(), siteToWorld, reading);
   // MuJoCo's reading is the force on the parent's side; the foot carries its
   // opposite.
-  for (mjtNum& component : force) component = -component;
-  return force;
+  for (mjtNum& component : measForceFootEwrtWorld) component = -component;
+  return measForceFootEwrtWorld;
 }
 
-bool isFootForceSensor(const mjModel* absl_nonnull model, int sensorId) {
+bool isFootForceSensor(  // NOLINT(frame-naming): a sensor's type, not a force
+    const mjModel* absl_nonnull model,
+    int sensorId) {
   return sensorId >= 0 && sensorId < model->nsensor &&
          model->sensor_type[sensorId] == mjSENS_FORCE &&
          model->sensor_objtype[sensorId] == mjOBJ_SITE;
 }
 
-VerticalTwist verticalTwistOf(double w, double z) {
+VerticalTwist verticalTwistFromQuaternion(double w, double z) {
   // The hemisphere w > 0, or w = 0 <= z, as BaseOrientation's
   // headingFromTwist() takes it. |w| keeps a negative zero from turning
   // atan2(+-0, -0) into +-pi.
@@ -430,9 +451,9 @@ VerticalTwist verticalTwistOf(double w, double z) {
   return {.w = std::cos(halfHeading), .z = std::sin(halfHeading)};
 }
 
-double twistHeadingOf(double w, double z) {
-  const VerticalTwist twist = verticalTwistOf(w, z);
-  return 2.0 * std::atan2(twist.z, twist.w);
+double yawOf(double w, double z) {
+  const VerticalTwist quatHeadingRtWorld = verticalTwistFromQuaternion(w, z);
+  return 2.0 * std::atan2(quatHeadingRtWorld.z, quatHeadingRtWorld.w);
 }
 
 }  // namespace robot::mujoco_sim_interface

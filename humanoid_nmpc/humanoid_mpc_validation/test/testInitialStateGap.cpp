@@ -72,7 +72,7 @@ TEST(InitialStateGapTest, OnAManifoldTheRotationIsTheManifoldsRotationAngle) {
   const vector_t delta = stepWithRotation(
       rotation, static_cast<Eigen::Index>((*manifold)->getTangentDim()));
   const InitialStateGap gap = initialStateGapOf(delta, **manifold);
-  EXPECT_EQ(gap.rotation, (*manifold)->getMaximumRotationAngle(delta));
+  EXPECT_EQ(gap.rotation, (*manifold)->getMaximumTangentAngle(delta));
   EXPECT_NEAR(gap.rotation, rotation.norm(), 1.0e-15);
   EXPECT_EQ(gap.norm, delta.norm());
 

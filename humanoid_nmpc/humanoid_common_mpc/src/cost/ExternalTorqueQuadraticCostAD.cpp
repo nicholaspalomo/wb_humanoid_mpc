@@ -209,7 +209,7 @@ ad_vector_t ExternalTorqueQuadraticCostAD::costVectorFunction(
   // world frame. The state-aware accessor is frame-correct for both
   // wrench-space and basis-vector (local-frame) input parameterizations.
   ad_vector_t tauExt =
-      J_ee.transpose() * mpcRobotModelADPtr_->getContactWrenchInWorldFrame(
+      J_ee.transpose() * mpcRobotModelADPtr_->getWrenchContactEwrtWorld(
                              state, input, contactPointIndex_);
 
   // tau_ext has the Pinocchio velocity's entries: the floating base's, then one

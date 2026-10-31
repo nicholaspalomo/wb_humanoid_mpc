@@ -54,7 +54,7 @@ namespace ocs2::humanoid {
 /// frame to world frame.
 
 template <typename SCALAR_T>
-inline const MATRIX3_T<SCALAR_T>& getRotationMatrixLocalToWorld(
+inline const MATRIX3_T<SCALAR_T>& getRotmatLinkRtWorld(
     const pinocchio::DataTpl<SCALAR_T>& data,
     const pinocchio::FrameIndex localFrameIndex) {
   return data.oMf[localFrameIndex].rotation();
@@ -78,7 +78,7 @@ inline VECTOR3_T<SCALAR_T> rotateVectorWorldToLocal(
     const pinocchio::DataTpl<SCALAR_T>& data,
     const pinocchio::FrameIndex& localFrameIndex) {
   const MATRIX3_T<SCALAR_T>& R_WorldToLocal =
-      getRotationMatrixLocalToWorld(data, localFrameIndex).transpose();
+      getRotmatLinkRtWorld(data, localFrameIndex).transpose();
   return R_WorldToLocal * vectorInWorldFrame;
 }
 
@@ -100,7 +100,7 @@ inline VECTOR3_T<SCALAR_T> rotateVectorLocalToWorld(
     const pinocchio::DataTpl<SCALAR_T>& data,
     const pinocchio::FrameIndex& localFrameIndex) {
   const MATRIX3_T<SCALAR_T>& R_WorldToLocal =
-      getRotationMatrixLocalToWorld(data, localFrameIndex);
+      getRotmatLinkRtWorld(data, localFrameIndex);
   return R_WorldToLocal * vectorInLocalFrame;
 }
 

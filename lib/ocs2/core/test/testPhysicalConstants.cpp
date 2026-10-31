@@ -41,13 +41,13 @@ namespace {
 
 // The type of a floating-point literal such as 9.81, which the constants replace.
 static_assert(std::is_same_v<decltype(9.81), double>);
-static_assert(std::is_same_v<decltype(kGravitationalAcceleration), const double>);
+static_assert(std::is_same_v<decltype(kGravityMagnitude), const double>);
 static_assert(std::is_same_v<decltype(kMillisecondsPerSecond), const double>);
 static_assert(std::is_same_v<decltype(kMicrosecondsPerSecond), const double>);
 static_assert(std::is_same_v<decltype(kNanosecondsPerSecond), const double>);
 
 TEST(PhysicalConstants, EveryConstantHasTheValueOfTheLiteralItNames) {
-  EXPECT_EQ(kGravitationalAcceleration, 9.81);
+  EXPECT_EQ(kGravityMagnitude, 9.81);
   EXPECT_EQ(kMillisecondsPerSecond, 1.0e3);
   EXPECT_EQ(kMicrosecondsPerSecond, 1.0e6);
   EXPECT_EQ(kNanosecondsPerSecond, 1.0e9);

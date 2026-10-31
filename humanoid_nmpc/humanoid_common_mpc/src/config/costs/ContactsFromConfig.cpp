@@ -112,8 +112,9 @@ absl::StatusOr<T> requiredConeValue(std::optional<T> value,
       "wrench cone, the generators of the basis-vector "
       "contact inputs and the online contact planner all read it, and none of "
       "them falls back to a library default. Give it "
-      "friction_coefficient, torsional_friction_coefficient, min_normal_force, "
-      "gripper_force and num_basis_vectors."));
+      "friction_coefficient, torsional_friction_coefficient, "
+      "min_force_contact_ewrt_contact_z, "
+      "grip_force_contact_ewrt_contact_z and num_basis_vectors."));
 }
 
 /** How far from 1 a surface pad axis's length, and from 0 the dot product of
@@ -273,8 +274,8 @@ absl::StatusOr<ContactCenterPoint> contactCenterPointFromConfig(
     return ContactCenterPoint(name, parent, translation, rotation);
   }
   ASSIGN_OR_RETURN(const vector3_t translation,
-                   finiteVector("contacts", "contact_frame_translation",
-                                contacts.contact_frame_translation));
+                   finiteVector("contacts", "pos_contact_rt_link_ewrt_link",
+                                contacts.pos_contact_rt_link_ewrt_link));
   return ContactCenterPoint(name, parent, translation);
 }
 
@@ -332,11 +333,12 @@ contactWrenchConeConfigFromConfig(const mpc_config::ContactsConfig& contacts) {
   ASSIGN_OR_RETURN(const scalar_t torsionalFrictionCoefficient,
                    requiredConeValue(cone.torsional_friction_coefficient,
                                      "torsional_friction_coefficient"));
-  ASSIGN_OR_RETURN(
-      const scalar_t minNormalForce,
-      requiredConeValue(cone.min_normal_force, "min_normal_force"));
-  ASSIGN_OR_RETURN(const scalar_t gripperForce,
-                   requiredConeValue(cone.gripper_force, "gripper_force"));
+  ASSIGN_OR_RETURN(const scalar_t minForceContactEwrtContactZ,
+                   requiredConeValue(cone.min_force_contact_ewrt_contact_z,
+                                     "min_force_contact_ewrt_contact_z"));
+  ASSIGN_OR_RETURN(const scalar_t gripForceContactEwrtContactZ,
+                   requiredConeValue(cone.grip_force_contact_ewrt_contact_z,
+                                     "grip_force_contact_ewrt_contact_z"));
   ASSIGN_OR_RETURN(
       const int32_t numBasisVectors,
       requiredConeValue(cone.num_basis_vectors, "num_basis_vectors"));
@@ -350,7 +352,8 @@ contactWrenchConeConfigFromConfig(const mpc_config::ContactsConfig& contacts) {
   }
   ContactWrenchConeConstraint::Config config(
       static_cast<size_t>(numBasisVectors), frictionCoefficient,
-      torsionalFrictionCoefficient, minNormalForce, gripperForce);
+      torsionalFrictionCoefficient, minForceContactEwrtContactZ,
+      gripForceContactEwrtContactZ);
   RETURN_IF_ERROR(ContactWrenchConeConstraint::validateConfig(config));
   return config;
 }
@@ -447,10 +450,10 @@ frictionForceConeBarrierFromConfig(const mpc_config::ContactsConfig& contacts) {
 
 absl::StatusOr<RelaxedBarrierPenalty::Config> contactMomentXyBarrierFromConfig(
     const mpc_config::ContactsConfig& contacts) {
-  const mpc_config::ContactsConfig::ContactMoment& moment =
+  const mpc_config::ContactsConfig::ContactMoment& barrierConfig =
       contacts.contact_moment_xy_soft_constraint;
-  return relaxedBarrier("contacts.contact_moment_xy_soft_constraint", moment.mu,
-                        moment.delta);
+  return relaxedBarrier("contacts.contact_moment_xy_soft_constraint",
+                        barrierConfig.mu, barrierConfig.delta);
 }
 
 }  // namespace ocs2::humanoid

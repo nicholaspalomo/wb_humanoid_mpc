@@ -559,8 +559,8 @@ InnerLinearization comAndAcomResidual(const MpcRobotModelBase<scalar_t>& model,
       pinocchioModel, data, model.getGeneralizedCoordinates(stateReference));
   const vector_t joints = model.getJointAngles(state);
   const HeadingTiltError acomError = headingTiltError(
-      acom.acomAttitude(model.getBaseOrientation(state), joints),
-      acom.acomAttitude(model.getBaseOrientation(stateReference),
+      acom.acomAttitude(model.getQuatBaseRtWorldXyzw(state), joints),
+      acom.acomAttitude(model.getQuatBaseRtWorldXyzw(stateReference),
                         model.getJointAngles(stateReference)));
   const AcomAttitudeTangentJacobian tangent =
       acom.acomAttitudeTangentJacobian(joints);
@@ -573,7 +573,7 @@ InnerLinearization comAndAcomResidual(const MpcRobotModelBase<scalar_t>& model,
   inner.stateJacobian.block(
       3, static_cast<Eigen::Index>(model.getBaseOrientationStartIndex()), 3,
       rotation.cols()) =
-      acomError.jacobianBodyTangent * tangent.baseOrientation * rotation;
+      acomError.jacobianBodyTangent * tangent.baseTangent * rotation;
   inner.stateJacobian.block(
       3, static_cast<Eigen::Index>(model.getJointStartindex()), 3,
       tangent.jointAngles.cols()) =
@@ -891,7 +891,7 @@ absl::StatusOr<SecondOrderRule> stateTermRule(
         [referenceManager, model, targetTrajectories, time](
             const vector_t& /*x*/, const vector_t& /*u*/) {
           return StateInputReference{
-              .state = referenceManager->shapeBasePose(
+              .state = referenceManager->shapePoseBaseRtWorld(
                   time, model->getDesiredState(*targetTrajectories, time)),
               .input = vector_t()};
         },
@@ -1732,7 +1732,7 @@ void checkValueAndRadialGradient(const TermAtPoint& at,
   const Eigen::Index orientation =
       static_cast<Eigen::Index>(mpc.model().getBaseOrientationStartIndex());
   const vector4_t gradient = at.approximation.dfdx.segment<4>(orientation);
-  const vector4_t xi = mpc.model().getBaseOrientation(state).normalized();
+  const vector4_t xi = mpc.model().getQuatBaseRtWorldXyzw(state).normalized();
   ++tally.comparisons;
   if (!(std::abs(xi.dot(gradient)) <=
         kRadialGradientTolerance *
@@ -1861,7 +1861,7 @@ matrix_t unitTangentGram(const StateManifold& manifold) {
       static_cast<Eigen::Index>(manifold.getTangentDim());
   matrix_t gram = matrix_t::Identity(tangentDim, tangentDim);
   for (Eigen::Index row = 0; row < tangentDim; ++row) {
-    if (manifold.getMaximumRotationAngle(vector_t::Unit(tangentDim, row)) > 0.0)
+    if (manifold.getMaximumTangentAngle(vector_t::Unit(tangentDim, row)) > 0.0)
       gram(row, row) = 0.25;
   }
   return gram;

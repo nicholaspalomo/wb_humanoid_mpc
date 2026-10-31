@@ -106,7 +106,7 @@ constexpr char kStoredGains[] =
     "kp: 100.0 kd: 2.0 }\n";
 constexpr char kStoredReference[] =
     "# proto-message: "
-    "humanoid_mpc_config.ReferenceFile\ntarget_displacement_velocity: 0.5\n";
+    "humanoid_mpc_config.ReferenceFile\nref_speed_base_rt_world: 0.5\n";
 
 /** The test's scratch directory `name`, empty. */
 std::string scratchDirectory(absl::string_view name) {

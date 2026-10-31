@@ -46,20 +46,21 @@ namespace ocs2 {
  * This transformation is singular for y = +- pi / 2
  *
  * @param [in] eulerAngles: ZYX-Euler angles
- * @param [in] angularVelocity: angular velocity expressed in world frame
+ * @param [in] angvelLocalRtWorldEwrtWorld: angular velocity of the local frame, expressed in world frame
  * @return derivatives of ZYX-Euler angles
  */
 template <typename SCALAR_T>
+// NOLINTNEXTLINE(frame-naming): a generic Euler conversion whose frames are its arguments
 Eigen::Matrix<SCALAR_T, kEulerAnglesZyxDim, 1> getEulerAnglesZyxDerivativesFromGlobalAngularVelocity(
     const Eigen::Matrix<SCALAR_T, kEulerAnglesZyxDim, 1>& eulerAngles,
-    const Eigen::Matrix<SCALAR_T, kRotationTangentDim, 1>& angularVelocity) {
+    const Eigen::Matrix<SCALAR_T, kRotationTangentDim, 1>& angvelLocalRtWorldEwrtWorld) {
   const SCALAR_T sz = sin(eulerAngles(kEulerAnglesZyxZIndex));
   const SCALAR_T cz = cos(eulerAngles(kEulerAnglesZyxZIndex));
   const SCALAR_T sy = sin(eulerAngles(kEulerAnglesZyxYIndex));
   const SCALAR_T cy = cos(eulerAngles(kEulerAnglesZyxYIndex));
-  const SCALAR_T wx = angularVelocity(kXAxisIndex);
-  const SCALAR_T wy = angularVelocity(kYAxisIndex);
-  const SCALAR_T wz = angularVelocity(kZAxisIndex);
+  const SCALAR_T wx = angvelLocalRtWorldEwrtWorld(kXAxisIndex);
+  const SCALAR_T wy = angvelLocalRtWorldEwrtWorld(kYAxisIndex);
+  const SCALAR_T wz = angvelLocalRtWorldEwrtWorld(kZAxisIndex);
   const SCALAR_T tmp = cz * wx / cy + sz * wy / cy;
   return {sy * tmp + wz, -sz * wx + cz * wy, tmp};
 }
@@ -114,20 +115,21 @@ Eigen::Matrix<SCALAR_T, kRotationTangentDim, 1> getLocalAngularVelocityFromEuler
  * This transformation is singular for y = +- pi / 2
  *
  * @param [in] eulerAngles: ZYX-Euler angles
- * @param [in] angularVelocity: angular velocity expressed in local frame
+ * @param [in] angvelLocalRtWorldEwrtLocal: angular velocity of the local frame, expressed in local frame
  * @return derivatives of ZYX-Euler angles
  */
 template <typename SCALAR_T>
+// NOLINTNEXTLINE(frame-naming): a generic Euler conversion whose frames are its arguments
 Eigen::Matrix<SCALAR_T, kEulerAnglesZyxDim, 1> getEulerAnglesZyxDerivativesFromLocalAngularVelocity(
     const Eigen::Matrix<SCALAR_T, kEulerAnglesZyxDim, 1>& eulerAngles,
-    const Eigen::Matrix<SCALAR_T, kRotationTangentDim, 1>& angularVelocity) {
+    const Eigen::Matrix<SCALAR_T, kRotationTangentDim, 1>& angvelLocalRtWorldEwrtLocal) {
   const SCALAR_T sy = sin(eulerAngles(kEulerAnglesZyxYIndex));
   const SCALAR_T cy = cos(eulerAngles(kEulerAnglesZyxYIndex));
   const SCALAR_T sx = sin(eulerAngles(kEulerAnglesZyxXIndex));
   const SCALAR_T cx = cos(eulerAngles(kEulerAnglesZyxXIndex));
-  const SCALAR_T wx = angularVelocity(kXAxisIndex);
-  const SCALAR_T wy = angularVelocity(kYAxisIndex);
-  const SCALAR_T wz = angularVelocity(kZAxisIndex);
+  const SCALAR_T wx = angvelLocalRtWorldEwrtLocal(kXAxisIndex);
+  const SCALAR_T wy = angvelLocalRtWorldEwrtLocal(kYAxisIndex);
+  const SCALAR_T wz = angvelLocalRtWorldEwrtLocal(kZAxisIndex);
   const SCALAR_T tmp = sx * wy / cy + cx * wz / cy;
   return {tmp, cx * wy - sx * wz, wx + sy * tmp};
 }

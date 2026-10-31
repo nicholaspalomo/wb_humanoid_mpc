@@ -316,7 +316,7 @@ def contact_planning_file(task_file: str) -> str | None:
 def read_default_pelvis_height(
     reference_file: str, fallback: float = DEFAULT_PELVIS_HEIGHT
 ) -> float:
-    """The reference file's default_base_height [m], or `fallback` when it has none or cannot be read."""
+    """The reference file's nom_pos_base_rt_world_ewrt_world_z [m], or `fallback` when it has none or cannot be read."""
     if not reference_file or not os.path.exists(reference_file):
         return fallback
     try:
@@ -325,14 +325,14 @@ def read_default_pelvis_height(
         )
     except (OSError, nproto_textproto.TextprotoError) as error:
         _LOGGER.warning(
-            "Could not read default_base_height from %s: %s",
+            "Could not read nom_pos_base_rt_world_ewrt_world_z from %s: %s",
             reference_file,
             error,
         )
         return fallback
-    if not reference.HasField("default_base_height"):
+    if not reference.HasField("nom_pos_base_rt_world_ewrt_world_z"):
         return fallback
-    return float(reference.default_base_height)
+    return float(reference.nom_pos_base_rt_world_ewrt_world_z)
 
 
 @dataclasses.dataclass(frozen=True)

@@ -265,10 +265,10 @@ void TestRobot::makePolicy(scalar_t startTime,
         static_cast<scalar_t>(node) / static_cast<scalar_t>(nodes - 1);
     const scalar_t time = startTime + fraction * duration;
     vector_t state = nominalState_;
-    vector6_t basePose = robotModel_->getBasePoseEulerZyx(state);
+    vector6_t basePose = robotModel_->getPoseeulerzyxBaseRtWorld(state);
     basePose[0] += 0.3 * fraction;
     basePose[3] += 0.2 * fraction;
-    robotModel_->setBasePoseEulerZyx(state, basePose);
+    robotModel_->setPoseeulerzyxBaseRtWorld(state, basePose);
     vector_t joints = robotModel_->getJointAngles(state);
     for (Eigen::Index joint = 0; joint < joints.size(); ++joint) {
       joints[joint] +=
@@ -291,7 +291,7 @@ void TestRobot::makePolicy(scalar_t startTime,
       wrench[kWrenchForceZIndex] = normalForce;
       wrench[kWrenchTorqueXIndex] = normalForce * copOffset.y();
       wrench[kWrenchTorqueYIndex] = -normalForce * copOffset.x();
-      robotModel_->setContactWrenchInWorldFrame(state, input, wrench, contact);
+      robotModel_->setWrenchContactEwrtWorld(state, input, wrench, contact);
     }
     solution->timeTrajectory_.push_back(time);
     solution->stateTrajectory_.push_back(state);
@@ -312,16 +312,16 @@ humanoid_mpc_msgs::RobotStateSample TestRobot::robotState(
   humanoid_mpc_msgs::RobotStateSample sample;
   sample.set_time(time);
   sample.set_control_mode("WB_MPC");
-  setVector3(position, sample.mutable_base_position_world());
+  setVector3(position, sample.mutable_pos_base_rt_world_ewrt_world());
   const quaternion_t orientation = quaternionFromRollPitchYaw(rollPitchYaw);
   humanoid_mpc_msgs::Quaternion* absl_nonnull quaternion =
-      sample.mutable_base_orientation_world();
+      sample.mutable_quat_base_rt_world();
   quaternion->set_w(orientation.w());
   quaternion->set_x(orientation.x());
   quaternion->set_y(orientation.y());
   quaternion->set_z(orientation.z());
-  sample.mutable_base_linear_velocity_local();
-  sample.mutable_base_angular_velocity_local();
+  sample.mutable_linvel_base_rt_world_ewrt_base();
+  sample.mutable_angvel_base_rt_world_ewrt_base();
   const std::vector<std::string>& joints = modelSettings_->fullJointNames;
   for (size_t reversed = 0; reversed < joints.size(); ++reversed) {
     const size_t joint = joints.size() - 1 - reversed;
@@ -333,7 +333,7 @@ humanoid_mpc_msgs::RobotStateSample TestRobot::robotState(
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
     sample.add_contact_flags(true);
     humanoid_mpc_msgs::Wrench* absl_nonnull wrench =
-        sample.add_measured_contact_wrenches();
+        sample.add_meas_wrench_contacts_ewrt_world();
     wrench->mutable_force();
     wrench->mutable_torque();
   }

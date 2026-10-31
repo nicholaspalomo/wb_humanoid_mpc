@@ -49,8 +49,8 @@ namespace ocs2::humanoid {
 
 namespace {
 
-/** "base_orientation 3 (yaw, pitch, roll)" in the tuning layout,
- * "base_orientation 4 (quaternion x, y, z, w)" in the state. */
+/** "eulerzyx_base_rt_world 3 (yaw, pitch, roll)" in the tuning layout,
+ * "eulerzyx_base_rt_world 4 (quaternion x, y, z, w)" in the state. */
 std::string describeSegment(const TuningSegment& segment, bool inState) {
   switch (segment.kind) {
     case TuningSegmentKind::kEuclidean:
@@ -87,7 +87,7 @@ std::string describeLayout(const TuningLayout& layout, bool inState) {
 
 /** A rotation block has exactly the 3 rows of its Euler angles or angular
  * velocity. */
-absl::Status checkRotationSegments(const TuningLayout& layout,
+absl::Status checkAttitudeSegments(const TuningLayout& layout,
                                    absl::string_view caller) {
   for (const TuningSegment& segment : layout.segments) {
     if (segment.kind != TuningSegmentKind::kEuclidean &&
@@ -104,14 +104,14 @@ absl::Status checkRotationSegments(const TuningLayout& layout,
 
 /** The layout is where placeTuningLayout() puts it: the only placement the
  * state conversions convert. */
-absl::Status checkQuaternionPlacement(const TuningLayout& layout,
-                                      absl::string_view caller) {
+absl::Status checkUnitQuaternionPlacement(const TuningLayout& layout,
+                                          absl::string_view caller) {
   size_t stateStart = 0;
   for (const TuningSegment& segment : layout.segments) {
-    const bool orientation =
+    const bool isAttitudeBlock =
         segment.kind == TuningSegmentKind::kEulerZyxOrientation;
     const size_t expectedStateDim =
-        orientation ? kQuaternionOrientationStateDim : segment.tuningDim;
+        isAttitudeBlock ? kQuaternionOrientationStateDim : segment.tuningDim;
     if (segment.stateStart != stateStart ||
         segment.stateDim != expectedStateDim) {
       return absl::InvalidArgumentError(absl::StrCat(
@@ -167,7 +167,7 @@ vector3_t eulerZyxFromQuaternion(const vector4_t& xi) {
   return vector3_t(yaw, pitch, roll);
 }
 
-matrix3_t eulerZyxRateToLocalAngularVelocityMatrix(const vector3_t& eulerZyx) {
+matrix3_t eulerZyxRateToBodyRateMatrix(const vector3_t& eulerZyx) {
   return getMappingFromEulerAnglesZyxDerivativeToLocalAngularVelocity<scalar_t>(
       eulerZyx);
 }
@@ -178,14 +178,15 @@ vector3_t localAngularVelocityFromEulerZyxRates(
       eulerZyx, eulerZyxRates);
 }
 
-vector3_t eulerZyxRatesFromLocalAngularVelocity(
-    const vector3_t& eulerZyx, const vector3_t& localAngularVelocity) {
+vector3_t eulerZyxRatesFromBodyRates(
+    const vector3_t& eulerZyx, const vector3_t& angvelLocalRtWorldEwrtLocal) {
+  // NOLINTNEXTLINE(frame-naming): a generic Euler conversion
   return getEulerAnglesZyxDerivativesFromLocalAngularVelocity<scalar_t>(
-      eulerZyx, localAngularVelocity);
+      eulerZyx, angvelLocalRtWorldEwrtLocal);
 }
 
-matrix3_t localAngularVelocityEulerZyxJacobian(const vector3_t& eulerZyx,
-                                               const vector3_t& eulerZyxRates) {
+matrix3_t bodyRateEulerZyxJacobian(const vector3_t& eulerZyx,
+                                   const vector3_t& eulerZyxRates) {
   // w_B = (-sin(theta) dpsi + dphi, cos(theta) sin(phi) dpsi + cos(phi) dtheta,
   // cos(theta) cos(phi) dpsi - sin(phi) dtheta).
   const scalar_t sinPitch = std::sin(eulerZyx(kEulerAnglesZyxYIndex));
@@ -249,8 +250,9 @@ std::string describeTuningLayout(const TuningLayout& layout) {
 
 absl::StatusOr<vector_t> stateFromTuningLayout(const vector_t& tuningVector,
                                                const TuningLayout& layout) {
-  RETURN_IF_ERROR(checkRotationSegments(layout, "stateFromTuningLayout"));
-  RETURN_IF_ERROR(checkQuaternionPlacement(layout, "stateFromTuningLayout"));
+  RETURN_IF_ERROR(checkAttitudeSegments(layout, "stateFromTuningLayout"));
+  RETURN_IF_ERROR(
+      checkUnitQuaternionPlacement(layout, "stateFromTuningLayout"));
   const size_t tuningDim = getTuningLayoutDim(layout);
   if (static_cast<size_t>(tuningVector.size()) != tuningDim) {
     return absl::InvalidArgumentError(absl::StrCat(
@@ -286,8 +288,9 @@ absl::StatusOr<vector_t> stateFromTuningLayout(const vector_t& tuningVector,
 
 absl::StatusOr<vector_t> tuningLayoutFromState(const vector_t& state,
                                                const TuningLayout& layout) {
-  RETURN_IF_ERROR(checkRotationSegments(layout, "tuningLayoutFromState"));
-  RETURN_IF_ERROR(checkQuaternionPlacement(layout, "tuningLayoutFromState"));
+  RETURN_IF_ERROR(checkAttitudeSegments(layout, "tuningLayoutFromState"));
+  RETURN_IF_ERROR(
+      checkUnitQuaternionPlacement(layout, "tuningLayoutFromState"));
   const size_t expectedStateDim = getTuningLayoutStateDim(layout);
   if (static_cast<size_t>(state.size()) != expectedStateDim) {
     return absl::InvalidArgumentError(absl::StrCat(

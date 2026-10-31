@@ -108,8 +108,8 @@ mpc_config::ContactsConfig completeCone() {
       contacts.contact_wrench_cone_soft_constraint;
   cone.friction_coefficient = 0.45;
   cone.torsional_friction_coefficient = 0.03;
-  cone.min_normal_force = 7.0;
-  cone.gripper_force = 1.5;
+  cone.min_force_contact_ewrt_contact_z = 7.0;
+  cone.grip_force_contact_ewrt_contact_z = 1.5;
   cone.num_basis_vectors = 6;
   cone.mu = 0.2;
   cone.delta = 5.0;
@@ -124,7 +124,7 @@ TEST(ContactInputParameterizationTest,
      TheRegistryListsEveryNameAndEachRoundTrips) {
   const std::vector<std::string> names = contactInputParameterizationNames();
   ASSERT_EQ(names.size(), 2u);
-  EXPECT_EQ(names[0], kWrenchContactInputParameterization);
+  EXPECT_EQ(names[0], kWrenchContactInputParameterizationName);
   EXPECT_EQ(names[1], kBasisVectorsContactInputParameterization);
   for (const std::string& name : names) {
     const absl::StatusOr<ContactInputParameterization> parameterization =
@@ -150,7 +150,7 @@ TEST(ContactInputParameterizationTest,
     expectInvalidArgumentNaming(
         contactInputParameterizationFromName(unknown).status(),
         {std::string(kContactInputParameterizationKey),
-         std::string(kWrenchContactInputParameterization),
+         std::string(kWrenchContactInputParameterizationName),
          std::string(kBasisVectorsContactInputParameterization)});
     mpc_config::TaskFile task;
     task.contact_input_parameterization = unknown;
@@ -195,7 +195,7 @@ TEST(ContactInputParameterizationTest,
         {std::string(kRetiredContactBasisVectorInputsKey), "is retired",
          absl::StrCat("contact_input_parameterization: \"",
                       kBasisVectorsContactInputParameterization, "\""),
-         absl::StrCat("\"", kWrenchContactInputParameterization, "\"")});
+         absl::StrCat("\"", kWrenchContactInputParameterizationName, "\"")});
   }
 }
 
@@ -243,8 +243,8 @@ TEST(ContactWrenchConeConfigTest, ACompleteBlockConvertsEveryValue) {
   ASSERT_TRUE(config.ok()) << config.status();
   EXPECT_DOUBLE_EQ(config->frictionCoefficient, 0.45);
   EXPECT_DOUBLE_EQ(config->torsionalFrictionCoefficient, 0.03);
-  EXPECT_DOUBLE_EQ(config->minNormalForce, 7.0);
-  EXPECT_DOUBLE_EQ(config->gripperForce, 1.5);
+  EXPECT_DOUBLE_EQ(config->minForceContactEwrtContactZ, 7.0);
+  EXPECT_DOUBLE_EQ(config->gripForceContactEwrtContactZ, 1.5);
   EXPECT_EQ(config->numBasisVectors, 6u);
 }
 
@@ -258,10 +258,14 @@ TEST(ContactWrenchConeConfigTest, EveryMissingFieldIsRefusedByName) {
            [](WrenchCone& cone) {
              cone.torsional_friction_coefficient.reset();
            }},
-          {"min_normal_force",
-           [](WrenchCone& cone) { cone.min_normal_force.reset(); }},
-          {"gripper_force",
-           [](WrenchCone& cone) { cone.gripper_force.reset(); }},
+          {"min_force_contact_ewrt_contact_z",
+           [](WrenchCone& cone) {
+             cone.min_force_contact_ewrt_contact_z.reset();
+           }},
+          {"grip_force_contact_ewrt_contact_z",
+           [](WrenchCone& cone) {
+             cone.grip_force_contact_ewrt_contact_z.reset();
+           }},
           {"num_basis_vectors",
            [](WrenchCone& cone) { cone.num_basis_vectors.reset(); }},
       };
@@ -296,10 +300,14 @@ TEST(ContactWrenchConeConfigTest, AValueOutOfRangeIsRefusedByName) {
            [](WrenchCone& cone) {
              cone.torsional_friction_coefficient = -0.03;
            }},
-          {"min_normal_force",
-           [](WrenchCone& cone) { cone.min_normal_force = -1.0; }},
-          {"gripper_force",
-           [](WrenchCone& cone) { cone.gripper_force = -1.5; }},
+          {"min_force_contact_ewrt_contact_z",
+           [](WrenchCone& cone) {
+             cone.min_force_contact_ewrt_contact_z = -1.0;
+           }},
+          {"grip_force_contact_ewrt_contact_z",
+           [](WrenchCone& cone) {
+             cone.grip_force_contact_ewrt_contact_z = -1.5;
+           }},
           {"num_basis_vectors",
            [](WrenchCone& cone) { cone.num_basis_vectors = 2; }},
       };

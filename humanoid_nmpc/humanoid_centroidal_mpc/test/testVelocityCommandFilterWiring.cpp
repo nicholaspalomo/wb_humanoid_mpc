@@ -80,14 +80,15 @@ class VelocityCommandFilterWiringTest : public ::testing::Test {
   }
 
   scalar_t scaledCommand() const {
-    return kRawCommand * maxDisplacementVelocityX_;
+    return kRawCommand * cmdMaxLinvelBaseRtWorldEwrtHeadingX_;
   }
 
   void SetUp() override {
     const absl::StatusOr<ReferenceSettings> shipped =
         referenceSettingsFromConfig(stack_.config().reference);
     ASSERT_TRUE(shipped.ok()) << shipped.status();
-    maxDisplacementVelocityX_ = shipped->maxDisplacementVelocityX;
+    cmdMaxLinvelBaseRtWorldEwrtHeadingX_ =
+        shipped->cmdMaxLinvelBaseRtWorldEwrtHeadingX;
     stack_.command(kRawCommand);
   }
 
@@ -108,7 +109,7 @@ class VelocityCommandFilterWiringTest : public ::testing::Test {
   }
 
   AtlasReferenceStack stack_;
-  scalar_t maxDisplacementVelocityX_ = 0.0;
+  scalar_t cmdMaxLinvelBaseRtWorldEwrtHeadingX_ = 0.0;
 };
 
 TEST_F(VelocityCommandFilterWiringTest,
@@ -119,7 +120,7 @@ TEST_F(VelocityCommandFilterWiringTest,
   // reference shows the filter alone.
   ASSERT_TRUE(
       reloadShippedReferenceWith([](mpc_config::ReferenceFile& reference) {
-        reference.max_linear_acceleration = 0.0;
+        reference.cmd_max_linacc_base_rt_world_ewrt_heading_xy = 0.0;
       }).ok());
   ASSERT_EQ(stack_.motionManager().getVelocityCommandFilterBreakFrequency(),
             0.0);
@@ -134,7 +135,7 @@ TEST_F(VelocityCommandFilterWiringTest,
   ASSERT_TRUE(
       reloadShippedReferenceWith([breakFrequency](
                                      mpc_config::ReferenceFile& reference) {
-        reference.max_linear_acceleration = 0.0;
+        reference.cmd_max_linacc_base_rt_world_ewrt_heading_xy = 0.0;
         reference.velocity_command_filter_break_frequency = breakFrequency;
       }).ok());
   ASSERT_EQ(stack_.motionManager().getVelocityCommandFilterBreakFrequency(),

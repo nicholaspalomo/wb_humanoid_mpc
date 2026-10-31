@@ -11,7 +11,7 @@ telemetry_frequency: 100  # [Hz] robot/state, decimated from the control loop
 # MuJoCo backend of the robot process only. The viewer's contact timeline ('b' toggles it) shows, per contact point,
 # the contact state the executed MPC policy plans against the simulator's ground truth over a sliding window of time.
 sim_contact_timeline_window: 5.0  # [s] width of the sliding window
-sim_contact_force_threshold: 5.0  # [N] normal force above which a contact point counts as touching (ground truth)
+sim_min_force_mjcontact_ewrt_mjcontact_x: 5.0  # [N] normal force above which a contact point counts as touching (ground truth)
 # Fall recovery (SimFallRecovery, humanoid_nmpc/docs/mpc_reset/README.md). sim_max_base_tilt_angle is the tilt of the base
 # past which the simulator catches the robot on the gantry, holding it upright where it is at the gantry height,
 # switching to JOINT_PD (the whole-body MPC is overconstrained against a pinned base) and resetting the controller, which
@@ -29,7 +29,7 @@ sim_max_base_tilt_angle: 1.0  # [rad] positive; absent disables
 sim_gantry_catch_lift: 0.15  # [m] positive; absent skips the settle sequence
 # Measured contact state of the controller, by name (robot_model/ContactEstimatorRegistry.h): the MPC observation mode and
 # which planned contact wrenches the inverse dynamics projects into feedforward torques. One of:
-#   cheater_sim        the ground truth of the physics (normal force above sim_contact_force_threshold); required for the
+#   cheater_sim        the ground truth of the physics (normal force above sim_min_force_mjcontact_ewrt_mjcontact_x); required for the
 #                      phase_resetting execution rule of contact_planning.textproto
 #   robot_state        the contact flags of the RobotState (in MuJoCo the same ground truth)
 #   always_in_contact  every contact point touching: the executed schedule is taken as the measured contact state
@@ -150,17 +150,17 @@ costs: "external_torque_cost"
 
 # ---------------------------------------------------------------------------------------------------------------
 # Locomotion heuristics: the regularization heuristics of Gerardo Bledt, "Regularized Predictive Control Framework
-# for Robust Dynamic Legged Locomotion", MIT 2020, Appendix C. Derivations, a block diagram and the seam of every
+# for Robust Dynamic Legged Locomotion", MIT 2020, Appendix C. Derivations, a block diagram and the seam of every  # NOLINT(claudisms): cited paper title
 # name below are in humanoid_nmpc/docs/locomotion_heuristics/README.md.
 #
 # This is a reference-SHAPING layer, not a new cost family. Nothing here adds a term to the optimal control problem:
 # every name modifies a reference that a cost this file ALREADY lists regularizes against, which is what RPC means
 # by regularization. Three channels, three lists, three seams:
 #
-#   base_pose  the roll, pitch and height of the base-pose reference that the state_weights of base_orientation (roll,
-#              pitch) and base_position (z) track - and
+#   base_pose  the roll, pitch and height of the base-pose reference that the state_weights of eulerzyx_base_rt_world (roll,
+#              pitch) and pos_base_rt_world_ewrt_world (z) track - and
 #              final_state_weights and the torso task-space cost with them - shaped per shooting node in
-#              SwitchedModelReferenceManager::shapeBasePose(). Without a heuristic that reference carries a HARD ZERO
+#              SwitchedModelReferenceManager::shapePoseBaseRtWorld(). Without a heuristic that reference carries a HARD ZERO
 #              for roll and pitch - the target calculator writes targetPose[4] = targetPose[5] = 0.0 on every call - so
 #              anything listed here is the first opinion this MPC has about how the base is carried. It is a function
 #              of the operator's COMMANDED velocity. Inert while costs lists com_and_acom_tracking_cost, because
@@ -201,7 +201,7 @@ costs: "external_torque_cost"
 # Type the value into the entry box, which widens the bounds.
 #
 # Orientation sign: the heuristic offsets are ZYX Euler angles of the base at the Euler boundary, about a z-up world,
-# so a POSITIVE pitch puts the nose DOWN. Leaning into a forward command is therefore a POSITIVE
+# so a POSITIVE pitch puts the nose DOWN. Pitching forward into a forward command is therefore a POSITIVE
 # pitch_per_forward_velocity - the sign of Bledt's own fitted +0.0725.
 locomotion_heuristics {
   # Each list ships empty, its candidate names commented out below, one line per entry, so that uncommenting a line
@@ -362,7 +362,7 @@ locomotion_heuristics {
   # of Bledt's ten and the seam is clean; `scale` is the knob for finding out in simulation whether it earns its place.
   centripetal_acceleration {
     scale: 1.0  # scales m * omega x v; 0 disables it
-    # maximum_force is absent: maximum_force_ratio_of_weight clamps the total over the stance feet.
+    # max_force_com_ewrt_world_xy is absent: maximum_force_ratio_of_weight clamps the total over the stance feet.
     # 0.16 = 40% of the mu = 0.4 friction budget of contacts.friction_force_cone_soft_constraint, the cone this file lists:
     # the clamp is on the total, shared over the stance feet as the weight is, so it is 40% of every foot's own budget.
     # (0.3 used to sit here on the premise of a 0.5 coefficient, which is the OTHER cone's and not listed here: it was
@@ -430,13 +430,13 @@ model_settings {
 }
 
 swing_trajectory_config {
-  lift_off_velocity: 0.05
-  touch_down_velocity: 0.0
+  liftoff_linvel_foot_rt_world_ewrt_world_z: 0.05
+  touchdown_linvel_foot_rt_world_ewrt_world_z: 0.0
   swing_height: 0.08
   touch_down_height_offset: -0.001
   swing_time_scale: 0.4
-  impact_proximity_factor_lift_off_velocity: -0.15
-  impact_proximity_factor_touch_down_velocity: 0.3
+  impact_proximity_factor_liftoff_slope: -0.15
+  impact_proximity_factor_touchdown_slope: 0.3
   impact_proximity_factor_mid_point_value: 0.0
 }
 
@@ -480,24 +480,24 @@ mpc {
 
 initial_state {
   # ; Normalized Centroidal Momentum: [linear, angular] ;;
-  normalized_linear_momentum {
+  mnorm_linmom_com_rt_world_ewrt_world {
     x: 0.0  # h_com_x / robotMass
     y: 0.0  # h_com_y / robotMass
     z: 0.0  # h_com_z / robotMass
   }
-  normalized_angular_momentum {
+  mnorm_angmom_com_rt_world_ewrt_world {
     x: 0.0  # L_x / robotMass
     y: 0.0  # L_y / robotMass
     z: 0.0  # L_z / robotMass
   }
 
   # ; Base Pose: [position, orientation] ;;
-  base_position {
+  pos_base_rt_world_ewrt_world {
     x: 0.0  # p_base_x
     y: 0.0  # p_base_y
     z: 0.7911  # p_base_z
   }
-  base_orientation {
+  eulerzyx_base_rt_world {
     yaw: 0.0  # theta_base_z
     pitch: 0.0  # theta_base_y
     roll: 0.0  # theta_base_x
@@ -534,25 +534,25 @@ state_weights {
   scaling: 1e+0
 
   # ; Normalized Centroidal Momentum: [linear, angular] ;;
-  normalized_linear_momentum {
+  mnorm_linmom_com_rt_world_ewrt_world {
     x: 8.0  # h_com_x / robotMass
     y: 8.0  # h_com_y / robotMass
     z: 15.0  # h_com_z / robotMass
   }
-  normalized_angular_momentum {
+  mnorm_angmom_com_rt_world_ewrt_world {
     x: 15.0  # L_x / robotMass
     y: 15.0  # L_y / robotMass
     z: 4.0  # L_z / robotMass
   }
 
   # ; Base Pose: [position, orientation] ;;
-  base_position {
+  pos_base_rt_world_ewrt_world {
     x: 0.0  # p_base_x
     y: 0.0  # p_base_y
     z: 15.0  # p_base_z
   }
   # euler angles for base to world rotation
-  base_orientation {
+  eulerzyx_base_rt_world {
     yaw: 0.0  # theta_base_z
     pitch: 5.0  # theta_base_y
     roll: 5.0  # theta_base_x
@@ -647,25 +647,25 @@ final_state_weights {
   scaling: 1e+0
 
   # ; Normalized Centroidal Momentum: [linear, angular] ;;
-  normalized_linear_momentum {
+  mnorm_linmom_com_rt_world_ewrt_world {
     x: 25.0  # h_com_x / robotMass
     y: 25.0  # h_com_y / robotMass
     z: 25.0  # h_com_z / robotMass
   }
-  normalized_angular_momentum {
+  mnorm_angmom_com_rt_world_ewrt_world {
     x: 25.0  # L_x / robotMass
     y: 25.0  # L_y / robotMass
     z: 25.0  # L_z / robotMass
   }
 
   # ; Base Pose: [position, orientation] ;;
-  base_position {
+  pos_base_rt_world_ewrt_world {
     x: 0.0  # p_base_x
     y: 0.0  # p_base_y
     z: 20.0  # p_base_z
   }
   # euler angles for base to world rotation
-  base_orientation {
+  eulerzyx_base_rt_world {
     yaw: 0.0  # theta_base_z
     pitch: 5.0  # theta_base_y
     roll: 5.0  # theta_base_x
@@ -777,7 +777,7 @@ right_leg_torque_cost {
 }
 
 contacts {
-  contact_frame_translation {
+  pos_contact_rt_link_ewrt_link {
     # ; Translation vector from parent joint to contact frame ;;
     x: 0.035
     y: 0.0

@@ -262,16 +262,36 @@ class NoRelaxedConfigurationTest(unittest.TestCase):
                 )
 
 
+# The one opt-in check (check_types.Check.opt_in): it measures the frame-naming rename while it runs, and the rename's
+# Verify phase switches it on and empties this set (humanoid_nmpc/docs/frame_naming/README.md, section 9).
+_OPT_IN_CHECKS = frozenset({"frame-naming"})
+
+
 class EveryCheckRunsTest(unittest.TestCase):
+    def test_only_the_frame_naming_rollout_is_opt_in(self):
+        self.assertEqual(
+            checks.names() - checks.default_names(), _OPT_IN_CHECKS
+        )
+        self.assertEqual(
+            frozenset(check.name for check in checks.REGISTRY if check.opt_in),
+            _OPT_IN_CHECKS,
+        )
+
+    def test_an_opt_in_check_runs_when_named(self):
+        for name in _OPT_IN_CHECKS:
+            with self.subTest(check=name):
+                context = _context_of(["--only", name])
+                self.assertEqual(context.selected, frozenset({name}))
+
     def test_make_lint_runs_every_check_and_step(self):
         context = _context_of([])
-        self.assertEqual(context.selected, checks.names())
+        self.assertEqual(context.selected, checks.default_names())
         self.assertEqual(context.steps, lint_code.STEP_NAMES)
         self.assertFalse(context.staged)
 
     def test_the_staged_run_runs_every_check_and_step(self):
         context = _context_of(["--git-staged"])
-        self.assertEqual(context.selected, checks.names())
+        self.assertEqual(context.selected, checks.default_names())
         self.assertEqual(context.steps, lint_code.STEP_NAMES)
         self.assertTrue(context.staged)
 

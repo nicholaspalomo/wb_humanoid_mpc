@@ -48,17 +48,18 @@ void ZmpVisualization::addSceneGeoms(const VisualizationFrame& frame) {
   const RobotCentroidalState state =
       robotCentroidalState(model, frame.state->data);
   if (!state.valid) return;
-  constexpr double kMinNormalForce = 5.0;  // [N]
+  constexpr double kMinForceWorldEwrtWorldZ = 5.0;  // [N]
   // The ball is excluded: it is not the ground, and the marker is the ZMP of
   // the ground reaction.
   const GroundReaction reaction =
       groundReaction(model, frame.state->data, state.rootBodyId,
-                     kMinNormalForce, frame.sim->projectileBodyId());
+                     kMinForceWorldEwrtWorldZ, frame.sim->projectileBodyId());
   if (!reaction.valid) return;
   constexpr MarkerColor kZmpColor{
       .r = 1.0f, .g = 0.15f, .b = 0.15f, .a = 0.9f};  // red
-  addGroundDiscGeom(frame.scene, reaction.zmp[0], reaction.zmp[1],
-                    kZmpMarkerRadius, kZmpColor);
+  addGroundDiscGeom(frame.scene, reaction.posZmpRtWorldEwrtWorldXy[0],
+                    reaction.posZmpRtWorldEwrtWorldXy[1], kZmpMarkerRadius,
+                    kZmpColor);
 }
 
 }  // namespace robot::mujoco_sim_interface

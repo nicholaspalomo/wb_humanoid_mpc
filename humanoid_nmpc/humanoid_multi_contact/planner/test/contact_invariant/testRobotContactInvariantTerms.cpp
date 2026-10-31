@@ -125,12 +125,12 @@ vector_t someInput(const AtlasModels& atlas) {
   }
   const std::vector<std::string>& names =
       atlas.models->modelSettings().contactNames;
-  const double weight = atlas.models->getCentroidalModelInfo().robotMass *
-                        kGravitationalAcceleration;
+  const double weight =
+      atlas.models->getCentroidalModelInfo().robotMass * kGravityMagnitude;
   for (size_t i = 0; i < names.size(); ++i) {
     if (names[i] == "foot_l_contact" || names[i] == "foot_r_contact") {
-      model.setContactForce(input, Eigen::Vector3d(10.0, -5.0, 0.5 * weight),
-                            i);
+      model.setForceContactEwrtParam(
+          input, Eigen::Vector3d(10.0, -5.0, 0.5 * weight), i);
     }
   }
   return input;
@@ -149,7 +149,7 @@ vector_t feetOnlyInput(const AtlasModels& atlas) {
                    model.getContactInputDim(i))
           .setZero();
     } else {
-      model.setContactMoment(input, Eigen::Vector3d::Zero(), i);
+      model.setTorqueContactEwrtParam(input, Eigen::Vector3d::Zero(), i);
     }
   }
   return input;
@@ -188,8 +188,8 @@ TEST(RobotContactInvariantTerms, TheInitialStateStandsOnTheFloor) {
   ASSERT_TRUE(initial.ok()) << initial.status();
   const vector_t state = mpcStateOf(model, *initial);
   RobotConfiguration configuration;
-  configuration.basePosition = model.getBasePosition(state);
-  configuration.baseOrientation.coeffs() = model.getBaseOrientation(state);
+  configuration.basePosition = model.getPosBaseRtWorldEwrtWorld(state);
+  configuration.baseOrientation.coeffs() = model.getQuatBaseRtWorldXyzw(state);
   configuration.jointNames = model.modelSettings.mpcModelJointNames;
   configuration.jointPositions = model.getJointAngles(state);
   ASSERT_TRUE(atlas.stanceModel->setConfiguration(configuration).ok());
@@ -247,8 +247,8 @@ TEST(RobotContactInvariantTerms, TheFeaturesMatchFiniteDifferences) {
   // Against the stance model: the pads' distance to the floor.
   const MpcRobotModelBase<scalar_t>& model = atlas.models->getMpcRobotModel();
   RobotConfiguration configuration;
-  configuration.basePosition = model.getBasePosition(state);
-  configuration.baseOrientation.coeffs() = model.getBaseOrientation(state);
+  configuration.basePosition = model.getPosBaseRtWorldEwrtWorld(state);
+  configuration.baseOrientation.coeffs() = model.getQuatBaseRtWorldXyzw(state);
   configuration.jointNames = model.modelSettings.mpcModelJointNames;
   configuration.jointPositions = model.getJointAngles(state);
   ASSERT_TRUE(atlas.stanceModel->setConfiguration(configuration).ok());
@@ -312,8 +312,8 @@ TEST(RobotContactInvariantTerms, TheSphereClearanceIsTheStanceModelsSpheres) {
                                   state));
   const MpcRobotModelBase<scalar_t>& model = atlas.models->getMpcRobotModel();
   RobotConfiguration configuration;
-  configuration.basePosition = model.getBasePosition(state);
-  configuration.baseOrientation.coeffs() = model.getBaseOrientation(state);
+  configuration.basePosition = model.getPosBaseRtWorldEwrtWorld(state);
+  configuration.baseOrientation.coeffs() = model.getQuatBaseRtWorldXyzw(state);
   configuration.jointNames = model.modelSettings.mpcModelJointNames;
   configuration.jointPositions = model.getJointAngles(state);
   ASSERT_TRUE(atlas.stanceModel->setConfiguration(configuration).ok());
@@ -367,8 +367,8 @@ TEST(RobotContactInvariantTerms, TheTorquesAreGravityLessTheContactWrenches) {
   // Against the stance model: g(q) - J_p' f - J_w' tau at the feet.
   const MpcRobotModelBase<scalar_t>& model = atlas.models->getMpcRobotModel();
   RobotConfiguration configuration;
-  configuration.basePosition = model.getBasePosition(state);
-  configuration.baseOrientation.coeffs() = model.getBaseOrientation(state);
+  configuration.basePosition = model.getPosBaseRtWorldEwrtWorld(state);
+  configuration.baseOrientation.coeffs() = model.getQuatBaseRtWorldXyzw(state);
   configuration.jointNames = model.modelSettings.mpcModelJointNames;
   configuration.jointPositions = model.getJointAngles(state);
   RobotStanceModel& stance = *atlas.stanceModel;
@@ -379,11 +379,11 @@ TEST(RobotContactInvariantTerms, TheTorquesAreGravityLessTheContactWrenches) {
         *atlas.scenario.contactSet.indexOf(settings.contactNames[i]);
     const Eigen::Vector3d point = stance.padPosition(index);
     tau -= stance.pointJacobian(index, point).transpose() *
-           model.getContactForce(input, i);
+           model.getForceContactEwrtParam(input, i);
     if (atlas.scenario.contactSet.candidate(index).kind ==
         ContactKind::kSurface) {
       tau -= stance.jointAngularJacobian(stance.padJoint(index)).transpose() *
-             model.getContactMoment(input, i);
+             model.getTorqueContactEwrtParam(input, i);
     }
   }
   const vector_t torques = constraint.torques(state, input);
@@ -461,8 +461,8 @@ TEST(RobotContactInvariantTerms, ThePolygonRowsAreTheEdgesLessTheMargin) {
                                   state));
   const MpcRobotModelBase<scalar_t>& model = atlas.models->getMpcRobotModel();
   RobotConfiguration configuration;
-  configuration.basePosition = model.getBasePosition(state);
-  configuration.baseOrientation.coeffs() = model.getBaseOrientation(state);
+  configuration.basePosition = model.getPosBaseRtWorldEwrtWorld(state);
+  configuration.baseOrientation.coeffs() = model.getQuatBaseRtWorldXyzw(state);
   configuration.jointNames = model.modelSettings.mpcModelJointNames;
   configuration.jointPositions = model.getJointAngles(state);
   ASSERT_TRUE(atlas.stanceModel->setConfiguration(configuration).ok());

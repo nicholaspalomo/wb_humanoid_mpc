@@ -200,8 +200,8 @@ TrackingRun runToTheEnd(MultiContactPlanLoop& loop) {
 multi_contact::RobotConfiguration configurationOf(
     const MpcRobotModelBase<scalar_t>& model, const vector_t& state) {
   multi_contact::RobotConfiguration configuration;
-  configuration.basePosition = model.getBasePosition(state);
-  configuration.baseOrientation.coeffs() = model.getBaseOrientation(state);
+  configuration.basePosition = model.getPosBaseRtWorldEwrtWorld(state);
+  configuration.baseOrientation.coeffs() = model.getQuatBaseRtWorldXyzw(state);
   configuration.jointNames = model.modelSettings.mpcModelJointNames;
   configuration.jointPositions = model.getJointAngles(state);
   return configuration;
@@ -325,11 +325,12 @@ void expectTheGoalIsReached(MultiContactPlanLoop& loop,
   const size_t finalMode = motion.modeSequence().back();
   ASSERT_FALSE(run.modes.empty());
   EXPECT_EQ(run.modes.back(), finalMode);
-  EXPECT_LT((model.getBasePosition(finalState) -
-             model.getBasePosition(motion.targets().stateTrajectory.back()))
+  EXPECT_LT((model.getPosBaseRtWorldEwrtWorld(finalState) -
+             model.getPosBaseRtWorldEwrtWorld(
+                 motion.targets().stateTrajectory.back()))
                 .norm(),
             kBaseTolerance)
-      << model.getBasePosition(finalState).transpose();
+      << model.getPosBaseRtWorldEwrtWorld(finalState).transpose();
   PinocchioInterface pinocchio = interface.getPinocchioInterface();
   const vector_t q = model.getGeneralizedCoordinates(finalState);
   pinocchio::forwardKinematics(pinocchio.getModel(), pinocchio.getData(), q);
@@ -354,11 +355,11 @@ void expectTheGoalIsReached(MultiContactPlanLoop& loop,
   // The base followed the plan's, at the plan time of every solve.
   scalar_t worstBaseError = 0.0;
   for (size_t k = 0; k < run.planTimes.size(); ++k) {
-    const vector3_t planned = model.getBasePosition(
+    const vector3_t planned = model.getPosBaseRtWorldEwrtWorld(
         model.getDesiredState(motion.targets(), run.planTimes[k]));
-    worstBaseError =
-        std::max(worstBaseError,
-                 (model.getBasePosition(run.states[k]) - planned).norm());
+    worstBaseError = std::max(
+        worstBaseError,
+        (model.getPosBaseRtWorldEwrtWorld(run.states[k]) - planned).norm());
   }
   EXPECT_LT(worstBaseError, kBaseTolerance);
   ::testing::Test::RecordProperty("worst_base_tracking_error_m",
@@ -603,18 +604,20 @@ TEST(MultiContactPlanTracking, walksUpTheStairsAndBackwardDownOverAndOver) {
   // The ascent's end: a period is the ascent, the dwell, the descent and the
   // dwell.
   const scalar_t top = motion.startTime() + 0.5 * (period - 2.0 * kStairsDwell);
-  const vector3_t topBase =
-      model.getBasePosition(model.getDesiredState(motion.targets(), top));
-  const vector3_t bottomBase = model.getBasePosition(motion.initialState());
+  const vector3_t topBase = model.getPosBaseRtWorldEwrtWorld(
+      model.getDesiredState(motion.targets(), top));
+  const vector3_t bottomBase =
+      model.getPosBaseRtWorldEwrtWorld(motion.initialState());
   ASSERT_GT(topBase.z() - bottomBase.z(), 0.5) << "the plan climbs the stairs";
   scalar_t worstBaseError = 0.0;
   scalar_t worstBottomError = 0.0;
   std::vector<bool> onTheTop(kStairsPeriods, false);
   std::vector<bool> atTheBottom(kStairsPeriods, false);
   for (size_t k = 0; k < run.planTimes.size(); ++k) {
-    const vector3_t base = model.getBasePosition(run.states[k]);
-    const vector3_t planned = model.getBasePosition(model.getDesiredState(
-        motion.targets(), motion.cycleTime(run.planTimes[k])));
+    const vector3_t base = model.getPosBaseRtWorldEwrtWorld(run.states[k]);
+    const vector3_t planned =
+        model.getPosBaseRtWorldEwrtWorld(model.getDesiredState(
+            motion.targets(), motion.cycleTime(run.planTimes[k])));
     worstBaseError = std::max(worstBaseError, (base - planned).norm());
     const int64_t cycle = motion.cycleIndex(run.planTimes[k]);
     const scalar_t inCycle = motion.cycleTime(run.planTimes[k]);

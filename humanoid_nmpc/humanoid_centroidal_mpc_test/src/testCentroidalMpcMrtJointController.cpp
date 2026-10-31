@@ -150,7 +150,7 @@ class CentroidalMpcMrtJointControllerTest : public ::testing::Test {
     std::ofstream ofs(tempPdGainsFile_);
     ofs << "# proto-message: "
            "humanoid_mpc_config.JointPdGainsFile\ndefault_gains { kp: 250.0 "
-           "kd: 15.0 torque_limit: 500.0 }\n";
+           "kd: 15.0 max_joint_torque: 500.0 }\n";
     ofs.close();
   }
 
@@ -215,7 +215,7 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testPdGainsHotReloading) {
       std::chrono::milliseconds(100));  // Ensure timestamp difference
   std::ofstream ofs(tempPdGainsFile_, std::ios::app);
   ofs << "joint_gains { joint: \"right_knee_joint\" kp: 200.0 kd: 20.0 "
-         "torque_limit: 150.0 }\n";
+         "max_joint_torque: 150.0 }\n";
   ofs.close();
 
   // Trigger again: the file watcher runs on a non-realtime thread now
@@ -321,7 +321,7 @@ TEST_F(CentroidalMpcMrtJointControllerTest,
     EXPECT_DOUBLE_EQ(action.kp, 0.0);
     EXPECT_DOUBLE_EQ(action.kd, 0.0);
     EXPECT_DOUBLE_EQ(action.feed_forward_effort, 0.0);
-    EXPECT_DOUBLE_EQ(action.getTotalFeedbackTorque(
+    EXPECT_DOUBLE_EQ(action.getTotalFeedbackJointTorque(
                          robotState.getJointPosition(index), /*qd=*/5.0),
                      0.0);
   }
@@ -652,7 +652,7 @@ TEST_F(CentroidalMpcMrtJointControllerTest,
     std::ofstream ofs(gainsFile);
     ofs << "# proto-message: "
            "humanoid_mpc_config.JointPdGainsFile\ndefault_gains { kp: 100.0 "
-           "kd: 10.0 torque_limit: 1000000.0 }\n";
+           "kd: 10.0 max_joint_torque: 1000000.0 }\n";
   }
 
   absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>>
@@ -692,13 +692,13 @@ TEST_F(CentroidalMpcMrtJointControllerTest,
   const vector_t weightInput = weightCompensatingInput(
       pinocchioInterface, {true, true}, basisModel, observation.state);
   const std::array<vector6_t, 2> worldWrenches{
-      basisModel.getContactWrenchInWorldFrame(observation.state, weightInput,
-                                              /*contactIndex=*/0),
-      basisModel.getContactWrenchInWorldFrame(observation.state, weightInput,
-                                              /*contactIndex=*/1)};
+      basisModel.getWrenchContactEwrtWorld(observation.state, weightInput,
+                                           /*contactIndex=*/0),
+      basisModel.getWrenchContactEwrtWorld(observation.state, weightInput,
+                                           /*contactIndex=*/1)};
   const std::array<vector6_t, 2> localWrenches{
-      basisModel.getContactWrench(weightInput, /*contactIndex=*/0),
-      basisModel.getContactWrench(weightInput, /*contactIndex=*/1)};
+      basisModel.getWrenchContactEwrtParam(weightInput, /*contactIndex=*/0),
+      basisModel.getWrenchContactEwrtParam(weightInput, /*contactIndex=*/1)};
 
   const vector_t q = basisModel.getGeneralizedCoordinates(observation.state);
   const vector_t qd =
@@ -829,7 +829,7 @@ TEST_F(CentroidalMpcMrtJointControllerTest,
     std::ofstream ofs(gainsFile);
     ofs << "# proto-message: "
            "humanoid_mpc_config.JointPdGainsFile\ndefault_gains { kp: 100.0 "
-           "kd: 10.0 torque_limit: 1000000.0 }\n";
+           "kd: 10.0 max_joint_torque: 1000000.0 }\n";
   }
   absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>>
       controllerOrStatus = CentroidalMpcMrtJointController::Create(
@@ -870,10 +870,10 @@ TEST_F(CentroidalMpcMrtJointControllerTest,
   const vector_t weightInput = weightCompensatingInput(
       pinocchioInterface, {true, false}, model, observation.state);
   const std::array<vector6_t, 2> wrenches{
-      model.getContactWrenchInWorldFrame(observation.state, weightInput,
-                                         /*contactIndex=*/0),
-      model.getContactWrenchInWorldFrame(observation.state, weightInput,
-                                         /*contactIndex=*/1)};
+      model.getWrenchContactEwrtWorld(observation.state, weightInput,
+                                      /*contactIndex=*/0),
+      model.getWrenchContactEwrtWorld(observation.state, weightInput,
+                                      /*contactIndex=*/1)};
   ASSERT_TRUE(wrenches[1].isZero());
   const vector_t expected = computeBaseHeldJointTorques<scalar_t>(
       model.getGeneralizedCoordinates(observation.state),

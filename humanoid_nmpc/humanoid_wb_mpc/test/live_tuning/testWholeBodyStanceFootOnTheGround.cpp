@@ -127,8 +127,8 @@ TEST(WholeBodyStanceFoot,
   for (const EvaluationPoint& point :
        evaluationPoints(flat.interface(), /*count=*/3)) {
     vector_t raisedState = point.state;
-    flat.interface().getMpcRobotModel().adaptBasePoseHeight(raisedState,
-                                                            kGround);
+    flat.interface().getMpcRobotModel().adaptPosBaseRtWorldEwrtWorldZ(
+        raisedState, kGround);
     for (const std::string& foot :
          flat.interface().modelSettings().contactNames) {
       SCOPED_TRACE(foot);

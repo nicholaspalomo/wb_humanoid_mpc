@@ -86,8 +86,8 @@ deriveLocomotionHeuristicModelParameters(
   // the hip walk below reads.
   derived.nominalComHeight =
       computeComHeightAboveFeet(q, pinocchioInterface, mpcRobotModel);
-  const std::vector<vector3_t> feet =
-      getContactPositions<scalar_t>(pinocchioInterface, mpcRobotModel);
+  const std::vector<vector3_t> feet = getPosContactsRtWorldEwrtWorld<scalar_t>(
+      pinocchioInterface, mpcRobotModel);
   if (feet.empty()) {
     return absl::FailedPreconditionError(
         "[LocomotionHeuristicModelParameters] the robot model has no contact "
@@ -100,9 +100,10 @@ deriveLocomotionHeuristicModelParameters(
   // URDF happens to name it, which is why this does not look for a name. Its
   // placement in the world at the nominal posture, expressed relative to the
   // base and with the vertical dropped, is r_hip.
-  const vector2_t basePosition = mpcRobotModel.getBasePosition(nominalState)
-                                     .head<kHorizontalPositionDim>();
-  const scalar_t baseYaw = mpcRobotModel.getBaseHeading(nominalState);
+  const vector2_t basePosition =
+      mpcRobotModel.getPosBaseRtWorldEwrtWorld(nominalState)
+          .head<kHorizontalPositionDim>();
+  const scalar_t baseYaw = mpcRobotModel.getYawBaseRtWorld(nominalState);
   const scalar_t cosYaw = std::cos(baseYaw);
   const scalar_t sinYaw = std::sin(baseYaw);
   const std::vector<std::string>& contactParentJointNames =

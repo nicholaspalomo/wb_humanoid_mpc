@@ -31,18 +31,18 @@ message StateValues {
 
   // Centroidal MPC: [m/s] the linear and [m^2/s] the angular momentum of the robot about its center of mass, each
   // divided by the robot's mass.
-  Xyz normalized_linear_momentum = 1 [(nproto.optional_message) = true];
-  Xyz normalized_angular_momentum = 2 [(nproto.optional_message) = true];
+  Xyz mnorm_linmom_com_rt_world_ewrt_world = 1 [(nproto.optional_message) = true];
+  Xyz mnorm_angmom_com_rt_world_ewrt_world = 2 [(nproto.optional_message) = true];
   // Both MPCs: [m] the position of the floating base in the world frame and [rad] its orientation, Euler ZYX.
-  Xyz base_position = 3 [(nproto.optional_message) = true];
-  YawPitchRoll base_orientation = 4 [(nproto.optional_message) = true];
+  Xyz pos_base_rt_world_ewrt_world = 3 [(nproto.optional_message) = true];
+  YawPitchRoll eulerzyx_base_rt_world = 4 [(nproto.optional_message) = true];
   // Both MPCs: [rad] the joint positions, by joint name.
   repeated JointValue joint_positions = 5;
   // Whole-body MPC: [m/s] the linear velocity of the floating base in the world frame; [rad/s] its body angular velocity
   // w_B about the body z, y and x axes, in the order (yaw, pitch, roll) of the rows of
-  // state_weights.base_angular_velocity (design decision D18; at a level attitude these are the ZYX Euler rates, and every
+  // state_weights.angvel_base_rt_world_ewrt_base (design decision D18; at a level attitude these are the ZYX Euler rates, and every
   // shipped initial state starts level and at rest); and the joint velocities, by joint name.
-  Xyz base_linear_velocity = 6 [(nproto.optional_message) = true];
-  YawPitchRoll base_angular_velocity = 7 [(nproto.optional_message) = true];
+  Xyz linvel_base_rt_world_ewrt_world = 6 [(nproto.optional_message) = true];
+  YawPitchRoll angvel_base_rt_world_ewrt_base = 7 [(nproto.optional_message) = true];
   repeated JointValue joint_velocities = 8;
 }

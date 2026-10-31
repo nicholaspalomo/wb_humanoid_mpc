@@ -63,8 +63,7 @@ inline vector_t weightCompensatingInput(
     const MpcRobotModelBase<scalar_t>& mpcRobotModel) {
   // The mass of THIS model, read per call: a function-static cache kept the
   // first model's weight for every model in the process.
-  const scalar_t totalGravitationalForce =
-      info.robotMass * kGravitationalAcceleration;
+  const scalar_t totalGravitationalForce = info.robotMass * kGravityMagnitude;
   const size_t numStanceLegs = numberOfLegsInContacts(contactFlags);
   vector_t input = vector_t::Zero(mpcRobotModel.getInputDim());
   if (numStanceLegs > 0) {
@@ -72,7 +71,7 @@ inline vector_t weightCompensatingInput(
         0.0, 0.0, totalGravitationalForce / numStanceLegs);
     for (size_t i = 0; i < contactFlags.size(); ++i) {
       if (contactFlags[i]) {
-        mpcRobotModel.setContactForce(input, forceInInertialFrame, i);
+        mpcRobotModel.setForceContactEwrtParam(input, forceInInertialFrame, i);
       }
     }  // end of i loop
   }
@@ -91,8 +90,7 @@ inline vector_t weightCompensatingInput(
     const vector_t& state) {
   // The mass of THIS model, read per call: a function-static cache kept the
   // first model's weight for every model in the process.
-  const scalar_t totalGravitationalForce =
-      info.robotMass * kGravitationalAcceleration;
+  const scalar_t totalGravitationalForce = info.robotMass * kGravityMagnitude;
   const size_t numStanceLegs = numberOfLegsInContacts(contactFlags);
   vector_t input = vector_t::Zero(mpcRobotModel.getInputDim());
   if (numStanceLegs > 0) {
@@ -100,8 +98,8 @@ inline vector_t weightCompensatingInput(
         0.0, 0.0, totalGravitationalForce / numStanceLegs);
     for (size_t i = 0; i < contactFlags.size(); ++i) {
       if (contactFlags[i]) {
-        mpcRobotModel.setContactForceInWorldFrame(state, input,
-                                                  forceInInertialFrame, i);
+        mpcRobotModel.setForceContactEwrtWorld(state, input,
+                                               forceInInertialFrame, i);
       }
     }  // end of i loop
   }
@@ -120,8 +118,7 @@ inline vector_t weightCompensatingInputOfContacts(
     absl::FunctionRef<bool(size_t)> isContactActive,
     const MpcRobotModelBase<scalar_t>& mpcRobotModel,
     const vector_t& state) {
-  const scalar_t totalGravitationalForce =
-      info.robotMass * kGravitationalAcceleration;
+  const scalar_t totalGravitationalForce = info.robotMass * kGravityMagnitude;
   const size_t numContacts = mpcRobotModel.modelSettings.contactNames.size();
   size_t numActive = 0;
   for (size_t i = 0; i < numContacts; ++i) {
@@ -133,7 +130,7 @@ inline vector_t weightCompensatingInputOfContacts(
       0.0, 0.0, totalGravitationalForce / static_cast<scalar_t>(numActive));
   for (size_t i = 0; i < numContacts; ++i) {
     if (isContactActive(i)) {
-      mpcRobotModel.setContactForceInWorldFrame(state, input, force, i);
+      mpcRobotModel.setForceContactEwrtWorld(state, input, force, i);
     }
   }
   return input;

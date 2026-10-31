@@ -139,7 +139,7 @@ TEST(ContactPlannerYawRateOnTheWholeBody,
   absl::StatusOr<vector_t> initialState = model.stateFromTuning(*tuningState);
   ASSERT_TRUE(initialState.ok()) << initialState.status();
   vector_t turning = *std::move(initialState);
-  model.setBaseAngularVelocityFromWorldYawRate(turning, /*yawRate=*/kYawRate);
+  model.setTurnAngvelBaseRtWorldEwrtBase(turning, /*yawRate=*/kYawRate);
   ASSERT_NEAR(
       model.getTargetPlanarCommand(turning, /*compositeYawInertia=*/0.0)(
           MpcRobotModelBase<scalar_t>::kPlanarCommandYawRateIndex),
@@ -151,7 +151,7 @@ TEST(ContactPlannerYawRateOnTheWholeBody,
   referenceManager.preSolverRun(/*initTime=*/0.0, /*finalTime=*/kHorizon,
                                 turning, ModeNumber::kStance);
   EXPECT_NEAR(referenceManager.commandedYawRate(), kYawRate, 1.0e-12);
-  EXPECT_NEAR(referenceManager.getCommandedYawRate(/*time=*/0.0), kYawRate,
+  EXPECT_NEAR(referenceManager.getCmdRateYawBaseRtWorld(/*time=*/0.0), kYawRate,
               1.0e-12);
 
   // The heading model's measured rate: the base's turn about the world z axis.

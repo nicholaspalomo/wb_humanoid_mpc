@@ -71,19 +71,19 @@ using quaternion_t = quaternion_coeffs_t<scalar_t>;
 using rotation_t = rotation_vector_t<scalar_t>;
 
 constexpr scalar_t kPi = 3.14159265358979323846;
-constexpr scalar_t kHeadingRate = 1.0;                        // [rad/s]
-constexpr scalar_t kTurnDuration = 4.0 * kPi / kHeadingRate;  // 720 degrees
+constexpr scalar_t kRefRateYawBaseRtWorld = 1.0;                        // [rad/s]
+constexpr scalar_t kTurnDuration = 4.0 * kPi / kRefRateYawBaseRtWorld;  // 720 degrees
 constexpr scalar_t kMpcPeriod = 0.05;
 constexpr scalar_t kHorizon = 1.0;
 
-/** The reference: a level attitude turning about the world z axis at kHeadingRate, then holding 4 pi. */
-quaternion_t referenceAttitude(scalar_t t) {
-  const scalar_t heading = kHeadingRate * std::min(std::max(t, 0.0), kTurnDuration);
-  return quaternion_t(0.0, 0.0, std::sin(0.5 * heading), std::cos(0.5 * heading));
+/** The reference: a level attitude turning about the world z axis at kRefRateYawBaseRtWorld, then holding 4 pi. */
+quaternion_t getRefQuatBaseRtWorldXyzw(scalar_t t) {
+  const scalar_t refYawBaseRtWorld = kRefRateYawBaseRtWorld * std::min(std::max(t, 0.0), kTurnDuration);
+  return quaternion_t(0.0, 0.0, std::sin(0.5 * refYawBaseRtWorld), std::cos(0.5 * refYawBaseRtWorld));
 }
 
-rotation_t referenceAngularVelocity(scalar_t t) {
-  return rotation_t(/*x=*/0.0, /*y=*/0.0, /*z=*/(t < kTurnDuration) ? kHeadingRate : 0.0);
+rotation_t getRefAngvelBaseRtWorldEwrtBase(scalar_t t) {
+  return rotation_t(/*x=*/0.0, /*y=*/0.0, /*z=*/(t < kTurnDuration) ? kRefRateYawBaseRtWorld : 0.0);
 }
 
 /**
@@ -96,8 +96,8 @@ ScalarFunctionQuadraticApproximation attitudeTrackingApproximation(scalar_t t,
                                                                    scalar_t attitudeWeight,
                                                                    scalar_t rateWeight) {
   const quaternion_t xi = x.head<4>();
-  const rotation_t error = quaternionLog(quaternionProduct(quaternionConjugate(referenceAttitude(t)), xi));
-  const rotation_t rateError = x.tail<3>() - referenceAngularVelocity(t);
+  const rotation_t error = quaternionLog(quaternionProduct(quaternionConjugate(getRefQuatBaseRtWorldXyzw(t)), xi));
+  const rotation_t rateError = x.tail<3>() - getRefAngvelBaseRtWorldEwrtBase(t);
   const Eigen::Matrix<scalar_t, 3, 4> errorJacobian = so3RightJacobianInverse(error) * quaternionTangentMapPseudoInverse(xi);
 
   ScalarFunctionQuadraticApproximation approximation;
@@ -174,7 +174,7 @@ sqp::Settings solverSettings() {
 }
 
 struct AttitudeProblem {
-  AttitudeProblem() : dynamics(/*withPosition=*/false), manifold(dynamics.getStateManifold()) {
+  AttitudeProblem() : dynamics(/*withTranslation=*/false), manifold(dynamics.getStateManifold()) {
     problem.dynamicsPtr.reset(dynamics.clone());
     problem.costPtr->add("attitudeTracking", std::make_unique<AttitudeTrackingCost>());
     problem.finalCostPtr->add("attitudeTracking", std::make_unique<AttitudeTrackingFinalCost>());
@@ -190,15 +190,15 @@ struct AttitudeProblem {
 
 struct ClosedLoop {
   std::vector<scalar_t> times;                // the end of each MPC step
-  std::vector<scalar_t> headings;             // unwrapped twist heading of the plant relative to the start, per MPC step
-  std::vector<scalar_t> initialRotationGaps;  // rotation part of x(t0) (-) x_init of each warm-started solve
+  std::vector<scalar_t> unwrappedYawBaseRtWorldTraj;             // unwrapped twist heading of the plant relative to the start, per MPC step
+  std::vector<scalar_t> initialGapAngles;  // rotation part of x(t0) (-) x_init of each warm-started solve
   std::vector<vector_t> solverInitialStateGaps;  // SqpSolver::getInitialStateGap() of the same solves
   vector_array_t plantInputs;                 // the policy's input at the start of each step
   vector_t finalState;
   scalar_t maximumNormError = 0.0;  // over every plan state of every solve
 };
 
-scalar_t twistHeading(const vector_t& x) {
+scalar_t yawOf(const vector_t& x) {
   return 2.0 * std::atan2(x(2), x(3));
 }
 
@@ -219,7 +219,7 @@ ClosedLoop runClosedLoop(const vector_t& initState, scalar_t duration) {
 
   ClosedLoop result;
   vector_t x = initState;
-  scalar_t heading = 0.0;
+  scalar_t unwrappedYawBaseRtWorld = 0.0;
   PrimalSolution previous;
   const size_t numSteps = static_cast<size_t>(std::round(duration / kMpcPeriod));
   for (size_t step = 0; step < numSteps; ++step) {
@@ -227,7 +227,7 @@ ClosedLoop runClosedLoop(const vector_t& initState, scalar_t duration) {
     if (!previous.timeTrajectory_.empty()) {
       const vector_t warmStart =
           interpolateStateTrajectory(attitude.manifold.get(), t, previous.timeTrajectory_, previous.stateTrajectory_);
-      result.initialRotationGaps.push_back(attitude.manifold->difference(warmStart, x).head<3>().norm());
+      result.initialGapAngles.push_back(attitude.manifold->difference(warmStart, x).head<3>().norm());
     }
     const bool warmStarted = !previous.timeTrajectory_.empty();
     solver.run(t, x, /*initMode=*/0, t + kHorizon);
@@ -247,9 +247,9 @@ ClosedLoop runClosedLoop(const vector_t& initState, scalar_t duration) {
     ModeSchedule modeSchedule;
     x = plant.run(t, x, t + kMpcPeriod, previous.controllerPtr_.get(), modeSchedule, timeTrajectory, postEventIndices, stateTrajectory,
                   inputTrajectory);
-    const scalar_t newHeading = twistHeading(x);
-    heading += wrapToPi(newHeading - twistHeading(stateTrajectory.front()));
-    result.headings.push_back(heading);
+    const scalar_t yawBaseRtWorld = yawOf(x);
+    unwrappedYawBaseRtWorld += wrapToPi(yawBaseRtWorld - yawOf(stateTrajectory.front()));
+    result.unwrappedYawBaseRtWorldTraj.push_back(unwrappedYawBaseRtWorld);
     result.times.push_back(t + kMpcPeriod);
   }
   result.finalState = x;
@@ -266,18 +266,18 @@ TEST(SqpOnSO3, TracksA720DegreeTurnThroughEveryHalfTurnCrossing) {
   const ClosedLoop loop = runClosedLoop(initialState(1.0), kTurnDuration + 2.0);
 
   // Monotone heading while the reference turns, reaching 4 pi.
-  ASSERT_FALSE(loop.headings.empty());
-  for (size_t k = 1; k < loop.headings.size() && loop.times[k] <= kTurnDuration; ++k) {
-    ASSERT_GE(loop.headings[k], loop.headings[k - 1] - 1e-9) << "the heading went back at t = " << loop.times[k];
+  ASSERT_FALSE(loop.unwrappedYawBaseRtWorldTraj.empty());
+  for (size_t k = 1; k < loop.unwrappedYawBaseRtWorldTraj.size() && loop.times[k] <= kTurnDuration; ++k) {
+    ASSERT_GE(loop.unwrappedYawBaseRtWorldTraj[k], loop.unwrappedYawBaseRtWorldTraj[k - 1] - 1e-9) << "the heading went back at t = " << loop.times[k];
   }
-  EXPECT_NEAR(loop.headings.back(), 4.0 * kPi, 0.1);
+  EXPECT_NEAR(loop.unwrappedYawBaseRtWorldTraj.back(), 4.0 * kPi, 0.1);
   // ... and the attitude is the reference's (the identity) at the end.
-  const quaternion_t finalAttitude = loop.finalState.head<4>();
-  EXPECT_LT(quaternionLog(finalAttitude).norm(), 0.05);
+  const quaternion_t finalQuatBaseRtWorldXyzw = loop.finalState.head<4>();
+  EXPECT_LT(quaternionLog(finalQuatBaseRtWorldXyzw).norm(), 0.05);
 
   // No transient at the +-pi crossings: the warm start is always close to the measured state.
   scalar_t largestGap = 0.0;
-  for (const scalar_t gap : loop.initialRotationGaps) {
+  for (const scalar_t gap : loop.initialGapAngles) {
     largestGap = std::max(largestGap, gap);
   }
   EXPECT_LT(largestGap, 0.1);
@@ -285,8 +285,8 @@ TEST(SqpOnSO3, TracksA720DegreeTurnThroughEveryHalfTurnCrossing) {
   // Every iterate on the unit sphere.
   EXPECT_LT(loop.maximumNormError, 1e-12);
 
-  std::cout << "[SqpOnSO3] final heading " << loop.headings.back() << " rad (4 pi = " << 4.0 * kPi << "), largest initial rotation gap "
-            << largestGap << " rad, largest |norm - 1| of a plan state " << loop.maximumNormError << ", " << loop.headings.size()
+  std::cout << "[SqpOnSO3] final heading " << loop.unwrappedYawBaseRtWorldTraj.back() << " rad (4 pi = " << 4.0 * kPi << "), largest initial rotation gap "
+            << largestGap << " rad, largest |norm - 1| of a plan state " << loop.maximumNormError << ", " << loop.unwrappedYawBaseRtWorldTraj.size()
             << " solves\n";
 }
 
@@ -294,11 +294,11 @@ TEST(SqpOnSO3, RecordsTheInitialStateGapOfTheFirstIterationOnTheManifold) {
   // getInitialStateGap() is delta_x0 = difference(x[0], x_init) with x[0] the warm start slerped at the initial time: the
   // tangent gap the QP eliminates, whose rotation part is the gap measured from outside.
   const ClosedLoop loop = runClosedLoop(initialState(1.0), /*duration=*/1.0);
-  ASSERT_EQ(loop.solverInitialStateGaps.size(), loop.initialRotationGaps.size());
+  ASSERT_EQ(loop.solverInitialStateGaps.size(), loop.initialGapAngles.size());
   ASSERT_FALSE(loop.solverInitialStateGaps.empty());
   for (size_t k = 0; k < loop.solverInitialStateGaps.size(); ++k) {
     ASSERT_EQ(loop.solverInitialStateGaps[k].size(), 6) << k;  // the tangent of the attitude and the body rate
-    EXPECT_NEAR(loop.solverInitialStateGaps[k].head<3>().norm(), loop.initialRotationGaps[k], 1e-12) << k;
+    EXPECT_NEAR(loop.solverInitialStateGaps[k].head<3>().norm(), loop.initialGapAngles[k], 1e-12) << k;
   }
 }
 
@@ -310,7 +310,7 @@ TEST(SqpOnSO3, TheOtherQuaternionOfTheSameAttitudeGivesTheSameInputs) {
   for (size_t k = 0; k < plus.plantInputs.size(); ++k) {
     EXPECT_LT((plus.plantInputs[k] - minus.plantInputs[k]).cwiseAbs().maxCoeff(), 1e-12) << "step " << k;
   }
-  EXPECT_NEAR(plus.headings.back(), minus.headings.back(), 1e-12);
+  EXPECT_NEAR(plus.unwrappedYawBaseRtWorldTraj.back(), minus.unwrappedYawBaseRtWorldTraj.back(), 1e-12);
 }
 
 TEST(SqpOnSO3, AWarmStartMoreThanAQuarterTurnAwayIsDiscarded) {
@@ -346,7 +346,7 @@ TEST(SqpOnSO3, AWarmStartMoreThanAQuarterTurnAwayIsDiscarded) {
 }
 
 TEST(SqpOnSO3, AnInitialStateWithoutARotationIsRefused) {
-  // A quaternion at or below kQuaternionNormalizationEpsilon has no rotation the manifold can move: retract() leaves the
+  // A quaternion at or below kUnitQuaternionNormalizationEpsilon has no rotation the manifold can move: retract() leaves the
   // zero quaternion at zero and difference() reads every attitude as no rotation away from it, so a plan from it would
   // keep its attitude whatever is measured later.
   AttitudeProblem attitude;
@@ -357,12 +357,12 @@ TEST(SqpOnSO3, AnInitialStateWithoutARotationIsRefused) {
   zero.head<4>().setZero();
   EXPECT_THROW(solver.run(/*initTime=*/0.0, zero, /*initMode=*/0, /*finalTime=*/kHorizon), std::runtime_error);
   vector_t insideTheGuard = initialState(1.0);
-  insideTheGuard.head<4>() *= 0.1 * kQuaternionNormalizationEpsilon;
+  insideTheGuard.head<4>() *= 0.1 * kUnitQuaternionNormalizationEpsilon;
   EXPECT_THROW(solver.run(/*initTime=*/0.0, insideTheGuard, /*initMode=*/0, /*finalTime=*/kHorizon), std::runtime_error);
 
   // Just outside the guard the attitude is read through its direction, and the solve runs.
   vector_t outsideTheGuard = initialState(1.0);
-  outsideTheGuard.head<4>() *= 1.1 * kQuaternionNormalizationEpsilon;
+  outsideTheGuard.head<4>() *= 1.1 * kUnitQuaternionNormalizationEpsilon;
   EXPECT_NO_THROW(solver.run(/*initTime=*/0.0, outsideTheGuard, /*initMode=*/0, /*finalTime=*/kHorizon));
   EXPECT_NO_THROW(solver.run(/*initTime=*/0.0, initialState(1.0), /*initMode=*/0, /*finalTime=*/kHorizon));
 }
@@ -376,8 +376,8 @@ TEST(SqpOnSO3, AWarmStartWithoutARotationIsDiscarded) {
   SqpSolver planner(solverSettings(), attitude.problem, initializer);
   planner.setReferenceManager(referenceManager);
   planner.run(/*initTime=*/0.0, initialState(1.0), /*initMode=*/0, /*finalTime=*/kHorizon);
-  PrimalSolution withoutRotation = planner.primalSolution(kHorizon);
-  for (vector_t& state : withoutRotation.stateTrajectory_) {
+  PrimalSolution withoutAttitude = planner.primalSolution(kHorizon);
+  for (vector_t& state : withoutAttitude.stateTrajectory_) {
     state.head<4>().setZero();
   }
 
@@ -385,7 +385,7 @@ TEST(SqpOnSO3, AWarmStartWithoutARotationIsDiscarded) {
   measured.head<4>() = quaternionExp(rotation_t(0.3, 0.0, 0.0));
   SqpSolver warm(solverSettings(), attitude.problem, initializer);
   warm.setReferenceManager(referenceManager);
-  warm.run(/*initTime=*/kMpcPeriod, measured, /*initMode=*/0, /*finalTime=*/kMpcPeriod + kHorizon, withoutRotation);
+  warm.run(/*initTime=*/kMpcPeriod, measured, /*initMode=*/0, /*finalTime=*/kMpcPeriod + kHorizon, withoutAttitude);
   SqpSolver fresh(solverSettings(), attitude.problem, initializer);
   fresh.setReferenceManager(referenceManager);
   fresh.run(/*initTime=*/kMpcPeriod, measured, /*initMode=*/0, /*finalTime=*/kMpcPeriod + kHorizon);

@@ -105,7 +105,7 @@ pip.parse(
 )
 
 # The lint tools of tools/hooks/lint_code.py (cpplint, pylint, mypy, isort and black), from the same hashed lock the dev
-# image and CI's format job install, so that //tools/hooks:test_lint_tool_configs runs the real tools hermetically.
+# image and CI's format job install, so that //tools/hooks:test_lint_tool_configs runs them hermetically.
 # Lock regenerated with `bazel run //tools/hooks:lint_requirements.update`.
 pip.parse(
     hub_name = "lint_deps",

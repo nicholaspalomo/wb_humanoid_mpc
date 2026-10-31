@@ -161,8 +161,8 @@ struct VisualizationPublisherStatistics {
  * thread: setObservation() and setPolicy() are typically called from the solver
  * thread (MpcServer::Hooks::postSolveObserver), pushRobotState() from the bus's
  * IO thread (subscribeRobotState()). They copy their argument and return; the
- * copy reuses the mailbox's storage, so it allocates only when the shape of
- * what is copied changes.
+ * copy reuses the mailbox's storage, so it allocates only when the dimensions
+ * of what is copied change.
  *
  * Attaching it in the MPC node (see README.md of this package):
  *

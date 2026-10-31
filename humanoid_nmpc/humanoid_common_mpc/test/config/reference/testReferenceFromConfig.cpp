@@ -61,27 +61,28 @@ using DefaultedField = double mpc_config::ReferenceFile::*absl_nonnull;
 
 // The fields the MPC cannot do without.
 constexpr std::pair<absl::string_view, RequiredField> kRequiredFields[] = {
-    {"target_displacement_velocity",
-     &mpc_config::ReferenceFile::target_displacement_velocity},
-    {"target_rotation_velocity",
-     &mpc_config::ReferenceFile::target_rotation_velocity},
-    {"max_displacement_velocity_x",
-     &mpc_config::ReferenceFile::max_displacement_velocity_x},
-    {"max_displacement_velocity_y",
-     &mpc_config::ReferenceFile::max_displacement_velocity_y},
-    {"max_delta_pelvis_height",
-     &mpc_config::ReferenceFile::max_delta_pelvis_height},
-    {"max_rotation_velocity",
-     &mpc_config::ReferenceFile::max_rotation_velocity},
-    {"default_base_height", &mpc_config::ReferenceFile::default_base_height},
+    {"ref_speed_base_rt_world",
+     &mpc_config::ReferenceFile::ref_speed_base_rt_world},
+    {"ref_rate_yaw_base_rt_world",
+     &mpc_config::ReferenceFile::ref_rate_yaw_base_rt_world},
+    {"cmd_max_linvel_base_rt_world_ewrt_heading_x",
+     &mpc_config::ReferenceFile::cmd_max_linvel_base_rt_world_ewrt_heading_x},
+    {"cmd_max_linvel_base_rt_world_ewrt_heading_y",
+     &mpc_config::ReferenceFile::cmd_max_linvel_base_rt_world_ewrt_heading_y},
+    {"cmd_max_err_pos_base_rt_world_ewrt_world_z",
+     &mpc_config::ReferenceFile::cmd_max_err_pos_base_rt_world_ewrt_world_z},
+    {"cmd_max_angvel_base_rt_world_ewrt_world_z",
+     &mpc_config::ReferenceFile::cmd_max_angvel_base_rt_world_ewrt_world_z},
+    {"nom_pos_base_rt_world_ewrt_world_z",
+     &mpc_config::ReferenceFile::nom_pos_base_rt_world_ewrt_world_z},
 };
 
 // The fields an absent value of which stands for "off".
 constexpr std::pair<absl::string_view, DefaultedField> kDefaultedFields[] = {
-    {"max_linear_acceleration",
-     &mpc_config::ReferenceFile::max_linear_acceleration},
-    {"max_angular_acceleration",
-     &mpc_config::ReferenceFile::max_angular_acceleration},
+    {"cmd_max_linacc_base_rt_world_ewrt_heading_xy",
+     &mpc_config::ReferenceFile::cmd_max_linacc_base_rt_world_ewrt_heading_xy},
+    {"cmd_max_angacc_base_rt_world_ewrt_world_z",
+     &mpc_config::ReferenceFile::cmd_max_angacc_base_rt_world_ewrt_world_z},
     {"velocity_command_filter_break_frequency",
      &mpc_config::ReferenceFile::velocity_command_filter_break_frequency},
 };
@@ -89,17 +90,17 @@ constexpr std::pair<absl::string_view, DefaultedField> kDefaultedFields[] = {
 /** A file with every scalar field set, each to a value of its own. */
 mpc_config::ReferenceFile completeFile() {
   mpc_config::ReferenceFile file;
-  file.target_displacement_velocity = 1.25;
-  file.target_rotation_velocity = 2.25;
-  file.max_displacement_velocity_x = 3.25;
-  file.max_displacement_velocity_y = 4.25;
-  file.max_delta_pelvis_height = 5.25;
-  file.max_rotation_velocity = 6.25;
-  file.max_linear_acceleration = 7.25;
-  file.max_angular_acceleration = 8.25;
+  file.ref_speed_base_rt_world = 1.25;
+  file.ref_rate_yaw_base_rt_world = 2.25;
+  file.cmd_max_linvel_base_rt_world_ewrt_heading_x = 3.25;
+  file.cmd_max_linvel_base_rt_world_ewrt_heading_y = 4.25;
+  file.cmd_max_err_pos_base_rt_world_ewrt_world_z = 5.25;
+  file.cmd_max_angvel_base_rt_world_ewrt_world_z = 6.25;
+  file.cmd_max_linacc_base_rt_world_ewrt_heading_xy = 7.25;
+  file.cmd_max_angacc_base_rt_world_ewrt_world_z = 8.25;
   file.velocity_command_filter_break_frequency = 9.25;
   file.target_joint_state_interpolation_time_constant = 10.25;
-  file.default_base_height = 11.25;
+  file.nom_pos_base_rt_world_ewrt_world_z = 11.25;
   return file;
 }
 
@@ -117,18 +118,18 @@ TEST(ReferenceSettingsFromConfigTest, EveryFieldReachesItsMember) {
   const absl::StatusOr<ReferenceSettings> settings =
       referenceSettingsFromConfig(completeFile());
   ASSERT_TRUE(settings.ok()) << settings.status();
-  EXPECT_EQ(settings->targetDisplacementVelocity, 1.25);
-  EXPECT_EQ(settings->targetRotationVelocity, 2.25);
-  EXPECT_EQ(settings->maxDisplacementVelocityX, 3.25);
-  EXPECT_EQ(settings->maxDisplacementVelocityY, 4.25);
-  EXPECT_EQ(settings->maxDeltaPelvisHeight, 5.25);
-  EXPECT_EQ(settings->maxRotationVelocity, 6.25);
-  EXPECT_EQ(settings->maxLinearAcceleration, 7.25);
-  EXPECT_EQ(settings->maxAngularAcceleration, 8.25);
+  EXPECT_EQ(settings->refSpeedBaseRtWorld, 1.25);
+  EXPECT_EQ(settings->refRateYawBaseRtWorld, 2.25);
+  EXPECT_EQ(settings->cmdMaxLinvelBaseRtWorldEwrtHeadingX, 3.25);
+  EXPECT_EQ(settings->cmdMaxLinvelBaseRtWorldEwrtHeadingY, 4.25);
+  EXPECT_EQ(settings->cmdMaxErrPosBaseRtWorldEwrtWorldZ, 5.25);
+  EXPECT_EQ(settings->cmdMaxAngvelBaseRtWorldEwrtWorldZ, 6.25);
+  EXPECT_EQ(settings->cmdMaxLinaccBaseRtWorldEwrtHeadingXy, 7.25);
+  EXPECT_EQ(settings->cmdMaxAngaccBaseRtWorldEwrtWorldZ, 8.25);
   EXPECT_EQ(settings->velocityCommandFilterBreakFrequency, 9.25);
   EXPECT_EQ(settings->targetJointStateInterpolationTimeConstant,
             std::optional<scalar_t>(10.25));
-  EXPECT_EQ(settings->defaultBaseHeight, 11.25);
+  EXPECT_EQ(settings->nomPosBaseRtWorldEwrtWorldZ, 11.25);
 }
 
 TEST(ReferenceSettingsFromConfigTest,
@@ -152,8 +153,10 @@ TEST(ReferenceSettingsFromConfigTest,
       referenceSettingsFromConfig(requiredOnly());
   ASSERT_TRUE(settings.ok()) << settings.status();
   const ReferenceSettings defaults;
-  EXPECT_EQ(settings->maxLinearAcceleration, defaults.maxLinearAcceleration);
-  EXPECT_EQ(settings->maxAngularAcceleration, defaults.maxAngularAcceleration);
+  EXPECT_EQ(settings->cmdMaxLinaccBaseRtWorldEwrtHeadingXy,
+            defaults.cmdMaxLinaccBaseRtWorldEwrtHeadingXy);
+  EXPECT_EQ(settings->cmdMaxAngaccBaseRtWorldEwrtWorldZ,
+            defaults.cmdMaxAngaccBaseRtWorldEwrtWorldZ);
   EXPECT_EQ(settings->velocityCommandFilterBreakFrequency,
             defaults.velocityCommandFilterBreakFrequency);
   EXPECT_FALSE(settings->targetJointStateInterpolationTimeConstant.has_value())
@@ -165,8 +168,8 @@ TEST(ReferenceSettingsFromConfigTest,
        kDefaultedFields) {
     EXPECT_EQ(empty.*field.second, 0.0) << field.first;
   }
-  EXPECT_EQ(defaults.maxLinearAcceleration, 0.0);
-  EXPECT_EQ(defaults.maxAngularAcceleration, 0.0);
+  EXPECT_EQ(defaults.cmdMaxLinaccBaseRtWorldEwrtHeadingXy, 0.0);
+  EXPECT_EQ(defaults.cmdMaxAngaccBaseRtWorldEwrtWorldZ, 0.0);
   EXPECT_EQ(defaults.velocityCommandFilterBreakFrequency, 0.0);
 }
 
@@ -213,17 +216,18 @@ TEST(ReferenceSettingsFromConfigTest,
   // command. (An acceleration limit at or below 0 turns its ramp off:
   // TheCommandFilterIsOffAtZeroAndNeverNegative.)
   const std::vector<std::pair<absl::string_view, RequiredField>> positive = {
-      {"target_displacement_velocity",
-       &mpc_config::ReferenceFile::target_displacement_velocity},
-      {"target_rotation_velocity",
-       &mpc_config::ReferenceFile::target_rotation_velocity},
-      {"max_displacement_velocity_x",
-       &mpc_config::ReferenceFile::max_displacement_velocity_x},
-      {"max_displacement_velocity_y",
-       &mpc_config::ReferenceFile::max_displacement_velocity_y},
-      {"max_rotation_velocity",
-       &mpc_config::ReferenceFile::max_rotation_velocity},
-      {"default_base_height", &mpc_config::ReferenceFile::default_base_height},
+      {"ref_speed_base_rt_world",
+       &mpc_config::ReferenceFile::ref_speed_base_rt_world},
+      {"ref_rate_yaw_base_rt_world",
+       &mpc_config::ReferenceFile::ref_rate_yaw_base_rt_world},
+      {"cmd_max_linvel_base_rt_world_ewrt_heading_x",
+       &mpc_config::ReferenceFile::cmd_max_linvel_base_rt_world_ewrt_heading_x},
+      {"cmd_max_linvel_base_rt_world_ewrt_heading_y",
+       &mpc_config::ReferenceFile::cmd_max_linvel_base_rt_world_ewrt_heading_y},
+      {"cmd_max_angvel_base_rt_world_ewrt_world_z",
+       &mpc_config::ReferenceFile::cmd_max_angvel_base_rt_world_ewrt_world_z},
+      {"nom_pos_base_rt_world_ewrt_world_z",
+       &mpc_config::ReferenceFile::nom_pos_base_rt_world_ewrt_world_z},
       {"target_joint_state_interpolation_time_constant",
        &mpc_config::ReferenceFile::
            target_joint_state_interpolation_time_constant},
@@ -242,11 +246,11 @@ TEST(ReferenceSettingsFromConfigTest,
     }
   }
   mpc_config::ReferenceFile height = completeFile();
-  height.max_delta_pelvis_height = -0.1;
+  height.cmd_max_err_pos_base_rt_world_ewrt_world_z = -0.1;
   EXPECT_TRUE(
       absl::StrContains(referenceSettingsFromConfig(height).status().message(),
-                        "max_delta_pelvis_height: -0.1"));
-  height.max_delta_pelvis_height = 0.0;
+                        "cmd_max_err_pos_base_rt_world_ewrt_world_z: -0.1"));
+  height.cmd_max_err_pos_base_rt_world_ewrt_world_z = 0.0;
   EXPECT_TRUE(referenceSettingsFromConfig(height).ok())
       << "a pelvis height that may not change";
 }
@@ -265,7 +269,7 @@ TEST(ReferenceSettingsFromConfigTest,
       << negative.status();
   // A ramp at or below zero is off, as it always was: no sign rule.
   file = completeFile();
-  file.max_linear_acceleration = -1.0;
+  file.cmd_max_linacc_base_rt_world_ewrt_heading_xy = -1.0;
   EXPECT_TRUE(referenceSettingsFromConfig(file).ok());
 }
 

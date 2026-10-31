@@ -46,8 +46,8 @@ class MujocoSimInterface;
  * truth of the physics engine.
  *
  * A contact point counts as touching when MuJoCo reports more than
- * MujocoSimConfig::contactForceThreshold newtons of normal force between its
- * body and anything outside the robot (see
+ * MujocoSimConfig::minForceMjcontactEwrtMjcontactX newtons of normal force
+ * between its body and anything outside the robot (see
  * MujocoSimInterface::updateGroundTruthContacts). The flags are those of the
  * latest simulation step and are read without blocking the simulation thread. A
  * contact point whose MuJoCo body could not be resolved, and every contact

@@ -1475,7 +1475,7 @@ TEST(LipContactPlannerHeading, RelinearizedFrameMatchesThePlannedHeading) {
  * trajectory lives on whatever branch that plan started on. Crossing +-pi
  * between two plans, the warm-started nominal must follow the measurement's
  * branch: on the old branch every first-order frame term g (theta - theta_n)
- * was worth g 2 pi and the foot yaw tracking aimed a full turn away, so the
+ * equaled g 2 pi and the foot yaw tracking aimed a full turn away, so the
  * plan after the crossing was garbage.
  */
 TEST(LipContactPlannerHeading,

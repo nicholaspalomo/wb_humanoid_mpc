@@ -120,11 +120,11 @@ class EulerChartStateManifold final : public StateManifold {
                        scalar_t alpha,
                        vector_t& x) const override;
   void project(vector_t& x) const override { quaternionManifold_->project(x); }
-  scalar_t getMaximumRotationAngle(const vector_t& dx) const override {
-    return quaternionManifold_->getMaximumRotationAngle(dx);
+  scalar_t getMaximumTangentAngle(const vector_t& dx) const override {
+    return quaternionManifold_->getMaximumTangentAngle(dx);
   }
-  bool hasRepresentableRotations(const vector_t& x) const override {
-    return quaternionManifold_->hasRepresentableRotations(x);
+  bool hasRepresentableAttitudes(const vector_t& x) const override {
+    return quaternionManifold_->hasRepresentableAttitudes(x);
   }
   void pullBackStateColumns(const vector_t& x, matrix_t& J) const override {
     quaternionManifold_->pullBackStateColumns(x, J);

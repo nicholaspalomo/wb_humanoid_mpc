@@ -59,9 +59,10 @@ namespace ocs2::humanoid {
  * / 2 + 1/2 (n.w)(n x w): angular gains twice those of a law on the raw w and
  * alpha reproduce it there, but for that last term. The height row servoes the
  * foot to the ground the swing trajectory planner stands it on (its stance
- * height, getZpositionConstraint(): terrain_height, moved by a hot reload), as
- * the centroidal MPC's stance constraint does, so that a stance foot is held
- * where a swing foot lands: g_z = Ax_zz (z - z_ground) + Av_zz v_z + Aa_zz a_z.
+ * height, getDesPosFootRtWorldEwrtWorldZ(): terrain_height, moved by a hot
+ * reload), as the centroidal MPC's stance constraint does, so that a stance
+ * foot is held where a swing foot lands: g_z = Ax_zz (z - z_ground) + Av_zz v_z
+ * + Aa_zz a_z.
  *
  * Evaluated concurrently by the solver's workers, each on its own clone;
  * configure() is for the solver thread between two solves.

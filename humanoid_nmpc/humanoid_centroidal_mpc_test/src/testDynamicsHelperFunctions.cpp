@@ -60,20 +60,21 @@ TEST(TestDynamicsHelperFunctions, computeContactCoP) {
   // q = [p_W, xi, q_j] of a level base (the identity quaternion) at standing
   // height, the joints bent at random.
   vector_t state = model.getNeutralState();
-  model.setBasePosition(state, vector3_t(0.0, 0.0, 0.86566));
+  model.setPosBaseRtWorldEwrtWorld(state, vector3_t(0.0, 0.0, 0.86566));
   model.setJointAngles(
       state, vector_t::Random(static_cast<Eigen::Index>(model.getJointDim())));
   const vector_t q = model.getGeneralizedCoordinates(state);
 
   vector_t input =
       vector_t::Zero(testingModelInterface.getMpcRobotModel().getInputDim());
-  testingModelInterface.getMpcRobotModel().setContactForce(
+  testingModelInterface.getMpcRobotModel().setForceContactEwrtParam(
       input, vector3_t(0, 0, 100), /*contactIndex=*/0);
-  testingModelInterface.getMpcRobotModel().setContactForce(
+  testingModelInterface.getMpcRobotModel().setForceContactEwrtParam(
       input, vector3_t(50, 30, 100), /*contactIndex=*/1);
 
-  std::vector<vector3_t> contactPositions = computeContactPositions<scalar_t>(
-      q, pinocchioInterface, testingModelInterface.getMpcRobotModel());
+  std::vector<vector3_t> contactPositions =
+      computePosContactsRtWorldEwrtWorld<scalar_t>(
+          q, pinocchioInterface, testingModelInterface.getMpcRobotModel());
   // A pure force acts at the contact frame origin: the center of pressure is
   // the contact position.
   for (size_t contactIndex = 0; contactIndex < kNumContacts; ++contactIndex) {
@@ -95,7 +96,7 @@ TEST(TestDynamicsHelperFunctions,
       testingModelInterface.getPinocchioInterface();
   // A base yawed by 90 degrees at standing height, the joints bent at random.
   vector_t state = model.getNeutralState();
-  model.setBasePoseEulerZyx(
+  model.setPoseeulerzyxBaseRtWorld(
       state,
       (vector6_t() << 0.0, 0.0, 0.86566, M_PI / 2.0, 0.0, 0.0).finished());
   model.setJointAngles(
@@ -106,10 +107,10 @@ TEST(TestDynamicsHelperFunctions,
   // Off-center wrenches so that the CoPs are not trivially the contact frame
   // origins.
   vector_t input = vector_t::Zero(model.getInputDim());
-  model.setContactWrench(
+  model.setWrenchContactEwrtParam(
       input, (vector6_t() << 10.0, 5.0, 100.0, 1.0, -2.0, 0.5).finished(),
       /*contactIndex=*/0);
-  model.setContactWrench(
+  model.setWrenchContactEwrtParam(
       input, (vector6_t() << -20.0, 8.0, 150.0, -3.0, 4.0, -0.2).finished(),
       /*contactIndex=*/1);
 
@@ -137,10 +138,10 @@ TEST(TestDynamicsHelperFunctions, weightCompensatingInput) {
 
   vector_t inputDoubleContact =
       vector_t::Zero(testingModelInterface.getMpcRobotModel().getInputDim());
-  testingModelInterface.getMpcRobotModel().setContactForce(
+  testingModelInterface.getMpcRobotModel().setForceContactEwrtParam(
       inputDoubleContact, vector3_t(0, 0, totalGravitationalForce / 2),
       /*contactIndex=*/0);
-  testingModelInterface.getMpcRobotModel().setContactForce(
+  testingModelInterface.getMpcRobotModel().setForceContactEwrtParam(
       inputDoubleContact, vector3_t(0, 0, totalGravitationalForce / 2),
       /*contactIndex=*/1);
 
@@ -153,7 +154,7 @@ TEST(TestDynamicsHelperFunctions, weightCompensatingInput) {
 
   vector_t inputLeftContact =
       vector_t::Zero(testingModelInterface.getMpcRobotModel().getInputDim());
-  testingModelInterface.getMpcRobotModel().setContactForce(
+  testingModelInterface.getMpcRobotModel().setForceContactEwrtParam(
       inputLeftContact, vector3_t(0, 0, totalGravitationalForce),
       /*contactIndex=*/0);
 
@@ -166,7 +167,7 @@ TEST(TestDynamicsHelperFunctions, weightCompensatingInput) {
 
   vector_t inputRightContact =
       vector_t::Zero(testingModelInterface.getMpcRobotModel().getInputDim());
-  testingModelInterface.getMpcRobotModel().setContactForce(
+  testingModelInterface.getMpcRobotModel().setForceContactEwrtParam(
       inputRightContact, vector3_t(0, 0, totalGravitationalForce),
       /*contactIndex=*/1);
   EXPECT_TRUE(inputRightContact.isApprox(
@@ -176,7 +177,7 @@ TEST(TestDynamicsHelperFunctions, weightCompensatingInput) {
       weightCompensatingInput(pinocchioInterface, {false, true},
                               testingModelInterface.getMpcRobotModel())));
 
-  EXPECT_TRUE(ocs2::getNormalizedCentroidalMomentumRate(
+  EXPECT_TRUE(ocs2::getMnormRateCmomComRtWorldEwrtWorld(
                   pinocchioInterface, centroidalModelInfo, inputDoubleContact)
                   .isApprox(vector_t::Zero(6)));
 }
@@ -198,8 +199,8 @@ TEST(TestDynamicsHelperFunctions,
   // world-frame wrenches directly, so none of this may influence the
   // weight-compensating input.
   vector_t state = model.getNeutralState();
-  model.setBasePosition(state, vector3_t(0.3, -0.2, 0.86566));
-  model.setBaseOrientationEulerZyx(state, vector3_t(M_PI / 2.0, 0.1, -0.05));
+  model.setPosBaseRtWorldEwrtWorld(state, vector3_t(0.3, -0.2, 0.86566));
+  model.setEulerzyxBaseRtWorld(state, vector3_t(M_PI / 2.0, 0.1, -0.05));
   model.setJointAngles(state, vector_t::Random(model.getJointDim()));
 
   const scalar_t totalGravitationalForce = centroidalModelInfo.robotMass * 9.81;
@@ -230,9 +231,10 @@ TEST(TestDynamicsHelperFunctions,
     vector3_t totalForce = vector3_t::Zero();
     for (size_t i = 0; i < kNumContacts; ++i) {
       const vector3_t force =
-          model.getContactForceInWorldFrame(state, stateAwareFromPinocchio, i);
-      EXPECT_TRUE((force - model.getContactForce(stateAwareFromPinocchio, i))
-                      .isZero(0.0));
+          model.getForceContactEwrtWorld(state, stateAwareFromPinocchio, i);
+      EXPECT_TRUE(
+          (force - model.getForceContactEwrtParam(stateAwareFromPinocchio, i))
+              .isZero(0.0));
       if (!flags[i]) {
         EXPECT_TRUE(force.isZero(0.0))
             << "Swing foot " << i << " must carry no force";
@@ -276,7 +278,7 @@ TEST(TestDynamicsHelperFunctions,
                      robot->getPinocchioInterface().getModel());
       EXPECT_NEAR(info.robotMass * 9.81, weight, 1.0e-9 * weight);
       vector_t state = model.getNeutralState();
-      model.setBaseOrientationEulerZyx(state, vector3_t(0.3, 0.0, 0.0));
+      model.setEulerzyxBaseRtWorld(state, vector3_t(0.3, 0.0, 0.0));
 
       for (const contact_flag_t& flags :
            {contact_flag_t{true, true}, contact_flag_t{true, false},
@@ -294,7 +296,7 @@ TEST(TestDynamicsHelperFunctions,
         for (const vector_t& input : inputs) {
           vector3_t total = vector3_t::Zero();
           for (size_t i = 0; i < kNumContacts; ++i)
-            total += model.getContactForceInWorldFrame(state, input, i);
+            total += model.getForceContactEwrtWorld(state, input, i);
           EXPECT_NEAR(total.z(), weight, 1.0e-9 * weight);
           EXPECT_NEAR(total.head<2>().norm(), 0.0, 1.0e-9 * weight);
         }

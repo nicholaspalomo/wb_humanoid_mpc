@@ -170,7 +170,7 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
     return q;
   };
 
-  VECTOR3_T<SCALAR_T> getBasePosition(
+  VECTOR3_T<SCALAR_T> getPosBaseRtWorldEwrtWorld(
       const VECTOR_T<SCALAR_T>& state) const override {
     return state.head(kPositionDim);
   }
@@ -182,9 +182,9 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
 
   /**
    * The base velocity in the tuning order of the task file's
-   * base_linear_velocity and base_angular_velocity blocks: [dp_W (x, y, z), P_3
-   * w_B = the body angular velocity (z, y, x)] (design decision D18), not the
-   * twist (getBaseTwistInWorldFrame()).
+   * linvel_base_rt_world_ewrt_world and angvel_base_rt_world_ewrt_base blocks:
+   * [dp_W (x, y, z), P_3 w_B = the body angular velocity (z, y, x)] (design
+   * decision D18), not the twist (getTwistBaseRtWorldEwrtWorld()).
    */
   VECTOR6_T<SCALAR_T> getBaseComVelocity(
       const VECTOR_T<SCALAR_T>& state) const override {
@@ -239,8 +239,9 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
     state.head(this->getConfigurationDim()) = generalizedCorrdinates;
   }
 
-  void setBasePosition(VECTOR_T<SCALAR_T>& state,
-                       const VECTOR3_T<SCALAR_T>& position) const override {
+  void setPosBaseRtWorldEwrtWorld(
+      VECTOR_T<SCALAR_T>& state,
+      const VECTOR3_T<SCALAR_T>& position) const override {
     state.head(kPositionDim) = position;
   }
 
@@ -262,8 +263,8 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
     state.tail(this->modelSettings.mpc_joint_dim) = jointVelocities;
   }
 
-  void adaptBasePoseHeight(VECTOR_T<SCALAR_T>& state,
-                           scalar_t heightChange) const override {
+  void adaptPosBaseRtWorldEwrtWorldZ(VECTOR_T<SCALAR_T>& state,
+                                     scalar_t heightChange) const override {
     state[kZAxisIndex] += heightChange;
   }
 
@@ -272,68 +273,68 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
    * quaternion layout             */
   /******************************************************************************************************/
 
-  VECTOR4_T<SCALAR_T> getBaseOrientation(
+  VECTOR4_T<SCALAR_T> getQuatBaseRtWorldXyzw(
       const VECTOR_T<SCALAR_T>& state) const override {
     return safelyNormalizedQuaternion(
         VECTOR4_T<SCALAR_T>(state.template segment<kQuaternionCoefficients>(
             getBaseOrientationStartIndex())));
   }
 
-  void setBaseOrientation(vector_t& state,
-                          const vector4_t& orientation) const override {
+  void setQuatBaseRtWorldXyzw(vector_t& state,
+                              const vector4_t& orientation) const override {
     state.segment<kQuaternionCoefficients>(getBaseOrientationStartIndex()) =
         safelyNormalizedQuaternion(orientation);
   }
 
-  scalar_t getBaseHeading(const vector_t& state) const override {
-    return twistHeading(baseOrientationOf(state));
+  scalar_t getYawBaseRtWorld(const vector_t& state) const override {
+    return yawOf(baseOrientationOf(state));
   }
 
   // NOLINTBEGIN(euler-boundary): Euler boundary accessor (design section 4.2)
-  vector6_t getBasePoseEulerZyx(const vector_t& state) const override {
+  vector6_t getPoseeulerzyxBaseRtWorld(const vector_t& state) const override {
     vector6_t basePose;
     basePose << state.segment<kPositionDim>(getBaseStartindex()),
-        getBaseOrientationEulerZyx(state);
+        getEulerzyxBaseRtWorld(state);
     return basePose;
   }
 
-  void setBasePoseEulerZyx(vector_t& state,
-                           const vector6_t& basePose) const override {
+  void setPoseeulerzyxBaseRtWorld(vector_t& state,
+                                  const vector6_t& basePose) const override {
     state.segment<kPositionDim>(getBaseStartindex()) =
         basePose.head<kPositionDim>();
-    setBaseOrientationEulerZyx(state, basePose.tail<kEulerAnglesZyxDim>());
+    setEulerzyxBaseRtWorld(state, basePose.tail<kEulerAnglesZyxDim>());
   }
 
-  vector3_t getBaseOrientationEulerZyx(const vector_t& state) const override {
+  vector3_t getEulerzyxBaseRtWorld(const vector_t& state) const override {
     return eulerZyxFromQuaternion(baseOrientationOf(state));
   }
 
-  void setBaseOrientationEulerZyx(vector_t& state,
-                                  const vector3_t& eulerZyx) const override {
+  void setEulerzyxBaseRtWorld(vector_t& state,
+                              const vector3_t& eulerZyx) const override {
     state.segment<kQuaternionCoefficients>(getBaseOrientationStartIndex()) =
         quaternionFromEulerZyx(eulerZyx);
   }
   // NOLINTEND(euler-boundary)
 
-  vector3_t getBaseAngularVelocityLocal(const vector_t& state) const override {
+  vector3_t getAngvelBaseRtWorldEwrtBase(const vector_t& state) const override {
     return state.segment<kRotationTangentDim>(baseAngularVelocityStartIndex());
   }
 
-  void setBaseAngularVelocityLocal(
+  void setAngvelBaseRtWorldEwrtBase(
       vector_t& state, const vector3_t& angularVelocityLocal) const override {
     state.segment<kRotationTangentDim>(baseAngularVelocityStartIndex()) =
         angularVelocityLocal;
   }
 
-  void setBaseAngularVelocityFromWorldYawRate(vector_t& state,
-                                              scalar_t yawRate) const override {
+  void setTurnAngvelBaseRtWorldEwrtBase(vector_t& state,
+                                        scalar_t yawRate) const override {
     state.segment<kRotationTangentDim>(baseAngularVelocityStartIndex()) =
         quaternionRotationMatrix<scalar_t>(baseOrientationOf(state))
             .transpose() *
         vector3_t(0.0, 0.0, yawRate);
   }
 
-  BaseAngularVelocityJacobian getBaseAngularVelocityLocalJacobian(
+  BaseAngularVelocityJacobian getJacobianAngvelBaseRtWorldEwrtBase(
       const vector_t& /*state*/) const override {
     return BaseAngularVelocityJacobian{
         .orientationSlots =
@@ -347,17 +348,18 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
    * held to the size of the interface all the same (ABSL_CHECK), as the
    * centroidal model, which reads it, is.
    */
-  vector6_t getBaseTwistInWorldFrame(
+  vector6_t getTwistBaseRtWorldEwrtWorld(
       const vector_t& state, const vector_t& jointVelocities) const override {
     ABSL_CHECK_EQ(static_cast<size_t>(jointVelocities.size()),
                   this->getJointDim())
-        << "WBAccelMpcRobotModel::getBaseTwistInWorldFrame: one joint velocity "
+        << "WBAccelMpcRobotModel::getTwistBaseRtWorldEwrtWorld: one joint "
+           "velocity "
            "per MPC joint";
     return baseTwistOf(state);
   }
 
-  /** (v_x, v_y, w_z) of the knot's base twist (getBaseTwistInWorldFrame()); the
-   * knot stores the velocity, no inertia is read. */
+  /** (v_x, v_y, w_z) of the knot's base twist (getTwistBaseRtWorldEwrtWorld());
+   * the knot stores the velocity, no inertia is read. */
   vector3_t getTargetPlanarCommand(
       const vector_t& targetState,
       scalar_t /*compositeYawInertia*/) const override {
@@ -379,7 +381,7 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
       scalar_t time,
       const scalar_array_t& times,
       const vector_array_t& states) const override {
-    return this->interpolateWithSlerpedOrientation(time, times, states);
+    return this->interpolateWithSlerpedQuatBaseRtWorld(time, times, states);
   }
 
   vector_t getNeutralState() const override {
@@ -441,39 +443,39 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
   /*                                          Contacts */
   /******************************************************************************************************/
 
-  VECTOR6_T<SCALAR_T> getContactWrench(const VECTOR_T<SCALAR_T>& input,
-                                       size_t contactIndex) const override {
+  VECTOR6_T<SCALAR_T> getWrenchContactEwrtParam(
+      const VECTOR_T<SCALAR_T>& input, size_t contactIndex) const override {
     return input.segment(getContactWrenchStartIndices(contactIndex),
                          kWrenchDim);
   };
 
-  VECTOR3_T<SCALAR_T> getContactForce(const VECTOR_T<SCALAR_T>& input,
-                                      size_t contactIndex) const override {
+  VECTOR3_T<SCALAR_T> getForceContactEwrtParam(
+      const VECTOR_T<SCALAR_T>& input, size_t contactIndex) const override {
     return input.segment(getContactForceStartIndices(contactIndex), kForceDim);
   };
 
-  VECTOR3_T<SCALAR_T> getContactMoment(const VECTOR_T<SCALAR_T>& input,
-                                       size_t contactIndex) const override {
+  VECTOR3_T<SCALAR_T> getTorqueContactEwrtParam(
+      const VECTOR_T<SCALAR_T>& input, size_t contactIndex) const override {
     return input.segment(getContactMomentStartIndices(contactIndex),
                          kTorqueDim);
   };
 
-  void setContactWrench(VECTOR_T<SCALAR_T>& input,
-                        const VECTOR6_T<SCALAR_T>& wrench,
-                        size_t contactIndex) const override {
+  void setWrenchContactEwrtParam(VECTOR_T<SCALAR_T>& input,
+                                 const VECTOR6_T<SCALAR_T>& wrench,
+                                 size_t contactIndex) const override {
     input.segment(getContactWrenchStartIndices(contactIndex), kWrenchDim) =
         wrench;
   };
 
-  void setContactForce(VECTOR_T<SCALAR_T>& input,
-                       const VECTOR3_T<SCALAR_T>& force,
-                       size_t contactIndex) const override {
+  void setForceContactEwrtParam(VECTOR_T<SCALAR_T>& input,
+                                const VECTOR3_T<SCALAR_T>& force,
+                                size_t contactIndex) const override {
     input.segment(getContactForceStartIndices(contactIndex), kForceDim) = force;
   };
 
-  void setContactMoment(VECTOR_T<SCALAR_T>& input,
-                        const VECTOR3_T<SCALAR_T>& moment,
-                        size_t contactIndex) const override {
+  void setTorqueContactEwrtParam(VECTOR_T<SCALAR_T>& input,
+                                 const VECTOR3_T<SCALAR_T>& moment,
+                                 size_t contactIndex) const override {
     input.segment(getContactMomentStartIndices(contactIndex), kTorqueDim) =
         moment;
   };
@@ -507,7 +509,8 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
     return kBaseAngularVelocityOffset + this->modelSettings.mpc_joint_dim;
   }
 
-  // getBaseOrientation() of a state in double precision, for every SCALAR_T.
+  // getQuatBaseRtWorldXyzw() of a state in double precision, for every
+  // SCALAR_T.
   vector4_t baseOrientationOf(const vector_t& state) const {
     return safelyNormalizedQuaternion(
         vector4_t(state.segment<kQuaternionCoefficients>(
@@ -515,14 +518,14 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
   }
 
   // [dp_W, R(xi) w_B] of the state's base velocity slots
-  // (getBaseTwistInWorldFrame()).
+  // (getTwistBaseRtWorldEwrtWorld()).
   vector6_t baseTwistOf(const vector_t& state) const {
     vector6_t twist;
     twist.head<kPositionDim>() =
         state.segment<kPositionDim>(baseLinearVelocityStartIndex());
     twist.tail<kRotationTangentDim>() =
         quaternionRotationMatrix<scalar_t>(baseOrientationOf(state)) *
-        getBaseAngularVelocityLocal(state);
+        getAngvelBaseRtWorldEwrtBase(state);
     return twist;
   }
 };

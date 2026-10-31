@@ -153,7 +153,7 @@ absl::StatusOr<vector_t> knotState(
   ASSIGN_OR_RETURN(const vector3_t basePosition,
                    knotVector(knot.base_position, index, "base_position",
                               Presence::kRequired));
-  model.setBasePosition(state, basePosition);
+  model.setPosBaseRtWorldEwrtWorld(state, basePosition);
   if (knot.base_orientation_xyzw.size() != kQuaternionCoefficients) {
     return knotError(index, "base_orientation_xyzw is not 4 coefficients.");
   }
@@ -163,7 +163,7 @@ absl::StatusOr<vector_t> knotState(
       std::abs(quaternion.norm() - 1.0) > kUnitQuaternionTolerance) {
     return knotError(index, "base_orientation_xyzw is not a unit quaternion.");
   }
-  model.setBaseOrientation(state, quaternion);
+  model.setQuatBaseRtWorldXyzw(state, quaternion);
 
   if (static_cast<size_t>(knot.joint_positions.size()) !=
       plan.joint_names.size()) {
@@ -257,7 +257,7 @@ ContactPatchFrame PlannedMotion::patchFrameOf(const vector3_t& point,
   worldToPatch.row(0) = x.transpose();
   worldToPatch.row(1) = y.transpose();
   worldToPatch.row(kZAxisIndex) = normal.transpose();
-  return ContactPatchFrame{.worldToPatchRotation = worldToPatch,
+  return ContactPatchFrame{.rotmatWorldRtSurface = worldToPatch,
                            .normalOffset = normal.dot(point)};
 }
 
@@ -288,11 +288,12 @@ absl::StatusOr<vector_t> knotWrenches(
       return knotError(index, absl::StrCat("its wrench of '", wrench.contact,
                                            "' has vectors of the wrong size."));
     }
-    model.setContactForce(input, vector3_t(wrench.force), *mpcIndex);
+    model.setForceContactEwrtParam(input, vector3_t(wrench.force), *mpcIndex);
     if (wrench.torque.size() == kTorqueDim &&
         model.getContactInputDim(*mpcIndex) ==
             static_cast<size_t>(kWrenchDim)) {
-      model.setContactMoment(input, vector3_t(wrench.torque), *mpcIndex);
+      model.setTorqueContactEwrtParam(input, vector3_t(wrench.torque),
+                                      *mpcIndex);
     }
   }
   return input;

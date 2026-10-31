@@ -393,7 +393,7 @@ class MixedIntegerOcpQp::Search {
 
   /**
    * Solves the relaxation of `node` and branches on it: queues one child in
-   * `open` and returns the other to dive into, or nothing when the node is
+   * `open` and returns the other to explore next, or nothing when the node is
    * pruned, infeasible or closed.
    */
   std::optional<Node> expand(Node node, OpenNodes& open) {

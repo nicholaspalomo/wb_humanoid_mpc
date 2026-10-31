@@ -66,28 +66,28 @@ ensure_limit() {
     local key="$1" bytes="$2" field="$3" current
     [ "${bytes}" -gt 0 ] || return 0
     if ! current="$(on_host "${sysctl_command} -n ${key}")"; then
-        echo "⚠️  udp_buffers.sh: cannot read ${key} on ${host}; the bus works with the kernel's limit." >&2
+        echo "Warning: udp_buffers.sh: cannot read ${key} on ${host}; the bus works with the kernel's limit." >&2
         return 0
     fi
     current="$(echo "${current}" | tr -d '[:space:]')"
     if [ "${current}" -ge "${bytes}" ]; then
-        echo "✅ ${key} on ${host} is ${current} B, at least the ${bytes} B of ${field} in ${network}."
+        echo "${key} on ${host} is ${current} B, at least the ${bytes} B of ${field} in ${network}."
         return 0
     fi
     local hint="sudo sysctl -w ${key}=${bytes}, and keep it in ${sysctl_dir}/60-wb-humanoid-${key}.conf"
     if [ "${host}" = "localhost" ] && [ -f "${dockerenv}" ]; then
-        echo "⚠️  ${key} is ${current} B here, below the ${bytes} B of ${field} in ${network}, and a container cannot" \
+        echo "Warning: ${key} is ${current} B here, below the ${bytes} B of ${field} in ${network}, and a container cannot" \
             "raise the host's limit. On the host run: ${hint} (or make udp-buffers there)." >&2
         return 0
     fi
-    echo "🔧 ${key} on ${host} is ${current} B, below the ${bytes} B of ${field} in ${network}: raising it (sudo)."
+    echo "${key} on ${host} is ${current} B, below the ${bytes} B of ${field} in ${network}: raising it (sudo)."
     local conf="${sysctl_dir}/60-wb-humanoid-${key}.conf"
     if on_host "${sudo_command} ${sysctl_command} -w ${key}=${bytes} > /dev/null &&
             printf '# Set by tools/deploy/udp_buffers.sh for the DDS bus (${field} of the network file).\n%s = %s\n' \
                 '${key}' '${bytes}' | ${sudo_command} tee '${conf}' > /dev/null"; then
-        echo "✅ ${key} on ${host} is now ${bytes} B, kept in ${conf}."
+        echo "${key} on ${host} is now ${bytes} B, kept in ${conf}."
     else
-        echo "⚠️  udp_buffers.sh: could not raise ${key} on ${host}; the bus works with ${current} B. Run: ${hint}." >&2
+        echo "Warning: udp_buffers.sh: could not raise ${key} on ${host}; the bus works with ${current} B. Run: ${hint}." >&2
     fi
 }
 

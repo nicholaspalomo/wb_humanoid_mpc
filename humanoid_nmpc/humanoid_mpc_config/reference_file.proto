@@ -25,22 +25,22 @@ message ReferenceFile {
   reserved 15 to max;
 
   // [m/s] The speed a base pose command travels at: the time to reach the target is the distance over it. Required.
-  double target_displacement_velocity = 1 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT unit: "m/s" minimum: 0 }];
+  double ref_speed_base_rt_world = 1 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT unit: "m/s" minimum: 0 }];
   // [rad/s] The yaw rate a base pose command turns at. Required.
-  double target_rotation_velocity = 2 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT unit: "rad/s" minimum: 0 }];
+  double ref_rate_yaw_base_rt_world = 2 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT unit: "rad/s" minimum: 0 }];
   // [m/s] The forward and the sideways velocity of a full stick deflection: the MPC scales the operator's normalized
   // walking command by them, and the keyboard teleoperation normalizes its command by them. Required.
   // LINT.IfChange(derive_parameters_command_limits)
-  double max_displacement_velocity_x = 3 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT unit: "m/s" minimum: 0 }];
-  double max_displacement_velocity_y = 4 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT unit: "m/s" minimum: 0 }];
-  // [m] The largest change of the base height a command may ask for, either way of default_base_height. Required.
-  double max_delta_pelvis_height = 5 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT unit: "m" minimum: 0 }];
+  double cmd_max_linvel_base_rt_world_ewrt_heading_x = 3 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT unit: "m/s" minimum: 0 }];
+  double cmd_max_linvel_base_rt_world_ewrt_heading_y = 4 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT unit: "m/s" minimum: 0 }];
+  // [m] The largest change of the base height a command may ask for, either way of nom_pos_base_rt_world_ewrt_world_z. Required.
+  double cmd_max_err_pos_base_rt_world_ewrt_world_z = 5 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT unit: "m" minimum: 0 }];
   // [rad/s] The yaw rate of a full stick deflection. Required.
-  double max_rotation_velocity = 6 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT unit: "rad/s" minimum: 0 }];
+  double cmd_max_angvel_base_rt_world_ewrt_world_z = 6 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT unit: "rad/s" minimum: 0 }];
   // LINT.ThenChange(//tools/locomotion_heuristics/derive_parameters.py:derive_parameters_inputs)
   // [m/s^2], [rad/s^2] The acceleration limits of the velocity reference the MPC target and the contact planner follow,
   // the linear one in the (x, y) plane; 0 turns a ramp off, an unramped reference.
-  double max_linear_acceleration = 7 [
+  double cmd_max_linacc_base_rt_world_ewrt_heading_xy = 7 [
     default = 0.0,
     (humanoid_mpc_config.tuning) = {
       reload: RELOAD_HOT
@@ -48,7 +48,7 @@ message ReferenceFile {
       minimum: 0
     }
   ];
-  double max_angular_acceleration = 8 [
+  double cmd_max_angacc_base_rt_world_ewrt_world_z = 8 [
     default = 0.0,
     (humanoid_mpc_config.tuning) = {
       reload: RELOAD_HOT
@@ -78,7 +78,7 @@ message ReferenceFile {
   // [m] The base height above the ground of the default posture, which a command without a pelvis height asks for.
   // Required.
   // LINT.IfChange(derive_parameters_base_height)
-  double default_base_height = 11 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT unit: "m" minimum: 0 }];
+  double nom_pos_base_rt_world_ewrt_world_z = 11 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT unit: "m" minimum: 0 }];
   // LINT.ThenChange(//tools/locomotion_heuristics/derive_parameters.py:derive_parameters_inputs)
   // [rad] The joint positions of the default posture, by joint name (formerly defaultJointState by index): every joint
   // of the MPC model exactly once, in any order; a fixed joint or a name the model does not have is refused.

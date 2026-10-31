@@ -117,7 +117,7 @@ model_settings {
 
 contacts {
   # The soles (foot_l_contact, foot_r_contact).
-  contact_frame_translation { x: 0.04 y: 0 z: -0.082 }
+  pos_contact_rt_link_ewrt_link { x: 0.04 y: 0 z: -0.082 }
   contact_rectangle { x_min: -0.12 x_max: 0.12 y_min: -0.055 y_max: 0.055 }
   # The seat and the torso pads.
   surface_pads {
@@ -146,8 +146,8 @@ contacts {
   contact_wrench_cone_soft_constraint {
     friction_coefficient: 0.5
     torsional_friction_coefficient: 0.05
-    min_normal_force: 5
-    gripper_force: 0
+    min_force_contact_ewrt_contact_z: 5
+    grip_force_contact_ewrt_contact_z: 0
     num_basis_vectors: 4
     # Stiff: a softer barrier lets the CoP out of the sole by millimeters under a stair's single supports, outside the
     # certifier's cone.
@@ -171,13 +171,13 @@ joint_limits {
 }
 
 swing_trajectory_config {
-  lift_off_velocity: 0.05
-  touch_down_velocity: -0.05
+  liftoff_linvel_foot_rt_world_ewrt_world_z: 0.05
+  touchdown_linvel_foot_rt_world_ewrt_world_z: -0.05
   swing_height: 0.08
   touch_down_height_offset: 0.04
   swing_time_scale: 0.25
-  impact_proximity_factor_lift_off_velocity: -0.15
-  impact_proximity_factor_touch_down_velocity: 0.3
+  impact_proximity_factor_liftoff_slope: -0.15
+  impact_proximity_factor_touchdown_slope: 0.3
   impact_proximity_factor_mid_point_value: 0
 }
 
@@ -216,10 +216,10 @@ mpc {
 
 # The task file's start; the MPC starts from the plan's first knot instead.
 initial_state {
-  normalized_linear_momentum { x: 0 y: 0 z: 0 }
-  normalized_angular_momentum { x: 0 y: 0 z: 0 }
-  base_position { x: 0 y: 0 z: 0.8952 }
-  base_orientation { yaw: 0 pitch: 0 roll: 0 }
+  mnorm_linmom_com_rt_world_ewrt_world { x: 0 y: 0 z: 0 }
+  mnorm_angmom_com_rt_world_ewrt_world { x: 0 y: 0 z: 0 }
+  pos_base_rt_world_ewrt_world { x: 0 y: 0 z: 0.8952 }
+  eulerzyx_base_rt_world { yaw: 0 pitch: 0 roll: 0 }
   joint_positions { joint: "back_bkz" value: 0 }
   joint_positions { joint: "back_bky" value: 0 }
   joint_positions { joint: "back_bkx" value: 0 }
@@ -254,10 +254,10 @@ initial_state {
 # near the pitch of 90 degrees of a robot lying down (design section 8.1, scenario 4).
 state_weights {
   scaling: 85
-  normalized_linear_momentum { x: 10 y: 10 z: 15 }
-  normalized_angular_momentum { x: 20 y: 25 z: 5 }
-  base_position { x: 75 y: 75 z: 15 }
-  base_orientation { yaw: 30 pitch: 30 roll: 30 }
+  mnorm_linmom_com_rt_world_ewrt_world { x: 10 y: 10 z: 15 }
+  mnorm_angmom_com_rt_world_ewrt_world { x: 20 y: 25 z: 5 }
+  pos_base_rt_world_ewrt_world { x: 75 y: 75 z: 15 }
+  eulerzyx_base_rt_world { yaw: 30 pitch: 30 roll: 30 }
   joint_positions { joint: "back_bkz" value: 5 }
   joint_positions { joint: "back_bky" value: 5 }
   joint_positions { joint: "back_bkx" value: 15 }
@@ -291,10 +291,10 @@ state_weights {
 terminal_cost_scaling: 4
 final_state_weights {
   scaling: 85
-  normalized_linear_momentum { x: 10 y: 10 z: 15 }
-  normalized_angular_momentum { x: 5 y: 5 z: 2 }
-  base_position { x: 25 y: 25 z: 15 }
-  base_orientation { yaw: 30 pitch: 30 roll: 30 }
+  mnorm_linmom_com_rt_world_ewrt_world { x: 10 y: 10 z: 15 }
+  mnorm_angmom_com_rt_world_ewrt_world { x: 5 y: 5 z: 2 }
+  pos_base_rt_world_ewrt_world { x: 25 y: 25 z: 15 }
+  eulerzyx_base_rt_world { yaw: 30 pitch: 30 roll: 30 }
   joint_positions { joint: "back_bkz" value: 5 }
   joint_positions { joint: "back_bky" value: 5 }
   joint_positions { joint: "back_bkx" value: 15 }

@@ -139,15 +139,15 @@ message ContactPlanningFile {
       // rho_2
       double threshold = 2 [default = 0.02, (humanoid_mpc_config.tuning) = { slider_min: 0.001 }];
       // [m/s]
-      double max_commanded_velocity_x = 3 [default = 0.7, (humanoid_mpc_config.tuning) = { unit: "m/s" }];
+      double cmd_max_linvel_base_rt_world_ewrt_heading_x = 3 [default = 0.7, (humanoid_mpc_config.tuning) = { unit: "m/s" }];
       // [m/s]
-      double max_commanded_velocity_y = 4 [default = 0.25, (humanoid_mpc_config.tuning) = { unit: "m/s" }];
+      double cmd_max_linvel_base_rt_world_ewrt_heading_y = 4 [default = 0.25, (humanoid_mpc_config.tuning) = { unit: "m/s" }];
       // [rad/s]
-      double max_commanded_yaw_rate = 5 [default = 0.61, (humanoid_mpc_config.tuning) = { unit: "rad/s" }];
+      double cmd_max_angvel_base_rt_world_ewrt_world_z = 5 [default = 0.61, (humanoid_mpc_config.tuning) = { unit: "rad/s" }];
       // [m/s]
-      double max_com_velocity_x = 6 [default = 0.5, (humanoid_mpc_config.tuning) = { unit: "m/s" }];
+      double max_linvel_com_rt_world_ewrt_heading_x = 6 [default = 0.5, (humanoid_mpc_config.tuning) = { unit: "m/s" }];
       // [m/s]
-      double max_com_velocity_y = 7 [default = 0.4, (humanoid_mpc_config.tuning) = { unit: "m/s" }];
+      double max_linvel_com_rt_world_ewrt_heading_y = 7 [default = 0.4, (humanoid_mpc_config.tuning) = { unit: "m/s" }];
     }
 
     // [s] The single support.
@@ -408,7 +408,7 @@ message ContactPlanningFile {
     // [s] The touch-down is pushed this far ahead of the current time per cycle.
     double late_touchdown_extension_step = 5 [default = 0.05, (humanoid_mpc_config.tuning) = { unit: "s" slider_min: 0.005 }];
     // [m/s] The foot height target descends at this rate during the extension.
-    double late_touchdown_search_velocity = 6 [default = 0.05, (humanoid_mpc_config.tuning) = { unit: "m/s" }];
+    double late_touchdown_search_speed_foot_rt_world = 6 [default = 0.05, (humanoid_mpc_config.tuning) = { unit: "m/s" }];
   }
 
   // Next ID: 3
@@ -489,6 +489,7 @@ message ContactPlanningFile {
   HeadingRateTrackingConfig heading_rate_tracking = 16 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
   HeadingTrackingConfig heading_tracking = 17 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
   FootYawTrackingConfig foot_yaw_tracking = 18 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  // NOLINTNEXTLINE(frame-naming): the block of the cost term `yaw_torque_regularization`, named after its registry name
   YawTorqueRegularizationConfig yaw_torque_regularization = 19 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
   FootYawRegularizationConfig foot_yaw_regularization = 20 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
   ZmpRegularizationConfig zmp_regularization = 21 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];

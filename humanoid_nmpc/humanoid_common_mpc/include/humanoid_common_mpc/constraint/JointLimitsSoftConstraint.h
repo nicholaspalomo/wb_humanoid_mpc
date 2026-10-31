@@ -55,13 +55,13 @@ class JointLimitsSoftConstraint final : public StateCost {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
   /**
-   * @param positionLimits : the lower and upper position limits of the MPC
+   * @param jointPositionLimits : the lower and upper position limits of the MPC
    * joints.
    * @param barrierSettings : Settings for the position barrier penalty
    * function.
    */
   JointLimitsSoftConstraint(
-      JointPositionLimits positionLimits,
+      JointPositionLimits jointPositionLimits,
       ocs2::PieceWisePolynomialBarrierPenalty::Config barrierSettings,
       const MpcRobotModelBase<scalar_t>& mpcRobotModel);
 
@@ -102,7 +102,7 @@ class JointLimitsSoftConstraint final : public StateCost {
 
   std::unique_ptr<PieceWisePolynomialBarrierPenalty> jointPositionPenaltyPtr_;
   const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModelPtr_;
-  JointPositionLimits positionLimits_;
+  JointPositionLimits jointPositionLimits_;
   bool isActive_ = true;
 };
 

@@ -59,7 +59,7 @@ partial result never shrinks it. A query that lists no target leaves it as it wa
 content changes, so that clangd, which may reload it whenever it changes, has nothing to reload otherwise.
 
 `--after` runs a Bazel command and then refreshes the database, which is how every Makefile target that builds keeps it
-current. The refresh runs whether the command passed or failed (a failed build's new files are worth indexing too),
+current. The refresh runs whether the command passed or failed (a failed build's new files are indexed too),
 but not after a command that was interrupted, could not start or had a command line error, and the command's exit
 status is kept; a refresh that fails or is interrupted only warns, but Ctrl-C during the refresh of a `bazel run` also
 cancels the program (exit status 130). `bazel run` becomes `bazel run --script_path`, which builds the program and
@@ -142,7 +142,7 @@ _ASPECT_CONFIGS = frozenset(["clang-tidy", "clang-tidy-fix"])
 _BAZEL_COMMAND_LINE_ERROR = 2
 _BAZEL_INTERRUPTED = 8
 _BAZEL_PARTIAL_QUERY = 3
-# The statuses after which a command's output is not worth reading: a command line error, an interruption, a local
+# The statuses after which a command's output is not read: a command line error, an interruption, a local
 # environment problem and an internal error. Any other failure of a `--keep_going` command, such as 1 when some targets
 # failed to build or to analyze, leaves the output of the rest.
 _BAZEL_FATAL = frozenset(

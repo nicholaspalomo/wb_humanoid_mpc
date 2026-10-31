@@ -1,10 +1,9 @@
 # humanoid_multi_contact
 
 Multi-contact planning for the humanoid NMPC: the terrain, the contact candidates, the stability certifier, the plan
-file, the scenarios, the planners and the tools around them. The design is
-[`humanoid_nmpc/docs/multi_contact_planning/README.md`](../docs/multi_contact_planning/README.md); this package is its
-milestones 1 (the certifier and the scenarios), 3 (planner B, the stance graph) and 5 (planner A, contact-invariant
-optimization on the centroidal MPC's model and OCS2's SQP).
+file, the scenarios, the planners and the tools around them. See
+[`humanoid_nmpc/docs/multi_contact_planning/README.md`](../docs/multi_contact_planning/README.md) for the mathematical
+formulation and architecture.
 
 | Directory | Bazel targets | What |
 |---|---|---|
@@ -66,12 +65,11 @@ bazel run //humanoid_nmpc/humanoid_multi_contact/app:plan_playback -- \
 rate is in the contact wrench cone, the pads' distance to the terrain, the failures) and exits 0 when every knot
 passes, 1 when one fails, 2 on an error. `plan_playback` draws the terrain, the robot at every knot, the contact forces,
 the CoM over the static equilibrium polygon and the margins; it takes the Rerun sinks of the Rerun bridge
-(`humanoid_nmpc/humanoid_rerun_viewer/README.md`). The `make plan-…` and `make playback-…` targets of the design come
-with the first planner (milestone 3).
+(`humanoid_nmpc/humanoid_rerun_viewer/README.md`).
 
-## For the next milestones
+## Architecture notes
 
-- **TerrainModel on a tape.** Record `signedDistance`, `normal`, `nearestPoint` and `sphereDistance` with the tape's
+- On a CppAD tape, **`TerrainModel`** records `signedDistance`, `normal`, `nearestPoint` and `sphereDistance` with the tape's
   scalar (`ad_scalar_t`): every branch is a conditional expression, so one tape is valid everywhere, and the scene
   enters it as constants. A tape belongs to the scene it was recorded with. A scene of one primitive gives that
   primitive's exact distance (the flat-ground parity of design section 9).
@@ -79,11 +77,10 @@ with the first planner (milestone 3).
   `namesOf`); a surface candidate's rectangle is in its pad frame, whose z axis is the terrain normal when the pad
   rests on a surface (`ContactCandidate::padRotation`).
 - **The certifier** takes a `MultiContactPlan` (`certify`) or knots built in code (`certifyKnots`). The static
-  conditions (1 and 3) are judged only with a static margin (`CertifierOptions::staticMargin`), as decision 5 of the
-  design says.
-- **The MPC tracks a plan** (milestone 4): `humanoid_centroidal_mpc/multi_contact/` reads a scenario and a plan
+  conditions (1 and 3) are judged only with a static margin (`CertifierOptions::staticMargin`).
+- For plan tracking in the MPC, `humanoid_centroidal_mpc/multi_contact/` reads a scenario and a plan
   (`contact_schedule_source: "multi_contact_plan"`), maps the plan's contact bits to the MPC's contacts by name
   (`PlanContactOrder`: the MPC lists its point contacts first and its feet last) and refuses a plan whose hashes are
   not the scenario's. A plan is tracked from its first knot's state; the dummy sim of a scenario
   (`make launch-drc-atlas-<scenario>-dummy-sim`) reads `plans/<scenario>.binpb` of this package, which
-  `make plan-drc-atlas-<scenario>` is to write.
+  `make plan-drc-atlas-<scenario>` writes.

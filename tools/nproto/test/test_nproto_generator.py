@@ -916,6 +916,20 @@ class GeneratedLayoutTest(GeneratorTestCase):
         self.assertIn("  // The weight.\n  double x = 0.0;", header)
         self.assertNotIn("LINT.", header)
 
+    def test_nolint_markers_of_the_proto_are_not_copied(self):
+        text = (
+            message_file()
+            + " source_code_info { location { path: [4, 0, 2, 0] span: [1, 1,"
+            ' 1] leading_comments: " The weight.\\n NOLINTNEXTLINE(frame-naming):'
+            ' a reason\\n" trailing_comments: " NOLINT(frame-naming): a'
+            ' reason\\n" } }'
+        )
+        header = self.assertGenerates(nproto_generator.generate(request(text)))[
+            "pkg/node.nproto.h"
+        ]
+        self.assertIn("  // The weight.\n  double x = 0.0;", header)
+        self.assertNotIn("NOLINT", header)
+
     def test_a_statement_longer_than_a_line_is_wrapped_as_clang_format_wraps_it(
         self,
     ):

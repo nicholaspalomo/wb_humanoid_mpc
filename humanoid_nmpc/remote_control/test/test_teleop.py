@@ -161,10 +161,10 @@ class TestStopCommand(unittest.TestCase):
         self.assertEqual(publisher.publish_count, 1)
         stop = publisher.last_message
         assert stop is not None
-        self.assertEqual(stop.linear_velocity_x, 0.0)
-        self.assertEqual(stop.linear_velocity_y, 0.0)
-        self.assertEqual(stop.angular_velocity_z, 0.0)
-        self.assertAlmostEqual(stop.desired_pelvis_height, 0.74)
+        self.assertEqual(stop.cmd_linvel_base_rt_world_ewrt_heading_x, 0.0)
+        self.assertEqual(stop.cmd_linvel_base_rt_world_ewrt_heading_y, 0.0)
+        self.assertEqual(stop.cmd_angvel_base_rt_world_ewrt_world_z, 0.0)
+        self.assertAlmostEqual(stop.cmd_pos_base_rt_world_ewrt_world_z, 0.74)
         self.assertTrue(publisher.bus.closed)
         # The stop command went out before the bus closed.
         self.assertEqual(publisher.bus.published_at_close, 1)
@@ -193,8 +193,8 @@ class TestStopCommand(unittest.TestCase):
         self.assertEqual(publisher.publish_count, 3)
         stop = publisher.last_message
         assert stop is not None
-        self.assertEqual(stop.linear_velocity_x, 0.0)
-        self.assertAlmostEqual(stop.desired_pelvis_height, 0.81)
+        self.assertEqual(stop.cmd_linvel_base_rt_world_ewrt_heading_x, 0.0)
+        self.assertAlmostEqual(stop.cmd_pos_base_rt_world_ewrt_world_z, 0.81)
         self.assertEqual(publisher.bus.published_at_close, 3)
 
     def test_a_tick_that_raises_still_sends_the_stop_command(self):
@@ -219,7 +219,7 @@ class TestInitialPelvisHeight(unittest.TestCase):
                 handle.write(
                     nproto_textproto.file_text(
                         reference_file_pb2.ReferenceFile(
-                            default_base_height=0.7405
+                            nom_pos_base_rt_world_ewrt_world_z=0.7405
                         )
                     )
                 )

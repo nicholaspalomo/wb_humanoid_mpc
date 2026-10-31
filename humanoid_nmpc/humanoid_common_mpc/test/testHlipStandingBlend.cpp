@@ -252,7 +252,7 @@ TEST(HlipStandingBlend, phiIsTheSquaredRatioOfWhicheverComponentIsDrivenAlone) {
 TEST(HlipStandingBlend, phiIsTheSumOfTheIndependentlyNormalizedSquaredRatios) {
   // The activity is a squared norm under a diagonal metric, so driving all five
   // components at once must give the sum of the five single-component
-  // activities: no cross term, and no component that quietly saturates or
+  // activities: no cross term, and no component that saturates or
   // clips.
   const HlipStandingBlend blend(makeParameters());
   const HlipBlendParameters& parameters = blend.getParameters();
@@ -413,8 +413,8 @@ TEST(HlipStandingBlend, alphaLandsOnBothOfItsAsymptotes) {
   // Note on the header's "alpha in (0, 1)": the interval is open in exact
   // arithmetic, because tanh never actually reaches +-1. In double precision it
   // does - tanh(-20) rounds to exactly -1 - so the assertions below pin the
-  // asymptotes with a tolerance and pin the bounds inclusively. That is the
-  // honest statement of the shipped law.
+  // asymptotes with a tolerance and pin the bounds inclusively. That matches
+  // the floating-point behavior of the shipped law.
   HlipBlendParameters parameters = makeParameters();
   parameters.sharpness = 40.0;
   parameters.threshold = 0.5;  // the half point sits far above rest, so rest is
@@ -441,7 +441,7 @@ TEST(HlipStandingBlend, theHalfPointSitsExactlyAtTheThresholdAndIsInclusive) {
   // ContactPlanningConfig.h: "The planner stands while alpha is below a half
   // and steps above it." alpha is a half exactly when phi equals rho_2, so the
   // stepping decision is phi >= threshold and nothing else - there is no dead
-  // band and no hysteresis, which is the whole point of replacing a stepping
+  // band and no hysteresis, by design when replacing a stepping
   // trigger with this one scalar law. `isWalking` compares with >=, so the
   // boundary itself counts as walking; that is pinned here so that a later edit
   // to the comparison has to be deliberate.
@@ -480,8 +480,8 @@ TEST(HlipStandingBlend, theHalfPointSitsExactlyAtTheThresholdAndIsInclusive) {
 }
 
 TEST(HlipStandingBlend, aZeroThresholdLeavesTheRobotNoWayToStand) {
-  // A consequence of the two facts above that is worth stating once, because it
-  // is the one setting of `hlip.blend.threshold` that breaks the law rather
+  // A consequence of the two facts above: this is the one setting of
+  // `hlip.blend.threshold` that breaks the law rather
   // than tuning it: phi is a sum of squares, so it is never negative, and the
   // half point is inclusive. With rho_2 = 0 the robot is therefore declared to
   // be walking at rest, with no command and no measured motion at all, and the
@@ -491,8 +491,8 @@ TEST(HlipStandingBlend, aZeroThresholdLeavesTheRobotNoWayToStand) {
   // threshold, so no loaded configuration can reach this state; the check used
   // to cover the sharpness and the five maxima but not its neighbor rho_2. This
   // test builds the blend DIRECTLY, bypassing validateStatus(), so it goes on
-  // recording what the value does to the law itself - which is what makes the
-  // rejection in validateStatus() worth having rather than arbitrary.
+  // recording what the value does to the law itself - and why the
+  // rejection in validateStatus() is needed rather than arbitrary.
   HlipBlendParameters parameters = makeParameters();
   parameters.threshold = 0.0;
   const HlipStandingBlend blend(parameters);
@@ -621,15 +621,15 @@ TEST(HlipStandingBlend,
       [](BlendComponent component) -> std::string {
     switch (component) {
       case BlendComponent::kCommandedVelocityX:
-        return "hlip.blend.max_commanded_velocity_x";
+        return "hlip.blend.cmd_max_linvel_base_rt_world_ewrt_heading_x";
       case BlendComponent::kCommandedVelocityY:
-        return "hlip.blend.max_commanded_velocity_y";
+        return "hlip.blend.cmd_max_linvel_base_rt_world_ewrt_heading_y";
       case BlendComponent::kCommandedYawRate:
-        return "hlip.blend.max_commanded_yaw_rate";
+        return "hlip.blend.cmd_max_angvel_base_rt_world_ewrt_world_z";
       case BlendComponent::kComVelocityX:
-        return "hlip.blend.max_com_velocity_x";
+        return "hlip.blend.max_linvel_com_rt_world_ewrt_heading_x";
       case BlendComponent::kComVelocityY:
-        return "hlip.blend.max_com_velocity_y";
+        return "hlip.blend.max_linvel_com_rt_world_ewrt_heading_y";
     }
     return std::string();
   };

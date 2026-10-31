@@ -63,7 +63,7 @@ inline constexpr int kMjMatrixSize = ocs2::kPositionDim * ocs2::kPositionDim;
  * the MPC store the same coefficients as (x, y, z, w) instead, so only the
  * count is ocs2's.
  */
-inline constexpr int kMjQuaternionSize = ocs2::kQuaternionCoefficients;
+inline constexpr int kMjQuaternionCoefficients = ocs2::kQuaternionCoefficients;
 /**
  * A MuJoCo 6D vector of two vectors of space: a force and a torque
  * (xfrc_applied, mj_contactForce), or an angular and a linear velocity
@@ -100,7 +100,7 @@ inline constexpr int kMjGeomSizeParameters = 3;
 /** The coordinates of a free joint in qpos: its position, then its quaternion
  * (w, x, y, z) at the indices below. */
 inline constexpr int kMjFreeJointQposSize =
-    ocs2::kPositionDim + kMjQuaternionSize;
+    ocs2::kPositionDim + kMjQuaternionCoefficients;
 inline constexpr int kMjFreeJointQuaternionWIndex = ocs2::kPositionDim;
 inline constexpr int kMjFreeJointQuaternionXIndex =
     kMjFreeJointQuaternionWIndex + 1;
@@ -298,15 +298,17 @@ std::vector<int> resolveContactBodies(
 
 /**
  * Ground-truth contact mask: bit i is set when a geom of contact body i (or of
- * its subtree) is in a contact that carries more than `forceThreshold` [N] of
- * normal force against a geom outside the robot's kinematic tree (the world, or
- * any body that does not share the contact body's root). Requires the
- * constraint forces of the current state, i.e. call after mj_step() or
- * mj_forward(). Contacts beyond the 32nd are ignored.
+ * its subtree) is in a contact that carries more than
+ * `minForceMjcontactEwrtMjcontactX` [N] of normal force against a geom outside
+ * the robot's kinematic tree (the world, or any body that does not share the
+ * contact body's root). Requires the constraint forces of the current state,
+ * i.e. call after mj_step() or mj_forward(). Contacts beyond the 32nd are
+ * ignored.
  */
 /**
  * Bit per contact point, set where that point is carrying more than
- * `forceThreshold` of normal force against something that is not the robot.
+ * `minForceMjcontactEwrtMjcontactX` of normal force against something that is
+ * not the robot.
  *
  * `ignoreBodyId` is left out of that "something": a body listed there is
  * neither the robot nor the ground, so a contact with it sets no bit. It exists
@@ -318,7 +320,7 @@ std::vector<int> resolveContactBodies(
 uint32_t groundTruthContactMask(const mjModel* absl_nonnull model,
                                 const mjData* absl_nonnull data,
                                 const std::vector<int>& contactBodyIds,
-                                double forceThreshold,
+                                double minForceMjcontactEwrtMjcontactX,
                                 int ignoreBodyId = -1);
 
 /** Whole-body centroidal quantities of the floating-base robot of the scene,
@@ -327,10 +329,9 @@ struct RobotCentroidalState {
   bool valid = false;
   int rootBodyId = -1;  // the first body hanging on a free joint
   double mass = 0.0;    // [kg] of the root's subtree
-  double com[ocs2::kPositionDim]{0.0, 0.0, 0.0};  // [m] world frame
-  double comVelocity[ocs2::kPositionDim]{
-      0.0, 0.0,
-      0.0};  // [m/s] world frame, mass-weighted mean of the body velocities
+  double posComRtWorldEwrtWorld[ocs2::kPositionDim]{0.0, 0.0, 0.0};  // [m]
+  double linvelComRtWorldEwrtWorld[ocs2::kPositionDim]{
+      0.0, 0.0, 0.0};  // [m/s] the mass-weighted mean of the body velocities
 };
 
 /**
@@ -344,12 +345,13 @@ RobotCentroidalState robotCentroidalState(const mjModel* absl_nullable model,
 /** Ground reaction of the physics contacts against the robot's root subtree,
  * and the zero moment point it defines. */
 struct GroundReaction {
-  bool valid = false;  // a vertical force above `minNormalForce` was found
-  double force[ocs2::kPositionDim]{
-      0.0, 0.0, 0.0};  // [N] total contact force on the robot, world frame
-  double moment[ocs2::kPositionDim]{
+  bool valid = false;  // a vertical force above `minForceWorldEwrtWorldZ` was
+                       // found
+  double forceWorldEwrtWorld[ocs2::kPositionDim]{
+      0.0, 0.0, 0.0};  // [N] total contact force on the robot
+  double torqueWorldEwrtWorld[ocs2::kPositionDim]{
       0.0, 0.0, 0.0};  // [N m] of those forces about the world origin
-  double zmp[ocs2::kHorizontalPositionDim]{
+  double posZmpRtWorldEwrtWorldXy[ocs2::kHorizontalPositionDim]{
       0.0, 0.0};  // [m] point of the ground plane z = 0 about which the
                   // horizontal moment vanishes
 };
@@ -359,7 +361,7 @@ struct GroundReaction {
  * anything outside it (the ground, obstacles) and returns the zero moment point
  * on the plane z = 0: zmp_x = -M_y / F_z, zmp_y = M_x / F_z. Requires the
  * constraint forces of the current state (after mj_step() or mj_forward()).
- * `valid` is false while F_z <= minNormalForce.
+ * `valid` is false while F_z <= minForceWorldEwrtWorldZ.
  *
  * Contacts with `ignoreBodyId` are left out, as groundTruthContactMask leaves
  * them out: a thrown ball striking the robot is not a ground reaction, and at
@@ -368,7 +370,7 @@ struct GroundReaction {
 GroundReaction groundReaction(const mjModel* absl_nullable model,
                               const mjData* absl_nullable data,
                               int rootBodyId,
-                              double minNormalForce,
+                              double minForceWorldEwrtWorldZ,
                               int ignoreBodyId = -1);
 
 /**
@@ -377,11 +379,11 @@ GroundReaction groundReaction(const mjModel* absl_nullable model,
  * v_xy / omega. `height` is clamped to at least 0.05 m.
  */
 void divergentComponentOfMotion(
-    const double com[absl_nonnull ocs2::kPositionDim],
-    const double comVelocity[absl_nonnull ocs2::kPositionDim],
+    const double posComRtWorldEwrtWorld[absl_nonnull ocs2::kPositionDim],
+    const double linvelComRtWorldEwrtWorld[absl_nonnull ocs2::kPositionDim],
     double height,
     double gravity,
-    double dcm[absl_nonnull ocs2::kHorizontalPositionDim]);
+    double posDcmRtWorldEwrtWorldXy[absl_nonnull ocs2::kHorizontalPositionDim]);
 
 // LINT.IfChange(foot_force_frame)
 /**
@@ -395,15 +397,17 @@ void divergentComponentOfMotion(
  * mj_forward()); `sensorId` must name a force sensor on a site
  * (isFootForceSensor()).
  */
-std::array<mjtNum, ocs2::kPositionDim> footForceInWorldFrame(
+std::array<mjtNum, ocs2::kPositionDim> computeMeasForceFootEwrtWorld(
     const mjModel* absl_nonnull model,
     const mjData* absl_nonnull data,
     int sensorId);
-// LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_msgs/robot_state_sample.proto:measured_contact_wrenches)
+// LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_msgs/robot_state_sample.proto:meas_wrench_contacts_ewrt_world)
 
 /** Whether `sensorId` is a `<force>` sensor on a site, as
- * footForceInWorldFrame() needs. */
-bool isFootForceSensor(const mjModel* absl_nonnull model, int sensorId);
+ * computeMeasForceFootEwrtWorld() needs. */
+bool isFootForceSensor(  // NOLINT(frame-naming): a sensor's type, not a force
+    const mjModel* absl_nonnull model,
+    int sensorId);
 
 /**
  * The rotation of a base attitude about the world vertical: the twist q_t =
@@ -418,17 +422,19 @@ struct VerticalTwist {
 /**
  * The twist about the world z axis of a MuJoCo quaternion (w, x, y, z), from
  * its w and z (the tilt components x, y do not enter it): the rotation
- * headingQuaternion() of humanoid_common_mpc/orientation/BaseOrientation.h
- * gives (design section 2.8.1), brought to w >= 0 (w = 0 < z at a heading of
- * pi): (w, z) / |(w, z)| for w > 0. It is computed from the angle atan2(z, w)
- * rather than by the division, so it is continuous down to an upside-down
- * attitude |(w, z)| = 0, where the heading is undefined and the result is the
- * identity (heading 0), as for the MPC. Invariant to the scale of (w, z).
+ * verticalTwistFromQuaternion() of
+ * humanoid_common_mpc/orientation/BaseOrientation.h gives (design
+ * section 2.8.1), brought to w >= 0 (w = 0 < z at a heading of pi): (w, z) /
+ * |(w, z)| for w > 0. It is computed from the angle atan2(z, w) rather than by
+ * the division, so it is continuous down to an upside-down attitude |(w, z)| =
+ * 0, where the heading is undefined and the result is the identity (heading 0),
+ * as for the MPC. Invariant to the scale of (w, z).
  */
-VerticalTwist verticalTwistOf(double w, double z);
+VerticalTwist verticalTwistFromQuaternion(double w, double z);
 
-/** [rad] The twist heading 2 atan2(z_t, w_t) of verticalTwistOf(w, z), in (-pi,
- * pi]. */
-double twistHeadingOf(double w, double z);
+/** [rad] The twist heading 2 atan2(z_t, w_t) of verticalTwistFromQuaternion(w,
+ * z), in (-pi, pi]: yaw_<f1>_rt_world of the frame f1 the quaternion orients.
+ */
+double yawOf(double w, double z);
 
 }  // namespace robot::mujoco_sim_interface

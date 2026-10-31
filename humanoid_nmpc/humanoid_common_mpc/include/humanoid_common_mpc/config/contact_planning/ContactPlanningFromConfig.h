@@ -62,10 +62,10 @@ std::vector<std::string> plannerThreadingNames();
 // LINT.IfChange(terminal_dcm_target_names)
 /** Onto the last ZMP, so that the plan comes to rest (trackCommandedVelocity
  * false). */
-inline constexpr absl::string_view kRestTerminalDcmTarget = "rest";
+inline constexpr absl::string_view kRestTerminalDcmTargetName = "rest";
 /** The last ZMP plus v_cmd / omega, so that the plan keeps walking
  * (trackCommandedVelocity true). */
-inline constexpr absl::string_view kCommandedVelocityTerminalDcmTarget =
+inline constexpr absl::string_view kCommandedVelocityTerminalDcmTargetName =
     "commanded_velocity";
 // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/contact_planning_file.proto:terminal_dcm_target)
 

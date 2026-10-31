@@ -79,7 +79,7 @@ telemetry_sinks: "bus"
 )";
 constexpr char kGains[] =
     "# proto-message: humanoid_mpc_config.JointPdGainsFile\ndefault_gains { "
-    "kp: 100.0 kd: 2.0 torque_limit: 50.0 }\n";
+    "kp: 100.0 kd: 2.0 max_joint_torque: 50.0 }\n";
 
 /** The files of a configuration that passes, with `taskText` as its task file.
  */
@@ -185,14 +185,14 @@ TEST(RobotConfigurationCheck, PdGainsTheControllerRefusesAreRefused) {
   // Both controllers read the torque limits, and neither has gains of its own
   // to stand in for one left out.
   const RobotConfigFiles negativeLimit = filesWith(
-      kTask, "default_gains { kp: 1.0 kd: 1.0 torque_limit: -1.0 }\n");
+      kTask, "default_gains { kp: 1.0 kd: 1.0 max_joint_torque: -1.0 }\n");
   EXPECT_THAT(
       checkRobotConfiguration(negativeLimit, fullContext(registry)).message(),
-      HasSubstr("default_gains.torque_limit"));
+      HasSubstr("default_gains.max_joint_torque"));
   const RobotConfigFiles noLimit =
       filesWith(kTask, "default_gains { kp: 1.0 kd: 1.0 }\n");
   EXPECT_THAT(checkRobotConfiguration(noLimit, fullContext(registry)).message(),
-              HasSubstr("default_gains.torque_limit is not set"));
+              HasSubstr("default_gains.max_joint_torque is not set"));
 }
 
 TEST(RobotConfigurationCheck,
@@ -297,7 +297,7 @@ TEST(CheckConfigFileCandidate, ASavedFileIsCheckedInPlaceOfItsStoredCopy) {
   writeFile(
       stored.referenceFile,
       "# proto-message: "
-      "humanoid_mpc_config.ReferenceFile\ntarget_displacement_velocity: 0.5\n");
+      "humanoid_mpc_config.ReferenceFile\nref_speed_base_rt_world: 0.5\n");
   writeFile(stored.pdGainsFile, kGains);
   const robot::model::ContactEstimatorRegistry registry;
   const RobotConfigurationCheckContext context = fullContext(registry);

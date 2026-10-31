@@ -106,21 +106,25 @@ ad_vector_t ContactMomentXYConstraintCppAd::constraintFunction(
   pinocchio::FrameIndex frameID = getContactFrameIndex(
       pinocchioInterfaceCppAd_, *mpcRobotModelPtr_, contactPointIndex_);
 
-  const ad_vector3_t localForce =
-      rotateVectorWorldToLocal(mpcRobotModelPtr_->getContactForceInWorldFrame(
+  const ad_vector3_t forceContactEwrtContact =
+      rotateVectorWorldToLocal(mpcRobotModelPtr_->getForceContactEwrtWorld(
                                    state, input, contactPointIndex_),
                                data, frameID);
-  const ad_vector3_t localMoments =
-      rotateVectorWorldToLocal(mpcRobotModelPtr_->getContactMomentInWorldFrame(
+  const ad_vector3_t torqueContactEwrtContact =
+      rotateVectorWorldToLocal(mpcRobotModelPtr_->getTorqueContactEwrtWorld(
                                    state, input, contactPointIndex_),
                                data, frameID);
 
   ad_vector_t constraintValue(kNumConstraints);
-  constraintValue << localMoments.x() -
-                         contactRectangle_.getBounds().y_min * localForce.z(),
-      -localMoments.x() + contactRectangle_.getBounds().y_max * localForce.z(),
-      -localMoments.y() - contactRectangle_.getBounds().x_min * localForce.z(),
-      localMoments.y() + contactRectangle_.getBounds().x_max * localForce.z();
+  constraintValue << torqueContactEwrtContact.x() -
+                         contactRectangle_.getBounds().y_min *
+                             forceContactEwrtContact.z(),
+      -torqueContactEwrtContact.x() +
+          contactRectangle_.getBounds().y_max * forceContactEwrtContact.z(),
+      -torqueContactEwrtContact.y() -
+          contactRectangle_.getBounds().x_min * forceContactEwrtContact.z(),
+      torqueContactEwrtContact.y() +
+          contactRectangle_.getBounds().x_max * forceContactEwrtContact.z();
   return constraintValue;
 }
 

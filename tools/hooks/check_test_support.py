@@ -29,7 +29,7 @@
 
 A check's own test covers what it detects; `assert_check_behaves()` covers the rest, the same way for every check:
 
-- it is in the registry (tools/hooks/checks.py), and lint_code runs it by default;
+- it is in the registry (tools/hooks/checks.py), and lint_code runs it by default (an opt-in check: when named);
 - `NOLINT(<check>): <reason>` and `NOLINTNEXTLINE(<check>): <reason>` suppress a finding, and a marker without a
   reason suppresses nothing (and is itself reported as `nolint-reason`);
 - `lint_code --git-staged` judges the staged version of a file, not the working tree;
@@ -154,11 +154,14 @@ class StagedRepository:
 
 
 def assert_registered(test: unittest.TestCase, name: str) -> checks.Check:
-    """Asserts that check `name` is in the registry and that lint_code runs it by default."""
+    """Asserts that check `name` is in the registry and that lint_code runs it by default, or when named if opt-in."""
     check = checks.by_name(name)
     test.assertTrue(check.description, f"{name} has no description")
     test.assertIn("token-checks", lint_code.STEP_NAMES)
     selected, steps = lint_code._parse_only(None)
+    if check.opt_in:
+        test.assertNotIn(name, selected)
+        selected, steps = lint_code._parse_only(name)
     test.assertIn(name, selected)
     test.assertIn("token-checks", steps)
     return check

@@ -39,15 +39,15 @@ namespace ocs2::humanoid {
  * from and what the gait switches compare the command with (design defects D1,
  * D1b, D2), in the frame the command is given in: the heading frame is the
  * world frame turned about its z axis by the twist heading psi_h
- * (MpcRobotModelBase::getBaseHeading()), so (forward, lateral) are the
+ * (MpcRobotModelBase::getYawBaseRtWorld()), so (forward, lateral) are the
  * command's (v_x, v_y) axes. Passive data.
  */
 struct BasePlanarMotion {
   /** [m/s] (forward, lateral): R_z(psi_h)^T (dp_x, dp_y) / dt of the base
    * origin. */
-  vector2_t velocityInHeadingFrame = vector2_t::Zero();
+  vector2_t linvelBaseRtWorldEwrtHeadingXy = vector2_t::Zero();
   /** [rad/s] d psi_h / dt, the rate of the twist heading. */
-  scalar_t headingRate = 0.0;
+  scalar_t rateYawBaseRtWorld = 0.0;
 };
 
 }  // namespace ocs2::humanoid

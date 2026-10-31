@@ -50,9 +50,8 @@ vector3_t ImpulseScalingHeuristic::forceOffset(
   // H_f(Phi) = m g / (F beta), Bledt Table C.1, expressed as the OFFSET from
   // the reference that already exists.
   //
-  // F is the number of FEET THE ROBOT HAS - a constant - and not the number in
-  // contact at this instant. That distinction is the whole content of the
-  // heuristic and it is easy to get wrong. The existing reference is
+  // F is the number of FEET THE ROBOT HAS (a constant), not the number in
+  // contact at this instant. The existing reference is
   //
   //     f_z,now = W / n_stance(t),
   //

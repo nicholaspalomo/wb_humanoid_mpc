@@ -93,16 +93,16 @@ humanoid_mpc_msgs::WalkingVelocityCommand keyboardCommandToMessage(
   const vector4_t clamped =
       command.cwiseMin(limits.limits).cwiseMax(-limits.limits);
   humanoid_mpc_msgs::WalkingVelocityCommand message;
-  message.set_linear_velocity_x(
+  message.set_cmd_linvel_base_rt_world_ewrt_heading_x(
       clamped(KeyboardCommandLimits::kVelocityXIndex) /
       limits.limits(KeyboardCommandLimits::kVelocityXIndex));
-  message.set_linear_velocity_y(
+  message.set_cmd_linvel_base_rt_world_ewrt_heading_y(
       clamped(KeyboardCommandLimits::kVelocityYIndex) /
       limits.limits(KeyboardCommandLimits::kVelocityYIndex));
-  message.set_desired_pelvis_height(
+  message.set_cmd_pos_base_rt_world_ewrt_world_z(
       limits.defaultBaseHeight +
       clamped(KeyboardCommandLimits::kPelvisHeightChangeIndex));
-  message.set_angular_velocity_z(
+  message.set_cmd_angvel_base_rt_world_ewrt_world_z(
       clamped(KeyboardCommandLimits::kYawRateIndex) /
       limits.limits(KeyboardCommandLimits::kYawRateIndex));
   return message;

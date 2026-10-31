@@ -28,7 +28,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 // The joint PD gains of a typed joint PD gains file: every gain is the file's -
-// default_gains sets kp, kd and torque_limit, each joint inherits what it
+// default_gains sets kp, kd and max_joint_torque, each joint inherits what it
 // leaves out from default_gains -, the controller constants are read with their
 // ranges, and a gain that is not one, a joint named twice and an entry without
 // a joint are refused by their field.
@@ -66,7 +66,7 @@ mpc_config::JointPdGainsFile completeDefaults() {
   mpc_config::JointPdGainsFile file;
   file.default_gains.kp = 250.0;
   file.default_gains.kd = 15.0;
-  file.default_gains.torque_limit = 500.0;
+  file.default_gains.max_joint_torque = 500.0;
   return file;
 }
 
@@ -85,7 +85,7 @@ void expectSameGains(const JointPdGains& actual, const JointPdGains& expected) {
   EXPECT_EQ(actual.otherJointTorqueLimit, expected.otherJointTorqueLimit);
   EXPECT_EQ(actual.defaults.kp, expected.defaults.kp);
   EXPECT_EQ(actual.defaults.kd, expected.defaults.kd);
-  EXPECT_EQ(actual.defaults.torqueLimit, expected.defaults.torqueLimit);
+  EXPECT_EQ(actual.defaults.maxJointTorque, expected.defaults.maxJointTorque);
   EXPECT_EQ(actual.gravityCompDampingFraction,
             expected.gravityCompDampingFraction);
   EXPECT_EQ(actual.maxPolicyJointError, expected.maxPolicyJointError);
@@ -99,11 +99,11 @@ TEST(JointPdGainsFromConfigTest,
       jointPdGainsFromConfig(completeDefaults(), mpcJoints(), otherJoints());
   ASSERT_TRUE(gains.ok()) << gains.status();
   EXPECT_TRUE(gains->hasDimensions(mpcJoints().size(), otherJoints().size()));
-  expectSameGains(
-      *gains,
-      defaultJointPdGains(
-          JointPdGainsDefaults{.kp = 250.0, .kd = 15.0, .torqueLimit = 500.0},
-          mpcJoints(), otherJoints()));
+  expectSameGains(*gains,
+                  defaultJointPdGains(
+                      JointPdGainsDefaults{
+                          .kp = 250.0, .kd = 15.0, .maxJointTorque = 500.0},
+                      mpcJoints(), otherJoints()));
 }
 
 TEST(JointPdGainsFromConfigTest, DefaultGainsMustSetEveryGain) {
@@ -119,12 +119,12 @@ TEST(JointPdGainsFromConfigTest, DefaultGainsMustSetEveryGain) {
                   .message(),
               HasSubstr("default_gains.kd is not set"));
   mpc_config::JointPdGainsFile noLimit = completeDefaults();
-  noLimit.default_gains.torque_limit.reset();
+  noLimit.default_gains.max_joint_torque.reset();
   const absl::StatusOr<JointPdGains> refused =
       jointPdGainsFromConfig(noLimit, mpcJoints(), otherJoints());
   EXPECT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_THAT(refused.status().message(),
-              HasSubstr("default_gains.torque_limit is not set"));
+              HasSubstr("default_gains.max_joint_torque is not set"));
 }
 
 TEST(JointPdGainsFromConfigTest,
@@ -134,7 +134,7 @@ TEST(JointPdGainsFromConfigTest,
   mpc_config::JointPdGainsFile::JointGains knee = joint("knee");
   knee.kd = 3.0;
   mpc_config::JointPdGainsFile::JointGains wrist = joint("wrist");
-  wrist.torque_limit = 7.0;
+  wrist.max_joint_torque = 7.0;
   file.joint_gains = {knee, wrist};
 
   const absl::StatusOr<JointPdGains> gains =
@@ -142,7 +142,7 @@ TEST(JointPdGainsFromConfigTest,
   ASSERT_TRUE(gains.ok()) << gains.status();
   EXPECT_EQ(gains->defaults.kp, 100.0);
   EXPECT_EQ(gains->defaults.kd, 15.0);
-  EXPECT_EQ(gains->defaults.torqueLimit, 500.0);
+  EXPECT_EQ(gains->defaults.maxJointTorque, 500.0);
   // An unnamed MPC joint has default_gains, a named one its own over them.
   EXPECT_EQ(gains->mpcJointKp[0], 100.0);
   EXPECT_EQ(gains->mpcJointKd[0], 15.0);
@@ -240,12 +240,12 @@ TEST(JointPdGainsFromConfigTest, AGainThatIsNotOneIsRefusedByItsField) {
                            std::numeric_limits<double>::quiet_NaN(), -1.0}) {
     mpc_config::JointPdGainsFile file = completeDefaults();
     mpc_config::JointPdGainsFile::JointGains knee = joint("knee");
-    knee.torque_limit = bad;
+    knee.max_joint_torque = bad;
     file.joint_gains = {knee};
     gains = jointPdGainsFromConfig(file, mpcJoints(), otherJoints());
     EXPECT_EQ(gains.status().code(), absl::StatusCode::kInvalidArgument) << bad;
     EXPECT_THAT(gains.status().message(),
-                HasSubstr("joint_gains[joint=knee].torque_limit"));
+                HasSubstr("joint_gains[joint=knee].max_joint_torque"));
   }
 }
 

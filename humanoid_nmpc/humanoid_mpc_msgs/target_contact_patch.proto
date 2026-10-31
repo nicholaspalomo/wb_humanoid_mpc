@@ -41,5 +41,5 @@ message TargetContactPatch {
 
   Kind kind = 8;
   // Absent: the planner has no target for this foot, or its pose is not finite; the viewer draws nothing for it.
-  optional Pose pose = 9;
+  optional Pose des_pose_foot_rt_world = 9;
 }

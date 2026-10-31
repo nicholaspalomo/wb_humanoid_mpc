@@ -65,24 +65,23 @@ namespace ocs2::humanoid {
  * on.
  *
  * WHICH FRAME the force is in is the model's business, not this function's:
- * `getContactForce()` returns the world-frame force for the wrench-space models
- * and the local contact-frame force under BasisInputsModelDecorator. A caller
- * that needs one particular frame has to rotate, and it must rotate the value
- * and this Jacobian by the same rotation.
+ * `getForceContactEwrtParam()` returns the world-frame force for the
+ * wrench-space models and the local contact-frame force under
+ * BasisInputsModelDecorator. A caller that needs one particular frame has to
+ * rotate, and it must rotate the value and this Jacobian by the same rotation.
  */
-matrix_t contactForceInputJacobian(
+matrix_t inputJacobianForceContactEwrtParam(
     const MpcRobotModelBase<scalar_t>& mpcRobotModel, size_t contactPointIndex);
 
 /**
- * The row with `f_n = normalContactForceRow . input`: the third row of
- * contactForceInputJacobian().
+ * The row with `f_n = inputRowForceContactEwrtParamZ . input`: the third row of
+ * inputJacobianForceContactEwrtParam().
  *
  * The contact-implicit terms use `f_n` as a LOAD INDICATOR - a number that is
  * zero exactly when the foot carries no contact wrench, and grows with the load
  * - rather than as a physical force, which is why both frames above serve. This
  * function additionally CHECKs the two properties that make the indicator
- * sound, because they are what a new input parameterization could quietly
- * break:
+ * sound, because a new input parameterization could otherwise violate them:
  *
  *  - the row is non-negative, so no input can reduce the indicator while adding
  * load. Together with the sign constraint each parameterization already carries
@@ -93,7 +92,7 @@ matrix_t contactForceInputJacobian(
  *  - the row is not identically zero, i.e. some input of this contact does
  * produce a normal force.
  */
-vector_t normalContactForceRow(const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                               size_t contactPointIndex);
+vector_t inputRowForceContactEwrtParamZ(
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel, size_t contactPointIndex);
 
 }  // namespace ocs2::humanoid

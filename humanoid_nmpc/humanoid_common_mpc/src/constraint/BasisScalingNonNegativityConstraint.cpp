@@ -102,7 +102,7 @@ bool BasisScalingNonNegativityConstraint::isActive(scalar_t time) const {
   // mode schedule must not be allowed to switch it off for a foot the solver
   // may choose to load; see contactConstraintsAreScheduleGated().
   if (!scheduleGated_) return true;
-  // Otherwise only active when the foot is in contact — swing-phase λ are
+  // Otherwise only active when the foot is in contact - swing-phase λ are
   // already zeroed by the ZeroWrench hard equality constraint, which is what
   // makes the gate sound.
   return referenceManagerPtr_->isInContact(time, contactIndex_);
@@ -158,7 +158,7 @@ BasisScalingNonNegativityConstraint::getQuadraticApproximation(
   cost.dfdu.segment(lambdaStartIdx_, numBasis_) = lambda.unaryExpr(
       [&](scalar_t h) { return penaltyPtr_->getDerivative(/*t=*/0.0, h); });
 
-  // Hessians (diagonal — each λ_i is independent)
+  // Hessians (diagonal - each λ_i is independent)
   cost.dfdxx = matrix_t::Zero(stateDim, stateDim);
   cost.dfdux = matrix_t::Zero(inputDim, stateDim);
   cost.dfduu = matrix_t::Zero(inputDim, inputDim);
@@ -174,10 +174,10 @@ void BasisScalingNonNegativityConstraint::setBarrierPenalty(
     const PieceWisePolynomialBarrierPenalty::Config& barrierSettings) {
   barrierConfig_ = barrierSettings;
   // Both penalties take (mu, delta). Un-gated the hinge's delta stays 0: it is
-  // the offset of the hinge's zero, and the whole point of using a hinge for λ
-  // >= 0 is that its zero sits exactly on λ = 0. Writing the barrier's
-  // smoothing width there would demand a positive λ from every generator and
-  // reinstate the bribe this term exists to remove.
+  // the offset of the hinge's zero, and we use a hinge for λ >= 0 so that its
+  // zero sits on λ = 0. Writing the barrier's smoothing width there would
+  // demand a positive λ from every generator and reinstate the bribe this term
+  // exists to remove.
   const vector_t parameters =
       (vector_t(kMuDeltaParameterCount) << barrierSettings.mu,
        scheduleGated_ ? barrierSettings.delta : 0.0)

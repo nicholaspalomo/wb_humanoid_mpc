@@ -1185,7 +1185,7 @@ TEST(CommitBoundary, CoversSwingsOfEveryFootThatStartOnAnExtendedBoundary) {
   EXPECT_NEAR(
       commitBoundaryForSchedule(schedule, /*time=*/0.9, /*commitTime=*/0.25),
       1.8, kTol);
-  // The mirrored schedule (left first) gave the right answer already; both
+  // The mirrored schedule (left first) returned 1.8 already; both
   // orders agree now.
   const ModeSchedule mirrored({1.0, 1.4, 1.8},
                               {kAllInContact, modeWithSwinging({0}),

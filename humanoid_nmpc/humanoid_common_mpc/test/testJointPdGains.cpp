@@ -74,7 +74,7 @@ JointPdGainsDefaults someDefaults() {
   JointPdGainsDefaults defaults;
   defaults.kp = 250.0;
   defaults.kd = 15.0;
-  defaults.torqueLimit = 500.0;
+  defaults.maxJointTorque = 500.0;
   return defaults;
 }
 
@@ -100,7 +100,7 @@ bool sameGains(const JointPdGains& a, const JointPdGains& b) {
          a.otherJointKp == b.otherJointKp && a.otherJointKd == b.otherJointKd &&
          a.otherJointTorqueLimit == b.otherJointTorqueLimit &&
          a.defaults.kp == b.defaults.kp && a.defaults.kd == b.defaults.kd &&
-         a.defaults.torqueLimit == b.defaults.torqueLimit &&
+         a.defaults.maxJointTorque == b.defaults.maxJointTorque &&
          a.gravityCompDampingFraction == b.gravityCompDampingFraction &&
          a.maxPolicyJointError == b.maxPolicyJointError &&
          a.divergedPolicyJointTargetBound == b.divergedPolicyJointTargetBound;
@@ -140,7 +140,7 @@ TEST(JointPdGains, TheWriteTimeOfAGainsFileIsTheEpochWhenThereIsNone) {
                                         "/write_time_joint_pd_gains.textproto");
   std::ofstream(file)
       << "# proto-message: humanoid_mpc_config.JointPdGainsFile\ndefault_gains "
-         "{ kp: 1.0 kd: 1.0 torque_limit: 1.0 }\n";
+         "{ kp: 1.0 kd: 1.0 max_joint_torque: 1.0 }\n";
   const std::filesystem::file_time_type written =
       std::filesystem::last_write_time(file) - std::chrono::hours(1);
   std::filesystem::last_write_time(file, written);
@@ -160,10 +160,10 @@ TEST(JointPdGains, HasDimensionsChecksEveryVector) {
 TEST(JointPdGains, AGainsFileIsATextprotoReadStrictly) {
   const std::string file = writeTemporaryFile(
       "strict_joint_pd_gains.textproto",
-      "default_gains { kp: 100.0 kd: 5.0 torque_limit: 50.0 }\n"
+      "default_gains { kp: 100.0 kd: 5.0 max_joint_torque: 50.0 }\n"
       "gravity_comp_damping_fraction: 0.4\n"
       "joint_gains { joint: \"left_knee\" kp: 1.0 }\n"
-      "joint_gains { joint: \"left_wrist\" kd: 2.0 torque_limit: 3.0 }\n");
+      "joint_gains { joint: \"left_wrist\" kd: 2.0 max_joint_torque: 3.0 }\n");
   const absl::StatusOr<std::optional<JointPdGains>> gains = load(file);
   ASSERT_TRUE(gains.ok()) << gains.status();
   if (!gains->has_value()) GTEST_FAIL() << "the gains file was not found";
@@ -181,9 +181,10 @@ TEST(JointPdGains, AGainsFileIsATextprotoReadStrictly) {
 
   // An unknown field is refused where it is written, a gain
   // jointPdGainsFromConfig() refuses by its field; both name the file.
-  const std::string unknown = writeTemporaryFile(
-      "unknown_joint_pd_gains.textproto",
-      "default_gains { kp: 1.0 kd: 1.0 torque_limit: 1.0 }\nstiffness: 2.0\n");
+  const std::string unknown =
+      writeTemporaryFile("unknown_joint_pd_gains.textproto",
+                         "default_gains { kp: 1.0 kd: 1.0 max_joint_torque: "
+                         "1.0 }\nstiffness: 2.0\n");
   const absl::StatusOr<std::optional<JointPdGains>> refused = load(unknown);
   ASSERT_FALSE(refused.ok());
   EXPECT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument);
@@ -193,7 +194,7 @@ TEST(JointPdGains, AGainsFileIsATextprotoReadStrictly) {
       << refused.status();
   const std::string negative = writeTemporaryFile(
       "negative_joint_pd_gains.textproto",
-      "default_gains { kp: 1.0 kd: -1.0 torque_limit: 1.0 }\n");
+      "default_gains { kp: 1.0 kd: -1.0 max_joint_torque: 1.0 }\n");
   const absl::StatusOr<std::optional<JointPdGains>> negativeGain =
       load(negative);
   ASSERT_FALSE(negativeGain.ok());
@@ -231,9 +232,10 @@ TEST(JointPdGains, AControllerRequiresAGainsFileThatSetsEveryDefaultGain) {
   EXPECT_EQ(absent.status().code(), absl::StatusCode::kNotFound);
   EXPECT_TRUE(absl::StrContains(absent.status().message(), missing))
       << absent.status();
-  for (const char* absl_nonnull missingGain : {"kp", "kd", "torque_limit"}) {
+  for (const char* absl_nonnull missingGain :
+       {"kp", "kd", "max_joint_torque"}) {
     std::string defaults = "default_gains {";
-    for (const char* absl_nonnull gain : {"kp", "kd", "torque_limit"}) {
+    for (const char* absl_nonnull gain : {"kp", "kd", "max_joint_torque"}) {
       if (absl::string_view(gain) != missingGain)
         absl::StrAppend(&defaults, " ", gain, ": 1.0");
     }
@@ -252,7 +254,7 @@ TEST(JointPdGains, AControllerRequiresAGainsFileThatSetsEveryDefaultGain) {
   }
   const std::string complete = writeTemporaryFile(
       "complete_joint_pd_gains.textproto",
-      "default_gains { kp: 2.0 kd: 3.0 torque_limit: 4.0 }\n");
+      "default_gains { kp: 2.0 kd: 3.0 max_joint_torque: 4.0 }\n");
   const absl::StatusOr<JointPdGains> gains = loadRequiredJointPdGains(
       complete, *kMpcJoints, *kOtherJoints, "Controller");
   ASSERT_TRUE(gains.ok()) << gains.status();

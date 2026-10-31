@@ -57,13 +57,13 @@ quaternion_t randomUnitQuaternion() {
   return quaternion_t::Random().normalized();
 }
 
-rotation_t rotationVector(scalar_t x, scalar_t y, scalar_t z) {
+rotation_t makeRotvec(scalar_t x, scalar_t y, scalar_t z) {
   rotation_t phi;
   phi << x, y, z;
   return phi;
 }
 
-Eigen::Quaterniond eigenQuaternion(const quaternion_t& xi) {
+Eigen::Quaterniond eigenFromCoefficients(const quaternion_t& xi) {
   Eigen::Quaterniond q;
   q.coeffs() = xi;
   return q;
@@ -125,8 +125,8 @@ TEST(UnitQuaternionMath, ProductAndRotationMatrixMatchEigen) {
   for (int trial = 0; trial < 20; ++trial) {
     const quaternion_t a = randomUnitQuaternion();
     const quaternion_t b = randomUnitQuaternion();
-    EXPECT_TRUE(quaternionProduct(a, b).isApprox((eigenQuaternion(a) * eigenQuaternion(b)).coeffs(), 1e-14));
-    EXPECT_TRUE(quaternionRotationMatrix(a).isApprox(eigenQuaternion(a).toRotationMatrix(), 1e-14));
+    EXPECT_TRUE(quaternionProduct(a, b).isApprox((eigenFromCoefficients(a) * eigenFromCoefficients(b)).coeffs(), 1e-14));
+    EXPECT_TRUE(quaternionRotationMatrix(a).isApprox(eigenFromCoefficients(a).toRotationMatrix(), 1e-14));
     EXPECT_TRUE(quaternionProduct(a, quaternionConjugate(a)).isApprox(quaternion_t(0.0, 0.0, 0.0, 1.0), 1e-14));
   }
   EXPECT_TRUE(quaternionRotationMatrix(quaternion_t::Zero().eval()).isApprox(Eigen::Matrix3d::Identity()));
@@ -146,14 +146,14 @@ TEST(UnitQuaternionMath, ExpMatchesAngleAxisAndLogInvertsIt) {
     EXPECT_TRUE(quaternionLog((3.0 * xi).eval()).isApprox(phi, 1e-12));
   }
   // Beyond pi, Log returns the shorter way round.
-  const rotation_t longWay = rotationVector(/*x=*/0.0, /*y=*/0.0, /*z=*/1.5 * kPi);
-  EXPECT_TRUE(quaternionLog(quaternionExp(longWay)).isApprox(rotationVector(/*x=*/0.0, /*y=*/0.0, /*z=*/-0.5 * kPi), 1e-12));
+  const rotation_t longWay = makeRotvec(/*x=*/0.0, /*y=*/0.0, /*z=*/1.5 * kPi);
+  EXPECT_TRUE(quaternionLog(quaternionExp(longWay)).isApprox(makeRotvec(/*x=*/0.0, /*y=*/0.0, /*z=*/-0.5 * kPi), 1e-12));
   EXPECT_LE(quaternionLog(randomUnitQuaternion()).norm(), kPi + 1e-12);
 }
 
 TEST(UnitQuaternionMath, SmallAngleSeriesAreContinuous) {
   for (const scalar_t angle : {0.0, 1e-12, 1e-8, 0.999e-6, 1.001e-6, 1e-4, 0.0999, 0.1001, 0.3}) {
-    const rotation_t phi = angle * rotationVector(/*x=*/0.6, /*y=*/-0.48, /*z=*/0.64);
+    const rotation_t phi = angle * makeRotvec(/*x=*/0.6, /*y=*/-0.48, /*z=*/0.64);
     // Exp and Log
     const scalar_t halfAngle = 0.5 * angle;
     EXPECT_NEAR(quaternionExp(phi)(3), std::cos(halfAngle), 1e-15);
@@ -168,15 +168,15 @@ TEST(UnitQuaternionMath, SmallAngleSeriesAreContinuous) {
 
 /**
  * Log(c xi) = Log(xi) for every c > 0, against Eigen's AngleAxis of the unit quaternion (independent of the library), also
- * for quaternions at or below kQuaternionNormalizationEpsilon. Guards absolute in |v| and w read a quaternion that short
+ * for quaternions at or below kUnitQuaternionNormalizationEpsilon. Guards absolute in |v| and w read a quaternion that short
  * through the small-angle series whatever its angle: 1 rad came out as 0.984 rad at |xi| = 2e-6 and as 0.959 |xi| at
  * |xi| <= 1e-6.
  */
 TEST(UnitQuaternionMath, LogIsHomogeneousOfDegreeZeroAtEveryScale) {
-  const rotation_t axis = rotationVector(/*x=*/1.0, /*y=*/2.0, /*z=*/3.0).normalized();
+  const rotation_t axis = makeRotvec(/*x=*/1.0, /*y=*/2.0, /*z=*/3.0).normalized();
   for (const scalar_t angle : {0.0, 1e-9, 0.999e-6, 1.001e-6, 1e-4, 0.2, 1.0, 3.0, kPi - 1e-9}) {
     const quaternion_t unit = quaternionExp((angle * axis).eval());
-    const Eigen::AngleAxisd angleAxis(eigenQuaternion(unit));
+    const Eigen::AngleAxisd angleAxis(eigenFromCoefficients(unit));
     const rotation_t expected = angleAxis.angle() * angleAxis.axis();
     for (const scalar_t scale : {1e150, 1e3, 3.0, 1.0, 1e-3, 1e-5, 2e-6, 1.2e-6, 1e-6, 5e-7, 1e-7, 1e-30, 1e-100, 1e-150}) {
       const quaternion_t scaled = scale * unit;
@@ -185,12 +185,12 @@ TEST(UnitQuaternionMath, LogIsHomogeneousOfDegreeZeroAtEveryScale) {
     }
   }
   // A short pure-vector quaternion is a half turn, not the rotation by 2 |v| of the series.
-  EXPECT_LT((quaternionLog(quaternion_t(5e-7, 0.0, 0.0, 0.0)) - rotationVector(/*x=*/kPi, /*y=*/0.0, /*z=*/0.0)).norm(), 1e-15);
+  EXPECT_LT((quaternionLog(quaternion_t(5e-7, 0.0, 0.0, 0.0)) - makeRotvec(/*x=*/kPi, /*y=*/0.0, /*z=*/0.0)).norm(), 1e-15);
   // So is the difference of a short ambient flow from the state it should match.
-  const quaternion_t state = quaternionExp(rotationVector(/*x=*/0.3, /*y=*/-0.2, /*z=*/0.5));
-  const quaternion_t flow = quaternionProduct(state, quaternionExp(rotationVector(/*x=*/0.1, /*y=*/0.0, /*z=*/-0.4)));
+  const quaternion_t state = quaternionExp(makeRotvec(/*x=*/0.3, /*y=*/-0.2, /*z=*/0.5));
+  const quaternion_t flow = quaternionProduct(state, quaternionExp(makeRotvec(/*x=*/0.1, /*y=*/0.0, /*z=*/-0.4)));
   EXPECT_LT((quaternionLog(quaternionProduct(quaternionConjugate(state), (1e-7 * flow).eval())) -
-             rotationVector(/*x=*/0.1, /*y=*/0.0, /*z=*/-0.4))
+             makeRotvec(/*x=*/0.1, /*y=*/0.0, /*z=*/-0.4))
                 .norm(),
             1e-14);
 }
@@ -201,8 +201,8 @@ TEST(UnitQuaternionMath, LogIsHomogeneousOfDegreeZeroAtEveryScale) {
  * either zero. Both values are logarithms of the half turn. Everywhere else both identities hold bit for bit.
  */
 TEST(UnitQuaternionMath, LogKeepsTheInversionAtAnExactHalfTurn) {
-  for (const rotation_t& vector : {rotationVector(/*x=*/1.0, /*y=*/0.0, /*z=*/0.0), rotationVector(/*x=*/0.0, /*y=*/0.0, /*z=*/1.0),
-                                   rotationVector(/*x=*/0.6, /*y=*/0.0, /*z=*/0.8), rotationVector(/*x=*/0.6, /*y=*/-0.48, /*z=*/0.64)}) {
+  for (const rotation_t& vector : {makeRotvec(/*x=*/1.0, /*y=*/0.0, /*z=*/0.0), makeRotvec(/*x=*/0.0, /*y=*/0.0, /*z=*/1.0),
+                                   makeRotvec(/*x=*/0.6, /*y=*/0.0, /*z=*/0.8), makeRotvec(/*x=*/0.6, /*y=*/-0.48, /*z=*/0.64)}) {
     for (const scalar_t zero : {0.0, -0.0}) {
       quaternion_t halfTurn;
       halfTurn << vector, zero;
@@ -221,7 +221,7 @@ TEST(UnitQuaternionMath, LogKeepsTheInversionAtAnExactHalfTurn) {
   const quaternion_t x1 = quaternionProduct(x0, quaternion_t(1.0, 0.0, 0.0, 0.0));
   const quaternion_t relative = quaternionProduct(quaternionConjugate(x0), x1);
   ASSERT_EQ(relative(3), 0.0);
-  EXPECT_LT((quaternionLog(relative) - rotationVector(/*x=*/kPi, /*y=*/0.0, /*z=*/0.0)).norm(), 1e-15);
+  EXPECT_LT((quaternionLog(relative) - makeRotvec(/*x=*/kPi, /*y=*/0.0, /*z=*/0.0)).norm(), 1e-15);
   EXPECT_EQ(quaternionLog(quaternionProduct(quaternionConjugate(x0), (-x1).eval())), (-quaternionLog(relative)).eval());
   // slerp: both geodesics to a half turn are shortest, and x1 and -x1 take opposite ones.
   const quaternion_t identity(0.0, 0.0, 0.0, 1.0);
@@ -257,7 +257,7 @@ TEST(UnitQuaternionMath, AtAnExactHalfTurnJrInverseIsTheDerivativeOfTheReturnedL
   // The other logarithm's linearization would not match (UnitQuaternionMath.h; design README section 2.1, the double
   // cover at an exact half turn).
   const scalar_t h = 1e-6;
-  for (const rotation_t& vector : {rotationVector(/*x=*/1.0, /*y=*/0.0, /*z=*/0.0), rotationVector(/*x=*/0.6, /*y=*/-0.48, /*z=*/0.64)}) {
+  for (const rotation_t& vector : {makeRotvec(/*x=*/1.0, /*y=*/0.0, /*z=*/0.0), makeRotvec(/*x=*/0.6, /*y=*/-0.48, /*z=*/0.64)}) {
     for (const scalar_t zero : {0.0, -0.0}) {
       quaternion_t halfTurn;
       halfTurn << vector.normalized(), zero;
@@ -288,9 +288,9 @@ TEST(UnitQuaternionMath, AtAnExactHalfTurnJrInverseIsTheDerivativeOfTheReturnedL
 
 TEST(UnitQuaternionMath, RightJacobiansMatchFiniteDifferences) {
   const scalar_t eps = 1e-6;
-  for (const rotation_t& phi : {rotationVector(/*x=*/0.3, /*y=*/-0.2, /*z=*/0.5), rotationVector(/*x=*/1.2, /*y=*/0.4, /*z=*/-2.1),
-                                rotationVector(/*x=*/0.0, /*y=*/0.0, /*z=*/3.1), rotationVector(/*x=*/1e-3, /*y=*/-2e-3, /*z=*/5e-4),
-                                rotationVector(/*x=*/0.05, /*y=*/0.02, /*z=*/-0.06)}) {
+  for (const rotation_t& phi : {makeRotvec(/*x=*/0.3, /*y=*/-0.2, /*z=*/0.5), makeRotvec(/*x=*/1.2, /*y=*/0.4, /*z=*/-2.1),
+                                makeRotvec(/*x=*/0.0, /*y=*/0.0, /*z=*/3.1), makeRotvec(/*x=*/1e-3, /*y=*/-2e-3, /*z=*/5e-4),
+                                makeRotvec(/*x=*/0.05, /*y=*/0.02, /*z=*/-0.06)}) {
     Eigen::Matrix3d JrNumeric;
     Eigen::Matrix3d JrInverseNumeric;
     for (int i = 0; i < 3; ++i) {
@@ -309,7 +309,7 @@ TEST(UnitQuaternionMath, RightJacobiansMatchFiniteDifferences) {
     EXPECT_LT((so3RightJacobianInverse(phi) - JrInverseNumeric).norm(), 1e-8) << phi.transpose();
   }
   // Regular at a half turn, where (1 + cos a) / (2 a sin a) would be 0 / 0.
-  const Eigen::Matrix3d atHalfTurn = so3RightJacobianInverse(rotationVector(/*x=*/0.0, /*y=*/kPi, /*z=*/0.0));
+  const Eigen::Matrix3d atHalfTurn = so3RightJacobianInverse(makeRotvec(/*x=*/0.0, /*y=*/kPi, /*z=*/0.0));
   EXPECT_TRUE(atHalfTurn.allFinite());
   EXPECT_NEAR(atHalfTurn(0, 0), 1.0 - kPi * kPi / (kPi * kPi), 1e-12);
 }
@@ -322,8 +322,8 @@ TEST(UnitQuaternionMath, TangentMapsAreInverse) {
     EXPECT_TRUE((EPlus * E).isApprox(Eigen::Matrix3d::Identity(), 1e-14));
     EXPECT_LT((EPlus * xi).norm(), 1e-14);
   }
-  // At or below kQuaternionNormalizationEpsilon the divisor is 1: E+ = 2 G', E+ E = |xi|^2 I, still orthogonal to xi.
-  const quaternion_t tiny = 0.5 * kQuaternionNormalizationEpsilon * randomUnitQuaternion();
+  // At or below kUnitQuaternionNormalizationEpsilon the divisor is 1: E+ = 2 G', E+ E = |xi|^2 I, still orthogonal to xi.
+  const quaternion_t tiny = 0.5 * kUnitQuaternionNormalizationEpsilon * randomUnitQuaternion();
   const Eigen::Matrix<scalar_t, 3, 4> tinyEPlus = quaternionTangentMapPseudoInverse(tiny);
   EXPECT_TRUE(tinyEPlus.isApprox(2.0 * quaternionRateMatrix(tiny).transpose(), 1e-15));
   EXPECT_TRUE((tinyEPlus * quaternionTangentMap(tiny)).isApprox(tiny.squaredNorm() * Eigen::Matrix3d::Identity(), 1e-14));
@@ -332,7 +332,7 @@ TEST(UnitQuaternionMath, TangentMapsAreInverse) {
 
 TEST(UnitQuaternionMath, SlerpEndpointsAndAntipodes) {
   const quaternion_t xi0 = randomUnitQuaternion();
-  const quaternion_t xi1 = quaternionProduct(xi0, quaternionExp(rotationVector(/*x=*/0.4, /*y=*/-0.9, /*z=*/1.3)));
+  const quaternion_t xi1 = quaternionProduct(xi0, quaternionExp(makeRotvec(/*x=*/0.4, /*y=*/-0.9, /*z=*/1.3)));
   EXPECT_LT(rotationDistance(quaternionSlerp(xi0, xi1, /*alpha=*/0.0), xi0), 1e-15);
   EXPECT_LT(rotationDistance(quaternionSlerp(xi0, xi1, /*alpha=*/1.0), xi1), 1e-14);
   const scalar_t angle = rotationDistance(xi0, xi1);
@@ -342,13 +342,13 @@ TEST(UnitQuaternionMath, SlerpEndpointsAndAntipodes) {
   EXPECT_LT(rotationDistance(quaternionSlerp(xi0, xi1, /*alpha=*/0.4), quaternionSlerp(xi0, (-xi1).eval(), /*alpha=*/0.4)), 1e-14);
   // Just short of and just past a half turn the path goes the short way, so it is never longer than pi / 2 at alpha 0.5.
   for (const scalar_t turn : {kPi - 1e-6, kPi + 1e-6}) {
-    const quaternion_t far = quaternionProduct(xi0, quaternionExp(rotationVector(/*x=*/0.0, /*y=*/0.0, /*z=*/turn)));
+    const quaternion_t far = quaternionProduct(xi0, quaternionExp(makeRotvec(/*x=*/0.0, /*y=*/0.0, /*z=*/turn)));
     EXPECT_LE(rotationDistance(xi0, quaternionSlerp(xi0, far, /*alpha=*/0.5)), 0.5 * kPi + 1e-9);
   }
   // Rotations about one axis interpolate linearly in the angle.
-  const quaternion_t yaw0 = quaternionExp(rotationVector(/*x=*/0.0, /*y=*/0.0, /*z=*/0.2));
-  const quaternion_t yaw1 = quaternionExp(rotationVector(/*x=*/0.0, /*y=*/0.0, /*z=*/1.0));
-  EXPECT_TRUE(quaternionLog(quaternionSlerp(yaw0, yaw1, /*alpha=*/0.3)).isApprox(rotationVector(/*x=*/0.0, /*y=*/0.0, /*z=*/0.44), 1e-14));
+  const quaternion_t yaw0 = quaternionExp(makeRotvec(/*x=*/0.0, /*y=*/0.0, /*z=*/0.2));
+  const quaternion_t yaw1 = quaternionExp(makeRotvec(/*x=*/0.0, /*y=*/0.0, /*z=*/1.0));
+  EXPECT_TRUE(quaternionLog(quaternionSlerp(yaw0, yaw1, /*alpha=*/0.3)).isApprox(makeRotvec(/*x=*/0.0, /*y=*/0.0, /*z=*/0.44), 1e-14));
 }
 
 TEST(UnitQuaternionMath, SafeNormalization) {
@@ -389,13 +389,13 @@ TEST(UnitQuaternionMath, TapedAtOnesIsValidEverywhere) {
                                             quaternion_t::Zero(),
                                             quaternion_t(0.0, 0.03, -0.04, 0.998),
                                             // Short quaternions, where Log's guards are relative to |xi|.
-                                            (2e-6 * quaternionExp(rotationVector(/*x=*/0.3, /*y=*/-0.5, /*z=*/0.4))).eval(),
+                                            (2e-6 * quaternionExp(makeRotvec(/*x=*/0.3, /*y=*/-0.5, /*z=*/0.4))).eval(),
                                             (1e-7 * randomUnitQuaternion()).eval(),
                                             quaternion_t(5e-7, 0.0, 0.0, 0.0),
                                             quaternion_t(1e-15, 0.0, 0.0, 1e-9),
                                             // The ends of the range the guards are valid in (the file comment).
-                                            (1e-150 * quaternionExp(rotationVector(/*x=*/0.3, /*y=*/-0.5, /*z=*/0.4))).eval(),
-                                            (1e150 * quaternionExp(rotationVector(/*x=*/-1.1, /*y=*/0.2, /*z=*/0.7))).eval()};
+                                            (1e-150 * quaternionExp(makeRotvec(/*x=*/0.3, /*y=*/-0.5, /*z=*/0.4))).eval(),
+                                            (1e150 * quaternionExp(makeRotvec(/*x=*/-1.1, /*y=*/0.2, /*z=*/0.7))).eval()};
   for (const quaternion_t& point : points) {
     const std::vector<scalar_t> input(point.data(), point.data() + 4);
     const std::vector<scalar_t> taped = tape.Forward(/*q=*/0, input);
@@ -431,7 +431,7 @@ TEST(UnitQuaternionMath, TapedAtOnesIsValidEverywhere) {
 // ---------------------------------------------------------------------------------------------------------------------
 
 /** [E(3), Q, E(2), Q, E(1)]: two quaternions, so offsets that differ between ambient and tangent are exercised. */
-std::shared_ptr<const ProductStateManifold> twoQuaternionManifold() {
+std::shared_ptr<const ProductStateManifold> twoUnitQuaternionManifold() {
   return ProductStateManifold::create({StateManifoldSegment::euclidean(2), StateManifoldSegment::euclidean(1),
                                        StateManifoldSegment::unitQuaternion(), StateManifoldSegment::euclidean(2),
                                        StateManifoldSegment::unitQuaternion(), StateManifoldSegment::euclidean(1)})
@@ -480,12 +480,12 @@ matrix_t denseTangentMapPseudoInverse(const ProductStateManifold& manifold, cons
 }
 
 TEST(ProductStateManifold, LayoutAndValidation) {
-  const std::shared_ptr<const ProductStateManifold> manifold = twoQuaternionManifold();
+  const std::shared_ptr<const ProductStateManifold> manifold = twoUnitQuaternionManifold();
   EXPECT_EQ(manifold->getAmbientDim(), 14u);
   EXPECT_EQ(manifold->getTangentDim(), 12u);
   EXPECT_EQ(manifold->getSegments().size(), 5u);  // the two leading Euclidean segments are merged
-  EXPECT_EQ(manifold->getQuaternionAmbientOffsets(), (std::vector<size_t>{3, 9}));
-  EXPECT_EQ(manifold->getQuaternionTangentOffsets(), (std::vector<size_t>{3, 8}));
+  EXPECT_EQ(manifold->getUnitQuaternionAmbientOffsets(), (std::vector<size_t>{3, 9}));
+  EXPECT_EQ(manifold->getUnitQuaternionTangentOffsets(), (std::vector<size_t>{3, 8}));
 
   EXPECT_FALSE(ProductStateManifold::create({}).ok());
   EXPECT_FALSE(ProductStateManifold::create({StateManifoldSegment::euclidean(0)}).ok());
@@ -493,12 +493,12 @@ TEST(ProductStateManifold, LayoutAndValidation) {
 }
 
 TEST(ProductStateManifold, RetractAndDifferenceAreInverse) {
-  const std::shared_ptr<const ProductStateManifold> manifold = twoQuaternionManifold();
+  const std::shared_ptr<const ProductStateManifold> manifold = twoUnitQuaternionManifold();
   for (int trial = 0; trial < 20; ++trial) {
     const vector_t x = randomState(*manifold);
     vector_t dx = vector_t::Random(manifold->getTangentDim());
     dx.segment<3>(3) *= 2.5;  // large rotations, clipped below pi (the cut locus of the difference)
-    for (const size_t offset : manifold->getQuaternionTangentOffsets()) {
+    for (const size_t offset : manifold->getUnitQuaternionTangentOffsets()) {
       if (dx.segment<3>(offset).norm() > 0.95 * kPi) {
         dx.segment<3>(offset) *= 0.95 * kPi / dx.segment<3>(offset).norm();
       }
@@ -506,7 +506,7 @@ TEST(ProductStateManifold, RetractAndDifferenceAreInverse) {
     vector_t xNew;
     manifold->retract(x, dx, /*alpha=*/1.0, xNew);
     EXPECT_TRUE(manifold->difference(x, xNew).isApprox(dx, 1e-12));
-    for (const size_t offset : manifold->getQuaternionAmbientOffsets()) {
+    for (const size_t offset : manifold->getUnitQuaternionAmbientOffsets()) {
       EXPECT_NEAR(xNew.segment<4>(offset).norm(), 1.0, 1e-15);
     }
     // x (+) (x1 (-) x) = x1
@@ -518,12 +518,12 @@ TEST(ProductStateManifold, RetractAndDifferenceAreInverse) {
     vector_t xHalf;
     manifold->retract(x, dx, /*alpha=*/0.5, xHalf);
     EXPECT_TRUE(manifold->difference(x, xHalf).isApprox(0.5 * dx, 1e-12));
-    EXPECT_NEAR(manifold->getMaximumRotationAngle(dx), std::max(dx.segment<3>(3).norm(), dx.segment<3>(8).norm()), 1e-15);
+    EXPECT_NEAR(manifold->getMaximumTangentAngle(dx), std::max(dx.segment<3>(3).norm(), dx.segment<3>(8).norm()), 1e-15);
   }
 }
 
 TEST(ProductStateManifold, DifferenceIsInvariantUnderTheDoubleCover) {
-  const std::shared_ptr<const ProductStateManifold> manifold = twoQuaternionManifold();
+  const std::shared_ptr<const ProductStateManifold> manifold = twoUnitQuaternionManifold();
   const vector_t x0 = randomState(*manifold);
   const vector_t x1 = randomState(*manifold);
   vector_t x1Flipped = x1;
@@ -535,7 +535,7 @@ TEST(ProductStateManifold, DifferenceIsInvariantUnderTheDoubleCover) {
 }
 
 TEST(ProductStateManifold, InterpolateAndProject) {
-  const std::shared_ptr<const ProductStateManifold> manifold = twoQuaternionManifold();
+  const std::shared_ptr<const ProductStateManifold> manifold = twoUnitQuaternionManifold();
   const vector_t x0 = randomState(*manifold);
   vector_t dx = 0.5 * vector_t::Random(manifold->getTangentDim());
   vector_t x1;
@@ -556,46 +556,46 @@ TEST(ProductStateManifold, InterpolateAndProject) {
 
 TEST(ProductStateManifold, TheMaximumRotationAngleKeepsANan) {
   // A NaN rotation block makes the maximum NaN, in either block; finite blocks keep their largest angle.
-  const std::shared_ptr<const ProductStateManifold> manifold = twoQuaternionManifold();
+  const std::shared_ptr<const ProductStateManifold> manifold = twoUnitQuaternionManifold();
   const vector_t dx = vector_t::Random(manifold->getTangentDim());
-  for (const size_t offset : manifold->getQuaternionTangentOffsets()) {
+  for (const size_t offset : manifold->getUnitQuaternionTangentOffsets()) {
     vector_t withNan = dx;
     withNan(offset + 1) = std::numeric_limits<scalar_t>::quiet_NaN();
-    EXPECT_TRUE(std::isnan(manifold->getMaximumRotationAngle(withNan))) << offset;
+    EXPECT_TRUE(std::isnan(manifold->getMaximumTangentAngle(withNan))) << offset;
   }
-  EXPECT_EQ(manifold->getMaximumRotationAngle(dx), std::max(dx.segment<3>(3).norm(), dx.segment<3>(8).norm()));
+  EXPECT_EQ(manifold->getMaximumTangentAngle(dx), std::max(dx.segment<3>(3).norm(), dx.segment<3>(8).norm()));
   vector_t euclideanNan = dx;
   euclideanNan(0) = std::numeric_limits<scalar_t>::quiet_NaN();
-  EXPECT_EQ(manifold->getMaximumRotationAngle(euclideanNan), manifold->getMaximumRotationAngle(dx));
+  EXPECT_EQ(manifold->getMaximumTangentAngle(euclideanNan), manifold->getMaximumTangentAngle(dx));
 }
 
 TEST(ProductStateManifold, ARotationIsRepresentableAboveTheNormalizationGuard) {
-  const std::shared_ptr<const ProductStateManifold> manifold = twoQuaternionManifold();
+  const std::shared_ptr<const ProductStateManifold> manifold = twoUnitQuaternionManifold();
   const vector_t x = randomState(*manifold);
-  EXPECT_TRUE(manifold->hasRepresentableRotations(x));
-  // The guard is the safe normalization's: a block longer than kQuaternionNormalizationEpsilon is normalized, one at or
+  EXPECT_TRUE(manifold->hasRepresentableAttitudes(x));
+  // The guard is the safe normalization's: a block longer than kUnitQuaternionNormalizationEpsilon is normalized, one at or
   // below it is not and has no rotation a step could move.
-  for (const size_t offset : manifold->getQuaternionAmbientOffsets()) {
+  for (const size_t offset : manifold->getUnitQuaternionAmbientOffsets()) {
     vector_t scaled = x;
-    scaled.segment<4>(offset) *= 1.1 * kQuaternionNormalizationEpsilon;
-    EXPECT_TRUE(manifold->hasRepresentableRotations(scaled)) << offset;
-    scaled.segment<4>(offset) = x.segment<4>(offset) * (0.1 * kQuaternionNormalizationEpsilon);
-    EXPECT_FALSE(manifold->hasRepresentableRotations(scaled)) << offset;
+    scaled.segment<4>(offset) *= 1.1 * kUnitQuaternionNormalizationEpsilon;
+    EXPECT_TRUE(manifold->hasRepresentableAttitudes(scaled)) << offset;
+    scaled.segment<4>(offset) = x.segment<4>(offset) * (0.1 * kUnitQuaternionNormalizationEpsilon);
+    EXPECT_FALSE(manifold->hasRepresentableAttitudes(scaled)) << offset;
     scaled.segment<4>(offset).setZero();
-    EXPECT_FALSE(manifold->hasRepresentableRotations(scaled)) << offset;
+    EXPECT_FALSE(manifold->hasRepresentableAttitudes(scaled)) << offset;
     scaled.segment<4>(offset) = x.segment<4>(offset);
     scaled(offset) = std::numeric_limits<scalar_t>::quiet_NaN();
-    EXPECT_FALSE(manifold->hasRepresentableRotations(scaled)) << offset;
+    EXPECT_FALSE(manifold->hasRepresentableAttitudes(scaled)) << offset;
   }
   // The Euclidean blocks do not enter.
   vector_t euclideanZero = x;
   euclideanZero.head<3>().setZero();
   euclideanZero.segment<2>(7).setZero();
-  EXPECT_TRUE(manifold->hasRepresentableRotations(euclideanZero));
+  EXPECT_TRUE(manifold->hasRepresentableAttitudes(euclideanZero));
 }
 
 TEST(ProductStateManifold, IntoFunctionsComputeTheByValueResultsToTheBit) {
-  const std::shared_ptr<const ProductStateManifold> manifold = twoQuaternionManifold();
+  const std::shared_ptr<const ProductStateManifold> manifold = twoUnitQuaternionManifold();
   for (int trial = 0; trial < 20; ++trial) {
     const vector_t x0 = randomState(*manifold);
     vector_t x1 = randomState(*manifold);
@@ -635,7 +635,7 @@ TEST(ProductStateManifold, RetractionCurvatureIdentity) {
 }
 
 TEST(ProductStateManifold, InPlacePullBacksEqualDenseProducts) {
-  const std::shared_ptr<const ProductStateManifold> manifold = twoQuaternionManifold();
+  const std::shared_ptr<const ProductStateManifold> manifold = twoUnitQuaternionManifold();
   const size_t nx = manifold->getAmbientDim();
   const size_t ndx = manifold->getTangentDim();
   const vector_t x = randomState(*manifold);
@@ -679,7 +679,7 @@ TEST(ProductStateManifold, InPlacePullBacksEqualDenseProducts) {
 }
 
 TEST(ProductStateManifold, PushForwardEqualsTheDenseFormula) {
-  const std::shared_ptr<const ProductStateManifold> manifold = twoQuaternionManifold();
+  const std::shared_ptr<const ProductStateManifold> manifold = twoUnitQuaternionManifold();
   const size_t nx = manifold->getAmbientDim();
   const size_t nu = 2;
   const vector_t x = randomState(*manifold);
@@ -693,8 +693,8 @@ TEST(ProductStateManifold, PushForwardEqualsTheDenseFormula) {
   const vector_t gap = manifold->difference(xNext, dynamics.f);
   matrix_t rowMap = denseTangentMapPseudoInverse(*manifold, dynamics.f);
   for (size_t k = 0; k < 2; ++k) {
-    const size_t tangentOffset = manifold->getQuaternionTangentOffsets()[k];
-    const size_t ambientOffset = manifold->getQuaternionAmbientOffsets()[k];
+    const size_t tangentOffset = manifold->getUnitQuaternionTangentOffsets()[k];
+    const size_t ambientOffset = manifold->getUnitQuaternionAmbientOffsets()[k];
     const rotation_t blockGap = gap.segment<3>(tangentOffset);
     rowMap.block<3, 4>(tangentOffset, ambientOffset) = so3RightJacobianInverse(blockGap) * rowMap.block<3, 4>(tangentOffset, ambientOffset);
   }
@@ -715,14 +715,14 @@ TEST(ProductStateManifold, PushForwardEqualsTheDenseFormula) {
 }
 
 /**
- * pushForwardDynamics()'s precondition: a flow Phi = c x off the sphere by any c above kQuaternionNormalizationEpsilon
+ * pushForwardDynamics()'s precondition: a flow Phi = c x off the sphere by any c above kUnitQuaternionNormalizationEpsilon
  * has the gap of x and the gap's derivative Jr^-1(gap) along the body perturbation of x, against central differences.
  * At or below the guard the row map is 2 G(Phi)' instead of 2 G(Phi)' / |Phi|^2, which is not that derivative.
  */
 TEST(ProductStateManifold, PushForwardIsTheGapsDerivativeForAFlowLongerThanTheGuard) {
   const std::shared_ptr<const ProductStateManifold> manifold = ProductStateManifold::create({StateManifoldSegment::unitQuaternion()}).value();
-  const vector_t x = quaternionExp(rotationVector(/*x=*/0.3, /*y=*/-0.2, /*z=*/0.5));
-  const vector_t xNext = quaternionExp(rotationVector(/*x=*/0.4, /*y=*/-0.2, /*z=*/0.1));
+  const vector_t x = quaternionExp(makeRotvec(/*x=*/0.3, /*y=*/-0.2, /*z=*/0.5));
+  const vector_t xNext = quaternionExp(makeRotvec(/*x=*/0.4, /*y=*/-0.2, /*z=*/0.1));
   constexpr scalar_t kStep = 1e-6;
   for (const scalar_t scale : {1.0, 1e-3, 2e-6, 1e-7}) {
     VectorFunctionLinearApproximation dynamics;
@@ -741,7 +741,7 @@ TEST(ProductStateManifold, PushForwardIsTheGapsDerivativeForAFlowLongerThanTheGu
       centralDifferences.col(k) = (manifold->difference(xNext, scale * plus) - manifold->difference(xNext, scale * minus)) / (2.0 * kStep);
     }
     const scalar_t error = (dynamics.dfdx - centralDifferences).norm() / centralDifferences.norm();
-    if (scale > kQuaternionNormalizationEpsilon) {
+    if (scale > kUnitQuaternionNormalizationEpsilon) {
       EXPECT_LT(error, 1e-8) << scale;
     } else {
       EXPECT_GT(error, 0.5) << scale;
@@ -768,8 +768,8 @@ TEST(EuclideanStateManifold, IsTheFlatSpace) {
   manifold.retract(x, dx, /*alpha=*/0.3, xNew);
   EXPECT_EQ(xNew, (x + 0.3 * dx).eval());
   EXPECT_EQ(manifold.difference(x, xNew), (xNew - x).eval());
-  EXPECT_EQ(manifold.getMaximumRotationAngle(dx), 0.0);
-  EXPECT_TRUE(manifold.hasRepresentableRotations(vector_t::Zero(4)));
+  EXPECT_EQ(manifold.getMaximumTangentAngle(dx), 0.0);
+  EXPECT_TRUE(manifold.hasRepresentableAttitudes(vector_t::Zero(4)));
   matrix_t J = matrix_t::Random(2, 4);
   const matrix_t before = J;
   manifold.pullBackStateColumns(x, J);

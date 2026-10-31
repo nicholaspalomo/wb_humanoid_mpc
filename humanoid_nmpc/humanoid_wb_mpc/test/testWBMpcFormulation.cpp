@@ -344,10 +344,10 @@ TEST_F(WBMpcFormulationTest, renamedContactFramesAreTheFramesTheDynamicsUse) {
   }
   vector_t input =
       vector_t::Zero(static_cast<Eigen::Index>(model.getInputDim()));
-  model.setContactWrench(
+  model.setWrenchContactEwrtParam(
       input, (vector6_t() << 30.0, -12.0, 320.0, 4.0, -6.0, 1.5).finished(),
       /*contactIndex=*/0);
-  model.setContactWrench(
+  model.setWrenchContactEwrtParam(
       input, (vector6_t() << -18.0, 25.0, 210.0, -3.0, 5.0, -0.8).finished(),
       /*contactIndex=*/1);
   for (Eigen::Index j = 0; j < static_cast<Eigen::Index>(model.getJointDim());

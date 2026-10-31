@@ -62,14 +62,14 @@ namespace {
  * requires, each a value of its own. */
 mpc_config::ReferenceFile completeReferenceFile() {
   mpc_config::ReferenceFile file;
-  file.target_displacement_velocity = 0.45;
-  file.target_rotation_velocity = 0.55;
-  file.max_displacement_velocity_x = 1.1;
-  file.max_displacement_velocity_y = 0.35;
-  file.max_delta_pelvis_height = 0.2;
-  file.max_rotation_velocity = 0.9;
+  file.ref_speed_base_rt_world = 0.45;
+  file.ref_rate_yaw_base_rt_world = 0.55;
+  file.cmd_max_linvel_base_rt_world_ewrt_heading_x = 1.1;
+  file.cmd_max_linvel_base_rt_world_ewrt_heading_y = 0.35;
+  file.cmd_max_err_pos_base_rt_world_ewrt_world_z = 0.2;
+  file.cmd_max_angvel_base_rt_world_ewrt_world_z = 0.9;
   file.target_joint_state_interpolation_time_constant = 0.3;
-  file.default_base_height = 0.85;
+  file.nom_pos_base_rt_world_ewrt_world_z = 0.85;
   return file;
 }
 
@@ -82,12 +82,15 @@ struct ScalingField {
 /** The command limits, in the order of GuiCommandScaling::commandLimits. */
 std::array<ScalingField, 3> commandLimitFields() {
   return {{
-      {.name = "max_displacement_velocity_x",
-       .member = &mpc_config::ReferenceFile::max_displacement_velocity_x},
-      {.name = "max_displacement_velocity_y",
-       .member = &mpc_config::ReferenceFile::max_displacement_velocity_y},
-      {.name = "max_rotation_velocity",
-       .member = &mpc_config::ReferenceFile::max_rotation_velocity},
+      {.name = "cmd_max_linvel_base_rt_world_ewrt_heading_x",
+       .member = &mpc_config::ReferenceFile::
+                     cmd_max_linvel_base_rt_world_ewrt_heading_x},
+      {.name = "cmd_max_linvel_base_rt_world_ewrt_heading_y",
+       .member = &mpc_config::ReferenceFile::
+                     cmd_max_linvel_base_rt_world_ewrt_heading_y},
+      {.name = "cmd_max_angvel_base_rt_world_ewrt_world_z",
+       .member = &mpc_config::ReferenceFile::
+                     cmd_max_angvel_base_rt_world_ewrt_world_z},
   }};
 }
 
@@ -103,7 +106,7 @@ void expectScalingOfFile(const GuiCommandScaling& scaling,
         << what << ": " << fields[i].name;
   }
   EXPECT_EQ(std::optional<double>(scaling.defaultPelvisHeight),
-            file.default_base_height)
+            file.nom_pos_base_rt_world_ewrt_world_z)
       << what;
 }
 
@@ -137,8 +140,9 @@ TEST(GuiCommandScalingTest, AFileThatLeavesOutAValueItReadsIsRefusedByName) {
       {limits[0],
        limits[1],
        limits[2],
-       {.name = "default_base_height",
-        .member = &mpc_config::ReferenceFile::default_base_height}}};
+       {.name = "nom_pos_base_rt_world_ewrt_world_z",
+        .member =
+            &mpc_config::ReferenceFile::nom_pos_base_rt_world_ewrt_world_z}}};
   for (const ScalingField& field : fields) {
     mpc_config::ReferenceFile file = completeReferenceFile();
     (file.*(field.member)).reset();

@@ -65,7 +65,7 @@ acom_weights {
 state_weights {
   scaling: 85
   # Raised from 2.
-  normalized_linear_momentum {
+  mnorm_linmom_com_rt_world_ewrt_world {
     x: 10  # h_com_x / robotMass
     y: 10  # h_com_y / robotMass
     z: 15  # h_com_z / robotMass
@@ -405,9 +405,13 @@ class TreeTest(unittest.TestCase):
 
     def test_positions_comments_and_spans(self):
         document = textproto_document.parse(ATLAS_STYLE)
-        self.assertEqual(document.position("telemetry_frequency"), (8, 1))
         self.assertEqual(
-            document.position("state_weights.normalized_linear_momentum.y"),
+            document.line_and_column("telemetry_frequency"), (8, 1)
+        )
+        self.assertEqual(
+            document.line_and_column(
+                "state_weights.mnorm_linmom_com_rt_world_ewrt_world.y"
+            ),
             (20, 5),
         )
         self.assertEqual(
@@ -435,7 +439,7 @@ class TreeTest(unittest.TestCase):
         )
         self.assertEqual(
             document.leading_comments(
-                "state_weights.normalized_linear_momentum"
+                "state_weights.mnorm_linmom_com_rt_world_ewrt_world"
             ),
             ["Raised from 2."],
         )
@@ -553,10 +557,12 @@ class EditTest(unittest.TestCase):
 
     def test_set_scalar_replaces_the_value_token_only(self):
         document = textproto_document.parse(ATLAS_STYLE)
-        node = document.scalar("state_weights.normalized_linear_momentum.y")
+        node = document.scalar(
+            "state_weights.mnorm_linmom_com_rt_world_ewrt_world.y"
+        )
         self.assertTrue(
             document.set_scalar(
-                "state_weights.normalized_linear_momentum.y", 12.5
+                "state_weights.mnorm_linmom_com_rt_world_ewrt_world.y", 12.5
             )
         )
         self.assert_one_splice(
@@ -601,7 +607,7 @@ class EditTest(unittest.TestCase):
         document.set_or_insert("acom_weights.extra", 1.0)
         self.assertIn("  roll: 50\n  extra: 1.0\n}\n", document.text())
         document.set_or_insert(
-            "state_weights.normalized_linear_momentum.w", 2.0
+            "state_weights.mnorm_linmom_com_rt_world_ewrt_world.w", 2.0
         )
         self.assertIn(
             "    z: 15  # h_com_z / robotMass\n    w: 2.0\n  }\n",
@@ -633,9 +639,10 @@ class EditTest(unittest.TestCase):
                 "contacts {\n  contact_rectangle {\n    length: 0.2\n  }\n}\n"
             )
         )
-        document.set_or_insert("state_weights.base_orientation.yaw", 1.0)
+        document.set_or_insert("state_weights.eulerzyx_base_rt_world.yaw", 1.0)
         self.assertIn(
-            "  base_orientation {\n    yaw: 1.0\n  }\n}\n", document.text()
+            "  eulerzyx_base_rt_world {\n    yaw: 1.0\n  }\n}\n",
+            document.text(),
         )
         document.set_or_insert(
             "input_weights.contact_wrenches[contact=left].force.x", 3.0
@@ -731,7 +738,10 @@ class EditTest(unittest.TestCase):
             document.text(),
         )
         self.assertEqual(
-            document.remove("state_weights.normalized_linear_momentum"), 1
+            document.remove(
+                "state_weights.mnorm_linmom_com_rt_world_ewrt_world"
+            ),
+            1,
         )
         self.assertEqual(document.remove("nothing.here"), 0)
         self.assertEqual(document.remove("state_weights.nothing"), 0)
@@ -967,11 +977,11 @@ def _gaps(document: textproto_document.TextprotoDocument) -> list[str]:
     """The text between the scalars of `document`: what an edit of values only must leave as it is."""
     text = document.text()
     gaps = []
-    position = 0
+    offset = 0
     for _, node in _scalars(document):
-        gaps.append(text[position : node.start])
-        position = node.end
-    gaps.append(text[position:])
+        gaps.append(text[offset : node.start])
+        offset = node.end
+    gaps.append(text[offset:])
     return gaps
 
 

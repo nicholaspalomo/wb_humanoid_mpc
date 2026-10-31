@@ -224,12 +224,12 @@ def main() -> None:
         total_errors.extend(errs)
 
     if total_errors:
-        print("❌ IFTTT Directives Lint Errors:")
+        print("IFTTT Directives Lint Errors:")
         for err in total_errors:
             print(f"  {err}")
         sys.exit(1)
     else:
-        print("✅ IFTTT Directives verified cleanly across all files.")
+        print("IFTTT Directives verified cleanly across all files.")
         sys.exit(0)
 
 

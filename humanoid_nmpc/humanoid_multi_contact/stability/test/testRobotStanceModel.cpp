@@ -222,7 +222,7 @@ TEST(TorqueFeasibilityTest, TheForcesBalanceTheBaseAndScaledLimitsFail) {
   // g(q) - sum_g J_g^T f_g: zero on the floating base, the joint torques on the
   // joints.
   const WrenchGenerators& generators = equilibrium->generators();
-  const double weight = model->mass() * kGravitationalAcceleration;
+  const double weight = model->mass() * kGravityMagnitude;
   Eigen::VectorXd generalized = model->generalizedGravity();
   for (int g = 0; g < generators.size(); ++g) {
     const int candidate =

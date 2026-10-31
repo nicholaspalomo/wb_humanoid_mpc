@@ -107,37 +107,40 @@ struct EndEffectorKinematicsCostElement {
     return costElementVector;
   }
 
-  VECTOR3_T<SCALAR_T> getPosition() const {
+  VECTOR3_T<SCALAR_T> getPosEeRtWorldEwrtWorld() const {
     return costElementVector.head(kPositionDim);
   }
-  QUATERNION_T<SCALAR_T> getOrientation() const {
+  QUATERNION_T<SCALAR_T> getQuatEeRtWorld() const {
     return QUATERNION_T<SCALAR_T>(VECTOR4_T<SCALAR_T>(
         costElementVector.segment(kOrientationStart, kQuaternionCoefficients)));
   }
-  VECTOR3_T<SCALAR_T> getLinearVelocity() const {
+  VECTOR3_T<SCALAR_T> getLinvelEeRtWorldEwrtWorld() const {
     return costElementVector.segment(kLinearVelocityStart, kPositionDim);
   }
-  VECTOR3_T<SCALAR_T> getAngularVelocity() const {
+  VECTOR3_T<SCALAR_T> getAngvelEeRtWorldEwrtWorld() const {
     return costElementVector.tail(kRotationTangentDim);
   }
 
-  void setPosition(const VECTOR3_T<SCALAR_T>& position) {
-    costElementVector.head(kPositionDim) = position;
+  void setPosEeRtWorldEwrtWorld(
+      const VECTOR3_T<SCALAR_T>& posEeRtWorldEwrtWorld) {
+    costElementVector.head(kPositionDim) = posEeRtWorldEwrtWorld;
   }
-  void setOrientation(const VECTOR4_T<SCALAR_T>& orientation) {
+  void setQuatEeRtWorld(const VECTOR4_T<SCALAR_T>& quatEeRtWorld) {
     costElementVector.segment(kOrientationStart, kQuaternionCoefficients) =
-        orientation;
+        quatEeRtWorld;
   }
-  void setOrientation(const QUATERNION_T<SCALAR_T>& orientation) {
+  void setQuatEeRtWorld(const QUATERNION_T<SCALAR_T>& quatEeRtWorld) {
     costElementVector.segment(kOrientationStart, kQuaternionCoefficients) =
-        orientation.coeffs();
+        quatEeRtWorld.coeffs();
   }
-  void setLinearVelocity(const VECTOR3_T<SCALAR_T>& linearVelocity) {
+  void setLinvelEeRtWorldEwrtWorld(
+      const VECTOR3_T<SCALAR_T>& linvelEeRtWorldEwrtWorld) {
     costElementVector.segment(kLinearVelocityStart, kPositionDim) =
-        linearVelocity;
+        linvelEeRtWorldEwrtWorld;
   }
-  void setAngularVelocity(const VECTOR3_T<SCALAR_T>& angularVelocity) {
-    costElementVector.tail(kRotationTangentDim) = angularVelocity;
+  void setAngvelEeRtWorldEwrtWorld(
+      const VECTOR3_T<SCALAR_T>& angvelEeRtWorldEwrtWorld) {
+    costElementVector.tail(kRotationTangentDim) = angvelEeRtWorldEwrtWorld;
   }
 };
 
@@ -160,9 +163,9 @@ VECTOR12_T<SCALAR_T> computeTaskSpaceErrors(
     const EndEffectorKinematicsCostElement<SCALAR_T>& reference);
 
 /**
- * Returns the tilt of an end effector whose orientation is `rotation` (end
- * effector to world) against the plane whose unit normal is `planeNormal`, as a
- * rotation vector in world axes: theta u, with v = R e_z the end-effector
+ * Returns the tilt of an end effector whose orientation is `rotmatEeRtWorld`
+ * (end effector to world) against the plane whose unit normal is `planeNormal`,
+ * as a rotation vector in world axes: theta u, with v = R e_z the end-effector
  * normal, theta = atan2(|n x v|, n . v) the angle between v and n and u = (n x
  * v) / |n x v| the axis that turns n into v. A weight on its x, y or z entry is
  * per rad^2 of tilt about that world axis, as on the orientation error of
@@ -181,7 +184,7 @@ VECTOR12_T<SCALAR_T> computeTaskSpaceErrors(
  * template so that the tapes of the foot costs and the tests share it.
  */
 template <typename SCALAR_T>
-VECTOR3_T<SCALAR_T> tiltAngleToPlane(const MATRIX3_T<SCALAR_T>& rotation,
+VECTOR3_T<SCALAR_T> tiltAngleToPlane(const MATRIX3_T<SCALAR_T>& rotmatEeRtWorld,
                                      const VECTOR3_T<SCALAR_T>& planeNormal);
 
 /**
@@ -212,28 +215,31 @@ struct PlanarEndEffectorKinematicsPlanarReference {
 
   VECTOR12_T<SCALAR_T> getValues() { return costElementVector; }
 
-  VECTOR3_T<SCALAR_T> getPosition() const {
+  VECTOR3_T<SCALAR_T> getPosEeRtWorldEwrtWorld() const {
     return costElementVector.head(kPositionDim);
   }
   VECTOR3_T<SCALAR_T> getPlaneNormal() const {
     return costElementVector.segment(kPlaneNormalStart, kPositionDim);
   }
-  VECTOR3_T<SCALAR_T> getLinearVelocity() const {
+  VECTOR3_T<SCALAR_T> getLinvelEeRtWorldEwrtWorld() const {
     return costElementVector.segment(kLinearVelocityStart, kPositionDim);
   }
-  VECTOR3_T<SCALAR_T> getAngularVelocity() const {
+  VECTOR3_T<SCALAR_T> getAngvelEeRtWorldEwrtWorld() const {
     return costElementVector.tail(kRotationTangentDim);
   }
 
-  void setPosition(const VECTOR3_T<SCALAR_T>& position) {
-    costElementVector.head(kPositionDim) = position;
+  void setPosEeRtWorldEwrtWorld(
+      const VECTOR3_T<SCALAR_T>& posEeRtWorldEwrtWorld) {
+    costElementVector.head(kPositionDim) = posEeRtWorldEwrtWorld;
   }
-  void setLinearVelocity(const VECTOR3_T<SCALAR_T>& linearVelocity) {
+  void setLinvelEeRtWorldEwrtWorld(
+      const VECTOR3_T<SCALAR_T>& linvelEeRtWorldEwrtWorld) {
     costElementVector.segment(kLinearVelocityStart, kPositionDim) =
-        linearVelocity;
+        linvelEeRtWorldEwrtWorld;
   }
-  void setAngularVelocity(const VECTOR3_T<SCALAR_T>& angularVelocity) {
-    costElementVector.tail(kRotationTangentDim) = angularVelocity;
+  void setAngvelEeRtWorldEwrtWorld(
+      const VECTOR3_T<SCALAR_T>& angvelEeRtWorldEwrtWorld) {
+    costElementVector.tail(kRotationTangentDim) = angvelEeRtWorldEwrtWorld;
   }
 };
 

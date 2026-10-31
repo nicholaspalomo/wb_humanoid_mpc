@@ -42,15 +42,15 @@ namespace ocs2::humanoid {
 /** Where a swing starts or ends: a point on a surface and the surface's
  * outward unit normal there, in the world frame. Passive data. */
 struct ContactSwingEndpoint {
-  vector3_t position = vector3_t::Zero();  // [m]
+  vector3_t posContactRtWorldEwrtWorld = vector3_t::Zero();  // [m]
   vector3_t normal = vector3_t::UnitZ();
 };
 
 /** The reference of a swinging contact at one instant, in the world frame.
  * Passive data. */
 struct ContactSwingReference {
-  vector3_t position = vector3_t::Zero();        // [m]
-  vector3_t linearVelocity = vector3_t::Zero();  // [m/s]
+  vector3_t posContactRtWorldEwrtWorld = vector3_t::Zero();     // [m]
+  vector3_t linvelContactRtWorldEwrtWorld = vector3_t::Zero();  // [m/s]
 };
 
 /** How a swing is shaped (the task file's multi_contact_plan.swing). Passive

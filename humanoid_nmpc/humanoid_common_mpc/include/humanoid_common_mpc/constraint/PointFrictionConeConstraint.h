@@ -53,7 +53,7 @@ namespace ocs2::humanoid {
  *  1. N facets of the friction pyramid inscribed in the Coulomb cone,
  *     mu cos(pi/N) (f_n + F_grip) - (cos(theta_k) f_t1 + sin(theta_k) f_t2)
  *     >= 0, theta_k = 2 pi k / N;
- *  2. the normal force bound f_n - minNormalForce >= 0.
+ *  2. the normal force bound f_n - minForceContactEwrtContactZ >= 0.
  * These are the first rows of ContactWrenchConeConstraint, of the same Config,
  * so a point contact and a surface contact on the same ground admit the same
  * forces; a point carries no moment, and the center-of-pressure and torsion
@@ -61,7 +61,7 @@ namespace ocs2::humanoid {
  *
  * The rotation is a parameter of the contact phase, not of the state, so the
  * term's state Jacobian is zero and its input Jacobian A_f p_R_w dF/du, with
- * dF/du the model's own force Jacobian (contactForceInputJacobian()).
+ * dF/du the model's own force Jacobian (inputJacobianForceContactEwrtParam()).
  *
  * Schedule gating follows ContactWrenchConeConstraint: gated, the term is
  * active while the mode schedule has the contact in contact; un-gated (the
@@ -88,7 +88,7 @@ class PointFrictionConeConstraint final : public StateInputConstraint {
       bool scheduleGated);
 
   /** OkStatus when the model's input block of `contactIndex` is its force:
-   * kForceDim entries that getContactForce() reads one to one. */
+   * kForceDim entries that getForceContactEwrtParam() reads one to one. */
   static absl::Status checkPointContactInput(
       const MpcRobotModelBase<scalar_t>& mpcRobotModel, size_t contactIndex);
 
@@ -142,7 +142,7 @@ class PointFrictionConeConstraint final : public StateInputConstraint {
   matrix_t A_f_;
   vector_t b_;
   /** 3 x getInputDim(): d(world-frame force) / d(input). */
-  matrix_t forceInputJacobian_;
+  matrix_t inputJacobianForceContactEwrtParam_;
 };
 
 }  // namespace ocs2::humanoid

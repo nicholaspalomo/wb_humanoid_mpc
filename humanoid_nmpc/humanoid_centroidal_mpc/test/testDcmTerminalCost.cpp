@@ -179,7 +179,8 @@ class DcmTerminalCostTest : public ::testing::Test {
     const vector_t q = robotModel_->getGeneralizedCoordinates(state);
     PinocchioInterface pinocchio(*pinocchioInterface_);
     const std::vector<vector3_t> feet =
-        computeContactPositions<scalar_t>(q, pinocchio, *robotModel_);
+        computePosContactsRtWorldEwrtWorld<scalar_t>(q, pinocchio,
+                                                     *robotModel_);
     vector2_t center = vector2_t::Zero();
     int count = 0;
     for (size_t i = 0; i < kNumContacts; ++i) {
@@ -314,10 +315,10 @@ TEST_F(DcmTerminalCostTest, GaussNewtonApproximationMatchesFiniteDifferences) {
   vector_t state = initialState_;
   state(0) = 0.25;
   state(1) = -0.15;
-  vector3_t eulerZyx = robotModel_->getBaseOrientationEulerZyx(state);
+  vector3_t eulerZyx = robotModel_->getEulerzyxBaseRtWorld(state);
   eulerZyx(0) = 0.2;  // base yaw
   eulerZyx(1) = 0.1;  // base pitch
-  robotModel_->setBaseOrientationEulerZyx(state, eulerZyx);
+  robotModel_->setEulerzyxBaseRtWorld(state, eulerZyx);
   state(13) = 0.3;  // a torso joint
   const TargetTrajectories emptyTargets;
   const ScalarFunctionQuadraticApproximation approximation =
@@ -390,8 +391,8 @@ TEST_F(DcmTerminalCostTest,
 
 TEST_F(DcmTerminalCostTest, ThePendulumRunsOnTheGravityOfTheModel) {
   // The shipped model's gravity is the one the centroidal dynamics use.
-  EXPECT_EQ(cost_->getModelGravity(), kGravitationalAcceleration);
-  EXPECT_EQ(cost_->getConfig().gravity, kGravitationalAcceleration);
+  EXPECT_EQ(cost_->getModelGravity(), kGravityMagnitude);
+  EXPECT_EQ(cost_->getConfig().gravity, kGravityMagnitude);
 
   // A model under another gravity: omega follows the model, whatever gravity
   // the configuration carries, at creation and on every setConfig().
@@ -404,7 +405,7 @@ TEST_F(DcmTerminalCostTest, ThePendulumRunsOnTheGravityOfTheModel) {
   marsModel.gravity.linear(vector3_t(0.0, 0.0, -kMarsGravity));
   const PinocchioInterface mars(marsModel);
   DcmTerminalCost::Config earthly = config_;
-  earthly.gravity = kGravitationalAcceleration;
+  earthly.gravity = kGravityMagnitude;
   absl::StatusOr<std::unique_ptr<DcmTerminalCost>> created =
       DcmTerminalCost::Create(*referenceManager_, earthly, modelComHeight_,
                               mars, *robotModelAd_, "testDcmTerminalCost",
@@ -421,7 +422,7 @@ TEST_F(DcmTerminalCostTest, ThePendulumRunsOnTheGravityOfTheModel) {
 
   // A gravity that does not point down gives no pendulum.
   pinocchio::ModelTpl<scalar_t> sidewaysModel = pinocchioInterface_->getModel();
-  sidewaysModel.gravity.linear(vector3_t(kGravitationalAcceleration, 0.0, 0.0));
+  sidewaysModel.gravity.linear(vector3_t(kGravityMagnitude, 0.0, 0.0));
   const PinocchioInterface sideways(sidewaysModel);
   EXPECT_EQ(DcmTerminalCost::Create(*referenceManager_, config_,
                                     modelComHeight_, sideways, *robotModelAd_,
@@ -456,16 +457,14 @@ TEST_F(DcmTerminalCostTest,
   DcmTerminalCost::Config derived = config_;
   derived.comHeight.reset();
   const absl::StatusOr<DcmTerminalCost::Config> noModel =
-      DcmTerminalCost::resolveConfig(
-          derived, /*modelComHeight=*/0.0,
-          /*modelGravity=*/kGravitationalAcceleration);
+      DcmTerminalCost::resolveConfig(derived, /*modelComHeight=*/0.0,
+                                     /*modelGravity=*/kGravityMagnitude);
   EXPECT_EQ(noModel.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_TRUE(absl::StrContains(noModel.status().message(),
                                 "dcm_terminal_cost.com_height"))
       << noModel.status();
-  EXPECT_TRUE(DcmTerminalCost::resolveConfig(
-                  derived, /*modelComHeight=*/1.0,
-                  /*modelGravity=*/kGravitationalAcceleration)
+  EXPECT_TRUE(DcmTerminalCost::resolveConfig(derived, /*modelComHeight=*/1.0,
+                                             /*modelGravity=*/kGravityMagnitude)
                   .ok())
       << "the control: the same configuration with a model";
 }

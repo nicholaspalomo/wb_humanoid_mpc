@@ -12,5 +12,5 @@ message JointTargets {
 
   reserved 2 to max;
 
-  map<string, double> positions = 1;
+  map<string, double> joint_positions = 1;
 }

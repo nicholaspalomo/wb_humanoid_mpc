@@ -139,16 +139,16 @@ class KalmanBaseEstimator {
   ~KalmanBaseEstimator() = default;
 
   /**
-   * Restarts the estimate at the base position `basePosition` and velocity
-   * `baseLinearVelocity` (world), with the contact points where the kinematics
-   * of `jointPositions` put them for the base orientation `orientation` (base
-   * to world). The joint vectors are in the robot's joint order. Allocates
-   * nothing (KalmanFilter::resetEstimate()), so the realtime thread may call it
-   * after a discontinuity.
+   * Restarts the estimate at the base position `posBaseRtWorldEwrtWorld` and
+   * velocity `linvelBaseRtWorldEwrtWorld` (world), with the contact points
+   * where the kinematics of `jointPositions` put them for the base orientation
+   * `quatBaseRtWorld` (base to world). The joint vectors are in the robot's
+   * joint order. Allocates nothing (KalmanFilter::resetEstimate()), so the
+   * realtime thread may call it after a discontinuity.
    */
-  absl::Status reset(const vector3_t& basePosition,
-                     const vector3_t& baseLinearVelocity,
-                     const quaternion_t& orientation,
+  absl::Status reset(const vector3_t& posBaseRtWorldEwrtWorld,
+                     const vector3_t& linvelBaseRtWorldEwrtWorld,
+                     const quaternion_t& quatBaseRtWorld,
                      const vector_t& jointPositions,
                      const vector_t& jointVelocities);
 
@@ -162,20 +162,24 @@ class KalmanBaseEstimator {
    * Allocates nothing.
    */
   absl::Status update(scalar_t dt,
-                      const quaternion_t& orientation,
-                      const vector3_t& angularVelocityInBase,
-                      const vector3_t& imuLinearAccelerationInBase,
+                      const quaternion_t& quatBaseRtWorld,
+                      const vector3_t& angvelBaseRtWorldEwrtBase,
+                      const vector3_t& specforceBaseRtWorldEwrtBase,
                       const vector_t& jointPositions,
                       const vector_t& jointVelocities,
                       const std::vector<bool>& contactFlags);
 
   /** [m] The base position in the world. */
-  const vector3_t& basePosition() const { return basePosition_; }
+  const vector3_t& posBaseRtWorldEwrtWorld() const {
+    return posBaseRtWorldEwrtWorld_;
+  }
   /** [m/s] The base velocity in the world. */
-  const vector3_t& baseLinearVelocity() const { return baseLinearVelocity_; }
+  const vector3_t& linvelBaseRtWorldEwrtWorld() const {
+    return linvelBaseRtWorldEwrtWorld_;
+  }
   /** [m] Contact `contact`'s estimated position in the world. Allocates: for
    * tests and tools, not the realtime thread. */
-  absl::StatusOr<vector3_t> contactPosition(size_t contact) const;
+  absl::StatusOr<vector3_t> posContactRtWorldEwrtWorld(size_t contact) const;
   size_t numContacts() const { return kinematics_->numContacts(); }
   const ContactKinematics& kinematics() const { return *kinematics_; }
 
@@ -205,15 +209,17 @@ class KalmanBaseEstimator {
   std::vector<ContactMeasurements> contacts_;
   // Pointers into the blocks of processModel_ that change with dt and the
   // contact state: the maps are not changed after build(), so the pointers stay
-  // valid.
-  matrix_t* absl_nullable positionVelocityBlock_ = nullptr;
-  matrix_t* absl_nullable positionInputBlock_ = nullptr;
-  matrix_t* absl_nullable velocityInputBlock_ = nullptr;
+  // valid. They hold dt I (the base position's block of the base velocity in
+  // the transition), dt^2/2 I and dt I (the base position's and the base
+  // velocity's blocks of the acceleration input).
+  matrix_t* absl_nullable transitionDtBlock_ = nullptr;
+  matrix_t* absl_nullable inputHalfDtSquaredBlock_ = nullptr;
+  matrix_t* absl_nullable inputDtBlock_ = nullptr;
 
-  KalmanFilterState positionEstimate_;
-  KalmanFilterState velocityEstimate_;
-  vector3_t basePosition_ = vector3_t::Zero();
-  vector3_t baseLinearVelocity_ = vector3_t::Zero();
+  KalmanFilterState filterStatePosBaseRtWorldEwrtWorld_;
+  KalmanFilterState filterStateLinvelBaseRtWorldEwrtWorld_;
+  vector3_t posBaseRtWorldEwrtWorld_ = vector3_t::Zero();
+  vector3_t linvelBaseRtWorldEwrtWorld_ = vector3_t::Zero();
 };
 
 }  // namespace ocs2::humanoid::estimation

@@ -183,9 +183,9 @@ matrix_t basePoseBlock(const matrix_t& Q) {
 /** `weights` with every base-pose weight non-zero and distinct, from `offset`.
  */
 void setBasePoseWeights(mpc_config::StateWeights& weights, scalar_t offset) {
-  weights.base_position =
+  weights.pos_base_rt_world_ewrt_world =
       mpc_config::Xyz{.x = offset + 1.0, .y = offset + 2.0, .z = offset + 3.0};
-  weights.base_orientation = mpc_config::YawPitchRoll{
+  weights.eulerzyx_base_rt_world = mpc_config::YawPitchRoll{
       .yaw = offset + 4.0, .pitch = offset + 5.0, .roll = offset + 6.0};
 }
 
@@ -218,7 +218,7 @@ StateInputSoftConstraint& complementarityTerm(OptimalControlProblem& ocp,
 StateInputSoftConstraint& slipTerm(OptimalControlProblem& ocp,
                                    const std::string& footName) {
   return ocp.softConstraintPtr->get<StateInputSoftConstraint>(
-      contact_term::name(footName, contact_term::kForceWeightedSlip));
+      contact_term::name(footName, contact_term::kForceWeightedSlipName));
 }
 StateSoftConstraint& penetrationTerm(OptimalControlProblem& ocp,
                                      const std::string& footName) {
@@ -1556,14 +1556,14 @@ TEST_F(MpcParameterUpdaterModuleTest,
  * contact_implicit field off its default. */
 CentroidalMpcConfig contactImplicitConfig(CentroidalMpcConfig config) {
   selectContactImplicitFormulation(config.task);
-  config.task.contact_implicit =
-      mpc_config::ContactImplicitConfig{.complementarity_weight = 61.5,
-                                        .slip_weight = 173.25,
-                                        .penetration_weight = 4.25e4,
-                                        .height_reference = 0.0725,
-                                        .velocity_reference = 0.35,
-                                        .angular_velocity_reference = 1.25,
-                                        .gap_smoothing = 1.5e-3};
+  config.task.contact_implicit = mpc_config::ContactImplicitConfig{
+      .complementarity_weight = 61.5,
+      .slip_weight = 173.25,
+      .penetration_weight = 4.25e4,
+      .height_reference = 0.0725,
+      .scale_linvel_contact_rt_world_ewrt_world_xy = 0.35,
+      .scale_angvel_contact_rt_world_ewrt_world_z = 1.25,
+      .gap_smoothing = 1.5e-3};
   return config;
 }
 
@@ -1579,8 +1579,8 @@ TEST_F(MpcParameterUpdaterModuleTest,
       .slip_weight = 183.25,
       .penetration_weight = 5.25e4,
       .height_reference = 0.0825,
-      .velocity_reference = 0.45,
-      .angular_velocity_reference = 1.35,
+      .scale_linvel_contact_rt_world_ewrt_world_xy = 0.45,
+      .scale_angvel_contact_rt_world_ewrt_world_z = 1.35,
       .gap_smoothing = 2.5e-3};
   mpc_config::TaskFile task = built.interface->config().task;
   task.contact_implicit = expected;
@@ -1604,11 +1604,13 @@ TEST_F(MpcParameterUpdaterModuleTest,
       EXPECT_EQ(penaltyParameters(slip),
                 (vector_t(1) << expected.slip_weight).finished());
       const vector3_t inverseReferences =
-          slip.get<ForceWeightedSlipConstraint>().getInverseTwistReference();
-      EXPECT_NEAR(inverseReferences(0), 1.0 / expected.velocity_reference,
+          slip.get<ForceWeightedSlipConstraint>().getInverseScaleSlip();
+      EXPECT_NEAR(inverseReferences(0),
+                  1.0 / expected.scale_linvel_contact_rt_world_ewrt_world_xy,
                   1.0e-12);
       EXPECT_NEAR(inverseReferences(2),
-                  1.0 / expected.angular_velocity_reference, 1.0e-12);
+                  1.0 / expected.scale_angvel_contact_rt_world_ewrt_world_z,
+                  1.0e-12);
       StateSoftConstraint& penetration = penetrationTerm(ocp, footName);
       // A hinge whose zero stays on the ground: delta 0.
       EXPECT_EQ(penaltyParameters(penetration),
@@ -1746,10 +1748,9 @@ TEST_F(
       kReloaded);
   for (size_t foot = 0; foot < built.contactNames().size(); ++foot) {
     if (!referenceManager.isInContact(/*time=*/0.1, foot)) continue;
-    EXPECT_DOUBLE_EQ(
-        referenceManager.getSwingTrajectoryPlanner()->getZpositionConstraint(
-            foot, /*time=*/0.1),
-        kReloaded)
+    EXPECT_DOUBLE_EQ(referenceManager.getSwingTrajectoryPlanner()
+                         ->getDesPosFootRtWorldEwrtWorldZ(foot, /*time=*/0.1),
+                     kReloaded)
         << built.contactNames()[foot]
         << ": a stance foot's height reference is the ground";
   }
@@ -2127,12 +2128,14 @@ TEST_F(
   // As ProceduralMpcMotionManager::applyCommandLimits() refuses a value it
   // cannot use.
   updater->addReferenceFileReloader([](const ReferenceSettings& /*settings*/) {
-    return absl::InvalidArgumentError("max_rotation_velocity is -1");
+    return absl::InvalidArgumentError(
+        "cmd_max_angvel_base_rt_world_ewrt_world_z is -1");
   });
   std::vector<scalar_t> reloadedRotationVelocities;
   updater->addReferenceFileReloader(
       [&reloadedRotationVelocities](const ReferenceSettings& settings) {
-        reloadedRotationVelocities.push_back(settings.maxRotationVelocity);
+        reloadedRotationVelocities.push_back(
+            settings.cmdMaxAngvelBaseRtWorldEwrtWorldZ);
         return absl::OkStatus();
       });
   runFileWatch(*updater, atlas_);
@@ -2142,15 +2145,16 @@ TEST_F(
   // The edited file's limits reach every reloader, the ones after a refusing
   // one included, once.
   mpc_config::ReferenceFile edited = shipped_.reference;
-  edited.max_rotation_velocity = 0.75;
+  edited.cmd_max_angvel_base_rt_world_ewrt_world_z = 0.75;
   {
     absl::ScopedMockLog log(absl::MockLogDefault::kIgnoreUnexpected);
     EXPECT_CALL(
-        log,
-        Log(absl::LogSeverity::kWarning, testing::_,
-            testing::AllOf(testing::HasSubstr("Failed to reload"),
-                           testing::HasSubstr(referenceFile),
-                           testing::HasSubstr("max_rotation_velocity is -1"))))
+        log, Log(absl::LogSeverity::kWarning, testing::_,
+                 testing::AllOf(
+                     testing::HasSubstr("Failed to reload"),
+                     testing::HasSubstr(referenceFile),
+                     testing::HasSubstr(
+                         "cmd_max_angvel_base_rt_world_ewrt_world_z is -1"))))
         .Times(1);
     log.StartCapturingLogs();
     writeWatched(referenceFile, referenceFileText(edited), /*seconds=*/2);
@@ -2164,14 +2168,17 @@ TEST_F(
   // reported once, naming the file and the field, and every running limit is
   // kept.
   mpc_config::ReferenceFile refused = shipped_.reference;
-  refused.max_linear_acceleration = std::numeric_limits<scalar_t>::quiet_NaN();
+  refused.cmd_max_linacc_base_rt_world_ewrt_heading_xy =
+      std::numeric_limits<scalar_t>::quiet_NaN();
   {
     absl::ScopedMockLog log(absl::MockLogDefault::kIgnoreUnexpected);
-    EXPECT_CALL(
-        log, Log(absl::LogSeverity::kWarning, testing::_,
-                 testing::AllOf(testing::HasSubstr("was not reloaded"),
-                                testing::HasSubstr(referenceFile),
-                                testing::HasSubstr("max_linear_acceleration"))))
+    EXPECT_CALL(log,
+                Log(absl::LogSeverity::kWarning, testing::_,
+                    testing::AllOf(
+                        testing::HasSubstr("was not reloaded"),
+                        testing::HasSubstr(referenceFile),
+                        testing::HasSubstr(
+                            "cmd_max_linacc_base_rt_world_ewrt_heading_xy"))))
         .Times(1);
     log.StartCapturingLogs();
     writeWatched(referenceFile, referenceFileText(refused), /*seconds=*/3);
@@ -2185,17 +2192,20 @@ TEST_F(
 TEST_F(MpcParameterUpdaterModuleTest,
        ReloadingCommandLimitsChangesTheTargetItProduces) {
   // The pelvis height is the observable one:
-  // commandedPositionToTargetTrajectories clamps the commanded delta to
-  // max_delta_pelvis_height and adds default_base_height, so both reloaded
-  // values appear in the target it returns.
+  // poseCommandToTargetTrajectories clamps the commanded delta to
+  // cmd_max_err_pos_base_rt_world_ewrt_world_z and adds
+  // nom_pos_base_rt_world_ewrt_world_z, so both reloaded values appear in the
+  // target it returns.
   const std::function<mpc_config::ReferenceFile(scalar_t, scalar_t)>
-      referenceWith =
-          [this](scalar_t maxDeltaPelvisHeight, scalar_t defaultBaseHeight) {
-            mpc_config::ReferenceFile reference = shipped_.reference;
-            reference.max_delta_pelvis_height = maxDeltaPelvisHeight;
-            reference.default_base_height = defaultBaseHeight;
-            return reference;
-          };
+      referenceWith = [this](scalar_t cmdMaxErrPosBaseRtWorldEwrtWorldZ,
+                             scalar_t nomPosBaseRtWorldEwrtWorldZ) {
+        mpc_config::ReferenceFile reference = shipped_.reference;
+        reference.cmd_max_err_pos_base_rt_world_ewrt_world_z =
+            cmdMaxErrPosBaseRtWorldEwrtWorldZ;
+        reference.nom_pos_base_rt_world_ewrt_world_z =
+            nomPosBaseRtWorldEwrtWorldZ;
+        return reference;
+      };
   const std::unique_ptr<CentroidalMpcTargetTrajectoriesCalculator> calculator =
       checkedValue(CentroidalMpcTargetTrajectoriesCalculator::Create(
           referenceWith(0.10, 0.90),
@@ -2206,10 +2216,10 @@ TEST_F(MpcParameterUpdaterModuleTest,
   const vector4_t deepCrouch(0.0, 0.0, -10.0, 0.0);
   const std::function<scalar_t()> commandedHeight = [&]() {
     const TargetTrajectories target =
-        calculator->commandedPositionToTargetTrajectories(
-            deepCrouch, /*initTime=*/0.0, state);
-    return atlas_.interface->getEffectiveMpcRobotModel().getBasePosition(
-        target.stateTrajectory.back())(2);
+        calculator->poseCommandToTargetTrajectories(deepCrouch,
+                                                    /*initTime=*/0.0, state);
+    return atlas_.interface->getEffectiveMpcRobotModel()
+        .getPosBaseRtWorldEwrtWorld(target.stateTrajectory.back())(2);
   };
   EXPECT_NEAR(commandedHeight(), 0.90 - 0.10, 1.0e-6);
   // What a reload of the reference file hands the calculator
@@ -2261,7 +2271,8 @@ TEST_F(
       makeCentroidalMpcParameterUpdater(
           &mpc, *interface, files->taskFile, files->referenceFile,
           {[&reloadedRotationVelocities](const ReferenceSettings& settings) {
-            reloadedRotationVelocities.push_back(settings.maxRotationVelocity);
+            reloadedRotationVelocities.push_back(
+                settings.cmdMaxAngvelBaseRtWorldEwrtWorldZ);
             return absl::OkStatus();
           }},
           /*taskFileReadAt=*/std::nullopt,
@@ -2311,7 +2322,7 @@ TEST_F(
       1.0e-12)
       << "the wired updater does not reach the contact planner module";
   mpc_config::ReferenceFile reference = config.reference;
-  reference.max_rotation_velocity = 0.75;
+  reference.cmd_max_angvel_base_rt_world_ewrt_world_z = 0.75;
   writeWatched(files->referenceFile, referenceFileText(reference),
                /*seconds=*/3);
   runUpdater();

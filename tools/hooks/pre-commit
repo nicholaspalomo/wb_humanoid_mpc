@@ -1,13 +1,13 @@
 #!/bin/bash
 # ==============================================================================
-# Git Pre-Commit Hook — IFTTT directives, the linter's automatic fixes and formatting, then the linter on the staged files
+# Git Pre-Commit Hook - IFTTT directives, the linter's automatic fixes and formatting, then the linter on the staged files
 # ==============================================================================
 set -e
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
-echo "🔍 Pre-Commit Hook: Running IFTTT cross-file directive linter..."
+echo "Pre-Commit Hook: Running IFTTT cross-file directive linter..."
 if [ -f "tools/hooks/check_ifttt.py" ]; then
     python3 -m tools.hooks.check_ifttt
 fi
@@ -25,16 +25,16 @@ done
 # The linter's automatic fixes (make fix's first step) on the working-tree copies of the staged files, including the
 # ones make format leaves out because they can change behavior (american-spelling renames identifiers). They are
 # staged below with the formatting; what they cannot fix, the linter at the end reports for the user to fix by hand.
-echo "🔧 Pre-Commit Hook: Applying the linter's automatic fixes (lint_code --fix-only --git-staged)..."
+echo "Pre-Commit Hook: Applying the linter's automatic fixes (lint_code --fix-only --git-staged)..."
 python3 -m tools.hooks.lint_code --fix-only --git-staged
 
-echo "🔍 Pre-Commit Hook: Running code formatter (make format)..."
+echo "Pre-Commit Hook: Running code formatter (make format)..."
 if command -v make >/dev/null 2>&1; then
     make format
 elif command -v docker >/dev/null 2>&1 && docker ps | grep -q devcontainer-app; then
     docker exec devcontainer-app-1 bash -c "cd /wb_humanoid_mpc_ws/workspace/wb_humanoid_mpc && make format"
 else
-    echo "⚠️ Warning: 'make' not found. Skipping auto-formatting; the fixes are still staged and the linter still runs."
+    echo "Warning: 'make' not found. Skipping auto-formatting; the fixes are still staged and the linter still runs."
 fi
 
 # Stage the fixes and formatting changes of the files staged for commit. A partially staged file keeps its index as the
@@ -60,11 +60,11 @@ if [ -n "$STAGED_FILES" ]; then
         fi
     done
     if [ "$FORMATTED_COUNT" -gt 0 ]; then
-        echo "✨ Auto-fixed, formatted and staged $FORMATTED_COUNT file(s) before commit."
+        echo "Auto-fixed, formatted and staged $FORMATTED_COUNT file(s) before commit."
     fi
 fi
 if [ -n "$PARTIAL_CHANGED" ]; then
-    echo "❌ Commit blocked: the automatic fixes or make format changed these partially staged files:$PARTIAL_CHANGED."
+    echo "ERROR: Commit blocked: the automatic fixes or make format changed these partially staged files:$PARTIAL_CHANGED."
     echo "   Their unstaged hunks are not staged for you. Review the changes, stage what belongs to the commit"
     echo "   (git add -p), and commit again."
     exit 1
@@ -74,11 +74,11 @@ fi
 # tools/hooks/checks.py (argument comments, Boost, spelling, the .proto layout, NOLINT markers, ...) read the STAGED
 # version, so the commit is judged as it will be recorded and a file it does not change can never block it; cpplint,
 # pylint and mypy read the staged paths' working-tree files. Each failing check prints what to do about it.
-echo "🔍 Pre-Commit Hook: Running the linter on the staged files (python3 -m tools.hooks.lint_code --git-staged)..."
+echo "Pre-Commit Hook: Running the linter on the staged files (python3 -m tools.hooks.lint_code --git-staged)..."
 if ! python3 -m tools.hooks.lint_code --git-staged; then
-    echo "❌ Commit blocked: the findings above have no automatic fix. Fix them by hand (each check says how,"
+    echo "ERROR: Commit blocked: the findings above have no automatic fix. Fix them by hand (each check says how,"
     echo "   and a justified exception is NOLINT(<check>): <reason> on its line), then stage and commit."
     exit 1
 fi
 
-echo "✅ Pre-commit checks completed successfully."
+echo "Pre-commit checks completed successfully."

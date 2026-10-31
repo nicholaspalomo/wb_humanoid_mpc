@@ -179,8 +179,8 @@ TEST_F(WBContactWrenchConeCreateTest,
   ASSERT_NE(*built, nullptr);
   ContactWrenchConeConstraint::Config boundary(/*numBasisVectorsParam=*/3);
   boundary.torsionalFrictionCoefficient = 0.0;
-  boundary.minNormalForce = 0.0;
-  boundary.gripperForce = 0.0;
+  boundary.minForceContactEwrtContactZ = 0.0;
+  boundary.gripForceContactEwrtContactZ = 0.0;
   EXPECT_TRUE(create(boundary).ok()) << create(boundary).status();
 
   std::vector<std::pair<std::string, ContactWrenchConeConstraint::Config>>
@@ -195,11 +195,12 @@ TEST_F(WBContactWrenchConeCreateTest,
       std::numeric_limits<scalar_t>::quiet_NaN();
   refused.emplace_back("torsional_friction_coefficient", torsion);
   ContactWrenchConeConstraint::Config minForce = valid;
-  minForce.minNormalForce = -5.0;
-  refused.emplace_back("min_normal_force", minForce);
+  minForce.minForceContactEwrtContactZ = -5.0;
+  refused.emplace_back("min_force_contact_ewrt_contact_z", minForce);
   ContactWrenchConeConstraint::Config gripper = valid;
-  gripper.gripperForce = std::numeric_limits<scalar_t>::infinity();
-  refused.emplace_back("gripper_force", gripper);
+  gripper.gripForceContactEwrtContactZ =
+      std::numeric_limits<scalar_t>::infinity();
+  refused.emplace_back("grip_force_contact_ewrt_contact_z", gripper);
   for (const std::pair<std::string, ContactWrenchConeConstraint::Config>&
            entry : refused) {
     SCOPED_TRACE(entry.first);

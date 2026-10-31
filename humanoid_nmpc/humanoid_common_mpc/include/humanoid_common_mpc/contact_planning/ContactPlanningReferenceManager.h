@@ -250,7 +250,7 @@ class ContactPlanningReferenceManager final
    */
   absl::Status loadHeadingModelEvaluator();
   /** Whole-body heading at `state`: the ACoM yaw with an evaluator, the base
-   * heading (getBaseHeading()) otherwise. */
+   * heading (getYawBaseRtWorld()) otherwise. */
   scalar_t computeHeading(const vector_t& state) const;
   /**
    * The operator's commanded yaw rate as of the last modifyReferences(), read
@@ -281,13 +281,14 @@ class ContactPlanningReferenceManager final
   const vector2_t& commandedVelocity() const { return commandedVelocity_; }
   /** The same command, for the terms that ask through the base class. Solver
    * thread only. */
-  vector2_t getCommandedVelocity(scalar_t /*time*/) const override {
+  vector2_t getCmdLinvelBaseRtWorldEwrtWorldXy(
+      scalar_t /*time*/) const override {
     return commandedVelocity_;
   }
 
   /**
    * The operator's commanded yaw rate, from the same latched copy as
-   * getCommandedVelocity().
+   * getCmdLinvelBaseRtWorldEwrtWorldXy().
    *
    * The base class recovers it by inverting the target's angular-momentum
    * channel with a composite yaw inertia that captureMeasuredState() latches -
@@ -297,7 +298,7 @@ class ContactPlanningReferenceManager final
    * the turn rate, so they would be configured, printed in the start-up banner,
    * tunable in the GUI, and silently contribute nothing.
    */
-  scalar_t getCommandedYawRate(scalar_t /*time*/) const override {
+  scalar_t getCmdRateYawBaseRtWorld(scalar_t /*time*/) const override {
     return commandedYawRate_;
   }
   /**

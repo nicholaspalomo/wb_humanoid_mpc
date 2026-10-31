@@ -82,6 +82,7 @@ const std::vector<Entry>& registry() {
           {[] { return std::make_unique<DcmVisualization>(); }, false},
           {[] { return MujocoOptionFlagVisualization::contactPoints(); },
            false},
+          // NOLINTNEXTLINE(frame-naming): MuJoCo's mjVIS_CONTACTFORCE flag
           {[] { return MujocoOptionFlagVisualization::contactForces(); },
            false},
           {[] { return MujocoOptionFlagVisualization::centerOfMass(); }, false},

@@ -111,13 +111,13 @@ TEST(CostTermAndLibraryNames,
 TEST(CostTermAndLibraryNames,
      TheCppAdModelFolderKeyNamesEveryCentroidalModelButTheFullDynamics) {
   EXPECT_EQ(cppAdModelFolderKey(CentroidalModelType::FullCentroidalDynamics,
-                                kWrenchInputsLibraryKey),
+                                kWrenchInputsLibraryName),
             "wrench_inputs");
   EXPECT_EQ(cppAdModelFolderKey(CentroidalModelType::FullCentroidalDynamics,
                                 /*inputParameterizationKey=*/"basis_abc"),
             "basis_abc");
   EXPECT_EQ(cppAdModelFolderKey(CentroidalModelType::SingleRigidBodyDynamics,
-                                kWrenchInputsLibraryKey),
+                                kWrenchInputsLibraryName),
             "single_rigid_body_dynamics/wrench_inputs");
   EXPECT_EQ(cppAdModelFolderKey(CentroidalModelType::SingleRigidBodyDynamics,
                                 /*inputParameterizationKey=*/"basis_abc"),

@@ -85,7 +85,7 @@ ProductStateManifold::ProductStateManifold(std::vector<StateManifoldSegment> seg
   }
 }
 
-std::vector<size_t> ProductStateManifold::getQuaternionAmbientOffsets() const {
+std::vector<size_t> ProductStateManifold::getUnitQuaternionAmbientOffsets() const {
   std::vector<size_t> offsets;
   for (const Block& block : blocks_) {
     if (block.type == StateManifoldSegment::Type::kUnitQuaternion) {
@@ -95,7 +95,7 @@ std::vector<size_t> ProductStateManifold::getQuaternionAmbientOffsets() const {
   return offsets;
 }
 
-std::vector<size_t> ProductStateManifold::getQuaternionTangentOffsets() const {
+std::vector<size_t> ProductStateManifold::getUnitQuaternionTangentOffsets() const {
   std::vector<size_t> offsets;
   for (const Block& block : blocks_) {
     if (block.type == StateManifoldSegment::Type::kUnitQuaternion) {
@@ -173,7 +173,7 @@ void ProductStateManifold::project(vector_t& x) const {
   }
 }
 
-scalar_t ProductStateManifold::getMaximumRotationAngle(const vector_t& dx) const {
+scalar_t ProductStateManifold::getMaximumTangentAngle(const vector_t& dx) const {
   CHECK_EQ(sizeOf(dx.size()), tangentDim_);
   scalar_t maximumAngle = 0.0;
   for (const Block& block : blocks_) {
@@ -190,9 +190,9 @@ scalar_t ProductStateManifold::getMaximumRotationAngle(const vector_t& dx) const
   return maximumAngle;
 }
 
-bool ProductStateManifold::hasRepresentableRotations(const vector_t& x) const {
+bool ProductStateManifold::hasRepresentableAttitudes(const vector_t& x) const {
   CHECK_EQ(sizeOf(x.size()), ambientDim_);
-  constexpr scalar_t kSquaredGuard = kQuaternionNormalizationEpsilon * kQuaternionNormalizationEpsilon;
+  constexpr scalar_t kSquaredGuard = kUnitQuaternionNormalizationEpsilon * kUnitQuaternionNormalizationEpsilon;
   for (const Block& block : blocks_) {
     // Written as !(|xi|^2 > guard^2), the safe normalization's own test, so that a NaN block has no rotation either.
     if (block.type == StateManifoldSegment::Type::kUnitQuaternion &&
@@ -216,7 +216,7 @@ std::vector<Eigen::Matrix<scalar_t, kQuaternionCoefficients, kRotationTangentDim
   return maps;
 }
 
-void ProductStateManifold::mapQuaternionColumns(
+void ProductStateManifold::mapUnitQuaternionColumns(
     const std::vector<Eigen::Matrix<scalar_t, kQuaternionCoefficients, kRotationTangentDim>>& columnMaps, matrix_t& M) const {
   CHECK_EQ(sizeOf(M.cols()), ambientDim_);
   // Left to right: a block's tangent columns start at or before its ambient ones, so a block is written only over
@@ -238,7 +238,7 @@ void ProductStateManifold::mapQuaternionColumns(
 }
 
 template <typename Derived>
-void ProductStateManifold::mapQuaternionRows(
+void ProductStateManifold::mapUnitQuaternionRows(
     const std::vector<Eigen::Matrix<scalar_t, kRotationTangentDim, kQuaternionCoefficients>>& rowMaps,
     Eigen::PlainObjectBase<Derived>& M) const {
   CHECK_EQ(sizeOf(M.rows()), ambientDim_);
@@ -259,7 +259,7 @@ void ProductStateManifold::mapQuaternionRows(
 }
 
 void ProductStateManifold::pullBackStateColumns(const vector_t& x, matrix_t& J) const {
-  mapQuaternionColumns(tangentMaps(x), J);
+  mapUnitQuaternionColumns(tangentMaps(x), J);
 }
 
 void ProductStateManifold::pullBackStateRows(const vector_t& x, matrix_t& M) const {
@@ -267,7 +267,7 @@ void ProductStateManifold::pullBackStateRows(const vector_t& x, matrix_t& M) con
   for (const Eigen::Matrix<scalar_t, kQuaternionCoefficients, kRotationTangentDim>& E : tangentMaps(x)) {
     rowMaps.push_back(E.transpose());
   }
-  mapQuaternionRows(rowMaps, M);
+  mapUnitQuaternionRows(rowMaps, M);
 }
 
 void ProductStateManifold::pullBackGradient(const vector_t& x, vector_t& g) const {
@@ -275,7 +275,7 @@ void ProductStateManifold::pullBackGradient(const vector_t& x, vector_t& g) cons
   for (const Eigen::Matrix<scalar_t, kQuaternionCoefficients, kRotationTangentDim>& E : tangentMaps(x)) {
     rowMaps.push_back(E.transpose());
   }
-  mapQuaternionRows(rowMaps, g);
+  mapUnitQuaternionRows(rowMaps, g);
 }
 
 void ProductStateManifold::liftStateColumns(const vector_t& x, matrix_t& J) const {
@@ -330,10 +330,10 @@ void ProductStateManifold::pushForwardDynamics(const vector_t& x,
     }
   }
 
-  mapQuaternionRows(rowMaps, dynamics.dfdx);
-  mapQuaternionColumns(tangentMaps(x), dynamics.dfdx);
+  mapUnitQuaternionRows(rowMaps, dynamics.dfdx);
+  mapUnitQuaternionColumns(tangentMaps(x), dynamics.dfdx);
   if (hasInputSensitivity) {
-    mapQuaternionRows(rowMaps, dynamics.dfdu);
+    mapUnitQuaternionRows(rowMaps, dynamics.dfdu);
   }
   dynamics.f = std::move(gap);
 }

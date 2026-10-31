@@ -1102,7 +1102,7 @@ cc_test(
     ],
 )
 
-# The DRC Atlas centroidal MPC with the real SQP solver through a reset after a fall and a rewound clock, closed on its
+# The DRC Atlas centroidal MPC with the SQP solver through a reset after a fall and a rewound clock, closed on its
 # own prediction: every solve after the full reset succeeds, the first policy stands where the robot is, and the robot
 # walks again when commanded. Generates the Atlas CppAD libraries.
 cc_test(

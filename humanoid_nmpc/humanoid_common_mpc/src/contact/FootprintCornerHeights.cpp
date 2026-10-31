@@ -95,10 +95,10 @@ class Fnv1a64 {
 /**
  * A fingerprint of everything the taped heights depend on: each frame's
  * placement on its parent joint - which is where `contact_rectangle` and
- * `contact_frame_translation` end up - and every joint placement and joint type
- * on the chain from that joint to the root, plus the state and configuration
- * dimensions the tape is laid out in (the heights are a function of the
- * configuration q only, so its velocity dimension does not enter).
+ * `pos_contact_rt_link_ewrt_link` end up - and every joint placement and joint
+ * type on the chain from that joint to the root, plus the state and
+ * configuration dimensions the tape is laid out in (the heights are a function
+ * of the configuration q only, so its velocity dimension does not enter).
  */
 uint64_t geometryFingerprint(const pinocchio::Model& model,
                              const std::vector<size_t>& frameIds,

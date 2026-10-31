@@ -55,8 +55,9 @@ EulerStateSegment segment(std::string name,
 
 /**
  * What the rows of a tuning block are in the Euler state: the rotation blocks
- * hold the ZYX Euler angles and, on the whole-body base_angular_velocity block
- * (body rates in the tuning, design decision D18), the ZYX Euler rates.
+ * hold the ZYX Euler angles and, on the whole-body
+ * angvel_base_rt_world_ewrt_base block (body rates in the tuning, design
+ * decision D18), the ZYX Euler rates.
  */
 EulerStateSegmentKind eulerSegmentKindOf(TuningSegmentKind kind) {
   switch (kind) {
@@ -167,8 +168,7 @@ absl::StatusOr<matrix_t> chartJacobian(const vector_t& eulerState,
         break;
       case EulerStateSegmentKind::kEulerZyxAngles: {
         const vector3_t angles = eulerState.segment<kEulerAnglesZyxDim>(column);
-        const matrix3_t rateMap =
-            eulerZyxRateToLocalAngularVelocityMatrix(angles);
+        const matrix3_t rateMap = eulerZyxRateToBodyRateMatrix(angles);
         if (coordinates == ChartCoordinates::kAmbient) {
           jacobian.block<kQuaternionCoefficients, kEulerAnglesZyxDim>(rowIndex,
                                                                       column) =
@@ -189,9 +189,8 @@ absl::StatusOr<matrix_t> chartJacobian(const vector_t& eulerState,
                                                                 anglesColumn) =
             localAngularVelocityEulerAngleDerivative(
                 angles, eulerState.segment<kEulerAnglesZyxDim>(column));
-        jacobian.block<kRotationTangentDim, kEulerAnglesZyxDim>(rowIndex,
-                                                                column) =
-            eulerZyxRateToLocalAngularVelocityMatrix(angles);
+        jacobian.block<kRotationTangentDim, kEulerAnglesZyxDim>(
+            rowIndex, column) = eulerZyxRateToBodyRateMatrix(angles);
         row += kRotationTangentDim;
         break;
       }
@@ -299,10 +298,9 @@ absl::StatusOr<vector_t> eulerStateFromPhysicalState(
         break;
       }
       case EulerStateSegmentKind::kEulerZyxRates:
-        euler.segment<kEulerAnglesZyxDim>(to) =
-            eulerZyxRatesFromLocalAngularVelocity(
-                anglesOf(euler, *offsets, i),
-                physicalState.segment<kRotationTangentDim>(from));
+        euler.segment<kEulerAnglesZyxDim>(to) = eulerZyxRatesFromBodyRates(
+            anglesOf(euler, *offsets, i),
+            physicalState.segment<kRotationTangentDim>(from));
         break;
     }
   }
@@ -323,7 +321,7 @@ matrix3_t localAngularVelocityEulerAngleDerivative(
     const vector3_t& eulerZyx, const vector3_t& eulerZyxRates) {
   // The chart is built through orientation/EulerBoundary.h only (design README
   // section 4.2).
-  return localAngularVelocityEulerZyxJacobian(eulerZyx, eulerZyxRates);
+  return bodyRateEulerZyxJacobian(eulerZyx, eulerZyxRates);
 }
 
 }  // namespace ocs2::humanoid::validation

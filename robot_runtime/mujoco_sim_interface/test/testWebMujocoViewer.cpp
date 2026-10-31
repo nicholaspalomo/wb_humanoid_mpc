@@ -545,9 +545,9 @@ std::string threadStatField(int tid, int index) {
   if (nameEnd == std::string::npos) return "";
   const std::vector<std::string> fields =
       absl::StrSplit(stat.substr(nameEnd + 2), ' ');
-  const size_t position = static_cast<size_t>(
+  const size_t fieldIndex = static_cast<size_t>(
       index - 3);  // fields 1 and 2 are the pid and the name
-  return position < fields.size() ? fields[position] : "";
+  return fieldIndex < fields.size() ? fields[fieldIndex] : "";
 }
 
 std::string threadName(int tid) {

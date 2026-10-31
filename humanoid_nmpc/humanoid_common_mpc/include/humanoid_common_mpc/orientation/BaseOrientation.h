@@ -45,7 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * of humanoid_nmpc/docs/quaternion_base_orientation/README.md derive everything
  * here.
  *
- * Conventions, the same as RobotState::getRootRotationLocalToWorldFrame():
+ * Conventions, the same as RobotState::getQuatBaseRtWorld():
  *   - A quaternion is a vector4_t of coefficients xi = (x, y, z, w), Eigen's
  * coeffs() order and Pinocchio's configuration order, with the Hamilton
  * product. R(xi) maps base to world. Build an Eigen quaternion from the
@@ -56,8 +56,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * = 0.
  *   - Every function of the orientation reads the quaternion through
  * safelyNormalizedQuaternion (design decision D5), so it is invariant to the
- * scale of xi as long as |xi| > epsilon (kQuaternionNormGuard), and reads every
- * xi with |xi| <= epsilon, the zero quaternion included, as the identity
+ * scale of xi as long as |xi| > epsilon (kUnitQuaternionNormGuard), and reads
+ * every xi with |xi| <= epsilon, the zero quaternion included, as the identity
  * rotation instead of NaN: the rotation matrix of the unchanged xi is I to
  * within 2 |xi|^2 <= 2e-12 per entry, and the heading-tilt functions below
  * return the zero quaternion's values exactly (see "Heading and tilt"). The one
@@ -84,11 +84,11 @@ namespace ocs2::humanoid {
  * epsilon of design section 2.6: a quaternion with |xi| <= epsilon is read as
  * the zero quaternion, which is the identity (exactly by the heading-tilt
  * functions, to within 2 |xi|^2 by the polynomial rotation matrix). The
- * manifold solver's ocs2::kQuaternionNormalizationEpsilon, so that the solver
- * and the humanoid terms normalize alike.
+ * manifold solver's ocs2::kUnitQuaternionNormalizationEpsilon, so that the
+ * solver and the humanoid terms normalize alike.
  */
-inline constexpr scalar_t kQuaternionNormGuard =
-    kQuaternionNormalizationEpsilon;
+inline constexpr scalar_t kUnitQuaternionNormGuard =
+    kUnitQuaternionNormalizationEpsilon;
 
 /**
  * n_safe(xi) = |xi| if |xi|^2 > epsilon^2, else 1: the divisor of the safe
@@ -172,10 +172,10 @@ configurationTangentLift(const vector4_t& xi);
  * heading-zero rule be invariant to a rotation about world z there: q_z(alpha)
  * (x) xi is the half turn about n turned by alpha / 2, so tau(q_z(alpha) (x)
  * xi) = pi R_z(alpha / 2) n. Every invariance stated below holds outside these
- * two sets, the band 0 < rho <= kMinimumTwistNorm included, where the sign
- * invariance is bit for bit too. Neither set is reached in operation: stored
- * and reference states are unit quaternions, and an exactly upside-down one
- * needs xi_z = xi_w = 0 in floating point.
+ * two sets, the band 0 < rho <= kMinimumHeadingCoefficientsNorm included, where
+ * the sign invariance is bit for bit too. Neither set is reached in operation:
+ * stored and reference states are unit quaternions, and an exactly upside-down
+ * one needs xi_z = xi_w = 0 in floating point.
  */
 
 /** Below this norm n = |s_xy| of the swing's vector part, the tilt is evaluated
@@ -186,9 +186,9 @@ inline constexpr scalar_t kTiltSeriesThreshold = 1.0e-6;
  * upside-down guard of design section 2.8.1). The heading is undefined, and its
  * derivatives unbounded, only upside down (rho = 0): there the values stay
  * finite, the heading is read as zero, and the Jacobians are bounded by about 1
- * / kMinimumTwistNorm.
+ * / kMinimumHeadingCoefficientsNorm.
  */
-inline constexpr scalar_t kMinimumTwistNorm = 1.0e-9;
+inline constexpr scalar_t kMinimumHeadingCoefficientsNorm = 1.0e-9;
 
 /**
  * The heading psi_h(xi) = 2 atan2(xi_z, xi_w): the angle of the twist about the
@@ -206,17 +206,17 @@ inline constexpr scalar_t kMinimumTwistNorm = 1.0e-9;
  * where it is zero. Zero inside the normalization guard, and invariant to the
  * scale of xi above it.
  */
-scalar_t twistHeading(const vector4_t& xi);
+scalar_t yawOf(const vector4_t& xi);
 
 /**
  * The heading quaternion q_t(xi) = (0, 0, xi_z, xi_w) / rho of xi_hat: the
- * rotation about the world z axis by twistHeading(xi), in the same hemisphere
+ * rotation about the world z axis by yawOf(xi), in the same hemisphere
  * as xi (so q_t(-xi) = -q_t(xi), bit for bit). A unit quaternion for every xi;
- * upside down (rho below kMinimumTwistNorm) it is computed from the angle
- * instead of by the division, and it is the identity for xi and -xi alike at
- * rho = 0 and inside the normalization guard.
+ * upside down (rho below kMinimumHeadingCoefficientsNorm) it is computed from
+ * the angle instead of by the division, and it is the identity for xi and -xi
+ * alike at rho = 0 and inside the normalization guard.
  */
-vector4_t headingQuaternion(const vector4_t& xi);
+vector4_t verticalTwistFromQuaternion(const vector4_t& xi);
 
 /**
  * The swing s(xi) = q_t(xi)^-1 (x) xi_hat = (s_x, s_y, 0, s_w), s_w = rho >= 0:
@@ -226,7 +226,7 @@ vector4_t headingQuaternion(const vector4_t& xi);
  * q_z(alpha) about the world z axis; at rho = 0, s(-xi) = -s(xi), and inside
  * the normalization guard s = 0 (see above).
  */
-vector4_t swingQuaternion(const vector4_t& xi);
+vector4_t swingFromQuaternion(const vector4_t& xi);
 
 /**
  * The tilt tau(xi) = Log(s(xi))_xy = kappa(n, rho) s_xy, the rotation vector of
@@ -285,9 +285,10 @@ vector3_t headingTiltResidual(const vector4_t& xi,
  * -tan(theta / 2) and -tan(phi / 2)), even against a level reference. It is
  * finite and of full rank at a pitch of 90 degrees (singular values
  * about 1.95, 1.00, 0.80). Upside down it stays finite, bounded through
- * kMinimumTwistNorm. Inside the normalization guard it is zero, the derivative
- * of the constant residual there. The ambient Jacobian with respect to the
- * stored coefficients is J_HT(xi) * configurationTangentLift(xi).
+ * kMinimumHeadingCoefficientsNorm. Inside the normalization guard it is zero,
+ * the derivative of the constant residual there. The ambient Jacobian with
+ * respect to the stored coefficients is J_HT(xi) *
+ * configurationTangentLift(xi).
  */
 matrix3_t headingTiltJacobian(const vector4_t& xi);
 

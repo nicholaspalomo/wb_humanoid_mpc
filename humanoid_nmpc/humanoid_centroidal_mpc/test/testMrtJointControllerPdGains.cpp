@@ -129,9 +129,10 @@ class PdGainsHarness {
         description_.getJointIndices(stack_.modelSettings().fixedJointNames);
     const CentroidalMpcRobotModel<scalar_t>& model = stack_.model();
     const vector_t& state = stack_.initialState();
-    robotState_.setRootPositionInWorldFrame(model.getBasePosition(state));
-    robotState_.setRootRotationLocalToWorldFrame(
-        quaternion_t(model.getBaseOrientation(state)));
+    robotState_.setPosBaseRtWorldEwrtWorld(
+        model.getPosBaseRtWorldEwrtWorld(state));
+    robotState_.setQuatBaseRtWorld(
+        quaternion_t(model.getQuatBaseRtWorldXyzw(state)));
     const vector_t joints = model.getJointAngles(state);
     for (size_t i = 0; i < mpcJointIndices_.size(); ++i)
       robotState_.setJointPosition(mpcJointIndices_[i], joints[i]);
@@ -183,11 +184,11 @@ mpc_config::JointPdGainsFile gainsFile(scalar_t kp,
   mpc_config::JointPdGainsFile file;
   file.default_gains.kp = kp;
   file.default_gains.kd = 3.0;
-  file.default_gains.torque_limit = 1000.0;
+  file.default_gains.max_joint_torque = 1000.0;
   file.joint_gains.push_back({.joint = firstJoint,
                               .kp = firstJointKp,
                               .kd = std::nullopt,
-                              .torque_limit = std::nullopt});
+                              .max_joint_torque = std::nullopt});
   return file;
 }
 
@@ -197,7 +198,7 @@ std::string gainsText(scalar_t kp,
                       scalar_t firstJointKp) {
   return absl::StrCat(
       "default_gains {\n  kp: ", kp,
-      "\n  kd: 3.0\n  torque_limit: 1000.0\n}\njoint_gains { joint: \"",
+      "\n  kd: 3.0\n  max_joint_torque: 1000.0\n}\njoint_gains { joint: \"",
       firstJoint, "\" kp: ", firstJointKp, " }\n");
 }
 
@@ -292,7 +293,7 @@ TEST(MrtJointControllerPdGains,
       "left_knee_joint";  // another robot's file (the Unitree R1's knee)
   // refused[5] sets nothing: the controller has no gains of its own to fill it
   // in with (it used to apply 250 N*m/rad).
-  refused[6].default_gains.torque_limit.reset();
+  refused[6].default_gains.max_joint_torque.reset();
   for (size_t k = 0; k < refused.size(); ++k) {
     const absl::Status status =
         setFromAnotherThread(harness.controller(), refused[k]);
@@ -312,9 +313,9 @@ TEST(MrtJointControllerPdGains,
      TheGainsFileIsWatchedByPollPdGainsFileAndNotByTheControlCycle) {
   const std::string file = absl::StrCat(::testing::TempDir(),
                                         "/centroidal_joint_pd_gains.textproto");
-  writeFile(
-      file,
-      "default_gains {\n  kp: 111.0\n  kd: 3.0\n  torque_limit: 1000.0\n}\n");
+  writeFile(file,
+            "default_gains {\n  kp: 111.0\n  kd: 3.0\n  max_joint_torque: "
+            "1000.0\n}\n");
   PdGainsHarness harness(&file);
   harness.controller().setControlMode("JOINT_PD");
   EXPECT_EQ(jointAction(harness.cycle(), harness.mpcJointIndices()[1]).kp,
@@ -368,9 +369,9 @@ TEST(MrtJointControllerPdGains,
      AGainsFileSavedBeforeTheNewestLiveGainsDoesNotUndoThem) {
   const std::string file = absl::StrCat(
       ::testing::TempDir(), "/centroidal_superseded_joint_pd_gains.textproto");
-  writeFile(
-      file,
-      "default_gains {\n  kp: 111.0\n  kd: 3.0\n  torque_limit: 1000.0\n}\n");
+  writeFile(file,
+            "default_gains {\n  kp: 111.0\n  kd: 3.0\n  max_joint_torque: "
+            "1000.0\n}\n");
   PdGainsHarness harness(&file);
   harness.controller().setControlMode("JOINT_PD");
   const std::string firstJoint = harness.mpcJointNames().front();
@@ -404,9 +405,10 @@ TEST(MrtJointControllerPdGains, CreateReturnsTheRefusalOfAGainsFileAsAStatus) {
   const std::string file =
       absl::StrCat(::testing::TempDir(),
                    "/centroidal_refused_by_create_joint_pd_gains.textproto");
-  writeFile(file,
-            "default_gains { kp: 111.0 kd: 3.0 torque_limit: 24.0 "
-            "}\njoint_gains { joint: \"l_leg_kny\" torque_limit: -24.0 }\n");
+  writeFile(
+      file,
+      "default_gains { kp: 111.0 kd: 3.0 max_joint_torque: 24.0 "
+      "}\njoint_gains { joint: \"l_leg_kny\" max_joint_torque: -24.0 }\n");
   AtlasReferenceStack stack;
   absl::StatusOr<robot::model::RobotDescription> descriptionOrStatus =
       robot::model::RobotDescription::Create(stack.urdfFile());
@@ -422,12 +424,14 @@ TEST(MrtJointControllerPdGains, CreateReturnsTheRefusalOfAGainsFileAsAStatus) {
       << refused.status();
   EXPECT_TRUE(absl::StrContains(refused.status().message(), file))
       << refused.status();
-  EXPECT_TRUE(absl::StrContains(refused.status().message(),
-                                "joint_gains[joint=l_leg_kny].torque_limit"))
+  EXPECT_TRUE(
+      absl::StrContains(refused.status().message(),
+                        "joint_gains[joint=l_leg_kny].max_joint_torque"))
       << refused.status();
 
   // Positive control: the same file without the mistake.
-  writeFile(file, "default_gains { kp: 111.0 kd: 3.0 torque_limit: 24.0 }\n");
+  writeFile(file,
+            "default_gains { kp: 111.0 kd: 3.0 max_joint_torque: 24.0 }\n");
   const absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>>
       created = CentroidalMpcMrtJointController::Create(
           description, stack.modelSettings(), stack.model(), stack.mpc(),
@@ -450,7 +454,7 @@ TEST(MrtJointControllerPdGains,
   const robot::model::RobotDescription& description = *descriptionOrStatus;
   const std::string partial = absl::StrCat(
       ::testing::TempDir(), "/centroidal_partial_joint_pd_gains.textproto");
-  writeFile(partial, "default_gains { kp: 111.0 torque_limit: 24.0 }\n");
+  writeFile(partial, "default_gains { kp: 111.0 max_joint_torque: 24.0 }\n");
   const std::string missing = absl::StrCat(
       ::testing::TempDir(), "/centroidal_missing_joint_pd_gains.textproto");
   const std::vector<std::pair<std::string, absl::StatusCode>> cases = {
@@ -469,7 +473,7 @@ TEST(MrtJointControllerPdGains,
   std::filesystem::remove(partial);
 }
 
-// torque_limit bounds every feedforward torque the controller commands:
+// max_joint_torque bounds every feedforward torque the controller commands:
 // JOINT_PD's gravity compensation too, which it used to send unclamped
 // (GRAVITY_COMP and WB_MPC were clamped).
 TEST(MrtJointControllerPdGains,
@@ -492,7 +496,7 @@ TEST(MrtJointControllerPdGains,
     ASSERT_GT(largest, limit) << "positive control, " << mode;
     mpc_config::JointPdGainsFile limited = gainsFile(
         /*kp=*/100.0, harness.mpcJointNames().front(), /*firstJointKp=*/100.0);
-    limited.default_gains.torque_limit = limit;
+    limited.default_gains.max_joint_torque = limit;
     ASSERT_TRUE(setFromAnotherThread(harness.controller(), limited).ok());
     const robot::model::RobotJointAction& action = harness.cycle();
     for (size_t index : harness.mpcJointIndices()) {

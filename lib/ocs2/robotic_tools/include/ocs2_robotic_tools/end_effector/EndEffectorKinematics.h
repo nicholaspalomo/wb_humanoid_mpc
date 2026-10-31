@@ -64,7 +64,7 @@ class EndEffectorKinematics {
    * @param [in] state vector
    * @return array of position vectors
    */
-  virtual std::vector<vector3_t> getPosition(const vector_t& state) const = 0;
+  virtual std::vector<vector3_t> getPosEesRtWorldEwrtWorld(const vector_t& state) const = 0;
 
   /**
    * Get end-effector velocity vectors in world frame
@@ -73,7 +73,7 @@ class EndEffectorKinematics {
    * @param [in] input: input vector
    * @return array of velocity vectors
    */
-  virtual std::vector<vector3_t> getVelocity(const vector_t& state, const vector_t& input) const = 0;
+  virtual std::vector<vector3_t> getLinvelEesRtWorldEwrtWorld(const vector_t& state, const vector_t& input) const = 0;
 
   /**
    * Get orientation w.r.t. world frame
@@ -81,7 +81,7 @@ class EndEffectorKinematics {
    * @param [in] state vector
    * @return array of quaternions
    */
-  virtual std::vector<quaternion_t> getOrientation(const vector_t& state) const = 0;
+  virtual std::vector<quaternion_t> getQuatEesRtWorld(const vector_t& state) const = 0;
 
   /**
    * Get orientation error in world frame
@@ -93,6 +93,11 @@ class EndEffectorKinematics {
    * @param [in] planeNormals: reference plane normals in world frame
    * @return array of orientation errors
    */
+  // TODO(frame-naming): name the plane orientation error, the vector part of the shortest-arc rotation from each end
+  // effector's z axis to its plane normal (axis * sin(angle / 2), in the world frame's axes). Its frames are decided
+  // (ees relative to the plane-aligned frame, ewrt world), but no quantity of the vocabulary is that vector: `rotvec`
+  // is axis * angle.
+  // NOLINTNEXTLINE(frame-naming): the plane orientation error has no quantity word yet (TODO in EndEffectorKinematics.h)
   virtual std::vector<vector3_t> getOrientationErrorWrtPlane(const vector_t& state, const std::vector<vector3_t>& planeNormals) const = 0;
 
   /**
@@ -104,7 +109,7 @@ class EndEffectorKinematics {
    * @param [in] input: input vector
    * @return array of angular velocities
    */
-  virtual std::vector<vector3_t> getAngularVelocity(const vector_t& state, const vector_t& input) const = 0;
+  virtual std::vector<vector3_t> getAngvelEesRtWorldEwrtWorld(const vector_t& state, const vector_t& input) const = 0;
 
   /**
    * Get end-effector twist (linear & angular velocity) vectors in world frame
@@ -115,7 +120,7 @@ class EndEffectorKinematics {
    * @param [in] input: input vector
    * @return array of twists
    */
-  virtual std::vector<vector6_t> getTwist(const vector_t& state, const vector_t& input) const = 0;
+  virtual std::vector<vector6_t> getTwistEesRtWorldEwrtWorld(const vector_t& state, const vector_t& input) const = 0;
 
   /**
    * Get end-effector position linear approximation in world frame
@@ -123,7 +128,7 @@ class EndEffectorKinematics {
    * @param [in] state: state vector
    * @return array of position function linear approximations
    */
-  virtual std::vector<VectorFunctionLinearApproximation> getPositionLinearApproximation(const vector_t& state) const = 0;
+  virtual std::vector<VectorFunctionLinearApproximation> getLinearApproximationPosEesRtWorldEwrtWorld(const vector_t& state) const = 0;
 
   /**
    * Get end-effector velocity linear approximation in world frame
@@ -132,7 +137,7 @@ class EndEffectorKinematics {
    * @param [in] input: input vector
    * @return array of velocity function linear approximations
    */
-  virtual std::vector<VectorFunctionLinearApproximation> getVelocityLinearApproximation(const vector_t& state,
+  virtual std::vector<VectorFunctionLinearApproximation> getLinearApproximationLinvelEesRtWorldEwrtWorld(const vector_t& state,
                                                                                         const vector_t& input) const = 0;
 
   /**
@@ -142,7 +147,7 @@ class EndEffectorKinematics {
    * @param [in] input: input vector
    * @return array of velocity function linear approximations
    */
-  virtual std::vector<VectorFunctionLinearApproximation> getAngularVelocityLinearApproximation(const vector_t& state,
+  virtual std::vector<VectorFunctionLinearApproximation> getLinearApproximationAngvelEesRtWorldEwrtWorld(const vector_t& state,
                                                                                                const vector_t& input) const = 0;
 
   /**
@@ -152,7 +157,7 @@ class EndEffectorKinematics {
    * @param [in] input: input vector
    * @return array of twist function linear approximations
    */
-  virtual std::vector<VectorFunctionLinearApproximation> getTwistLinearApproximation(const vector_t& state,
+  virtual std::vector<VectorFunctionLinearApproximation> getLinearApproximationTwistEesRtWorldEwrtWorld(const vector_t& state,
                                                                                      const vector_t& input) const = 0;
 
   /**
@@ -165,6 +170,7 @@ class EndEffectorKinematics {
    * @return array of orientation error linear approximations
    */
 
+  // NOLINTNEXTLINE(frame-naming): the plane orientation error has no quantity word yet (TODO in EndEffectorKinematics.h)
   virtual std::vector<VectorFunctionLinearApproximation> getOrientationErrorWrtPlaneLinearApproximation(
       const vector_t& state, const std::vector<vector3_t>& planeNormals) const = 0;
 

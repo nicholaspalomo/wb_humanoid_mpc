@@ -128,11 +128,11 @@ absl::StatusOr<BasisGeneratorSetBuilder> getBasisGeneratorSetBuilder(
  * N+1..N+4 a unit normal force at each footprint corner (x_max,y_max),
  * (x_max,y_min), (x_min,y_max), (x_min,y_min) Columns N+5..N+6 a unit normal
  * force at p_c with the upper, then the lower torsion limit the cone allows
- * there (torsionLimitsOfNormalForceAt) Its projection onto the force alone is
- * exact, but with Fz normalized to one, friction use, center-of-pressure
- *     excursion from p_c and torsion use draw on one shared budget. At the
- * footprint's toe it admits no tangential force at all, and at the torsional
- * limit none either.
+ * there (computeLimitsPerNewtonTorqueContactEwrtContactZ) Its projection onto
+ * the force alone is exact, but with Fz normalized to one, friction use,
+ * center-of-pressure excursion from p_c and torsion use draw on one shared
+ * budget. At the footprint's toe it admits no tangential force at all, and at
+ * the torsional limit none either.
  *
  *   exact_wrench_cone (4N columns)
  *     Column k * 4 + c, for friction edge k and corner c (same order as above):
@@ -144,9 +144,10 @@ absl::StatusOr<BasisGeneratorSetBuilder> getBasisGeneratorSetBuilder(
  * Every column of either set carries a unit local normal force, so sum(lambda)
  * is the foot's normal force.
  *
- * Not representable by any set: `minNormalForce` and `gripperForce` are affine
- * offsets of the cone (the `b` vector of ContactWrenchConeRows), while a conic
- * combination is homogeneous - lambda = 0 always yields the zero wrench.
+ * Not representable by any set: `minForceContactEwrtContactZ` and
+ * `gripForceContactEwrtContactZ` are affine offsets of the cone (the `b` vector
+ * of ContactWrenchConeRows), while a conic combination is homogeneous - lambda
+ * = 0 always yields the zero wrench.
  *
  * An immutable value after Create(): its const methods are safe to call
  * concurrently.
@@ -195,7 +196,8 @@ class ContactWrenchConeBasisMatrix {
 
   /** Non-negative scalings reproducing a local-frame wrench; see
    * solveNonNegativeBasisScalings(). */
-  vector_t solveNonNegativeScalings(const vector6_t& wrenchLocal) const;
+  vector_t solveNonNegativeScalings(
+      const vector6_t& wrenchContactEwrtContact) const;
 
  private:
   ContactWrenchConeBasisMatrix(std::string generatorSet, matrix_t basisMatrix);
@@ -223,9 +225,10 @@ vector_t solveNonNegativeLeastSquares(const matrix_t& A, const vector_t& b);
  * wrenches that are exactly representable, such as the weight seen from a
  * pitched foot.)
  */
-vector_t solveNonNegativeBasisScalings(const matrix_t& basisMatrix,
-                                       const matrix_t& basisPseudoInverse,
-                                       const vector_t& wrench);
+vector_t solveNonNegativeBasisScalings(
+    const matrix_t& basisMatrix,
+    const matrix_t& basisPseudoInverse,
+    const vector_t& wrenchContactEwrtContact);
 
 /**
  * A 64-bit content hash of the basis matrices that is stable across processes,
@@ -249,6 +252,6 @@ std::string basisInputsLibraryKey(
 
 /** The counterpart of basisInputsLibraryKey() for the wrench-space input
  * parameterization. */
-inline constexpr absl::string_view kWrenchInputsLibraryKey = "wrench_inputs";
+inline constexpr absl::string_view kWrenchInputsLibraryName = "wrench_inputs";
 
 }  // namespace ocs2::humanoid

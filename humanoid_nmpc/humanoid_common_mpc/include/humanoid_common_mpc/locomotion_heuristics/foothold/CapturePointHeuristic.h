@@ -78,7 +78,7 @@ class CapturePointHeuristic final : public FootholdHeuristic {
   scalar_t nominalComHeight_ = 0.0;
   // [m/s^2] the model's gravity (LocomotionHeuristicModelParameters::gravity),
   // set by configure().
-  scalar_t gravity_ = kGravitationalAcceleration;
+  scalar_t gravity_ = kGravityMagnitude;
 };
 
 }  // namespace ocs2::humanoid

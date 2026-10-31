@@ -80,9 +80,9 @@ void CentroidalModelPinocchioMappingTpl<SCALAR>::setPinocchioInterface(const Pin
 template <typename SCALAR>
 auto CentroidalModelPinocchioMappingTpl<SCALAR>::getPinocchioJointPosition(const vector_t& state) const -> vector_t {
   vector_t qPinocchio = centroidal_model::getGeneralizedCoordinates(state, centroidalModelInfo_);
-  const quaternion_coeffs_t<SCALAR> orientation = centroidal_model::getBaseQuaternion(state, centroidalModelInfo_);
+  const quaternion_coeffs_t<SCALAR> quatBaseRtWorldXyzw = centroidal_model::getQuatBaseRtWorldXyzw(state, centroidalModelInfo_);
   qPinocchio.template segment<kQuaternionCoefficients>(centroidal_model::kBaseQuaternionStartInConfiguration) =
-      quaternionSafeNormalize(orientation);
+      quaternionSafeNormalize(quatBaseRtWorldXyzw);
   return qPinocchio;
 }
 
@@ -102,14 +102,15 @@ auto CentroidalModelPinocchioMappingTpl<SCALAR>::getPinocchioJointVelocity(const
 
   const auto jointVelocities = centroidal_model::getJointVelocities(input, info).head(info.actuatedDofNum);
 
-  Eigen::Matrix<SCALAR, centroidal_model::kCentroidalMomentumDim, 1> momentum =
-      info.robotMass * centroidal_model::getNormalizedMomentum(state, info);
+  Eigen::Matrix<SCALAR, centroidal_model::kCentroidalMomentumDim, 1> cmomComRtWorldEwrtWorld =
+      info.robotMass * centroidal_model::getMnormCmomComRtWorldEwrtWorld(state, info);
+  // Less the joints' share A_j q_j, it is the base velocity's share A_b v_b of the centroidal momentum.
   if (info.centroidalModelType == CentroidalModelType::FullCentroidalDynamics) {
-    momentum.noalias() -= A.rightCols(info.actuatedDofNum) * jointVelocities;
+    cmomComRtWorldEwrtWorld.noalias() -= A.rightCols(info.actuatedDofNum) * jointVelocities;
   }
 
   vector_t vPinocchio(info.velocityDim);
-  vPinocchio.template head<centroidal_model::kBaseVelocityDim>().noalias() = Ab_inv * momentum;
+  vPinocchio.template head<centroidal_model::kBaseVelocityDim>().noalias() = Ab_inv * cmomComRtWorldEwrtWorld;
   vPinocchio.tail(info.actuatedDofNum) = jointVelocities;
 
   return vPinocchio;

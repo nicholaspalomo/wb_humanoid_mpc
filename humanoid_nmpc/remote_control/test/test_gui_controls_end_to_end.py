@@ -124,7 +124,7 @@ class _RobotStateRecorder:
         self._speeds: list[tuple[float, float]] = []
 
     def put(self, sample: robot_state_sample_pb2.RobotStateSample) -> None:
-        velocity = sample.base_linear_velocity_local
+        velocity = sample.linvel_base_rt_world_ewrt_base
         speed = math.sqrt(velocity.x**2 + velocity.y**2 + velocity.z**2)
         with self._lock:
             self._latest = sample
@@ -327,7 +327,7 @@ class GuiControlsEndToEndTest(unittest.TestCase):
     def _base_height(self) -> float:
         sample = self.states.latest()
         assert sample is not None
-        return sample.base_position_world.z
+        return sample.pos_base_rt_world_ewrt_world.z
 
     def _set_slider_height(self, height: float) -> None:
         """Moves the height slider to command the pelvis height `height` [m]."""

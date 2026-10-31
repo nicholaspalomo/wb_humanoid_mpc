@@ -127,7 +127,7 @@ struct BasePoseHeuristicContext {
  *
  * This is the channel with the most to gain, because the reference it shapes is
  * currently a hard zero:
- * TargetTrajectoriesCalculatorBase::integrateTargetBasePose writes
+ * TargetTrajectoriesCalculatorBase::integrateRefPoseeulerzyxBaseRtWorld writes
  * `targetPose[4] = 0.0; targetPose[5] = 0.0;` on every call, while Q's
  * base-pose block is live and non-zero on every robot in this repository. The
  * MPC is therefore being asked to walk with the base held exactly level at

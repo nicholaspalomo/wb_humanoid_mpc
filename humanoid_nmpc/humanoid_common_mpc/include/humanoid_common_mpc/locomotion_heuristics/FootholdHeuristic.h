@@ -120,7 +120,7 @@ struct FootholdHeuristicContext {
  *  - NOT WITH AN ONLINE CONTACT PLANNER. ContactPlanningReferenceManager
  * overrides getSwingFootReference() and never calls nominalFoothold(), so a
  * foothold heuristic listed alongside `contactScheduleSource: contact_planner`
- * would do nothing at all, silently. That is also the right answer on the
+ * would do nothing at all, silently. Refusing it is also appropriate on the
  * merits: these heuristics ARE the analytic alternative to an
  * optimization-based foothold planner, and running both is two opinions
  * fighting over one variable. The combination is rejected.

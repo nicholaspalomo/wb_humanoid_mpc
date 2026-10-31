@@ -54,17 +54,21 @@ VECTOR12_T<SCALAR_T> computeTaskSpaceErrors(
   // shortest path (|theta| <= pi). It replaces the vector part of that error
   // quaternion, sin(theta / 2) n, which is half the angle to first order and
   // saturates at a half turn.
-  const quaternion_coeffs_t<SCALAR_T> errorQuaternion =
+  const quaternion_coeffs_t<SCALAR_T> errQuatEeRtWorld =
       quaternionProduct<SCALAR_T>(
-          reference.getOrientation().coeffs(),
-          quaternionConjugate<SCALAR_T>(current.getOrientation().coeffs()));
-  const VECTOR3_T<SCALAR_T> orientationError =
-      quaternionLog<SCALAR_T>(errorQuaternion);
+          reference.getQuatEeRtWorld().coeffs(),
+          quaternionConjugate<SCALAR_T>(current.getQuatEeRtWorld().coeffs()));
+  const VECTOR3_T<SCALAR_T> errRotvecEeRtWorld =
+      quaternionLog<SCALAR_T>(errQuatEeRtWorld);
 
   VECTOR12_T<SCALAR_T> errors;
-  errors << (current.getPosition() - reference.getPosition()), orientationError,
-      (current.getLinearVelocity() - reference.getLinearVelocity()),
-      (current.getAngularVelocity() - reference.getAngularVelocity());
+  errors << (current.getPosEeRtWorldEwrtWorld() -
+             reference.getPosEeRtWorldEwrtWorld()),
+      errRotvecEeRtWorld,
+      (current.getLinvelEeRtWorldEwrtWorld() -
+       reference.getLinvelEeRtWorldEwrtWorld()),
+      (current.getAngvelEeRtWorldEwrtWorld() -
+       reference.getAngvelEeRtWorldEwrtWorld());
   return errors;
 }
 template VECTOR12_T<scalar_t> computeTaskSpaceErrors(
@@ -79,9 +83,10 @@ template VECTOR12_T<ad_scalar_t> computeTaskSpaceErrors(
 /******************************************************************************************************/
 
 template <typename SCALAR_T>
-VECTOR3_T<SCALAR_T> tiltAngleToPlane(const MATRIX3_T<SCALAR_T>& rotation,
+VECTOR3_T<SCALAR_T> tiltAngleToPlane(const MATRIX3_T<SCALAR_T>& rotmatEeRtWorld,
                                      const VECTOR3_T<SCALAR_T>& planeNormal) {
-  const VECTOR3_T<SCALAR_T> endEffectorNormal = rotation.col(kZAxisIndex);
+  const VECTOR3_T<SCALAR_T> endEffectorNormal =
+      rotmatEeRtWorld.col(kZAxisIndex);
   // The shortest arc from v to n has the vector part (v x n) / sqrt(2 (1 + v .
   // n)), finite at v = -n (its clamp); Log takes it to theta (v x n) / |v x n|,
   // and the tilt turns n into v, the other way.
@@ -90,10 +95,10 @@ VECTOR3_T<SCALAR_T> tiltAngleToPlane(const MATRIX3_T<SCALAR_T>& rotation,
   return -quaternionLog<SCALAR_T>(shortestArc.coeffs());
 }
 template VECTOR3_T<scalar_t> tiltAngleToPlane(
-    const MATRIX3_T<scalar_t>& rotation,
+    const MATRIX3_T<scalar_t>& rotmatEeRtWorld,
     const VECTOR3_T<scalar_t>& planeNormal);
 template VECTOR3_T<ad_scalar_t> tiltAngleToPlane(
-    const MATRIX3_T<ad_scalar_t>& rotation,
+    const MATRIX3_T<ad_scalar_t>& rotmatEeRtWorld,
     const VECTOR3_T<ad_scalar_t>& planeNormal);
 
 }  // namespace ocs2::humanoid

@@ -231,7 +231,8 @@ absl::Span<const absl::string_view> TrackingCostWeightsApplier::staticFields() {
 
 void TrackingCostWeightsApplier::apply(HotUpdateTarget& target) {
   const std::vector<TermWeights> linkCosts = linkCostWeights(target);
-  const std::vector<TermWeights> legTorques = legTorqueWeights(target);
+  const std::vector<TermWeights> legJointTorqueWeights =
+      legTorqueWeights(target);
   for (OptimalControlProblem& ocp : target.problems()) {
     for (const TermWeights& update : linkCosts) {
       updateTermIfPresent<EndEffectorKinematicsQuadraticCost>(
@@ -240,7 +241,7 @@ void TrackingCostWeightsApplier::apply(HotUpdateTarget& target) {
             cost.setWeights(vector12_t(update.weights));
           });
     }
-    for (const TermWeights& update : legTorques) {
+    for (const TermWeights& update : legJointTorqueWeights) {
       updateTermIfPresent<ExternalTorqueQuadraticCostAD>(
           *ocp.costPtr, update.term, [&](ExternalTorqueQuadraticCostAD& cost) {
             if (const absl::Status status = cost.setWeights(update.weights);

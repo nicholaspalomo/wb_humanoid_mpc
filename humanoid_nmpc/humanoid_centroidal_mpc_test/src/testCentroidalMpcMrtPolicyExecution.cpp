@@ -176,7 +176,7 @@ TEST(CentroidalMpcMrtPolicyExecution,
   CodeCountingSink sink(ControllerEventCode::kPolicyRefused);
   controller.setEventSink(&sink);
   robot::model::RobotState robotState(description);
-  robotState.setRootPositionInWorldFrame(vector3_t(0.0, 0.0, 0.75));
+  robotState.setPosBaseRtWorldEwrtWorld(vector3_t(0.0, 0.0, 0.75));
   for (size_t joint = 0; joint < description.getNumJoints(); ++joint)
     robotState.setJointPosition(joint, /*jointPosition=*/0.1);
   robot::model::RobotJointAction action(description);
@@ -281,7 +281,7 @@ TEST(CentroidalMpcMrtPolicyExecution,
   ASSERT_NE(link, nullptr);
   CentroidalMpcMrtJointController& controller = **controllerOrStatus;
   robot::model::RobotState robotState(description);
-  robotState.setRootPositionInWorldFrame(vector3_t(0.0, 0.0, 0.75));
+  robotState.setPosBaseRtWorldEwrtWorld(vector3_t(0.0, 0.0, 0.75));
   for (size_t joint = 0; joint < description.getNumJoints(); ++joint)
     robotState.setJointPosition(joint, /*jointPosition=*/0.1);
   robotState.setContactFlag(/*index=*/0, /*contactFlag=*/true);

@@ -131,6 +131,9 @@ _ENUM_VALUE = 2
 _NEXT_ID = re.compile(r"Next ID: \d+")
 # IFTTT directives of a .proto file guard the .proto file; in the generated code they would guard nothing.
 _LINT_DIRECTIVE = re.compile(r"LINT\.(IfChange|ThenChange)\b.*")
+# A NOLINT marker of a .proto file (tools/hooks/nolint.py) suppresses a finding on its .proto line; above the generated
+# member it would suppress nothing, which the lint reports (`nolint-unused`). The check that names it reads the .proto.
+_NOLINT_MARKER = re.compile(r"NOLINT(NEXTLINE|BEGIN|END)?\(.*")
 _QUALIFIED_NAME = re.compile(
     r"(::)?[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)*"
 )
@@ -368,7 +371,9 @@ def _comment_lines(text: str) -> list[str]:
             stripped = stripped[1:]
         if _NEXT_ID.fullmatch(stripped):
             continue  # tools/hooks/proto_next_id.py's bookkeeping, which means nothing to the struct
-        if _LINT_DIRECTIVE.fullmatch(stripped):
+        if _LINT_DIRECTIVE.fullmatch(stripped) or _NOLINT_MARKER.fullmatch(
+            stripped
+        ):
             continue
         result.append(f"// {stripped}" if stripped else "//")
     # A blank line closing a comment would leave a lone "//"; drop it, as clang-format leaves it alone but it adds noise.
@@ -1796,8 +1801,9 @@ class _FileGenerator:
                 f" {'::'.join(self.path)} ({self.stem}{STRUCT_HEADER_SUFFIX})"
                 " and the protobuf message"
                 f" {self._top_full_name()} ({self.stem}.pb.h). Converting into"
-                " an object that already has the shape of the value (the same"
-                " sizes, the same oneof alternatives, the same map keys) does"
+                " an object that already matches the structure of the value"
+                " (the same sizes, the same oneof alternatives, the same map"
+                " keys) does"
                 " not allocate; the README lists what does. FromProto() fails"
                 " only on a value the struct cannot hold, an enum number the"
                 " enum does not define, and leaves the struct partially"

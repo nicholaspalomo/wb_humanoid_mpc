@@ -110,13 +110,15 @@ absl::StatusOr<RobotProcessSettings> robotProcessSettingsFromConfig(
   }
   settings.contactEstimator = std::move(controllerSide.contactEstimator);
   settings.contactWrenchGate = controllerSide.contactWrenchGate;
-  settings.simulator.contactForceThreshold = task.sim_contact_force_threshold;
+  settings.simulator.contactForceThreshold =
+      task.sim_min_force_mjcontact_ewrt_mjcontact_x;
   settings.simulator.contactTimelineWindow = task.sim_contact_timeline_window;
   settings.simulator.visualizations = task.sim_visualizations;
   settings.simulator.gantryHold = task.gantry_hold;
   settings.simulator.projectile = task.sim_projectile;
   settings.simulator.ragdollJointDamping = task.sim_ragdoll_joint_damping;
-  settings.simulator.autoResetBaseHeight = task.sim_auto_reset_base_height;
+  settings.simulator.autoResetBaseHeight =
+      task.sim_auto_reset_min_pos_base_rt_world_ewrt_world_z;
   // The schema has no sentinel: an absent field is off, which the fall
   // recovery's config spells 0.
   ASSIGN_OR_RETURN(settings.fallRecovery.maxBaseTiltAngle,

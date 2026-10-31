@@ -11,7 +11,7 @@
 
 robot: "drc_atlas"
 
-# The soles: the foot frames of task.textproto's contacts block (contact_frame_translation, contact_rectangle).
+# The soles: the foot frames of task.textproto's contacts block (pos_contact_rt_link_ewrt_link, contact_rectangle).
 # LINT.IfChange(foot_contacts)
 candidates {
   name: "foot_l_contact"

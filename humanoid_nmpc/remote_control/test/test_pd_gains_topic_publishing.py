@@ -142,7 +142,7 @@ class TestPdGainsTopicPublishing(unittest.TestCase):
         self.assertIn(KNEE_KP, tab.slider_rows)
         self.assertIn(DEFAULT_KD, tab.slider_rows)
         self.assertFalse(
-            any(path.endswith("torque_limit") for path in tab.slider_rows)
+            any(path.endswith("max_joint_torque") for path in tab.slider_rows)
         )
 
     def test_a_change_publishes_the_file_and_writes_nothing(self):

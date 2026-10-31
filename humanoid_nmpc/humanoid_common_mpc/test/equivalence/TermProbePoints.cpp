@@ -149,7 +149,7 @@ vector_t randomlyPerturbed(const MpcEquivalenceFixture& mpc,
             uniform(-kMaxAbsEulerRate, kMaxAbsEulerRate, generator);
     } else {
       scalar_t halfWidth = 0.2;
-      if (segment.name == "base_position") halfWidth = 0.02;
+      if (segment.name == "pos_base_rt_world_ewrt_world") halfWidth = 0.02;
       if (segment.name == "joint_positions") halfWidth = 0.05;
       for (Eigen::Index i = 0; i < dim; ++i)
         eulerState(row + i) += uniform(-halfWidth, halfWidth, generator);
@@ -165,8 +165,8 @@ vector_t walkingForward(const MpcEquivalenceFixture& mpc, vector_t eulerState) {
   Eigen::Index row = 0;
   for (const validation::EulerStateSegment& segment :
        mpc.eulerLayout().segments) {
-    if (segment.name == "normalized_linear_momentum" ||
-        segment.name == "base_linear_velocity") {
+    if (segment.name == "mnorm_linmom_com_rt_world_ewrt_world" ||
+        segment.name == "linvel_base_rt_world_ewrt_world") {
       eulerState(row) = kMidSwingForwardVelocity;
     }
     row += static_cast<Eigen::Index>(segment.dim);
@@ -216,7 +216,7 @@ void appendRestingPoints(const MpcEquivalenceFixture& mpc,
   for (const RestAttitude& attitude : restAttitudes) {
     vector_t state = restState;
     if (attitude.pitch.has_value())
-      mpc.model().setBaseOrientation(
+      mpc.model().setQuatBaseRtWorldXyzw(
           state, quaternionFromEulerZyx(vector3_t(0.7, *attitude.pitch, 0.0)));
     probes.push_back(TermProbePoint{.name = attitude.name,
                                     .time = restTime,
@@ -518,7 +518,8 @@ std::vector<TargetedProbePoint> barrierBandPoints(
 
 bool hasFrozenStateJacobian(const MpcEquivalenceFixture& mpc,
                             absl::string_view label) {
-  return !mpc.isWholeBody() && absl::EndsWith(label, kZeroVelocityTermSuffix);
+  return !mpc.isWholeBody() &&
+         absl::EndsWith(label, kZeroVelocityTermNameSuffix);
 }
 
 Differenced extrapolate(

@@ -106,11 +106,11 @@ std::string writeFile(absl::string_view name, const std::string& content) {
 std::string replacedAll(std::string content,
                         absl::string_view from,
                         absl::string_view to) {
-  size_t position = content.find(from);
-  EXPECT_NE(position, std::string::npos) << "'" << from << "' not found";
-  while (position != std::string::npos) {
-    content.replace(position, from.size(), std::string(to));
-    position = content.find(from, position + to.size());
+  size_t offset = content.find(from);
+  EXPECT_NE(offset, std::string::npos) << "'" << from << "' not found";
+  while (offset != std::string::npos) {
+    content.replace(offset, from.size(), std::string(to));
+    offset = content.find(from, offset + to.size());
   }
   return content;
 }
@@ -238,11 +238,15 @@ TEST_F(
     EXPECT_EQ(static_cast<size_t>(jointModel.idx_v()),
               kJointVelocityOffset + joint)
         << name;
-    EXPECT_EQ(limits.lower(static_cast<Eigen::Index>(joint)),
-              model.lowerPositionLimit(jointModel.idx_q()))
+    EXPECT_EQ(
+        limits.lower(static_cast<Eigen::Index>(joint)),
+        // NOLINTNEXTLINE(frame-naming): Pinocchio's joint limits (joint space)
+        model.lowerPositionLimit(jointModel.idx_q()))
         << name;
-    EXPECT_EQ(limits.upper(static_cast<Eigen::Index>(joint)),
-              model.upperPositionLimit(jointModel.idx_q()))
+    EXPECT_EQ(
+        limits.upper(static_cast<Eigen::Index>(joint)),
+        // NOLINTNEXTLINE(frame-naming): Pinocchio's joint limits (joint space)
+        model.upperPositionLimit(jointModel.idx_q()))
         << name;
   }
 }

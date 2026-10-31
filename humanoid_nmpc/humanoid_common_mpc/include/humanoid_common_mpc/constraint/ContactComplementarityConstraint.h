@@ -83,10 +83,10 @@ namespace ocs2::humanoid {
  * footprint regenerates it.
  *
  * WHICH NORMAL FORCE. f_n is the third component of
- * MpcRobotModelBase::getContactForce(), and which frame that is depends on the
- * model: the WORLD vertical for the wrench-space models, and the contact
- * frame's own normal under BasisInputsModelDecorator. Both are correct here,
- * because the term uses f_n as a LOAD INDICATOR - a number that vanishes
+ * MpcRobotModelBase::getForceContactEwrtParam(), and which frame that is
+ * depends on the model: the WORLD vertical for the wrench-space models, and the
+ * contact frame's own normal under BasisInputsModelDecorator. Both are correct
+ * here, because the term uses f_n as a LOAD INDICATOR - a number that vanishes
  * exactly when the foot carries no wrench - rather than as a physical force
  * (README section 2a, "What f_n actually is").
  *
@@ -152,8 +152,8 @@ class ContactComplementarityConstraint final : public StateInputConstraint {
    * carries this contact's force.
    * @param [in] contactPointIndex : the contact this term belongs to.
    * @param [in] terrainHeight : [m] height of the ground under the foot.
-   * @param [in] forceReference : [N] the normal force the residual is measured
-   * in, normally the robot's weight.
+   * @param [in] scaleForceContactEwrtParamZ : [N] the normal force the residual
+   * is measured in, normally the robot's weight.
    * @param [in] heightReference : [m] the height the residual is measured in,
    * normally the swing apex.
    * @param [in] gapSmoothing : [m] the length scale over which the corners'
@@ -164,7 +164,7 @@ class ContactComplementarityConstraint final : public StateInputConstraint {
          const MpcRobotModelBase<scalar_t>& mpcRobotModel,
          size_t contactPointIndex,
          scalar_t terrainHeight = 0.0,
-         scalar_t forceReference = 1.0,
+         scalar_t scaleForceContactEwrtParamZ = 1.0,
          scalar_t heightReference = 1.0,
          scalar_t gapSmoothing =
              ModelSettings::ContactImplicitConfig::kDefaultGapSmoothing);
@@ -194,7 +194,9 @@ class ContactComplementarityConstraint final : public StateInputConstraint {
     terrainHeight_ = terrainHeight;
   }
   scalar_t getTerrainHeight() const { return terrainHeight_; }
-  scalar_t getForceReference() const { return 1.0 / inverseForceReference_; }
+  scalar_t getScaleForceContactEwrtParamZ() const {
+    return 1.0 / inverseScaleForceContactEwrtParamZ_;
+  }
   scalar_t getHeightReference() const { return 1.0 / inverseHeightReference_; }
   /** Retunes the height the residual is measured in, so that the key is live in
    * the tuning dashboard like the weight beside it. The force reference has no
@@ -214,7 +216,7 @@ class ContactComplementarityConstraint final : public StateInputConstraint {
       const MpcRobotModelBase<scalar_t>& mpcRobotModel,
       size_t contactPointIndex,
       scalar_t terrainHeight,
-      scalar_t forceReference,
+      scalar_t scaleForceContactEwrtParamZ,
       scalar_t heightReference,
       scalar_t gapSmoothing);
   ContactComplementarityConstraint(const ContactComplementarityConstraint& rhs);
@@ -226,9 +228,9 @@ class ContactComplementarityConstraint final : public StateInputConstraint {
   // Stored as reciprocals: the residual and its two derivative blocks each need
   // the scale, and a multiplication in the solver's inner loop is cheaper than
   // a division.
-  scalar_t inverseForceReference_;
+  scalar_t inverseScaleForceContactEwrtParamZ_;
   scalar_t inverseHeightReference_;
-  vector_t normalForceRow_;
+  vector_t inputRowForceContactEwrtParamZ_;
 };
 
 }  // namespace ocs2::humanoid

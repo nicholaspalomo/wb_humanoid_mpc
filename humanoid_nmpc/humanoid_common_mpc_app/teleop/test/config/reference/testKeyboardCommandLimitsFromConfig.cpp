@@ -54,24 +54,25 @@ namespace {
 using Field = std::optional<double> mpc_config::ReferenceFile::*absl_nonnull;
 
 constexpr std::pair<absl::string_view, Field> kFields[] = {
-    {"max_displacement_velocity_x",
-     &mpc_config::ReferenceFile::max_displacement_velocity_x},
-    {"max_displacement_velocity_y",
-     &mpc_config::ReferenceFile::max_displacement_velocity_y},
-    {"max_delta_pelvis_height",
-     &mpc_config::ReferenceFile::max_delta_pelvis_height},
-    {"max_rotation_velocity",
-     &mpc_config::ReferenceFile::max_rotation_velocity},
-    {"default_base_height", &mpc_config::ReferenceFile::default_base_height},
+    {"cmd_max_linvel_base_rt_world_ewrt_heading_x",
+     &mpc_config::ReferenceFile::cmd_max_linvel_base_rt_world_ewrt_heading_x},
+    {"cmd_max_linvel_base_rt_world_ewrt_heading_y",
+     &mpc_config::ReferenceFile::cmd_max_linvel_base_rt_world_ewrt_heading_y},
+    {"cmd_max_err_pos_base_rt_world_ewrt_world_z",
+     &mpc_config::ReferenceFile::cmd_max_err_pos_base_rt_world_ewrt_world_z},
+    {"cmd_max_angvel_base_rt_world_ewrt_world_z",
+     &mpc_config::ReferenceFile::cmd_max_angvel_base_rt_world_ewrt_world_z},
+    {"nom_pos_base_rt_world_ewrt_world_z",
+     &mpc_config::ReferenceFile::nom_pos_base_rt_world_ewrt_world_z},
 };
 
 mpc_config::ReferenceFile limitsFile() {
   mpc_config::ReferenceFile file;
-  file.max_displacement_velocity_x = 1.25;
-  file.max_displacement_velocity_y = 0.25;
-  file.max_delta_pelvis_height = 0.5;
-  file.max_rotation_velocity = 0.75;
-  file.default_base_height = 0.875;
+  file.cmd_max_linvel_base_rt_world_ewrt_heading_x = 1.25;
+  file.cmd_max_linvel_base_rt_world_ewrt_heading_y = 0.25;
+  file.cmd_max_err_pos_base_rt_world_ewrt_world_z = 0.5;
+  file.cmd_max_angvel_base_rt_world_ewrt_world_z = 0.75;
+  file.nom_pos_base_rt_world_ewrt_world_z = 0.875;
   return file;
 }
 
@@ -118,7 +119,7 @@ TEST(KeyboardCommandLimitsFromConfigTest, ALimitThatIsNotPositiveIsRefused) {
   }
   // The base height is a height, not a limit.
   mpc_config::ReferenceFile file = limitsFile();
-  file.default_base_height = 0.0;
+  file.nom_pos_base_rt_world_ewrt_world_z = 0.0;
   EXPECT_TRUE(keyboardCommandLimitsFromConfig(file).ok());
 }
 

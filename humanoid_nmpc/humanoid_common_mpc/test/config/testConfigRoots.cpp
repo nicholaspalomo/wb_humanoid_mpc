@@ -172,13 +172,13 @@ class CommandLimitsProbe final : public TargetTrajectoriesCalculatorBase {
  public:
   using TargetTrajectoriesCalculatorBase::TargetTrajectoriesCalculatorBase;
 
-  TargetTrajectories commandedPositionToTargetTrajectories(
+  TargetTrajectories poseCommandToTargetTrajectories(
       const vector4_t& /*commandedVelocities*/,
       scalar_t /*initTime*/,
       const vector_t& /*initState*/) override {
     return TargetTrajectories();
   }
-  TargetTrajectories commandedVelocityToTargetTrajectories(
+  TargetTrajectories velocityCommandToTargetTrajectories(
       const vector4_t& /*commandedVelocities*/,
       scalar_t /*initTime*/,
       const vector_t& /*initState*/,
@@ -186,10 +186,10 @@ class CommandLimitsProbe final : public TargetTrajectoriesCalculatorBase {
     return TargetTrajectories();
   }
 
-  scalar_t maxDisplacementVelocityX() const {
-    return maxDisplacementVelocityX_;
+  scalar_t cmdMaxLinvelBaseRtWorldEwrtHeadingX() const {
+    return cmdMaxLinvelBaseRtWorldEwrtHeadingX_;
   }
-  scalar_t targetRotationVelocity() const { return targetRotationVelocity_; }
+  scalar_t refRateYawBaseRtWorld() const { return refRateYawBaseRtWorld_; }
   const vector_t& targetJointState() const { return targetJointState_; }
 };
 
@@ -283,18 +283,19 @@ TEST_P(ShippedRobotRootsTest, EveryFileLoadsAndBuildsEveryRoot) {
   ASSERT_TRUE(defaultJointState.ok()) << defaultJointState.status();
   CommandLimitsProbe calculator(*referenceSettings, *defaultJointState,
                                 *(*stack)->model, /*mpcHorizon=*/1.0);
-  EXPECT_EQ(calculator.maxDisplacementVelocityX(),
-            referenceSettings->maxDisplacementVelocityX);
-  EXPECT_EQ(calculator.commandedBaseHeight(/*commandedPelvisHeight=*/0.0),
-            settings.terrainHeight + referenceSettings->defaultBaseHeight);
+  EXPECT_EQ(calculator.cmdMaxLinvelBaseRtWorldEwrtHeadingX(),
+            referenceSettings->cmdMaxLinvelBaseRtWorldEwrtHeadingX);
+  EXPECT_EQ(
+      calculator.commandedBaseHeight(/*commandedPelvisHeight=*/0.0),
+      settings.terrainHeight + referenceSettings->nomPosBaseRtWorldEwrtWorldZ);
   EXPECT_EQ(calculator.targetJointState(), *defaultJointState);
   // A hot reload of the reference file replaces every limit it sets, the yaw
   // rate a command reset included.
-  calculator.setTargetRotationVelocity(
-      referenceSettings->targetRotationVelocity + 1.0);
+  calculator.setRefRateYawBaseRtWorld(referenceSettings->refRateYawBaseRtWorld +
+                                      1.0);
   calculator.applyCommandLimits(*referenceSettings);
-  EXPECT_EQ(calculator.targetRotationVelocity(),
-            referenceSettings->targetRotationVelocity);
+  EXPECT_EQ(calculator.refRateYawBaseRtWorld(),
+            referenceSettings->refRateYawBaseRtWorld);
 
   const absl::StatusOr<std::unique_ptr<ProceduralMpcMotionManager>> manager =
       ProceduralMpcMotionManager::Create(
@@ -311,12 +312,12 @@ TEST_P(ShippedRobotRootsTest, EveryFileLoadsAndBuildsEveryRoot) {
       /*v_x=*/1.0, /*v_y=*/1.0, /*desired_pelvis_h=*/0.0, /*v_yaw=*/1.0));
   const WalkingVelocityCommand fullStick =
       (*manager)->getScaledWalkingVelocityCommand();
-  EXPECT_EQ(fullStick.linear_velocity_x,
-            referenceSettings->maxDisplacementVelocityX);
-  EXPECT_EQ(fullStick.angular_velocity_z,
-            referenceSettings->maxRotationVelocity);
-  EXPECT_EQ((*manager)->getMaxLinearAcceleration(),
-            referenceSettings->maxLinearAcceleration);
+  EXPECT_EQ(fullStick.cmd_linvel_base_rt_world_ewrt_heading_x,
+            referenceSettings->cmdMaxLinvelBaseRtWorldEwrtHeadingX);
+  EXPECT_EQ(fullStick.cmd_angvel_base_rt_world_ewrt_world_z,
+            referenceSettings->cmdMaxAngvelBaseRtWorldEwrtWorldZ);
+  EXPECT_EQ((*manager)->getCmdMaxLinaccBaseRtWorldEwrtHeadingXy(),
+            referenceSettings->cmdMaxLinaccBaseRtWorldEwrtHeadingXy);
   EXPECT_TRUE((*manager)->applyCommandLimits(*referenceSettings).ok());
 
   // The factory's terms that are not taped with CppAD; every shipped file gives

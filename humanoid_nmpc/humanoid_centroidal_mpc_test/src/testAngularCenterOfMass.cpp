@@ -151,11 +151,11 @@ TEST_F(AngularCenterOfMassTest, AttitudeTangentJacobianStructure) {
 
   // The base block is the adjoint R(Delta_theta)^T, a rotation: a base
   // perturbation is carried into the ACoM frame.
-  EXPECT_LT((jacobian.baseOrientation -
+  EXPECT_LT((jacobian.baseTangent -
              quaternionRotationMatrix(quaternionExp(offset)).transpose())
                 .norm(),
             1.0e-12);
-  EXPECT_LT((jacobian.baseOrientation.transpose() * jacobian.baseOrientation -
+  EXPECT_LT((jacobian.baseTangent.transpose() * jacobian.baseTangent -
              matrix3_t::Identity())
                 .norm(),
             1.0e-12);

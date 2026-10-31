@@ -40,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
+// NOLINTBEGIN(claudisms): cited paper title
 /**
  * Canonical names of the locomotion heuristics the reference-shaping layer can
  * be assembled from: the ten of Gerardo Bledt's "Regularized Predictive Control
@@ -51,6 +52,7 @@ namespace ocs2::humanoid {
  * (case-insensitive, `_`, `-` and spaces ignored), so `capturePoint` and
  * `capture_point` are the same heuristic.
  */
+// NOLINTEND(claudisms)
 namespace heuristic {
 
 // ---- Base-pose heuristics: the roll, pitch and height of the base-pose

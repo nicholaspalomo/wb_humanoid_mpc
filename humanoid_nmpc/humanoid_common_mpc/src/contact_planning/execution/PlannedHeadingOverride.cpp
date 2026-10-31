@@ -42,8 +42,7 @@ namespace ocs2::humanoid {
 
 scalar_t acomHeadingOffset(const AngularCenterOfMass& acom,
                            const vector_t& jointAngles) {
-  return twistHeading(
-      quaternionExp(acom.computeJointOrientationOffset(jointAngles)));
+  return yawOf(quaternionExp(acom.computeJointOrientationOffset(jointAngles)));
 }
 
 std::string PlannedHeadingOverride::describe() const {
@@ -67,13 +66,13 @@ void PlannedHeadingOverride::overrideTarget(
     const std::optional<scalar_t> heading = plan.headingAtTime(time);
     if (!heading.has_value()) continue;
     vector_t& stateRef = targetTrajectories.stateTrajectory[i];
-    vector3_t euler = mpcRobotModel_->getBaseOrientationEulerZyx(stateRef);
+    vector3_t euler = mpcRobotModel_->getEulerzyxBaseRtWorld(stateRef);
     scalar_t offset = 0.0;
     if (acom != nullptr)
       offset =
           acomHeadingOffset(*acom, mpcRobotModel_->getJointAngles(stateRef));
     euler(0) = moduloAngleWithReference(*heading - offset, euler(0));
-    mpcRobotModel_->setBaseOrientationEulerZyx(stateRef, euler);
+    mpcRobotModel_->setEulerzyxBaseRtWorld(stateRef, euler);
   }
 }
 

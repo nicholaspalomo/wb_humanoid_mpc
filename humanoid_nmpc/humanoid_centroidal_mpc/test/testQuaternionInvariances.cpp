@@ -451,7 +451,7 @@ class QuaternionInvariances
         interface_->getEffectiveMpcRobotModel();
     vector_t state = interface_->getInitialState();
     state.head<6>() << 0.3, 0.05, -0.02, 0.02, -0.01, 0.03;
-    model().setBaseOrientationEulerZyx(state, eulerZyx);
+    model().setEulerzyxBaseRtWorld(state, eulerZyx);
     vector_t joints = model().getJointAngles(state);
     for (Eigen::Index i = 0; i < joints.size(); ++i)
       joints(i) += 0.05 * std::sin(1.3 * static_cast<scalar_t>(i) + 0.4);
@@ -498,11 +498,14 @@ class QuaternionInvariances
     if (effectiveModel.getInputDim() != model().getInputDim()) return input;
     vector_t turned = input;
     for (size_t contact = 0; contact < kNumContacts; ++contact) {
-      model().setContactForce(
-          turned, turnedAboutZ(angle, model().getContactForce(input, contact)),
+      model().setForceContactEwrtParam(
+          turned,
+          turnedAboutZ(angle, model().getForceContactEwrtParam(input, contact)),
           contact);
-      model().setContactMoment(
-          turned, turnedAboutZ(angle, model().getContactMoment(input, contact)),
+      model().setTorqueContactEwrtParam(
+          turned,
+          turnedAboutZ(angle,
+                       model().getTorqueContactEwrtParam(input, contact)),
           contact);
     }
     return turned;

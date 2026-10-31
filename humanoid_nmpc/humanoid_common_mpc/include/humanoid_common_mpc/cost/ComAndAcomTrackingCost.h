@@ -175,12 +175,13 @@ class ComAndAcomTrackingCost : public StateCost {
 
   /**
    * Zeroes the base-pose block of a centroidal state weight matrix: the 6x6
-   * diagonal block Q(6:11, 6:11) of the rows base_position and base_orientation
-   * (yaw, pitch, roll) of the centroidal tuning layout (tuningLayoutOf()), i.e.
-   * the weights among p_base and the base orientation. Rows of the tuning
-   * layout, which Q is written in: they do not move when the state stores the
-   * orientation as a quaternion. Entries outside that block, including any that
-   * couple the base pose to another state, are left as they are.
+   * diagonal block Q(6:11, 6:11) of the rows pos_base_rt_world_ewrt_world and
+   * eulerzyx_base_rt_world (yaw, pitch, roll) of the centroidal tuning layout
+   * (tuningLayoutOf()), i.e. the weights among p_base and the base orientation.
+   * Rows of the tuning layout, which Q is written in: they do not move when the
+   * state stores the orientation as a quaternion. Entries outside that block,
+   * including any that couple the base pose to another state, are left as they
+   * are.
    *
    * This cost regulates those quantities in its own coordinates (CoM position
    * and aCOM orientation), so every quadratic state cost that runs alongside it

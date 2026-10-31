@@ -55,8 +55,8 @@ feet_array_t<VECTOR6_T<SCALAR_T>> contactWrenchesInWorldFrame(
     const WBAccelMpcRobotModel<SCALAR_T>& mpcRobotModel) {
   feet_array_t<VECTOR6_T<SCALAR_T>> wrenches;
   for (size_t i = 0; i < kNumContacts; ++i)
-    wrenches[i] = mpcRobotModel.getContactWrenchInWorldFrame(
-        state, input, /*contactIndex=*/i);
+    wrenches[i] = mpcRobotModel.getWrenchContactEwrtWorld(state, input,
+                                                          /*contactIndex=*/i);
   return wrenches;
 }
 
@@ -102,13 +102,13 @@ VECTOR6_T<SCALAR_T> computeBaseAcceleration(
         pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED, soleJacobian);
     const MATRIX6_T<SCALAR_T> soleBaseJacobian =
         soleJacobian.leftCols(kPoseTangentDim);
-    baseExternalForces += soleBaseJacobian.transpose() *
-                          mpcRobotModel.getContactWrenchInWorldFrame(
-                              state, input, /*contactIndex=*/i);
+    baseExternalForces +=
+        soleBaseJacobian.transpose() * mpcRobotModel.getWrenchContactEwrtWorld(
+                                           state, input, /*contactIndex=*/i);
   }
 
-  return computeBaseAcceleration<SCALAR_T>(data.M, data.nle, qdd_joints,
-                                           baseExternalForces);
+  return computeBaseGeneralizedAcceleration<SCALAR_T>(
+      data.M, data.nle, qdd_joints, baseExternalForces);
 }
 template ad_vector6_t computeBaseAcceleration(
     const ad_vector_t& state,
@@ -180,7 +180,7 @@ VECTOR_T<SCALAR_T> computeStateDerivative(
   const VECTOR3_T<SCALAR_T> angularVelocityLocal =
       state.template segment<kRotationTangentDim>(velocityStart + kPositionDim);
   state_derivative.template segment<kQuaternionCoefficients>(orientationStart) =
-      SCALAR_T(kQuaternionHalfAngleFactor) *
+      SCALAR_T(kUnitQuaternionHalfAngleFactor) *
       (quaternionRateMatrix(orientation) * angularVelocityLocal);
   state_derivative.segment(mpcRobotModel.getJointStartindex(),
                            mpcRobotModel.getJointDim()) =

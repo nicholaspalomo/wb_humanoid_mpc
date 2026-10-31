@@ -33,7 +33,9 @@ check's name is its NOLINT category (`// NOLINT(<name>): <reason>`) and its name
 themselves wrong (tools/hooks/nolint.py).
 
 Every check is enforced: `make lint`, the pre-commit hook and CI run them all, and there is no list of checks that are
-skipped until their findings are fixed (tools/hooks/test_lint_enforcement.py keeps it that way).
+skipped until their findings are fixed (tools/hooks/test_lint_enforcement.py keeps it that way). The one exception is
+`frame-naming` (Check.opt_in), which measures a repository-wide rename while it runs and is switched on in its Verify
+phase (humanoid_nmpc/docs/frame_naming/README.md, section 9).
 
 To add a check: write its module (`check_source(source, path) -> list[Finding]`, and `fix_source` where a rewrite cannot
 change behavior), list it in the module's CHECKS, add the module to _MODULE_CHECKS below, give it a test_<module>.py,
@@ -48,9 +50,11 @@ from tools.hooks import american_spelling
 from tools.hooks import argument_comments
 from tools.hooks import boost_usage
 from tools.hooks import check_types
+from tools.hooks import claudisms
 from tools.hooks import cpp_google_style
 from tools.hooks import cpp_totw
 from tools.hooks import euler_boundary
+from tools.hooks import frame_naming
 from tools.hooks import include_style
 from tools.hooks import inclusive_language
 from tools.hooks import license_header
@@ -146,6 +150,7 @@ _MODULE_CHECKS: list[Check] = (
     + magic_number.CHECKS
     + todo_format.CHECKS
     + inclusive_language.CHECKS
+    + claudisms.CHECKS
     + license_header.CHECKS
     + python_imports.CHECKS
     + python_docstrings.CHECKS
@@ -154,8 +159,9 @@ _MODULE_CHECKS: list[Check] = (
     + euler_boundary.CHECKS
     + state_interpolation.CHECKS
     + quaternion_scalar_constructor.CHECKS
+    + frame_naming.CHECKS
 )
-# LINT.ThenChange(//AGENTS.md:cpp_style, //AGENTS.md:nullability, //AGENTS.md:totw_rules, //AGENTS.md:python_style, //AGENTS.md:protobuf_rules, //AGENTS.md:orientation_rules)
+# LINT.ThenChange(//AGENTS.md:cpp_style, //AGENTS.md:nullability, //AGENTS.md:totw_rules, //AGENTS.md:python_style, //AGENTS.md:protobuf_rules, //AGENTS.md:orientation_rules, //AGENTS.md:frame_naming_rules, //AGENTS.md:claudisms_rules)
 
 REGISTRY: tuple[Check, ...] = tuple(_NOLINT_CHECKS + _MODULE_CHECKS)
 
@@ -262,8 +268,13 @@ def by_name(name: str) -> Check:
 
 
 def names() -> frozenset[str]:
-    """The names of every registry check, which `make lint` runs."""
+    """The names of every registry check: what `--only` and NOLINT markers may name."""
     return frozenset(check.name for check in REGISTRY)
+
+
+def default_names() -> frozenset[str]:
+    """The names of the checks `make lint` runs: every registry check but an opt-in one (Check.opt_in)."""
+    return frozenset(check.name for check in REGISTRY if not check.opt_in)
 
 
 def clang_tidy_checks(root: str) -> frozenset[str]:

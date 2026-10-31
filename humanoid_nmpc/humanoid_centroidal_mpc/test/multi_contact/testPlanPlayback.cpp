@@ -485,11 +485,11 @@ TEST(PlannedMotion, theReversedHalfRetracesTheAscentWithNegatedMomenta) {
     const vector_t forward = model.getDesiredState(motion.targets(), time);
     const vector_t reversed =
         model.getDesiredState(motion.targets(), mirror - time);
-    EXPECT_TRUE(model.getBasePosition(reversed).isApprox(
-        model.getBasePosition(forward), kTolerance))
+    EXPECT_TRUE(model.getPosBaseRtWorldEwrtWorld(reversed).isApprox(
+        model.getPosBaseRtWorldEwrtWorld(forward), kTolerance))
         << time;
-    EXPECT_TRUE(model.getBaseOrientation(reversed).isApprox(
-        model.getBaseOrientation(forward), kTolerance))
+    EXPECT_TRUE(model.getQuatBaseRtWorldXyzw(reversed).isApprox(
+        model.getQuatBaseRtWorldXyzw(forward), kTolerance))
         << time;
     EXPECT_TRUE(model.getJointAngles(reversed).isApprox(
         model.getJointAngles(forward), kTolerance))
@@ -684,8 +684,9 @@ TEST(PlannedMotionReferenceManager, runsTheClockAndTheScheduleAcrossTheWrap) {
   // the horizon.
   const scalar_t lead = manager->settings().clockHoldLead;
   vector_t behind = planned(period);
-  model.setBasePosition(
-      behind, model.getBasePosition(behind) - vector3_t(0.2, 0.0, 0.0));
+  model.setPosBaseRtWorldEwrtWorld(
+      behind,
+      model.getPosBaseRtWorldEwrtWorld(behind) - vector3_t(0.2, 0.0, 0.0));
   for (const scalar_t late : {period + firstEvent, period + 3.0}) {
     manager->preSolverRun(late, late + kHorizon, behind, motion.modeAt(0.0));
     EXPECT_TRUE(manager->clock().isHolding()) << late;
@@ -710,7 +711,9 @@ TEST(PlannedMotionReferenceManager, runsTheClockAndTheScheduleAcrossTheWrap) {
     for (const ContactSwingTrajectory& swing : planner->swings(i)) {
       ++swings;
       EXPECT_GT(manager->planTimeAt(swing.touchDownTime()), period);
-      EXPECT_LT(swing.reference(swing.liftOffTime()).position.z(), 0.05);
+      EXPECT_LT(
+          swing.reference(swing.liftOffTime()).posContactRtWorldEwrtWorld.z(),
+          0.05);
     }
   }
   EXPECT_GT(swings, 0U);

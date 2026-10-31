@@ -65,7 +65,7 @@ constexpr int kRootVelocityDim = kPoseTangentDim;
 /** [m] and [rad] The base pose the twin's root is compared with the MPC model's
  * at, away from the identity. */
 constexpr double kProbeTranslation = 0.3;
-constexpr double kProbeRotationAngle = 0.7;
+constexpr double kProbeAngle = 0.7;
 /** The poses the two roots are compared at: the neutral one and the displaced
  * one. */
 constexpr size_t kNumProbePoses = 2;
@@ -89,7 +89,7 @@ absl::Status checkSameRootPlacement(const PinocchioInterface::Model& mpcModel,
       // NOLINTNEXTLINE(magic-number): an arbitrary skew axis
       vector3_t(1.0, 2.0, 3.0).normalized();
   displaced.segment<kQuaternionCoefficients>(kPositionDim) =
-      quaternionExp<scalar_t>(vector3_t(kProbeRotationAngle * axis));
+      quaternionExp<scalar_t>(vector3_t(kProbeAngle * axis));
   const std::array<const vector_t* absl_nonnull, kNumProbePoses> probes = {
       &neutral, &displaced};
   for (const vector_t* absl_nonnull q : probes) {
@@ -155,16 +155,16 @@ RealtimeRigidBodyDynamics::RealtimeRigidBodyDynamics(
       data_(model_),
       contactFrames_(contactFrames),
       configuration_(pinocchio::neutral(model_)),
-      velocity_(vector_t::Zero(model_.nv)),
-      acceleration_(vector_t::Zero(model_.nv)),
+      generalizedVelocity_(vector_t::Zero(model_.nv)),
+      generalizedAcceleration_(vector_t::Zero(model_.nv)),
       soleJacobian_(matrix_t::Zero(kTwistDim, model_.nv)),
       generalizedContactForce_(vector_t::Zero(model_.nv)),
       jointTorques_(vector_t::Zero(model_.nv - kRootVelocityDim)),
-      gravityTorques_(vector_t::Zero(model_.nv - kRootVelocityDim)) {
-  contactFrameRotations_.fill(matrix3_t::Identity());
+      gravityJointTorques_(vector_t::Zero(model_.nv - kRootVelocityDim)) {
+  rotmatContactsRtWorld_.fill(matrix3_t::Identity());
 }
 
-matrix3_t RealtimeRigidBodyDynamics::baseRotation() const {
+matrix3_t RealtimeRigidBodyDynamics::rotmatBaseRtWorld() const {
   return quaternionRotationMatrix<scalar_t>(quaternion_coeffs_t<scalar_t>(
       configuration_.segment<kQuaternionCoefficients>(kPositionDim)));
 }
@@ -174,13 +174,13 @@ void RealtimeRigidBodyDynamics::setState(const Eigen::Ref<const vector_t>& q,
   configuration_ = q;
   // The FreeFlyer's linear velocity is the base's in its own axes, R' dp_W; the
   // angular and joint velocities are shared.
-  velocity_ = v;
-  velocity_.head<kPositionDim>().noalias() =
-      baseRotation().transpose() * v.head<kPositionDim>();
+  generalizedVelocity_ = v;
+  generalizedVelocity_.head<kPositionDim>().noalias() =
+      rotmatBaseRtWorld().transpose() * v.head<kPositionDim>();
 }
 
 void RealtimeRigidBodyDynamics::computeGeneralizedContactForce(
-    const feet_array_t<vector6_t>& footWrenches) {
+    const feet_array_t<vector6_t>& wrenchFeetEwrtWorld) {
   // The LOCAL_WORLD_ALIGNED Jacobians take the world-frame wrenches at the sole
   // origins. Their joint columns are those of the MPC model; only the base
   // columns follow the twin's base velocity.
@@ -192,31 +192,32 @@ void RealtimeRigidBodyDynamics::computeGeneralizedContactForce(
                                 pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED,
                                 soleJacobian_);
     generalizedContactForce_.noalias() +=
-        soleJacobian_.transpose() * footWrenches[contact];
+        soleJacobian_.transpose() * wrenchFeetEwrtWorld[contact];
   }
 }
 
-const vector_t& RealtimeRigidBodyDynamics::gravityTorques(
+const vector_t& RealtimeRigidBodyDynamics::gravityJointTorques(
     const Eigen::Ref<const vector_t>& q) {
   configuration_ = q;
   pinocchio::computeGeneralizedGravity(model_, data_, configuration_);
-  gravityTorques_ = data_.g.tail(gravityTorques_.size());
-  return gravityTorques_;
+  gravityJointTorques_ = data_.g.tail(gravityJointTorques_.size());
+  return gravityJointTorques_;
 }
 
 const vector_t& RealtimeRigidBodyDynamics::freeBaseJointTorques(
     const Eigen::Ref<const vector_t>& q,
     const Eigen::Ref<const vector_t>& v,
     const Eigen::Ref<const vector_t>& qddJoints,
-    const feet_array_t<vector6_t>& footWrenches) {
+    const feet_array_t<vector6_t>& wrenchFeetEwrtWorld) {
   setState(q, v);
   // M with both triangles (crba() writes the upper one), and nle(q, v), in the
   // twin's coordinates.
   pinocchio::crba(model_, data_, configuration_);
   data_.M.triangularView<Eigen::StrictlyLower>() =
       data_.M.transpose().triangularView<Eigen::StrictlyLower>();
-  pinocchio::nonLinearEffects(model_, data_, configuration_, velocity_);
-  computeGeneralizedContactForce(footWrenches);
+  pinocchio::nonLinearEffects(model_, data_, configuration_,
+                              generalizedVelocity_);
+  computeGeneralizedContactForce(wrenchFeetEwrtWorld);
 
   // The base rows M_bb a_b = (J^T W)_b - nle_b - M_bj qdd_j. M_bb is the
   // robot's composite inertia, positive definite.
@@ -227,23 +228,28 @@ const vector_t& RealtimeRigidBodyDynamics::freeBaseJointTorques(
       data_.M.topRightCorner(kRootVelocityDim, numJoints) * qddJoints;
   const Eigen::LLT<Eigen::Matrix<scalar_t, kRootVelocityDim, kRootVelocityDim>>
       baseInertia(data_.M.topLeftCorner<kRootVelocityDim, kRootVelocityDim>());
-  acceleration_.head<kRootVelocityDim>() = baseInertia.solve(baseRows);
-  acceleration_.tail(numJoints) = qddJoints;
-  jointTorques_.noalias() = data_.M.bottomRows(numJoints) * acceleration_;
+  generalizedAcceleration_.head<kRootVelocityDim>() =
+      baseInertia.solve(baseRows);
+  generalizedAcceleration_.tail(numJoints) = qddJoints;
+  jointTorques_.noalias() =
+      data_.M.bottomRows(numJoints) * generalizedAcceleration_;
   jointTorques_ += data_.nle.tail(numJoints);
   jointTorques_ -= generalizedContactForce_.tail(numJoints);
 
   // The base acceleration in the MPC model's coordinates: v_B = R' dp_W, so
   // ddp_W = R (dv_B + w_B x v_B).
-  const vector3_t linearVelocityInBase = velocity_.head<kPositionDim>();
-  const vector3_t angularVelocityInBase =
-      velocity_.segment<kRotationTangentDim>(kPositionDim);
-  const vector3_t linearAccelerationInBase = acceleration_.head<kPositionDim>();
-  baseAcceleration_.head<kPositionDim>() =
-      baseRotation() * (linearAccelerationInBase +
-                        angularVelocityInBase.cross(linearVelocityInBase));
-  baseAcceleration_.tail<kRotationTangentDim>() =
-      acceleration_.segment<kRotationTangentDim>(kPositionDim);
+  const vector3_t linvelBaseRtWorldEwrtBase =
+      generalizedVelocity_.head<kPositionDim>();
+  const vector3_t angvelBaseRtWorldEwrtBase =
+      generalizedVelocity_.segment<kRotationTangentDim>(kPositionDim);
+  const vector3_t rateLinvelBaseRtWorldEwrtBase =
+      generalizedAcceleration_.head<kPositionDim>();
+  baseGeneralizedAcceleration_.head<kPositionDim>() =
+      rotmatBaseRtWorld() *
+      (rateLinvelBaseRtWorldEwrtBase +
+       angvelBaseRtWorldEwrtBase.cross(linvelBaseRtWorldEwrtBase));
+  baseGeneralizedAcceleration_.tail<kRotationTangentDim>() =
+      generalizedAcceleration_.segment<kRotationTangentDim>(kPositionDim);
   return jointTorques_;
 }
 
@@ -251,43 +257,46 @@ const vector_t& RealtimeRigidBodyDynamics::heldBaseJointTorques(
     const Eigen::Ref<const vector_t>& q,
     const Eigen::Ref<const vector_t>& v,
     const Eigen::Ref<const vector_t>& qddJoints,
-    const feet_array_t<vector6_t>& footWrenches) {
+    const feet_array_t<vector6_t>& wrenchFeetEwrtWorld) {
   setState(q, v);
   // ddp_W = 0 and dw_B = 0 are, in the twin's coordinates, dv_B = -w_B x v_B
   // and dw_B = 0.
-  const vector3_t linearVelocityInBase = velocity_.head<kPositionDim>();
-  const vector3_t angularVelocityInBase =
-      velocity_.segment<kRotationTangentDim>(kPositionDim);
-  acceleration_.head<kPositionDim>() =
-      -angularVelocityInBase.cross(linearVelocityInBase);
-  acceleration_.segment<kRotationTangentDim>(kPositionDim).setZero();
+  const vector3_t linvelBaseRtWorldEwrtBase =
+      generalizedVelocity_.head<kPositionDim>();
+  const vector3_t angvelBaseRtWorldEwrtBase =
+      generalizedVelocity_.segment<kRotationTangentDim>(kPositionDim);
+  generalizedAcceleration_.head<kPositionDim>() =
+      -angvelBaseRtWorldEwrtBase.cross(linvelBaseRtWorldEwrtBase);
+  generalizedAcceleration_.segment<kRotationTangentDim>(kPositionDim).setZero();
   const Eigen::Index numJoints = qddJoints.size();
-  acceleration_.tail(numJoints) = qddJoints;
-  pinocchio::rnea(model_, data_, configuration_, velocity_, acceleration_);
-  computeGeneralizedContactForce(footWrenches);
+  generalizedAcceleration_.tail(numJoints) = qddJoints;
+  pinocchio::rnea(model_, data_, configuration_, generalizedVelocity_,
+                  generalizedAcceleration_);
+  computeGeneralizedContactForce(wrenchFeetEwrtWorld);
   jointTorques_ = data_.tau.tail(numJoints);
   jointTorques_ -= generalizedContactForce_.tail(numJoints);
   return jointTorques_;
 }
 
-const vector6_t& RealtimeRigidBodyDynamics::centroidalMomentum(
+const vector6_t& RealtimeRigidBodyDynamics::computeCmomComRtWorldEwrtWorld(
     const Eigen::Ref<const vector_t>& q, const Eigen::Ref<const vector_t>& v) {
   setState(q, v);
-  pinocchio::ccrba(model_, data_, configuration_, velocity_);
-  centroidalMomentum_ << data_.hg.linear(), data_.hg.angular();
-  return centroidalMomentum_;
+  pinocchio::ccrba(model_, data_, configuration_, generalizedVelocity_);
+  cmomComRtWorldEwrtWorld_ << data_.hg.linear(), data_.hg.angular();
+  return cmomComRtWorldEwrtWorld_;
 }
 
-const feet_array_t<matrix3_t>& RealtimeRigidBodyDynamics::contactFrameRotations(
+const feet_array_t<matrix3_t>&
+RealtimeRigidBodyDynamics::computeRotmatContactsRtWorld(
     const Eigen::Ref<const vector_t>& q) {
   configuration_ = q;
   pinocchio::forwardKinematics(model_, data_, configuration_);
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    contactFrameRotations_[contact] =
+    rotmatContactsRtWorld_[contact] =
         pinocchio::updateFramePlacement(model_, data_, contactFrames_[contact])
             .rotation();
   }
-  return contactFrameRotations_;
+  return rotmatContactsRtWorld_;
 }
 
 }  // namespace ocs2::humanoid

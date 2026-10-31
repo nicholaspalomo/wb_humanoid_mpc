@@ -84,7 +84,8 @@ bool ContactSwingConstraint::configureForEvaluation(
   EndEffectorKinematicsLinearVelConstraint::Config config;
   config.Av = matrix_t::Identity(kPositionDim, kPositionDim);
   config.Ax = positionGain_ * matrix_t::Identity(kPositionDim, kPositionDim);
-  config.b = -(reference->linearVelocity + positionGain_ * reference->position);
+  config.b = -(reference->linvelContactRtWorldEwrtWorld +
+               positionGain_ * reference->posContactRtWorldEwrtWorld);
   eeLinearConstraintPtr_->configure(std::move(config));
   return true;
 }

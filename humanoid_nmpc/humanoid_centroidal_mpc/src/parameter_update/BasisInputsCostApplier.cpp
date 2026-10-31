@@ -123,11 +123,11 @@ BasisInputsCostApplier::Create(
                        "cost transform (",
                        cfg.basisInputDim(), ")."));
     }
-    if (static_cast<size_t>(cfg.basisToWrenchMap.rows()) !=
+    if (static_cast<size_t>(cfg.basisGeneratorMap.rows()) !=
         cfg.wrenchInputDim) {
       return absl::InvalidArgumentError(absl::StrCat(
           "[BasisInputsCostApplier] basisToWrenchMap has ",
-          cfg.basisToWrenchMap.rows(), " rows but wrenchInputDim is ",
+          cfg.basisGeneratorMap.rows(), " rows but wrenchInputDim is ",
           cfg.wrenchInputDim, "."));
     }
     if (cfg.numBasisInputs > inputDim) {

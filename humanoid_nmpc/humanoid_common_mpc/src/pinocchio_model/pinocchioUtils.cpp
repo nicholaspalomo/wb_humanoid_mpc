@@ -122,8 +122,10 @@ JointPositionLimits readPinocchioJointLimits(
   const pinocchio::Model& model = pinocchioInterface.getModel();
   // Take the tail to avoid limits of universe and root joints
   vector_t upper_limits =
+      // NOLINTNEXTLINE(frame-naming): Pinocchio's joint limits (joint space)
       model.upperPositionLimit.tail(modelSettings.mpcModelJointNames.size());
   vector_t lower_limits =
+      // NOLINTNEXTLINE(frame-naming): Pinocchio's joint limits (joint space)
       model.lowerPositionLimit.tail(modelSettings.mpcModelJointNames.size());
   if (verbosity == Verbosity::kVerbose) {
     LOG(INFO) << "Joint Name , min, max";

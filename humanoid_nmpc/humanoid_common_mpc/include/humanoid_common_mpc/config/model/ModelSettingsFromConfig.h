@@ -73,8 +73,8 @@ std::vector<std::string> stanceConstraintNames();
 
 /**
  * The stance_constraint name of the rows that `config` selects:
- * footConstraintFromConfig() undone for its two settings constrainOrientation
- * and constrainYawRateAboutContactNormal, of which constrainOrientation false
+ * footConstraintFromConfig() undone for its two settings constrainAttitude
+ * and constrainYawRateAboutContactNormal, of which constrainAttitude false
  * is "position" whatever the other one is (three rows have no yaw-rate row).
  */
 absl::string_view stanceConstraintName(
@@ -84,7 +84,7 @@ absl::string_view stanceConstraintName(
  * model_settings.foot_constraint: the gains of the foot constraints, the
  * weights of their soft forms and the rows of the stance constraint, whose name
  * sets the two settings of ModelSettings::FootConstraintConfig that the
- * zero_velocity constraint reads (constrainOrientation,
+ * zero_velocity constraint reads (constrainAttitude,
  * constrainYawRateAboutContactNormal). The two booleans of the file that the
  * name replaced are retired fields, which the parser refuses with the names.
  *

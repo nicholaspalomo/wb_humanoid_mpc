@@ -83,7 +83,7 @@ Eigen::Quaternion<SCALAR_T> getQuaternionFromEulerAnglesZyx(const Eigen::Matrix<
 /**
  * The floor of the squared norm |a x b|^2 + (1 + a.b)^2 = 2 (1 + a.b) that getQuaternionFromUnitVectors() normalizes by:
  * twice the anti-parallel threshold 1 + a.b < 1e-6 of the humanoid MPC's orientation error with respect to a plane
- * (kOrientationErrorWrtPlaneAntiParallelThreshold), below which the shortest arc is not differentiable.
+ * (kPlaneNormalAntiParallelThreshold), below which the shortest arc is not differentiable.
  */
 inline constexpr scalar_t kShortestArcSquaredNormFloor = 2.0e-6;
 
@@ -147,12 +147,12 @@ Eigen::Matrix<SCALAR_T, kPositionDim, kPositionDim> getRotationMatrixFromZyxEule
   const SCALAR_T s2c3 = s2 * c3;
 
   // clang-format off
-  Eigen::Matrix<SCALAR_T, kPositionDim, kPositionDim> rotationMatrix;
-  rotationMatrix << c1 * c2,      c1 * s2s3 - s1 * c3,       c1 * s2c3 + s1 * s3,
-                    s1 * c2,      s1 * s2s3 + c1 * c3,       s1 * s2c3 - c1 * s3,
-                        -s2,                  c2 * s3,                   c2 * c3;
+  Eigen::Matrix<SCALAR_T, kPositionDim, kPositionDim> matrix;
+  matrix << c1 * c2,      c1 * s2s3 - s1 * c3,       c1 * s2c3 + s1 * s3,
+            s1 * c2,      s1 * s2s3 + c1 * c3,       s1 * s2c3 - c1 * s3,
+                -s2,                  c2 * s3,                   c2 * c3;
   // clang-format on
-  return rotationMatrix;
+  return matrix;
 }
 
 /**
@@ -241,9 +241,9 @@ Eigen::Matrix<SCALAR_T, kRotationTangentDim, 1> quaternionDistanceToPlane(const 
 
   // Passive rotation projecting from end effector frame to the closest frame in plane.
   // Computed through the shortest arc rotation  from the end effector z axis to the plane normal (both expressed in world frame).
-  const Eigen::Quaternion<SCALAR_T> quaternion_correction = getQuaternionFromUnitVectors<SCALAR_T>(q * z_axis, planeNormal);
+  const Eigen::Quaternion<SCALAR_T> shortestArc = getQuaternionFromUnitVectors<SCALAR_T>(q * z_axis, planeNormal);
 
-  return quaternionDistance<SCALAR_T>(quaternion_correction, Eigen::Quaternion<SCALAR_T>::Identity());
+  return quaternionDistance<SCALAR_T>(shortestArc, Eigen::Quaternion<SCALAR_T>::Identity());
 }
 
 /**
@@ -263,9 +263,9 @@ Eigen::Matrix<SCALAR_T, kRotationTangentDim, 1> rotationMatrixDistanceToPlane(co
 
   // Passive rotation projecting from end effector frame to the closest frame in plane.
   // Computed through the shortest arc rotation  from the end effector z axis to the plane normal (both expressed in world frame).
-  const Eigen::Quaternion<SCALAR_T> quaternion_correction = getQuaternionFromUnitVectors<SCALAR_T>(R * z_axis, planeNormal);
+  const Eigen::Quaternion<SCALAR_T> shortestArc = getQuaternionFromUnitVectors<SCALAR_T>(R * z_axis, planeNormal);
 
-  return quaternionDistance<SCALAR_T>(quaternion_correction, Eigen::Quaternion<SCALAR_T>::Identity());
+  return quaternionDistance<SCALAR_T>(shortestArc, Eigen::Quaternion<SCALAR_T>::Identity());
 }
 
 }  // namespace ocs2

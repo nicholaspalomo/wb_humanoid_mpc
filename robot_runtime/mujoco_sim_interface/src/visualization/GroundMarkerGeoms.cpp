@@ -76,39 +76,44 @@ bool addGroundDiscGeom(mjvScene* absl_nullable scene,
       0.002;  // a thin cylinder just above the ground plane, so it is not
               // z-fighting the floor
   const mjtNum size[kMjGeomSizeParameters] = {radius, kHalfHeight, 0.0};
-  const mjtNum position[kPositionDim] = {x, y, kHalfHeight};
+  const mjtNum posLocalRtWorldEwrtWorld[kPositionDim] = {x, y, kHalfHeight};
   const mjtNum identity[kMjMatrixSize] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
-  mjv_initGeom(geom, mjGEOM_CYLINDER, size, position, identity,
+  mjv_initGeom(geom, mjGEOM_CYLINDER, size, posLocalRtWorldEwrtWorld, identity,
                /*rgba=*/nullptr);
   paint(geom, color);
   return true;
 }
 
-bool addSphereGeom(mjvScene* absl_nullable scene,
-                   const double position[absl_nonnull kPositionDim],
-                   double radius,
-                   const MarkerColor& color) {
+bool addSphereGeom(
+    mjvScene* absl_nullable scene,
+    const double posLocalRtWorldEwrtWorld[absl_nonnull kPositionDim],
+    double radius,
+    const MarkerColor& color) {
   mjvGeom* absl_nullable geom = nextGeom(scene);
   if (geom == nullptr) return false;
   const mjtNum size[kMjGeomSizeParameters] = {radius, 0.0, 0.0};
-  const mjtNum at[kPositionDim] = {position[kXAxisIndex], position[kYAxisIndex],
-                                   position[kZAxisIndex]};
+  const mjtNum at[kPositionDim] = {posLocalRtWorldEwrtWorld[kXAxisIndex],
+                                   posLocalRtWorldEwrtWorld[kYAxisIndex],
+                                   posLocalRtWorldEwrtWorld[kZAxisIndex]};
   const mjtNum identity[kMjMatrixSize] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
   mjv_initGeom(geom, mjGEOM_SPHERE, size, at, identity, /*rgba=*/nullptr);
   paint(geom, color);
   return true;
 }
 
-bool addVerticalLineGeom(mjvScene* absl_nullable scene,
-                         const double position[absl_nonnull kPositionDim],
-                         double groundHeight,
-                         double width,
-                         const MarkerColor& color) {
+bool addVerticalLineGeom(
+    mjvScene* absl_nullable scene,
+    const double posLocalRtWorldEwrtWorld[absl_nonnull kPositionDim],
+    double groundHeight,
+    double width,
+    const MarkerColor& color) {
   mjvGeom* absl_nullable geom = nextGeom(scene);
   if (geom == nullptr) return false;
-  const mjtNum from[kPositionDim] = {
-      position[kXAxisIndex], position[kYAxisIndex], position[kZAxisIndex]};
-  const mjtNum to[kPositionDim] = {position[0], position[1], groundHeight};
+  const mjtNum from[kPositionDim] = {posLocalRtWorldEwrtWorld[kXAxisIndex],
+                                     posLocalRtWorldEwrtWorld[kYAxisIndex],
+                                     posLocalRtWorldEwrtWorld[kZAxisIndex]};
+  const mjtNum to[kPositionDim] = {posLocalRtWorldEwrtWorld[0],
+                                   posLocalRtWorldEwrtWorld[1], groundHeight};
   mjv_connector(geom, mjGEOM_CAPSULE, width, from, to);
   paint(geom, color);
   return true;

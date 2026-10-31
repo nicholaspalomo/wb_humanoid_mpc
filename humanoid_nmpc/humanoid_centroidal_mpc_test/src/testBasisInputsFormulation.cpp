@@ -206,7 +206,7 @@ vector_t makeRotatedTestState(const CentroidalMpcInterface& interface,
   const MpcRobotModelBase<scalar_t>& model =
       interface.getEffectiveMpcRobotModel();
   vector_t x = interface.getInitialState();
-  model.setBaseOrientationEulerZyx(x, vector3_t(0.7, 0.1, -0.05));
+  model.setEulerzyxBaseRtWorld(x, vector3_t(0.7, 0.1, -0.05));
 
   std::uniform_real_distribution<scalar_t> jointPerturbation(-0.05, 0.05);
   vector_t jointAngles = model.getJointAngles(x);
@@ -386,11 +386,11 @@ TEST_F(BasisInputsFormulationTest, BasisModeDimensions) {
       kNumContacts * numBasisPerFoot);
 
   // M = blkdiag(B_0, B_1, I_joints) of size wrenchInputDim x basisInputDim.
-  const std::optional<matrix_t>& basisToWrenchMap =
+  const std::optional<matrix_t>& basisGeneratorMap =
       interface.getBasisToWrenchMap();
-  if (!basisToWrenchMap.has_value())
+  if (!basisGeneratorMap.has_value())
     GTEST_FAIL() << "no basis-to-wrench map under basis-vector inputs";
-  const matrix_t& M = *basisToWrenchMap;
+  const matrix_t& M = *basisGeneratorMap;
   ASSERT_EQ(static_cast<size_t>(M.rows()), interface.getWrenchInputDim());
   ASSERT_EQ(static_cast<size_t>(M.cols()), basisInputDim);
   for (size_t i = 0; i < kNumContacts; ++i) {
@@ -431,7 +431,7 @@ TEST_F(BasisInputsFormulationTest, BasisModeDimensions) {
   EXPECT_EQ(config->basisInputDim(), basisInputDim);
   EXPECT_DOUBLE_EQ(config->lambdaRegularization,
                    interface.getBasisScalingRegularization());
-  EXPECT_DOUBLE_EQ((config->basisToWrenchMap - M).norm(), 0.0);
+  EXPECT_DOUBLE_EQ((config->basisGeneratorMap - M).norm(), 0.0);
 }
 
 /******************************************************************************************************/
@@ -494,11 +494,11 @@ TEST_F(BasisInputsFormulationTest,
       pinocchioInterface, basisInterface.getCentroidalModelInfo(), uBasis);
   ASSERT_EQ(static_cast<size_t>(uWrench.size()), wrenchInputDim);
 
-  const std::optional<matrix_t>& basisToWrenchMap =
+  const std::optional<matrix_t>& basisGeneratorMap =
       basisInterface.getBasisToWrenchMap();
-  if (!basisToWrenchMap.has_value())
+  if (!basisGeneratorMap.has_value())
     GTEST_FAIL() << "no basis-to-wrench map under basis-vector inputs";
-  const matrix_t& M = *basisToWrenchMap;
+  const matrix_t& M = *basisGeneratorMap;
   const vector_t uWrenchLocal =
       M *
       uBasis;  // naive constant map: wrenches stay in the local contact frame
@@ -507,9 +507,9 @@ TEST_F(BasisInputsFormulationTest,
     const VECTOR6_T<scalar_t> wrenchWorldFromDynamics =
         uWrench.segment<kWrenchDimPerContact>(kWrenchDimPerContact * i);
     const VECTOR6_T<scalar_t> wrenchWorldFromDecorator =
-        decorator.getContactWrenchInWorldFrame(x, uBasis, i);
+        decorator.getWrenchContactEwrtWorld(x, uBasis, i);
     const VECTOR6_T<scalar_t> wrenchLocalFromDecorator =
-        decorator.getContactWrench(uBasis, i);
+        decorator.getWrenchContactEwrtParam(uBasis, i);
     const VECTOR6_T<scalar_t> wrenchLocalFromMap =
         uWrenchLocal.segment<kWrenchDimPerContact>(kWrenchDimPerContact * i);
 
@@ -522,11 +522,11 @@ TEST_F(BasisInputsFormulationTest,
         << "contact " << i;
     // Rotating back must recover the local wrench (frame rotation is
     // consistent).
-    EXPECT_LE(
-        (decorator.rotateWrenchWorldToLocal(x, wrenchWorldFromDecorator, i) -
-         wrenchLocalFromDecorator)
-            .norm(),
-        1.0e-9)
+    EXPECT_LE((decorator.computeWrenchContactEwrtContact(
+                   x, wrenchWorldFromDecorator, i) -
+               wrenchLocalFromDecorator)
+                  .norm(),
+              1.0e-9)
         << "contact " << i;
     // With a rotated foot (yaw 0.7) the naive constant map differs from the
     // rotated one in the force x/y components.
@@ -714,7 +714,7 @@ TEST_F(BasisInputsFormulationTest, InputCostIsTransformedWithRegularization) {
   // Without regularization the lambda block would be singular (more generators
   // than wrench components).
   const matrix_t R_unregularized = transformWrenchInputCostToBasisSpace(
-      R_wrench, config->basisToWrenchMap, numLambda,
+      R_wrench, config->basisGeneratorMap, numLambda,
       /*lambdaRegularization=*/0.0);
   Eigen::SelfAdjointEigenSolver<matrix_t> unregularizedSolver(
       matrix_t(R_unregularized.topLeftCorner(numLambda, numLambda)));
@@ -808,8 +808,9 @@ TEST_F(BasisInputsFormulationTest,
         << "the basis has more generators than wrench components";
     vector_t spuriousInput = vector_t::Zero(inputDim);
     spuriousInput.segment(lambdaStart, numBasisPerFoot) = basisNullSpace.col(0);
-    EXPECT_LE(decorator.getContactWrench(spuriousInput, contactIndex).norm(),
-              1.0e-9)
+    EXPECT_LE(
+        decorator.getWrenchContactEwrtParam(spuriousInput, contactIndex).norm(),
+        1.0e-9)
         << "contact " << contactIndex;
     EXPECT_GT(
         constraint.getValue(/*time=*/0.0, x, spuriousInput, preComp).norm(),
@@ -823,8 +824,9 @@ TEST_F(BasisInputsFormulationTest,
     EXPECT_LE(constraint.getValue(/*time=*/0.0, x, zeroContact, preComp).norm(),
               1.0e-12)
         << "contact " << contactIndex;
-    EXPECT_LE(decorator.getContactWrench(zeroContact, contactIndex).norm(),
-              1.0e-12)
+    EXPECT_LE(
+        decorator.getWrenchContactEwrtParam(zeroContact, contactIndex).norm(),
+        1.0e-12)
         << "contact " << contactIndex;
   }
 }
@@ -909,14 +911,14 @@ TEST_F(BasisInputsFormulationTest,
   EXPECT_TRUE(absl::EndsWith(basisFolder, absl::StrCat("/", basisKey)))
       << basisFolder;
   EXPECT_TRUE(
-      absl::EndsWith(wrenchFolder, absl::StrCat("/", kWrenchInputsLibraryKey)))
+      absl::EndsWith(wrenchFolder, absl::StrCat("/", kWrenchInputsLibraryName)))
       << wrenchFolder;
   EXPECT_NE(basisFolder, wrenchFolder);
   // Both under the one folder ModelSettings derives for the robot, which is all
   // that differs between them.
   EXPECT_EQ(basisFolder.substr(0, basisFolder.size() - basisKey.size()),
             wrenchFolder.substr(
-                0, wrenchFolder.size() - kWrenchInputsLibraryKey.size()));
+                0, wrenchFolder.size() - kWrenchInputsLibraryName.size()));
 
   // Every taped term of each mode was built into that mode's folder, so no
   // library name is shared across the two.
@@ -1136,12 +1138,12 @@ TEST_F(BasisInputsFormulationTest, WrenchModeUnchanged) {
   const MpcRobotModelBase<scalar_t>& model =
       interface.getEffectiveMpcRobotModel();
   for (size_t i = 0; i < kNumContacts; ++i) {
-    EXPECT_DOUBLE_EQ((model.getContactWrenchInWorldFrame(x, u, i) -
-                      model.getContactWrench(u, i))
+    EXPECT_DOUBLE_EQ((model.getWrenchContactEwrtWorld(x, u, i) -
+                      model.getWrenchContactEwrtParam(u, i))
                          .norm(),
                      0.0)
         << "contact " << i;
-    EXPECT_DOUBLE_EQ((model.getContactWrench(u, i) -
+    EXPECT_DOUBLE_EQ((model.getWrenchContactEwrtParam(u, i) -
                       u.segment<kWrenchDimPerContact>(kWrenchDimPerContact * i))
                          .norm(),
                      0.0)

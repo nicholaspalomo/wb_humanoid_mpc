@@ -44,8 +44,8 @@ class CubicSpline {
  public:
   struct Node {
     scalar_t time;
-    scalar_t position;
-    scalar_t velocity;
+    scalar_t value;
+    scalar_t derivative;
   };
 
   /** The spline from `start` to `end`; `start.time` must be before `end.time`
@@ -58,11 +58,11 @@ class CubicSpline {
   CubicSpline& operator=(CubicSpline&&) = default;
   ~CubicSpline() = default;
 
-  scalar_t position(scalar_t time) const;
+  scalar_t value(scalar_t time) const;
 
-  scalar_t velocity(scalar_t time) const;
+  scalar_t derivative(scalar_t time) const;
 
-  scalar_t acceleration(scalar_t time) const;
+  scalar_t secondDerivative(scalar_t time) const;
 
   scalar_t startTimeDerivative(scalar_t t) const;
 

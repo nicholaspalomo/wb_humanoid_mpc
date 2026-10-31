@@ -200,8 +200,8 @@ class JointTorqueStateInputOverloadsTest : public ::testing::Test {
     model_->setGeneralizedCoordinates(state, q);
     state.tail(v.size()) = v;
     vector_t input = vector_t::Zero(model_->getInputDim());
-    model_->setContactWrench(input, wrenches[0], /*contactIndex=*/0);
-    model_->setContactWrench(input, wrenches[1], /*contactIndex=*/1);
+    model_->setWrenchContactEwrtParam(input, wrenches[0], /*contactIndex=*/0);
+    model_->setWrenchContactEwrtParam(input, wrenches[1], /*contactIndex=*/1);
     input.tail(qddJoints.size()) = qddJoints;
     return {state, input};
   }

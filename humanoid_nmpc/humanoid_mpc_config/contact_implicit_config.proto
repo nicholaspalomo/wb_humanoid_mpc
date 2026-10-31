@@ -32,10 +32,11 @@ message ContactImplicitConfig {
   // [m] The height at which a fully loaded foot is as wrong as the complementarity term can describe; normally the swing
   // apex, swing_trajectory_config's swing height.
   double height_reference = 4 [default = 0.08, (humanoid_mpc_config.tuning) = { unit: "m" }];
-  // [m/s] A sliding speed that would already be a failure.
-  double velocity_reference = 5 [default = 0.3, (humanoid_mpc_config.tuning) = { unit: "m/s" }];
-  // [rad/s] A pivot rate that would already be a failure.
-  double angular_velocity_reference = 6 [default = 1.0, (humanoid_mpc_config.tuning) = { unit: "rad/s" }];
+  // [m/s] A sliding speed that would already be a failure: the scale of each horizontal component of the contact's
+  // velocity in the world frame.
+  double scale_linvel_contact_rt_world_ewrt_world_xy = 5 [default = 0.3, (humanoid_mpc_config.tuning) = { unit: "m/s" }];
+  // [rad/s] A pivot rate that would already be a failure: the scale of the contact's yaw rate about the world z axis.
+  double scale_angvel_contact_rt_world_ewrt_world_z = 6 [default = 1.0, (humanoid_mpc_config.tuning) = { unit: "rad/s" }];
   // [m] The length scale the minimum height of the footprint corners is blended over.
   double gap_smoothing = 7 [default = 0.001, (humanoid_mpc_config.tuning) = { unit: "m" }];
 }

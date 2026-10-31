@@ -70,7 +70,7 @@ SECTION_ORDER = (
     "Head & Neck",
     "Other Joints",
 )
-DEFAULT_GAINS_SECTION = "⚙ Default Gains"
+DEFAULT_GAINS_SECTION = "Default Gains"
 
 _PUBLISH_DEBOUNCE_MS = 300
 # How long a passing status stays on the status line [ms]; a Save's stays until the next status.
@@ -114,7 +114,7 @@ def section_of(spec: config_schema.ParameterSpec) -> str:
 def _disabled_banner(reason: str) -> str:
     """The banner of a tab whose online tuning is off, for `reason` (empty: the task file's enable_online_tuning)."""
     return (
-        "🔒 Online Tuning Disabled"
+        "Online Tuning Disabled"
         f" ({reason or 'enable_online_tuning: false in the task file'})"
     )
 
@@ -235,7 +235,7 @@ class JointPdGainsTab(ttk.Frame):
         )
         self.reset_btn.pack(side="left", padx=2)
 
-        self.save_btn = ttk.Button(toolbar, text="💾 Save", command=self.save)
+        self.save_btn = ttk.Button(toolbar, text="Save", command=self.save)
         self.save_btn.pack(side="left", padx=(4, 0))
 
         self.status_label = ttk.Label(
@@ -260,7 +260,7 @@ class JointPdGainsTab(ttk.Frame):
     def _build_global_scale_ui(self) -> None:
         """The buttons that scale every joint's Kp or Kd by one factor."""
         scale_frame = ttk.LabelFrame(
-            self, text="⚡ Global Quick Scaling (All Joints)"
+            self, text="Global Quick Scaling (All Joints)"
         )
         scale_frame.pack(fill="x", padx=10, pady=(0, 6))
         btn_state = "normal" if self.enable_online_tuning else "disabled"
@@ -292,7 +292,7 @@ class JointPdGainsTab(ttk.Frame):
         search_frame.pack(fill="x", padx=10, pady=(0, 6))
 
         ttk.Label(
-            search_frame, text="🔍 Filter:", font=("Helvetica", 9, "bold")
+            search_frame, text="Filter:", font=("Helvetica", 9, "bold")
         ).pack(side="left", padx=(0, 4))
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", self._on_search_filter)

@@ -232,12 +232,12 @@ TEST_F(OperatorCommandMailboxTest,
   const std::string first = description_.getJointName(0);
   const std::string second = description_.getJointName(1);
   humanoid_mpc_msgs::JointTargets targets;
-  (*targets.mutable_positions())[first] = 0.5;
-  (*targets.mutable_positions())["a_joint_of_another_robot"] = 9.0;
+  (*targets.mutable_joint_positions())[first] = 0.5;
+  (*targets.mutable_joint_positions())["a_joint_of_another_robot"] = 9.0;
   mailbox->onJointTargets(targets);
   humanoid_mpc_msgs::JointTargets later;
-  (*later.mutable_positions())[second] = -0.5;
-  (*later.mutable_positions())[first] =
+  (*later.mutable_joint_positions())[second] = -0.5;
+  (*later.mutable_joint_positions())[first] =
       std::numeric_limits<double>::quiet_NaN();
   mailbox->onJointTargets(later);
 
@@ -279,16 +279,17 @@ TEST_F(OperatorCommandMailboxTest,
   std::unique_ptr<OperatorCommandMailbox> mailbox = makeMailbox();
   EXPECT_FALSE(mailbox->desiredGantryHeight().has_value());
   humanoid_mpc_msgs::WalkingVelocityCommand command;
-  command.set_desired_pelvis_height(0.9);
+  command.set_cmd_pos_base_rt_world_ewrt_world_z(0.9);
   mailbox->onWalkingVelocityCommand(command);
   EXPECT_THAT(mailbox->desiredGantryHeight(), Optional(DoubleEq(0.9)));
-  command.set_desired_pelvis_height(4.0);
+  command.set_cmd_pos_base_rt_world_ewrt_world_z(4.0);
   mailbox->onWalkingVelocityCommand(command);
   EXPECT_THAT(mailbox->desiredGantryHeight(), Optional(DoubleEq(1.5)));
-  command.set_desired_pelvis_height(-1.0);
+  command.set_cmd_pos_base_rt_world_ewrt_world_z(-1.0);
   mailbox->onWalkingVelocityCommand(command);
   EXPECT_THAT(mailbox->desiredGantryHeight(), Optional(DoubleEq(0.2)));
-  command.set_desired_pelvis_height(std::numeric_limits<double>::quiet_NaN());
+  command.set_cmd_pos_base_rt_world_ewrt_world_z(
+      std::numeric_limits<double>::quiet_NaN());
   mailbox->onWalkingVelocityCommand(command);
   EXPECT_THAT(mailbox->desiredGantryHeight(), Optional(DoubleEq(0.2)))
       << "a height that is not finite is ignored";
@@ -432,7 +433,7 @@ TEST_F(OperatorCommandMailboxTest, PdGainsGoToTheController) {
   ASSERT_EQ(received.size(), 1u);
   EXPECT_EQ(received[0].default_gains.kp, 10.0);
   EXPECT_EQ(received[0].default_gains.kd, 1.0);
-  EXPECT_FALSE(received[0].default_gains.torque_limit.has_value())
+  EXPECT_FALSE(received[0].default_gains.max_joint_torque.has_value())
       << "an absent gain is the controller's to fill in";
   ASSERT_EQ(received[0].joint_gains.size(), 1u);
   EXPECT_EQ(received[0].joint_gains[0].joint, description_.getJointName(0));
@@ -619,7 +620,7 @@ TEST_F(OperatorCommandMailboxTest, TheHandlersAreTheBusesSubscriptions) {
   ASSERT_TRUE(arrived);
   EXPECT_EQ(event.kind, FsmCommandKind::kGravityComp);
   humanoid_mpc_msgs::WalkingVelocityCommand command;
-  command.set_desired_pelvis_height(1.1);
+  command.set_cmd_pos_base_rt_world_ewrt_world_z(1.1);
   EXPECT_TRUE(robot_test::waitFor([&]() {
     operatorBus->publish(ipc::topics::kOperatorWalkingVelocityCommand, command)
         .IgnoreError();

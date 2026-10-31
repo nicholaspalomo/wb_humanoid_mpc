@@ -205,9 +205,9 @@ TEST_F(ContactPlanningIntegrationTest, PlansStandingAndWalkingSchedules) {
 
   // 2. Standing command: the plan is all double support.
   vector_t standingTarget = vector_t::Zero(state.size());
-  interface_->getMpcRobotModel().setBasePoseEulerZyx(
+  interface_->getMpcRobotModel().setPoseeulerzyxBaseRtWorld(
       standingTarget,
-      interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
+      interface_->getMpcRobotModel().getPoseeulerzyxBaseRtWorld(state));
   referenceManager->setTargetTrajectories(
       TargetTrajectories({t}, {standingTarget}, {vector_t::Zero(inputDim)}));
   module->preSolverRun(t, t + horizon, state, *referenceManager);
@@ -261,12 +261,12 @@ TEST_F(ContactPlanningIntegrationTest, PlansStandingAndWalkingSchedules) {
           GTEST_FAIL() << "swing foot " << foot << " at tau=" << tau
                        << " has no reference";
         }
-        EXPECT_TRUE(reference->position.allFinite());
-        EXPECT_TRUE(reference->linearVelocity.allFinite());
+        EXPECT_TRUE(reference->desPosFootRtWorldEwrtWorld.allFinite());
+        EXPECT_TRUE(reference->desLinvelFootRtWorldEwrtWorld.allFinite());
         // Never below the flat ground, except for the configured touch-down
         // offset (a slightly negative offset presses the foot onto the ground
         // at the end of the swing).
-        EXPECT_GE(reference->position(2),
+        EXPECT_GE(reference->desPosFootRtWorldEwrtWorld(2),
                   std::min(0.0, referenceManager->getSwingTrajectoryPlanner()
                                     ->getConfig()
                                     .touchDownHeightOffset) -
@@ -303,8 +303,10 @@ TEST_F(ContactPlanningIntegrationTest, PlansStandingAndWalkingSchedules) {
         GTEST_FAIL() << "foot " << foot
                      << " has no swing reference just before its touch-down";
       }
-      EXPECT_NEAR(target.position(0), reference->position(0), 1.0e-3);
-      EXPECT_NEAR(target.position(1), reference->position(1), 1.0e-3);
+      EXPECT_NEAR(target.position(0), reference->desPosFootRtWorldEwrtWorld(0),
+                  1.0e-3);
+      EXPECT_NEAR(target.position(1), reference->desPosFootRtWorldEwrtWorld(1),
+                  1.0e-3);
       if (reference->yaw.has_value()) {
         EXPECT_TRUE(target.yawPlanned);
         EXPECT_NEAR(std::remainder(target.yaw - *reference->yaw, 2.0 * M_PI),
@@ -451,8 +453,9 @@ TEST_F(ContactPlanningIntegrationTest,
   // Command a forward walk.
   const scalar_t commandedVelocityX = 0.4;
   vector_t walkingTarget = vector_t::Zero(state.size());
-  interface_->getMpcRobotModel().setBasePoseEulerZyx(
-      walkingTarget, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
+  interface_->getMpcRobotModel().setPoseeulerzyxBaseRtWorld(
+      walkingTarget,
+      interface_->getMpcRobotModel().getPoseeulerzyxBaseRtWorld(state));
   walkingTarget(0) = commandedVelocityX;
 
   scalar_t t = 0.0;
@@ -489,7 +492,9 @@ TEST_F(ContactPlanningIntegrationTest,
   if (!atTouchDown.has_value()) {
     GTEST_FAIL();
   }
-  EXPECT_GT(atTouchDown->position(0) - atLiftOff->position(0), 0.0)
+  EXPECT_GT(atTouchDown->desPosFootRtWorldEwrtWorld(0) -
+                atLiftOff->desPosFootRtWorldEwrtWorld(0),
+            0.0)
       << "a forward velocity command must move the swing foot forward, not "
          "backward";
 
@@ -562,8 +567,9 @@ TEST_F(ContactPlanningIntegrationTest,
 
   // Walk: a plan with a swing phase.
   vector_t walkingTarget = vector_t::Zero(state.size());
-  interface_->getMpcRobotModel().setBasePoseEulerZyx(
-      walkingTarget, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
+  interface_->getMpcRobotModel().setPoseeulerzyxBaseRtWorld(
+      walkingTarget,
+      interface_->getMpcRobotModel().getPoseeulerzyxBaseRtWorld(state));
   walkingTarget(0) = 0.4;
   scalar_t t = 0.0;
   referenceManager->setTargetTrajectories(
@@ -605,7 +611,9 @@ TEST_F(ContactPlanningIntegrationTest,
   if (!liftOffReference.has_value()) {
     GTEST_FAIL();
   }
-  EXPECT_GT(nominalReference->position(0) - liftOffReference->position(0), 0.0)
+  EXPECT_GT(nominalReference->desPosFootRtWorldEwrtWorld(0) -
+                liftOffReference->desPosFootRtWorldEwrtWorld(0),
+            0.0)
       << "the foot still steps forward with the loop on";
 
   // A small forward velocity error relative to the prediction is corrected by
@@ -630,12 +638,14 @@ TEST_F(ContactPlanningIntegrationTest,
   if (!pushedReference.has_value()) {
     GTEST_FAIL();
   }
-  EXPECT_NEAR(
-      (pushedReference->position - nominalReference->position).head<2>().norm(),
-      pushedAdjustment.norm(), 2.0e-3)
+  EXPECT_NEAR((pushedReference->desPosFootRtWorldEwrtWorld -
+               nominalReference->desPosFootRtWorldEwrtWorld)
+                  .head<2>()
+                  .norm(),
+              pushedAdjustment.norm(), 2.0e-3)
       << "close to touch-down the reference carries the full adjustment";
-  EXPECT_TRUE(pushedReference->position.allFinite());
-  EXPECT_TRUE(pushedReference->linearVelocity.allFinite());
+  EXPECT_TRUE(pushedReference->desPosFootRtWorldEwrtWorld.allFinite());
+  EXPECT_TRUE(pushedReference->desLinvelFootRtWorldEwrtWorld.allFinite());
 
   // A large push saturates at the configured bound.
   vector_t shoved = state;
@@ -668,7 +678,7 @@ TEST_F(ContactPlanningIntegrationTest,
   if (!afterPoisoning.has_value()) {
     GTEST_FAIL() << "no swing foot reference before the touch-down";
   }
-  EXPECT_TRUE(afterPoisoning->position.allFinite());
+  EXPECT_TRUE(afterPoisoning->desPosFootRtWorldEwrtWorld.allFinite());
 
   // The module hands the primal solution over after every solve, but only while
   // a correction that needs it is enabled.
@@ -788,7 +798,8 @@ TEST_F(ContactPlanningIntegrationTest,
   if (!extendedReference.has_value()) {
     GTEST_FAIL();
   }
-  EXPECT_NEAR((extendedReference->position - referenceBeforeExtension->position)
+  EXPECT_NEAR((extendedReference->desPosFootRtWorldEwrtWorld -
+               referenceBeforeExtension->desPosFootRtWorldEwrtWorld)
                   .head<2>()
                   .norm(),
               0.0, 2.0e-3)
@@ -802,15 +813,15 @@ TEST_F(ContactPlanningIntegrationTest,
   if (!atDetection.has_value()) {
     GTEST_FAIL();
   }
-  EXPECT_LE(atDetection->position(2),
-            referenceBeforeExtension->position(2) + 1.0e-6)
+  EXPECT_LE(atDetection->desPosFootRtWorldEwrtWorld(2),
+            referenceBeforeExtension->desPosFootRtWorldEwrtWorld(2) + 1.0e-6)
       << "the reference must not jump up";
-  EXPECT_NEAR(extendedReference->position(2),
-              referenceBeforeExtension->position(2) -
+  EXPECT_NEAR(extendedReference->desPosFootRtWorldEwrtWorld(2),
+              referenceBeforeExtension->desPosFootRtWorldEwrtWorld(2) -
                   config.phaseResetting.lateTouchdownSearchVelocity *
                       (late1 + 0.02 - next->touchDown),
               2.0e-4);
-  EXPECT_NEAR(extendedReference->linearVelocity(2),
+  EXPECT_NEAR(extendedReference->desLinvelFootRtWorldEwrtWorld(2),
               -config.phaseResetting.lateTouchdownSearchVelocity, 1.0e-9);
   const scalar_t extendedTouchDown =
       referenceManager->getLastContactEvents()[foot2].touchDownTime;
@@ -824,8 +835,8 @@ TEST_F(ContactPlanningIntegrationTest,
       referenceManager->getSwingTimingLatches()[foot2].lateExtension;
   EXPECT_GT(extension, 0.0);
   EXPECT_LT(
-      atExtendedTouchDown->position(2),
-      referenceBeforeExtension->position(2) -
+      atExtendedTouchDown->desPosFootRtWorldEwrtWorld(2),
+      referenceBeforeExtension->desPosFootRtWorldEwrtWorld(2) -
           0.5 * config.phaseResetting.lateTouchdownSearchVelocity * extension)
       << "the height target at the extended touch-down descends at the search "
          "velocity";
@@ -970,8 +981,8 @@ TEST_F(ContactPlanningIntegrationTest,
   // correct one. Held constant, the truncated and the extended target would
   // agree everywhere and the test would prove nothing.
   vector_t start = vector_t::Zero(state.size());
-  interface_->getMpcRobotModel().setBasePoseEulerZyx(
-      start, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
+  interface_->getMpcRobotModel().setPoseeulerzyxBaseRtWorld(
+      start, interface_->getMpcRobotModel().getPoseeulerzyxBaseRtWorld(state));
   vector_t far = start;
   far(0) = 1.5;
   const scalar_t rampEnd = 3.0;
@@ -1028,8 +1039,9 @@ TEST_F(ContactPlanningIntegrationTest, AnExpiredPlanStopsDrivingTheReferences) {
   const scalar_t horizon = interface_->mpcSettings().timeHorizon_;
   const size_t inputDim = interface_->getEffectiveMpcRobotModel().getInputDim();
   vector_t walkingTarget = vector_t::Zero(state.size());
-  interface_->getMpcRobotModel().setBasePoseEulerZyx(
-      walkingTarget, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
+  interface_->getMpcRobotModel().setPoseeulerzyxBaseRtWorld(
+      walkingTarget,
+      interface_->getMpcRobotModel().getPoseeulerzyxBaseRtWorld(state));
   walkingTarget(0) = 0.4;
   scalar_t t = 0.0;
   referenceManager->setTargetTrajectories(
@@ -1099,8 +1111,9 @@ TEST_F(ContactPlanningIntegrationTest,
   const scalar_t horizon = interface_->mpcSettings().timeHorizon_;
   const size_t inputDim = interface_->getEffectiveMpcRobotModel().getInputDim();
   vector_t walkingTarget = vector_t::Zero(state.size());
-  interface_->getMpcRobotModel().setBasePoseEulerZyx(
-      walkingTarget, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
+  interface_->getMpcRobotModel().setPoseeulerzyxBaseRtWorld(
+      walkingTarget,
+      interface_->getMpcRobotModel().getPoseeulerzyxBaseRtWorld(state));
   walkingTarget(0) = 0.4;
   scalar_t t = 0.0;
   referenceManager->setTargetTrajectories(
@@ -1163,8 +1176,10 @@ TEST_F(ContactPlanningIntegrationTest,
     GTEST_FAIL();
   }
   const vector2_t measuredStance = footholdOf(plan, foot, t);
-  EXPECT_LT((firstReference->position.head<2>() - measuredStance).norm(),
-            2.0e-3);
+  EXPECT_LT(
+      (firstReference->desPosFootRtWorldEwrtWorld.head<2>() - measuredStance)
+          .norm(),
+      2.0e-3);
 
   // The second swing starts from the planned landing spot of the first, not
   // from where the foot stands now.
@@ -1182,15 +1197,19 @@ TEST_F(ContactPlanningIntegrationTest,
     GTEST_FAIL();
   }
   const vector2_t landingOfFirst = footholdOf(plan, foot, first->touchDown);
-  EXPECT_LT((secondReference->position.head<2>() - landingOfFirst).norm(),
-            2.0e-3)
-      << "reference " << secondReference->position.head<2>().transpose()
+  EXPECT_LT(
+      (secondReference->desPosFootRtWorldEwrtWorld.head<2>() - landingOfFirst)
+          .norm(),
+      2.0e-3)
+      << "reference "
+      << secondReference->desPosFootRtWorldEwrtWorld.head<2>().transpose()
       << " vs the first swing's landing " << landingOfFirst.transpose();
   EXPECT_GT((landingOfFirst - measuredStance).norm(), 0.05)
       << "the two starts must differ by a step for this test to mean anything";
   // And the reference must actually travel over the swing rather than sit at
   // its target.
-  EXPECT_GT(secondReference->linearVelocity.head<2>().norm(), 1.0e-3)
+  EXPECT_GT(secondReference->desLinvelFootRtWorldEwrtWorld.head<2>().norm(),
+            1.0e-3)
       << "a swing whose start equals its landing target commands zero xy "
          "velocity";
 
@@ -1473,8 +1492,9 @@ TEST_F(ContactPlanningIntegrationTest,
   const scalar_t horizon = interface_->mpcSettings().timeHorizon_;
   const size_t inputDim = interface_->getEffectiveMpcRobotModel().getInputDim();
   vector_t walkingTarget = vector_t::Zero(state.size());
-  interface_->getMpcRobotModel().setBasePoseEulerZyx(
-      walkingTarget, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
+  interface_->getMpcRobotModel().setPoseeulerzyxBaseRtWorld(
+      walkingTarget,
+      interface_->getMpcRobotModel().getPoseeulerzyxBaseRtWorld(state));
   walkingTarget(0) = 0.4;
   scalar_t t = 0.0;
   referenceManager->setTargetTrajectories(
@@ -1593,9 +1613,9 @@ TEST_F(ContactPlanningIntegrationTest,
         vector_t start = state;
         start.segment<3>(3) = lockedInertia.col(2) * (yawRate / mass);
         vector_t end = start;
-        vector3_t euler = robotModel.getBaseOrientationEulerZyx(state);
+        vector3_t euler = robotModel.getEulerzyxBaseRtWorld(state);
         euler(0) += yawRate * horizon;
-        robotModel.setBaseOrientationEulerZyx(end, euler);
+        robotModel.setEulerzyxBaseRtWorld(end, euler);
         return TargetTrajectories(
             {t0, t0 + horizon}, {start, end},
             {vector_t::Zero(inputDim), vector_t::Zero(inputDim)});
@@ -1606,9 +1626,9 @@ TEST_F(ContactPlanningIntegrationTest,
       [&](scalar_t t0) {
         const TargetTrajectories& target =
             referenceManager->getTargetTrajectories();
-        const scalar_t yaw0 = robotModel.getBaseOrientationEulerZyx(
+        const scalar_t yaw0 = robotModel.getEulerzyxBaseRtWorld(
             robotModel.getDesiredState(target, t0))(0);
-        const scalar_t yaw1 = robotModel.getBaseOrientationEulerZyx(
+        const scalar_t yaw1 = robotModel.getEulerzyxBaseRtWorld(
             robotModel.getDesiredState(target, t0 + 0.2))(0);
         return (yaw1 - yaw0) / 0.2;
       };
@@ -1747,8 +1767,9 @@ TEST_F(ContactPlanningIntegrationTest,
   const scalar_t horizon = interface_->mpcSettings().timeHorizon_;
   const size_t inputDim = interface_->getEffectiveMpcRobotModel().getInputDim();
   vector_t walkingTarget = vector_t::Zero(state.size());
-  interface_->getMpcRobotModel().setBasePoseEulerZyx(
-      walkingTarget, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
+  interface_->getMpcRobotModel().setPoseeulerzyxBaseRtWorld(
+      walkingTarget,
+      interface_->getMpcRobotModel().getPoseeulerzyxBaseRtWorld(state));
   walkingTarget(0) = 0.4;
   scalar_t t = 0.0;
   referenceManager->setTargetTrajectories(
@@ -1793,7 +1814,8 @@ TEST_F(ContactPlanningIntegrationTest,
   if (!atFirstTouchDown.has_value()) {
     GTEST_FAIL();
   }
-  EXPECT_LT((atFirstTouchDown->position.head<2>() - (firstLanding + adjustment))
+  EXPECT_LT((atFirstTouchDown->desPosFootRtWorldEwrtWorld.head<2>() -
+             (firstLanding + adjustment))
                 .norm(),
             2.0e-3)
       << "the swing in flight carries the offset";
@@ -1804,9 +1826,12 @@ TEST_F(ContactPlanningIntegrationTest,
   if (!atSecondTouchDown.has_value()) {
     GTEST_FAIL();
   }
-  EXPECT_LT((atSecondTouchDown->position.head<2>() - secondLanding).norm(),
-            2.0e-3)
-      << "reference " << atSecondTouchDown->position.head<2>().transpose()
+  EXPECT_LT(
+      (atSecondTouchDown->desPosFootRtWorldEwrtWorld.head<2>() - secondLanding)
+          .norm(),
+      2.0e-3)
+      << "reference "
+      << atSecondTouchDown->desPosFootRtWorldEwrtWorld.head<2>().transpose()
       << " vs planned landing " << secondLanding.transpose() << " (offset "
       << adjustment.transpose() << " leaked into the second swing)";
 
@@ -1848,8 +1873,9 @@ TEST_F(ContactPlanningIntegrationTest,
   const scalar_t horizon = interface_->mpcSettings().timeHorizon_;
   const size_t inputDim = interface_->getEffectiveMpcRobotModel().getInputDim();
   vector_t walkingTarget = vector_t::Zero(state.size());
-  interface_->getMpcRobotModel().setBasePoseEulerZyx(
-      walkingTarget, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
+  interface_->getMpcRobotModel().setPoseeulerzyxBaseRtWorld(
+      walkingTarget,
+      interface_->getMpcRobotModel().getPoseeulerzyxBaseRtWorld(state));
   walkingTarget(0) = 0.4;
   scalar_t t = 0.0;
   referenceManager->setTargetTrajectories(
@@ -2085,8 +2111,9 @@ TEST_F(ContactPlanningIntegrationTest,
   const scalar_t horizon = interface_->mpcSettings().timeHorizon_;
   const size_t inputDim = interface_->getEffectiveMpcRobotModel().getInputDim();
   vector_t walkingTarget = vector_t::Zero(state.size());
-  interface_->getMpcRobotModel().setBasePoseEulerZyx(
-      walkingTarget, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
+  interface_->getMpcRobotModel().setPoseeulerzyxBaseRtWorld(
+      walkingTarget,
+      interface_->getMpcRobotModel().getPoseeulerzyxBaseRtWorld(state));
   walkingTarget(0) = 0.4;
   scalar_t t = 0.0;
   referenceManager->setTargetTrajectories(
@@ -2155,8 +2182,9 @@ TEST_F(ContactPlanningIntegrationTest, StalePlanIsDroppedAndCounted) {
   const scalar_t horizon = interface_->mpcSettings().timeHorizon_;
   const size_t inputDim = interface_->getEffectiveMpcRobotModel().getInputDim();
   vector_t walkingTarget = vector_t::Zero(state.size());
-  interface_->getMpcRobotModel().setBasePoseEulerZyx(
-      walkingTarget, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
+  interface_->getMpcRobotModel().setPoseeulerzyxBaseRtWorld(
+      walkingTarget,
+      interface_->getMpcRobotModel().getPoseeulerzyxBaseRtWorld(state));
   walkingTarget(0) = 0.4;
   scalar_t t = 0.0;
   referenceManager->setTargetTrajectories(

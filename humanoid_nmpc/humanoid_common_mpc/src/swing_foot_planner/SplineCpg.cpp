@@ -45,37 +45,35 @@ SplineCpg::SplineCpg(CubicSpline::Node liftOff,
                      scalar_t midHeight,
                      CubicSpline::Node touchDown)
     : midTime_((liftOff.time + touchDown.time) / kSwingEndCount),
-      leftSpline_(
-          liftOff,
-          CubicSpline::Node{
-              .time = midTime_, .position = midHeight, .velocity = 0.0}),
+      leftSpline_(liftOff,
+                  CubicSpline::Node{
+                      .time = midTime_, .value = midHeight, .derivative = 0.0}),
       rightSpline_(
           CubicSpline::Node{
-              .time = midTime_, .position = midHeight, .velocity = 0.0},
+              .time = midTime_, .value = midHeight, .derivative = 0.0},
           touchDown) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-scalar_t SplineCpg::position(scalar_t time) const {
-  return (time < midTime_) ? leftSpline_.position(time)
-                           : rightSpline_.position(time);
+scalar_t SplineCpg::value(scalar_t time) const {
+  return (time < midTime_) ? leftSpline_.value(time) : rightSpline_.value(time);
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-scalar_t SplineCpg::velocity(scalar_t time) const {
-  return (time < midTime_) ? leftSpline_.velocity(time)
-                           : rightSpline_.velocity(time);
+scalar_t SplineCpg::derivative(scalar_t time) const {
+  return (time < midTime_) ? leftSpline_.derivative(time)
+                           : rightSpline_.derivative(time);
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-scalar_t SplineCpg::acceleration(scalar_t time) const {
-  return (time < midTime_) ? leftSpline_.acceleration(time)
-                           : rightSpline_.acceleration(time);
+scalar_t SplineCpg::secondDerivative(scalar_t time) const {
+  return (time < midTime_) ? leftSpline_.secondDerivative(time)
+                           : rightSpline_.secondDerivative(time);
 }
 
 /******************************************************************************************************/

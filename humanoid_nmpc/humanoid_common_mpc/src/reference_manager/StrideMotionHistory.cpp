@@ -53,19 +53,22 @@ vector2_t rotatedBack(scalar_t angle, const vector2_t& vector) {
 
 }  // namespace
 
-BasePlanarMotion instantaneousPlanarMotion(const vector4_t& orientation,
-                                           const vector6_t& twistWorld) {
-  const scalar_t heading = twistHeading(orientation);
-  const quaternion_t rotation(orientation);
-  const vector3_t angularVelocityLocal =
-      rotation.conjugate() * vector3_t(twistWorld.tail<kRotationTangentDim>());
+BasePlanarMotion instantaneousPlanarMotion(
+    const vector4_t& quatBaseRtWorldXyzw,
+    const vector6_t& twistBaseRtWorldEwrtWorld) {
+  const scalar_t yawBaseRtWorld = yawOf(quatBaseRtWorldXyzw);
+  const quaternion_t quatBaseRtWorld(quatBaseRtWorldXyzw);
+  const vector3_t angvelBaseRtWorldEwrtBase =
+      quatBaseRtWorld.conjugate() *
+      vector3_t(twistBaseRtWorldEwrtWorld.tail<kRotationTangentDim>());
   return BasePlanarMotion{
-      .velocityInHeadingFrame = rotatedBack(
-          heading, vector2_t(twistWorld.head<kHorizontalPositionDim>())),
-      .headingRate = headingTiltJacobian(orientation)
-                         .row(0)
-                         .transpose()
-                         .dot(angularVelocityLocal)};
+      .linvelBaseRtWorldEwrtHeadingXy = rotatedBack(
+          yawBaseRtWorld,
+          vector2_t(twistBaseRtWorldEwrtWorld.head<kHorizontalPositionDim>())),
+      .rateYawBaseRtWorld = headingTiltJacobian(quatBaseRtWorldXyzw)
+                                .row(0)
+                                .transpose()
+                                .dot(angvelBaseRtWorldEwrtBase)};
 }
 
 StrideMotionHistory::StrideMotionHistory(scalar_t retention)
@@ -78,16 +81,17 @@ void StrideMotionHistory::reset() {
 
 void StrideMotionHistory::addSample(
     scalar_t time,
-    const vector2_t& positionXy,
-    scalar_t heading,
+    const vector2_t& posBaseRtWorldEwrtWorldXy,
+    scalar_t yawBaseRtWorld,
     absl::FunctionRef<BasePlanarMotion()> seed) {
   if (!samples_.empty() && time == samples_.back().time) return;
   if (samples_.empty() || time < samples_.back().time ||
       time - samples_.back().time > kMaxBridgedGap) {
     samples_.clear();
-    samples_.push_back(Sample{
-        .time = time, .heading = heading, .displacement = vector2_t::Zero()});
-    lastPosition_ = positionXy;
+    samples_.push_back(Sample{.time = time,
+                              .heading = yawBaseRtWorld,
+                              .displacement = vector2_t::Zero()});
+    prevPosBaseRtWorldEwrtWorldXy_ = posBaseRtWorldEwrtWorldXy;
     seed_ = seed();
     firstSampleKept_ = true;
     measuredSince_ = time;
@@ -100,18 +104,19 @@ void StrideMotionHistory::addSample(
   // true one below the heading rates the class comment states, kMaxBridgedGap
   // included.
   const scalar_t headingChange =
-      std::remainder(heading - last.heading, 2.0 * M_PI);
+      std::remainder(yawBaseRtWorld - last.heading, 2.0 * M_PI);
   const scalar_t midHeading = last.heading + 0.5 * headingChange;
   // The chord of a constant body twist, dp = dt sinc(dPsi / 2) R_z(Psi_mid)
   // v_h, solved for dD = v_h dt.
   const vector2_t displacementStep =
-      rotatedBack(midHeading, vector2_t(positionXy - lastPosition_)) /
+      rotatedBack(midHeading, vector2_t(posBaseRtWorldEwrtWorldXy -
+                                        prevPosBaseRtWorldEwrtWorldXy_)) /
       sinc(0.5 * headingChange);
   samples_.push_back(
       Sample{.time = time,
              .heading = last.heading + headingChange,
              .displacement = last.displacement + displacementStep});
-  lastPosition_ = positionXy;
+  prevPosBaseRtWorldEwrtWorldXy_ = posBaseRtWorldEwrtWorldXy;
   // Keep one sample at or before time - retention, for the interpolation at the
   // start of the longest window.
   while (samples_.size() > 1 && samples_[1].time <= time - retention_) {
@@ -127,10 +132,11 @@ StrideMotionHistory::Sample StrideMotionHistory::at(scalar_t time) const {
     // pruned history is never asked there (mean() cuts its window to the
     // retention, which the kept samples cover), so its first sample is held.
     const scalar_t before = firstSampleKept_ ? time - first.time : 0.0;
-    return Sample{.time = time,
-                  .heading = first.heading + before * seed_.headingRate,
-                  .displacement = first.displacement +
-                                  before * seed_.velocityInHeadingFrame};
+    return Sample{
+        .time = time,
+        .heading = first.heading + before * seed_.rateYawBaseRtWorld,
+        .displacement =
+            first.displacement + before * seed_.linvelBaseRtWorldEwrtHeadingXy};
   }
   const std::deque<Sample>::const_iterator after = std::upper_bound(
       samples_.begin(), samples_.end(), time,
@@ -160,8 +166,9 @@ BasePlanarMotion StrideMotionHistory::mean(scalar_t window) const {
   const scalar_t span = std::min(window, retention_);
   const Sample start = at(last.time - span);
   return BasePlanarMotion{
-      .velocityInHeadingFrame = (last.displacement - start.displacement) / span,
-      .headingRate = (last.heading - start.heading) / span};
+      .linvelBaseRtWorldEwrtHeadingXy =
+          (last.displacement - start.displacement) / span,
+      .rateYawBaseRtWorld = (last.heading - start.heading) / span};
 }
 
 }  // namespace ocs2::humanoid

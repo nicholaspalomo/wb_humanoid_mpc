@@ -108,7 +108,7 @@ TEST(ConfigFileText, AFileOfAnotherMessageIsRefusedByItsHeader) {
   // message, and the parser refuses it as the loader does.
   const std::string reference =
       "# proto-message: "
-      "humanoid_mpc_config.ReferenceFile\ntarget_displacement_velocity: 0.5\n";
+      "humanoid_mpc_config.ReferenceFile\nref_speed_base_rt_world: 0.5\n";
   const absl::StatusOr<mpc_config::TaskFile> asTask =
       parseTaskFile(reference, /*source=*/"saved task file");
   EXPECT_EQ(asTask.status().code(), absl::StatusCode::kInvalidArgument);
@@ -117,7 +117,7 @@ TEST(ConfigFileText, AFileOfAnotherMessageIsRefusedByItsHeader) {
   const absl::StatusOr<mpc_config::ReferenceFile> asReference =
       parseReferenceFile(reference, /*source=*/"saved reference file");
   ASSERT_TRUE(asReference.ok()) << asReference.status();
-  EXPECT_EQ(asReference->target_displacement_velocity, 0.5);
+  EXPECT_EQ(asReference->ref_speed_base_rt_world, 0.5);
 }
 
 TEST(ConfigFileText, APdGainsTextParses) {
@@ -164,7 +164,7 @@ TEST(ConfigFileText, ATextOrFileThatNamesNoSchemaIsRefused) {
   EXPECT_FALSE(parseJointPdGainsFile("default_gains { kp: 1.0 }\n",
                                      /*source=*/"saved gains")
                    .ok());
-  EXPECT_FALSE(parseReferenceFile("target_displacement_velocity: 0.5\n",
+  EXPECT_FALSE(parseReferenceFile("ref_speed_base_rt_world: 0.5\n",
                                   /*source=*/"saved reference")
                    .ok());
 }

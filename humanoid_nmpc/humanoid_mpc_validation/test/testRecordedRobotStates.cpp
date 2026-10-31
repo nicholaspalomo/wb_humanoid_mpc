@@ -62,12 +62,12 @@ robot::model::RobotState randomState(
   std::uniform_real_distribution<double> uniform(-1.0, 1.0);
   robot::model::RobotState state(description, /*contactSize=*/2);
   state.setTime(12.345 + uniform(generator));
-  state.setRootPositionInWorldFrame(Eigen::Vector3d(
+  state.setPosBaseRtWorldEwrtWorld(Eigen::Vector3d(
       uniform(generator), uniform(generator), 0.8 + 0.1 * uniform(generator)));
-  state.setRootRotationLocalToWorldFrame(Eigen::Quaterniond::UnitRandom());
-  state.setRootLinearVelocityInLocalFrame(Eigen::Vector3d(
+  state.setQuatBaseRtWorld(Eigen::Quaterniond::UnitRandom());
+  state.setLinvelBaseRtWorldEwrtBase(Eigen::Vector3d(
       uniform(generator), uniform(generator), uniform(generator)));
-  state.setRootAngularVelocityInLocalFrame(Eigen::Vector3d(
+  state.setAngvelBaseRtWorldEwrtBase(Eigen::Vector3d(
       uniform(generator), uniform(generator), uniform(generator)));
   for (const robot::joint_index_t joint : description.getJointIndices()) {
     state.setJointPosition(joint, uniform(generator));
@@ -110,14 +110,14 @@ TEST(RecordedRobotStates, ARecordingReadsBackAsTheStatesThatWereRecorded) {
     ASSERT_TRUE(state.ok()) << state.status();
     const robot::model::RobotState& expected = states[k];
     EXPECT_EQ(state->getTime(), expected.getTime());
-    EXPECT_EQ(state->getRootPositionInWorldFrame(),
-              expected.getRootPositionInWorldFrame());
-    EXPECT_EQ(state->getRootRotationLocalToWorldFrame().coeffs(),
-              expected.getRootRotationLocalToWorldFrame().coeffs());
-    EXPECT_EQ(state->getRootLinearVelocityInLocalFrame(),
-              expected.getRootLinearVelocityInLocalFrame());
-    EXPECT_EQ(state->getRootAngularVelocityInLocalFrame(),
-              expected.getRootAngularVelocityInLocalFrame());
+    EXPECT_EQ(state->getPosBaseRtWorldEwrtWorld(),
+              expected.getPosBaseRtWorldEwrtWorld());
+    EXPECT_EQ(state->getQuatBaseRtWorld().coeffs(),
+              expected.getQuatBaseRtWorld().coeffs());
+    EXPECT_EQ(state->getLinvelBaseRtWorldEwrtBase(),
+              expected.getLinvelBaseRtWorldEwrtBase());
+    EXPECT_EQ(state->getAngvelBaseRtWorldEwrtBase(),
+              expected.getAngvelBaseRtWorldEwrtBase());
     for (const robot::joint_index_t joint : description.getJointIndices()) {
       EXPECT_EQ(state->getJointPosition(joint),
                 expected.getJointPosition(joint));

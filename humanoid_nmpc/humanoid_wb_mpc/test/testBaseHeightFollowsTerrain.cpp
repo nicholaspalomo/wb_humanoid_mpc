@@ -79,13 +79,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * The base-height reference against the ground, end to end: the whole-body
  * MPC's reference manager, its target calculator and the procedural motion
  * manager that publishes a target every solve, run in the order the solver runs
- * them. `default_base_height` and the commanded pelvis height are heights above
- * the ground, and the ground is the reference manager's (`terrain_height`,
- * moved on a hot reload). The targets used to be written at an absolute
- * default_base_height, so the base reference ignored the ground at launch and
- * snapped back to it one solve after a reload, while the reference manager
- * lifted the initial target - a measured, absolute pose - by the whole terrain
- * height.
+ * them. `nom_pos_base_rt_world_ewrt_world_z` and the commanded pelvis height
+ * are heights above the ground, and the ground is the reference manager's
+ * (`terrain_height`, moved on a hot reload). The targets used to be written at
+ * an absolute nom_pos_base_rt_world_ewrt_world_z, so the base reference ignored
+ * the ground at launch and snapped back to it one solve after a reload, while
+ * the reference manager lifted the initial target - a measured, absolute pose -
+ * by the whole terrain height.
  *
  * Every property is a difference against the same run on flat ground, or
  * against the height the target was published at, so none of them depends on
@@ -101,7 +101,8 @@ constexpr scalar_t kHorizon = 1.0;
 constexpr scalar_t kCyclePeriod = 0.01;
 // Cycles run on each ground.
 constexpr int kSettlingCycles = 10;
-// [m] how far below default_base_height the robot's measured base starts.
+// [m] how far below nom_pos_base_rt_world_ewrt_world_z the robot's measured
+// base starts.
 constexpr scalar_t kCrouch = 0.05;
 
 constexpr char kTaskFile[] =
@@ -198,7 +199,7 @@ std::vector<scalar_t> targetBaseHeights(
   std::vector<scalar_t> heights;
   for (const vector_t& state :
        referenceManager.getTargetTrajectories().stateTrajectory) {
-    heights.push_back(model.getBasePosition(state)(2));
+    heights.push_back(model.getPosBaseRtWorldEwrtWorld(state)(2));
   }
   return heights;
 }
@@ -252,16 +253,18 @@ class WholeBodyReferences {
             const vector4_t& velocityTarget, scalar_t initTime,
             scalar_t /*finalTime*/, const vector_t& initState,
             const BasePlanarMotion& measuredMotion) {
-          return calculator->commandedVelocityToTargetTrajectories(
+          return calculator->velocityCommandToTargetTrajectories(
               velocityTarget, initTime, initState, measuredMotion);
         }));
     initialState_ = initialStateOf(task, *model_);
     // The robot stands on this ground, a little crouched, so that the measured
     // base is not the commanded one.
-    model_->adaptBasePoseHeight(initialState_, terrainHeight - kCrouch);
-    // No pelvis height in the command: every target stands default_base_height
-    // above the ground. (The motion manager's command filter ramps against the
-    // wall clock, so a commanded height would differ between two runs.)
+    model_->adaptPosBaseRtWorldEwrtWorldZ(initialState_,
+                                          terrainHeight - kCrouch);
+    // No pelvis height in the command: every target stands
+    // nom_pos_base_rt_world_ewrt_world_z above the ground. (The motion
+    // manager's command filter ramps against the wall clock, so a commanded
+    // height would differ between two runs.)
     motionManager_->setAndScaleVelocityCommand(WalkingVelocityCommand(
         /*v_x=*/0.0, /*v_y=*/0.0, /*desired_pelvis_h=*/0.0, /*v_yaw=*/0.0));
     // What the MPC node does on its reset: a target at the measured initial
@@ -396,8 +399,9 @@ TEST(BaseHeightFollowsTerrainTest,
   raised.cycle();
   expectRaisedBy(raised.targetBaseHeights(), flat.targetBaseHeights(), kGround,
                  "the reset target");
-  EXPECT_EQ(raised.targetBaseHeights().front(),
-            raised.model().getBasePosition(raised.initialState())(2));
+  EXPECT_EQ(
+      raised.targetBaseHeights().front(),
+      raised.model().getPosBaseRtWorldEwrtWorld(raised.initialState())(2));
 
   // Every target the motion manager publishes stands the commanded height above
   // the ground.
@@ -409,9 +413,10 @@ TEST(BaseHeightFollowsTerrainTest,
   }
   // Positive control: the published base reference is the commanded height, not
   // the measured one, so the difference above is not the measured state's.
-  EXPECT_NEAR(flat.targetBaseHeights().back() -
-                  flat.model().getBasePosition(flat.initialState())(2),
-              kCrouch, 1.0e-12);
+  EXPECT_NEAR(
+      flat.targetBaseHeights().back() -
+          flat.model().getPosBaseRtWorldEwrtWorld(flat.initialState())(2),
+      kCrouch, 1.0e-12);
 
   // A hot reload of the ground moves the target in use once, and every target
   // published after it stands on the new ground; nothing is moved a second time
@@ -552,7 +557,7 @@ TEST(BaseHeightFollowsTerrainTest,
   ContactPlanningReferenceManager& referenceManager = **created;
 
   vector_t state = initialStateOf(task, model);
-  const scalar_t publishedHeight = model.getBasePosition(state)(2);
+  const scalar_t publishedHeight = model.getPosBaseRtWorldEwrtWorld(state)(2);
   const vector_t zeroInput = vector_t::Zero(model.getInputDim());
   // The operator publishes once: a standing target that reaches past every
   // horizon below.

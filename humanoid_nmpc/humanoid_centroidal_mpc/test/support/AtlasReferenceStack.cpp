@@ -215,7 +215,7 @@ void AtlasReferenceStack::build(
       [calculator](const vector4_t& velocityTarget, scalar_t initTime,
                    scalar_t /*finalTime*/, const vector_t& initState,
                    const BasePlanarMotion& measuredMotion) {
-        return calculator->commandedVelocityToTargetTrajectories(
+        return calculator->velocityCommandToTargetTrajectories(
             velocityTarget, initTime, initState, measuredMotion);
       }));
   motionManager_->setResetHook([calculator]() { calculator->reset(); });
@@ -232,8 +232,8 @@ void AtlasReferenceStack::build(
 void AtlasReferenceStack::command(scalar_t forward,
                                   scalar_t lateral,
                                   scalar_t yawRate) {
-  // No pelvis height in the command: every target stands defaultBaseHeight
-  // above the ground.
+  // No pelvis height in the command: every target stands
+  // nomPosBaseRtWorldEwrtWorldZ above the ground.
   motionManager_->setAndScaleVelocityCommand(WalkingVelocityCommand(
       forward, lateral, /*desired_pelvis_h=*/0.0, yawRate));
 }
@@ -252,12 +252,12 @@ vector_t AtlasReferenceStack::standingAt(const vector_t& state,
                                          scalar_t y,
                                          scalar_t yaw) const {
   vector_t moved = state;
-  centroidal_model::getNormalizedMomentum(moved, info_).setZero();
-  model_->setBasePosition(moved,
-                          vector3_t(x, y, model_->getBasePosition(state)(2)));
-  vector3_t eulerZyx = model_->getBaseOrientationEulerZyx(state);
+  centroidal_model::getMnormCmomComRtWorldEwrtWorld(moved, info_).setZero();
+  model_->setPosBaseRtWorldEwrtWorld(
+      moved, vector3_t(x, y, model_->getPosBaseRtWorldEwrtWorld(state)(2)));
+  vector3_t eulerZyx = model_->getEulerzyxBaseRtWorld(state);
   eulerZyx(0) = yaw;
-  model_->setBaseOrientationEulerZyx(moved, eulerZyx);
+  model_->setEulerzyxBaseRtWorld(moved, eulerZyx);
   return moved;
 }
 

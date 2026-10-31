@@ -298,9 +298,9 @@ class LocomotionHeuristicIntegrationTest : public ::testing::Test {
         costs.end());
     std::replace(costs.begin(), costs.end(), std::string("dcm_terminal_cost"),
                  std::string("terminal_cost"));
-    enabled.task.final_state_weights.base_position =
+    enabled.task.final_state_weights.pos_base_rt_world_ewrt_world =
         mpc_config::Xyz{.x = 0.0, .y = 0.0, .z = 20.0};
-    enabled.task.final_state_weights.base_orientation =
+    enabled.task.final_state_weights.eulerzyx_base_rt_world =
         mpc_config::YawPitchRoll{.yaw = 0.0, .pitch = 5.0, .roll = 5.0};
     raiseFootPositionWeights(enabled);
     *enabledConfig_ = enabled;
@@ -384,9 +384,9 @@ class LocomotionHeuristicIntegrationTest : public ::testing::Test {
     vector_t state = interface.getInitialState();
     model.setBaseComLinearVelocity(
         state, vector3_t(worldVelocity.x(), worldVelocity.y(), 0.0));
-    vector6_t basePose = model.getBasePoseEulerZyx(state);
+    vector6_t basePose = model.getPoseeulerzyxBaseRtWorld(state);
     basePose(3) = yaw;
-    model.setBasePoseEulerZyx(state, basePose);
+    model.setPoseeulerzyxBaseRtWorld(state, basePose);
     state(5) = normalizedYawMomentum;
     return state;
   }
@@ -394,9 +394,9 @@ class LocomotionHeuristicIntegrationTest : public ::testing::Test {
   /**
    * `state` with the base-pose offsets the heuristics write added on their
    * channels, as the seam adds them
-   * (SwitchedModelReferenceManager::shapeBasePose(), the Euler boundary): the
-   * height to the base position, the pitch and the roll to the ZYX Euler angles
-   * of the base quaternion.
+   * (SwitchedModelReferenceManager::shapePoseBaseRtWorld(), the Euler
+   * boundary): the height to the base position, the pitch and the roll to the
+   * ZYX Euler angles of the base quaternion.
    */
   static vector_t withBasePoseOffsets(const CentroidalMpcInterface& interface,
                                       const vector_t& state,
@@ -406,13 +406,13 @@ class LocomotionHeuristicIntegrationTest : public ::testing::Test {
     const CentroidalMpcRobotModel<scalar_t>& model =
         interface.getMpcRobotModel();
     vector_t offset = state;
-    vector3_t eulerZyx = model.getBaseOrientationEulerZyx(offset);
+    vector3_t eulerZyx = model.getEulerzyxBaseRtWorld(offset);
     eulerZyx(2) += rollOffset;
     eulerZyx(1) += pitchOffset;
-    model.setBaseOrientationEulerZyx(offset, eulerZyx);
-    vector3_t basePosition = model.getBasePosition(offset);
+    model.setEulerzyxBaseRtWorld(offset, eulerZyx);
+    vector3_t basePosition = model.getPosBaseRtWorldEwrtWorld(offset);
     basePosition(2) += heightOffset;
-    model.setBasePosition(offset, basePosition);
+    model.setPosBaseRtWorldEwrtWorld(offset, basePosition);
     return offset;
   }
 
@@ -423,9 +423,9 @@ class LocomotionHeuristicIntegrationTest : public ::testing::Test {
     const CentroidalMpcRobotModel<scalar_t>& model =
         interface.getMpcRobotModel();
     vector_t state = interface.getInitialState();
-    vector3_t position = model.getBasePosition(state);
+    vector3_t position = model.getPosBaseRtWorldEwrtWorld(state);
     position.head<2>() = basePosition;
-    model.setBasePosition(state, position);
+    model.setPosBaseRtWorldEwrtWorld(state, position);
     return state;
   }
 
@@ -609,7 +609,7 @@ TEST_F(LocomotionHeuristicIntegrationTest,
   ASSERT_NEAR(referenceManager->getPhaseVariable(time), 0.125, 1.0e-12)
       << "the gait phase would be degenerate here";
 
-  const vector_t shaped = referenceManager->shapeBasePose(time, target);
+  const vector_t shaped = referenceManager->shapePoseBaseRtWorld(time, target);
   ASSERT_EQ(shaped.size(), target.size());
   EXPECT_TRUE(shaped == target)
       << "shapeBasePose must return its input bit for bit with no base-pose "
@@ -618,9 +618,9 @@ TEST_F(LocomotionHeuristicIntegrationTest,
   const vector_t desiredState =
       referenceManager->getDesiredState(targetTrajectories, state, time);
   const vector6_t desiredBasePose =
-      shipped_->getMpcRobotModel().getBasePoseEulerZyx(desiredState);
+      shipped_->getMpcRobotModel().getPoseeulerzyxBaseRtWorld(desiredState);
   const vector6_t targetBasePose =
-      shipped_->getMpcRobotModel().getBasePoseEulerZyx(target);
+      shipped_->getMpcRobotModel().getPoseeulerzyxBaseRtWorld(target);
   EXPECT_TRUE(desiredBasePose == targetBasePose)
       << "the running state costs' reference base pose moved:\n"
       << (desiredBasePose - targetBasePose).transpose();
@@ -638,8 +638,9 @@ TEST_F(LocomotionHeuristicIntegrationTest,
       *enabled_, vector2_t(-0.3, 1.0), M_PI_2, /*normalizedYawMomentum=*/0.05);
   solveAt(*enabled_, walkSchedule(), constantTarget(*enabled_, enabledTarget),
           enabled_->getInitialState(), /*time=*/1.02);
-  EXPECT_FALSE(enabled_->getSwitchedModelReferenceManagerPtr()->shapeBasePose(
-                   time, enabledTarget) == enabledTarget);
+  EXPECT_FALSE(
+      enabled_->getSwitchedModelReferenceManagerPtr()->shapePoseBaseRtWorld(
+          time, enabledTarget) == enabledTarget);
 }
 
 TEST_F(LocomotionHeuristicIntegrationTest,
@@ -686,14 +687,16 @@ TEST_F(LocomotionHeuristicIntegrationTest,
     // nothing at all on a swing foot.
     for (size_t foot = 0; foot < kNumContacts; ++foot) {
       if (flags[foot]) {
-        const vector3_t force = effectiveModel.getContactForce(desired, foot);
+        const vector3_t force =
+            effectiveModel.getForceContactEwrtParam(desired, foot);
         EXPECT_NEAR(force.z(), weight / static_cast<scalar_t>(numStance),
                     1.0e-9 * weight)
             << "t = " << node.time << ", foot " << foot;
         EXPECT_NEAR(force.head<2>().norm(), 0.0, 1.0e-9 * weight)
             << "t = " << node.time << ", foot " << foot;
       } else {
-        EXPECT_TRUE(effectiveModel.getContactWrench(desired, foot).isZero(0.0))
+        EXPECT_TRUE(
+            effectiveModel.getWrenchContactEwrtParam(desired, foot).isZero(0.0))
             << "t = " << node.time << ", foot " << foot;
       }
     }
@@ -773,9 +776,9 @@ TEST_F(LocomotionHeuristicIntegrationTest,
   // path. They must give the same targets, since the base_pose list has nothing
   // to do with footholds. The shipped half used to fail: captureMeasuredState()
   // latched the yaw inertia it inverts the momentum target with only when some
-  // list was non-empty, so with every list empty getCommandedYawRate() read 0,
-  // the step was laid across the MEASURED heading, and listing any heuristic at
-  // all moved the feet on a turn.
+  // list was non-empty, so with every list empty getCmdRateYawBaseRtWorld()
+  // read 0, the step was laid across the MEASURED heading, and listing any
+  // heuristic at all moved the feet on a turn.
   struct Case {
     const char* absl_nonnull name;
     CentroidalMpcInterface* absl_nonnull interface;
@@ -801,7 +804,8 @@ TEST_F(LocomotionHeuristicIntegrationTest,
         compositeYawInertia(interface, state) * yawRate / totalMass(interface));
     solveAt(interface, walkSchedule(), constantTarget(interface, target), state,
             solveTime);
-    ASSERT_NEAR(referenceManager->getCommandedYawRate(1.5), yawRate, 1.0e-9)
+    ASSERT_NEAR(referenceManager->getCmdRateYawBaseRtWorld(1.5), yawRate,
+                1.0e-9)
         << "the yaw rate did not reach the reference manager";
 
     struct Landing {
@@ -915,8 +919,9 @@ TEST_F(LocomotionHeuristicIntegrationTest,
   const TargetTrajectories target = constantTarget(
       *enabled_, commandedState(*enabled_, vector2_t(1.0, 0.0), /*yaw=*/0.0));
   solveAt(*enabled_, walkSchedule(), target, state, /*time=*/1.02);
-  const vector6_t basePose = enabled_->getMpcRobotModel().getBasePoseEulerZyx(
-      referenceManager->getDesiredState(target, state, /*time=*/1.2));
+  const vector6_t basePose =
+      enabled_->getMpcRobotModel().getPoseeulerzyxBaseRtWorld(
+          referenceManager->getDesiredState(target, state, /*time=*/1.2));
 
   const mpc_config::LocomotionHeuristicsConfig::OrientationCompensation&
       shipped =
@@ -975,13 +980,13 @@ TEST_F(LocomotionHeuristicIntegrationTest,
       *enabled_, target, /*heightOffset=*/-0.006980613017821,
       /*pitchOffset=*/0.05,
       /*rollOffset=*/0.03);
-  const vector_t shaped = referenceManager->shapeBasePose(time, target);
+  const vector_t shaped = referenceManager->shapePoseBaseRtWorld(time, target);
   ASSERT_EQ(shaped.size(), target.size());
   // The channels: the height of the base position, and the pitch and roll of
   // the ZYX Euler angles of its quaternion; the yaw stays where it was.
-  const vector6_t shapedPose = model.getBasePoseEulerZyx(shaped);
-  const vector6_t expectedPose = model.getBasePoseEulerZyx(expected);
-  const vector6_t targetPose = model.getBasePoseEulerZyx(target);
+  const vector6_t shapedPose = model.getPoseeulerzyxBaseRtWorld(shaped);
+  const vector6_t expectedPose = model.getPoseeulerzyxBaseRtWorld(expected);
+  const vector6_t targetPose = model.getPoseeulerzyxBaseRtWorld(target);
   EXPECT_LT((shapedPose - expectedPose).cwiseAbs().maxCoeff(), 1.0e-12)
       << shapedPose.transpose();
   EXPECT_NEAR(shapedPose(2) - targetPose(2), -0.006980613017821, 1.0e-12)
@@ -1006,7 +1011,7 @@ TEST_F(LocomotionHeuristicIntegrationTest,
   // The running state costs read the same shaped pose through
   // getDesiredState().
   const vector6_t desiredBasePose =
-      enabled_->getMpcRobotModel().getBasePoseEulerZyx(
+      enabled_->getMpcRobotModel().getPoseeulerzyxBaseRtWorld(
           referenceManager->getDesiredState(targetTrajectories, state, time));
   EXPECT_LT((desiredBasePose - expectedPose).cwiseAbs().maxCoeff(), 1.0e-12);
 }
@@ -1016,11 +1021,11 @@ TEST_F(LocomotionHeuristicIntegrationTest,
   // Bledt's H_Theta and H_z are functions of the COMMANDED velocity. Under
   // online contact planning the planned_com_override rule rewrites the target's
   // momentum channel with the plan's own swaying CoM velocity, and only
-  // getCommandedVelocity() still carries the operator's command. So the seam
-  // must read that accessor, and not the momentum of the state it is shaping:
-  // here the two disagree, and the pitch has to follow the command (1 m/s
-  // forward), not the state's channel (-1 m/s, which would lean the reference
-  // the other way).
+  // getCmdLinvelBaseRtWorldEwrtWorldXy() still carries the operator's command.
+  // So the seam must read that accessor, and not the momentum of the state it
+  // is shaping: here the two disagree, and the pitch has to follow the command
+  // (1 m/s forward), not the state's channel (-1 m/s, which would lean the
+  // reference the other way).
   const std::shared_ptr<LocomotionHeuristicLayer>& layer =
       enabled_->getLocomotionHeuristicLayerPtr();
   RestoreCoefficientsFromFileOnExit restore(layer, enabledConfig_->task);
@@ -1039,10 +1044,10 @@ TEST_F(LocomotionHeuristicIntegrationTest,
   const vector_t otherMomentum =
       commandedState(*enabled_, vector2_t(-1.0, 0.0), /*yaw=*/0.0);
   const vector_t shaped =
-      referenceManager->shapeBasePose(/*time=*/1.2, otherMomentum);
+      referenceManager->shapePoseBaseRtWorld(/*time=*/1.2, otherMomentum);
   const CentroidalMpcRobotModel<scalar_t>& model = enabled_->getMpcRobotModel();
-  EXPECT_NEAR(model.getBaseOrientationEulerZyx(shaped)(1) -
-                  model.getBaseOrientationEulerZyx(otherMomentum)(1),
+  EXPECT_NEAR(model.getEulerzyxBaseRtWorld(shaped)(1) -
+                  model.getEulerzyxBaseRtWorld(otherMomentum)(1),
               0.05, 1.0e-12);
 }
 
@@ -1081,10 +1086,10 @@ TEST_F(LocomotionHeuristicIntegrationTest,
       {1.7, -0.021213203435596, 0.019106729782512}};
   const CentroidalMpcRobotModel<scalar_t>& model =
       stanceAnchored_->getMpcRobotModel();
-  const vector6_t targetPose = model.getBasePoseEulerZyx(target);
+  const vector6_t targetPose = model.getPoseeulerzyxBaseRtWorld(target);
   for (const Sample& sample : samples) {
-    const vector6_t shapedPose = model.getBasePoseEulerZyx(
-        referenceManager->shapeBasePose(sample.time, target));
+    const vector6_t shapedPose = model.getPoseeulerzyxBaseRtWorld(
+        referenceManager->shapePoseBaseRtWorld(sample.time, target));
     EXPECT_NEAR(shapedPose(5) - targetPose(5), sample.roll, 1.0e-12)
         << "roll at t = " << sample.time;
     EXPECT_NEAR(shapedPose(4) - targetPose(4), sample.pitch, 1.0e-12)
@@ -1103,8 +1108,8 @@ matrix3_t shapedRotation(const SwitchedModelReferenceManager& referenceManager,
                          const CentroidalMpcRobotModel<scalar_t>& model,
                          const vector_t& target,
                          scalar_t time) {
-  return quaternionRotationMatrix<scalar_t>(
-      model.getBaseOrientation(referenceManager.shapeBasePose(time, target)));
+  return quaternionRotationMatrix<scalar_t>(model.getQuatBaseRtWorldXyzw(
+      referenceManager.shapePoseBaseRtWorld(time, target)));
 }
 
 }  // namespace
@@ -1137,10 +1142,10 @@ TEST_F(LocomotionHeuristicIntegrationTest,
   const CentroidalMpcRobotModel<scalar_t>& model =
       stanceAnchored_->getMpcRobotModel();
   vector_t target = stanceAnchored_->getInitialState();
-  vector6_t turnedPose = model.getBasePoseEulerZyx(target);
+  vector6_t turnedPose = model.getPoseeulerzyxBaseRtWorld(target);
   turnedPose(3) = 0.8;  // a heading off the axes, so that a tilt rate taken
                         // about the world axes would show
-  model.setBasePoseEulerZyx(target, turnedPose);
+  model.setPoseeulerzyxBaseRtWorld(target, turnedPose);
   solveAt(*stanceAnchored_, walkSchedule(),
           constantTarget(*stanceAnchored_, target), target, /*time=*/1.02);
 
@@ -1168,7 +1173,8 @@ TEST_F(LocomotionHeuristicIntegrationTest,
         << "t = " << time
         << ": the tilt must be moving for this to test anything";
     const vector3_t expected = compositeInertia * worldAngularVelocity / mass;
-    const vector_t shaped = referenceManager->shapeBasePose(time, target);
+    const vector_t shaped =
+        referenceManager->shapePoseBaseRtWorld(time, target);
     const vector3_t added = shaped.segment<3>(3) - target.segment<3>(3);
     EXPECT_LT((added - expected).norm(), 1.0e-7 * (1.0 + expected.norm()))
         << "t = " << time << ": " << added.transpose() << " vs "
@@ -1177,7 +1183,8 @@ TEST_F(LocomotionHeuristicIntegrationTest,
         << "the linear momentum is the command's, untouched";
   }
   for (const scalar_t time : {1.05, 1.55}) {
-    const vector_t shaped = referenceManager->shapeBasePose(time, target);
+    const vector_t shaped =
+        referenceManager->shapePoseBaseRtWorld(time, target);
     EXPECT_EQ(shaped.head<6>(), target.head<6>())
         << "t = " << time << ": the phase is frozen in double support";
   }
@@ -1399,13 +1406,15 @@ TEST_F(
       if (node.contacts[foot]) {
         // Read in the input's own frame, which is what the vertical path
         // writes: a vertical force is the same there.
-        const vector3_t force = effectiveModel.getContactForce(input, foot);
+        const vector3_t force =
+            effectiveModel.getForceContactEwrtParam(input, foot);
         EXPECT_NEAR(force.z(), perStanceFoot, 1.0e-9 * weight)
             << "t = " << node.time << ", foot " << foot;
         EXPECT_NEAR(force.head<2>().norm(), 0.0, 1.0e-9 * weight)
             << "t = " << node.time << ", foot " << foot;
       } else {
-        EXPECT_TRUE(effectiveModel.getContactWrench(input, foot).isZero(0.0))
+        EXPECT_TRUE(
+            effectiveModel.getWrenchContactEwrtParam(input, foot).isZero(0.0))
             << "t = " << node.time << ", foot " << foot;
       }
     }
@@ -1420,7 +1429,7 @@ TEST_F(
     const vector_t input =
         referenceManager->getDesiredInput(target, state, time);
     for (size_t foot = 0; foot < kNumContacts; ++foot)
-      totalVertical += effectiveModel.getContactForce(input, foot).z();
+      totalVertical += effectiveModel.getForceContactEwrtParam(input, foot).z();
   }
   EXPECT_NEAR(totalVertical / static_cast<scalar_t>(numCells), weight,
               1.0e-6 * weight);
@@ -1457,7 +1466,8 @@ TEST_F(LocomotionHeuristicIntegrationTest,
   const vector_t singleSupport =
       referenceManager->getDesiredInput(target, state, /*time=*/1.75);
   EXPECT_NEAR(
-      effectiveModel.getContactForce(singleSupport, kContactLeftIndex).z(),
+      effectiveModel.getForceContactEwrtParam(singleSupport, kContactLeftIndex)
+          .z(),
       weight / (2.0 * kRunDutyFactor), 1.0e-9 * weight);
 
   // Flight [1.9, 2.0).
@@ -1474,7 +1484,7 @@ TEST_F(LocomotionHeuristicIntegrationTest,
     const vector_t input =
         referenceManager->getDesiredInput(target, state, time);
     for (size_t foot = 0; foot < kNumContacts; ++foot)
-      totalVertical += effectiveModel.getContactForce(input, foot).z();
+      totalVertical += effectiveModel.getForceContactEwrtParam(input, foot).z();
   }
   EXPECT_NEAR(totalVertical / static_cast<scalar_t>(numCells), weight,
               1.0e-6 * weight);
@@ -1493,11 +1503,11 @@ TEST_F(LocomotionHeuristicIntegrationTest,
   // Measured on a robot TURNED to heading 0.7. At heading 0 the Atlas's sole
   // frames are the world frame to 2e-16 in the initial posture, so writing the
   // world force into the local frame unrotated - getDesiredInput() taking the
-  // input-frame path despite wrenchNeedsWorldFrame(), setContactForce() in
-  // place of setContactForceInWorldFrame(), or a transposed rotation - gave bit
-  // for bit the same numbers there. Here each of them reads back as the right
-  // force turned by 0.7 or 1.4 rad, tens of newtons off on the horizontal force
-  // of single support.
+  // input-frame path despite wrenchNeedsWorldFrame(),
+  // setForceContactEwrtParam() in place of setForceContactEwrtWorld(), or a
+  // transposed rotation - gave bit for bit the same numbers there. Here each of
+  // them reads back as the right force turned by 0.7 or 1.4 rad, tens of
+  // newtons off on the horizontal force of single support.
   const std::shared_ptr<LocomotionHeuristicLayer>& layer =
       stanceAnchored_->getLocomotionHeuristicLayerPtr();
   RestoreCoefficientsFromFileOnExit restore(layer, stanceAnchoredConfig_->task);
@@ -1582,12 +1592,13 @@ TEST_F(LocomotionHeuristicIntegrationTest,
         << "t = " << node.time;
     for (size_t foot = 0; foot < kNumContacts; ++foot) {
       if (!node.contacts[foot]) {
-        EXPECT_TRUE(effectiveModel.getContactWrench(input, foot).isZero(0.0))
+        EXPECT_TRUE(
+            effectiveModel.getWrenchContactEwrtParam(input, foot).isZero(0.0))
             << "t = " << node.time << ", foot " << foot;
         continue;
       }
       const vector3_t world =
-          effectiveModel.getContactForceInWorldFrame(state, input, foot);
+          effectiveModel.getForceContactEwrtWorld(state, input, foot);
       EXPECT_LT((world - expectedWorld).cwiseAbs().maxCoeff(), 1.0e-6)
           << "t = " << node.time << ", foot " << foot << ": "
           << world.transpose() << " vs " << expectedWorld.transpose();
@@ -1595,7 +1606,8 @@ TEST_F(LocomotionHeuristicIntegrationTest,
       // R_z(-heading) times it, and it differs from the world force by more
       // than the tolerance above - so the check above could tell the frames
       // apart.
-      const vector3_t local = effectiveModel.getContactForce(input, foot);
+      const vector3_t local =
+          effectiveModel.getForceContactEwrtParam(input, foot);
       const vector3_t expectedLocal = turned.transpose() * expectedWorld;
       EXPECT_LT((local - expectedLocal).cwiseAbs().maxCoeff(), 1.0e-6)
           << "t = " << node.time << ", foot " << foot << ": "
@@ -1740,20 +1752,20 @@ TEST_F(LocomotionHeuristicIntegrationTest,
       if (!swing.has_value()) {
         GTEST_FAIL() << "t = " << sample.time;
       }
-      EXPECT_LT((swing->position.head<2>() -
+      EXPECT_LT((swing->desPosFootRtWorldEwrtWorld.head<2>() -
                  (rightLiftOff + sample.blend * displacement))
                     .cwiseAbs()
                     .maxCoeff(),
                 1.0e-9)
           << "t = " << sample.time << ": "
-          << swing->position.head<2>().transpose();
-      EXPECT_LT(
-          (swing->linearVelocity.head<2>() - sample.blendRate * displacement)
-              .cwiseAbs()
-              .maxCoeff(),
-          1.0e-9)
+          << swing->desPosFootRtWorldEwrtWorld.head<2>().transpose();
+      EXPECT_LT((swing->desLinvelFootRtWorldEwrtWorld.head<2>() -
+                 sample.blendRate * displacement)
+                    .cwiseAbs()
+                    .maxCoeff(),
+                1.0e-9)
           << "t = " << sample.time << ": "
-          << swing->linearVelocity.head<2>().transpose();
+          << swing->desLinvelFootRtWorldEwrtWorld.head<2>().transpose();
     }
   }
   EXPECT_EQ(numSwingChecks, 1) << "the swing reference was never checked";
@@ -1901,7 +1913,7 @@ TEST_F(LocomotionHeuristicIntegrationTest,
         Landing{.foot = kContactLeftIndex, .touchDown = 2.0},
         Landing{.foot = kContactRightIndex, .touchDown = 2.5}}) {
     SCOPED_TRACE(landing.touchDown);
-    ASSERT_NEAR(referenceManager->getCommandedYawRate(landing.touchDown),
+    ASSERT_NEAR(referenceManager->getCmdRateYawBaseRtWorld(landing.touchDown),
                 kYawRate, 1.0e-12)
         << "the knot's yaw rate reads back";
     const scalar_t turn = kYawRate * (landing.touchDown - kSolveTime);
@@ -1978,9 +1990,9 @@ TEST_F(LocomotionHeuristicIntegrationTest,
 
   // The same robot turned to heading pi/2, measured there.
   vector_t facingY = facingX;
-  vector6_t basePose = model.getBasePoseEulerZyx(facingY);
+  vector6_t basePose = model.getPoseeulerzyxBaseRtWorld(facingY);
   basePose(3) = M_PI_2;
-  model.setBasePoseEulerZyx(facingY, basePose);
+  model.setPoseeulerzyxBaseRtWorld(facingY, basePose);
   solveAt(*zeroStepWidth_, walkSchedule(),
           constantTarget(*zeroStepWidth_, facingY), facingY, /*time=*/1.12);
   const std::optional<vector2_t> rightFacingY =
@@ -2005,14 +2017,14 @@ TEST_F(LocomotionHeuristicIntegrationTest,
   // centimeters against the 1e-9 tolerance.
   const scalar_t yawRate = 0.5;
   const scalar_t solveTime = 1.12;
-  const vector2_t base = model.getBasePosition(facingX).head<2>();
+  const vector2_t base = model.getPosBaseRtWorldEwrtWorld(facingX).head<2>();
   const vector_t turning =
       commandedState(*zeroStepWidth_, vector2_t::Zero(), /*yaw=*/0.0,
                      compositeYawInertia(*zeroStepWidth_, facingX) * yawRate /
                          totalMass(*zeroStepWidth_));
   solveAt(*zeroStepWidth_, walkSchedule(),
           constantTarget(*zeroStepWidth_, turning), facingX, solveTime);
-  ASSERT_NEAR(referenceManager->getCommandedYawRate(1.5), yawRate, 1.0e-9)
+  ASSERT_NEAR(referenceManager->getCmdRateYawBaseRtWorld(1.5), yawRate, 1.0e-9)
       << "the yaw rate did not reach the reference manager";
   struct Landing {
     size_t foot;
@@ -2078,11 +2090,12 @@ TEST_F(LocomotionHeuristicIntegrationTest,
                          totalMass(*stanceAnchored_));
   solveAt(*stanceAnchored_, walkSchedule(),
           constantTarget(*stanceAnchored_, turning), state, solveTime);
-  ASSERT_NEAR(referenceManager->getCommandedYawRate(1.5), yawRate, 1.0e-9)
+  ASSERT_NEAR(referenceManager->getCmdRateYawBaseRtWorld(1.5), yawRate, 1.0e-9)
       << "the yaw rate did not reach the reference manager";
 
-  const vector2_t base =
-      stanceAnchored_->getMpcRobotModel().getBasePosition(state).head<2>();
+  const vector2_t base = stanceAnchored_->getMpcRobotModel()
+                             .getPosBaseRtWorldEwrtWorld(state)
+                             .head<2>();
   struct Landing {
     size_t foot;
     scalar_t side;

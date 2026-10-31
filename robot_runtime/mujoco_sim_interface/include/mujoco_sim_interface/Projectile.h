@@ -176,12 +176,12 @@ double projectileContactTimeConstant(double dampRatio);
  * Appends `projectile` to `spec` as a free-floating sphere, parked out of play
  * until thrown.
  *
- * APPENDED, AND THAT MATTERS. It must be the LAST body in the world, because
+ * APPENDED LAST. It must be the LAST body in the world, because
  * several things in this simulator take the FIRST body carrying a free joint to
  * be the robot: the center of mass, the ZMP and DCM markers
  * (MujocoContactUtils::robotCentroidalState), the viewer's tracking camera, and
  * every read of `qpos[3..6]` as the base quaternion. A ball inserted ahead of
- * the robot would quietly become the robot.
+ * the robot would be read as the robot.
  *
  * Three properties are set at COMPILE time because MuJoCo only honors them if
  * the compiler saw them, and toggling them afterwards silently does nothing:
@@ -211,7 +211,7 @@ absl::Status addProjectileToSpec(mjSpec* absl_nullable spec,
  * parked ball can neither be hit nor rest on anything until it is thrown.
  *
  * This sets both the geom flags and `body_contype` / `body_conaffinity`, and
- * BOTH are load-bearing. MuJoCo's broadphase prunes whole bodies by the
+ * BOTH are required. MuJoCo's broadphase prunes whole bodies by the
  * body-level aggregates, which the compiler folds from the geoms once, at
  * compile time. A ball compiled with `contype = 0` therefore has a body
  * aggregate of zero for the rest of the session: restoring the geom flags when
@@ -309,9 +309,9 @@ void setRobotJointDamping(mjModel* absl_nullable model,
 /** A throw in world coordinates: where the ball starts, how fast, and how long
  * until it reaches the base. */
 struct ProjectileLaunch {
-  std::array<double, ocs2::kPositionDim> position{
+  std::array<double, ocs2::kPositionDim> posBallRtWorldEwrtWorld{
       {0.0, 0.0, 0.0}};  // [m] world frame
-  std::array<double, ocs2::kPositionDim> velocity{
+  std::array<double, ocs2::kPositionDim> linvelBallRtWorldEwrtWorld{
       {0.0, 0.0, 0.0}};     // [m/s] world frame
   double flightTime = 0.0;  // [s] until it reaches the base it was aimed at
 };
@@ -357,8 +357,9 @@ absl::StatusOr<ProjectileLaunch> clearProjectileLaunch(
 
 /** [m/s] The velocity of a ball thrown at `launchVelocity` (world frame, z up)
  * after `flightTime`: v_launch - g t z. */
-std::array<double, ocs2::kPositionDim> projectileArrivalVelocity(
-    const std::array<double, ocs2::kPositionDim>& launchVelocity,
+std::array<double, ocs2::kPositionDim> computeArrivalLinvelBallRtWorldEwrtWorld(
+    const std::array<double, ocs2::kPositionDim>&
+        launchLinvelBallRtWorldEwrtWorld,
     double flightTime,
     double gravity);
 
@@ -427,7 +428,7 @@ class ProjectileRestMonitor {
  * reach, and it is beyond the far clipping plane of every camera looking at the
  * robot.
  */
-inline constexpr std::array<double, 3> kProjectileParkPosition{
+inline constexpr std::array<double, 3> kParkPosBallRtWorldEwrtWorld{
     {0.0, 0.0, 100.0}};
 
 }  // namespace robot::mujoco_sim_interface

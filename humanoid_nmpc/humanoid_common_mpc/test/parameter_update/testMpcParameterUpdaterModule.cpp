@@ -207,15 +207,16 @@ void solve(MpcParameterUpdaterModule& updater) {
 }
 
 // The command limits a reference file must give
-// (referenceSettingsFromConfig()), but max_rotation_velocity.
+// (referenceSettingsFromConfig()), but
+// cmd_max_angvel_base_rt_world_ewrt_world_z.
 constexpr char kReferenceFileLimits[] =
     "# proto-message: humanoid_mpc_config.ReferenceFile\n"
-    "target_displacement_velocity: 0.5\n"
-    "target_rotation_velocity: 0.5\n"
-    "max_displacement_velocity_x: 1.0\n"
-    "max_displacement_velocity_y: 0.5\n"
-    "max_delta_pelvis_height: 0.1\n"
-    "default_base_height: 0.9\n";
+    "ref_speed_base_rt_world: 0.5\n"
+    "ref_rate_yaw_base_rt_world: 0.5\n"
+    "cmd_max_linvel_base_rt_world_ewrt_heading_x: 1.0\n"
+    "cmd_max_linvel_base_rt_world_ewrt_heading_y: 0.5\n"
+    "cmd_max_err_pos_base_rt_world_ewrt_world_z: 0.1\n"
+    "nom_pos_base_rt_world_ewrt_world_z: 0.9\n";
 
 /** An update whose task file has a state_weights.scaling of `scaling`. */
 mpc_config::MpcParameterUpdate updateWithScaling(scalar_t scaling) {
@@ -409,10 +410,10 @@ TEST_F(MpcParameterUpdaterModuleMechanicsTest,
        ARefusingReferenceFileReloaderDoesNotStopTheOthers) {
   const std::filesystem::path referenceFile =
       freshDirectory("updater_mechanics_reference") / "reference.textproto";
-  writeWatched(
-      referenceFile,
-      absl::StrCat(kReferenceFileLimits, "max_rotation_velocity: 0.5\n"),
-      /*seconds=*/1);
+  writeWatched(referenceFile,
+               absl::StrCat(kReferenceFileLimits,
+                            "cmd_max_angvel_base_rt_world_ewrt_world_z: 0.5\n"),
+               /*seconds=*/1);
   MpcParameterUpdaterModule::Options options;
   options.referenceFile = referenceFile.string();
   std::unique_ptr<MpcParameterUpdaterModule> updater =
@@ -424,12 +425,13 @@ TEST_F(MpcParameterUpdaterModuleMechanicsTest,
   });
   updater->addReferenceFileReloader(
       [&reloaded](const ReferenceSettings& settings) {
-        reloaded.push_back(settings.maxRotationVelocity);
+        reloaded.push_back(settings.cmdMaxAngvelBaseRtWorldEwrtWorldZ);
         return absl::OkStatus();
       });
   writeWatched(
       referenceFile,
-      absl::StrCat(kReferenceFileLimits, "max_rotation_velocity: 0.75\n"),
+      absl::StrCat(kReferenceFileLimits,
+                   "cmd_max_angvel_base_rt_world_ewrt_world_z: 0.75\n"),
       /*seconds=*/2);
   absl::ScopedMockLog log(absl::MockLogDefault::kIgnoreUnexpected);
   EXPECT_CALL(log,

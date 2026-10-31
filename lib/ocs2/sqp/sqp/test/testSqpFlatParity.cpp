@@ -242,17 +242,17 @@ OptimalControlProblem makeProblem(const ParityConfiguration& configuration) {
       "inputBound", std::make_unique<StateInputSoftConstraint>(
                         std::make_unique<LinearStateInputConstraint>(inputBoundOffset, inputBoundStateFactor, inputBoundInputFactor),
                         std::make_unique<RelaxedBarrierPenalty>(RelaxedBarrierPenalty::Config(/*muParam=*/0.1, /*deltaParam=*/0.5))));
-  vector_t positionBoundOffset(1);
-  positionBoundOffset << 1.2;
-  matrix_t positionBoundFactor = matrix_t::Zero(1, kStateDim);
-  positionBoundFactor(0, 0) = -1.0;
+  vector_t stateBoundOffset(1);
+  stateBoundOffset << 1.2;
+  matrix_t stateBoundFactor = matrix_t::Zero(1, kStateDim);
+  stateBoundFactor(0, 0) = -1.0;
   problem.preJumpSoftConstraintPtr->add(
       "positionBound", std::make_unique<StateSoftConstraint>(
-                           std::make_unique<LinearStateConstraint>(positionBoundOffset, positionBoundFactor),
+                           std::make_unique<LinearStateConstraint>(stateBoundOffset, stateBoundFactor),
                            std::make_unique<RelaxedBarrierPenalty>(RelaxedBarrierPenalty::Config(/*muParam=*/0.2, /*deltaParam=*/0.1))));
   problem.finalSoftConstraintPtr->add(
       "positionBound", std::make_unique<StateSoftConstraint>(
-                           std::make_unique<LinearStateConstraint>(positionBoundOffset, positionBoundFactor),
+                           std::make_unique<LinearStateConstraint>(stateBoundOffset, stateBoundFactor),
                            std::make_unique<RelaxedBarrierPenalty>(RelaxedBarrierPenalty::Config(/*muParam=*/0.2, /*deltaParam=*/0.1))));
 
   if (configuration.withEqualityConstraint) {

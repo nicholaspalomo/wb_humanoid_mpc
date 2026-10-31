@@ -244,7 +244,8 @@ TEST_P(NominalPendulum, EveryConsumerDerivesTheModelsCenterOfMassAboveItsFeet) {
          "sole height";
   // Positive control for the oracle: the pendulum is measured from the soles,
   // not from the base.
-  const scalar_t baseHeight = robotModel_->getBasePosition(initialState_)(2);
+  const scalar_t baseHeight =
+      robotModel_->getPosBaseRtWorldEwrtWorld(initialState_)(2);
   EXPECT_GT(std::abs(shared - baseHeight), 1.0e-3)
       << "the check above cannot tell the pendulum from the base height";
   // And not from the world origin: the robot standing on a 0.25 m box has the
@@ -255,8 +256,8 @@ TEST_P(NominalPendulum, EveryConsumerDerivesTheModelsCenterOfMassAboveItsFeet) {
   const Eigen::Index baseZ = static_cast<Eigen::Index>(
       6 + 2);  // [momentum (6), base position (3), ...]
   onABox(baseZ) += 0.25;
-  ASSERT_NEAR(robotModel_->getBasePosition(onABox)(2), baseHeight + 0.25,
-              1.0e-12)
+  ASSERT_NEAR(robotModel_->getPosBaseRtWorldEwrtWorld(onABox)(2),
+              baseHeight + 0.25, 1.0e-12)
       << "the state layout assumed above is wrong";
   PinocchioInterface onABoxPinocchio(*pinocchioInterface_);
   EXPECT_NEAR(

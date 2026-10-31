@@ -173,7 +173,7 @@ struct SharedParameters {
   // key. ContactPlanningModelParameters::applyTo() writes it at start-up and on
   // every hot reload; a configuration with no model (a planner unit test) keeps
   // the default.
-  scalar_t gravity = kGravitationalAcceleration;
+  scalar_t gravity = kGravityMagnitude;
   // [m] LIP height, omega = sqrt(g / comHeight). Unset = from the model: its
   // center of mass above its feet at the task file's initialState
   // (computeComHeightAboveFeet, which an unset DCM terminal cost height

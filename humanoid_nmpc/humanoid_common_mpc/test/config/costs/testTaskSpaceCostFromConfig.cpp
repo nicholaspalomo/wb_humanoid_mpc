@@ -55,6 +55,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
+// NOLINTBEGIN(frame-naming): TaskSpaceWeights' per-component weight fields
 // The weights and the names are plain members: an absent one is its default.
 static_assert(
     std::is_same_v<decltype(mpc_config::TaskSpaceWeights::pos_x), double>);
@@ -163,6 +164,7 @@ TEST(EndEffectorKinematicsWeightsFromConfigTest,
                   weights, "task_space_foot_cost.weights")
                   .ok());
 }
+// NOLINTEND(frame-naming)
 
 TEST(TaskSpaceFootCostFromConfigTest, CarriesTheWeightsAndTheActivePhases) {
   mpc_config::TaskSpaceCostConfig footCost;
@@ -270,7 +272,8 @@ mpc_config::TaskSpaceCostConfig linkCost(const std::string& name,
 TEST(TaskSpaceLinkCostsFromConfigTest, KeepsTheFileOrder) {
   std::vector<mpc_config::TaskSpaceCostConfig> costs = {
       linkCost("torso", "utorso"), linkCost("pelvis", "pelvis")};
-  costs[1].weights.lin_velocity_z = 2.0;
+  costs[1].weights.lin_velocity_z =  // NOLINT(frame-naming): a weight field
+      2.0;
   const absl::StatusOr<std::vector<TaskSpaceLinkCostSettings>> settings =
       taskSpaceLinkCostsFromConfig(costs);
   ASSERT_TRUE(settings.ok()) << settings.status();
@@ -303,10 +306,11 @@ TEST(TaskSpaceLinkCostsFromConfigTest, RefusesWhatACostCannotBeBuiltFrom) {
       refused.status().message(),
       "task_space_costs[name=torso] sets active_phases \"swing_and_stance\""))
       << refused.status();
-  mpc_config::TaskSpaceCostConfig swingVelocity = linkCost("torso", "utorso");
-  swingVelocity.swing_velocity_reference_weight = 4.0;
+  mpc_config::TaskSpaceCostConfig withSwingReferenceWeight =
+      linkCost("torso", "utorso");
+  withSwingReferenceWeight.swing_velocity_reference_weight = 4.0;
   const absl::StatusOr<std::vector<TaskSpaceLinkCostSettings>> refusedWeight =
-      taskSpaceLinkCostsFromConfig({swingVelocity});
+      taskSpaceLinkCostsFromConfig({withSwingReferenceWeight});
   EXPECT_TRUE(absl::StrContains(
       refusedWeight.status().message(),
       "task_space_costs[name=torso] sets swing_velocity_reference_weight"))

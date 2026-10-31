@@ -68,9 +68,9 @@ TEST(InitialSimStateTest, TheSimulatorStartsInTheMpcState) {
     const vector3_t eulerZyx(3.5, 0.2, -0.1);
     vector_t state = robot->nominalState();
     const vector3_t position =
-        model.getBasePosition(state) + vector3_t(0.3, -0.2, 0.05);
-    model.setBasePosition(state, position);
-    model.setBaseOrientationEulerZyx(state, eulerZyx);
+        model.getPosBaseRtWorldEwrtWorld(state) + vector3_t(0.3, -0.2, 0.05);
+    model.setPosBaseRtWorldEwrtWorld(state, position);
+    model.setEulerzyxBaseRtWorld(state, eulerZyx);
     vector_t joints = model.getJointAngles(state);
     for (Eigen::Index joint = 0; joint < joints.size(); ++joint) {
       joints[joint] += 0.01 * static_cast<scalar_t>(joint + 1);
@@ -83,14 +83,13 @@ TEST(InitialSimStateTest, TheSimulatorStartsInTheMpcState) {
     const robot::model::RobotState simState = createInitialSimState(
         *description, robot->modelSettings(), model, state);
 
-    EXPECT_EQ(simState.getRootPositionInWorldFrame(), position);
-    // The orientation is the model's stored quaternion (getBaseOrientation),
-    // bit for bit, which is the rotation of the Euler angles it was set from up
-    // to round-off: the quaternion layout stores the coefficients, not the
-    // angles.
-    const quaternion_t rootOrientation =
-        simState.getRootRotationLocalToWorldFrame();
-    EXPECT_EQ(rootOrientation.coeffs(), model.getBaseOrientation(state));
+    EXPECT_EQ(simState.getPosBaseRtWorldEwrtWorld(), position);
+    // The orientation is the model's stored quaternion
+    // (getQuatBaseRtWorldXyzw), bit for bit, which is the rotation of the Euler
+    // angles it was set from up to round-off: the quaternion layout stores the
+    // coefficients, not the angles.
+    const quaternion_t rootOrientation = simState.getQuatBaseRtWorld();
+    EXPECT_EQ(rootOrientation.coeffs(), model.getQuatBaseRtWorldXyzw(state));
     EXPECT_NEAR(rootOrientation.norm(), 1.0, 1.0e-15);
     EXPECT_TRUE(rootOrientation.toRotationMatrix().isApprox(
         getRotationMatrixFromZyxEulerAngles<scalar_t>(eulerZyx), 1.0e-14))

@@ -125,10 +125,11 @@ TEST(UnitNorm, TheSlerpedTargetsAreUnitToRoundOff) {
   const MpcRobotModelBase<scalar_t>& model = stack.model();
   const vector_t initState =
       stack.standingAt(stack.initialState(), /*x=*/0.2, /*y=*/0.1, /*yaw=*/3.0);
-  const BasePlanarMotion measured{.velocityInHeadingFrame = vector2_t(0.3, 0.1),
-                                  .headingRate = 4.0};
+  const BasePlanarMotion measured{
+      .linvelBaseRtWorldEwrtHeadingXy = vector2_t(0.3, 0.1),
+      .rateYawBaseRtWorld = 4.0};
   const TargetTrajectories targets =
-      stack.targetCalculator().commandedVelocityToTargetTrajectories(
+      stack.targetCalculator().velocityCommandToTargetTrajectories(
           vector4_t(0.5, 0.0, 0.0, 1.0), /*initTime=*/2.0, initState, measured);
   ASSERT_GT(targets.size(), 3U) << "the turn must be cut into knots";
   scalar_t largest = 0.0;
@@ -180,8 +181,8 @@ TEST(UnitNorm, TheRolloutProjectsEveryStateOntoTheUnitSphere) {
     largest = std::max(largest, normError(model, states[i]));
   EXPECT_LE(largest, 1.0e-15);
   // Positive control: the base did turn.
-  EXPECT_GT(std::abs(model.getBaseHeading(states.back()) -
-                     model.getBaseHeading(states.front())),
+  EXPECT_GT(std::abs(model.getYawBaseRtWorld(states.back()) -
+                     model.getYawBaseRtWorld(states.front())),
             0.1);
 }
 

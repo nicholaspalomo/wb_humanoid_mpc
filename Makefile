@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 
 ############################################################
-# Bazel Build System — Monorepo Makefile
+# Bazel Build System - Monorepo Makefile
 ############################################################
 
 mkfile_path := $(abspath $(lastword $(MAKEFILE_LIST)))
@@ -43,9 +43,9 @@ train-acom-jupyter:
 ## never a process of another checkout or test), the simulation's robot container, and a NETEM qdisc on lo.
 ## This cannot remove zombies: a zombie has already exited and only its parent can reap it. See check-zombies.
 kill-sims:
-	@echo "🧹 Cleaning up previous sim processes..."
+	@echo "Cleaning up previous sim processes..."
 # 	@$(session) stop
-# 	@echo "✅ Cleanup done."
+# 	@echo "Cleanup done."
 # 	@$(MAKE) --no-print-directory check-zombies WARN_ONLY=1
 
 ## Report zombie processes and which parent is holding them.
@@ -55,9 +55,9 @@ kill-sims:
 check-zombies:
 	@z=$$(ps -eo stat --no-headers 2>/dev/null | awk '/^Z/ {n++} END {print n+0}'); \
 	if [ "$$z" -eq 0 ]; then \
-		[ -n "$(WARN_ONLY)" ] || echo "✅ No zombie processes."; \
+		[ -n "$(WARN_ONLY)" ] || echo "No zombie processes."; \
 	else \
-		echo "⚠️  $$z zombie process(es). They cannot be killed; only their parent can reap them."; \
+		echo "Warning: $$z zombie process(es). They cannot be killed; only their parent can reap them."; \
 		echo "   Held by:"; \
 		ps -eo ppid,stat --no-headers | awk '$$2 ~ /^Z/ {print $$1}' | sort | uniq -c | sort -rn | head -3 | \
 		while read -r n ppid; do \
@@ -315,7 +315,7 @@ derive-heuristic-parameters:
 install-hooks:
 	@chmod +x tools/hooks/pre-commit && \
 	ln -sfn ../../tools/hooks/pre-commit .git/hooks/pre-commit && \
-	echo "✅ Git pre-commit hook installed successfully (a symlink to tools/hooks/pre-commit)."
+	echo "Git pre-commit hook installed successfully (a symlink to tools/hooks/pre-commit)."
 
 ## Update git submodules (tools/ifttt-lint)
 update-submodules:
@@ -664,7 +664,7 @@ rerun-viewer:
 	@$(dev_run) '$(bazel_indexed_in_repo) run //humanoid_nmpc/humanoid_rerun_viewer -- $(rerun_flags) --rerun_sink=spawn'
 
 rerun-web:
-	@echo "🌐 Rerun web viewer: http://localhost:9090/?url=rerun+http://localhost:9876/proxy"
+	@echo "Rerun web viewer: http://localhost:9090/?url=rerun+http://localhost:9876/proxy"
 	@$(dev_run) '$(bazel_indexed_in_repo) run //humanoid_nmpc/humanoid_rerun_viewer -- $(rerun_flags) --rerun_sink=serve_web'
 
 ## Inspect the bus (tools/ipc): make ipc-list, make ipc-echo TOPIC=mpc/status, make ipc-hz TOPIC=robot/mpc_observation

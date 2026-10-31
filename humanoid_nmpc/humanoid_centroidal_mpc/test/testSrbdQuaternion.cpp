@@ -145,7 +145,7 @@ TEST_P(
     EXPECT_LT((srbdMap.com - fullMap.com).cwiseAbs().maxCoeff(), 1.0e-12);
     // The closed form of the port: A_b = [[m I, m [R r_nom]x R], [0, R I_nom]].
     const matrix3_t rotation = quaternion_t(xi).normalized().toRotationMatrix();
-    const vector3_t offset = rotation * srbdInfo.comToBasePositionNominal;
+    const vector3_t offset = rotation * srbdInfo.nomPosBaseRtComEwrtBase;
     matrix3_t skew;
     skew << 0.0, -offset.z(), offset.y(), offset.z(), 0.0, -offset.x(),
         -offset.y(), offset.x(), 0.0;
@@ -208,8 +208,8 @@ vector_t centroidalFlowOf(PinocchioInterface& interface,
   updateCentroidalDynamics<scalar_t>(interface, info,
                                      mapping.getPinocchioJointPosition(state));
   vector_t flow(info.stateDim);
-  centroidal_model::getNormalizedMomentum(flow, info) =
-      getNormalizedCentroidalMomentumRate<scalar_t>(interface, info, input);
+  centroidal_model::getMnormCmomComRtWorldEwrtWorld(flow, info) =
+      getMnormRateCmomComRtWorldEwrtWorld<scalar_t>(interface, info, input);
   centroidal_model::configurationDerivative(flow, info) =
       computeConfigurationDerivative<scalar_t>(
           info, state, mapping.getPinocchioJointVelocity(state, input));

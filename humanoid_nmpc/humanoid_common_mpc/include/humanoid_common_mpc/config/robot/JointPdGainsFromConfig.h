@@ -45,7 +45,7 @@ namespace ocs2::humanoid {
  * operator/pd_gains), every gain from the file - a controller has none of its
  * own:
  *
- *   - default_gains, which sets kp, kd and torque_limit;
+ *   - default_gains, which sets kp, kd and max_joint_torque;
  *   - an MPC joint (`mpcJointNames`, in the order of
  * ModelSettings::mpcModelJointNames) the file names gets its own gains, each
  * over default_gains; one it does not name gets default_gains;
@@ -65,7 +65,7 @@ namespace ocs2::humanoid {
  * thread, never the realtime one.
  *
  * @return InvalidArgument naming the field when default_gains leaves out kp, kd
- * or torque_limit, when a gain is not a finite non-negative number, when
+ * or max_joint_torque, when a gain is not a finite non-negative number, when
  * gravity_comp_damping_fraction is not in [0, 1], max_policy_joint_error not a
  * finite positive number or diverged_policy_joint_target_bound not a finite
  * non-negative one, when an entry of joint_gains names no joint, when two

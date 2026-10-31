@@ -50,7 +50,7 @@ namespace ocs2::humanoid {
  */
 struct ContactPatchFrame {
   /** p_R_w: the patch-frame coordinates of a world vector v are p_R_w v. */
-  matrix3_t worldToPatchRotation = matrix3_t::Identity();
+  matrix3_t rotmatWorldRtSurface = matrix3_t::Identity();
   /** [m] n . o for a point o of the patch and its normal n: the height of a
    * world-aligned patch. */
   scalar_t normalOffset = 0.0;
@@ -59,12 +59,12 @@ struct ContactPatchFrame {
 /** Whether `patch` is world aligned: its rotation is exactly the identity, so
  * its normal is the world z axis. */
 inline bool isWorldAligned(const ContactPatchFrame& patch) {
-  return patch.worldToPatchRotation == matrix3_t::Identity();
+  return patch.rotmatWorldRtSurface == matrix3_t::Identity();
 }
 
 /** The outward normal of `patch` in the world frame: the last row of p_R_w. */
 inline vector3_t patchNormal(const ContactPatchFrame& patch) {
-  return patch.worldToPatchRotation.row(kZAxisIndex).transpose();
+  return patch.rotmatWorldRtSurface.row(kZAxisIndex).transpose();
 }
 
 }  // namespace ocs2::humanoid

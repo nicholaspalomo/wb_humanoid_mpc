@@ -143,21 +143,21 @@ vector_t counting(Eigen::Index size) {
 }
 
 constexpr absl::string_view kCentroidalState = R"pb(
-  normalized_linear_momentum { x: 1 y: 2 z: 3 }
-  normalized_angular_momentum { x: 4 y: 5 z: 6 }
-  base_position { x: 7 y: 8 z: 9 }
-  base_orientation { yaw: 10 pitch: 11 roll: 12 }
+  mnorm_linmom_com_rt_world_ewrt_world { x: 1 y: 2 z: 3 }
+  mnorm_angmom_com_rt_world_ewrt_world { x: 4 y: 5 z: 6 }
+  pos_base_rt_world_ewrt_world { x: 7 y: 8 z: 9 }
+  eulerzyx_base_rt_world { yaw: 10 pitch: 11 roll: 12 }
   joint_positions { joint: "b" value: 14 }
   joint_positions { joint: "a" value: 13 }
 )pb";
 
 constexpr absl::string_view kWholeBodyState = R"pb(
-  base_position { x: 1 y: 2 z: 3 }
-  base_orientation { yaw: 4 pitch: 5 roll: 6 }
+  pos_base_rt_world_ewrt_world { x: 1 y: 2 z: 3 }
+  eulerzyx_base_rt_world { yaw: 4 pitch: 5 roll: 6 }
   joint_positions { joint: "a" value: 7 }
   joint_positions { joint: "b" value: 8 }
-  base_linear_velocity { x: 9 y: 10 z: 11 }
-  base_angular_velocity { yaw: 12 pitch: 13 roll: 14 }
+  linvel_base_rt_world_ewrt_world { x: 9 y: 10 z: 11 }
+  angvel_base_rt_world_ewrt_base { yaw: 12 pitch: 13 roll: 14 }
   joint_velocities { joint: "b" value: 16 }
   joint_velocities { joint: "a" value: 15 }
 )pb";
@@ -239,14 +239,16 @@ TEST(StateInputLayoutTest,
   expectTuningLayoutIsPlaceStatesLayout(
       smallLayout(StateInputLayout::Mpc::kCentroidal), kCentroidalState,
       {
-          {.field = "normalized_linear_momentum",
+          {.field = "mnorm_linmom_com_rt_world_ewrt_world",
            .firstValue = 1.0,
            .lastValue = 3.0},
-          {.field = "normalized_angular_momentum",
+          {.field = "mnorm_angmom_com_rt_world_ewrt_world",
            .firstValue = 4.0,
            .lastValue = 6.0},
-          {.field = "base_position", .firstValue = 7.0, .lastValue = 9.0},
-          {.field = "base_orientation",
+          {.field = "pos_base_rt_world_ewrt_world",
+           .firstValue = 7.0,
+           .lastValue = 9.0},
+          {.field = "eulerzyx_base_rt_world",
            .kind = TuningSegmentKind::kEulerZyxOrientation,
            .firstValue = 10.0,
            .lastValue = 12.0},
@@ -259,16 +261,18 @@ TEST(StateInputLayoutTest,
   expectTuningLayoutIsPlaceStatesLayout(
       smallLayout(StateInputLayout::Mpc::kWholeBody), kWholeBodyState,
       {
-          {.field = "base_position", .firstValue = 1.0, .lastValue = 3.0},
-          {.field = "base_orientation",
+          {.field = "pos_base_rt_world_ewrt_world",
+           .firstValue = 1.0,
+           .lastValue = 3.0},
+          {.field = "eulerzyx_base_rt_world",
            .kind = TuningSegmentKind::kEulerZyxOrientation,
            .firstValue = 4.0,
            .lastValue = 6.0},
           {.field = "joint_positions", .firstValue = 7.0, .lastValue = 8.0},
-          {.field = "base_linear_velocity",
+          {.field = "linvel_base_rt_world_ewrt_world",
            .firstValue = 9.0,
            .lastValue = 11.0},
-          {.field = "base_angular_velocity",
+          {.field = "angvel_base_rt_world_ewrt_base",
            .kind = TuningSegmentKind::kZyxOrderedAngularVelocity,
            .firstValue = 12.0,
            .lastValue = 14.0},
@@ -358,14 +362,18 @@ TEST(StateWeightsFromConfigTest, ANegativeOrNanWeightOrScalingIsRefused) {
   // first).
   const std::vector<WeightField<Weights>> fields = {
       {"state_weights.scaling", [](Weights& w, double v) { w.scaling = v; }},
-      {"state_weights.normalized_linear_momentum.x",
-       [](Weights& w, double v) { w.normalized_linear_momentum->x = v; }},
-      {"state_weights.normalized_angular_momentum.z",
-       [](Weights& w, double v) { w.normalized_angular_momentum->z = v; }},
-      {"state_weights.base_position.y",
-       [](Weights& w, double v) { w.base_position->y = v; }},
-      {"state_weights.base_orientation.pitch",
-       [](Weights& w, double v) { w.base_orientation->pitch = v; }},
+      {"state_weights.mnorm_linmom_com_rt_world_ewrt_world.x",
+       [](Weights& w, double v) {
+         w.mnorm_linmom_com_rt_world_ewrt_world->x = v;
+       }},
+      {"state_weights.mnorm_angmom_com_rt_world_ewrt_world.z",
+       [](Weights& w, double v) {
+         w.mnorm_angmom_com_rt_world_ewrt_world->z = v;
+       }},
+      {"state_weights.pos_base_rt_world_ewrt_world.y",
+       [](Weights& w, double v) { w.pos_base_rt_world_ewrt_world->y = v; }},
+      {"state_weights.eulerzyx_base_rt_world.pitch",
+       [](Weights& w, double v) { w.eulerzyx_base_rt_world->pitch = v; }},
       {"state_weights.joint_positions[joint=b].value",
        [](Weights& w, double v) { w.joint_positions[0].value = v; }},
   };
@@ -375,24 +383,24 @@ TEST(StateWeightsFromConfigTest, ANegativeOrNanWeightOrScalingIsRefused) {
   // The terminal weights and the tracking weights go through the same
   // conversion.
   Weights negative = valid;
-  if (!negative.base_position.has_value()) {
-    FAIL() << "kCentroidalState sets base_position";
+  if (!negative.pos_base_rt_world_ewrt_world.has_value()) {
+    FAIL() << "kCentroidalState sets pos_base_rt_world_ewrt_world";
   }
-  negative.base_position->x = -1.0;
+  negative.pos_base_rt_world_ewrt_world->x = -1.0;
   expectRefused(terminalStateWeightsFromConfig(
                     negative, /*terminalCostScaling=*/1.0, layout,
                     "final_state_weights", BasePoseWeights::kKept)
                     .status(),
-                {"final_state_weights.base_position.x is -1"});
+                {"final_state_weights.pos_base_rt_world_ewrt_world.x is -1"});
 }
 
 TEST(StateValuesFromConfigTest, AStateValueMayBeNegative) {
   const mpc_config::TaskFile task = taskFile(R"pb(
     initial_state {
-      normalized_linear_momentum { x: -1 y: 2 z: 3 }
-      normalized_angular_momentum { x: 4 y: 5 z: 6 }
-      base_position { x: 7 y: 8 z: 9 }
-      base_orientation { yaw: -10 pitch: 11 roll: 12 }
+      mnorm_linmom_com_rt_world_ewrt_world { x: -1 y: 2 z: 3 }
+      mnorm_angmom_com_rt_world_ewrt_world { x: 4 y: 5 z: 6 }
+      pos_base_rt_world_ewrt_world { x: 7 y: 8 z: 9 }
+      eulerzyx_base_rt_world { yaw: -10 pitch: 11 roll: 12 }
       joint_positions { joint: "b" value: -14 }
       joint_positions { joint: "a" value: 13 }
     }
@@ -428,8 +436,10 @@ TEST(InputWeightsFromConfigTest, ANegativeOrNanWeightOrScalingIsRefused) {
   const std::vector<WeightField<Weights>> fields = {
       {"input_weights.scaling", [](Weights& w, double v) { w.scaling = v; }},
       {"input_weights.contact_wrenches[contact=left].force.z",
+       // NOLINTNEXTLINE(frame-naming): InputWeights' weight fields
        [](Weights& w, double v) { w.contact_wrenches[0].force->z = v; }},
       {"input_weights.contact_wrenches[contact=right].moment.x",
+       // NOLINTNEXTLINE(frame-naming): InputWeights' weight fields
        [](Weights& w, double v) { w.contact_wrenches[1].moment->x = v; }},
       {"input_weights.joint_velocities[joint=b].value",
        [](Weights& w, double v) { w.joint_velocities[1].value = v; }},
@@ -499,10 +509,10 @@ TEST(StateWeightsFromConfigTest, EmptyBlocksAndJointsWithoutAValueAreZeros) {
   const mpc_config::TaskFile task = taskFile(R"pb(
     state_weights {
       scaling: 3
-      normalized_linear_momentum {}
-      normalized_angular_momentum {}
-      base_position { z: 1 }
-      base_orientation {}
+      mnorm_linmom_com_rt_world_ewrt_world {}
+      mnorm_angmom_com_rt_world_ewrt_world {}
+      pos_base_rt_world_ewrt_world { z: 1 }
+      eulerzyx_base_rt_world {}
       joint_positions { joint: "a" }
       joint_positions { joint: "b" }
     }
@@ -520,10 +530,10 @@ TEST(StateWeightsFromConfigTest,
      EveryProblemIsRefusedAtOnceNamingItsFieldPath) {
   const mpc_config::TaskFile task = taskFile(R"pb(
     state_weights {
-      normalized_linear_momentum {}
-      base_position {}
-      base_orientation {}
-      base_linear_velocity {}
+      mnorm_linmom_com_rt_world_ewrt_world {}
+      pos_base_rt_world_ewrt_world {}
+      eulerzyx_base_rt_world {}
+      linvel_base_rt_world_ewrt_world {}
       joint_positions { joint: "a" }
       joint_positions { joint: "a" }
       joint_positions { joint: "f" }
@@ -537,8 +547,9 @@ TEST(StateWeightsFromConfigTest,
   expectRefused(
       weights.status(),
       {
-          "state_weights.normalized_angular_momentum is missing",
-          "state_weights.base_linear_velocity is not part of the centroidal "
+          "state_weights.mnorm_angmom_com_rt_world_ewrt_world is missing",
+          "state_weights.linvel_base_rt_world_ewrt_world is not part of the "
+          "centroidal "
           "MPC's state",
           "state_weights.joint_velocities is not part of the centroidal MPC's "
           "state",
@@ -556,15 +567,16 @@ TEST(StateWeightsFromConfigTest,
   const absl::StatusOr<matrix_t> weights = stateWeightsFromConfig(
       task.state_weights, smallLayout(StateInputLayout::Mpc::kWholeBody),
       "state_weights");
-  expectRefused(weights.status(),
-                {
-                    "state_weights.normalized_linear_momentum is not part of "
-                    "the whole-body MPC's state",
-                    "state_weights.normalized_angular_momentum is not part of "
-                    "the whole-body MPC's state",
-                    "state_weights.base_linear_velocity is missing",
-                    "state_weights.joint_velocities: missing a, b",
-                });
+  expectRefused(
+      weights.status(),
+      {
+          "state_weights.mnorm_linmom_com_rt_world_ewrt_world is not part of "
+          "the whole-body MPC's state",
+          "state_weights.mnorm_angmom_com_rt_world_ewrt_world is not part of "
+          "the whole-body MPC's state",
+          "state_weights.linvel_base_rt_world_ewrt_world is missing",
+          "state_weights.joint_velocities: missing a, b",
+      });
 }
 
 TEST(StateWeightsFromConfigTest, AFileWithoutTheWeightsIsRefused) {
@@ -579,10 +591,10 @@ TEST(StateWeightsFromConfigTest, AValueThatIsNotFiniteIsRefused) {
   const mpc_config::TaskFile task = taskFile(R"pb(
     state_weights {
       scaling: inf
-      normalized_linear_momentum { x: nan }
-      normalized_angular_momentum {}
-      base_position {}
-      base_orientation {}
+      mnorm_linmom_com_rt_world_ewrt_world { x: nan }
+      mnorm_angmom_com_rt_world_ewrt_world {}
+      pos_base_rt_world_ewrt_world {}
+      eulerzyx_base_rt_world {}
       joint_positions { joint: "a" value: -inf }
       joint_positions { joint: "b" }
     }
@@ -590,12 +602,13 @@ TEST(StateWeightsFromConfigTest, AValueThatIsNotFiniteIsRefused) {
   const absl::StatusOr<matrix_t> weights = stateWeightsFromConfig(
       task.state_weights, smallLayout(StateInputLayout::Mpc::kCentroidal),
       "state_weights");
-  expectRefused(weights.status(),
-                {
-                    "state_weights.scaling is inf, not a finite number",
-                    "state_weights.normalized_linear_momentum.x is nan",
-                    "state_weights.joint_positions[joint=a].value is -inf",
-                });
+  expectRefused(
+      weights.status(),
+      {
+          "state_weights.scaling is inf, not a finite number",
+          "state_weights.mnorm_linmom_com_rt_world_ewrt_world.x is nan",
+          "state_weights.joint_positions[joint=a].value is -inf",
+      });
 }
 
 TEST(StateValuesFromConfigTest, TheInitialStateIsItsValuesOnTheLayout) {
@@ -620,7 +633,7 @@ TEST(StateValuesFromConfigTest, TheInitialStateIsItsValuesOnTheLayout) {
                             smallLayout(StateInputLayout::Mpc::kWholeBody),
                             "initial_state")
           .status(),
-      {"initial_state.base_position is missing",
+      {"initial_state.pos_base_rt_world_ewrt_world is missing",
        "initial_state.joint_positions: missing a, b"});
 }
 
@@ -840,21 +853,22 @@ TEST(TrackingStateWeightsFromConfigTest,
       task.state_weights, layout, "state_weights",
       BasePoseWeights::kZeroedForComAndAcomTracking);
   ASSERT_TRUE(zeroed.ok()) << zeroed.status();
-  // The rows of base_position and base_orientation of the tuning layout, and
-  // only those.
+  // The rows of pos_base_rt_world_ewrt_world and eulerzyx_base_rt_world of the
+  // tuning layout, and only those.
   const TuningLayout tuningLayout = tuningLayoutOf(layout);
   const absl::StatusOr<size_t> first =
-      tuningSegmentStart(tuningLayout, "base_position");
-  const absl::StatusOr<size_t> orientation =
-      tuningSegmentStart(tuningLayout, "base_orientation");
-  ASSERT_TRUE(first.ok() && orientation.ok());
+      tuningSegmentStart(tuningLayout, "pos_base_rt_world_ewrt_world");
+  const absl::StatusOr<size_t> eulerzyxStart =
+      tuningSegmentStart(tuningLayout, "eulerzyx_base_rt_world");
+  ASSERT_TRUE(first.ok() && eulerzyxStart.ok());
   const Eigen::Index begin = static_cast<Eigen::Index>(*first);
-  const Eigen::Index end = static_cast<Eigen::Index>(*orientation + 3);
+  const Eigen::Index end = static_cast<Eigen::Index>(*eulerzyxStart + 3);
   for (Eigen::Index row = 0; row < zeroed->rows(); ++row) {
     for (Eigen::Index col = 0; col < zeroed->cols(); ++col) {
-      const bool basePose =
+      const bool inBaseTuningBlock =
           row >= begin && row < end && col >= begin && col < end;
-      EXPECT_EQ((*zeroed)(row, col), basePose ? 0.0 : (*converted)(row, col))
+      EXPECT_EQ((*zeroed)(row, col),
+                inBaseTuningBlock ? 0.0 : (*converted)(row, col))
           << "(" << row << "," << col << ")";
     }
   }
@@ -866,14 +880,15 @@ TEST(TerminalStateWeightsFromConfigTest,
       smallLayout(StateInputLayout::Mpc::kCentroidal);
   const mpc_config::TaskFile task = taskFile(absl::StrCat(
       "final_state_weights { scaling: 3 ", kCentroidalState, " }"));
-  for (const BasePoseWeights basePose :
+  for (const BasePoseWeights basePoseWeights :
        {BasePoseWeights::kKept,
         BasePoseWeights::kZeroedForComAndAcomTracking}) {
-    const absl::StatusOr<matrix_t> tracking = trackingStateWeightsFromConfig(
-        task.final_state_weights, layout, "final_state_weights", basePose);
+    const absl::StatusOr<matrix_t> tracking =
+        trackingStateWeightsFromConfig(task.final_state_weights, layout,
+                                       "final_state_weights", basePoseWeights);
     const absl::StatusOr<matrix_t> terminal = terminalStateWeightsFromConfig(
         task.final_state_weights, /*terminalCostScaling=*/4.0, layout,
-        "final_state_weights", basePose);
+        "final_state_weights", basePoseWeights);
     ASSERT_TRUE(tracking.ok()) << tracking.status();
     ASSERT_TRUE(terminal.ok()) << terminal.status();
     // Element for element the multiplication the factory and the live updater
@@ -889,7 +904,7 @@ TEST(TerminalStateWeightsFromConfigTest,
                     refused.final_state_weights, /*terminalCostScaling=*/4.0,
                     layout, "final_state_weights", BasePoseWeights::kKept)
                     .status(),
-                {"final_state_weights.base_linear_velocity"});
+                {"final_state_weights.linvel_base_rt_world_ewrt_world"});
 }
 
 TEST(LegTorqueCostFromConfigTest, TheJointsKeepTheirOrderAndAreScaled) {
@@ -1116,16 +1131,16 @@ TEST(ShippedTaskFilesTest,
     ASSERT_EQ(getTuningLayoutStateDim(placed), tuningDimension(layout) + 1);
     const bool wholeBody = robot.mpc == StateInputLayout::Mpc::kWholeBody;
 
-    const absl::StatusOr<size_t> orientationRow =
-        tuningSegmentStart(tuning, "base_orientation");
-    ASSERT_TRUE(orientationRow.ok()) << orientationRow.status();
-    const Eigen::Index orientation = static_cast<Eigen::Index>(*orientationRow);
-    Eigen::Index angularVelocity = 0;
+    const absl::StatusOr<size_t> eulerzyxRow =
+        tuningSegmentStart(tuning, "eulerzyx_base_rt_world");
+    ASSERT_TRUE(eulerzyxRow.ok()) << eulerzyxRow.status();
+    const Eigen::Index eulerzyxStart = static_cast<Eigen::Index>(*eulerzyxRow);
+    Eigen::Index angvelStart = 0;
     if (wholeBody) {
-      const absl::StatusOr<size_t> angularVelocityRow =
-          tuningSegmentStart(tuning, "base_angular_velocity");
-      ASSERT_TRUE(angularVelocityRow.ok()) << angularVelocityRow.status();
-      angularVelocity = static_cast<Eigen::Index>(*angularVelocityRow);
+      const absl::StatusOr<size_t> angvelRow =
+          tuningSegmentStart(tuning, "angvel_base_rt_world_ewrt_base");
+      ASSERT_TRUE(angvelRow.ok()) << angvelRow.status();
+      angvelStart = static_cast<Eigen::Index>(*angvelRow);
     }
 
     const std::array<std::pair<const char* absl_nonnull,
@@ -1143,20 +1158,20 @@ TEST(ShippedTaskFilesTest,
       ASSERT_TRUE(Q.ok()) << Q.status();
       ASSERT_EQ(Q->rows(), tuningDim);
       const vector_t diagonal = diagonalOf(*Q);
-      const vector3_t expectedOrientation =
+      const vector3_t expectedEulerzyxWeights =
           fileWeights.scaling *
-          yawPitchRollOf(fileWeights.base_orientation.value_or(
+          yawPitchRollOf(fileWeights.eulerzyx_base_rt_world.value_or(
               mpc_config::YawPitchRoll{}));
-      EXPECT_EQ(vector3_t(diagonal.segment<3>(orientation)),
-                expectedOrientation)
+      EXPECT_EQ(vector3_t(diagonal.segment<3>(eulerzyxStart)),
+                expectedEulerzyxWeights)
           << "the (yaw, pitch, roll) rows";
       if (wholeBody) {
-        const vector3_t expectedAngularVelocity =
+        const vector3_t expectedAngvelWeights =
             fileWeights.scaling *
-            yawPitchRollOf(fileWeights.base_angular_velocity.value_or(
+            yawPitchRollOf(fileWeights.angvel_base_rt_world_ewrt_base.value_or(
                 mpc_config::YawPitchRoll{}));
-        EXPECT_EQ(vector3_t(diagonal.segment<3>(angularVelocity)),
-                  expectedAngularVelocity)
+        EXPECT_EQ(vector3_t(diagonal.segment<3>(angvelStart)),
+                  expectedAngvelWeights)
             << "the body (z, y, x) rows";
       }
     }
@@ -1165,24 +1180,25 @@ TEST(ShippedTaskFilesTest,
         stateValuesFromConfig(task->initial_state, layout, "initial_state");
     ASSERT_TRUE(initial.ok()) << initial.status();
     ASSERT_EQ(initial->size(), tuningDim);
-    const vector3_t initialOrientation =
-        yawPitchRollOf(task->initial_state.base_orientation.value_or(
+    const vector3_t initEulerzyxBaseRtWorld =
+        yawPitchRollOf(task->initial_state.eulerzyx_base_rt_world.value_or(
             mpc_config::YawPitchRoll{}));
-    EXPECT_EQ(vector3_t(initial->segment<3>(orientation)), initialOrientation);
+    EXPECT_EQ(vector3_t(initial->segment<3>(eulerzyxStart)),
+              initEulerzyxBaseRtWorld);
     const absl::StatusOr<vector_t> state =
         stateFromTuningLayout(*initial, placed);
     ASSERT_TRUE(state.ok()) << state.status();
     ASSERT_EQ(state->size(), tuningDim + 1);
     // The orientation is the quaternion of the file's angles, at the slots the
     // tuning row of its yaw starts.
-    EXPECT_EQ(vector4_t(state->segment<4>(orientation)),
-              quaternionFromEulerZyx(initialOrientation));
-    EXPECT_NEAR(state->segment<4>(orientation).norm(), 1.0, 1.0e-15);
+    EXPECT_EQ(vector4_t(state->segment<4>(eulerzyxStart)),
+              quaternionFromEulerZyx(initEulerzyxBaseRtWorld));
+    EXPECT_NEAR(state->segment<4>(eulerzyxStart).norm(), 1.0, 1.0e-15);
     if (wholeBody) {
       // w_B = (x, y, z) of the rows (z, y, x), one slot further on than its
       // tuning rows.
-      EXPECT_EQ(vector3_t(state->segment<3>(angularVelocity + 1)),
-                vector3_t(initial->segment<3>(angularVelocity).reverse()));
+      EXPECT_EQ(vector3_t(state->segment<3>(angvelStart + 1)),
+                vector3_t(initial->segment<3>(angvelStart).reverse()));
     }
     const absl::StatusOr<vector_t> roundTrip =
         tuningLayoutFromState(*state, placed);

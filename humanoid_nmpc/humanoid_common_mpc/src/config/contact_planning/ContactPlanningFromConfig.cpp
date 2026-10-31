@@ -119,9 +119,9 @@ absl::StatusOr<bool> runsInBackgroundThread(absl::string_view name) {
 
 /** Whether terminal_dcm.target `name` tracks the commanded velocity;
  * InvalidArgument listing the names otherwise. */
-absl::StatusOr<bool> tracksCommandedVelocity(absl::string_view name) {
-  if (name == kRestTerminalDcmTarget) return false;
-  if (name == kCommandedVelocityTerminalDcmTarget) return true;
+absl::StatusOr<bool> terminalDcmTracksCommand(absl::string_view name) {
+  if (name == kRestTerminalDcmTargetName) return false;
+  if (name == kCommandedVelocityTerminalDcmTargetName) return true;
   return absl::InvalidArgumentError(absl::StrCat(
       "[ContactPlanningConfig] terminal_dcm.target is '", name,
       "', which is not a target of the terminal DCM; valid names are: ",
@@ -192,11 +192,14 @@ HlipParameters hlipFromConfig(const File::HlipConfig& from) {
   to.minStepWidth = from.min_step_width;
   to.blend.sharpness = from.blend.sharpness;
   to.blend.threshold = from.blend.threshold;
-  to.blend.maxCommandedVelocityX = from.blend.max_commanded_velocity_x;
-  to.blend.maxCommandedVelocityY = from.blend.max_commanded_velocity_y;
-  to.blend.maxCommandedYawRate = from.blend.max_commanded_yaw_rate;
-  to.blend.maxComVelocityX = from.blend.max_com_velocity_x;
-  to.blend.maxComVelocityY = from.blend.max_com_velocity_y;
+  to.blend.maxCommandedVelocityX =
+      from.blend.cmd_max_linvel_base_rt_world_ewrt_heading_x;
+  to.blend.maxCommandedVelocityY =
+      from.blend.cmd_max_linvel_base_rt_world_ewrt_heading_y;
+  to.blend.maxCommandedYawRate =
+      from.blend.cmd_max_angvel_base_rt_world_ewrt_world_z;
+  to.blend.maxComVelocityX = from.blend.max_linvel_com_rt_world_ewrt_heading_x;
+  to.blend.maxComVelocityY = from.blend.max_linvel_com_rt_world_ewrt_heading_y;
   return to;
 }
 
@@ -220,7 +223,7 @@ absl::Status copyCosts(const File& from, ContactPlanningConfig& to) {
   to.stepLength.weight = from.step_length.weight;
   to.terminalDcm.weight = from.terminal_dcm.weight;
   ASSIGN_OR_RETURN(to.terminalDcm.trackCommandedVelocity,
-                   tracksCommandedVelocity(from.terminal_dcm.target));
+                   terminalDcmTracksCommand(from.terminal_dcm.target));
   return absl::OkStatus();
 }
 
@@ -266,7 +269,7 @@ void copyBinaryTerms(const File& from, ContactPlanningConfig& to) {
   to.phaseResetting.lateTouchdownExtensionStep =
       from.phase_resetting.late_touchdown_extension_step;
   to.phaseResetting.lateTouchdownSearchVelocity =
-      from.phase_resetting.late_touchdown_search_velocity;
+      from.phase_resetting.late_touchdown_search_speed_foot_rt_world;
   to.energyCadenceModulation.gain = from.energy_cadence_modulation.gain;
   to.energyCadenceModulation.deadband = from.energy_cadence_modulation.deadband;
   to.dcmStepAdjustment.gain = from.dcm_step_adjustment.gain;
@@ -281,8 +284,8 @@ std::vector<std::string> plannerThreadingNames() {
 }
 
 std::vector<std::string> terminalDcmTargetNames() {
-  return {std::string(kRestTerminalDcmTarget),
-          std::string(kCommandedVelocityTerminalDcmTarget)};
+  return {std::string(kRestTerminalDcmTargetName),
+          std::string(kCommandedVelocityTerminalDcmTargetName)};
 }
 
 absl::StatusOr<ContactPlanningConfig> contactPlanningConfigFromConfig(

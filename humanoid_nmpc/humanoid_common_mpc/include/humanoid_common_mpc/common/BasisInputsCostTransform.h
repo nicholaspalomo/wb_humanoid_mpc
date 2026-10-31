@@ -57,7 +57,7 @@ namespace ocs2::humanoid {
  *
  * where M = blkdiag(B_0, ..., B_{N-1}, I_joints) maps the basis-vector input to
  * the wrench-space input with every contact wrench expressed in its *local
- * contact frame* (BasisInputsModelDecorator::getLocalBasisToWrenchMap), so the
+ * contact frame* (BasisInputsModelDecorator::getLocalBasisGeneratorMap), so the
  * wrench weights of R act on the contact-frame wrench. Each B_i has more
  * columns than rows, so Mᵀ R M alone is singular on null(B_i): the λ that
  * produce no wrench. The regularization S, chosen by name, removes that
@@ -106,11 +106,11 @@ inline constexpr absl::string_view kBasisScalingRegularizationField =
  * basisInputDim), whose first numBasisInputs columns are the λ.
  */
 using BasisRegularizationBuilder = matrix_t (*absl_nonnull)(
-    const matrix_t& basisToWrenchMap, size_t numBasisInputs);
+    const matrix_t& basisGeneratorMap, size_t numBasisInputs);
 
 /** S = I. */
 inline matrix_t fullDiagonalRegularizationShape(
-    const matrix_t& /*basisToWrenchMap*/, size_t numBasisInputs) {
+    const matrix_t& /*basisGeneratorMap*/, size_t numBasisInputs) {
   const Eigen::Index n = static_cast<Eigen::Index>(numBasisInputs);
   return matrix_t::Identity(n, n);
 }
@@ -120,10 +120,10 @@ inline matrix_t fullDiagonalRegularizationShape(
  * columns are blkdiag(B_i) over the contact rows and zero over the joint rows,
  * so this is blkdiag(I - B_i⁺ B_i).
  */
-inline matrix_t nullSpaceRegularizationShape(const matrix_t& basisToWrenchMap,
+inline matrix_t nullSpaceRegularizationShape(const matrix_t& basisGeneratorMap,
                                              size_t numBasisInputs) {
   const Eigen::Index n = static_cast<Eigen::Index>(numBasisInputs);
-  const matrix_t lambdaColumns = basisToWrenchMap.leftCols(n);
+  const matrix_t lambdaColumns = basisGeneratorMap.leftCols(n);
   const Eigen::JacobiSVD<matrix_t> svd(lambdaColumns, Eigen::ComputeFullV);
   const vector_t& singularValues = svd.singularValues();
   constexpr scalar_t kRankRelativeTolerance = 1.0e-9;
@@ -245,8 +245,8 @@ inline matrix_t transformWrenchInputCostToBasisSpace(
  */
 struct BasisInputsCostTransformConfig {
   matrix_t
-      basisToWrenchMap;  ///< M (wrenchInputDim × basisInputDim), see
-                         ///< BasisInputsModelDecorator::getLocalBasisToWrenchMap
+      basisGeneratorMap;  ///< M (wrenchInputDim × basisInputDim), see
+                          ///< BasisInputsModelDecorator::getLocalBasisGeneratorMap
   size_t wrenchInputDim =
       0;  ///< Dimension of the wrench-space input (rows of M).
   size_t numBasisInputs =
@@ -259,7 +259,7 @@ struct BasisInputsCostTransformConfig {
   std::string regularization = std::string(kDefaultBasisRegularization);
 
   size_t basisInputDim() const {
-    return static_cast<size_t>(basisToWrenchMap.cols());
+    return static_cast<size_t>(basisGeneratorMap.cols());
   }
 };
 
@@ -289,7 +289,7 @@ inline matrix_t transformWrenchInputCostToBasisSpace(
       getBasisRegularizationBuilder(config.regularization);
   ABSL_CHECK(builder.ok()) << builder.status();
   return transformWrenchInputCostToBasisSpace(
-      R_wrench, config.basisToWrenchMap, config.numBasisInputs,
+      R_wrench, config.basisGeneratorMap, config.numBasisInputs,
       config.lambdaRegularization, *builder);
 }
 

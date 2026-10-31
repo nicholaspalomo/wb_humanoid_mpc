@@ -83,7 +83,7 @@ constexpr Eigen::Index kGeneralizedCoordinatesStartIndex = 6;
 constexpr Eigen::Index kBasePositionStateIndex = 6;
 constexpr Eigen::Index kBaseOrientationStateIndex = 9;
 constexpr Eigen::Index kJointStateIndex = 13;
-constexpr Eigen::Index kBasePositionTuningRow = 6;
+constexpr Eigen::Index kBasePositionTuningStartIndex = 6;
 constexpr Eigen::Index kJointTuningRow = 12;
 
 /// Central-difference step, and the agreement it buys on a smooth cost of order
@@ -197,17 +197,17 @@ class ComAndAcomTrackingCostTest : public ::testing::Test {
   /**
    * A state with the base off level at the ZYX Euler angles `eulerZyx` (so a
    * tangent map left out would matter), stored as the quaternion scaled by
-   * `quaternionScale`, and the joints bent by `jointOffset`.
+   * `quaternionCoefficientsScale`, and the joints bent by `jointOffset`.
    */
   vector_t makeState(const vector3_t& eulerZyx,
                      scalar_t jointOffset,
-                     scalar_t quaternionScale = 1.0) const {
+                     scalar_t quaternionCoefficientsScale = 1.0) const {
     vector_t state = vector_t::Zero(info_.stateDim);
     state.head(kGeneralizedCoordinatesStartIndex) << 0.1, -0.2, 0.05, 0.3, -0.1,
         0.2;  // must not affect the cost
     state.segment<3>(kBasePositionStateIndex) << 0.05, -0.03, 0.82;
     state.segment<4>(kBaseOrientationStateIndex) =
-        quaternionScale * quaternionFromEulerZyx(eulerZyx);
+        quaternionCoefficientsScale * quaternionFromEulerZyx(eulerZyx);
     for (Eigen::Index joint = 0; joint < nJoints_; ++joint) {
       state(kJointStateIndex + joint) =
           jointOffset + 0.01 * static_cast<scalar_t>(joint % 7);
@@ -644,7 +644,7 @@ TEST_F(ComAndAcomTrackingCostTest,
 /**
  * The base-pose weights the factory and the live updater drop while this cost
  * runs are exactly the tuning rows whose error this cost re-expresses -
- * base_position and base_orientation - and nothing else.
+ * pos_base_rt_world_ewrt_world and eulerzyx_base_rt_world - and nothing else.
  */
 TEST_F(ComAndAcomTrackingCostTest,
        ZeroBasePoseWeightsClearsExactlyTheBasePoseBlock) {
@@ -661,10 +661,10 @@ TEST_F(ComAndAcomTrackingCostTest,
   ComAndAcomTrackingCost::zeroBasePoseWeights(Q);
   for (Eigen::Index row = 0; row < n; ++row) {
     for (Eigen::Index col = 0; col < n; ++col) {
-      const bool inBasePose =
-          row >= kBasePositionTuningRow && row < kJointTuningRow &&
-          col >= kBasePositionTuningRow && col < kJointTuningRow;
-      EXPECT_EQ(Q(row, col), inBasePose ? 0.0 : original(row, col))
+      const bool inBasePoseSlots =
+          row >= kBasePositionTuningStartIndex && row < kJointTuningRow &&
+          col >= kBasePositionTuningStartIndex && col < kJointTuningRow;
+      EXPECT_EQ(Q(row, col), inBasePoseSlots ? 0.0 : original(row, col))
           << "(" << row << ", " << col << ")";
     }
   }
@@ -673,18 +673,19 @@ TEST_F(ComAndAcomTrackingCostTest,
   ComAndAcomTrackingCost::zeroBasePoseWeights(Q);
   EXPECT_EQ(Q, once);
 
-  // The block is the rows of base_position and base_orientation of the
-  // centroidal tuning layout, which Q is written in.
+  // The block is the rows of pos_base_rt_world_ewrt_world and
+  // eulerzyx_base_rt_world of the centroidal tuning layout, which Q is written
+  // in.
   const TuningLayout tuningLayout = tuningLayoutOf(
       stateInputLayout(*modelSettingsPtr_, StateInputLayout::Mpc::kCentroidal));
-  const absl::StatusOr<size_t> positionRow =
-      tuningSegmentStart(tuningLayout, "base_position");
-  const absl::StatusOr<size_t> orientationRow =
-      tuningSegmentStart(tuningLayout, "base_orientation");
-  ASSERT_TRUE(positionRow.ok()) << positionRow.status();
-  ASSERT_TRUE(orientationRow.ok()) << orientationRow.status();
-  EXPECT_EQ(*positionRow, static_cast<size_t>(kBasePositionTuningRow));
-  EXPECT_EQ(*orientationRow + 3, static_cast<size_t>(kJointTuningRow));
+  const absl::StatusOr<size_t> positionSlot =
+      tuningSegmentStart(tuningLayout, "pos_base_rt_world_ewrt_world");
+  const absl::StatusOr<size_t> orientationSlot =
+      tuningSegmentStart(tuningLayout, "eulerzyx_base_rt_world");
+  ASSERT_TRUE(positionSlot.ok()) << positionSlot.status();
+  ASSERT_TRUE(orientationSlot.ok()) << orientationSlot.status();
+  EXPECT_EQ(*positionSlot, static_cast<size_t>(kBasePositionTuningStartIndex));
+  EXPECT_EQ(*orientationSlot + 3, static_cast<size_t>(kJointTuningRow));
 }
 
 /**
@@ -850,7 +851,7 @@ TEST_F(ComAndAcomTrackingCostTest,
   }
   const vector_t negated =
       makeState(vector3_t(0.30, 0.20, -0.15), /*jointOffset=*/0.2,
-                /*quaternionScale=*/-1.0);
+                /*quaternionCoefficientsScale=*/-1.0);
   EXPECT_EQ(cost->getValue(/*time=*/0.0, negated, target, preComputation_),
             value)
       << "-xi is the same attitude, bit for bit";
@@ -1088,7 +1089,7 @@ TEST(ComAndAcomEulerTolerance, TheEulerChartJacobianStaysWithinTheStatedBound) {
 
 /**
  * README section 4.4, E2 planner heading: the contact planner's heading with
- * the ACoM, twistHeading(xi (x) Exp(Delta_theta)), differs from the additive
+ * the ACoM, yawOf(xi (x) Exp(Delta_theta)), differs from the additive
  * Euler rule's psi + Delta_theta_z by at most |o(theta, phi)| + c
  * (|Delta_theta| |tilt| + |Delta_theta|^2), o(theta, phi) = -2 atan(tan(theta /
  * 2) tan(phi / 2)) the twist's offset from the ZYX yaw (a probe reached 0.49 of
@@ -1101,14 +1102,14 @@ TEST(ComAndAcomEulerTolerance, ThePlannerHeadingStaysWithinTheStatedBound) {
       const AcomDraw state = drawAcom(engine, range.first, range.second);
       const scalar_t pitch = state.eulerZyx(1);
       const scalar_t roll = state.eulerZyx(2);
-      const scalar_t twistOffset =
+      const scalar_t headingOffset =
           -2.0 * std::atan(std::tan(0.5 * pitch) * std::tan(0.5 * roll));
       const scalar_t c = 1.0 + state.offset.norm() + state.tilt;
-      const scalar_t plannerHeading = twistHeading(quaternionProduct(
+      const scalar_t plannerHeading = yawOf(quaternionProduct(
           quaternionFromEulerZyx(state.eulerZyx), quaternionExp(state.offset)));
       EXPECT_LE(std::abs(wrappedAngle(plannerHeading -
                                       (state.eulerZyx(0) + state.offset(2)))),
-                std::abs(twistOffset) +
+                std::abs(headingOffset) +
                     c * (state.offset.norm() * state.tilt +
                          state.offset.squaredNorm()) +
                     1.0e-12);

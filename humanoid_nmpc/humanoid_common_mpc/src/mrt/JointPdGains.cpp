@@ -68,15 +68,16 @@ JointPdGains defaultJointPdGains(
   gains.mpcJointKd = vector_t::Constant(
       static_cast<Eigen::Index>(mpcJointNames.size()), defaults.kd);
   gains.mpcJointTorqueLimit = vector_t::Constant(
-      static_cast<Eigen::Index>(mpcJointNames.size()), defaults.torqueLimit);
+      static_cast<Eigen::Index>(mpcJointNames.size()), defaults.maxJointTorque);
   gains.otherJointKp =
       vector_t::Constant(static_cast<Eigen::Index>(otherJointNames.size()),
                          defaults.kp * kOtherJointDefaultGainScale);
   gains.otherJointKd =
       vector_t::Constant(static_cast<Eigen::Index>(otherJointNames.size()),
                          defaults.kd * kOtherJointDefaultGainScale);
-  gains.otherJointTorqueLimit = vector_t::Constant(
-      static_cast<Eigen::Index>(otherJointNames.size()), defaults.torqueLimit);
+  gains.otherJointTorqueLimit =
+      vector_t::Constant(static_cast<Eigen::Index>(otherJointNames.size()),
+                         defaults.maxJointTorque);
   gains.gravityCompDampingFraction =
       mpc_config::JointPdGainsFile::kDefaultGravityCompDampingFraction;
   gains.maxPolicyJointError =

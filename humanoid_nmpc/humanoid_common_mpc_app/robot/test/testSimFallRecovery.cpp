@@ -186,8 +186,8 @@ class AtlasJointPd {
     // z, w) of the base's unit quaternion (the Composite(Translation,
     // Spherical) root), then the joints.
     vector_t q(kBaseConfigurationDim + mpcJoints_.size());
-    q.head<3>() = state.getRootPositionInWorldFrame();
-    q.segment<4>(3) = state.getRootRotationLocalToWorldFrame().coeffs();
+    q.head<3>() = state.getPosBaseRtWorldEwrtWorld();
+    q.segment<4>(3) = state.getQuatBaseRtWorld().coeffs();
     for (size_t i = 0; i < mpcJoints_.size(); ++i)
       q(kJointConfigurationOffset + i) = state.getJointPosition(mpcJoints_[i]);
     const PinocchioInterface::Model& model = pinocchioInterface_.getModel();
@@ -241,10 +241,9 @@ std::string describeRest(const robot::model::RobotState& state,
     }
   }
   return absl::StrCat(
-      "tilt ",
-      SimFallRecovery::baseTiltAngle(state.getRootRotationLocalToWorldFrame()),
-      " rad, base speed ", state.getRootLinearVelocityInLocalFrame().norm(),
-      " m/s and ", state.getRootAngularVelocityInLocalFrame().norm(),
+      "tilt ", SimFallRecovery::baseTiltAngle(state.getQuatBaseRtWorld()),
+      " rad, base speed ", state.getLinvelBaseRtWorldEwrtBase().norm(),
+      " m/s and ", state.getAngvelBaseRtWorldEwrtBase().norm(),
       " rad/s, joint error ", maxJointError, " rad (joint ", worstJoint,
       "), joint speed ", maxJointSpeed, " rad/s (joint ", fastestJoint, ")");
 }
@@ -315,9 +314,9 @@ TEST(SimFallRecovery, ATiltIsCaughtOnceAndAnOperatorLockAndUnlockAreSeen) {
   // and not a discontinuity.
   for (int cycle = 0; cycle < 200; ++cycle)
     recovery.update(advance(*sim), nominal, mode);
-  ASSERT_LT(SimFallRecovery::baseTiltAngle(
-                sim->getRobotState().getRootRotationLocalToWorldFrame()),
-            0.2);
+  ASSERT_LT(
+      SimFallRecovery::baseTiltAngle(sim->getRobotState().getQuatBaseRtWorld()),
+      0.2);
   sim->unlockGantry();
   const SimFallRecovery::Cycle released =
       recovery.update(advance(*sim), nominal, mode);
@@ -416,9 +415,9 @@ TEST(SimFallRecovery, AtRestMeansUprightStillAndAtTheNominalPosture) {
   const SimFallRecovery::Config config = recoveryConfig(0.15);
   const std::vector<size_t> joints = mpcJoints(*sim);
   robot::model::RobotState state = sim->getRobotState();
-  state.setRootRotationLocalToWorldFrame(quaternion_t::Identity());
-  state.setRootLinearVelocityInLocalFrame(vector3_t::Zero());
-  state.setRootAngularVelocityInLocalFrame(vector3_t::Zero());
+  state.setQuatBaseRtWorld(quaternion_t::Identity());
+  state.setLinvelBaseRtWorldEwrtBase(vector3_t::Zero());
+  state.setAngvelBaseRtWorldEwrtBase(vector3_t::Zero());
   for (size_t joint = 0; joint < nominal.size(); ++joint)
     state.setJointVelocity(joint, /*jointVelocity=*/0.0);
   EXPECT_TRUE(SimFallRecovery::isAtRest(state, nominal, joints, config));
@@ -427,14 +426,14 @@ TEST(SimFallRecovery, AtRestMeansUprightStillAndAtTheNominalPosture) {
   // loaded where they landed: pitched and off its posture. Each on its own is
   // not at rest.
   robot::model::RobotState pitched = state;
-  pitched.setRootRotationLocalToWorldFrame(
+  pitched.setQuatBaseRtWorld(
       quaternion_t(Eigen::AngleAxis<scalar_t>(0.14, vector3_t::UnitY())));
   EXPECT_FALSE(SimFallRecovery::isAtRest(pitched, nominal, joints, config));
   robot::model::RobotState bent = state;
   bent.setJointPosition(joints.front(), nominal[joints.front()] + 0.3);
   EXPECT_FALSE(SimFallRecovery::isAtRest(bent, nominal, joints, config));
   robot::model::RobotState moving = state;
-  moving.setRootLinearVelocityInLocalFrame(vector3_t(0.2, 0.0, 0.0));
+  moving.setLinvelBaseRtWorldEwrtBase(vector3_t(0.2, 0.0, 0.0));
   EXPECT_FALSE(SimFallRecovery::isAtRest(moving, nominal, joints, config));
 
   // A joint the state does not report has no say, whatever its nominal

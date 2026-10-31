@@ -55,14 +55,14 @@ FallRecovery::Cycle HardwareFallRecovery::update(
   if (!(maxBaseTiltAngle_ > 0.0) || !backend_->acceptsJointAction()) {
     return cycle;
   }
-  const scalar_t tilt = SimFallRecovery::baseTiltAngle(
-      robotState.getRootRotationLocalToWorldFrame());
+  const scalar_t tilt =
+      SimFallRecovery::baseTiltAngle(robotState.getQuatBaseRtWorld());
   if (!(tilt > maxBaseTiltAngle_)) {
     return cycle;
   }
   backend_->enterSafeState();
-  currentModeName.assign(control_mode::kZeroTorque.data(),
-                         control_mode::kZeroTorque.size());
+  currentModeName.assign(control_mode::kZeroJointTorque.data(),
+                         control_mode::kZeroJointTorque.size());
   cycle.modeChanged = true;
   cycle.tilt = tilt;
   if (eventLog_ != nullptr) {

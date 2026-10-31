@@ -35,13 +35,16 @@ message InputWeights {
 
     string contact = 1 [default = ""];
     // The contact force and moment, x, y and z.
+    // NOLINTNEXTLINE(frame-naming): a weight per component of the contact's input force; the input parameterization names its frame
     Xyz force = 2 [(nproto.optional_message) = true];
+    // NOLINTNEXTLINE(frame-naming): a weight per component of the contact's input moment; the input parameterization names its frame
     Xyz moment = 3 [(nproto.optional_message) = true];
   }
 
   // The factor of every entry below.
   double scaling = 1 [default = 1.0];
   // Both MPCs: each contact's wrench.
+  // NOLINTNEXTLINE(frame-naming): the weights of each contact's input wrench, a tuning knob (README section 5)
   repeated ContactWrench contact_wrenches = 2;
   // Centroidal MPC: the joint velocities, by joint name.
   repeated JointValue joint_velocities = 3;

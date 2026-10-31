@@ -12,6 +12,6 @@ message Pose {
 
   reserved 3 to max;
 
-  Vector3 position = 1;
-  Quaternion orientation = 2;
+  Vector3 position = 1;  // NOLINT(frame-naming): a component of a frame-generic value; the enclosing field names the frames
+  Quaternion orientation = 2;  // NOLINT(frame-naming): a component of a frame-generic value; the enclosing field names the frames
 }

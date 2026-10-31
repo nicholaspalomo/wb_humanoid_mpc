@@ -87,7 +87,7 @@ vector3_t legacyEulerZyxFromQuaternion(const vector4_t& xi) {
 
 /** q_z(yaw) (x) q_y(pitch) (x) q_x(roll) from the half angles, independently of
  * Eigen's AngleAxis. */
-vector4_t halfAngleEulerZyxQuaternion(const vector3_t& eulerZyx) {
+vector4_t quaternionFromEulerZyxByHalfAngles(const vector3_t& eulerZyx) {
   const scalar_t cy = std::cos(eulerZyx(0) / 2.0);
   const scalar_t sy = std::sin(eulerZyx(0) / 2.0);
   const scalar_t cp = std::cos(eulerZyx(1) / 2.0);
@@ -144,7 +144,7 @@ TuningLayout unplacedCentroidalLayout() {
               {.name = "p_W",
                .kind = TuningSegmentKind::kEuclidean,
                .tuningDim = 3},
-              {.name = "base_orientation",
+              {.name = "eulerzyx_base_rt_world",
                .kind = TuningSegmentKind::kEulerZyxOrientation,
                .tuningDim = 3},
               {.name = "q_j",
@@ -170,7 +170,7 @@ TuningLayout wholeBodyLayout() {
               {.name = "p_W",
                .kind = TuningSegmentKind::kEuclidean,
                .tuningDim = 3},
-              {.name = "base_orientation",
+              {.name = "eulerzyx_base_rt_world",
                .kind = TuningSegmentKind::kEulerZyxOrientation,
                .tuningDim = 3},
               {.name = "q_j",
@@ -212,8 +212,9 @@ TEST(EulerBoundary, QuaternionFromEulerZyxIsTheZyxProduct) {
     const vector4_t xi = quaternionFromEulerZyx(euler);
     // Bit for bit the quaternion the human-facing code builds today.
     EXPECT_EQ(xi, getQuaternionFromEulerAnglesZyx<scalar_t>(euler).coeffs());
-    EXPECT_LT((xi - halfAngleEulerZyxQuaternion(euler)).cwiseAbs().maxCoeff(),
-              kRoundOffTolerance);
+    EXPECT_LT(
+        (xi - quaternionFromEulerZyxByHalfAngles(euler)).cwiseAbs().maxCoeff(),
+        kRoundOffTolerance);
     EXPECT_LT((quaternion_t(xi).toRotationMatrix() -
                getRotationMatrixFromZyxEulerAngles<scalar_t>(euler))
                   .cwiseAbs()
@@ -362,20 +363,20 @@ TEST(EulerBoundary, LocalAngularVelocityIsTheRateOfTheRotation) {
     // dTheta/dt.
     const matrix3_t rotation =
         getRotationMatrixFromZyxEulerAngles<scalar_t>(euler);
-    const matrix3_t rotationRate =
+    const matrix3_t rateRotmatLocalRtWorld =
         (getRotationMatrixFromZyxEulerAngles<scalar_t>(
              vector3_t(euler + kFiniteDifferenceStep * eulerRates)) -
          getRotationMatrixFromZyxEulerAngles<scalar_t>(
              vector3_t(euler - kFiniteDifferenceStep * eulerRates))) /
         (2.0 * kFiniteDifferenceStep);
-    const matrix3_t skew = rotation.transpose() * rotationRate;
+    const matrix3_t skew = rotation.transpose() * rateRotmatLocalRtWorld;
     const vector3_t omega(skew(2, 1), skew(0, 2), skew(1, 0));
-    const vector3_t localAngularVelocity =
+    const vector3_t angvelLocalRtWorldEwrtLocal =
         localAngularVelocityFromEulerZyxRates(euler, eulerRates);
-    EXPECT_LT((localAngularVelocity - omega).cwiseAbs().maxCoeff(),
+    EXPECT_LT((angvelLocalRtWorldEwrtLocal - omega).cwiseAbs().maxCoeff(),
               kFiniteDifferenceTolerance);
-    EXPECT_LT((eulerZyxRateToLocalAngularVelocityMatrix(euler) * eulerRates -
-               localAngularVelocity)
+    EXPECT_LT((eulerZyxRateToBodyRateMatrix(euler) * eulerRates -
+               angvelLocalRtWorldEwrtLocal)
                   .cwiseAbs()
                   .maxCoeff(),
               kRoundOffTolerance);
@@ -385,7 +386,7 @@ TEST(EulerBoundary, LocalAngularVelocityIsTheRateOfTheRotation) {
     const vector4_t xi = quaternionFromEulerZyx(euler);
     const Eigen::Matrix<scalar_t, 4, 3> chartJacobian =
         0.5 * quaternionRateMatrix<scalar_t>(xi) *
-        eulerZyxRateToLocalAngularVelocityMatrix(euler);
+        eulerZyxRateToBodyRateMatrix(euler);
     for (Eigen::Index j = 0; j < 3; ++j) {
       const vector3_t step = kFiniteDifferenceStep * vector3_t::Unit(j);
       const vector4_t column =
@@ -404,8 +405,7 @@ TEST(EulerBoundary, LocalAngularVelocityIsTheRateOfTheRotation) {
                  0.0, 1.0, 0.0,
                  1.0, 0.0, 0.0;
   // clang-format on
-  EXPECT_EQ(eulerZyxRateToLocalAngularVelocityMatrix(vector3_t::Zero()),
-            permutation);
+  EXPECT_EQ(eulerZyxRateToBodyRateMatrix(vector3_t::Zero()), permutation);
 }
 
 TEST(EulerBoundary, EulerRatesAreTheInverseOfTheLocalAngularVelocity) {
@@ -413,21 +413,22 @@ TEST(EulerBoundary, EulerRatesAreTheInverseOfTheLocalAngularVelocity) {
   std::uniform_real_distribution<scalar_t> rate(-2.0, 2.0);
   for (int i = 0; i < 16; ++i) {
     const vector3_t euler = randomEulerAngles(generator, /*maximumPitch=*/1.4);
-    const vector3_t localAngularVelocity(rate(generator), rate(generator),
-                                         rate(generator));
+    const vector3_t angvelLocalRtWorldEwrtLocal(
+        rate(generator), rate(generator), rate(generator));
     const vector3_t eulerRates =
-        eulerZyxRatesFromLocalAngularVelocity(euler, localAngularVelocity);
+        eulerZyxRatesFromBodyRates(euler, angvelLocalRtWorldEwrtLocal);
     // Bit for bit OCS2's own conversion of the rates.
     EXPECT_EQ(eulerRates,
+              // NOLINTNEXTLINE(frame-naming): a generic Euler conversion
               getEulerAnglesZyxDerivativesFromLocalAngularVelocity<scalar_t>(
-                  euler, localAngularVelocity));
+                  euler, angvelLocalRtWorldEwrtLocal));
     EXPECT_LT((localAngularVelocityFromEulerZyxRates(euler, eulerRates) -
-               localAngularVelocity)
+               angvelLocalRtWorldEwrtLocal)
                   .cwiseAbs()
                   .maxCoeff(),
               1.0e-12);
-    EXPECT_LT((eulerZyxRateToLocalAngularVelocityMatrix(euler).inverse() *
-                   localAngularVelocity -
+    EXPECT_LT((eulerZyxRateToBodyRateMatrix(euler).inverse() *
+                   angvelLocalRtWorldEwrtLocal -
                eulerRates)
                   .cwiseAbs()
                   .maxCoeff(),
@@ -442,8 +443,7 @@ TEST(EulerBoundary, LocalAngularVelocityJacobianMatchesFiniteDifferences) {
     const vector3_t euler = randomEulerAngles(generator, /*maximumPitch=*/1.4);
     const vector3_t eulerRates(rate(generator), rate(generator),
                                rate(generator));
-    const matrix3_t jacobian =
-        localAngularVelocityEulerZyxJacobian(euler, eulerRates);
+    const matrix3_t jacobian = bodyRateEulerZyxJacobian(euler, eulerRates);
     for (Eigen::Index j = 0; j < 3; ++j) {
       const vector3_t step = kFiniteDifferenceStep * vector3_t::Unit(j);
       const vector3_t column = (localAngularVelocityFromEulerZyxRates(
@@ -472,21 +472,22 @@ TEST(EulerBoundaryTuningLayout, PlacementPutsTheBlocksConsecutivelyOnTheState) {
   }
   // Every block as many state rows as tuning rows but the orientation, which
   // gets the quaternion's 4: one row more from the orientation on.
-  const TuningLayout quaternion = placeTuningLayout(unplaced);
-  ASSERT_EQ(quaternion.segments.size(), 4U);
-  const std::vector<size_t> quaternionStarts = {0, 6, 9, 13};
-  const std::vector<size_t> quaternionDims = {6, 3, 4, kNumJoints};
-  for (size_t i = 0; i < quaternion.segments.size(); ++i) {
-    EXPECT_EQ(quaternion.segments[i].stateStart, quaternionStarts[i])
-        << quaternion.segments[i].name;
-    EXPECT_EQ(quaternion.segments[i].stateDim, quaternionDims[i])
-        << quaternion.segments[i].name;
-    EXPECT_EQ(quaternion.segments[i].tuningDim, unplaced.segments[i].tuningDim)
-        << quaternion.segments[i].name;
+  const TuningLayout placedLayout = placeTuningLayout(unplaced);
+  ASSERT_EQ(placedLayout.segments.size(), 4U);
+  const std::vector<size_t> placedStateStarts = {0, 6, 9, 13};
+  const std::vector<size_t> placedStateDims = {6, 3, 4, kNumJoints};
+  for (size_t i = 0; i < placedLayout.segments.size(); ++i) {
+    EXPECT_EQ(placedLayout.segments[i].stateStart, placedStateStarts[i])
+        << placedLayout.segments[i].name;
+    EXPECT_EQ(placedLayout.segments[i].stateDim, placedStateDims[i])
+        << placedLayout.segments[i].name;
+    EXPECT_EQ(placedLayout.segments[i].tuningDim,
+              unplaced.segments[i].tuningDim)
+        << placedLayout.segments[i].name;
   }
-  EXPECT_EQ(getTuningLayoutStateDim(quaternion),
-            getTuningLayoutDim(quaternion) + 1);
-  EXPECT_EQ(getTuningLayoutDim(quaternion), getTuningLayoutDim(unplaced));
+  EXPECT_EQ(getTuningLayoutStateDim(placedLayout),
+            getTuningLayoutDim(placedLayout) + 1);
+  EXPECT_EQ(getTuningLayoutDim(placedLayout), getTuningLayoutDim(unplaced));
 
   // The whole body: the angular velocity has as many state rows as tuning rows.
   const TuningLayout wholeBody = wholeBodyLayout();
@@ -498,7 +499,7 @@ TEST(EulerBoundaryTuningLayout, SegmentStartsAreTheTuningOffsetsByName) {
   const TuningLayout layout = wholeBodyLayout();
   const std::vector<std::pair<std::string, size_t>> expected = {
       {"p_W", 0},
-      {"base_orientation", 3},
+      {"eulerzyx_base_rt_world", 3},
       {"q_j", 6},
       {"pd_W", 6 + kNumJoints},
       {"w_B", 9 + kNumJoints},
@@ -546,7 +547,7 @@ TEST(EulerBoundaryTuningLayout, OnlyThePlacedLayoutIsConverted) {
   ASSERT_FALSE(threeRowsState.ok());
   EXPECT_EQ(threeRowsState.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_TRUE(absl::StrContains(threeRowsState.status().message(),
-                                "'base_orientation'"))
+                                "'eulerzyx_base_rt_world'"))
       << threeRowsState.status();
   EXPECT_TRUE(absl::StrContains(
       threeRowsState.status().message(),
@@ -672,7 +673,7 @@ TEST(EulerBoundaryTuningLayout, WrongSizesAreRejectedNamingTheExpectedLayout) {
        {std::string("36 entries"),
         std::string("centroidal tuning layout (35 rows"), std::string("h 6"),
         std::string("p_W 3"),
-        std::string("base_orientation 3 (yaw, pitch, roll)"),
+        std::string("eulerzyx_base_rt_world 3 (yaw, pitch, roll)"),
         std::string("q_j 23"), std::string("initial_state")}) {
     EXPECT_TRUE(absl::StrContains(tooLongMessage, expected))
         << "'" << expected << "' missing from: " << tooLongMessage;
@@ -691,7 +692,7 @@ TEST(EulerBoundaryTuningLayout, WrongSizesAreRejectedNamingTheExpectedLayout) {
   for (const std::string& expected :
        {std::string("35 entries"),
         std::string("centroidal state layout (36 rows"),
-        std::string("base_orientation 4 (quaternion x, y, z, w)")}) {
+        std::string("eulerzyx_base_rt_world 4 (quaternion x, y, z, w)")}) {
     EXPECT_TRUE(absl::StrContains(stateMessage, expected))
         << "'" << expected << "' missing from: " << stateMessage;
   }

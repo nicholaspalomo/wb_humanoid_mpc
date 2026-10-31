@@ -145,7 +145,7 @@ class TestLaunchVelocity(unittest.TestCase):
         self.assertAlmostEqual(_norm(velocity), throw.speed_mps, places=9)
 
     def test_the_ballistic_path_passes_through_the_base(self):
-        # The whole point of the gravity term: integrate the flight and land on the base, not below it. Includes a
+        # With the gravity term, integrating the flight lands on the base, not below it. Includes a
         # throw too slow to reach, which is raised to the minimum speed and must still land.
         for throw in (
             dodgeball.DodgeballThrow(0.0, 0.0, 3.0, 5.0),
@@ -416,17 +416,19 @@ class TestThrowMessage(unittest.TestCase):
         for key in (
             "azimuth_deg",
             "elevation_deg",
-            "distance",
-            "speed",
+            "cmd_dist_ball_rt_base",
+            "cmd_speed_ball_rt_world",
             "mass",
-            "spawn_offset",
-            "launch_velocity",
+            "spawn_pos_ball_rt_base_ewrt_heading",
+            "launch_linvel_ball_rt_world_ewrt_heading",
             "flight_time",
             "impact_momentum",
         ):
             self.assertIn(key, ball)
-        self.assertEqual(len(ball["spawn_offset"]), 3)
-        self.assertEqual(len(ball["launch_velocity"]), 3)
+        self.assertEqual(len(ball["spawn_pos_ball_rt_base_ewrt_heading"]), 3)
+        self.assertEqual(
+            len(ball["launch_linvel_ball_rt_world_ewrt_heading"]), 3
+        )
 
     def test_it_round_trips_through_the_wire(self):
         # This is how it actually travels: serialized by the bus in the tab, parsed by the bus in the robot.
@@ -438,17 +440,28 @@ class TestThrowMessage(unittest.TestCase):
         )
         self.assertEqual(restored, message)
         # The four values the simulator requires are present, whatever their value.
-        for name in ("mass", "spawn_offset", "launch_velocity", "flight_time"):
+        for name in (
+            "mass",
+            "spawn_pos_ball_rt_base_ewrt_heading",
+            "launch_linvel_ball_rt_world_ewrt_heading",
+            "flight_time",
+        ):
             self.assertTrue(restored.HasField(name), name)
 
     def test_the_derived_vectors_agree_with_the_functions(self):
         throw = dodgeball.DodgeballThrow(120.0, -10.0, 2.5, 6.0)
         ball = _ball(dodgeball.throw_message(throw))
         for axis, value in enumerate(dodgeball.spawn_offset(throw)):
-            self.assertAlmostEqual(ball["spawn_offset"][axis], value, places=5)
+            self.assertAlmostEqual(
+                ball["spawn_pos_ball_rt_base_ewrt_heading"][axis],
+                value,
+                places=5,
+            )
         for axis, value in enumerate(dodgeball.launch_velocity(throw)):
             self.assertAlmostEqual(
-                ball["launch_velocity"][axis], value, places=5
+                ball["launch_linvel_ball_rt_world_ewrt_heading"][axis],
+                value,
+                places=5,
             )
 
     def test_out_of_range_parameters_are_clamped_before_they_are_published(
@@ -460,7 +473,9 @@ class TestThrowMessage(unittest.TestCase):
             )
         )
         self.assertEqual(ball["azimuth_deg"], dodgeball.AZIMUTH_RANGE_DEG[1])
-        self.assertEqual(ball["distance"], dodgeball.DISTANCE_RANGE_M[1])
+        self.assertEqual(
+            ball["cmd_dist_ball_rt_base"], dodgeball.DISTANCE_RANGE_M[1]
+        )
         self.assertEqual(ball["mass"], dodgeball.MASS_RANGE_KG[1])
         # And the momentum is computed from the CLAMPED throw, so the preview never promises a throw that is not sent.
         clamped = dodgeball.DodgeballThrow(
@@ -492,10 +507,10 @@ class TestThrowMessage(unittest.TestCase):
             )
         )
         for key in (
-            "spawn_offset",
-            "launch_velocity",
+            "spawn_pos_ball_rt_base_ewrt_heading",
+            "launch_linvel_ball_rt_world_ewrt_heading",
             "flight_time",
-            "launch_speed",
+            "launch_speed_ball_rt_world",
         ):
             self.assertEqual(light[key], heavy[key], key)
         # Rounded to 6 places on the wire, so the ratio is exact only to about that.
@@ -561,16 +576,22 @@ class TestDodgeballTab(unittest.TestCase):
         )
         ball = _ball(self.publisher.last_message)
         self.assertAlmostEqual(ball["azimuth_deg"], 90.0, places=3)
-        self.assertAlmostEqual(ball["distance"], 4.0, places=3)
+        self.assertAlmostEqual(ball["cmd_dist_ball_rt_base"], 4.0, places=3)
         self.assertAlmostEqual(
             ball["flight_time"],
             dodgeball.flight_time(self.tab.current_throw()),
             places=5,
         )
-        self.assertAlmostEqual(_norm(ball["launch_velocity"]), 8.0, places=4)
+        self.assertAlmostEqual(
+            _norm(ball["launch_linvel_ball_rt_world_ewrt_heading"]),
+            8.0,
+            places=4,
+        )
         # 90 deg is the robot's left, so the ball spawns at +y and flies in -y.
-        self.assertGreater(ball["spawn_offset"][1], 3.9)
-        self.assertLess(ball["launch_velocity"][1], 0.0)
+        self.assertGreater(ball["spawn_pos_ball_rt_base_ewrt_heading"][1], 3.9)
+        self.assertLess(
+            ball["launch_linvel_ball_rt_world_ewrt_heading"][1], 0.0
+        )
 
     def test_the_button_publishes_once_per_press(self):
         self.tab.throw()
@@ -591,8 +612,10 @@ class TestDodgeballTab(unittest.TestCase):
             ball = _ball(self.tab.throw())
             azimuths.add(round(ball["azimuth_deg"], 6))
             # The three the operator owns must survive every throw untouched.
-            self.assertAlmostEqual(ball["distance"], 5.0, places=6)
-            self.assertAlmostEqual(ball["speed"], 12.0, places=6)
+            self.assertAlmostEqual(ball["cmd_dist_ball_rt_base"], 5.0, places=6)
+            self.assertAlmostEqual(
+                ball["cmd_speed_ball_rt_world"], 12.0, places=6
+            )
             self.assertAlmostEqual(ball["mass"], 1.5, places=6)
         self.assertGreater(
             len(azimuths), 1, "the checkbox did not randomize the azimuth"
@@ -626,7 +649,9 @@ class TestDodgeballTab(unittest.TestCase):
         tab = dodgeball_tab.DodgeballTab(self.root, throw_publisher=None)
         payload = tab.throw()
         assert payload is not None
-        self.assertTrue(payload.HasField("launch_velocity"))
+        self.assertTrue(
+            payload.HasField("launch_linvel_ball_rt_world_ewrt_heading")
+        )
         # The status line has to SHOW it: it used to be written with configure(text=...) on a label bound to a
         # variable, which Tk overwrote with the variable's empty string before it was ever drawn.
         self.root.update_idletasks()
@@ -681,7 +706,7 @@ class TestDodgeballTab(unittest.TestCase):
         )
 
     def test_the_mass_slider_reaches_the_published_payload(self):
-        # The whole point of the slider: the number on screen is the number the simulator is told to throw.
+        # The number on the slider is the number the simulator is told to throw.
         self.tab.mass_row.set_value(2.25)
         self.tab.speed_row.set_value(10.0)
         self.tab.throw()

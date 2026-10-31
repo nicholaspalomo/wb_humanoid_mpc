@@ -91,7 +91,7 @@ message TaskFile {
   };
   option (nproto.retired_field) = {
     name: "Q"
-    replacement: "the running state weights are the block state_weights, by coordinate and joint name: state_weights { scaling: 85 base_position { x: 1 y: 1 z: 1 } joint_positions { joint: \"<joint>\" value: 5 } }"
+    replacement: "the running state weights are the block state_weights, by coordinate and joint name: state_weights { scaling: 85 pos_base_rt_world_ewrt_world { x: 1 y: 1 z: 1 } joint_positions { joint: \"<joint>\" value: 5 } }"
   };
   option (nproto.retired_field) = {
     name: "R"
@@ -163,7 +163,7 @@ message TaskFile {
     }
   ];
   // [N] The normal force above which a contact point counts as touching (ground truth).
-  double sim_contact_force_threshold = 4 [
+  double sim_min_force_mjcontact_ewrt_mjcontact_x = 4 [
     default = 5.0,
     (humanoid_mpc_config.tuning) = {
       reload: RELOAD_START_UP
@@ -183,7 +183,7 @@ message TaskFile {
     }
   ];
   // [m] The base height below which the simulated robot has fallen: it is reset and caught on the gantry.
-  double sim_auto_reset_base_height = 57 [
+  double sim_auto_reset_min_pos_base_rt_world_ewrt_world_z = 57 [
     default = 0.2,
     (humanoid_mpc_config.tuning) = {
       reload: RELOAD_START_UP

@@ -52,24 +52,24 @@ std::vector<std::string> prismaticBipedFootFrames();
 
 /** The world gravity the trajectory's accelerometer reading subtracts [m/s^2].
  */
-inline const vector3_t kGravity(0.0, 0.0, -9.81);
+inline const vector3_t kGravityEwrtWorld(0.0, 0.0, -9.81);
 
 /** The true state of the prismatic biped at one time, and what its sensors read
  * then. */
 struct WalkingSample {
   scalar_t time = 0.0;
-  vector3_t basePosition = vector3_t::Zero();
+  vector3_t posBaseRtWorldEwrtWorld = vector3_t::Zero();
   /** World frame. */
-  vector3_t baseVelocity = vector3_t::Zero();
-  vector3_t baseAcceleration = vector3_t::Zero();
+  vector3_t linvelBaseRtWorldEwrtWorld = vector3_t::Zero();
+  vector3_t linaccBaseRtWorldEwrtWorld = vector3_t::Zero();
   /** Base to world. */
-  quaternion_t orientation = quaternion_t::Identity();
+  quaternion_t quatBaseRtWorld = quaternion_t::Identity();
   /** Base frame. */
-  vector3_t angularVelocity = vector3_t::Zero();
+  vector3_t angvelBaseRtWorldEwrtBase = vector3_t::Zero();
   /** The accelerometer's specific force R^T (a - g), base frame. */
-  vector3_t imuLinearAcceleration = vector3_t::Zero();
-  std::array<vector3_t, kNumFeet> footPositions{};
-  std::array<vector3_t, kNumFeet> footVelocities{};
+  vector3_t specforceBaseRtWorldEwrtBase = vector3_t::Zero();
+  std::array<vector3_t, kNumFeet> posFeetRtWorldEwrtWorld{};
+  std::array<vector3_t, kNumFeet> linvelFeetRtWorldEwrtWorld{};
   std::vector<bool> contactFlags = std::vector<bool>(kNumFeet, true);
   /** Robot joint order: left_x, left_y, left_z, right_x, right_y, right_z. */
   vector_t jointPositions = vector_t::Zero(kNumJoints);

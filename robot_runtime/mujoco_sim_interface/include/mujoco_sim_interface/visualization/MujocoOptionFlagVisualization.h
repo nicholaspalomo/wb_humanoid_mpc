@@ -53,6 +53,7 @@ class MujocoOptionFlagVisualization final : public MujocoVisualization {
                                 int flag);
 
   static std::unique_ptr<MujocoOptionFlagVisualization> contactPoints();
+  // NOLINTNEXTLINE(frame-naming): names MuJoCo's mjVIS_CONTACTFORCE flag
   static std::unique_ptr<MujocoOptionFlagVisualization> contactForces();
   static std::unique_ptr<MujocoOptionFlagVisualization> centerOfMass();
   static std::unique_ptr<MujocoOptionFlagVisualization> inertia();

@@ -431,7 +431,7 @@ TEST(KalmanFilterTest, inputNoiseIsCorrelatedAcrossTheChannelsItDrives) {
                    {.name = "velocity",
                     .state = vector_t::Zero(3),
                     .stateCovariance = matrix_t::Zero(3, 3)}});
-  const vector_t acceleration = makeVector({1.0, -2.0, 0.5});
+  const vector_t controlInput = makeVector({1.0, -2.0, 0.5});
 
   ASSERT_TRUE(
       filter
@@ -443,13 +443,13 @@ TEST(KalmanFilterTest, inputNoiseIsCorrelatedAcrossTheChannelsItDrives) {
                {.stateName = "velocity",
                 .controlInputMatrix = {{"acceleration", dt * identity(3)}}}},
               {{.name = "acceleration",
-                .input = acceleration,
+                .input = controlInput,
                 .inputNoiseCovariance = sigma * sigma * identity(3)}})
           .ok());
 
   expectNear(getStateOrDie(*filter, "position").state,
-             0.5 * dt * dt * acceleration, /*tolerance=*/1.0e-15);
-  expectNear(getStateOrDie(*filter, "velocity").state, dt * acceleration,
+             0.5 * dt * dt * controlInput, /*tolerance=*/1.0e-15);
+  expectNear(getStateOrDie(*filter, "velocity").state, dt * controlInput,
              /*tolerance=*/1.0e-15);
   const scalar_t variance = sigma * sigma;
   expectNear(getCovarianceOrDie(*filter, "position", "position"),
@@ -471,7 +471,7 @@ TEST(KalmanFilterTest, inputNoiseIsCorrelatedAcrossTheChannelsItDrives) {
 TEST(KalmanFilterTest,
      positionMeasurementsCorrectTheVelocityThroughTheCrossCovariance) {
   const scalar_t dt = 0.01;
-  const scalar_t true_velocity = 0.8;
+  const scalar_t true_rate = 0.8;
   std::unique_ptr<KalmanFilter> filter =
       createOrDie({{.name = "position",
                     .state = makeVector({0.0}),
@@ -479,16 +479,16 @@ TEST(KalmanFilterTest,
                    {.name = "velocity",
                     .state = makeVector({0.0}),
                     .stateCovariance = scalarMatrix(1.0)}});
-  const std::vector<KalmanFilterProcessModel> constant_velocity = {
+  const std::vector<KalmanFilterProcessModel> constant_velocity_model = {
       {.stateName = "position",
        .stateTransition = {{"velocity", scalarMatrix(dt)}}}};
 
   for (int step = 1; step <= 200; ++step) {
-    ASSERT_TRUE(filter->predict(constant_velocity, /*inputs=*/{}).ok());
+    ASSERT_TRUE(filter->predict(constant_velocity_model, /*inputs=*/{}).ok());
     ASSERT_TRUE(
         filter
             ->correct({{.name = "position",
-                        .measurement = makeVector({true_velocity * dt * step}),
+                        .measurement = makeVector({true_rate * dt * step}),
                         .measurementModel = {{"position", scalarMatrix(1.0)}},
                         .measurementNoiseCovariance = scalarMatrix(1.0e-6)}})
             .ok());
@@ -497,8 +497,7 @@ TEST(KalmanFilterTest,
           << "the first position measurement must already move the velocity";
     }
   }
-  EXPECT_NEAR(getStateOrDie(*filter, "velocity").state(0), true_velocity,
-              1.0e-3);
+  EXPECT_NEAR(getStateOrDie(*filter, "velocity").state(0), true_rate, 1.0e-3);
   EXPECT_LT(getStateOrDie(*filter, "velocity").stateCovariance(0, 0), 1.0e-3);
 }
 
@@ -710,20 +709,22 @@ TEST(KalmanFilterTest, anEmptyCorrectionLeavesTheEstimateUnchanged) {
 TEST(KalmanFilterTest,
      legKinematicsCorrectTheBaseVelocityOfAContactAidedEstimator) {
   const scalar_t dt = 0.002;
-  const vector_t true_foot = makeVector({0.1, -0.1, 0.0});
-  const vector_t acceleration = makeVector({0.2, 0.0, -0.1});
-  vector_t true_base_position = makeVector({0.0, 0.0, 0.9});
-  vector_t true_base_velocity = makeVector({0.5, -0.2, 0.0});
+  const vector_t true_pos_foot_rt_world_ewrt_world =
+      makeVector({0.1, -0.1, 0.0});
+  const vector_t linacc_base_rt_world_ewrt_world = makeVector({0.2, 0.0, -0.1});
+  vector_t true_pos_base_rt_world_ewrt_world = makeVector({0.0, 0.0, 0.9});
+  vector_t true_linvel_base_rt_world_ewrt_world = makeVector({0.5, -0.2, 0.0});
 
   std::unique_ptr<KalmanFilter> filter =
       createOrDie({{.name = "base_position",
-                    .state = true_base_position,
+                    .state = true_pos_base_rt_world_ewrt_world,
                     .stateCovariance = 1.0e-4 * identity(3)},
                    {.name = "base_velocity",
                     .state = vector_t::Zero(3),
                     .stateCovariance = identity(3)},
                    {.name = "foot_position",
-                    .state = true_foot + makeVector({0.01, 0.01, 0.0}),
+                    .state = true_pos_foot_rt_world_ewrt_world +
+                             makeVector({0.01, 0.01, 0.0}),
                     .stateCovariance = 1.0e-2 * identity(3)}});
   const std::vector<KalmanFilterProcessModel> processModel = {
       {.stateName = "base_position",
@@ -737,32 +738,38 @@ TEST(KalmanFilterTest,
   };
 
   for (int step = 0; step < 500; ++step) {
-    true_base_position +=
-        dt * true_base_velocity + 0.5 * dt * dt * acceleration;
-    true_base_velocity += dt * acceleration;
+    true_pos_base_rt_world_ewrt_world +=
+        dt * true_linvel_base_rt_world_ewrt_world +
+        0.5 * dt * dt * linacc_base_rt_world_ewrt_world;
+    true_linvel_base_rt_world_ewrt_world +=
+        dt * linacc_base_rt_world_ewrt_world;
     ASSERT_TRUE(filter
                     ->predict(processModel,
                               {{.name = "imu_acceleration",
-                                .input = acceleration,
+                                .input = linacc_base_rt_world_ewrt_world,
                                 .inputNoiseCovariance = 1.0e-4 * identity(3)}})
                     .ok());
     ASSERT_TRUE(
         filter
             ->correct({{.name = "foot_relative_position",
-                        .measurement = true_foot - true_base_position,
+                        .measurement = true_pos_foot_rt_world_ewrt_world -
+                                       true_pos_base_rt_world_ewrt_world,
                         .measurementModel = {{"foot_position", identity(3)},
                                              {"base_position", -identity(3)}},
                         .measurementNoiseCovariance = 1.0e-6 * identity(3)}})
             .ok());
   }
 
-  expectNear(getStateOrDie(*filter, "base_velocity").state, true_base_velocity,
+  expectNear(getStateOrDie(*filter, "base_velocity").state,
+             true_linvel_base_rt_world_ewrt_world,
              /*tolerance=*/1.0e-2);
-  const vector_t relative_estimate =
+  const vector_t est_pos_foot_rt_base_ewrt_world =
       getStateOrDie(*filter, "foot_position").state -
       getStateOrDie(*filter, "base_position").state;
-  expectNear(relative_estimate, true_foot - true_base_position,
-             /*tolerance=*/1.0e-3);
+  expectNear(
+      est_pos_foot_rt_base_ewrt_world,
+      true_pos_foot_rt_world_ewrt_world - true_pos_base_rt_world_ewrt_world,
+      /*tolerance=*/1.0e-3);
   // Only foot minus base is measured, so their absolute positions remain
   // uncertain together: positively correlated.
   const matrix_t P_base_foot =
@@ -1023,8 +1030,8 @@ TEST_F(KalmanFilterRejectionTest,
     std::vector<KalmanFilterInput> inputs;
     std::string expected_message;
   };
-  const KalmanFilterInput acceleration = {.name = "acceleration",
-                                          .input = makeVector({1.0, 1.0})};
+  const KalmanFilterInput control_input = {.name = "acceleration",
+                                           .input = makeVector({1.0, 1.0})};
   const std::vector<Case> cases = {
       {"model of an unknown channel",
        {{.stateName = "orientation"}},
@@ -1050,13 +1057,13 @@ TEST_F(KalmanFilterRejectionTest,
       {"input block of an input that was not given",
        {{.stateName = "velocity",
          .controlInputMatrix = {{"jerk", identity(2)}}}},
-       {acceleration},
+       {control_input},
        "controlInputMatrix of state channel 'velocity' names input 'jerk', "
        "which predict() was not given; the inputs are: acceleration"},
       {"input block of the wrong size",
        {{.stateName = "velocity",
          .controlInputMatrix = {{"acceleration", matrix_t::Identity(2, 3)}}}},
-       {acceleration},
+       {control_input},
        "controlInputMatrix block ('velocity', 'acceleration') is 2x3, expected "
        "2x2"},
       {"two models of one channel",
@@ -1075,7 +1082,7 @@ TEST_F(KalmanFilterRejectionTest,
        "semi-definite"},
       {"repeated input",
        {},
-       {acceleration, acceleration},
+       {control_input, control_input},
        "input 'acceleration' is given twice"},
       {"input without a name",
        {},

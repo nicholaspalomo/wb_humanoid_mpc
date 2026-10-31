@@ -215,9 +215,10 @@ class WholeBodyHarness {
 
   void setState(const vector_t& state) {
     robotState_.setConfigurationToZero();
-    robotState_.setRootPositionInWorldFrame(model_.getBasePosition(state));
-    robotState_.setRootRotationLocalToWorldFrame(
-        quaternion_t(model_.getBaseOrientation(state)));
+    robotState_.setPosBaseRtWorldEwrtWorld(
+        model_.getPosBaseRtWorldEwrtWorld(state));
+    robotState_.setQuatBaseRtWorld(
+        quaternion_t(model_.getQuatBaseRtWorldXyzw(state)));
     const vector_t joints = model_.getJointAngles(state);
     for (size_t i = 0; i < mpcJointIndices_.size(); ++i)
       robotState_.setJointPosition(mpcJointIndices_[i], joints[i]);
@@ -415,10 +416,10 @@ TEST(WBMpcMrtJointController,
   const vector3_t linearVelocityLocal(0.4, -0.1, 0.05);
   const vector3_t angularVelocityLocal(0.3, -0.2, 0.6);
   robot::model::RobotState& robotState = harness.robotState();
-  robotState.setRootPositionInWorldFrame(position);
-  robotState.setRootRotationLocalToWorldFrame(orientation);
-  robotState.setRootLinearVelocityInLocalFrame(linearVelocityLocal);
-  robotState.setRootAngularVelocityInLocalFrame(angularVelocityLocal);
+  robotState.setPosBaseRtWorldEwrtWorld(position);
+  robotState.setQuatBaseRtWorld(orientation);
+  robotState.setLinvelBaseRtWorldEwrtBase(linearVelocityLocal);
+  robotState.setAngvelBaseRtWorldEwrtBase(angularVelocityLocal);
   const std::vector<size_t>& jointIndices = harness.mpcJointIndices();
   vector_t jointPositions(static_cast<Eigen::Index>(jointIndices.size()));
   vector_t jointVelocities(static_cast<Eigen::Index>(jointIndices.size()));
@@ -435,8 +436,8 @@ TEST(WBMpcMrtJointController,
 
   const vector_t& state = harness.controller().getCurrentObservation().state;
   ASSERT_EQ(static_cast<size_t>(state.size()), model.getStateDim());
-  EXPECT_TRUE(model.getBasePosition(state) == position);
-  EXPECT_LT(quaternion_t(model.getBaseOrientation(state))
+  EXPECT_TRUE(model.getPosBaseRtWorldEwrtWorld(state) == position);
+  EXPECT_LT(quaternion_t(model.getQuatBaseRtWorldXyzw(state))
                 .angularDistance(orientation),
             1.0e-12);
   EXPECT_LT((model.getBaseComLinearVelocity(state) -
@@ -445,7 +446,7 @@ TEST(WBMpcMrtJointController,
             1.0e-12)
       << "in the world frame";
   EXPECT_LT(
-      (model.getBaseAngularVelocityLocal(state) - angularVelocityLocal).norm(),
+      (model.getAngvelBaseRtWorldEwrtBase(state) - angularVelocityLocal).norm(),
       1.0e-12)
       << "in the base frame";
   EXPECT_TRUE(model.getJointAngles(state) == jointPositions);
@@ -561,8 +562,8 @@ TEST(WBMpcMrtJointController,
   EXPECT_GT(target.timeTrajectory[1], target.timeTrajectory[0]);
   scalar_t verticalForce = 0.0;
   for (size_t foot = 0; foot < kNumContacts; ++foot)
-    verticalForce +=
-        harness.model().getContactForce(target.inputTrajectory[0], foot)(2);
+    verticalForce += harness.model().getForceContactEwrtParam(
+        target.inputTrajectory[0], foot)(2);
   PinocchioInterface pinocchioInterface = harness.pinocchioInterface();
   EXPECT_NEAR(verticalForce,
               pinocchio::computeTotalMass(pinocchioInterface.getModel()) * 9.81,

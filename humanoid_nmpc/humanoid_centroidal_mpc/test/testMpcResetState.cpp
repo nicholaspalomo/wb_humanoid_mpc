@@ -74,9 +74,10 @@ vector_t walkingState(const AtlasReferenceStack& stack,
                       scalar_t speed,
                       scalar_t dt) {
   vector_t moved = state;
-  centroidal_model::getNormalizedMomentum(moved, stack.centroidalModelInfo())
+  centroidal_model::getMnormCmomComRtWorldEwrtWorld(moved,
+                                                    stack.centroidalModelInfo())
       .setZero();
-  centroidal_model::getNormalizedMomentum(
+  centroidal_model::getMnormCmomComRtWorldEwrtWorld(
       moved, stack.centroidalModelInfo())(0) = speed;
   moved(6) += speed * dt;
   return moved;
@@ -113,7 +114,8 @@ bool scheduleSwingsIn(const AtlasReferenceStack& stack,
 /** [m/s] The Atlas command limit along x: the raw command that asks for
  * `speed`. */
 scalar_t rawCommandFor(scalar_t speed) {
-  return speed / 1.2;  // the reference file's max_displacement_velocity_x
+  return speed / 1.2;  // the reference file's
+                       // cmd_max_linvel_base_rt_world_ewrt_heading_x
 }
 
 /** Everything the solver would read from the two stacks, compared. */
@@ -151,11 +153,15 @@ void expectSameReferences(AtlasReferenceStack& used,
       ASSERT_EQ(referenceA.has_value(), referenceB.has_value())
           << when << ", foot " << foot << ", t = " << query;
       if (!referenceA.has_value() || !referenceB.has_value()) continue;
-      EXPECT_LT((referenceA->position - referenceB->position).norm(), 1.0e-9)
+      EXPECT_LT((referenceA->desPosFootRtWorldEwrtWorld -
+                 referenceB->desPosFootRtWorldEwrtWorld)
+                    .norm(),
+                1.0e-9)
           << when << ", foot " << foot << ", t = " << query;
-      EXPECT_LT(
-          (referenceA->linearVelocity - referenceB->linearVelocity).norm(),
-          1.0e-9)
+      EXPECT_LT((referenceA->desLinvelFootRtWorldEwrtWorld -
+                 referenceB->desLinvelFootRtWorldEwrtWorld)
+                    .norm(),
+                1.0e-9)
           << when << ", foot " << foot << ", t = " << query;
     }
   }
@@ -369,7 +375,8 @@ TEST(MpcResetState, AfterAResetTheSwingFootStartsWhereTheFootIsNotWhereItWas) {
       if (!reference.has_value()) continue;
       ++swingReferences;
       maxSwingSpeed =
-          std::max(maxSwingSpeed, reference->linearVelocity.head<2>().norm());
+          std::max(maxSwingSpeed,
+                   reference->desLinvelFootRtWorldEwrtWorld.head<2>().norm());
     }
     state = walkingState(stack, state, /*speed=*/1.2, kSolvePeriod);
   }
@@ -459,18 +466,18 @@ TEST(MpcResetState, TheTargetCalculatorForgetsItsFilters) {
   const vector_t& state = used.initialState();
   // The command filter of the calculator is driven towards a walk.
   for (int step = 0; step < 20; ++step) {
-    used.targetCalculator().commandedVelocityToTargetTrajectories(
+    used.targetCalculator().velocityCommandToTargetTrajectories(
         vector4_t(1.0, 0.0, 0.0, 0.0), 0.01 * step, state,
         /*measuredMotion=*/BasePlanarMotion{});
   }
   used.targetCalculator().reset();
 
   const TargetTrajectories afterReset =
-      used.targetCalculator().commandedVelocityToTargetTrajectories(
+      used.targetCalculator().velocityCommandToTargetTrajectories(
           vector4_t::Zero(), /*initTime=*/5.0, state,
           /*measuredMotion=*/BasePlanarMotion{});
   const TargetTrajectories afterConstruction =
-      fresh.targetCalculator().commandedVelocityToTargetTrajectories(
+      fresh.targetCalculator().velocityCommandToTargetTrajectories(
           vector4_t::Zero(), /*initTime=*/5.0, state,
           /*measuredMotion=*/BasePlanarMotion{});
   ASSERT_EQ(afterReset.timeTrajectory, afterConstruction.timeTrajectory);
@@ -500,7 +507,7 @@ TEST(MpcResetState,
       state, vector_t(used.model().getJointAngles(state).array() + 0.1));
 
   const TargetTrajectories afterConstruction =
-      fresh.targetCalculator().commandedVelocityToTargetTrajectories(
+      fresh.targetCalculator().velocityCommandToTargetTrajectories(
           vector4_t::Zero(), /*initTime=*/0.0, state,
           /*measuredMotion=*/BasePlanarMotion{});
   const vector_t nominalJoints =
@@ -515,13 +522,13 @@ TEST(MpcResetState,
             1.0e-12);
 
   for (int step = 0; step < 20; ++step) {
-    used.targetCalculator().commandedVelocityToTargetTrajectories(
+    used.targetCalculator().velocityCommandToTargetTrajectories(
         vector4_t(1.0, 0.0, 0.0, 0.0), 0.01 * step, used.initialState(),
         /*measuredMotion=*/BasePlanarMotion{});
   }
   used.targetCalculator().reset();
   const TargetTrajectories afterLateReset =
-      used.targetCalculator().commandedVelocityToTargetTrajectories(
+      used.targetCalculator().velocityCommandToTargetTrajectories(
           vector4_t::Zero(), /*initTime=*/21.0, state,
           /*measuredMotion=*/BasePlanarMotion{});
   EXPECT_LT((afterLateReset.stateTrajectory.front().tail(numJoints) -
@@ -534,7 +541,7 @@ TEST(MpcResetState,
 
   // A gap in the calls (a solver backing off) restarts the filter the same way.
   const TargetTrajectories afterGap =
-      used.targetCalculator().commandedVelocityToTargetTrajectories(
+      used.targetCalculator().velocityCommandToTargetTrajectories(
           vector4_t::Zero(), /*initTime=*/23.0, state,
           /*measuredMotion=*/BasePlanarMotion{});
   EXPECT_LT(

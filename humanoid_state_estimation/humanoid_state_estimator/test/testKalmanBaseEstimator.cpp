@@ -76,18 +76,18 @@ std::unique_ptr<KalmanBaseEstimator> makeEstimator(
 /** Gaussian noise on what the sensors read: the IMU, the gyroscope and the
  * joint encoders. */
 struct SensorNoise {
-  scalar_t acceleration = 0.0;     // [m/s^2]
-  scalar_t angularVelocity = 0.0;  // [rad/s]
-  scalar_t jointPosition = 0.0;    // [m] (prismatic joints)
-  scalar_t jointVelocity = 0.0;    // [m/s]
+  scalar_t specforceBaseRtWorldEwrtBase = 0.0;  // [m/s^2]
+  scalar_t angvelBaseRtWorldEwrtBase = 0.0;     // [rad/s]
+  scalar_t jointPosition = 0.0;                 // [m] (prismatic joints)
+  scalar_t jointVelocity = 0.0;                 // [m/s]
 };
 
-/** The largest and the root-mean-square errors of a run. */
+/** The largest and the root-mean-square norms of the errors of a run. */
 struct Errors {
-  scalar_t maxPosition = 0.0;
-  scalar_t maxVelocity = 0.0;
-  scalar_t rmsPosition = 0.0;
-  scalar_t rmsVelocity = 0.0;
+  scalar_t maxErrPosBaseRtWorldEwrtWorld = 0.0;
+  scalar_t maxErrLinvelBaseRtWorldEwrtWorld = 0.0;
+  scalar_t rmsErrPosBaseRtWorldEwrtWorld = 0.0;
+  scalar_t rmsErrLinvelBaseRtWorldEwrtWorld = 0.0;
 };
 
 /** `value` with independent Gaussian noise of standard deviation `sigma` on
@@ -104,48 +104,63 @@ vector_t addNoise(const vector_t& value,
 
 /**
  * Runs `estimator` over the walk from `from` to kDuration, after reset() at the
- * truth with `velocityOffset` added to the base velocity, and measures its
- * errors from `settle` [s] on.
+ * truth with `initErrLinvelBaseRtWorldEwrtWorld` added to the base velocity,
+ * and measures its errors from `settle` [s] on.
  */
 Errors run(KalmanBaseEstimator& estimator,
            const SensorNoise& noise,
-           const vector3_t& velocityOffset,
+           const vector3_t& initErrLinvelBaseRtWorldEwrtWorld,
            scalar_t settle) {
   std::mt19937 generator(42);
   const WalkingSample start = walkingSample(0.0);
   EXPECT_TRUE(estimator
-                  .reset(start.basePosition,
-                         start.baseVelocity + velocityOffset, start.orientation,
-                         start.jointPositions, start.jointVelocities)
+                  .reset(start.posBaseRtWorldEwrtWorld,
+                         start.linvelBaseRtWorldEwrtWorld +
+                             initErrLinvelBaseRtWorldEwrtWorld,
+                         start.quatBaseRtWorld, start.jointPositions,
+                         start.jointVelocities)
                   .ok());
   Errors errors;
   int counted = 0;
   const int steps = static_cast<int>(std::round(kDuration / kDt));
   for (int step = 1; step <= steps; ++step) {
     const WalkingSample sample = walkingSample(step * kDt);
-    const vector3_t acceleration =
-        addNoise(sample.imuLinearAcceleration, noise.acceleration, generator);
-    const vector3_t angularVelocity =
-        addNoise(sample.angularVelocity, noise.angularVelocity, generator);
+    const vector3_t measSpecforceBaseRtWorldEwrtBase =
+        addNoise(sample.specforceBaseRtWorldEwrtBase,
+                 noise.specforceBaseRtWorldEwrtBase, generator);
+    const vector3_t measAngvelBaseRtWorldEwrtBase =
+        addNoise(sample.angvelBaseRtWorldEwrtBase,
+                 noise.angvelBaseRtWorldEwrtBase, generator);
     const absl::Status updated = estimator.update(
-        kDt, sample.orientation, angularVelocity, acceleration,
+        kDt, sample.quatBaseRtWorld, measAngvelBaseRtWorldEwrtBase,
+        measSpecforceBaseRtWorldEwrtBase,
         addNoise(sample.jointPositions, noise.jointPosition, generator),
         addNoise(sample.jointVelocities, noise.jointVelocity, generator),
         sample.contactFlags);
     EXPECT_TRUE(updated.ok()) << updated;
     if (sample.time < settle) continue;
-    const scalar_t positionError =
-        (estimator.basePosition() - sample.basePosition).norm();
-    const scalar_t velocityError =
-        (estimator.baseLinearVelocity() - sample.baseVelocity).norm();
-    errors.maxPosition = std::max(errors.maxPosition, positionError);
-    errors.maxVelocity = std::max(errors.maxVelocity, velocityError);
-    errors.rmsPosition += positionError * positionError;
-    errors.rmsVelocity += velocityError * velocityError;
+    const scalar_t normErrPosBaseRtWorldEwrtWorld =
+        (estimator.posBaseRtWorldEwrtWorld() - sample.posBaseRtWorldEwrtWorld)
+            .norm();
+    const scalar_t normErrLinvelBaseRtWorldEwrtWorld =
+        (estimator.linvelBaseRtWorldEwrtWorld() -
+         sample.linvelBaseRtWorldEwrtWorld)
+            .norm();
+    errors.maxErrPosBaseRtWorldEwrtWorld = std::max(
+        errors.maxErrPosBaseRtWorldEwrtWorld, normErrPosBaseRtWorldEwrtWorld);
+    errors.maxErrLinvelBaseRtWorldEwrtWorld =
+        std::max(errors.maxErrLinvelBaseRtWorldEwrtWorld,
+                 normErrLinvelBaseRtWorldEwrtWorld);
+    errors.rmsErrPosBaseRtWorldEwrtWorld +=
+        normErrPosBaseRtWorldEwrtWorld * normErrPosBaseRtWorldEwrtWorld;
+    errors.rmsErrLinvelBaseRtWorldEwrtWorld +=
+        normErrLinvelBaseRtWorldEwrtWorld * normErrLinvelBaseRtWorldEwrtWorld;
     ++counted;
   }
-  errors.rmsPosition = std::sqrt(errors.rmsPosition / counted);
-  errors.rmsVelocity = std::sqrt(errors.rmsVelocity / counted);
+  errors.rmsErrPosBaseRtWorldEwrtWorld =
+      std::sqrt(errors.rmsErrPosBaseRtWorldEwrtWorld / counted);
+  errors.rmsErrLinvelBaseRtWorldEwrtWorld =
+      std::sqrt(errors.rmsErrLinvelBaseRtWorldEwrtWorld / counted);
   return errors;
 }
 
@@ -159,15 +174,17 @@ TEST(KalmanBaseEstimatorTest, TracksTheWalkWithExactSensors) {
   // |a_dot| / 2 < 1e-6 m/s per step), which the kinematic velocity measurement
   // pulls back within a few steps. Millimeters and centimeters per second would
   // be a wrong model, not rounding.
-  EXPECT_LT(errors.maxPosition, 1.0e-3) << errors.rmsPosition;
-  EXPECT_LT(errors.maxVelocity, 5.0e-3) << errors.rmsVelocity;
+  EXPECT_LT(errors.maxErrPosBaseRtWorldEwrtWorld, 1.0e-3)
+      << errors.rmsErrPosBaseRtWorldEwrtWorld;
+  EXPECT_LT(errors.maxErrLinvelBaseRtWorldEwrtWorld, 5.0e-3)
+      << errors.rmsErrLinvelBaseRtWorldEwrtWorld;
 }
 
 TEST(KalmanBaseEstimatorTest, StaysWithinTheNoiseWithNoisySensors) {
   std::unique_ptr<KalmanBaseEstimator> estimator = makeEstimator();
   ASSERT_NE(estimator, nullptr);
-  const SensorNoise noise{.acceleration = 0.2,
-                          .angularVelocity = 0.01,
+  const SensorNoise noise{.specforceBaseRtWorldEwrtBase = 0.2,
+                          .angvelBaseRtWorldEwrtBase = 0.01,
                           .jointPosition = 0.001,
                           .jointVelocity = 0.02};
   const Errors errors =
@@ -178,9 +195,9 @@ TEST(KalmanBaseEstimatorTest, StaysWithinTheNoiseWithNoisySensors) {
   // below it. The position's x and y are odometry: they drift with the stance
   // feet's random walk and the velocity error's integral over 8 s, a few
   // millimeters; z is held by the contact height to the joint noise.
-  EXPECT_LT(errors.rmsVelocity, 0.02);
-  EXPECT_LT(errors.maxVelocity, 0.08);
-  EXPECT_LT(errors.maxPosition, 0.02);
+  EXPECT_LT(errors.rmsErrLinvelBaseRtWorldEwrtWorld, 0.02);
+  EXPECT_LT(errors.maxErrLinvelBaseRtWorldEwrtWorld, 0.08);
+  EXPECT_LT(errors.maxErrPosBaseRtWorldEwrtWorld, 0.02);
 }
 
 TEST(KalmanBaseEstimatorTest, AWrongInitialVelocityConverges) {
@@ -191,7 +208,7 @@ TEST(KalmanBaseEstimatorTest, AWrongInitialVelocityConverges) {
   // the error is that of the exact run.
   const Errors errors =
       run(*estimator, SensorNoise(), vector3_t(0.5, -0.3, 0.2), /*settle=*/0.5);
-  EXPECT_LT(errors.maxVelocity, 5.0e-3);
+  EXPECT_LT(errors.maxErrLinvelBaseRtWorldEwrtWorld, 5.0e-3);
 }
 
 TEST(KalmanBaseEstimatorTest, TheHeightIsObservedThroughTheContactHeight) {
@@ -200,26 +217,29 @@ TEST(KalmanBaseEstimatorTest, TheHeightIsObservedThroughTheContactHeight) {
   const WalkingSample start = walkingSample(0.0);
   // Started 5 cm too high: the feet start 5 cm above the ground too, and the
   // contact height brings both down.
-  ASSERT_TRUE(estimator
-                  ->reset(start.basePosition + vector3_t(0.0, 0.0, 0.05),
-                          start.baseVelocity, start.orientation,
-                          start.jointPositions, start.jointVelocities)
-                  .ok());
+  ASSERT_TRUE(
+      estimator
+          ->reset(start.posBaseRtWorldEwrtWorld + vector3_t(0.0, 0.0, 0.05),
+                  start.linvelBaseRtWorldEwrtWorld, start.quatBaseRtWorld,
+                  start.jointPositions, start.jointVelocities)
+          .ok());
   for (int step = 1; step <= 1000; ++step) {
     const WalkingSample sample = walkingSample(step * kDt);
     ASSERT_TRUE(estimator
-                    ->update(kDt, sample.orientation, sample.angularVelocity,
-                             sample.imuLinearAcceleration,
+                    ->update(kDt, sample.quatBaseRtWorld,
+                             sample.angvelBaseRtWorldEwrtBase,
+                             sample.specforceBaseRtWorldEwrtBase,
                              sample.jointPositions, sample.jointVelocities,
                              sample.contactFlags)
                     .ok());
   }
-  EXPECT_NEAR(estimator->basePosition().z(),
-              walkingSample(1000 * kDt).basePosition.z(), 2.0e-3);
-  const absl::StatusOr<vector3_t> foot = estimator->contactPosition(0);
+  EXPECT_NEAR(estimator->posBaseRtWorldEwrtWorld().z(),
+              walkingSample(1000 * kDt).posBaseRtWorldEwrtWorld.z(), 2.0e-3);
+  const absl::StatusOr<vector3_t> foot =
+      estimator->posContactRtWorldEwrtWorld(0);
   ASSERT_TRUE(foot.ok()) << foot.status();
-  EXPECT_NEAR(foot->z(), walkingSample(1000 * kDt).footPositions[0].z(),
-              2.0e-3);
+  EXPECT_NEAR(foot->z(),
+              walkingSample(1000 * kDt).posFeetRtWorldEwrtWorld[0].z(), 2.0e-3);
 }
 
 TEST(KalmanBaseEstimatorTest, RefusesANoiseModelOutOfRangeNamingTheField) {
@@ -242,29 +262,35 @@ TEST(KalmanBaseEstimatorTest, ABadStepIsRefusedAndAFailedOneKeepsTheEstimate) {
   ASSERT_NE(estimator, nullptr);
   const WalkingSample sample = walkingSample(0.0);
   ASSERT_TRUE(estimator
-                  ->reset(sample.basePosition, sample.baseVelocity,
-                          sample.orientation, sample.jointPositions,
+                  ->reset(sample.posBaseRtWorldEwrtWorld,
+                          sample.linvelBaseRtWorldEwrtWorld,
+                          sample.quatBaseRtWorld, sample.jointPositions,
                           sample.jointVelocities)
                   .ok());
-  const vector3_t position = estimator->basePosition();
+  const vector3_t posBaseRtWorldEwrtWorld =
+      estimator->posBaseRtWorldEwrtWorld();
   EXPECT_FALSE(estimator
-                   ->update(/*dt=*/0.0, sample.orientation,
-                            sample.angularVelocity,
-                            sample.imuLinearAcceleration, sample.jointPositions,
-                            sample.jointVelocities, sample.contactFlags)
+                   ->update(/*dt=*/0.0, sample.quatBaseRtWorld,
+                            sample.angvelBaseRtWorldEwrtBase,
+                            sample.specforceBaseRtWorldEwrtBase,
+                            sample.jointPositions, sample.jointVelocities,
+                            sample.contactFlags)
                    .ok());
   EXPECT_FALSE(estimator
-                   ->update(kDt, sample.orientation, sample.angularVelocity,
+                   ->update(kDt, sample.quatBaseRtWorld,
+                            sample.angvelBaseRtWorldEwrtBase,
                             vector3_t::Constant(std::nan("")),
                             sample.jointPositions, sample.jointVelocities,
                             sample.contactFlags)
                    .ok());
   EXPECT_FALSE(estimator
-                   ->update(kDt, sample.orientation, sample.angularVelocity,
-                            sample.imuLinearAcceleration, sample.jointPositions,
-                            sample.jointVelocities, std::vector<bool>(3, true))
+                   ->update(kDt, sample.quatBaseRtWorld,
+                            sample.angvelBaseRtWorldEwrtBase,
+                            sample.specforceBaseRtWorldEwrtBase,
+                            sample.jointPositions, sample.jointVelocities,
+                            std::vector<bool>(3, true))
                    .ok());
-  EXPECT_EQ(estimator->basePosition(), position);
+  EXPECT_EQ(estimator->posBaseRtWorldEwrtWorld(), posBaseRtWorldEwrtWorld);
 }
 
 }  // namespace

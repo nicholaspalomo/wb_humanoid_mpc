@@ -133,8 +133,8 @@ VECTOR_T<SCALAR_T> narrowFunction(const VECTOR_T<SCALAR_T>& x) {
  * epsilon, |xi|, 1). */
 ad_vector4_t normGuardedNormalization(const ad_vector4_t& xi) {
   const ad_scalar_t norm = CppAD::sqrt(xi.squaredNorm());
-  return xi / CppAD::CondExpGt(norm, ad_scalar_t(kQuaternionNormGuard), norm,
-                               ad_scalar_t(1.0));
+  return xi / CppAD::CondExpGt(norm, ad_scalar_t(kUnitQuaternionNormGuard),
+                               norm, ad_scalar_t(1.0));
 }
 
 /** One taped function, its double-precision reference, and the name of its

@@ -103,7 +103,7 @@ absl::StatusOr<std::unique_ptr<ProceduralMpcMotionManager>> create(
       [calculator](const vector4_t& velocityTarget, scalar_t initTime,
                    scalar_t /*finalTime*/, const vector_t& initState,
                    const BasePlanarMotion& measuredMotion) {
-        return calculator->commandedVelocityToTargetTrajectories(
+        return calculator->velocityCommandToTargetTrajectories(
             velocityTarget, initTime, initState, measuredMotion);
       });
 }
@@ -122,11 +122,11 @@ std::unique_ptr<ProceduralMpcMotionManager> unfilteredManager(
       referenceSettingsFromConfig(stack.config().reference);
   EXPECT_TRUE(settings.ok()) << settings.status();
   if (!manager.ok() || !settings.ok()) return nullptr;
-  settings->maxDisplacementVelocityX = 1.0;
-  settings->maxDisplacementVelocityY = 1.0;
-  settings->maxRotationVelocity = 1.0;
-  settings->maxLinearAcceleration = 0.0;
-  settings->maxAngularAcceleration = 0.0;
+  settings->cmdMaxLinvelBaseRtWorldEwrtHeadingX = 1.0;
+  settings->cmdMaxLinvelBaseRtWorldEwrtHeadingY = 1.0;
+  settings->cmdMaxAngvelBaseRtWorldEwrtWorldZ = 1.0;
+  settings->cmdMaxLinaccBaseRtWorldEwrtHeadingXy = 0.0;
+  settings->cmdMaxAngaccBaseRtWorldEwrtWorldZ = 0.0;
   settings->velocityCommandFilterBreakFrequency = 0.0;
   EXPECT_EQ((*manager)->applyCommandLimits(*settings), absl::OkStatus());
   return *std::move(manager);
@@ -242,8 +242,8 @@ MeasuredRobot swingingJoints(const AtlasReferenceStack& stack,
   vector_t velocity = turningBase(stack, baseYawRate);
   velocity.tail(joints) = direction;
   const scalar_t unitOffset =
-      stack.model().getBaseTwistInWorldFrame(movingAt(stack, heading, velocity),
-                                             vector_t::Zero(joints))(5) -
+      stack.model().getTwistBaseRtWorldEwrtWorld(
+          movingAt(stack, heading, velocity), vector_t::Zero(joints))(5) -
       baseYawRate;
   velocity.tail(joints) = direction * (lockedYawRateOffset / unitOffset);
   return MeasuredRobot{.state = movingAt(stack, heading, velocity),
@@ -396,13 +396,14 @@ TEST(ProceduralMpcMotionManagerCreate,
      AReferenceFileWhoseLimitDoesNotParseIsRefusedNamingTheFile) {
   AtlasReferenceStack stack;
   mpc_config::ReferenceFile reference = stack.config().reference;
-  reference.max_displacement_velocity_x = 0.123;
+  reference.cmd_max_linvel_base_rt_world_ewrt_heading_x = 0.123;
   const std::string text = referenceFileText(reference);
-  const std::string unparsable =
-      absl::StrReplaceAll(text, {{"max_displacement_velocity_x: 0.123",
-                                  "max_displacement_velocity_x: fast"}});
-  ASSERT_NE(unparsable, text) << "the reference file's text no longer writes "
-                                 "max_displacement_velocity_x as expected";
+  const std::string unparsable = absl::StrReplaceAll(
+      text, {{"cmd_max_linvel_base_rt_world_ewrt_heading_x: 0.123",
+              "cmd_max_linvel_base_rt_world_ewrt_heading_x: fast"}});
+  ASSERT_NE(unparsable, text)
+      << "the reference file's text no longer writes "
+         "cmd_max_linvel_base_rt_world_ewrt_heading_x as expected";
   const std::string broken =
       writeTempFile("broken_limit_reference.textproto", unparsable);
   const absl::StatusOr<std::unique_ptr<ProceduralMpcMotionManager>> manager =
@@ -415,29 +416,32 @@ TEST(ProceduralMpcMotionManagerCreate,
 TEST(ProceduralMpcMotionManagerReload,
      AnAccelerationLimitThatIsNotANumberIsRefusedAndKeepsTheRamp) {
   AtlasReferenceStack stack;
-  const scalar_t before = stack.motionManager().getMaxLinearAcceleration();
+  const scalar_t before =
+      stack.motionManager().getCmdMaxLinaccBaseRtWorldEwrtHeadingXy();
   // A reload converts the file first (MpcParameterUpdaterModule), which refuses
   // the value by its field, so that nothing of the file is applied ...
   mpc_config::ReferenceFile reference = stack.config().reference;
-  reference.max_linear_acceleration =
+  reference.cmd_max_linacc_base_rt_world_ewrt_heading_xy =
       std::numeric_limits<scalar_t>::quiet_NaN();
   const absl::StatusOr<ReferenceSettings> converted =
       referenceSettingsFromConfig(reference);
   EXPECT_EQ(converted.status().code(), absl::StatusCode::kInvalidArgument)
       << converted.status();
   EXPECT_TRUE(absl::StrContains(converted.status().message(),
-                                "max_linear_acceleration"))
+                                "cmd_max_linacc_base_rt_world_ewrt_heading_xy"))
       << converted.status();
   // ... and the manager refuses the limit itself when it is handed one, keeping
   // the ramp it runs.
   absl::StatusOr<ReferenceSettings> settings =
       referenceSettingsFromConfig(stack.config().reference);
   ASSERT_TRUE(settings.ok()) << settings.status();
-  settings->maxLinearAcceleration = std::numeric_limits<scalar_t>::quiet_NaN();
+  settings->cmdMaxLinaccBaseRtWorldEwrtHeadingXy =
+      std::numeric_limits<scalar_t>::quiet_NaN();
   const absl::Status applied =
       stack.motionManager().applyCommandLimits(*settings);
   EXPECT_EQ(applied.code(), absl::StatusCode::kInvalidArgument) << applied;
-  EXPECT_EQ(stack.motionManager().getMaxLinearAcceleration(), before)
+  EXPECT_EQ(stack.motionManager().getCmdMaxLinaccBaseRtWorldEwrtHeadingXy(),
+            before)
       << "a refused reload switched the ramp off";
 }
 
@@ -459,7 +463,8 @@ TEST(ProceduralMpcMotionManagerGaits,
   turnFor(*manager, stack, /*from=*/1.0, /*to=*/4.0, /*yawRate=*/0.1,
           /*commandedYawRate=*/0.3, heading);
   EXPECT_EQ(manager->getCurrentGaitCommand(), "slow_walk");
-  EXPECT_NEAR(manager->getMeasuredPlanarMotion().headingRate, 0.1, 1.0e-9);
+  EXPECT_NEAR(manager->getMeasuredPlanarMotion().rateYawBaseRtWorld, 0.1,
+              1.0e-9);
   EXPECT_EQ(manager->getMeasuredMotionWindow(), 1.7)
       << "slow_walk's cycle, which the schedule runs by now";
   turnFor(*manager, stack, /*from=*/4.0, /*to=*/7.0, /*yawRate=*/0.18,
@@ -483,16 +488,16 @@ TEST(ProceduralMpcMotionManagerGaits, TheJointsMomentumIsNotATurn) {
   ASSERT_EQ(manager->getCurrentGaitCommand(), "slow_walk");
   const MeasuredRobot swinging = swingingJoints(
       stack, /*heading=*/0.0, /*baseYawRate=*/0.0, /*lockedYawRateOffset=*/0.5);
-  ASSERT_NEAR(stack.model().getBaseTwistInWorldFrame(swinging.state,
-                                                     vector_t::Zero(joints))(5),
+  ASSERT_NEAR(stack.model().getTwistBaseRtWorldEwrtWorld(
+                  swinging.state, vector_t::Zero(joints))(5),
               0.5, 1.0e-9)
       << "locked, the body turns at 0.5 rad/s, which would have raised the "
          "gait";
-  EXPECT_LT(
-      stack.model()
-          .getBaseTwistInWorldFrame(swinging.state, swinging.jointVelocities)
-          .norm(),
-      1.0e-9)
+  EXPECT_LT(stack.model()
+                .getTwistBaseRtWorldEwrtWorld(swinging.state,
+                                              swinging.jointVelocities)
+                .norm(),
+            1.0e-9)
       << "the base stands still";
   ASSERT_LT(swinging.state.head<3>().norm(), 1.0e-9) << "the CoM stands still";
   for (scalar_t time = 1.01; time <= 5.0; time += 0.01) {
@@ -500,7 +505,8 @@ TEST(ProceduralMpcMotionManagerGaits, TheJointsMomentumIsNotATurn) {
             measuredInput(stack, swinging.jointVelocities));
   }
   EXPECT_EQ(manager->getCurrentGaitCommand(), "slow_walk");
-  EXPECT_LT(std::abs(manager->getMeasuredPlanarMotion().headingRate), 1.0e-12);
+  EXPECT_LT(std::abs(manager->getMeasuredPlanarMotion().rateYawBaseRtWorld),
+            1.0e-12);
 }
 
 TEST(ProceduralMpcMotionManagerGaits,
@@ -517,9 +523,11 @@ TEST(ProceduralMpcMotionManagerGaits,
       stack, /*heading=*/0.7, /*baseYawRate=*/0.4, /*lockedYawRateOffset=*/0.5);
   solveAt(*manager, stack, /*time=*/3.0, /*commandedYawRate=*/0.0,
           swinging.state, measuredInput(stack, swinging.jointVelocities));
-  EXPECT_NEAR(manager->getMeasuredPlanarMotion().headingRate, 0.4, 1.0e-9);
-  EXPECT_LT(manager->getMeasuredPlanarMotion().velocityInHeadingFrame.norm(),
-            1.0e-9);
+  EXPECT_NEAR(manager->getMeasuredPlanarMotion().rateYawBaseRtWorld, 0.4,
+              1.0e-9);
+  EXPECT_LT(
+      manager->getMeasuredPlanarMotion().linvelBaseRtWorldEwrtHeadingXy.norm(),
+      1.0e-9);
   // The targets read it; the gait switches do not: one instant's twist is no
   // measurement of the stride.
   EXPECT_FALSE(manager->measuredOverTheWholeWindow());
@@ -531,7 +539,7 @@ TEST(ProceduralMpcMotionManagerGaits,
       /*v_x=*/0.0, /*v_y=*/0.0, /*desired_pelvis_h=*/0.0, /*v_yaw=*/0.0));
   manager->preSolverRun(/*initTime=*/3.0, /*finalTime=*/3.0 + stack.horizon(),
                         swinging.state, stack.referenceManager());
-  EXPECT_EQ(manager->getMeasuredPlanarMotion().headingRate, 0.0);
+  EXPECT_EQ(manager->getMeasuredPlanarMotion().rateYawBaseRtWorld, 0.0);
 }
 
 TEST(ProceduralMpcMotionManagerGaits,
@@ -560,7 +568,7 @@ TEST(ProceduralMpcMotionManagerGaits,
     EXPECT_EQ(manager->getCurrentGaitCommand(), "slow_walk") << "t = " << time;
     if (manager->measuredOverTheWholeWindow()) {
       if (firstMeasured < 0.0) firstMeasured = time;
-      EXPECT_LT(std::abs(manager->getMeasuredPlanarMotion().headingRate),
+      EXPECT_LT(std::abs(manager->getMeasuredPlanarMotion().rateYawBaseRtWorld),
                 1.0e-12)
           << "t = " << time;
     } else if (time > 1.0 + 0.2) {
@@ -568,7 +576,7 @@ TEST(ProceduralMpcMotionManagerGaits,
       // decided.
       largestUnmeasuredTurn =
           std::max(largestUnmeasuredTurn,
-                   manager->getMeasuredPlanarMotion().headingRate);
+                   manager->getMeasuredPlanarMotion().rateYawBaseRtWorld);
     }
   }
   EXPECT_GT(largestUnmeasuredTurn, 0.15)
@@ -615,8 +623,9 @@ TEST(ProceduralMpcMotionManagerGaits,
                      "slow_walk"))
       << "a walking robot was let down into stance";
   EXPECT_TRUE(manager->measuredOverTheWholeWindow());
-  EXPECT_NEAR(manager->getMeasuredPlanarMotion().velocityInHeadingFrame(0), 0.2,
-              1.0e-6);
+  EXPECT_NEAR(
+      manager->getMeasuredPlanarMotion().linvelBaseRtWorldEwrtHeadingXy(0), 0.2,
+      1.0e-6);
   // It stops where it is. A window that still holds part of a stride reads part
   // of its sway, up to 2 (0.18 / w) / W = 0.057 m/s; 0.3 s after the stop the
   // mean is still above 0.2 (1.7 - 0.3) / 1.7 - 0.057 > 0.1.
@@ -651,8 +660,9 @@ TEST(ProceduralMpcMotionManagerGaits,
       allAre(walkFor(*manager, stack, kWalkStart, /*to=*/6.0, faster, swaying),
              "slow_walk"))
       << "the sway raised the gait";
-  EXPECT_NEAR(manager->getMeasuredPlanarMotion().velocityInHeadingFrame(1), 0.0,
-              1.0e-6);
+  EXPECT_NEAR(
+      manager->getMeasuredPlanarMotion().linvelBaseRtWorldEwrtHeadingXy(1), 0.0,
+      1.0e-6);
   const std::vector<std::string> speedingUp =
       walkFor(*manager, stack, /*from=*/6.0, /*to=*/9.0, faster,
               continuedAt(swaying, /*time=*/6.0, /*meanSpeed=*/0.3));
@@ -673,13 +683,14 @@ TEST(ProceduralMpcMotionManagerGaits, ARollIsNotATurn) {
   // roll at zero pitch stays the heading.
   for (scalar_t time = 1.01; time <= 5.0; time += 0.01) {
     vector_t rolling = stack.initialState();
-    stack.model().setBaseOrientationEulerZyx(
+    stack.model().setEulerzyxBaseRtWorld(
         rolling, vector3_t(0.0, 0.0, 0.1 * std::sin(6.0 * time)));
     solveAt(*manager, stack, time, /*commandedYawRate=*/0.3, rolling,
             measuredInput(stack, stillJoints));
   }
   EXPECT_EQ(manager->getCurrentGaitCommand(), "slow_walk");
-  EXPECT_LT(std::abs(manager->getMeasuredPlanarMotion().headingRate), 1.0e-12);
+  EXPECT_LT(std::abs(manager->getMeasuredPlanarMotion().rateYawBaseRtWorld),
+            1.0e-12);
 }
 
 TEST(ProceduralMpcMotionManagerGaits, ASlowerGaitWaitsForTheMeanTurnToStop) {

@@ -136,7 +136,7 @@ struct MiqpResult {
  *
  * The continuous relaxation of every node is solved with HPIPM on the
  * structured OCP form, so a node costs one Riccati-based interior point solve.
- * Open nodes are processed best-bound first with depth-first diving into the
+ * Open nodes are processed best-bound first with depth-first plunges in the
  * rounding direction. Branching always picks the first fractional binary in the
  * order given by the caller, which for contact planning is time order: early
  * contact decisions are settled first and the propagation hook (phase

@@ -135,49 +135,50 @@ TEST(StateEstimatorRegistryTest,
   robot::model::RobotState measured(description);
   const WalkingSample start = walkingSample(0.0);
   test_support::writeMeasuredState(start, measured);
-  measured.setRootPositionInWorldFrame(start.basePosition);
-  measured.setRootLinearVelocityInLocalFrame(start.orientation.inverse() *
-                                             start.baseVelocity);
+  measured.setPosBaseRtWorldEwrtWorld(start.posBaseRtWorldEwrtWorld);
+  measured.setLinvelBaseRtWorldEwrtBase(start.quatBaseRtWorld.inverse() *
+                                        start.linvelBaseRtWorldEwrtWorld);
   estimator.reset(measured);
 
-  scalar_t maxPositionError = 0.0;
-  scalar_t maxVelocityError = 0.0;
+  scalar_t maxErrPosBaseRtWorldEwrtWorld = 0.0;
+  scalar_t maxErrLinvelBaseRtWorldEwrtBase = 0.0;
   for (int step = 1; step <= 2000; ++step) {
     const WalkingSample sample = walkingSample(step * kDt);
     test_support::writeMeasuredState(sample, measured);
     const robot::model::RobotState& estimated = estimator.estimate(measured);
     ASSERT_NE(&estimated, &measured);
-    maxPositionError = std::max(
-        maxPositionError,
-        (estimated.getRootPositionInWorldFrame() - sample.basePosition).norm());
+    maxErrPosBaseRtWorldEwrtWorld = std::max(
+        maxErrPosBaseRtWorldEwrtWorld, (estimated.getPosBaseRtWorldEwrtWorld() -
+                                        sample.posBaseRtWorldEwrtWorld)
+                                           .norm());
     // The controller's velocity is in the base frame.
-    const vector3_t velocityInBase =
-        sample.orientation.inverse() * sample.baseVelocity;
-    maxVelocityError = std::max(
-        maxVelocityError,
-        (estimated.getRootLinearVelocityInLocalFrame() - velocityInBase)
-            .norm());
+    const vector3_t trueLinvelBaseRtWorldEwrtBase =
+        sample.quatBaseRtWorld.inverse() * sample.linvelBaseRtWorldEwrtWorld;
+    maxErrLinvelBaseRtWorldEwrtBase =
+        std::max(maxErrLinvelBaseRtWorldEwrtBase,
+                 (estimated.getLinvelBaseRtWorldEwrtBase() -
+                  trueLinvelBaseRtWorldEwrtBase)
+                     .norm());
     // Everything else is the backend's.
     EXPECT_EQ(estimated.getJointPosition(0), measured.getJointPosition(0));
     EXPECT_EQ(estimated.getTime(), measured.getTime());
   }
   // As KalmanBaseEstimatorTest.TracksTheWalkWithExactSensors: the sensors are
   // exact.
-  EXPECT_LT(maxPositionError, 1.0e-3);
-  EXPECT_LT(maxVelocityError, 5.0e-3);
+  EXPECT_LT(maxErrPosBaseRtWorldEwrtWorld, 1.0e-3);
+  EXPECT_LT(maxErrLinvelBaseRtWorldEwrtBase, 5.0e-3);
   EXPECT_EQ(estimator.failedUpdates(), 0u);
 
   // A state that does not advance in time is handed on with the previous
   // estimate; a non-finite one is counted.
-  const vector3_t position =
-      estimator.estimate(measured).getRootPositionInWorldFrame();
-  EXPECT_EQ(estimator.estimate(measured).getRootPositionInWorldFrame(),
-            position);
+  const vector3_t posBaseRtWorldEwrtWorld =
+      estimator.estimate(measured).getPosBaseRtWorldEwrtWorld();
+  EXPECT_EQ(estimator.estimate(measured).getPosBaseRtWorldEwrtWorld(),
+            posBaseRtWorldEwrtWorld);
   measured.setTime(measured.getTime() + kDt);
-  measured.setImuLinearAccelerationInLocalFrame(
-      vector3_t::Constant(std::nan("")));
+  measured.setSpecforceBaseRtWorldEwrtBase(vector3_t::Constant(std::nan("")));
   EXPECT_TRUE(
-      estimator.estimate(measured).getRootPositionInWorldFrame().allFinite());
+      estimator.estimate(measured).getPosBaseRtWorldEwrtWorld().allFinite());
   EXPECT_EQ(estimator.failedUpdates(), 1u);
 }
 

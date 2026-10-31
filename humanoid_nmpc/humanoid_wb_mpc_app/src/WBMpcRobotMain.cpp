@@ -206,7 +206,7 @@ absl::StatusOr<RobotStack> setUpRobot(const RobotAppOptions& options,
       robotDescription, modelSettings, models.getMpcRobotModel(),
       models.getInitialState());
   LOG(INFO) << "initState: "
-            << initState.getRootPositionInWorldFrame().transpose();
+            << initState.getPosBaseRtWorldEwrtWorld().transpose();
 
   // LINT.IfChange(robot_backend_options)
   RobotBackendOptions backendOptions;

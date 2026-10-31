@@ -199,11 +199,15 @@ TEST(ContactForceVisualization,
   int impactArrows = 0;
   for (int geom = 0; geom < scene.get().ngeom; ++geom) {
     const mjvGeom& arrow = scene.get().geoms[geom];
+    // NOLINTBEGIN(frame-naming): MuJoCo's mjvGeom::pos
     EXPECT_LT(arrow.pos[0], 1.0)
+        // NOLINTEND(frame-naming)
         << "an arrow at the floor ball, which does not touch the robot";
     // The impact is on the robot's side at its mid-height; the floor's contacts
     // are at its bottom.
+    // NOLINTBEGIN(frame-naming): MuJoCo's mjvGeom::pos
     if (arrow.pos[0] < -0.05 && arrow.pos[2] > 0.05) {
+      // NOLINTEND(frame-naming)
       ++impactArrows;
       // mjvGeom::mat is row-major, so its third column is the arrow's axis.
       EXPECT_GT(arrow.mat[2], 0.9)

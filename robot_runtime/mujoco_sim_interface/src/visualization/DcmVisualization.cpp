@@ -63,9 +63,11 @@ void DcmVisualization::addSceneGeoms(const VisualizationFrame& frame) {
       robotCentroidalState(model, frame.state->data);
   if (!state.valid) return;
   const double gravity = std::fabs(model->opt.gravity[kZAxisIndex]);
-  double dcm[kHorizontalPositionDim];
-  divergentComponentOfMotion(state.com, state.comVelocity,
-                             state.com[kZAxisIndex], gravity, dcm);
+  double posDcmRtWorldEwrtWorldXy[kHorizontalPositionDim];
+  divergentComponentOfMotion(state.posComRtWorldEwrtWorld,
+                             state.linvelComRtWorldEwrtWorld,
+                             state.posComRtWorldEwrtWorld[kZAxisIndex], gravity,
+                             posDcmRtWorldEwrtWorldXy);
   constexpr MarkerColor kDcmColor{
       .r = 0.1f, .g = 0.9f, .b = 0.3f, .a = 0.9f};  // green
   // The offset from the CoM's shadow to the DCM is the velocity term v / omega:
@@ -73,9 +75,12 @@ void DcmVisualization::addSceneGeoms(const VisualizationFrame& frame) {
   if (frame.scene->ngeom < frame.scene->maxgeom) {
     mjvGeom* absl_nonnull line = &frame.scene->geoms[frame.scene->ngeom++];
     std::memset(line, 0, sizeof(mjvGeom));
-    const mjtNum from[kPositionDim] = {state.com[0], state.com[1],
+    const mjtNum from[kPositionDim] = {state.posComRtWorldEwrtWorld[0],
+                                       state.posComRtWorldEwrtWorld[1],
                                        kDcmLineHeight};
-    const mjtNum to[kPositionDim] = {dcm[0], dcm[1], kDcmLineHeight};
+    const mjtNum to[kPositionDim] = {posDcmRtWorldEwrtWorldXy[0],
+                                     posDcmRtWorldEwrtWorldXy[1],
+                                     kDcmLineHeight};
     mjv_connector(line, mjGEOM_CAPSULE, kDcmLineWidth, from, to);
     line->rgba[kRedChannel] = kDcmColor.r;
     line->rgba[kGreenChannel] = kDcmColor.g;
@@ -84,7 +89,8 @@ void DcmVisualization::addSceneGeoms(const VisualizationFrame& frame) {
     line->category = mjCAT_DECOR;
     line->emission = kDcmLineEmission;
   }
-  addGroundDiscGeom(frame.scene, dcm[0], dcm[1], kDcmMarkerRadius, kDcmColor);
+  addGroundDiscGeom(frame.scene, posDcmRtWorldEwrtWorldXy[0],
+                    posDcmRtWorldEwrtWorldXy[1], kDcmMarkerRadius, kDcmColor);
 }
 
 }  // namespace robot::mujoco_sim_interface

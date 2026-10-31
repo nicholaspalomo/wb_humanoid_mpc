@@ -203,19 +203,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     modified, problems = format_repository(REPO_ROOT)
     if modified:
         print(
-            "✨ Formatted and ensured trailing newlines on"
+            "Formatted and ensured trailing newlines on"
             f" {len(modified)} file(s)."
         )
     else:
         print(
-            "✅ All files properly formatted with required blank lines and"
+            "All files properly formatted with required blank lines and"
             " trailing newlines."
         )
     for outcome in problems:
         if outcome.warning:
-            print(f"⚠️ Warning: {outcome.warning}.", file=sys.stderr)
+            print(f"Warning: {outcome.warning}.", file=sys.stderr)
         if outcome.error:
-            print(f"❌ {outcome.error}", file=sys.stderr)
+            print(f"{outcome.error}", file=sys.stderr)
     return 1 if any(outcome.error for outcome in problems) else 0
 
 

@@ -77,20 +77,20 @@ class ContactWrenchMapper {
   /// \brief Converts a contact wrench into an a set of equivalent contact
   /// forces at the corner of the contact polygon
   ///
-  /// \param[in] contactWrench Expressed in the local contact frame
+  /// \param[in] wrenchContactEwrtContact Expressed in the local contact frame
   ///
-  /// \param[out] contactPointForceVec vector of 3D contact forces
+  /// \param[out] visualizationForceArray vector of 3D contact forces
 
   std::array<vector3_t, N_POLYGON_POINTS> computeVisualizationForceArray(
-      const vector6_t& contactWrench) const {
-    std::array<vector3_t, N_POLYGON_POINTS> contactPointForceVec;
+      const vector6_t& wrenchContactEwrtContact) const {
+    std::array<vector3_t, N_POLYGON_POINTS> visualizationForceArray;
     Eigen::Matrix<scalar_t, kCornerForcesDim, 1> visualizationForces =
-        mapWrenchToVisualizationForces_ * contactWrench;
+        mapWrenchToVisualizationForces_ * wrenchContactEwrtContact;
     for (int i = 0; i < N_POLYGON_POINTS; ++i) {
-      contactPointForceVec[i]
+      visualizationForceArray[i]
           << (visualizationForces.segment(kForceDim * i, kForceDim));
     }
-    return contactPointForceVec;
+    return visualizationForceArray;
   }
 
  private:

@@ -58,8 +58,9 @@ namespace {
 
 /// The base pose's rows in the centroidal tuning layout, which Q is written in
 /// (tuningLayoutOf(): the normalized linear and angular momentum, then
-/// base_position and base_orientation): the rows this cost replaces.
-constexpr Eigen::Index kBasePoseTuningRow = 6;
+/// pos_base_rt_world_ewrt_world and eulerzyx_base_rt_world): the rows this cost
+/// replaces.
+constexpr Eigen::Index kBasePoseTuningStartIndex = 6;
 constexpr Eigen::Index kBasePoseTuningDim = 6;
 
 /**
@@ -208,7 +209,7 @@ ComAndAcomTrackingCost* absl_nonnull ComAndAcomTrackingCost::clone() const {
 }
 
 vector4_t ComAndAcomTrackingCost::acomAttitudeOf(const vector_t& state) const {
-  return acom_->acomAttitude(mpcRobotModelPtr_->getBaseOrientation(state),
+  return acom_->acomAttitude(mpcRobotModelPtr_->getQuatBaseRtWorldXyzw(state),
                              mpcRobotModelPtr_->getJointAngles(state));
 }
 
@@ -225,17 +226,20 @@ scalar_t ComAndAcomTrackingCost::getValue(
   pinocchio::Data& pinocchioData = pinocchioInterface_.getData();
   const pinocchio::Model& pinocchioModel = pinocchioInterface_.getModel();
 
-  // centerOfMass returns a reference into pinocchioData, so p_com must be
-  // copied out before the reference configuration overwrites it.
-  const vector3_t p_com =
+  // centerOfMass returns a reference into pinocchioData, so
+  // pos_com_rt_world_ewrt_world must be copied out before the reference
+  // configuration overwrites it.
+  const vector3_t pos_com_rt_world_ewrt_world =
       pinocchio::centerOfMass(pinocchioModel, pinocchioData, q);
-  const vector3_t p_com_ref =
+  const vector3_t ref_pos_com_rt_world_ewrt_world =
       pinocchio::centerOfMass(pinocchioModel, pinocchioData, qRef);
-  const vector3_t p_err = p_com - p_com_ref;
+  const vector3_t err_pos_com_rt_world_ewrt_world =
+      pos_com_rt_world_ewrt_world - ref_pos_com_rt_world_ewrt_world;
   const vector3_t theta_err =
       headingTiltResidual(acomAttitudeOf(state), acomAttitudeOf(stateRef));
 
-  return 0.5 * p_err.dot(Q_com_ * p_err) +
+  return 0.5 * err_pos_com_rt_world_ewrt_world.dot(
+                   Q_com_ * err_pos_com_rt_world_ewrt_world) +
          0.5 * theta_err.dot(Q_acom_ * theta_err);
 }
 
@@ -256,23 +260,24 @@ ComAndAcomTrackingCost::getQuadraticApproximation(
   const pinocchio::Model& pinocchioModel = pinocchioInterface_.getModel();
 
   // ---- CoM position and Jacobian ----
-  // p_com and J_com_v are deep copies, because the reference CoM evaluation
-  // below overwrites the same pinocchioData fields.
+  // pos_com_rt_world_ewrt_world and J_com_v are deep copies, because the
+  // reference CoM evaluation below overwrites the same pinocchioData fields.
   pinocchio::jacobianCenterOfMass(pinocchioModel, pinocchioData, q);
-  const vector3_t p_com = pinocchioData.com[0];
+  const vector3_t pos_com_rt_world_ewrt_world = pinocchioData.com[0];
   const matrix_t J_com_v =
       pinocchioData
           .Jcom;  // 3 x nv, columns in Pinocchio's configuration tangent
 
-  const vector3_t p_com_ref =
+  const vector3_t ref_pos_com_rt_world_ewrt_world =
       pinocchio::centerOfMass(pinocchioModel, pinocchioData, qRef);
-  const vector3_t p_err = p_com - p_com_ref;
+  const vector3_t err_pos_com_rt_world_ewrt_world =
+      pos_com_rt_world_ewrt_world - ref_pos_com_rt_world_ewrt_world;
 
   // ---- CoM Jacobian w.r.t. the state ----
   // Pinocchio's CoM Jacobian is with respect to its configuration tangent v;
   // the robot model's getPinocchioTangentJacobian() is how a state step moves q
   // in that tangent (nv x nx). Whatever coordinates the root joint has, that
-  // map is the whole story - the selection of the configuration slots where v
+  // map covers every case - the selection of the configuration slots where v
   // is the time derivative of the stored coordinates, the lift of the body
   // rotation to the stored coefficients where it is not - so no rate mapping of
   // the base orientation is chained on here by hand:
@@ -290,12 +295,12 @@ ComAndAcomTrackingCost::getQuadraticApproximation(
   // step of the orientation slots. Nothing else in the state moves the ACoM.
   const vector_t qJoints = mpcRobotModelPtr_->getJointAngles(state);
   const HeadingTiltError acomError = headingTiltError(
-      acom_->acomAttitude(mpcRobotModelPtr_->getBaseOrientation(state),
+      acom_->acomAttitude(mpcRobotModelPtr_->getQuatBaseRtWorldXyzw(state),
                           qJoints),
       acomAttitudeOf(stateRef));
   const AcomAttitudeTangentJacobian acomTangent =
       acom_->acomAttitudeTangentJacobian(qJoints);
-  const matrix_t baseRotationJacobian =
+  const matrix_t baseRotationTangentJacobian =
       mpcRobotModelPtr_->getBaseRotationTangentJacobian(
           state);  // 3 x orientation slots
   matrix_t J_acom_dx = matrix_t::Zero(
@@ -303,9 +308,9 @@ ComAndAcomTrackingCost::getQuadraticApproximation(
       static_cast<Eigen::Index>(mpcRobotModelPtr_->getStateDim()));
   J_acom_dx.middleCols(static_cast<Eigen::Index>(
                            mpcRobotModelPtr_->getBaseOrientationStartIndex()),
-                       baseRotationJacobian.cols()) =
-      acomError.jacobianBodyTangent * acomTangent.baseOrientation *
-      baseRotationJacobian;
+                       baseRotationTangentJacobian.cols()) =
+      acomError.jacobianBodyTangent * acomTangent.baseTangent *
+      baseRotationTangentJacobian;
   J_acom_dx.middleCols(
       static_cast<Eigen::Index>(mpcRobotModelPtr_->getJointStartindex()),
       acomTangent.jointAngles.cols()) =
@@ -313,18 +318,20 @@ ComAndAcomTrackingCost::getQuadraticApproximation(
   const vector3_t& theta_err = acomError.residual;
 
   // ---- Gauss-Newton quadratic approximation ----
-  approx.f = 0.5 * p_err.dot(Q_com_ * p_err) +
+  approx.f = 0.5 * err_pos_com_rt_world_ewrt_world.dot(
+                       Q_com_ * err_pos_com_rt_world_ewrt_world) +
              0.5 * theta_err.dot(Q_acom_ * theta_err);
-  approx.dfdx = J_com_dx.transpose() * Q_com_ * p_err +
-                J_acom_dx.transpose() * Q_acom_ * theta_err;
+  approx.dfdx =
+      J_com_dx.transpose() * Q_com_ * err_pos_com_rt_world_ewrt_world +
+      J_acom_dx.transpose() * Q_acom_ * theta_err;
   approx.dfdxx = J_com_dx.transpose() * Q_com_ * J_com_dx +
                  J_acom_dx.transpose() * Q_acom_ * J_acom_dx;
   return approx;
 }
 
 void ComAndAcomTrackingCost::zeroBasePoseWeights(matrix_t& Q) {
-  Q.block(kBasePoseTuningRow, kBasePoseTuningRow, kBasePoseTuningDim,
-          kBasePoseTuningDim)
+  Q.block(kBasePoseTuningStartIndex, kBasePoseTuningStartIndex,
+          kBasePoseTuningDim, kBasePoseTuningDim)
       .setZero();
 }
 

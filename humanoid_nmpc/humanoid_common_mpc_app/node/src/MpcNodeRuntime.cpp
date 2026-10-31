@@ -194,7 +194,8 @@ absl::Status MpcNodeRuntime::subscribeOperatorInputs(
               return;
             }
             counters->lastWalkingCommandTime = std::chrono::steady_clock::now();
-            counters->lastPelvisHeight = message.desired_pelvis_height();
+            counters->lastPelvisHeight =
+                message.cmd_pos_base_rt_world_ewrt_world_z();
             counters->walkingCommandTimedOut = false;
           };
   RETURN_IF_ERROR(bus_->subscribe<humanoid_mpc_msgs::WalkingVelocityCommand>(
@@ -254,7 +255,7 @@ absl::Status MpcNodeRuntime::addWalkingCommandWatchdog(
             maxAge)
           return;
         humanoid_mpc_msgs::WalkingVelocityCommand stop;
-        stop.set_desired_pelvis_height(counters->lastPelvisHeight);
+        stop.set_cmd_pos_base_rt_world_ewrt_world_z(counters->lastPelvisHeight);
         // The last command converted, so its pelvis height does; the zero
         // velocities always do.
         applyWalkingVelocityCommand(stop, *motionManager).IgnoreError();

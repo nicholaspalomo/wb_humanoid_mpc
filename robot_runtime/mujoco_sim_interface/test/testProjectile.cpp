@@ -145,11 +145,11 @@ struct Scene {
 
   /** Puts the ball at `position` with linear velocity `velocity`, unrotated and
    * not spinning. */
-  void place(const std::array<double, 3>& position,
-             const std::array<double, 3>& velocity) const {
+  void place(const std::array<double, 3>& posBallRtWorldEwrtWorld,
+             const std::array<double, 3>& linvelBallRtWorldEwrtWorld) const {
     for (int axis = 0; axis < 3; ++axis) {
-      data->qpos[ballQpos() + axis] = position[axis];
-      data->qvel[ballDof() + axis] = velocity[axis];
+      data->qpos[ballQpos() + axis] = posBallRtWorldEwrtWorld[axis];
+      data->qvel[ballDof() + axis] = linvelBallRtWorldEwrtWorld[axis];
       data->qvel[ballDof() + 3 + axis] = 0.0;
     }
     data->qpos[ballQpos() + 3] = 1.0;
@@ -267,7 +267,7 @@ namespace {
 
 /** The acceleration of a linear spring-damper of unit natural frequency and
  * damping ratio `zeta` at penetration `x`. */
-double springDamperAcceleration(double zeta, double x, double v) {
+double springDamperXdd(double zeta, double x, double v) {
   return -x - 2.0 * zeta * v;
 }
 
@@ -283,26 +283,25 @@ double integratedRestitution(double zeta) {
   constexpr double kStep = 1.0e-4;
   double x = 0.0;
   double v = -1.0;
-  double force = springDamperAcceleration(zeta, x, v);
+  double xdd = springDamperXdd(zeta, x, v);
   for (int step = 0; step < 10'000'000; ++step) {
     const double k1x = v;
-    const double k1v = springDamperAcceleration(zeta, x, v);
+    const double k1v = springDamperXdd(zeta, x, v);
     const double k2x = v + 0.5 * kStep * k1v;
-    const double k2v = springDamperAcceleration(zeta, x + 0.5 * kStep * k1x,
-                                                v + 0.5 * kStep * k1v);
+    const double k2v =
+        springDamperXdd(zeta, x + 0.5 * kStep * k1x, v + 0.5 * kStep * k1v);
     const double k3x = v + 0.5 * kStep * k2v;
-    const double k3v = springDamperAcceleration(zeta, x + 0.5 * kStep * k2x,
-                                                v + 0.5 * kStep * k2v);
+    const double k3v =
+        springDamperXdd(zeta, x + 0.5 * kStep * k2x, v + 0.5 * kStep * k2v);
     const double k4x = v + kStep * k3v;
-    const double k4v =
-        springDamperAcceleration(zeta, x + kStep * k3x, v + kStep * k3v);
+    const double k4v = springDamperXdd(zeta, x + kStep * k3x, v + kStep * k3v);
     const double nextX = x + kStep / 6.0 * (k1x + 2.0 * k2x + 2.0 * k3x + k4x);
     const double nextV = v + kStep / 6.0 * (k1v + 2.0 * k2v + 2.0 * k3v + k4v);
-    const double nextForce = springDamperAcceleration(zeta, nextX, nextV);
-    if (nextForce <= 0.0) return v + (nextV - v) * force / (force - nextForce);
+    const double nextXdd = springDamperXdd(zeta, nextX, nextV);
+    if (nextXdd <= 0.0) return v + (nextV - v) * xdd / (xdd - nextXdd);
     x = nextX;
     v = nextV;
-    force = nextForce;
+    xdd = nextXdd;
   }
   return std::numeric_limits<double>::quiet_NaN();
 }
@@ -430,7 +429,7 @@ TEST(AddProjectileToSpec, TheBallIsLastAndTheRobotIsStillTheFirstFreeBody) {
   // The hazard that would be silent: robotCentroidalState, the viewer's
   // tracking camera and every read of qpos[3..6] as the base quaternion all
   // take the FIRST free-joint body to be the robot. A ball inserted ahead of it
-  // would quietly become the robot.
+  // would be read as the robot.
   const std::string path = writeTempFile("projectile_order.xml", kScene);
   const Projectile ball = dodgeball();
   const Scene scene(path, &ball);
@@ -478,9 +477,9 @@ TEST(AddProjectileToSpec,
   // half-space.
   for (int axis = 0; axis < 3; ++axis) {
     EXPECT_NEAR(scene.model->body_pos[3 * ballBody + axis],
-                kProjectileParkPosition[axis], 1.0e-12);
+                kParkPosBallRtWorldEwrtWorld[axis], 1.0e-12);
   }
-  EXPECT_GT(kProjectileParkPosition[2], 10.0);
+  EXPECT_GT(kParkPosBallRtWorldEwrtWorld[2], 10.0);
 }
 
 TEST(AddProjectileToSpec, AParkedBallStaysWhereItWasParked) {
@@ -495,7 +494,7 @@ TEST(AddProjectileToSpec, AParkedBallStaysWhereItWasParked) {
   setProjectileCollisionEnabled(scene.model, ballBody, /*enabled=*/false);
   for (int step = 0; step < 2000; ++step) mj_step(scene.model, scene.data);
   EXPECT_NEAR(scene.data->qpos[scene.ballQpos() + 2],
-              kProjectileParkPosition[2], 1.0e-6)
+              kParkPosBallRtWorldEwrtWorld[2], 1.0e-6)
       << "the parked ball is falling";
 
   // And switching the compensation off at runtime - which is what a throw does
@@ -506,10 +505,10 @@ TEST(AddProjectileToSpec, AParkedBallStaysWhereItWasParked) {
   for (int step = 0; step < steps; ++step) mj_step(scene.model, scene.data);
   // MuJoCo's semi-implicit Euler drops g dt^2 N (N + 1) / 2 in N steps, a
   // little more than the continuous g t^2 / 2.
-  EXPECT_NEAR(
-      scene.data->qpos[scene.ballQpos() + 2],
-      kProjectileParkPosition[2] - 9.81 * dt * dt * steps * (steps + 1) / 2.0,
-      1.0e-6);
+  EXPECT_NEAR(scene.data->qpos[scene.ballQpos() + 2],
+              kParkPosBallRtWorldEwrtWorld[2] -
+                  9.81 * dt * dt * steps * (steps + 1) / 2.0,
+              1.0e-6);
 }
 
 TEST(AddProjectileToSpec,
@@ -862,7 +861,7 @@ TEST(SetProjectileMass, RejectsAnythingThatIsNotAProjectileWithoutTouchingIt) {
       setProjectileMass(scene.model, /*bodyId=*/-1, /*mass=*/2.0).ok());
   EXPECT_FALSE(
       setProjectileMass(scene.model, scene.model->nbody, /*mass=*/2.0).ok());
-  // Retuning the wrong body would quietly change the ROBOT's mass, which
+  // Retuning the wrong body would silently change the ROBOT's mass, which
   // nothing downstream would report.
   EXPECT_FALSE(setProjectileMass(scene.model, /*bodyId=*/0, /*mass=*/2.0).ok())
       << "the world body, which holds the floor";
@@ -927,12 +926,14 @@ TEST(SetProjectileMass, TheBallStillCollidesAndStillIsNotTheGroundAfterwards) {
 
   const std::vector<int> feet{scene.body("foot")};
   ASSERT_EQ(groundTruthContactMask(scene.model, scene.data, feet,
-                                   /*forceThreshold=*/1.0, /*ignoreBodyId=*/-1),
+                                   /*minForceMjcontactEwrtMjcontactX=*/1.0,
+                                   /*ignoreBodyId=*/-1),
             1u)
       << "the heavy ball is not touching";
-  EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet,
-                                   /*forceThreshold=*/1.0, ballBody),
-            0u);
+  EXPECT_EQ(
+      groundTruthContactMask(scene.model, scene.data, feet,
+                             /*minForceMjcontactEwrtMjcontactX=*/1.0, ballBody),
+      0u);
 }
 
 /*===================================== joint damping skips the ball
@@ -968,12 +969,12 @@ TEST(RobotJointDamping, SetsTheRobotsJointsAndLeavesTheRootAndTheBallAlone) {
 
 namespace {
 
-ProjectileLaunch launch(const std::array<double, 3>& position,
-                        const std::array<double, 3>& velocity,
+ProjectileLaunch launch(const std::array<double, 3>& posBallRtWorldEwrtWorld,
+                        const std::array<double, 3>& linvelBallRtWorldEwrtWorld,
                         double flightTime) {
   ProjectileLaunch requested;
-  requested.position = position;
-  requested.velocity = velocity;
+  requested.posBallRtWorldEwrtWorld = posBallRtWorldEwrtWorld;
+  requested.linvelBallRtWorldEwrtWorld = linvelBallRtWorldEwrtWorld;
   requested.flightTime = flightTime;
   return requested;
 }
@@ -986,13 +987,14 @@ void expectOnThePath(const ProjectileLaunch& requested,
   const double tau = requested.flightTime - moved.flightTime;
   for (int axis = 0; axis < 3; ++axis) {
     const double drop = axis == 2 ? 0.5 * gravity * tau * tau : 0.0;
-    EXPECT_NEAR(
-        moved.position[axis],
-        requested.position[axis] + requested.velocity[axis] * tau - drop,
-        1.0e-9)
+    EXPECT_NEAR(moved.posBallRtWorldEwrtWorld[axis],
+                requested.posBallRtWorldEwrtWorld[axis] +
+                    requested.linvelBallRtWorldEwrtWorld[axis] * tau - drop,
+                1.0e-9)
         << "axis " << axis;
-    EXPECT_NEAR(moved.velocity[axis],
-                requested.velocity[axis] - (axis == 2 ? gravity * tau : 0.0),
+    EXPECT_NEAR(moved.linvelBallRtWorldEwrtWorld[axis],
+                requested.linvelBallRtWorldEwrtWorld[axis] -
+                    (axis == 2 ? gravity * tau : 0.0),
                 1.0e-9)
         << "axis " << axis;
   }
@@ -1012,8 +1014,9 @@ TEST(ClearProjectileLaunch, AClearSpawnIsLeftExactlyAsRequested) {
       scene.model, scene.data, scene.body("sim_projectile"), requested,
       /*gravity=*/9.81);
   ASSERT_TRUE(result.ok()) << result.status().message();
-  EXPECT_EQ(result->position, requested.position);
-  EXPECT_EQ(result->velocity, requested.velocity);
+  EXPECT_EQ(result->posBallRtWorldEwrtWorld, requested.posBallRtWorldEwrtWorld);
+  EXPECT_EQ(result->linvelBallRtWorldEwrtWorld,
+            requested.linvelBallRtWorldEwrtWorld);
   EXPECT_EQ(result->flightTime, requested.flightTime);
 }
 
@@ -1035,7 +1038,7 @@ TEST(ClearProjectileLaunch, ASpawnInsideTheRobotIsMovedBackAlongItsApproach) {
       << "it should start EARLIER on its approach, so fly for longer";
   expectOnThePath(requested, *result, /*gravity=*/9.81);
   // And it is now clear of the torso's +x face at x = 0.1, by the clearance.
-  EXPECT_GE(result->position[0] - ball.radius - 0.1,
+  EXPECT_GE(result->posBallRtWorldEwrtWorld[0] - ball.radius - 0.1,
             kProjectileSpawnClearance - 1.0e-9);
 }
 
@@ -1056,7 +1059,7 @@ TEST(ClearProjectileLaunch, ASpawnUnderTheFloorIsMovedForwardAlongItsClimb) {
   EXPECT_LT(result->flightTime, requested.flightTime)
       << "it should start LATER on its climb";
   expectOnThePath(requested, *result, /*gravity=*/9.81);
-  EXPECT_GE(result->position[2],
+  EXPECT_GE(result->posBallRtWorldEwrtWorld[2],
             ball.radius + kProjectileSpawnClearance - 1.0e-9);
 }
 
@@ -1106,12 +1109,15 @@ TEST(ClearProjectileLaunch,
  * ======================================*/
 
 TEST(ProjectileArrivalVelocity, IsTheLaunchVelocityLessGravityOverTheFlight) {
-  const std::array<double, 3> launchVelocity{{-8.0, 1.0, 2.0}};
-  const std::array<double, 3> velocity = projectileArrivalVelocity(
-      launchVelocity, /*flightTime=*/0.4, /*gravity=*/9.81);
-  EXPECT_EQ(velocity[0], -8.0);
-  EXPECT_EQ(velocity[1], 1.0);
-  EXPECT_NEAR(velocity[2], 2.0 - 9.81 * 0.4, 1.0e-12)
+  const std::array<double, 3> launchLinvelBallRtWorldEwrtWorld{
+      {-8.0, 1.0, 2.0}};
+  const std::array<double, 3> arrivalLinvelBallRtWorldEwrtWorld =
+      computeArrivalLinvelBallRtWorldEwrtWorld(launchLinvelBallRtWorldEwrtWorld,
+                                               /*flightTime=*/0.4,
+                                               /*gravity=*/9.81);
+  EXPECT_EQ(arrivalLinvelBallRtWorldEwrtWorld[0], -8.0);
+  EXPECT_EQ(arrivalLinvelBallRtWorldEwrtWorld[1], 1.0);
+  EXPECT_NEAR(arrivalLinvelBallRtWorldEwrtWorld[2], 2.0 - 9.81 * 0.4, 1.0e-12)
       << "gravity takes g t off the vertical on the way";
 }
 
@@ -1173,12 +1179,14 @@ TEST(GroundTruthContactMask, ABallStrikingAFootIsNotThatFootBeingPlanted) {
   // ground contact. Without this assertion a mask of zero would prove nothing,
   // because a test in which the ball never touched the foot would also pass.
   ASSERT_EQ(groundTruthContactMask(scene.model, scene.data, feet,
-                                   /*forceThreshold=*/1.0, /*ignoreBodyId=*/-1),
+                                   /*minForceMjcontactEwrtMjcontactX=*/1.0,
+                                   /*ignoreBodyId=*/-1),
             1u)
       << "the ball is not actually striking the foot";
-  EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet,
-                                   /*forceThreshold=*/1.0, ballBody),
-            0u)
+  EXPECT_EQ(
+      groundTruthContactMask(scene.model, scene.data, feet,
+                             /*minForceMjcontactEwrtMjcontactX=*/1.0, ballBody),
+      0u)
       << "a contact with the thrown ball must not set a contact bit";
 }
 
@@ -1197,7 +1205,7 @@ TEST(GroundTruthContactMask, ExcludingTheBallLeavesRealGroundContactAlone) {
   mj_forward(scene.model, scene.data);
   const std::vector<int> feet{scene.body("foot")};
   EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet,
-                                   /*forceThreshold=*/1.0,
+                                   /*minForceMjcontactEwrtMjcontactX=*/1.0,
                                    scene.body("sim_projectile")),
             1u);
 }
@@ -1218,15 +1226,15 @@ TEST(GroundReaction, ABallStrikingTheRobotIsNotAGroundReaction) {
 
   const GroundReaction counted =
       groundReaction(scene.model, scene.data, scene.body("base"),
-                     /*minNormalForce=*/0.0, /*ignoreBodyId=*/-1);
-  ASSERT_GT(std::abs(counted.force[2]), 1.0)
+                     /*minForceWorldEwrtWorldZ=*/0.0, /*ignoreBodyId=*/-1);
+  ASSERT_GT(std::abs(counted.forceWorldEwrtWorld[2]), 1.0)
       << "the ball is not actually pressing on the foot";
   const GroundReaction excluded =
       groundReaction(scene.model, scene.data, scene.body("base"),
-                     /*minNormalForce=*/0.0, ballBody);
-  EXPECT_NEAR(excluded.force[0], 0.0, 1.0e-12);
-  EXPECT_NEAR(excluded.force[1], 0.0, 1.0e-12);
-  EXPECT_NEAR(excluded.force[2], 0.0, 1.0e-12);
+                     /*minForceWorldEwrtWorldZ=*/0.0, ballBody);
+  EXPECT_NEAR(excluded.forceWorldEwrtWorld[0], 0.0, 1.0e-12);
+  EXPECT_NEAR(excluded.forceWorldEwrtWorld[1], 0.0, 1.0e-12);
+  EXPECT_NEAR(excluded.forceWorldEwrtWorld[2], 0.0, 1.0e-12);
 }
 
 }  // namespace robot::mujoco_sim_interface

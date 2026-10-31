@@ -13,8 +13,6 @@ This package implements the **Angular Center of Mass (aCOM)** representation for
 > its network has been retrained to Atlas's bounds; `testAcomAngularVelocityConsistency` fails if either is switched on
 > while it is marked unvalidated.
 
----
-
 ## 1. Problem Formulation & Theoretical Background
 
 ### 1.1 The Holonomic vs. Non-Holonomic Divide in Centroidal Dynamics
@@ -32,8 +30,6 @@ Dividing by the locked inertia yields the **instantaneous locked angular velocit
 $$\boldsymbol{\omega}_{\text{locked}} = \mathbf{I}_G^{-1}(\mathbf{q})\mathbf{L}_G = \boldsymbol{\omega}_b + \bar{\mathbf{A}}_{\omega, j}(\mathbf{q})\dot{\mathbf{q}}_j, \quad \text{where } \bar{\mathbf{A}}_{\omega, j}(\mathbf{q}) = \mathbf{I}_G^{-1}(\mathbf{q}) \mathbf{A}_{\omega, j}(\mathbf{q})$$
 
 Because the differential connection $\bar{\mathbf{A}}_{\omega, j}(\mathbf{q})$ has non-zero curvature ($d\bar{\mathbf{A}}_\omega + \frac{1}{2}[\bar{\mathbf{A}}_\omega, \bar{\mathbf{A}}_\omega] \neq 0$), integrating $\boldsymbol{\omega}_{\text{locked}}$ along a closed trajectory in joint space ($\oint \dot{\mathbf{q}}_j dt = 0$) results in a non-zero geometric phase (the "falling cat" rotation). **No exact holonomic whole-body orientation coordinate $\mathbf{R}(\mathbf{q}) \in SO(3)$ exists.**
-
----
 
 ### 1.2 The aCOM Coordinate Definition
 
@@ -83,8 +79,6 @@ the mean and worst relative error $\|\mathbf{J}_l\mathbf{J}_{\Delta\theta} - \ba
 \|\bar{\mathbf{A}}_{\omega,j}\|_F$ the C++ acceptance test grades (`loss/val_relative_error_mean`, `_worst`); the exported
 header records both of the exported epoch.
 
----
-
 ### 1.3 Coordinate Conventions
 
 > **Implementation detail:** the network's output is a rotation vector, not a set of Euler angles.
@@ -99,11 +93,9 @@ No permutation is applied: $\operatorname{Exp}(\Delta\boldsymbol{\theta})$ reads
 tracking cost compares two aCOM attitudes through the heading-tilt residual of
 `humanoid_common_mpc/orientation/BaseOrientation.h` (design section 2.8.1), whose rows are the twist heading about the
 world vertical and the tilt about the heading frame's y and x axes - the (yaw, pitch, roll) that `acom_weights` names,
-as `state_weights.base_orientation` names them for the base:
+as `state_weights.eulerzyx_base_rt_world` names them for the base:
 
 $$\mathbf{e}_{\text{aCOM}} = \mathbf{e}_{HT}\big(\boldsymbol{\xi}_{\text{aCOM}}(\mathbf{x}),\ \boldsymbol{\xi}_{\text{aCOM}}(\mathbf{x}_{\text{ref}})\big)$$
-
----
 
 ## 2. System Architecture & Pipeline
 
@@ -180,8 +172,6 @@ flowchart LR
     end
 ```
 
----
-
 ## 3. Sinusoidal Representation Network (SIREN)
 
 Standard MLPs with ReLU or GELU activations struggle to represent smooth differential forms and their Jacobians. We employ **Sinusoidal Representation Networks (SIREN)** with periodic activation functions:
@@ -211,8 +201,6 @@ This chain-rule Jacobian is implemented identically in both:
 - **Python** (`models.py`): via `jax.jacobian` (for training, verified against analytical)
 - **C++** (`AngularCenterOfMass.cpp`): via explicit forward-mode chain rule (for real-time)
 
----
-
 ## 4. MPC Integration
 
 ### 4.1 ComAndAcomTrackingCost
@@ -239,29 +227,27 @@ flowchart LR
     entry --> zeroQf["final_state_weights: base-pose block zeroed<br/>(terminal_cost)"]
     zeroQf --> terminal["terminal ComAndAcomTrackingCost on<br/>terminal_cost_scaling x com_weights, acom_weights<br/>(finalCostPtr: terminalComAndAcomTrackingCost)"]
     entry --> arms["procedural arm swing off"]
-    entry --> updater["live parameter updater: zeroes the same blocks<br/>because the RUNNING problem carries the cost"]
+    entry --> updater["live parameter updater: zeroes the same blocks<br/>because the RUNNING problem includes the cost"]
 ```
 
-- **Which quadratic state cost carries `state_weights` does not matter.** The base-pose block is zeroed in
-  `state_quadratic_cost` and in `state_input_quadratic_cost` alike, and the ACoM cost is added beside either (or on its
-  own).
-- **The terminal node keeps CoM and orientation regulation.** With `terminal_cost`, the base-pose block of
+- **Either quadratic state cost works** (`state_quadratic_cost` or `state_input_quadratic_cost`). The base-pose block is
+  zeroed in both, and the ACoM cost is added beside either (or on its own).
+- **The terminal node keeps CoM and orientation regulation** when `terminal_cost` is listed: the base-pose block of
   `final_state_weights` is zeroed as well, and the final cost gets a second `ComAndAcomTrackingCost` weighted by
-  `terminal_cost_scaling` times `com_weights` and `acom_weights` - exactly how `final_state_weights` relates to
-  `state_weights` for the rest of the state. Zeroing without that substitute would leave the last node - the one
-  `terminal_cost_scaling` weights up - with no CoM, height or orientation weight at all. Under the DCM terminal cost
+  `terminal_cost_scaling` times `com_weights` and `acom_weights` (matching how `final_state_weights` relates to
+  `state_weights` for the rest of the state). Zeroing without that substitute would leave the last node, which
+  `terminal_cost_scaling` weights up, with no CoM, height or orientation weight at all. Under the DCM terminal cost
   (`dcm_terminal_cost` in `costs`, in place of `terminal_cost`, as Atlas ships) there is no `final_state_weights` and no
   terminal instance: the horizon ends on the capture-point cost.
-- **Centroidal MPC only.** `WBMpcInterface` refuses the name: the whole-body state has joint angles where the
-  centroidal state has the base pose, so the zeroed block would be one leg's weights.
-- **The cost list is not hot-reloadable.** The parameter updater's `QuadraticCostWeightsApplier`
+- Only the centroidal MPC supports this cost: `WBMpcInterface` refuses the name because the whole-body state has
+  joint angles where the centroidal state has the base pose, so the zeroed block would be one leg's weights.
+- The cost list is fixed at start-up: the parameter updater's `QuadraticCostWeightsApplier`
   (`humanoid_common_mpc/parameter_update/`) zeroes a reloaded `state_weights` and `final_state_weights` when the
-  running problem carries the ACoM cost, whatever the reloaded file lists, and the updater warns when the two disagree;
+  running problem includes the ACoM cost, whatever the reloaded file lists, and the updater warns when the two disagree;
   the new list takes effect at the next start.
-- **The retired key is refused.** The cost replaced the top-level boolean `useComAndAcomTracking`; a task file that
-  still carries it - in that spelling or as `use_com_and_acom_tracking`, with either value - does not parse: the strict
-  parser refuses it with the replacement that the `retired_field` option of `task_file.proto` gives, which names
-  `com_and_acom_tracking_cost`, so that a stale file never silently runs a different formulation.
+- **The retired key `useComAndAcomTracking` is refused** (in that spelling or as `use_com_and_acom_tracking`, with
+  either value): the strict parser rejects it with the replacement from the `retired_field` option of `task_file.proto`
+  (`com_and_acom_tracking_cost`), so that a stale file never silently runs a different formulation.
 
 ### 4.2 Gauss-Newton Quadratic Approximation
 
@@ -332,7 +318,7 @@ com_weights {
   z: 1.0  # weight on p_com_z
 }
 
-# The rows of the aCOM's heading-tilt residual, named as state_weights.base_orientation's are for the base.
+# The rows of the aCOM's heading-tilt residual, named as state_weights.eulerzyx_base_rt_world's are for the base.
 acom_weights {
   scaling: 1.0
   yaw: 1.0  # weight on the aCOM yaw
@@ -342,7 +328,7 @@ acom_weights {
 ```
 
 With the cost listed, the factory zeroes the 6x6 base-pose block (the diagonal block at rows and columns 6..11 of the
-tuning layout: `base_position` and `base_orientation`) of both the running `state_weights` and the terminal
+tuning layout: `pos_base_rt_world_ewrt_world` and `eulerzyx_base_rt_world`) of both the running `state_weights` and the terminal
 `final_state_weights`, to avoid penalizing the same error twice in two parameterizations;
 `ComAndAcomTrackingCost::zeroBasePoseWeights` defines that
 block, and the live parameter updater calls the same function. `testAcomWiring` pins the wiring: the named cost
@@ -350,13 +336,11 @@ assembles, term by term and derivative by derivative, exactly the problem the re
 block is zeroed beside either quadratic state cost; the terminal node keeps CoM and orientation regulation; and the
 retired key is refused.
 
-`ComAndAcomTrackingCost::Create` refuses to build the cost - with a `Status` that names the key to change - when
+`ComAndAcomTrackingCost::Create` refuses to build the cost (with a `Status` that reports the key to change) when
 `com_weights` or `acom_weights` is missing, when no network is registered for `model_settings.robot_name`, or when the network was
 trained on a joint vector other than the MPC model's (compared name by name, see section 8). Before that, a task file
-that lists `com_and_acom_tracking_cost` without writing `com_weights` or `acom_weights` - as the G1 and SA01 files, which do not
-list it, carry neither - is refused the same way by `HumanoidCostConstraintFactory`, naming the missing matrix.
-
----
+that lists `com_and_acom_tracking_cost` without writing `com_weights` or `acom_weights` (the G1 and SA01 files do not
+list it and omit both) is refused the same way by `HumanoidCostConstraintFactory`, reporting the missing matrix.
 
 ## 5. File Structure
 
@@ -399,8 +383,6 @@ humanoid_nmpc/humanoid_centroidal_mpc/test/
                                                  # heading model's evaluator across a hot reload
 ```
 
----
-
 ## 6. Usage Guide
 
 ### 6.1 Training an aCOM Model
@@ -419,12 +401,12 @@ bazel run //humanoid_learning/acom:train_main -- \
     --robot atlas --output_dir /tmp/acom_atlas --install_header
 ```
 
-`--robot` picks the model files in `train_main.py`'s `_ROBOT_CONFIGS`. Everything that has to agree with the MPC - the
-robot's `model_settings.robot_name` and the joints it holds fixed (`model_settings.fixed_joint_names`) - is read out of
+`--robot` picks the model files in `train_main.py`'s `_ROBOT_CONFIGS`. Everything that has to agree with the MPC
+(the robot's `model_settings.robot_name` and the joints it holds fixed in `model_settings.fixed_joint_names`) is read out of
 that robot's centroidal `task.textproto` at training time (strictly parsed into its schema, `humanoid_mpc_config.TaskFile`)
 rather than repeated in the script.
 
-The defaults - `--num_samples 20000 --hidden_dim 64 --epochs 150` - are a standard run, **not** a record of how each
+The defaults (`--num_samples 20000 --hidden_dim 64 --epochs 150`) are a standard run, **not** a record of how each
 shipped header was made. All three shipped headers came from `--num_samples 80000 --epochs 300 --install_header`
 (section 6.3), and each records its recipe: `train_main.py` writes the robot, its `robot_name` and fixed joints, the
 sampling box, the objective, the dataset size, epochs, width, layer count, seeds, the exported epoch and its validation
@@ -439,10 +421,10 @@ The `--install_header` flag copies the generated `AcomSirenWeights<Robot>.h` dir
 
 Two guards sit on that flag, and they exist because the two ways of getting the architecture wrong fail very differently:
 
-* `--num_layers` counts **sinusoidal layers only**, excluding the linear readout, and defaults to 2. The C++ loader `static_assert`s on it, so a wrong value fails to **compile** — loud, and caught immediately.
+* `--num_layers` counts **sinusoidal layers only**, excluding the linear readout, and defaults to 2. The C++ loader `static_assert`s on it, so a wrong value fails to **compile** - loud, and caught immediately.
 * `--hidden_dim` is **not** checked by the compiler. Every layer is `Eigen::Map`'d at runtime from the dimensions the header declares, so a narrower network installs, builds and runs perfectly while approximating the centroidal connection worse. `--install_header` therefore reads `W0_rows` out of the header currently on disk and refuses to replace it with a different width unless `--force_architecture` is given.
 
-Training returns the parameters at the **lowest validation loss**, not those of the final epoch, and prints both so the gap is visible. On a run that is allowed to finish, that gap is small — the learning rate is cosine-annealed over exactly `--epochs`, so the last iterate is already the converged one, and on the shipped recipe best-versus-final is under 0.1 % of RMSE against a 1.8 % spread across seeds. It matters for runs that are interrupted, that diverge, or that are given an architecture which trains unstably: a wider network is not automatically a better one, and at `--hidden_dim 256` the validation curve oscillates by more than an order of magnitude between epochs.
+Training returns the parameters at the **lowest validation loss**, not those of the final epoch, and prints both so the gap is visible. On a run that is allowed to finish, that gap is small - the learning rate is cosine-annealed over exactly `--epochs`, so the last iterate is already the converged one, and on the shipped recipe best-versus-final is under 0.1 % of RMSE against a 1.8 % spread across seeds. It matters for runs that are interrupted, that diverge, or that are given an architecture which trains unstably: a wider network is not automatically a better one, and at `--hidden_dim 256` the validation curve oscillates by more than an order of magnitude between epochs.
 
 ### 6.2 Monitoring Training in TensorBoard
 
@@ -539,8 +521,8 @@ in `kAcomRobotCases`). All three were trained with the composed objective of sec
 | `engineai_sa01` | **NOT VALIDATED** | 0.445 / 1.70 | 0.105 / 0.642 | 0.649 |
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/testAcomAngularVelocityConsistency.cpp:acom_acceptance_robots) -->
 
-Atlas's bounds (0.22 / 0.45 and 0.05 / 0.20) sit about 40 % above its measurement on purpose, where a meaningful
-regression lives - below the constant-Jacobian baseline and far below the same network fed its joints in the wrong order
+Atlas's bounds (0.22 / 0.45 and 0.05 / 0.20) sit about 40 % above its measurement on purpose, below the
+constant-Jacobian baseline and far below the same network fed its joints in the wrong order
 (1.37). G1 and SA01 do not come close to them: on average their rate map is 34 % and 44 % off the target, and at their
 worst configurations both networks are further from the target than no network at all (a relative error above 1).
 Training on four times the default data and twice its epochs left them there, so this is a limit of the recipe or the
@@ -553,25 +535,25 @@ Two remarks on reading those numbers. First, the residual has a **floor**: the c
 exact integrable whole-body orientation exists at all - that is the premise of the paper, and these are acceptance
 bounds on fit quality, not tolerances on an identity. Second, the test reports two baselines that need no training:
 $\Delta\theta \equiv 0$ (the base orientation used as the whole-body orientation) scores exactly 1.0, and the best
-**constant** Jacobian $\mathbb{E}[\bar{\mathbf{A}}_{\omega,j}]$ - a single matrix, no network - scores the last column.
+**constant** Jacobian $\mathbb{E}[\bar{\mathbf{A}}_{\omega,j}]$ (a single matrix, no network) scores the last column.
 Atlas's trained SIREN at 0.158 against 0.378 therefore captures about 58 % of the configuration-dependent variation that
-a constant matrix misses. That is a real improvement and the test asserts it for every robot, but it is also the number
-to beat when retraining.
+a constant matrix misses. The test asserts that improvement over the constant-matrix baseline for every robot, and it is
+the baseline to beat when retraining.
 
 **Where the remaining headroom is.** The previous headers were fitted to $\mathbf{J}_{\Delta\theta} \approx
 \bar{\mathbf{A}}_{\omega,j}$, without the $\mathbf{J}_l(\Delta\boldsymbol{\theta})$ the composition puts in front of it.
 On the MuJoCo target, the composed map of those networks was 0.195 (Atlas), 0.390 (G1) and 0.483 (SA01) off on average;
-the retrained ones are 0.159, 0.330 and 0.432. In a controlled comparison - the same Atlas data, architecture, schedule
-and seed, 10 000 samples over 40 epochs, only the objective changed - the composed objective took the graded error from
+the retrained ones are 0.159, 0.330 and 0.432. In a controlled comparison (the same Atlas data, architecture, schedule
+and seed, 10 000 samples over 40 epochs, only the objective changed), the composed objective took the graded error from
 0.193 to 0.167 while the error of $\mathbf{J}_{\Delta\theta}$ alone rose from 0.223 to 0.241, as it should: that is no
 longer the quantity the runtime uses. Before that change, quadrupling the
 Atlas data and doubling the epochs had moved the error by about 2 %, the size of the spread across training seeds, so
-the error is not sample-limited or optimizer-limited. What remains is the curvature obstruction itself - no exact
-integrable whole-body orientation exists - plus the choice of hypothesis class and, most likely, the **sampling
+the error is not sample-limited or optimizer-limited. What remains is the curvature obstruction itself (no exact
+integrable whole-body orientation exists) plus the choice of hypothesis class and, most likely, the **sampling
 distribution**: training draws each joint i.i.d. and uniform over its range, where mean $\|\Delta\theta\|$ is about 23°
 on Atlas, while the Atlas nominal stance sits at a few degrees. Nearly every training sample is a posture the robot never
 adopts. Concentrating the distribution around the operating region, or mixing uniform samples with a nominal-centered
-ball, is the lever with real headroom left; it trades tail accuracy for operating-point accuracy, so it is a deliberate
+ball, is the main remaining tuning lever; it trades tail accuracy for operating-point accuracy, so it is a deliberate
 design choice rather than a free win.
 
 The rate error is that of the composed attitude, contracted with random joint velocities at a tilted base. It is much
@@ -600,18 +582,16 @@ const vector3_t delta_theta = acom->computeJointOrientationOffset(q_joints);
 const matrix_t J_delta = acom->computeJointOffsetJacobian(q_joints);
 
 // Whole-body aCOM attitude xi_a = xi_hat (x) Exp(delta_theta), from the base orientation xi (quaternion coefficients
-// x, y, z, w; robotModel.getBaseOrientation(state)), and its body tangent Jacobian: R(delta_theta)^T for a body
+// x, y, z, w; robotModel.getQuatBaseRtWorldXyzw(state)), and its body tangent Jacobian: R(delta_theta)^T for a body
 // rotation of the base, J_r(delta_theta) J_delta for the joints.
 const vector4_t xi_acom = acom->acomAttitude(xi, q_joints);
 const AcomAttitudeTangentJacobian J_acom = acom->acomAttitudeTangentJacobian(q_joints);
 // Its heading, as the contact planner's heading model reads it (orientation/BaseOrientation.h).
-const scalar_t heading = twistHeading(xi_acom);
+const scalar_t heading = yawOf(xi_acom);
 ```
 
 `AngularCenterOfMass::registeredRobotNames()` lists the robots with a network. `Create()` is the only factory: the
 older `createForRobot(robotName)`, which skipped the joint check and threw instead of returning a `Status`, is gone.
-
----
 
 ## 7. Benefits for Legged Control & MPC
 
@@ -627,8 +607,6 @@ older `createForRobot(robotName)`, which skipped the joint check and threw inste
 
 4. **Zero Runtime Overhead**:
    The small SIREN forward pass + analytical chain-rule Jacobian evaluates in $< 5\,\mu\text{s}$ in C++, making it suitable for 500 Hz NMPC and WBC loops.
-
----
 
 ## 8. Joint Ordering: Pinocchio ↔ MuJoCo Permutation
 
@@ -668,8 +646,8 @@ it:
    itself, which ties the rule to the parser the MPC runs.
 2. `test_joint_order_matches_pinocchio_kinematic_tree` asserts parent joints precede their children on Atlas.
 3. The exported header records the joint names it was trained on, as `joint_names[]`, and at start-up
-   `AngularCenterOfMass::Create` - which `ComAndAcomTrackingCost::Create` calls with the reduced Pinocchio model's
-   joints - compares them name by name with the MPC model and refuses a mismatch, naming the robot and the first joint
+   `AngularCenterOfMass::Create` (which `ComAndAcomTrackingCost::Create` calls with the reduced Pinocchio model's
+   joints) compares them name by name with the MPC model and refuses a mismatch, reporting the robot and the first joint
    that differs.
 4. `testAcomAngularVelocityConsistency` makes the same comparison for every shipped header, against both
    `ModelSettings::mpcModelJointNames` and the reduced Pinocchio model.
@@ -678,6 +656,6 @@ it:
 
 The fixed joints are `model_settings.fixed_joint_names` of the robot's centroidal `task.textproto`, which `train_main.py` reads
 directly, so there is no second list to keep in sync. Those joints are held at zero during sampling and then dropped
-from the dataset, so the network's inputs are exactly the MPC model's joints; a fixed-joint name the model does not
-have is rejected rather than ignored. Changing `fixed_joint_names` after training - even for another set of the same size -
-is caught at start-up by the name check above, and needs a retrain.
+from the dataset, so the network's inputs are the MPC model's joints; a fixed-joint name the model does not
+have is rejected rather than ignored. Changing `fixed_joint_names` after training (even for another set of the same size)
+is caught at start-up by the name check above and needs a retrain.

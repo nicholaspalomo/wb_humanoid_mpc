@@ -108,9 +108,10 @@ TEST(WBMpcInterfaceControllerModels, TheInitialStateIsTheFilesByName) {
   ASSERT_TRUE(task.ok()) << task.status();
   mpc_config::TaskFile raised = *task;
   mpc_config::Xyz basePosition =
-      raised.initial_state.base_position.value_or(mpc_config::Xyz{});
+      raised.initial_state.pos_base_rt_world_ewrt_world.value_or(
+          mpc_config::Xyz{});
   basePosition.z = 1.25;
-  raised.initial_state.base_position = basePosition;
+  raised.initial_state.pos_base_rt_world_ewrt_world = basePosition;
   ASSERT_FALSE(raised.initial_state.joint_positions.empty());
   raised.initial_state.joint_positions.front().value = 0.375;
   const std::string joint = raised.initial_state.joint_positions.front().joint;
@@ -122,7 +123,7 @@ TEST(WBMpcInterfaceControllerModels, TheInitialStateIsTheFilesByName) {
   ASSERT_TRUE(created.ok()) << created.status();
   const WBAccelMpcRobotModel<scalar_t>& model = (*created)->getMpcRobotModel();
   const vector_t& state = (*created)->getInitialState();
-  EXPECT_EQ(model.getBasePosition(state)(2), 1.25);
+  EXPECT_EQ(model.getPosBaseRtWorldEwrtWorld(state)(2), 1.25);
   const std::vector<std::string>& joints =
       (*created)->modelSettings().mpcModelJointNames;
   const std::vector<std::string>::const_iterator found =

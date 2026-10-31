@@ -204,7 +204,7 @@ TEST(PlannedMotionReferenceManager, theTargetsAreThePlansStatesFromTheStart) {
   // 10.25 s, its base 3 cm forward with the momentum of the sway.
   const vector_t target = model.getDesiredState(targets, /*time=*/10.25);
   EXPECT_TRUE(target.isApprox(motion.targets().stateTrajectory[1], kTolerance));
-  EXPECT_NEAR(model.getBasePosition(target).x(), 0.03, kTolerance);
+  EXPECT_NEAR(model.getPosBaseRtWorldEwrtWorld(target).x(), 0.03, kTolerance);
   EXPECT_NEAR(model.getBaseComLinearVelocity(target).x(),
               19.164 / models->getCentroidalModelInfo().robotMass, kTolerance);
   // Past the plan's end it holds the last knot.
@@ -214,8 +214,8 @@ TEST(PlannedMotionReferenceManager, theTargetsAreThePlansStatesFromTheStart) {
       model.getDesiredState(manager->getTargetTrajectories(), /*time=*/20.5)
           .isApprox(motion.targets().stateTrajectory.back(), kTolerance));
   // The MPC's initial state is the plan's first knot.
-  EXPECT_NEAR(model.getBasePosition(motion.initialState()).z(), 0.9232,
-              kTolerance);
+  EXPECT_NEAR(model.getPosBaseRtWorldEwrtWorld(motion.initialState()).z(),
+              0.9232, kTolerance);
 }
 
 TEST(PlannedMotionReferenceManager, theForceReferenceIsThePlansWrenches) {
@@ -245,7 +245,7 @@ TEST(PlannedMotionReferenceManager, theForceReferenceIsThePlansWrenches) {
   for (const multi_contact::config::MultiContactPlan::ContactWrench& wrench :
        knot.contact_wrenches) {
     const size_t i = contactIndex(*models, wrench.contact);
-    EXPECT_TRUE(model.getContactForce(plannedInput, i)
+    EXPECT_TRUE(model.getForceContactEwrtParam(plannedInput, i)
                     .isApprox(vector3_t(wrench.force), kTolerance))
         << wrench.contact;
   }
@@ -253,10 +253,10 @@ TEST(PlannedMotionReferenceManager, theForceReferenceIsThePlansWrenches) {
   const vector_t sharedInput = shared->getDesiredInput(
       shared->getTargetTrajectories(), initial, /*time=*/10.3);
   const scalar_t weight =
-      models->getCentroidalModelInfo().robotMass * kGravitationalAcceleration;
+      models->getCentroidalModelInfo().robotMass * kGravityMagnitude;
   const size_t left = contactIndex(*models, "foot_l_contact");
-  EXPECT_NEAR(model.getContactForce(sharedInput, left).z(), 0.5 * weight,
-              1.0e-6 * weight);
+  EXPECT_NEAR(model.getForceContactEwrtParam(sharedInput, left).z(),
+              0.5 * weight, 1.0e-6 * weight);
 }
 
 TEST(PlannedMotionReferenceManager, readsTheLandingAlignmentOfTheSwings) {
@@ -370,14 +370,17 @@ TEST(PlannedMotionReferenceManager, swingsAContactFromWhereItLiftedOff) {
       motion.nextPhase(right, /*planTime=*/0.6);
   ASSERT_TRUE(pad.has_value());
   EXPECT_TRUE(swing.reference(swing.touchDownTime())
-                  .position.isApprox(pad->targetPosition, kTolerance));
-  EXPECT_TRUE(swing.reference(swing.liftOffTime())
-                  .position.isApprox(lastInContact, kTolerance))
-      << swing.reference(swing.liftOffTime()).position.transpose()
+                  .posContactRtWorldEwrtWorld.isApprox(pad->targetPosition,
+                                                       kTolerance));
+  EXPECT_TRUE(
+      swing.reference(swing.liftOffTime())
+          .posContactRtWorldEwrtWorld.isApprox(lastInContact, kTolerance))
+      << swing.reference(swing.liftOffTime())
+             .posContactRtWorldEwrtWorld.transpose()
       << " against " << lastInContact.transpose();
   EXPECT_TRUE(swing.clearanceSatisfied());
   EXPECT_GT(swing.reference(0.5 * (swing.liftOffTime() + swing.touchDownTime()))
-                .position.z(),
+                .posContactRtWorldEwrtWorld.z(),
             manager->settings().swing.clearance);
   // The swinging foot has a reference; the stance foot has none.
   EXPECT_TRUE(planner->reference(right, /*time=*/0.6).has_value());
@@ -437,16 +440,17 @@ TEST(PlannedMotionReferenceManager, aSwingLongerThanTheArcLimitFollowsThePlan) {
     const vector3_t end =
         plannedFramePosition(*models, motion, "foot_r_contact", knots[k + 1]);
     EXPECT_TRUE(segment.reference(segment.liftOffTime())
-                    .position.isApprox(start, kTolerance))
-        << segment.reference(segment.liftOffTime()).position.transpose()
+                    .posContactRtWorldEwrtWorld.isApprox(start, kTolerance))
+        << segment.reference(segment.liftOffTime())
+               .posContactRtWorldEwrtWorld.transpose()
         << " against " << start.transpose();
     EXPECT_TRUE(segment.reference(segment.touchDownTime())
-                    .position.isApprox(end, kTolerance));
+                    .posContactRtWorldEwrtWorld.isApprox(end, kTolerance));
     // Half way in time, on the straight line between the knots' feet.
     const vector3_t middle =
         segment
             .reference(0.5 * (segment.liftOffTime() + segment.touchDownTime()))
-            .position;
+            .posContactRtWorldEwrtWorld;
     const vector3_t way = end - start;
     const scalar_t along = (middle - start).dot(way) / way.squaredNorm();
     EXPECT_LT((middle - start - along * way).norm(), kPathTolerance);
@@ -493,7 +497,7 @@ TEST(PlannedMotion, aPatchFrameIsOrthonormalWithItsNormalAsZ) {
   const vector3_t normal = vector3_t(0.3, -0.5, 0.8).normalized();
   const vector3_t point(1.0, 2.0, 0.5);
   const ContactPatchFrame patch = PlannedMotion::patchFrameOf(point, normal);
-  const matrix3_t& rotation = patch.worldToPatchRotation;
+  const matrix3_t& rotation = patch.rotmatWorldRtSurface;
   EXPECT_TRUE((rotation * rotation.transpose())
                   .isApprox(matrix3_t::Identity(), kTolerance));
   EXPECT_NEAR(rotation.determinant(), 1.0, kTolerance);
@@ -506,7 +510,7 @@ TEST(PlannedMotion, aPatchFrameIsOrthonormalWithItsNormalAsZ) {
   // A wall facing x takes the world's y axis as its x direction.
   const ContactPatchFrame wall =
       PlannedMotion::patchFrameOf(point, -vector3_t::UnitX());
-  EXPECT_TRUE((wall.worldToPatchRotation * -vector3_t::UnitX())
+  EXPECT_TRUE((wall.rotmatWorldRtSurface * -vector3_t::UnitX())
                   .isApprox(vector3_t::UnitZ(), kTolerance));
 }
 

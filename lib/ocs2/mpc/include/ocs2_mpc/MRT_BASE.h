@@ -169,7 +169,7 @@ class MRT_BASE {
   /** The failed try-locks of the policy buffer in updatePolicy() over the lifetime of this MRT. Any thread. */
   size_t getFailedPolicyUpdateLocks() const { return failedPolicyUpdateLocks_.load(std::memory_order_relaxed); }
 
-  /** The consecutive failed try-locks past which getConsecutiveFailedPolicyUpdateLocks() is worth reporting. */
+  /** The consecutive failed try-locks past which getConsecutiveFailedPolicyUpdateLocks() is reported. */
   static constexpr size_t kPolicyUpdateLockContentionThreshold = 5;
 
   /**

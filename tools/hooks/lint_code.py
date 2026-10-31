@@ -295,10 +295,10 @@ def _tool_problem(context: Context, tool: str) -> Result | None:
         return None
     remedy = _INSTALL_CLANG_FORMAT if tool == "clang-format" else _REBUILD
     if context.ci:
-        return Result("failed", [f"❌ {problem}."], hint=remedy)
+        return Result("failed", [f"{problem}."], hint=remedy)
     return Result(
         "skipped",
-        [f"⚠️ Warning: {problem}; skipping {tool}. To run it, {remedy}."],
+        [f"Warning: {problem}; skipping {tool}. To run it, {remedy}."],
     )
 
 
@@ -398,7 +398,7 @@ def _run_whitespace(context: Context) -> Result:
     if errors:
         return Result(
             "failed",
-            ["❌ Whitespace/Newline Errors:"] + errors,
+            ["Whitespace/Newline Errors:"] + errors,
             hint="Run 'make format' to fix whitespace and newlines.",
         )
     return _passed()
@@ -871,9 +871,9 @@ def _select_files(root: str, staged: bool, paths: Sequence[str]) -> list[str]:
 
 
 def _parse_only(only: str | None) -> tuple[frozenset[str], frozenset[str]]:
-    """The registry checks and steps --only names; with no --only, every check and step."""
+    """The registry checks and steps --only names; with no --only, every check but the opt-in ones, and every step."""
     if not only:
-        return checks.names(), STEP_NAMES
+        return checks.default_names(), STEP_NAMES
     requested = frozenset(
         name.strip() for name in only.split(",") if name.strip()
     )
@@ -889,7 +889,7 @@ def _parse_only(only: str | None) -> tuple[frozenset[str], frozenset[str]]:
     if selected:
         steps |= {"token-checks"}
     if "token-checks" in requested and not selected:
-        selected = checks.names()
+        selected = checks.default_names()
     return selected, steps
 
 
@@ -919,13 +919,13 @@ def run(context: Context) -> int:
         for index, step in enumerate(steps, start=1):
             if step.heavy and step is heavy[0]:
                 stack.enter_context(lint_lock(context.root))
-            print(f"🔍 {index}/{len(steps)} {step.title}...", flush=True)
+            print(f"{index}/{len(steps)} {step.title}...", flush=True)
             result = step.run(context)
             for line in result.lines:
                 print(line)
             if result.status == "failed" and result.hint:
                 for line in result.hint.splitlines():
-                    print(f"💡 {line}")
+                    print(f"Hint: {line}")
             results.append((step, result))
             sys.stdout.flush()
     failed = [
@@ -936,9 +936,9 @@ def run(context: Context) -> int:
     ]
     skipped_note = f" (skipped: {', '.join(skipped)})" if skipped else ""
     if failed:
-        print(f"❌ Lint failed in: {', '.join(failed)}{skipped_note}")
+        print(f"Lint failed in: {', '.join(failed)}{skipped_note}")
         return 1
-    print(f"✅ All lint checks passed successfully!{skipped_note}")
+    print(f"All lint checks passed successfully!{skipped_note}")
     return 0
 
 
@@ -1009,7 +1009,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     files = _select_files(root, args.git_staged, args.paths)
     if args.fix or args.fix_only:
         for path in _apply_fixes(root, files, selected):
-            print(f"✨ fixed {path}")
+            print(f"fixed {path}")
     if args.fix_only:
         return 0
     context = Context(

@@ -64,7 +64,7 @@ vector_t BasePoseShapedQuadraticStateCost::getReference(
     const vector_t& /*state*/,
     const TargetTrajectories& targetTrajectories,
     const PreComputation& /*preComputation*/) const {
-  return referenceManagerPtr_->shapeBasePose(
+  return referenceManagerPtr_->shapePoseBaseRtWorld(
       time, mpcRobotModel().getDesiredState(targetTrajectories, time));
 }
 

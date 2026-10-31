@@ -140,7 +140,7 @@ class JointTargetsTab(ttk.Frame):
 
         ttk.Label(
             toolbar,
-            text="🎯 Joint Target Positions (JOINT_PD Mode)",
+            text="Joint Target Positions (JOINT_PD Mode)",
             font=("Helvetica", 11, "bold"),
         ).pack(side="left", padx=(0, 10))
 
@@ -161,7 +161,7 @@ class JointTargetsTab(ttk.Frame):
         # Mode-disabled warning banner
         self.mode_banner = ttk.Label(
             self,
-            text="🔒 Sliders active only in JOINT_PD mode",
+            text="Sliders active only in JOINT_PD mode",
             font=("Helvetica", 9, "bold"),
             foreground="#e67e22",
         )
@@ -173,7 +173,7 @@ class JointTargetsTab(ttk.Frame):
         search_frame.pack(fill="x", padx=10, pady=(0, 6))
 
         ttk.Label(
-            search_frame, text="🔍 Filter:", font=("Helvetica", 9, "bold")
+            search_frame, text="Filter:", font=("Helvetica", 9, "bold")
         ).pack(side="left", padx=(0, 4))
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", self._on_search_filter)

@@ -100,7 +100,7 @@ Nothing here runs on the physics or the realtime thread, and nothing blocks them
   reading blocks its request thread only in the writability check, for the 2 s write timeout, and never first in a
   `send()` of the rest of a frame; the request thread then drops the client and frees its slot. Between two pieces the
   thread checks whether the server is stopping.
-- **Shutdown**: the owner closes the mailbox (every waiter returns at once), then destroys the server, which stops
+- On shutdown, the owner closes the mailbox (every waiter returns at once), then destroys the server, which stops
   accepting, ends the open requests (a write blocked on a stuck client within the 2 s write timeout) and joins every
   thread. The port can be bound again at once.
 
@@ -113,31 +113,31 @@ The page shows the simulation and moves the viewer's camera and markers, and not
 physics, the controller, the gantry or its weld, or the bus: those stay with the operator GUI on the bus. The server
 has no authentication and no TLS.
 
-- **The default bind is 127.0.0.1**: only this machine reaches it. For another machine use an SSH tunnel or VS Code's
+- The default bind is `127.0.0.1`, so only this machine reaches it. For another machine use an SSH tunnel or VS Code's
   port forwarding, which keep it that way, and open the forwarded address in a browser tab (the Ports view: "Open in
   Browser"). An editor preview that frames the page ("Preview in Editor" or Simple Browser in Antigravity, Cursor,
   vscode.dev or VS Code before its integrated browser) shows a blank pane, because the viewer refuses to be framed and
   refuses cross-site requests; VS Code's desktop integrated browser opens it as a top-level page and works.
-- **Another address is an explicit opt-in** (`--web_viewer_address=0.0.0.0`, an interface address or `::`), needed in a
+- Another address is an explicit opt-in (`--web_viewer_address=0.0.0.0`, an interface address or `::`), needed in a
   bridge-networked container (Docker Desktop). The server logs a warning: anyone who can reach the address can watch
   the simulation and move its camera, and can deny the viewer (not the simulation) by holding its request threads (see
   Limits). The checks below stay on.
-- **Checks before routing, on every bind and before a client is counted**:
-  - **Host**: the host name of the `Host` header, without its port, must be `localhost`, `127.0.0.1`, `::1`, the bound
+- Before routing, on every bind and before a client is counted:
+  - The host name of the `Host` header, without its port, must be `localhost`, `127.0.0.1`, `::1`, the bound
     address when it is not a wildcard, or one of the allowed hosts (`--web_viewer_allowed_hosts`, a comma list, empty by
     default, of names without ports: the server refuses `robot.lan:6090` or `[fe80::1]:6090` at start-up). An IPv6
     address matches in any spelling, on either side (`2001:0DB8:0:0::1` and the browser's `[2001:db8::1]`). Anything
     else, the rest of 127.0.0.0/8 included, answers `403`. This defeats DNS rebinding: another site's name never passes.
-  - **Fetch metadata**: `Sec-Fetch-Site: cross-site` or `same-site` answers `403`, so another site's
+  - Under Fetch Metadata, `Sec-Fetch-Site: cross-site` or `same-site` answers `403`, so another site's
     `<img src="http://localhost:6090/stream.mjpg">` takes no client slot and wakes no renderer. `same-origin`, `none`
     (a typed address, a bookmark) and no header (`curl`) pass. A link from a page on another local port (noVNC, Rerun)
     is `same-site` and refused too: type or bookmark the address.
-  - **POST** needs `X-MuJoCo-Viewer: 1`, which a form cannot send and a cross-origin script can send only after a CORS
+  - A `POST` needs `X-MuJoCo-Viewer: 1`, which a form cannot send and a cross-origin script can send only after a CORS
     preflight that the server never grants (it sends no `Access-Control-Allow-*` header, ever), and an `Origin`, when
     there is one, equal to `http://<Host>` or `https://<Host>` (an HTTPS-terminating forward that keeps the Host).
   - Every answer carries `Cross-Origin-Resource-Policy: same-origin`, `X-Frame-Options: DENY`,
     `Content-Security-Policy: frame-ancestors 'none'` and `X-Content-Type-Options: nosniff`.
-- **Residual risk of a non-loopback bind**: browsers send no `Sec-Fetch-*` headers to a plain-HTTP origin that is not
+- On a non-loopback bind, browsers send no `Sec-Fetch-*` headers to a plain-HTTP origin that is not
   loopback, so with the LAN address among the allowed hosts another site can make a visitor's browser send short
   requests to the viewer. CORP makes the browser discard the answers (and abort a stream), Chrome's Private Network
   Access blocks requests from public sites to private addresses, and the worst a request can do is move the camera.

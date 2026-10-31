@@ -90,7 +90,7 @@ absl::StatusOr<std::unique_ptr<WBMpcNode>> WBMpcNode::Create(
           [calculator](const vector4_t& velocityTarget, scalar_t initTime,
                        scalar_t /*finalTime*/, const vector_t& initState,
                        const BasePlanarMotion& measuredMotion) {
-            return calculator->commandedVelocityToTargetTrajectories(
+            return calculator->velocityCommandToTargetTrajectories(
                 velocityTarget, initTime, initState, measuredMotion);
           };
   ASSIGN_OR_RETURN(

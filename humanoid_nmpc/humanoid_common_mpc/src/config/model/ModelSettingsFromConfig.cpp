@@ -78,7 +78,7 @@ static_assert(sizeof(ModelSettings::ContactImplicitConfig) ==
 struct StanceConstraintEntry {
   // NOLINTNEXTLINE(totw-view-member): every entry is a string literal of the constexpr table below, alive for the whole program.
   absl::string_view name;
-  bool constrainOrientation = true;
+  bool constrainAttitude = true;
   bool constrainYawRateAboutContactNormal = false;
 };
 
@@ -86,13 +86,13 @@ struct StanceConstraintEntry {
 // inverse.
 constexpr std::array<StanceConstraintEntry, 3> kStanceConstraints = {{
     {.name = kPositionStanceConstraint,
-     .constrainOrientation = false,
+     .constrainAttitude = false,
      .constrainYawRateAboutContactNormal = false},
     {.name = kPositionAndTiltStanceConstraint,
-     .constrainOrientation = true,
+     .constrainAttitude = true,
      .constrainYawRateAboutContactNormal = false},
     {.name = kPositionAndOrientationStanceConstraint,
-     .constrainOrientation = true,
+     .constrainAttitude = true,
      .constrainYawRateAboutContactNormal = true},
 }};
 
@@ -296,9 +296,9 @@ absl::string_view stanceConstraintName(
   // Three rows have no yaw-rate row, so the yaw-rate setting counts only beside
   // the orientation rows.
   const bool yawRate =
-      config.constrainOrientation && config.constrainYawRateAboutContactNormal;
+      config.constrainAttitude && config.constrainYawRateAboutContactNormal;
   for (const StanceConstraintEntry& entry : kStanceConstraints) {
-    if (entry.constrainOrientation == config.constrainOrientation &&
+    if (entry.constrainAttitude == config.constrainAttitude &&
         entry.constrainYawRateAboutContactNormal == yawRate) {
       return entry.name;
     }
@@ -356,7 +356,7 @@ absl::StatusOr<ModelSettings::FootConstraintConfig> footConstraintFromConfig(
   };
   for (const StanceConstraintEntry& entry : kStanceConstraints) {
     if (entry.name == config.stance_constraint) {
-      converted.constrainOrientation = entry.constrainOrientation;
+      converted.constrainAttitude = entry.constrainAttitude;
       converted.constrainYawRateAboutContactNormal =
           entry.constrainYawRateAboutContactNormal;
       return converted;
@@ -375,8 +375,10 @@ ModelSettings::ContactImplicitConfig contactImplicitFromConfig(
       .complementarityWeight = config.complementarity_weight,
       .slipWeight = config.slip_weight,
       .heightReference = config.height_reference,
-      .velocityReference = config.velocity_reference,
-      .angularVelocityReference = config.angular_velocity_reference,
+      .scaleLinvelContactRtWorldEwrtWorldXy =
+          config.scale_linvel_contact_rt_world_ewrt_world_xy,
+      .scaleAngvelContactRtWorldEwrtWorldZ =
+          config.scale_angvel_contact_rt_world_ewrt_world_z,
       .penetrationWeight = config.penetration_weight,
       .gapSmoothing = config.gap_smoothing,
   };

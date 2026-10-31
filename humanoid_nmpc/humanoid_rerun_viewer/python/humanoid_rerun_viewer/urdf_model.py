@@ -438,7 +438,7 @@ class _Parser:
     def geometry(
         self, geometry: ElementTree.Element, where: str
     ) -> Geometry | None:
-        """The shape of a <geometry>, or None for a mesh that is not drawn; a UrdfError for anything but one shape."""
+        """The primitive of a <geometry>, or None for a mesh that is not drawn; a UrdfError for anything but one shape."""
         shapes = list(geometry)
         if len(shapes) != 1:
             raise self.error(where, "<geometry> must hold exactly one shape")
