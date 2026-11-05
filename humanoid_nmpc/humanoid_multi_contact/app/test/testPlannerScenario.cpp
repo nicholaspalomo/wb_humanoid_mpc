@@ -53,7 +53,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_multi_contact/app/PlanMultiContact.h"
 #include "humanoid_multi_contact/contact_set/ContactSet.h"
 #include "humanoid_multi_contact/plan/PlanFile.h"
-#include "humanoid_multi_contact/planner/ContactInvariantPlanner.h"
+#include "humanoid_multi_contact/plan/multi_contact_plan.nproto.h"
+#include "humanoid_multi_contact/planner/MultiContactPlanner.h"
 #include "humanoid_multi_contact/planner/MultiContactPlannerRegistry.h"
 #include "humanoid_multi_contact/planner/StanceGraphPlanner.h"
 #include "humanoid_multi_contact/scenarios/Scenario.h"
@@ -89,7 +90,11 @@ TEST(PlannerScenario, PlansACertifiedMotionToTheGoal) {
   ASSERT_TRUE(plan.ok()) << plan.status();
 
   // Certified, at every knot, for this scenario's contact set and scene.
-  ASSERT_TRUE(plan->report.has_value());
+  // An if, not ASSERT_TRUE, here and below: bugprone-unchecked-optional-access
+  // sees a check only through an if.
+  if (!plan->report.has_value()) {
+    FAIL() << "plan->report has no value";
+  }
   EXPECT_TRUE(plan->report->passed);
   for (const config::CertifierReport::Knot& knot : plan->report->knots) {
     EXPECT_TRUE(knot.passed) << "t = " << knot.time;

@@ -46,10 +46,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
 #include "ocs2_core/Dimensions.h"
+#include "pinocchio/multibody/fwd.hpp"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
-#include "humanoid_multi_contact/collision/collision_model.nproto.pb.h"
+#include "humanoid_multi_contact/collision/collision_model.nproto.h"
+#include "humanoid_multi_contact/collision/collision_model.nproto.pb.h"  // IWYU pragma: keep
 #include "humanoid_multi_contact/collision/collision_model.pb.h"
+#include "humanoid_multi_contact/contact_set/ContactSet.h"
+#include "humanoid_multi_contact/stability/RobotStanceModel.h"
+#include "humanoid_multi_contact/terrain/TerrainModel.h"
 #include "nproto/Textproto.h"
 
 namespace ocs2::humanoid::multi_contact {
@@ -246,8 +251,9 @@ absl::Status addLinkSpheres(const config::CollisionModel& config,
 
 double distanceToPad(const PadRegion& pad,
                      const Eigen::Vector3d& posQueryRtWorldEwrtWorld) {
-  if (!pad.rectangle.has_value())
+  if (!pad.rectangle.has_value()) {
     return (posQueryRtWorldEwrtWorld - pad.posPadRtWorldEwrtWorld).norm();
+  }
   const Eigen::Vector3d posQueryRtPadEwrtPad =
       pad.rotmatPadRtWorld.transpose() *
       (posQueryRtWorldEwrtWorld - pad.posPadRtWorldEwrtWorld);
@@ -447,8 +453,9 @@ SphereClearance CollisionModel::terrainClearance(
       const Eigen::Vector3d posPadRtWorldEwrtWorld =
           model.getPosPadRtWorldEwrtWorld(index);
       if (std::abs(terrain.signedDistance(posPadRtWorldEwrtWorld)) >
-          *restingTolerance)
+          *restingTolerance) {
         continue;
+      }
       // A resting pad exempts its own link and those below, and treats the
       // end of a point pad's link above as an active one does: a knee
       // settling onto a box.

@@ -39,7 +39,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
-#include "absl/strings/string_view.h"
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/message.h"
 #include "google/protobuf/unknown_field_set.h"
@@ -97,8 +96,9 @@ struct Reachable {
 void collectReachable(const Descriptor& descriptor, Reachable& reachable) {
   if (!reachable.messages
            .emplace(std::string(descriptor.full_name()), &descriptor)
-           .second)
+           .second) {
     return;
+  }
   for (int i = 0; i < descriptor.field_count(); ++i) {
     const FieldDescriptor* absl_nonnull const field = descriptor.field(i);
     if (const Descriptor* absl_nullable const type = field->message_type();
@@ -114,10 +114,12 @@ void collectReachable(const Descriptor& descriptor, Reachable& reachable) {
 
 /** The full name of the message or enum type of `field`; "-" for a scalar. */
 std::string typeName(const FieldDescriptor& field) {
-  if (field.message_type() != nullptr)
+  if (field.message_type() != nullptr) {
     return std::string(field.message_type()->full_name());
-  if (field.enum_type() != nullptr)
+  }
+  if (field.enum_type() != nullptr) {
     return std::string(field.enum_type()->full_name());
+  }
   return "-";
 }
 
@@ -137,8 +139,9 @@ std::string SchemaFingerprintText(const Descriptor& descriptor) {
            entry : reachable.messages) {
     absl::StrAppend(&text, "message ", entry.first, "\n");
     std::vector<const FieldDescriptor* absl_nonnull> fields;
-    for (int i = 0; i < entry.second->field_count(); ++i)
+    for (int i = 0; i < entry.second->field_count(); ++i) {
       fields.push_back(entry.second->field(i));
+    }
     std::sort(fields.begin(), fields.end(),
               [](const FieldDescriptor* absl_nonnull lhs,
                  const FieldDescriptor* absl_nonnull rhs) {
@@ -161,8 +164,9 @@ std::string SchemaFingerprintText(const Descriptor& descriptor) {
                           std::string(entry.second->value(i)->name()));
     }
     std::sort(values.begin(), values.end());
-    for (const std::pair<int, std::string>& value : values)
+    for (const std::pair<int, std::string>& value : values) {
       absl::StrAppend(&text, "value ", value.first, " ", value.second, "\n");
+    }
   }
   return text;
 }

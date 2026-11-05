@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 
 #include "humanoid_centroidal_mpc/multi_contact/MultiContactPlanSource.h"
+#include "humanoid_centroidal_mpc/multi_contact/PlanPlayback.h"
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
 #include "humanoid_common_mpc/common/ContactInputParameterization.h"
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
@@ -68,8 +69,9 @@ using Registry = mpc_config::ConfigRegistries::Registry;
 
 /** `names` with `name` appended unless it holds it already. */
 void appendOnce(const std::string& name, std::vector<std::string>& names) {
-  if (std::find(names.begin(), names.end(), name) == names.end())
+  if (std::find(names.begin(), names.end(), name) == names.end()) {
     names.push_back(name);
+  }
 }
 
 /** Every term of the contact planner, over its lists in the order of the file
@@ -77,8 +79,9 @@ void appendOnce(const std::string& name, std::vector<std::string>& names) {
 std::vector<std::string> contactPlanningTermNames() {
   std::vector<std::string> names;
   for (const TermKind kind : allTermKinds()) {
-    for (const std::string& name : knownTermNames(kind))
+    for (const std::string& name : knownTermNames(kind)) {
       appendOnce(name, names);
+    }
   }
   return names;
 }
@@ -87,8 +90,9 @@ std::vector<std::string> contactPlanningTermNames() {
 std::vector<std::string> locomotionHeuristicNames() {
   std::vector<std::string> names;
   for (const HeuristicKind kind : allHeuristicKinds()) {
-    for (const std::string& name : knownHeuristicNames(kind))
+    for (const std::string& name : knownHeuristicNames(kind)) {
       appendOnce(name, names);
+    }
   }
   return names;
 }
@@ -191,8 +195,9 @@ std::string configRegistriesText(
   for (const Registry& registry : registries.registries) {
     absl::StrAppend(&text, "\nregistries {\n  name: \"",
                     absl::CEscape(registry.name), "\"\n");
-    for (const std::string& name : registry.names)
+    for (const std::string& name : registry.names) {
       absl::StrAppend(&text, "  names: \"", absl::CEscape(name), "\"\n");
+    }
     absl::StrAppend(&text, "}\n");
   }
   return text;

@@ -29,12 +29,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/robot/RealtimeEventLog.h"
 
+#include <string.h>
+
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
 #include <string>
 
+#include "absl/functional/function_ref.h"
 #include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+
+#include "humanoid_common_mpc/mrt/ControllerEvent.h"
+#include "humanoid_common_mpc_app/robot/FallRecoveryTypes.h"
 
 namespace ocs2::humanoid {
 namespace {

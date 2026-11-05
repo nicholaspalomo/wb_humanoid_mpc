@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -37,12 +38,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
-#include "absl/base/nullability.h"
+#include "absl/base/thread_annotations.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/synchronization/mutex.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc_app/robot/FallRecovery.h"
 #include "humanoid_common_mpc_app/robot/FsmStateMailbox.h"
 #include "humanoid_common_mpc_app/robot/HardwareFallRecovery.h"
 #include "humanoid_common_mpc_app/robot/HardwareFsmBridge.h"
@@ -54,11 +59,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/RobotSupervisorRegistry.h"
 #include "humanoid_mpc_ipc/Topics.h"
 #include "humanoid_mpc_msgs/fsm_command.pb.h"
+#include "humanoid_mpc_msgs/fsm_state.nproto.h"
 #include "humanoid_mpc_msgs/fsm_state.pb.h"
 #include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/FakeRobotBackend.h"
 #include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/RobotTestSupport.h"
 #include "humanoid_state_estimator/ContactKinematics.h"
-#include "humanoid_state_estimator/StateEstimatorRegistry.h"
+#include "humanoid_state_estimator/StateEstimatorNames.h"
 #include "robot_ipc/Delivery.h"
 #include "robot_model/ContactEstimatorRegistry.h"
 #include "robot_model/RobotDescription.h"

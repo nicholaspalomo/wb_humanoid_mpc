@@ -29,15 +29,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <array>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
+#include "ocs2_core/Types.h"
 
-#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_mpc_msgs/robot_state_sample.nproto.h"

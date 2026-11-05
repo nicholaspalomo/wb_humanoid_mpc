@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <array>
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
@@ -39,15 +40,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "Eigen/Core"
 #include "absl/base/nullability.h"
+#include "absl/log/absl_check.h"
 #include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "ocs2_core/Types.h"
+#include "ocs2_core/initialization/Initializer.h"
 #include "ocs2_core/manifold/StateManifold.h"
+#include "ocs2_mpc/MPC_Settings.h"
 #include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
+#include "ocs2_oc/synchronized_module/ReferenceManagerInterface.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "ocs2_sqp/SqpMpc.h"
+#include "ocs2_sqp/SqpSettings.h"
 
 #include "humanoid_common_mpc/command/TargetTrajectoriesCalculatorBase.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
@@ -57,6 +64,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/mrt/MpcLink.h"
 #include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_common_mpc_app/robot/RobotController.h"
 #include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
 #include "humanoid_common_mpc_app/robot/TaskFileWatcher.h"
@@ -64,9 +72,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_validation/closed_loop/DriverSettingsFromConfig.h"
 #include "humanoid_mpc_validation/closed_loop/RobotConfiguration.h"
 #include "mujoco_sim_interface/MujocoSimInterface.h"
+#include "robot_core/Types.h"
 #include "robot_model/ContactEstimatorRegistry.h"
 #include "robot_model/RobotDescription.h"
-#include "robot_model/RobotJointAction.h"
 #include "robot_model/RobotState.h"
 
 namespace ocs2::humanoid::validation {

@@ -30,6 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <spawn.h>
+#include <stdlib.h>
+#include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -41,15 +43,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/log_severity.h"
 #include "absl/base/nullability.h"
 #include "absl/log/globals.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_mpc_validation/closed_loop/ClosedLoopMetrics.h"
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopMetricsSchema.h"
+#include "humanoid_mpc_validation/closed_loop/ClosedLoopScenario.h"
 #include "humanoid_mpc_validation/closed_loop/LockstepClosedLoop.h"
+#include "humanoid_mpc_validation/closed_loop/RobotConfiguration.h"
 #include "humanoid_mpc_validation/closed_loop/TimeSeriesLabels.h"
 #include "humanoid_mpc_validation/io/GoldenIo.h"
 #include "humanoid_mpc_validation/io/JsonValue.h"
@@ -90,8 +97,9 @@ void collectDifferences(const JsonValue& a,
                         const std::string& path,
                         std::vector<std::string>& differences) {
   if (absl::StartsWith(path, "solve_time_ms") ||
-      absl::StartsWith(path, "provenance"))
+      absl::StartsWith(path, "provenance")) {
     return;
+  }
   if (a.type() != b.type()) {
     differences.push_back(absl::StrCat(path, ": different types"));
     return;
@@ -103,8 +111,9 @@ void collectDifferences(const JsonValue& a,
           absl::StrCat(path, ": ", a.asNumber(), " against ", b.asNumber()));
     }
   } else if (a.isObject()) {
-    if (a.size() != b.size())
+    if (a.size() != b.size()) {
       differences.push_back(absl::StrCat(path, ": different members"));
+    }
     for (size_t i = 0; i < a.size() && i < b.size(); ++i) {
       collectDifferences(
           a.valueAt(i), b.valueAt(i),
@@ -112,8 +121,9 @@ void collectDifferences(const JsonValue& a,
           differences);
     }
   } else if (a.isArray()) {
-    if (a.size() != b.size())
+    if (a.size() != b.size()) {
       differences.push_back(absl::StrCat(path, ": different lengths"));
+    }
     for (size_t i = 0; i < a.size() && i < b.size(); ++i) {
       collectDifferences(a.at(i), b.at(i), absl::StrCat(path, "[", i, "]"),
                          differences);
@@ -213,8 +223,9 @@ int runChildProcess(const std::string& outputPrefix) {
                                            nullptr};
   pid_t child = 0;
   if (posix_spawn(&child, program.c_str(), /*file_actions=*/nullptr,
-                  /*attrp=*/nullptr, argv.data(), envp.data()) != 0)
+                  /*attrp=*/nullptr, argv.data(), envp.data()) != 0) {
     return -1;
+  }
   int status = 0;
   if (waitpid(child, &status, /*options=*/0) != child) return -1;
   return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
@@ -224,8 +235,9 @@ TEST(LockstepDeterminism, ChildProcessRun) {
   // Only as the child of ARunInAProcessOfItsOwnAgrees, which names where the
   // run goes.
   const char* absl_nullable outputPrefix = std::getenv(kChildOutputVariable);
-  if (outputPrefix == nullptr)
+  if (outputPrefix == nullptr) {
     GTEST_SKIP() << "the child process of ARunInAProcessOfItsOwnAgrees";
+  }
   const absl::StatusOr<LockstepResult> run = runSmoke();
   ASSERT_TRUE(run.ok()) << run.status();
   ASSERT_TRUE(

@@ -33,7 +33,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 
+#include "humanoid_multi_contact/planner/contact_invariant/ContactInvariantLayout.h"
 #include "humanoid_multi_contact/planner/contact_invariant/PsdProjection.h"
 
 namespace ocs2::humanoid::multi_contact {

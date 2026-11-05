@@ -44,7 +44,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <string>
-#include <utility>
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"

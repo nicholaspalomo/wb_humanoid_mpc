@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_multi_contact/contact_set/ContactSet.h"
 #include "humanoid_multi_contact/planner/ContactSampler.h"
 #include "humanoid_multi_contact/terrain/TerrainModel.h"
+#include "humanoid_multi_contact/terrain/terrain_scene.nproto.h"
 
 namespace ocs2::humanoid::multi_contact {
 namespace {
@@ -166,8 +167,9 @@ TEST(ContactSampler, AHandAlsoUsesWallsAndTheRail) {
   bool railSide = false;
   for (const ContactSample& sample : samples) {
     EXPECT_EQ(sample.candidate, 3);
-    if (sample.primitive == 1 && sample.normalSurfaceEwrtWorld.x() < -0.99)
+    if (sample.primitive == 1 && sample.normalSurfaceEwrtWorld.x() < -0.99) {
       riser = true;
+    }
     if (sample.primitive == 2) {
       // On the rail's surface.
       EXPECT_NEAR(

@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <limits>
 #include <numbers>
 #include <vector>
@@ -40,15 +41,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_centroidal_model/ModelHelperFunctions.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_centroidal_mpc/dynamics/DynamicsHelperFunctions.h"
 #include "humanoid_centroidal_mpc_test/CentroidalTestingModelInterface.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
+#include "humanoid_common_mpc/pinocchio_model/PinocchioFrameConversions.h"
 
 namespace ocs2::humanoid {
 
@@ -365,9 +372,10 @@ TEST(TestDynamicsHelperFunctions,
             weightCompensatingInput(info, flags, model, state)};
         for (const vector_t& input : inputs) {
           vector3_t forceComEwrtWorld = vector3_t::Zero();
-          for (size_t i = 0; i < kNumContacts; ++i)
+          for (size_t i = 0; i < kNumContacts; ++i) {
             forceComEwrtWorld +=
                 model.getForceContactEwrtWorld(state, input, i);
+          }
           EXPECT_NEAR(forceComEwrtWorld.z(), weight, 1.0e-9 * weight);
           EXPECT_NEAR(forceComEwrtWorld.head<2>().norm(), 0.0, 1.0e-9 * weight);
         }

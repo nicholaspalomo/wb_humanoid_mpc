@@ -31,9 +31,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <vector>
 
-#include "ocs2_core/Dimensions.h"
+#include "humanoid_multi_contact/terrain/TerrainModel.h"
 
 namespace ocs2::humanoid::multi_contact {
 namespace {
@@ -64,8 +65,9 @@ bool keepsClear(const Eigen::Vector3d& liftoffDesPosPadRtWorldEwrtWorld,
         liftoffDesPosPadRtWorldEwrtWorld + (touchdownDesPosPadRtWorldEwrtWorld -
                                             liftoffDesPosPadRtWorldEwrtWorld) *
                                                static_cast<double>(k) / steps;
-    if (terrain.signedDistance(desPosPadRtWorldEwrtWorld) < clearance)
+    if (terrain.signedDistance(desPosPadRtWorldEwrtWorld) < clearance) {
       return false;
+    }
   }
   return true;
 }

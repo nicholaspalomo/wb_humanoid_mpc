@@ -27,6 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -35,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc_app/robot/FsmStateMailbox.h"
 #include "humanoid_common_mpc_app/robot/JointNamesByIndex.h"
@@ -43,11 +45,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/SimFsmBridge.h"
 #include "humanoid_mpc_msgs/dodgeball_throw.pb.h"
 #include "humanoid_mpc_msgs/fsm_command.pb.h"
+#include "humanoid_mpc_msgs/fsm_state.nproto.h"
 #include "humanoid_mpc_msgs/joint_targets.pb.h"
 #include "humanoid_mpc_msgs/walking_velocity_command.pb.h"
 #include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/RobotTestSupport.h"
+#include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "nproto/Textproto.h"
 #include "robot_model/ContactEstimatorRegistry.h"
+#include "robot_model/RobotDescription.h"
 
 /*
  * The FSM of the simulated robot against the headless simulator: the commands

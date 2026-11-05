@@ -30,13 +30,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <memory>
-#include <string>
+#include <cstddef>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "ocs2_core/ComputationRequest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/HumanoidPreComputation.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "humanoid_wb_mpc/constraint/EndEffectorDynamicsLinearAccConstraint.h"
 
 namespace ocs2::humanoid {

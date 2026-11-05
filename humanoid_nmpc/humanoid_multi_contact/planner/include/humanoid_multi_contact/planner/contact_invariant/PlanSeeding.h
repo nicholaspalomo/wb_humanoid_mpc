@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_multi_contact/contact_set/ContactSet.h"
 #include "humanoid_multi_contact/plan/multi_contact_plan.nproto.h"
 #include "humanoid_multi_contact/planner/contact_invariant/PlanTrajectory.h"
 #include "humanoid_multi_contact/scenarios/Scenario.h"

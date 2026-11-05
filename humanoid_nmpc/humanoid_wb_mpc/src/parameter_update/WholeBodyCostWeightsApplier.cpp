@@ -38,9 +38,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
 #include "humanoid_common_mpc/config/weights/StateInputWeightsFromConfig.h"
+#include "humanoid_common_mpc/parameter_update/HotUpdateTarget.h"
 #include "humanoid_common_mpc/parameter_update/OcpTermUpdates.h"
 #include "humanoid_wb_mpc/config/costs/EndEffectorDynamicsWeightsFromConfig.h"
 #include "humanoid_wb_mpc/cost/EndEffectorDynamicsCostHelpers.h"
@@ -112,8 +114,9 @@ void WholeBodyCostWeightsApplier::applyFootCostWeights(
 void WholeBodyCostWeightsApplier::applyJointTorqueWeights(
     HotUpdateTarget& target) {
   if (!carriesTerm(*target.runningProblem().costPtr,
-                   JointTorqueCostCppAd::kTermName))
+                   JointTorqueCostCppAd::kTermName)) {
     return;
+  }
   const absl::StatusOr<vector_t> weights = jointTorqueWeightsFromConfig(
       target.task().joint_torque_weights, target.layout(), kJointTorqueField);
   if (!weights.ok()) {

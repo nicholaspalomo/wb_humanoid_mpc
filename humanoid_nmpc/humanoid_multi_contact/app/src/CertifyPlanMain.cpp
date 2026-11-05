@@ -39,8 +39,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // Exits 0 when every knot passes, 1 when a knot fails, 2 on an error.
 
 #include <string>
-#include <vector>
 
+#include "absl/base/log_severity.h"
 #include "absl/base/nullability.h"
 #include "absl/flags/flag.h"
 #include "absl/flags/parse.h"
@@ -54,6 +54,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_multi_contact/app/CertifyPlan.h"
 #include "humanoid_multi_contact/app/CommandLinePaths.h"
 #include "humanoid_multi_contact/plan/PlanFile.h"
+#include "humanoid_multi_contact/plan/multi_contact_plan.nproto.h"
 
 ABSL_FLAG(std::string,
           scenario,
@@ -108,6 +109,11 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
           betweenKnots);
   if (!plan.ok()) {
     LOG(ERROR) << plan.status();
+    return kExitError;
+  }
+  // certifyPlanFile() always sets the report.
+  if (!plan->report.has_value()) {
+    LOG(ERROR) << "the certified plan has no report";
     return kExitError;
   }
   absl::PrintF("%s",

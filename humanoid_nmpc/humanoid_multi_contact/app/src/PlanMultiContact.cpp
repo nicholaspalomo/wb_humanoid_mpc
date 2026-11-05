@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_multi_contact/app/PlanMultiContact.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
@@ -41,7 +42,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_multi_contact/contact_set/ContactSet.h"
+#include "humanoid_multi_contact/plan/multi_contact_plan.nproto.h"
 #include "humanoid_multi_contact/planner/MultiContactPlanner.h"
+#include "humanoid_multi_contact/planner/MultiContactPlannerRegistry.h"
+#include "humanoid_multi_contact/scenarios/Scenario.h"
 
 namespace ocs2::humanoid::multi_contact {
 namespace {

@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "gtest/gtest.h"
+#include "ocs2_core/ComputationRequest.h"
 #include "ocs2_core/PreComputation.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"

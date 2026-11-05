@@ -32,8 +32,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include "absl/base/nullability.h"
+#include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/mrt/ControlMode.h"
+#include "humanoid_common_mpc_app/robot/FsmCommand.h"
+#include "humanoid_common_mpc_app/robot/FsmStateMailbox.h"
+#include "humanoid_common_mpc_app/robot/OperatorCommandMailbox.h"
+#include "humanoid_common_mpc_app/robot/RealtimeEventLog.h"
+#include "humanoid_common_mpc_app/robot/RobotBackend.h"
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotState.h"
 
 namespace ocs2::humanoid {
 
@@ -61,9 +69,10 @@ bool HardwareFsmBridge::processCommands(std::string& currentModeName) {
   switch (command.kind) {
     case FsmCommandKind::kZeroTorque:
       if (backend_->acceptsJointAction()) {
-        if (eventLog_ != nullptr)
+        if (eventLog_ != nullptr) {
           eventLog_->post(RealtimeEventCode::kTorquesDisabled, /*detail=*/0,
                           name);
+        }
         backend_->enterSafeState();
       }
       currentModeName.assign(control_mode::kZeroJointTorque.data(),
@@ -77,9 +86,10 @@ bool HardwareFsmBridge::processCommands(std::string& currentModeName) {
       // Every mode command is reported, also one between two active modes
       // (JOINT_PD to WB_MPC), which switches nothing.
       if (!backend_->acceptsJointAction()) {
-        if (eventLog_ != nullptr)
+        if (eventLog_ != nullptr) {
           eventLog_->post(RealtimeEventCode::kTorquesEnabled, /*detail=*/0,
                           name);
+        }
         backend_->enableTorques();
       } else if (eventLog_ != nullptr) {
         eventLog_->post(RealtimeEventCode::kModeCommanded, /*detail=*/0, name);
@@ -91,9 +101,10 @@ bool HardwareFsmBridge::processCommands(std::string& currentModeName) {
     }
     case FsmCommandKind::kLockGantry:
     case FsmCommandKind::kUnlockGantry:
-      if (eventLog_ != nullptr)
+      if (eventLog_ != nullptr) {
         eventLog_->post(RealtimeEventCode::kGantryCommandIgnored, /*detail=*/0,
                         name);
+      }
       return false;
   }
   return false;

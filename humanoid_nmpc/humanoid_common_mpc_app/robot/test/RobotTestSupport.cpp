@@ -30,6 +30,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/RobotTestSupport.h"
 
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -39,10 +42,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/log/check.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/synchronization/mutex.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/contact/ContactWrenchGate.h"
 #include "humanoid_common_mpc/mrt/ControlMode.h"
+#include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
+#include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "mujoco_sim_interface/viewer/ViewerNames.h"
+#include "robot_ipc/Bus.h"
+#include "robot_ipc/BusOptions.h"
+#include "robot_model/ContactEstimator.h"
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotJointAction.h"
+#include "robot_model/RobotState.h"
 #include "robot_runtime/robot_ipc/test/TestNetwork.h"
 
 namespace ocs2::humanoid::robot_test {

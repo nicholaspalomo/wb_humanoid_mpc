@@ -35,11 +35,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <utility>
 
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_mpc_validation/closed_loop/LockstepClosedLoop.h"
 #include "humanoid_mpc_validation/closed_loop/RecordedRobotStates.h"
+#include "humanoid_mpc_validation/io/GoldenIo.h"
 #include "humanoid_mpc_validation/io/JsonValue.h"
 
 namespace ocs2::humanoid::validation {
@@ -70,8 +73,9 @@ absl::Status writeLockstepOutputs(const LockstepResult& result,
   GoldenFile timeSeries = result.timeSeries;
   GoldenProvenance seriesProvenance = provenance;
   for (const std::pair<std::string, std::string>& note :
-       timeSeries.provenance.notes)
+       timeSeries.provenance.notes) {
     seriesProvenance.notes.push_back(note);
+  }
   timeSeries.provenance = std::move(seriesProvenance);
   RETURN_IF_ERROR(writeGoldenFile(
       (directory / timeSeriesFileName(robot, scenario)).string(), timeSeries));

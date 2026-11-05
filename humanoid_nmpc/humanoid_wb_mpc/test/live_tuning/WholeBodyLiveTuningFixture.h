@@ -31,13 +31,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "ocs2_core/Types.h"
 
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_wb_mpc/WBMpcInterface.h"
 

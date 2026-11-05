@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/visualization/SolutionTermEvaluator.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <limits>
 #include <memory>
 #include <string>
@@ -44,7 +45,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "ocs2_core/ComputationRequest.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/constraint/StateConstraint.h"
+#include "ocs2_core/constraint/StateConstraintCollection.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
+#include "ocs2_core/constraint/StateInputConstraintCollection.h"
+#include "ocs2_core/cost/StateCost.h"
+#include "ocs2_core/cost/StateCostCollection.h"
+#include "ocs2_core/cost/StateInputCost.h"
+#include "ocs2_core/cost/StateInputCostCollection.h"
 #include "ocs2_core/misc/Collection.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_oc/oc_data/PerformanceIndex.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
 namespace ocs2::humanoid::visualization {
 
@@ -190,12 +205,15 @@ scalar_t SolutionTermEvaluator::costValue(const CostTerm& term,
     case CostCollection::kFinalSoft: {
       StateCostCollection* absl_nonnull collection =
           problem_->stateCostPtr.get();
-      if (term.collection == CostCollection::kSoftState)
+      if (term.collection == CostCollection::kSoftState) {
         collection = problem_->stateSoftConstraintPtr.get();
-      if (term.collection == CostCollection::kFinal)
+      }
+      if (term.collection == CostCollection::kFinal) {
         collection = problem_->finalCostPtr.get();
-      if (term.collection == CostCollection::kFinalSoft)
+      }
+      if (term.collection == CostCollection::kFinalSoft) {
         collection = problem_->finalSoftConstraintPtr.get();
+      }
       const StateCost* absl_nullable cost = findTerm(*collection, term.term);
       if (cost == nullptr) return kNotANumber;
       return cost->isActive(time)
@@ -237,12 +255,15 @@ scalar_t SolutionTermEvaluator::constraintViolation(const ConstraintTerm& term,
           term.collection == ConstraintCollection::kFinalInequality;
       StateConstraintCollection* absl_nonnull collection =
           problem_->stateEqualityConstraintPtr.get();
-      if (term.collection == ConstraintCollection::kStateInequality)
+      if (term.collection == ConstraintCollection::kStateInequality) {
         collection = problem_->stateInequalityConstraintPtr.get();
-      if (term.collection == ConstraintCollection::kFinalEquality)
+      }
+      if (term.collection == ConstraintCollection::kFinalEquality) {
         collection = problem_->finalEqualityConstraintPtr.get();
-      if (term.collection == ConstraintCollection::kFinalInequality)
+      }
+      if (term.collection == ConstraintCollection::kFinalInequality) {
         collection = problem_->finalInequalityConstraintPtr.get();
+      }
       const StateConstraint* absl_nullable constraint =
           findTerm(*collection, term.term);
       if (constraint == nullptr) return kNotANumber;

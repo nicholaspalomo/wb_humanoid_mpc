@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 
@@ -164,13 +165,13 @@ absl::StatusOr<LinearProgramSolution> solveDenseQp(
   // HPIPM's C is ng x nv, column-major like Eigen's default.
   Eigen::MatrixXd inequalityMatrix = program.inequalityMatrix;
 
-  d_dense_qp_dim dim;
+  d_dense_qp_dim dim = {};
   std::vector<char> dimMemory(d_dense_qp_dim_memsize());
   d_dense_qp_dim_create(&dim, dimMemory.data());
   d_dense_qp_dim_set_all(variables, equalities, variables, inequalities,
                          /*nsb=*/0, /*nsg=*/0, &dim);
 
-  d_dense_qp qp;
+  d_dense_qp qp = {};
   std::vector<char> qpMemory(d_dense_qp_memsize(&dim));
   d_dense_qp_create(&dim, &qp, qpMemory.data());
   d_dense_qp_set_all(hessian.data(), gradient.data(), equalityMatrix.data(),
@@ -187,11 +188,11 @@ absl::StatusOr<LinearProgramSolution> solveDenseQp(
     d_dense_qp_set_ug_mask(inequalityUpper.mask.data(), &qp);
   }
 
-  d_dense_qp_sol solution;
+  d_dense_qp_sol solution = {};
   std::vector<char> solutionMemory(d_dense_qp_sol_memsize(&dim));
   d_dense_qp_sol_create(&dim, &solution, solutionMemory.data());
 
-  d_dense_qp_ipm_arg arg;
+  d_dense_qp_ipm_arg arg = {};
   std::vector<char> argMemory(d_dense_qp_ipm_arg_memsize(&dim));
   d_dense_qp_ipm_arg_create(&dim, &arg, argMemory.data());
   d_dense_qp_ipm_arg_set_default(
@@ -207,7 +208,7 @@ absl::StatusOr<LinearProgramSolution> solveDenseQp(
   d_dense_qp_ipm_arg_set_tol_ineq(&inequalityTolerance, &arg);
   d_dense_qp_ipm_arg_set_tol_comp(&complementarityTolerance, &arg);
 
-  d_dense_qp_ipm_ws workspace;
+  d_dense_qp_ipm_ws workspace = {};
   std::vector<char> workspaceMemory(d_dense_qp_ipm_ws_memsize(&dim, &arg));
   d_dense_qp_ipm_ws_create(&dim, &arg, &workspace, workspaceMemory.data());
 

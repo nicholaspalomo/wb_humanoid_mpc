@@ -29,11 +29,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/base/log_severity.h"
 #include "absl/base/nullability.h"
 #include "absl/flags/parse.h"
 #include "absl/flags/usage.h"
@@ -43,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/StateManifold.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
@@ -50,12 +53,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/ThreadAffinity.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
+#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/mrt/MpcLink.h"
 #include "humanoid_common_mpc_app/node/NodeBus.h"
 #include "humanoid_common_mpc_app/node/ShutdownSignal.h"
 #include "humanoid_common_mpc_app/robot/InitialSimState.h"
 #include "humanoid_common_mpc_app/robot/MrtRobotController.h"
 #include "humanoid_common_mpc_app/robot/RemoteMpcLinkAdapter.h"
 #include "humanoid_common_mpc_app/robot/RobotAppFlags.h"
+#include "humanoid_common_mpc_app/robot/RobotAppOptions.h"
 #include "humanoid_common_mpc_app/robot/RobotBackendRegistry.h"
 #include "humanoid_common_mpc_app/robot/RobotConfigDirectory.h"
 #include "humanoid_common_mpc_app/robot/RobotConfigurationCheck.h"
@@ -67,10 +73,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/RobotStartup.h"
 #include "humanoid_common_mpc_app/robot/config/robot/RobotProcessSettingsFromConfig.h"
 #include "humanoid_mpc_ipc/MpcMessageConversions.h"
+#include "humanoid_mpc_ipc/RemoteMpcLink.h"
 #include "humanoid_wb_mpc/WBMpcInterface.h"
+#include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
 #include "humanoid_wb_mpc/mrt/WBMpcMrtJointController.h"
+#include "robot_core/Types.h"
 #include "robot_model/ContactEstimatorRegistry.h"
 #include "robot_model/RobotDescription.h"
+#include "robot_model/RobotState.h"
 
 /*
  * humanoid_wb_mpc_robot: the robot process of the whole-body MPC
@@ -98,8 +108,9 @@ absl::StatusOr<std::unique_ptr<WBMpcInterface>> controllerModelsOf(
   absl::StatusOr<std::unique_ptr<WBMpcInterface>> interface =
       WBMpcInterface::CreateControllerModels(files.task, urdfFile,
                                              files.reference);
-  if (!interface.ok())
+  if (!interface.ok()) {
     return withConfigFile(interface.status(), files.taskSource);
+  }
   return interface;
 }
 
@@ -107,8 +118,9 @@ absl::StatusOr<std::unique_ptr<WBMpcInterface>> controllerModelsOf(
  * only. */
 absl::Status checkFeedforward(const RobotProcessSettings& settings,
                               const std::string& taskSource) {
-  if (settings.wbMpcFeedforward == WbMpcFeedforward::kInverseDynamics)
+  if (settings.wbMpcFeedforward == WbMpcFeedforward::kInverseDynamics) {
     return absl::OkStatus();
+  }
   return absl::InvalidArgumentError(
       absl::StrCat(taskSource, ": wb_mpc_feedforward: \"",
                    wbMpcFeedforwardName(settings.wbMpcFeedforward),

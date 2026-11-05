@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
@@ -43,16 +44,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
 #include "mujoco/mujoco.h"
+#include "ocs2_core/Types.h"
 #include "pinocchio/algorithm/rnea.hpp"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "humanoid_common_mpc_app/robot/FallRecoveryTypes.h"
 #include "humanoid_common_mpc_app/robot/RealtimeEventLog.h"
 #include "humanoid_common_mpc_app/robot/SimFallRecovery.h"
 #include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
+#include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "mujoco_sim_interface/viewer/ViewerNames.h"
+#include "robot_model/RobotJointAction.h"
+#include "robot_model/RobotState.h"
 
 /*
  * The fall recovery of the robot process with the MuJoCo backend, against the
@@ -137,8 +143,9 @@ const robot::model::RobotState& advance(MujocoSimInterface& sim) {
 std::vector<scalar_t> currentPosture(MujocoSimInterface& sim) {
   sim.updateInterfaceStateFromRobot();
   std::vector<scalar_t> posture(sim.getRobotDescription().getNumJoints(), 0.0);
-  for (size_t joint = 0; joint < posture.size(); ++joint)
+  for (size_t joint = 0; joint < posture.size(); ++joint) {
     posture[joint] = sim.getRobotState().getJointPosition(joint);
+  }
   return posture;
 }
 
@@ -189,8 +196,9 @@ class AtlasJointPd {
     vector_t q(kBaseConfigurationDim + mpcJoints_.size());
     q.head<3>() = state.getPosBaseRtWorldEwrtWorld();
     q.segment<4>(3) = state.getQuatBaseRtWorld().coeffs();
-    for (size_t i = 0; i < mpcJoints_.size(); ++i)
+    for (size_t i = 0; i < mpcJoints_.size(); ++i) {
       q(kJointConfigurationOffset + i) = state.getJointPosition(mpcJoints_[i]);
+    }
     const PinocchioInterface::Model& model = pinocchioInterface_.getModel();
     PinocchioInterface::Data& data = pinocchioInterface_.getData();
     pinocchio::nonLinearEffects(model, data, q, vector_t::Zero(model.nv));
@@ -314,8 +322,9 @@ TEST(SimFallRecovery, ATiltIsCaughtOnceAndAnOperatorLockAndUnlockAreSeen) {
 
   // Held upright where it was caught, then released by the operator: reported,
   // and not a discontinuity.
-  for (int cycle = 0; cycle < 200; ++cycle)
+  for (int cycle = 0; cycle < 200; ++cycle) {
     recovery.update(advance(*sim), nominal, mode);
+  }
   ASSERT_LT(SimFallRecovery::computeTiltangleBaseRtWorld(
                 sim->getRobotState().getQuatBaseRtWorld()),
             0.2);
@@ -380,8 +389,9 @@ TEST(SimFallRecovery,
     maxGantryPosBaseRtWorldEwrtWorldZ =
         std::max(maxGantryPosBaseRtWorldEwrtWorldZ,
                  sim->getGantryPosBaseRtWorldEwrtWorldZ());
-    if (recovery.isSettling() && mode == "WB_MPC")
+    if (recovery.isSettling() && mode == "WB_MPC") {
       wbMpcLetThroughWhileSettling = true;
+    }
     jointPd.command(*sim, nominal);
     if (caught && !recovery.isSettling()) break;
   }
@@ -423,8 +433,9 @@ TEST(SimFallRecovery, AtRestMeansUprightStillAndAtTheNominalPosture) {
   state.setQuatBaseRtWorld(quaternion_t::Identity());
   state.setLinvelBaseRtWorldEwrtBase(vector3_t::Zero());
   state.setAngvelBaseRtWorldEwrtBase(vector3_t::Zero());
-  for (size_t joint = 0; joint < nominal.size(); ++joint)
+  for (size_t joint = 0; joint < nominal.size(); ++joint) {
     state.setJointVelocity(joint, /*jointVelocity=*/0.0);
+  }
   EXPECT_TRUE(SimFallRecovery::isAtRest(state, nominal, joints, config));
 
   // What the robot looked like when it was caught at its standing height, feet
@@ -476,8 +487,9 @@ TEST(SimFallRecovery, ReportsTheCatchToTheEventLogInsteadOfLogging) {
   std::string caughtLine;
   log.drain([&](const RealtimeEvent& event) {
     codes.push_back(event.code);
-    if (event.code == RealtimeEventCode::kCaughtAndSettling)
+    if (event.code == RealtimeEventCode::kCaughtAndSettling) {
       caughtLine = formatRealtimeEvent(event);
+    }
   });
   EXPECT_EQ(codes, (std::vector<RealtimeEventCode>{
                        RealtimeEventCode::kCaughtAndSettling,

@@ -39,13 +39,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/ascii.h"
 #include "absl/strings/match.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_split.h"
-#include "absl/strings/strip.h"
+#include "absl/strings/string_view.h"
 
+#include "humanoid_mpc_validation/io/GoldenIo.h"
+#include "humanoid_mpc_validation/io/JsonValue.h"
 #include "humanoid_mpc_validation/io/Sha256.h"
 
 namespace ocs2::humanoid::validation {
@@ -138,9 +142,10 @@ absl::StatusOr<JsonValue> makeRunProvenanceJson(
                  JsonValue::string(environment.worktreeState));
   provenance.set("machine", JsonValue::string(environment.machine));
   JsonValue& toolchain = provenance.set("toolchain", JsonValue::object());
-  for (const ToolchainField& field : kToolchainFields)
+  for (const ToolchainField& field : kToolchainFields) {
     toolchain.set(field.key,
                   JsonValue::string(environment.toolchain.*field.field));
+  }
   JsonValue& hashes =
       provenance.set("configuration_sha256", JsonValue::object());
   for (const std::string& file : configurationFiles) {
@@ -154,9 +159,10 @@ absl::StatusOr<JsonValue> makeRunProvenanceJson(
 absl::StatusOr<RunToolchain> toolchainFromProvenance(
     const JsonValue& provenance) {
   const JsonValue* absl_nullable toolchain = provenance.find("toolchain");
-  if (toolchain == nullptr)
+  if (toolchain == nullptr) {
     return absl::NotFoundError(
         "[toolchainFromProvenance] the provenance has no toolchain");
+  }
   RunToolchain result;
   for (const ToolchainField& field : kToolchainFields) {
     const JsonValue* absl_nullable value = toolchain->find(field.key);
@@ -174,8 +180,9 @@ std::vector<std::pair<std::string, std::string>> toolchainNotes(
     const RunToolchain& toolchain) {
   std::vector<std::pair<std::string, std::string>> notes;
   notes.reserve(std::size(kToolchainFields));
-  for (const ToolchainField& field : kToolchainFields)
+  for (const ToolchainField& field : kToolchainFields) {
     notes.emplace_back(field.key, toolchain.*field.field);
+  }
   return notes;
 }
 

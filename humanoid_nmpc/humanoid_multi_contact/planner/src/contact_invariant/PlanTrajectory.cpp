@@ -43,10 +43,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_multi_contact/contact_set/ContactSet.h"
 #include "humanoid_multi_contact/plan/PlanFile.h"
+#include "humanoid_multi_contact/plan/multi_contact_plan.nproto.h"
+#include "humanoid_multi_contact/stability/RobotStanceModel.h"
 #include "humanoid_multi_contact/terrain/PatchFrame.h"
+#include "humanoid_multi_contact/terrain/TerrainModel.h"
 
 namespace ocs2::humanoid::multi_contact {
 namespace {

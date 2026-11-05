@@ -38,6 +38,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Dimensions.h"
+
+#include "humanoid_multi_contact/contact_set/ContactSet.h"
 
 namespace ocs2::humanoid::multi_contact {
 namespace {
@@ -69,8 +72,10 @@ absl::Status checkContact(const StanceContact& contact) {
  * the world frame. */
 std::vector<Eigen::Vector3d> computePosGeneratorsRtWorldEwrtWorld(
     const StanceContact& contact) {
-  if (contact.kind == ContactKind::kPoint)
+  // A surface contact has its rectangle (checkContact()).
+  if (contact.kind == ContactKind::kPoint || !contact.rectangle.has_value()) {
     return {contact.posPadRtWorldEwrtWorld};
+  }
   const ContactRectangle& rectangle = *contact.rectangle;
   const std::array<Eigen::Vector3d, kRectangleCorners>
       posCornersRtPadEwrtSurface = {

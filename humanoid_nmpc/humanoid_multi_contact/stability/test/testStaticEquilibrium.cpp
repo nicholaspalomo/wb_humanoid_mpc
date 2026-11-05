@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <limits>
 #include <optional>
 #include <string>
@@ -44,7 +45,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Dimensions.h"
 
+#include "humanoid_multi_contact/contact_set/ContactSet.h"
 #include "humanoid_multi_contact/stability/ContactWrenchConeCheck.h"
 #include "humanoid_multi_contact/stability/ConvexPolygon.h"
 #include "humanoid_multi_contact/stability/LinearProgram.h"
@@ -108,6 +111,21 @@ std::vector<Eigen::Vector2d> polygonOf(const Stance& stance) {
       equilibriumOf(stance).supportPolygon();
   EXPECT_TRUE(polygon.ok()) << polygon.status();
   return polygon.ok() ? *polygon : std::vector<Eigen::Vector2d>();
+}
+
+/** staticMargin() at `posComRtWorldEwrtWorldXy`, or a failed expectation and
+ * NaN for an empty polygon: bugprone-unchecked-optional-access does not see
+ * googletest's ASSERTs. */
+double marginOf(
+    const std::vector<Eigen::Vector2d>& supportPosComRtWorldEwrtWorldXySamples,
+    const Eigen::Vector2d& posComRtWorldEwrtWorldXy) {
+  const std::optional<double> margin = staticMargin(
+      supportPosComRtWorldEwrtWorldXySamples, posComRtWorldEwrtWorldXy);
+  if (!margin.has_value()) {
+    ADD_FAILURE() << "the support polygon is empty";
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+  return *margin;
 }
 
 double polygonArea(const std::vector<Eigen::Vector2d>& polygon) {
@@ -198,7 +216,11 @@ TEST(StaticEquilibriumTest, TwoFlatFeetGiveTheHullOfTheSoles) {
   EXPECT_NEAR(polygonArea(polygon), polygonArea(hull), 1.0e-6);
   const std::optional<double> margin =
       staticMargin(polygon, Eigen::Vector2d(kFootX, 0.0));
-  ASSERT_TRUE(margin.has_value());
+  // An if, not ASSERT_TRUE, here and below: bugprone-unchecked-optional-access
+  // sees a check only through an if.
+  if (!margin.has_value()) {
+    FAIL() << "margin has no value";
+  }
   EXPECT_NEAR(*margin, kSoleHalfLength, 1.0e-6);
   // The feasibility LP agrees.
   const StaticEquilibrium equilibrium = equilibriumOf(twoFeet());
@@ -211,10 +233,10 @@ TEST(StaticEquilibriumTest, TwoFlatFeetGiveTheHullOfTheSoles) {
 TEST(StaticEquilibriumTest, MarginSignFlipsAtTheBoundary) {
   const std::vector<Eigen::Vector2d> polygon = polygonOf(twoFeet());
   const double toe = kFootX + kSoleHalfLength;
-  EXPECT_NEAR(*staticMargin(polygon, Eigen::Vector2d(toe - 0.005, 0.0)), 0.005,
+  EXPECT_NEAR(marginOf(polygon, Eigen::Vector2d(toe - 0.005, 0.0)), 0.005,
               1.0e-6);
-  EXPECT_NEAR(*staticMargin(polygon, Eigen::Vector2d(toe, 0.0)), 0.0, 1.0e-6);
-  EXPECT_NEAR(*staticMargin(polygon, Eigen::Vector2d(toe + 0.005, 0.0)), -0.005,
+  EXPECT_NEAR(marginOf(polygon, Eigen::Vector2d(toe, 0.0)), 0.0, 1.0e-6);
+  EXPECT_NEAR(marginOf(polygon, Eigen::Vector2d(toe + 0.005, 0.0)), -0.005,
               1.0e-6);
   const StaticEquilibrium equilibrium = equilibriumOf(twoFeet());
   EXPECT_LT(*equilibrium.equilibriumResidual(Eigen::Vector2d(toe - 0.005, 0.0)),
@@ -249,8 +271,8 @@ TEST(StaticEquilibriumTest, AHandOnAWallWidensTheRegionTowardTheWall) {
   EXPECT_NEAR(widenedMinX, feetMinX, 1.0e-6);
   // A CoM past the toes is in equilibrium with the hand, not without it.
   const Eigen::Vector2d leaning(feetMaxX + 0.04, 0.0);
-  EXPECT_LT(*staticMargin(feetOnly, leaning), 0.0);
-  EXPECT_GT(*staticMargin(widened, leaning), 0.0);
+  EXPECT_LT(marginOf(feetOnly, leaning), 0.0);
+  EXPECT_GT(marginOf(widened, leaning), 0.0);
   EXPECT_LT(*equilibriumOf(withHand).equilibriumResidual(leaning), 1.0e-6);
 }
 
@@ -274,10 +296,9 @@ TEST(StaticEquilibriumTest, OnePointHoldsOnlyTheCenterOfMassAboveIt) {
     for (const Eigen::Vector2d& vertex : polygon) {
       EXPECT_LT((vertex - above).norm(), 1.0e-5);
     }
-    EXPECT_LE(*staticMargin(polygon, above), 1.0e-5);
-    EXPECT_NEAR(
-        *staticMargin(polygon, Eigen::Vector2d(above.x() + 0.01, above.y())),
-        -0.01, 1.0e-5);
+    EXPECT_LE(marginOf(polygon, above), 1.0e-5);
+    EXPECT_NEAR(marginOf(polygon, Eigen::Vector2d(above.x() + 0.01, above.y())),
+                -0.01, 1.0e-5);
   }
 }
 
@@ -308,8 +329,8 @@ TEST(StaticEquilibriumTest, TheRefinedPolygonKeepsACornerBetweenTwoDirections) {
   ASSERT_TRUE(refined.ok()) << refined.status();
   const Eigen::Vector2d posCornerRtWorldEwrtWorldXy =
       innerPosPadRtWorldEwrtWorld.head<2>();
-  EXPECT_LT(*staticMargin(sampled, posCornerRtWorldEwrtWorldXy), -0.01);
-  EXPECT_GT(*staticMargin(*refined, posCornerRtWorldEwrtWorldXy),
+  EXPECT_LT(marginOf(sampled, posCornerRtWorldEwrtWorldXy), -0.01);
+  EXPECT_GT(marginOf(*refined, posCornerRtWorldEwrtWorldXy),
             -kRefinementTolerance);
   EXPECT_GT(polygonArea(*refined), polygonArea(sampled));
   // Every refined vertex is in equilibrium: the hull is still inside.
@@ -331,8 +352,9 @@ TEST(StaticEquilibriumTest, AWallAloneHoldsNothing) {
   const Stance stance = {
       point("hand", Eigen::Vector3d(0.5, 0.0, 1.2), -Eigen::Vector3d::UnitX())};
   EXPECT_TRUE(polygonOf(stance).empty());
-  EXPECT_FALSE(
-      staticMargin(/*polygon=*/{}, Eigen::Vector2d::Zero()).has_value());
+  EXPECT_FALSE(staticMargin(/*supportPosComRtWorldEwrtWorldXySamples=*/{},
+                            Eigen::Vector2d::Zero())
+                   .has_value());
 }
 
 TEST(StaticEquilibriumTest, RefusesInvalidStances) {

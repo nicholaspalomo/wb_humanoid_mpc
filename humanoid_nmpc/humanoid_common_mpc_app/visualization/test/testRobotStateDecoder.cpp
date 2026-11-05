@@ -27,10 +27,11 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <limits>
 #include <memory>
+#include <numbers>
 #include <string>
 #include <utility>
 #include <vector>
@@ -38,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_robotic_tools/common/RotationDerivativesTransforms.h"
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
@@ -45,7 +47,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "humanoid_common_mpc_app/visualization/RobotStateDecoder.h"
+#include "humanoid_mpc_msgs/robot_state_sample.nproto.h"
 #include "humanoid_mpc_msgs/robot_state_sample.nproto.pb.h"
+#include "humanoid_mpc_msgs/robot_state_sample.pb.h"
 #include "humanoid_nmpc/humanoid_common_mpc_app/visualization/test/VisualizationTestRobot.h"
 
 namespace ocs2::humanoid::visualization {
@@ -60,7 +64,7 @@ vector3_t eulerZyxOf(const vector3_t& rollPitchYaw) {
 
 /** The angle a - b wrapped into (-pi, pi]. */
 scalar_t wrappedDifference(scalar_t a, scalar_t b) {
-  return std::remainder(a - b, 2.0 * M_PI);
+  return std::remainder(a - b, 2.0 * std::numbers::pi);
 }
 
 /**
@@ -116,8 +120,8 @@ TEST(EulerZyxRatesForDisplayTest,
           .allFinite());
   for (const scalar_t pitch :
        {std::acos(0.5 * kDisplayEulerRateMinCosPitch),
-        -std::acos(0.5 * kDisplayEulerRateMinCosPitch), M_PI / 2.0, -M_PI / 2.0,
-        std::numeric_limits<scalar_t>::quiet_NaN()}) {
+        -std::acos(0.5 * kDisplayEulerRateMinCosPitch), std::numbers::pi / 2.0,
+        -std::numbers::pi / 2.0, std::numeric_limits<scalar_t>::quiet_NaN()}) {
     const vector3_t singular = eulerZyxRatesForDisplay(
         vector3_t(0.1, pitch, 0.2), angvelBaseRtWorldEwrtBase);
     EXPECT_TRUE(singular.array().isNaN().all())
@@ -162,7 +166,7 @@ class RobotStateDecoderTest : public ::testing::Test {
 test::TestRobot* absl_nullable RobotStateDecoderTest::robot_ = nullptr;
 
 TEST_F(RobotStateDecoderTest, TheBaseIsInTheWorldFrame) {
-  const vector3_t rpyBaseRtWorld(0.1, 0.2, M_PI / 2.0);
+  const vector3_t rpyBaseRtWorld(0.1, 0.2, std::numbers::pi / 2.0);
   humanoid_mpc_msgs::RobotStateSample proto = robot_->robotState(
       /*time=*/1.5, vector3_t(1.0, 2.0, 3.0), rpyBaseRtWorld);
   proto.mutable_linvel_base_rt_world_ewrt_base()->set_x(1.0);
@@ -177,7 +181,7 @@ TEST_F(RobotStateDecoderTest, TheBaseIsInTheWorldFrame) {
   EXPECT_EQ(state.time, 1.5);
   EXPECT_TRUE(state.posBaseRtWorldEwrtWorld.isApprox(vector3_t(1.0, 2.0, 3.0)));
   EXPECT_TRUE(state.eulerzyxBaseRtWorld.isApprox(
-      vector3_t(M_PI / 2.0, 0.2, 0.1), kTolerance));
+      vector3_t(std::numbers::pi / 2.0, 0.2, 0.1), kTolerance));
   EXPECT_TRUE(state.linvelBaseRtWorldEwrtWorld.isApprox(
       rotmatBaseRtWorld * vector3_t(1.0, 0.0, 0.0), kTolerance));
   EXPECT_TRUE(state.angvelBaseRtWorldEwrtWorld.isApprox(
@@ -259,7 +263,8 @@ TEST_F(
   const vector3_t angvelBaseRtWorldEwrtBase(0.3, -0.2, 0.6);
   for (const vector3_t& rpyBaseRtWorld :
        {vector3_t(0.15, -0.25, 2.8), vector3_t(-0.6, 1.2, -3.1),
-        vector3_t(2.5, -1.3, 0.9), vector3_t(0.0, 0.7, M_PI - 1.0e-9)}) {
+        vector3_t(2.5, -1.3, 0.9),
+        vector3_t(0.0, 0.7, std::numbers::pi - 1.0e-9)}) {
     SCOPED_TRACE(rpyBaseRtWorld.transpose());
     humanoid_mpc_msgs::RobotStateSample proto =
         robot_->robotState(/*time=*/0.0, vector3_t::Zero(), rpyBaseRtWorld);
@@ -334,8 +339,8 @@ TEST_F(RobotStateDecoderTest,
        TheDisplayEulerRatesAreNotANumberAtThePitchSingularity) {
   RobotStateDecoder decoder(robot_->robotModel());
   const vector3_t angvelBaseRtWorldEwrtBase(0.3, -0.2, 0.6);
-  for (const scalar_t pitch :
-       {M_PI / 2.0, -M_PI / 2.0, std::acos(5.0e-7), -std::acos(5.0e-7)}) {
+  for (const scalar_t pitch : {std::numbers::pi / 2.0, -std::numbers::pi / 2.0,
+                               std::acos(5.0e-7), -std::acos(5.0e-7)}) {
     const vector3_t rpyBaseRtWorld(0.3, pitch, -1.1);
     SCOPED_TRACE(rpyBaseRtWorld.transpose());
     humanoid_mpc_msgs::RobotStateSample proto =

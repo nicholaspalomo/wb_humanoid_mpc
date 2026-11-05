@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <utility>
@@ -44,6 +45,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 
 #include "humanoid_multi_contact/contact_set/ContactSet.h"
+#include "humanoid_multi_contact/contact_set/contact_set.nproto.h"
+#include "humanoid_multi_contact/plan/multi_contact_plan.nproto.h"
 #include "humanoid_multi_contact/planner/PlanTiming.h"
 #include "humanoid_multi_contact/stability/RobotStanceModel.h"
 #include "robot_core/ResourcePaths.h"

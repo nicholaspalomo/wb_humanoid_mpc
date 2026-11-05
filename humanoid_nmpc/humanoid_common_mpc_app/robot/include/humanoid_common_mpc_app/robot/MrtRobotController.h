@@ -38,9 +38,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact/ContactWrenchGate.h"
+#include "humanoid_common_mpc/mrt/ControllerEventSink.h"
 #include "humanoid_common_mpc_app/robot/RobotController.h"
 #include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
+#include "robot_model/ContactEstimator.h"
+#include "robot_model/RobotJointAction.h"
+#include "robot_model/RobotState.h"
 
 namespace ocs2::humanoid {
 

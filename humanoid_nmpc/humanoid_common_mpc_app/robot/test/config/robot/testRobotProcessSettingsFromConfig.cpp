@@ -49,7 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_config/contact_wrench_gate_config.nproto.h"
 #include "humanoid_mpc_config/mpc_link_config.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
-#include "humanoid_mpc_config/task_file.nproto.pb.h"
+#include "humanoid_mpc_config/task_file.pb.h"
 #include "humanoid_mpc_ipc/RemoteMpcLink.h"
 #include "nproto/Textproto.h"
 

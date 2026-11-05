@@ -30,11 +30,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <cmath>
+#include <cstddef>
 #include <memory>
+#include <numbers>
 #include <string>
 
-#include "absl/status/statusor.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 
 #include "humanoid_common_mpc/command/BasePlanarMotion.h"
@@ -42,7 +44,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/reference/ReferenceFromConfig.h"
-#include "humanoid_mpc_config/reference_file.nproto.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "humanoid_wb_mpc/command/WBMpcTargetTrajectoriesCalculator.h"
 #include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
@@ -256,7 +257,7 @@ TEST(WBMpcTargetKnots, APoseCommandsKnotsHoldTheBaseAndTheJointsStill) {
             kTolerance);
   EXPECT_LT(
       std::abs(model.getEulerzyxBaseRtWorld(targets.stateTrajectory[1])(0) -
-               (initPoseeulerzyxBaseRtWorld(3) - M_PI / 4.0)),
+               (initPoseeulerzyxBaseRtWorld(3) - std::numbers::pi / 4.0)),
       kTolerance);
   for (size_t i = 0; i < targets.stateTrajectory.size(); ++i) {
     SCOPED_TRACE(i);

@@ -32,7 +32,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <optional>
 #include <string>
-#include <utility>
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -43,11 +42,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/config/robot/JointPdGainsFromConfig.h"
 #include "humanoid_common_mpc/mrt/ContactEstimateIntake.h"
 #include "humanoid_common_mpc/mrt/JointPdGains.h"
+#include "humanoid_common_mpc_app/robot/ConfigFileStore.h"
+#include "humanoid_common_mpc_app/robot/RobotConfigDirectory.h"
 #include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
 #include "humanoid_common_mpc_app/robot/TelemetrySinkRegistry.h"
 #include "humanoid_common_mpc_app/robot/config/robot/RobotProcessSettingsFromConfig.h"
 #include "humanoid_state_estimator/KalmanBaseEstimator.h"
+#include "humanoid_state_estimator/StateEstimatorNames.h"
 #include "humanoid_state_estimator/StateEstimatorRegistry.h"
+#include "robot_model/ContactEstimator.h"
+#include "robot_model/ContactEstimatorRegistry.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -103,8 +107,9 @@ absl::Status checkStateEstimator(const RobotProcessSettings& settings,
         settings.stateEstimator, "'. Available: ", estimators.availableNames(),
         "."));
   }
-  if (settings.stateEstimator != estimation::kKalmanStateEstimatorName)
+  if (settings.stateEstimator != estimation::kKalmanStateEstimatorName) {
     return absl::OkStatus();
+  }
   return withConfigFile(estimation::KalmanBaseEstimator::validateConfig(
                             settings.kalmanStateEstimator),
                         taskSource);
@@ -138,10 +143,12 @@ absl::Status checkRobotConfiguration(
   }
   absl::StatusOr<RobotProcessSettings> settings =
       robotProcessSettingsFromConfig(files.task);
-  if (!settings.ok())
+  if (!settings.ok()) {
     return withConfigFile(settings.status(), files.taskSource);
-  if (context.checkFormulation)
+  }
+  if (context.checkFormulation) {
     RETURN_IF_ERROR(context.checkFormulation(files));
+  }
   if (!context.mpcJointNames.empty() || !context.otherJointNames.empty()) {
     // As the controller's loader reads it.
     const absl::StatusOr<JointPdGains> gains = jointPdGainsFromConfig(

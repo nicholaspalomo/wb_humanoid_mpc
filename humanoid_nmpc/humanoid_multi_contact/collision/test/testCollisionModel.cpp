@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // and self clearances of the DRC Atlas's model.
 
 #include <algorithm>
+#include <cstddef>
 #include <iostream>
 #include <memory>
 #include <optional>
@@ -43,11 +44,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
+#include "pinocchio/multibody/fwd.hpp"
 
 #include "humanoid_multi_contact/collision/CollisionModel.h"
+#include "humanoid_multi_contact/collision/collision_model.nproto.h"
 #include "humanoid_multi_contact/contact_set/ContactSet.h"
+#include "humanoid_multi_contact/contact_set/contact_set.nproto.h"
 #include "humanoid_multi_contact/stability/RobotStanceModel.h"
 #include "humanoid_multi_contact/terrain/TerrainModel.h"
+#include "humanoid_multi_contact/terrain/terrain_scene.nproto.h"
 #include "robot_core/ResourcePaths.h"
 
 namespace ocs2::humanoid::multi_contact {
@@ -266,7 +271,11 @@ TEST(CollisionModel, AtlasStandingClearsTheFloor) {
   // is a shin's, above the floor.
   const SphereClearance active =
       collision.terrainClearance(*model, floor, *feet, kDefaultPadNeighborhood);
-  ASSERT_TRUE(active.clearance.has_value());
+  // An if, not ASSERT_TRUE, here and below: bugprone-unchecked-optional-access
+  // sees a check only through an if.
+  if (!active.clearance.has_value()) {
+    FAIL() << "active.clearance has no value";
+  }
   EXPECT_GT(*active.clearance, 0.0);
   EXPECT_NE(active.link, "l_foot");
   EXPECT_NE(active.link, "r_foot");
@@ -274,7 +283,9 @@ TEST(CollisionModel, AtlasStandingClearsTheFloor) {
   // Without them, the soles' corner spheres touch the floor.
   const SphereClearance inactive = collision.terrainClearance(
       *model, floor, /*mask=*/0, kDefaultPadNeighborhood);
-  ASSERT_TRUE(inactive.clearance.has_value());
+  if (!inactive.clearance.has_value()) {
+    FAIL() << "inactive.clearance has no value";
+  }
   EXPECT_NEAR(*inactive.clearance, 0.0, 0.002);
 
   // Inactive but resting on the floor, the soles exempt their own spheres
@@ -282,7 +293,9 @@ TEST(CollisionModel, AtlasStandingClearsTheFloor) {
   const SphereClearance resting = collision.terrainClearance(
       *model, floor, /*mask=*/0, kDefaultPadNeighborhood,
       /*restingTolerance=*/0.005);
-  ASSERT_TRUE(resting.clearance.has_value());
+  if (!resting.clearance.has_value()) {
+    FAIL() << "resting.clearance has no value";
+  }
   EXPECT_GT(*resting.clearance, 0.0);
   EXPECT_NE(resting.link, "l_foot");
   EXPECT_NE(resting.link, "r_foot");
@@ -293,13 +306,17 @@ TEST(CollisionModel, AtlasStandingClearsTheFloor) {
   ASSERT_TRUE(model->setConfiguration(lower).ok());
   const SphereClearance penetrating = collision.terrainClearance(
       *model, floor, /*mask=*/0, kDefaultPadNeighborhood);
-  ASSERT_TRUE(penetrating.clearance.has_value());
+  if (!penetrating.clearance.has_value()) {
+    FAIL() << "penetrating.clearance has no value";
+  }
   EXPECT_NEAR(*penetrating.clearance, -0.02, 0.002);
   // Two centimeters into the floor, a sole no longer rests on it.
   const SphereClearance sunk = collision.terrainClearance(
       *model, floor, /*mask=*/0, kDefaultPadNeighborhood,
       /*restingTolerance=*/0.005);
-  ASSERT_TRUE(sunk.clearance.has_value());
+  if (!sunk.clearance.has_value()) {
+    FAIL() << "sunk.clearance has no value";
+  }
   EXPECT_NEAR(*sunk.clearance, -0.02, 0.002);
 }
 
@@ -368,7 +385,9 @@ TEST(CollisionModel, CrossedLegsCollide) {
   const CollisionModel collision = atlasCollisionModel(*model);
   ASSERT_TRUE(model->setConfiguration(standing()).ok());
   const SphereClearance apart = collision.selfClearance(*model);
-  ASSERT_TRUE(apart.clearance.has_value());
+  if (!apart.clearance.has_value()) {
+    FAIL() << "apart.clearance has no value";
+  }
   std::cerr << "DEBUG standing self clearance " << *apart.clearance << " "
             << apart.link << "\n";
   EXPECT_GT(*apart.clearance, 0.0);
@@ -381,7 +400,9 @@ TEST(CollisionModel, CrossedLegsCollide) {
   crossed.jointPositions.tail(2) << -0.5, 0.5;
   ASSERT_TRUE(model->setConfiguration(crossed).ok());
   const SphereClearance overlapping = collision.selfClearance(*model);
-  ASSERT_TRUE(overlapping.clearance.has_value());
+  if (!overlapping.clearance.has_value()) {
+    FAIL() << "overlapping.clearance has no value";
+  }
   EXPECT_LT(*overlapping.clearance, 0.0);
 }
 

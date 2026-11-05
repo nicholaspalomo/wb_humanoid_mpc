@@ -42,9 +42,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
 #include "absl/time/time.h"
+#include "ocs2_mpc/MPC_BASE.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
+#include "humanoid_common_mpc/parameter_update/MpcParameterUpdaterModule.h"
+#include "humanoid_wb_mpc/WBMpcInterface.h"
 #include "humanoid_wb_mpc/parameter_update/WholeBodyHotFieldAppliers.h"
 
 namespace ocs2::humanoid {

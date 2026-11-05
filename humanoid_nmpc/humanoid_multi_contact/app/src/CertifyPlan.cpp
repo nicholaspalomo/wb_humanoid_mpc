@@ -33,7 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <optional>
 #include <string>
-#include <utility>
 
 #include "Eigen/Core"
 #include "absl/status/status.h"
@@ -47,8 +46,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_multi_contact/plan/PlanFile.h"
+#include "humanoid_multi_contact/plan/multi_contact_plan.nproto.h"
 #include "humanoid_multi_contact/scenarios/Scenario.h"
 #include "humanoid_multi_contact/stability/StabilityCertifier.h"
+#include "humanoid_multi_contact/stability/certifier_report.nproto.h"
 
 namespace ocs2::humanoid::multi_contact {
 namespace {
@@ -90,8 +91,9 @@ config::MultiContactPlan::Knot knotBetween(
       lerp(from.angmom_com_rt_world_ewrt_world,
            to.angmom_com_rt_world_ewrt_world, fraction);
   if (from.wrench_contacts_ewrt_world.size() !=
-      to.wrench_contacts_ewrt_world.size())
+      to.wrench_contacts_ewrt_world.size()) {
     return knot;
+  }
   for (size_t c = 0; c < knot.wrench_contacts_ewrt_world.size(); ++c) {
     if (from.wrench_contacts_ewrt_world[c].contact !=
         to.wrench_contacts_ewrt_world[c].contact) {

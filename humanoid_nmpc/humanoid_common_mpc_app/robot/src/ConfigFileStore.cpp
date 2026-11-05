@@ -62,9 +62,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_ipc/Topics.h"
 #include "humanoid_mpc_msgs/config_file_kind.nproto.h"
 #include "humanoid_mpc_msgs/config_file_kind.nproto.pb.h"
+#include "humanoid_mpc_msgs/config_file_kind.pb.h"
 #include "humanoid_mpc_msgs/config_file_save.pb.h"
 #include "humanoid_mpc_msgs/config_file_save_status.pb.h"
 #include "nproto/Schema.h"
+#include "robot_ipc/Bus.h"
 #include "robot_ipc/Delivery.h"
 
 namespace ocs2::humanoid {
@@ -244,8 +246,9 @@ absl::StatusOr<msgs::ConfigFileKind> ConfigFileStore::checkOnIoThread(
       index.has_value() ? fileOf(kind) : nullptr;
   if (!index.has_value() || stored == nullptr) {
     std::vector<absl::string_view> stores;
-    for (const msgs::ConfigFileKind storedKind : kStoredConfigFileKinds)
+    for (const msgs::ConfigFileKind storedKind : kStoredConfigFileKinds) {
       stores.push_back(configFileKindName(storedKind));
+    }
     return absl::InvalidArgumentError(
         absl::StrCat("the save names no file kind this robot stores (kind ",
                      static_cast<int>(message.kind()), "): it stores the ",
@@ -362,8 +365,9 @@ ConfigFileStore::recordedAnswer(size_t kind, uint64_t sequence) const {
 bool ConfigFileStore::isPending(msgs::ConfigFileKind kind,
                                 uint64_t sequence) const {
   if (inProgress_.has_value() && inProgress_->kind == kind &&
-      inProgress_->sequence == sequence)
+      inProgress_->sequence == sequence) {
     return true;
+  }
   for (const PendingSave& save : queue_) {
     if (save.kind == kind && save.sequence == sequence) return true;
   }
@@ -468,8 +472,9 @@ humanoid_mpc_msgs::ConfigFileSaveStatus ConfigFileStore::write(
   const std::string& path = ABSL_DIE_IF_NULL(fileOf(save.kind))->path;
   const absl::StatusOr<ConfigFileCandidate> candidate = parse(save);
   absl::Status valid = candidate.status();
-  if (candidate.ok() && hooks_.validateConfigFile)
+  if (candidate.ok() && hooks_.validateConfigFile) {
     valid = hooks_.validateConfigFile(*candidate);
+  }
   if (!valid.ok()) {
     LOG(WARNING) << "[ConfigFileStore] Refusing the saved "
                  << kindName(save.kind) << " " << save.configPath << ": "

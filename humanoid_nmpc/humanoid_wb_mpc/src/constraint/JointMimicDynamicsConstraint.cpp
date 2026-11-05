@@ -39,8 +39,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/constraint/ConstraintOrder.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
 
 namespace ocs2::humanoid {
 

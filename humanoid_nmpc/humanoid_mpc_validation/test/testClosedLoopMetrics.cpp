@@ -29,9 +29,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <numbers>
 #include <optional>
 #include <random>
 #include <string>
@@ -120,9 +122,10 @@ JsonValue reportOf(const ClosedLoopMetrics& metrics) {
 
 TEST(ClosedLoopMetrics, PerfectTrackingHasNoErrorAndAConstantHeightNoSpread) {
   ClosedLoopMetrics metrics;
-  for (size_t k = 0; k < 200; ++k)
+  for (size_t k = 0; k < 200; ++k) {
     metrics.addControlCycle(trackingSample(
         k, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.5, /*yawRate=*/0.3));
+  }
   const JsonValue report = reportOf(metrics);
   EXPECT_NEAR(numberAt(report, "velocity.rms_error_mps"), 0.0, 1.0e-12);
   EXPECT_NEAR(numberAt(report, "yaw_rate.rms_error_radps"), 0.0, 1.0e-12);
@@ -172,8 +175,9 @@ TEST(ClosedLoopMetrics, TheHeightSpreadIsTheTwoPassStandardDeviation) {
     for (const double h : heights) mean += h;
     mean /= static_cast<double>(heights.size());
     double squaredDeviationSum = 0.0;
-    for (const double h : heights)
+    for (const double h : heights) {
       squaredDeviationSum += (h - mean) * (h - mean);
+    }
     const double twoPassStd =
         std::sqrt(squaredDeviationSum / static_cast<double>(heights.size()));
     EXPECT_NEAR(numberAt(reportOf(metrics), "base_height.std_m"), twoPassStd,
@@ -212,9 +216,10 @@ TEST(ClosedLoopMetrics, TheHeadingUnwrapsThroughPlusMinusPi) {
   // 1 rad/s for 12.6 s: two full turns, through the +/-pi seam four times.
   ClosedLoopMetrics metrics;
   const size_t steps = 1260;
-  for (size_t k = 0; k <= steps; ++k)
+  for (size_t k = 0; k <= steps; ++k) {
     metrics.addControlCycle(trackingSample(
         k, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.0, /*yawRate=*/1.0));
+  }
   const JsonValue report = reportOf(metrics);
   EXPECT_NEAR(numberAt(report, "heading.cumulative_final_rad"), 12.6, 1.0e-9);
   EXPECT_NEAR(numberAt(report, "heading.cumulative_max_rad"), 12.6, 1.0e-9);
@@ -413,9 +418,10 @@ TEST(ClosedLoopMetrics, AFallIsReportedWithItsTimeAndReason) {
 TEST(ClosedLoopMetrics, EveryWrapAngleIsInMinusPiToPi) {
   for (double angle = -20.0; angle <= 20.0; angle += 0.37) {
     const double wrapped = wrapAngle(angle);
-    EXPECT_GT(wrapped, -M_PI);
-    EXPECT_LE(wrapped, M_PI);
-    EXPECT_NEAR(std::remainder(wrapped - angle, 2.0 * M_PI), 0.0, 1.0e-12);
+    EXPECT_GT(wrapped, -std::numbers::pi);
+    EXPECT_LE(wrapped, std::numbers::pi);
+    EXPECT_NEAR(std::remainder(wrapped - angle, 2.0 * std::numbers::pi), 0.0,
+                1.0e-12);
   }
 }
 
@@ -464,9 +470,10 @@ TEST(ClosedLoopMetrics, ANonFiniteSolveSampleIsKeptAndCounted) {
 
 TEST(ClosedLoopMetricsSchema, EveryDocumentTheMetricsWriteValidates) {
   ClosedLoopMetrics metrics;
-  for (size_t k = 0; k < 20; ++k)
+  for (size_t k = 0; k < 20; ++k) {
     metrics.addControlCycle(trackingSample(
         k, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.3, /*yawRate=*/0.1));
+  }
   SolveSample solve =
       solveWithStep(/*time=*/0.0, /*stepSize=*/1.0, SqpStepKind::kDual,
                     /*violation=*/1.0e-4, /*residual=*/1.0e-3);
@@ -552,8 +559,9 @@ JsonValue bandedDocument(double value,
                          const std::string& path,
                          double pathValue) {
   std::vector<std::pair<std::string, double>> numbers;
-  for (const MetricBand& band : closedLoopMetricBands())
+  for (const MetricBand& band : closedLoopMetricBands()) {
     numbers.emplace_back(band.path, band.path == path ? pathValue : value);
+  }
   return documentWith(numbers);
 }
 
@@ -730,9 +738,10 @@ TEST(MetricBands, TheDescriptionListsBothKinds) {
  * at `cmdLinvelBaseRtWorldEwrtHeadingX`, one solve. */
 JsonValue walkDocument(double cmdLinvelBaseRtWorldEwrtHeadingX) {
   ClosedLoopMetrics metrics;
-  for (size_t k = 0; k < 100; ++k)
+  for (size_t k = 0; k < 100; ++k) {
     metrics.addControlCycle(
         trackingSample(k, cmdLinvelBaseRtWorldEwrtHeadingX, /*yawRate=*/0.1));
+  }
   SolveSample solve;
   solve.wallTimeMs = 5.0;
   solve.unitQuaternionNormDeviation = 1.0e-12;

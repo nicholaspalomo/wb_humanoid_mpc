@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdlib>
 #include <filesystem>
 #include <memory>
+#include <numbers>
 #include <random>
 #include <string>
 #include <utility>
@@ -45,15 +46,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/control/ControllerBase.h"
 #include "ocs2_core/control/FeedforwardController.h"
 #include "ocs2_core/control/LinearController.h"
 #include "ocs2_core/control/ManifoldLinearController.h"
 #include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/reference/ModeSchedule.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/StateManifoldFactory.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/mrt/ControllerEvent.h"
@@ -151,8 +158,9 @@ class PolicyExecution : public ::testing::Test {
     ASSERT_NE(link_, nullptr);
     state_ = std::make_unique<robot::model::RobotState>(*description_);
     state_->setPosBaseRtWorldEwrtWorld(vector3_t(0.0, 0.0, 0.75));
-    for (size_t joint = 0; joint < description_->getNumJoints(); ++joint)
+    for (size_t joint = 0; joint < description_->getNumJoints(); ++joint) {
       state_->setJointPosition(joint, /*jointPosition=*/0.1);
+    }
     action_ = std::make_unique<robot::model::RobotJointAction>(*description_);
     nominal_.assign(description_->getNumJoints(), 0.1);
   }
@@ -178,8 +186,9 @@ class PolicyExecution : public ::testing::Test {
    * feedforward of each joint. */
   std::vector<scalar_t> actionValues() const {
     std::vector<size_t> joints;
-    for (size_t joint = 0; joint < description_->getNumJoints(); ++joint)
+    for (size_t joint = 0; joint < description_->getNumJoints(); ++joint) {
       joints.push_back(joint);
+    }
     return actionValuesOf(joints);
   }
 
@@ -341,17 +350,19 @@ TEST_F(
   const Eigen::Index nu = static_cast<Eigen::Index>(model_->getInputDim());
   const Eigen::Index ndx =
       static_cast<Eigen::Index>(manifold_->getTangentDim());
-  for (const scalar_t eulerzyxBaseRtWorldPitch : {0.5 * M_PI, -0.5 * M_PI}) {
+  for (const scalar_t eulerzyxBaseRtWorldPitch :
+       {0.5 * std::numbers::pi, -0.5 * std::numbers::pi}) {
     SCOPED_TRACE(eulerzyxBaseRtWorldPitch);
     // R = R_z(pi) R_y(+-pi / 2): the Euler angles' gimbal lock, at the yaw cut.
     const quaternion_t quatBaseRtWorld(
-        Eigen::AngleAxisd(M_PI, vector3_t::UnitZ()) *
+        Eigen::AngleAxisd(std::numbers::pi, vector3_t::UnitZ()) *
         Eigen::AngleAxisd(eulerzyxBaseRtWorldPitch, vector3_t::UnitY()));
     std::mt19937 generator(/*sd=*/7);
     std::normal_distribution<scalar_t> normal(0.0, 1.0);
     matrix_t gain(nu, ndx);
-    for (Eigen::Index i = 0; i < gain.size(); ++i)
+    for (Eigen::Index i = 0; i < gain.size(); ++i) {
       gain.data()[i] = 0.1 * normal(generator);
+    }
     // The plan's anchor turned a little from the measured attitude, so that the
     // feedback acts on a rotation.
     const quaternion_t anchorQuatBaseRtWorld =
@@ -385,8 +396,9 @@ TEST_F(
       const SystemObservation& observation = link_->lastObservation();
       ASSERT_TRUE(observation.state.allFinite());
       const TargetTrajectories target = link_->resetTargetOf(observation);
-      for (const vector_t& knot : target.stateTrajectory)
+      for (const vector_t& knot : target.stateTrajectory) {
         ASSERT_TRUE(knot.allFinite());
+      }
       // The reset target's heading is the measured base's heading, pi, up to
       // the double cover.
       const vector4_t refQuatBaseRtWorldXyzw =
@@ -395,8 +407,9 @@ TEST_F(
       const scalar_t refYawBaseRtWorld =
           2.0 *
           std::atan2(refQuatBaseRtWorldXyzw(2), refQuatBaseRtWorldXyzw(3));
-      EXPECT_NEAR(std::abs(std::remainder(refYawBaseRtWorld, 2.0 * M_PI)), M_PI,
-                  1.0e-9);
+      EXPECT_NEAR(
+          std::abs(std::remainder(refYawBaseRtWorld, 2.0 * std::numbers::pi)),
+          std::numbers::pi, 1.0e-9);
     }
     ASSERT_EQ(actions.size(), 3);
     ASSERT_EQ(actions[1].size(), actions[0].size());
@@ -446,8 +459,9 @@ TEST_F(PolicyExecution,
   targets.push_back(actionValuesOf(others));
   run("JOINT_PD", kCycles);
   targets.push_back(actionValuesOf(others));
-  for (size_t k = 1; k < targets.size(); ++k)
+  for (size_t k = 1; k < targets.size(); ++k) {
     EXPECT_EQ(targets[k], targets.front()) << "hand-over " << k;
+  }
   for (size_t i = 0; i < others.size(); ++i) {
     EXPECT_EQ(targets.front()[kActionValuesPerJoint * i], 0.1)
         << "joint " << others[i] << " is at its nominal posture";
@@ -473,8 +487,9 @@ TEST_F(PolicyExecution,
   const vector_t still =
       mpcState(vector4_t(0.0, 0.0, 0.0, 1.0), /*joints=*/0.1);
   vector_t input = vector_t::Zero(nu);
-  for (Eigen::Index i = 0; i < nu; ++i)
+  for (Eigen::Index i = 0; i < nu; ++i) {
     input(i) = 0.3 * std::sin(1.7 * static_cast<scalar_t>(i));
+  }
   link_->deliver(policyOf(std::make_unique<FeedforwardController>(
                               scalar_array_t{time_ - 1.0, time_ + 100.0},
                               vector_array_t{input, input}),
@@ -484,8 +499,9 @@ TEST_F(PolicyExecution,
   std::mt19937 generator(/*sd=*/29);
   std::normal_distribution<scalar_t> normal(0.0, 1.0);
   matrix_t gain(nu, ndx);
-  for (Eigen::Index i = 0; i < gain.size(); ++i)
+  for (Eigen::Index i = 0; i < gain.size(); ++i) {
     gain.data()[i] = 50.0 * normal(generator);
+  }
   for (const scalar_t period : {0.002, 0.005, 0.013}) {
     SCOPED_TRACE(period);
     std::vector<std::vector<scalar_t>> actions;
@@ -496,8 +512,9 @@ TEST_F(PolicyExecution,
       const scalar_t measurementTime = time_ + period;
       const vector_t measured = link_->lastObservation().state;
       vector_t later = measured;
-      for (Eigen::Index i = 0; i < later.size(); ++i)
+      for (Eigen::Index i = 0; i < later.size(); ++i) {
         later(i) += 0.5 * std::cos(static_cast<scalar_t>(i));
+      }
       manifold_->project(later);
       const vector_t laterInput = input + vector_t::Constant(nu, 0.7);
       PrimalSolution plan;

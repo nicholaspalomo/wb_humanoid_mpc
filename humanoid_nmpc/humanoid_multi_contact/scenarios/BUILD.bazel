@@ -55,6 +55,7 @@ cc_library(
         "//humanoid_nmpc/humanoid_multi_contact/collision",
         "//humanoid_nmpc/humanoid_multi_contact/collision:collision_model_nproto",
         "//humanoid_nmpc/humanoid_multi_contact/contact_set",
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set:contact_set_nproto",
         "//humanoid_nmpc/humanoid_multi_contact/stability:certifier",
         "//humanoid_nmpc/humanoid_multi_contact/stability:equilibrium",
         "//humanoid_nmpc/humanoid_multi_contact/stability:joint_limits",
@@ -88,6 +89,7 @@ cc_test(
     deps = [
         ":scenario_nproto",
         ":scenarios",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
         "//humanoid_nmpc/humanoid_multi_contact/contact_set",
         "//humanoid_nmpc/humanoid_multi_contact/stability:certifier",
         "//humanoid_nmpc/humanoid_multi_contact/stability:certifier_report_nproto",

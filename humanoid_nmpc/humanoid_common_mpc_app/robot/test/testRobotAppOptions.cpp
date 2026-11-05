@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <ios>
 #include <memory>
 #include <optional>
 #include <string>
@@ -46,11 +47,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_mpc/SystemObservation.h"
 
 #include "humanoid_common_mpc/common/ThreadAffinity.h"
+#include "humanoid_common_mpc/mrt/MpcLink.h"
 #include "humanoid_common_mpc_app/robot/RemoteMpcLinkAdapter.h"
 #include "humanoid_common_mpc_app/robot/RobotAppOptions.h"
+#include "humanoid_mpc_ipc/RemoteMpcLink.h"
 #include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/RobotTestSupport.h"
 #include "mujoco_sim_interface/viewer/ViewerNames.h"
 #include "mujoco_sim_interface/viewer/ViewerSettings.h"
+#include "robot_ipc/Bus.h"
 
 /*
  * The command line of the robot binaries (the core lists, the viewer by name -

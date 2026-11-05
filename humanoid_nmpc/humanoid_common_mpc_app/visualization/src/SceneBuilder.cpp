@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <exception>
 #include <memory>
 #include <optional>
@@ -48,29 +49,48 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/ModeSchedule.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/joint-configuration.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
-#include "pinocchio/multibody/joint/joint-free-flyer.hpp"
+#include "pinocchio/multibody.hpp"
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/multibody/joint.hpp"
 #include "pinocchio/parsers/urdf.hpp"
+#include "pinocchio/spatial.hpp"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/costs/CollisionConstraintFromConfig.h"
 #include "humanoid_common_mpc/config/costs/ContactsFromConfig.h"
 #include "humanoid_common_mpc/constraint/FootCollisionConstraint.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
+#include "humanoid_common_mpc/contact/ContactWrenchMapper.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/pinocchio_model/PinocchioFrameConversions.h"
 #include "humanoid_common_mpc/pinocchio_model/pinocchioUtils.h"
+#include "humanoid_common_mpc_app/visualization/PolicySnapshot.h"
 #include "humanoid_common_mpc_app/visualization/SceneContract.h"
+#include "humanoid_common_mpc_app/visualization/VisualizationConfig.h"
+#include "humanoid_common_mpc_app/visualization/VisualizationModel.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_msgs/arrows.pb.h"
 #include "humanoid_mpc_msgs/color.pb.h"
+#include "humanoid_mpc_msgs/line_strip.pb.h"
 #include "humanoid_mpc_msgs/pose.pb.h"
+#include "humanoid_mpc_msgs/quaternion.pb.h"
+#include "humanoid_mpc_msgs/robot_model_instance.pb.h"
+#include "humanoid_mpc_msgs/robot_state_sample.nproto.h"
+#include "humanoid_mpc_msgs/spheres.pb.h"
 #include "humanoid_mpc_msgs/vector3.pb.h"
+#include "humanoid_mpc_msgs/visualization_scene.pb.h"
 
 namespace ocs2::humanoid::visualization {
 
@@ -408,7 +428,9 @@ void SceneBuilder::writeObservationMarkers(
     const vector6_t wrenchContactEwrtWorld =
         robotModel_->getWrenchContactEwrtWorld(observation.state, planInput,
                                                contact);
-    if (!cornerMappers_[contact].has_value()) {
+    const std::optional<ContactWrenchMapper<kFootCorners>>& cornerMapper =
+        cornerMappers_[contact];
+    if (!cornerMapper.has_value()) {
       addContactArrow(data.oMf[frame].translation(),
                       wrenchContactEwrtWorld.head<kForceDim>(), contactArrows);
       continue;
@@ -434,8 +456,7 @@ void SceneBuilder::writeObservationMarkers(
 
     // The force at each corner, indexed by corner.
     const std::array<vector3_t, kFootCorners> forceCornersEwrtContact =
-        cornerMappers_[contact]->computeForceCornersEwrtContact(
-            wrenchContactEwrtContact);
+        cornerMapper->computeForceCornersEwrtContact(wrenchContactEwrtContact);
     for (size_t corner = 0; corner < kFootCorners; ++corner) {
       addContactArrow(data.oMf[cornerFrames_[contact][corner]].translation(),
                       rotateVectorLocalToWorld<scalar_t>(

@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // set's parent joints, the pad kinematics, the point Jacobians, the statics of
 // the torque LP's forces, and the infeasibility of scaled-down limits.
 
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <utility>
@@ -43,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/PhysicalConstants.h"
 
 #include "humanoid_multi_contact/contact_set/ContactSet.h"
+#include "humanoid_multi_contact/contact_set/contact_set.nproto.h"
 #include "humanoid_multi_contact/stability/RobotStanceModel.h"
 #include "humanoid_multi_contact/stability/Stance.h"
 #include "humanoid_multi_contact/stability/StaticEquilibrium.h"

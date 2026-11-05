@@ -33,9 +33,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/mrt/ControlMode.h"
+#include "humanoid_common_mpc_app/robot/FallRecovery.h"
+#include "humanoid_common_mpc_app/robot/RealtimeEventLog.h"
+#include "humanoid_common_mpc_app/robot/RobotBackend.h"
 #include "humanoid_common_mpc_app/robot/SimFallRecovery.h"
+#include "robot_model/RobotState.h"
 
 namespace ocs2::humanoid {
 

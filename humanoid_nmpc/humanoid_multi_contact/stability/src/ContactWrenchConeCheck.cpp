@@ -35,6 +35,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/PhysicalConstants.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_multi_contact/stability/Stance.h"
+#include "humanoid_multi_contact/stability/StaticEquilibrium.h"
 
 namespace ocs2::humanoid::multi_contact {
 

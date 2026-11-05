@@ -28,6 +28,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <array>
+#include <cstddef>
 #include <optional>
 #include <string>
 
@@ -42,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/robot/ControllerSideSettingsFromConfig.h"
 #include "humanoid_common_mpc/contact/ContactWrenchGate.h"
+#include "humanoid_mpc_config/contact_wrench_gate_config.nproto.h"
 #include "humanoid_mpc_config/reference_file.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_validation/closed_loop/DriverSettingsFromConfig.h"
@@ -183,9 +185,10 @@ TEST(WholeFileContactWrenchGateTest, EveryConfigurationsTaskFileSetsItsGate) {
     EXPECT_TRUE(settings.problems.empty()) << configuration.name;
     const std::optional<ContactWrenchGate::Config> gate =
         wholeFileContactWrenchGate(settings);
-    if (!gate.has_value())
+    if (!gate.has_value()) {
       GTEST_FAIL() << configuration.name
                    << ": no gate, the gate in use would be kept";
+    }
     const mpc_config::ContactWrenchGateConfig block =
         task->contact_wrench_gate.value_or(
             mpc_config::ContactWrenchGateConfig{});

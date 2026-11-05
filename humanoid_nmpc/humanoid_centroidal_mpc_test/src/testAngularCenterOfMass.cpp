@@ -27,14 +27,16 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <cstddef>
 #include <memory>
 #include <random>
 #include <vector>
 
 #include "gtest/gtest.h"
+#include "ocs2_core/manifold/UnitQuaternionMath.h"
 
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
-#include "humanoid_common_mpc/orientation/BaseOrientation.h"
+#include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
 
@@ -79,8 +81,9 @@ class AngularCenterOfMassTest : public ::testing::Test {
     lOut.weight = matrix_t(3, hiddenDim_);
     lOut.bias = vector_t(3);
     for (int r = 0; r < lOut.weight.rows(); ++r) {
-      for (int c = 0; c < lOut.weight.cols(); ++c)
+      for (int c = 0; c < lOut.weight.cols(); ++c) {
         lOut.weight(r, c) = dist(gen);
+      }
       lOut.bias(r) = dist(gen);
     }
     layers.push_back(lOut);

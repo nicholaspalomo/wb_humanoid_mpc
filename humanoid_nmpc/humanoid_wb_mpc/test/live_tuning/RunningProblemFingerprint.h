@@ -33,7 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <vector>
 
-#include "humanoid_common_mpc/common/Types.h"
+#include "ocs2_core/Types.h"
+
 #include "humanoid_nmpc/humanoid_wb_mpc/test/live_tuning/WholeBodySolverStack.h"
 
 namespace ocs2::humanoid::live_tuning_test {

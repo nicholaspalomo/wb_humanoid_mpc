@@ -27,6 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <cstddef>
 #include <filesystem>
 #include <string>
 #include <utility>
@@ -72,8 +73,9 @@ constexpr char kTwistConstraintLibrary[] =
 JsonValue objectWith(
     const std::vector<std::pair<std::string, JsonValue>>& members) {
   JsonValue object = JsonValue::object();
-  for (const std::pair<std::string, JsonValue>& member : members)
+  for (const std::pair<std::string, JsonValue>& member : members) {
     object.set(member.first, member.second);
+  }
   return object;
 }
 
@@ -170,8 +172,9 @@ JsonValue withoutToolchain(const JsonValue& document) {
   CHECK(recorded != nullptr) << "a benchmark document has a provenance";
   JsonValue provenance = JsonValue::object();
   for (size_t i = 0; i < recorded->size(); ++i) {
-    if (recorded->keyAt(i) != "toolchain")
+    if (recorded->keyAt(i) != "toolchain") {
       provenance.set(recorded->keyAt(i), recorded->valueAt(i));
+    }
   }
   JsonValue copy = document;
   copy.set("provenance", provenance);

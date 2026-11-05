@@ -38,11 +38,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/log/absl_check.h"
 #include "ocs2_centroidal_model/AccessHelperFunctions.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
+#include "ocs2_core/constraint/ConstraintOrder.h"
+#include "ocs2_core/constraint/StateInputConstraintCppAd.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/jacobian.hpp"
 #include "pinocchio/algorithm/rnea.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 
 namespace ocs2::humanoid::multi_contact {
 namespace {
@@ -95,7 +102,7 @@ Eigen::Matrix<Scalar, Eigen::Dynamic, 1> quasiStaticJointTorques(
 QuasiStaticTorqueConstraint::QuasiStaticTorqueConstraint(
     const PinocchioInterface& pinocchio,
     const CentroidalModelInfo& info,
-    std::vector<std::string> contactFrames,
+    const std::vector<std::string>& contactFrames,
     std::vector<JointEffortLimit> limits,
     scalar_t margin,
     const std::string& libraryName,

@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -37,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 
 #include "humanoid_common_mpc_app/robot/RealtimeLoopRunner.h"
+#include "robot_realtime/LoopTimingSnapshot.h"
 #include "robot_realtime/PeriodicTimer.h"
 
 /*

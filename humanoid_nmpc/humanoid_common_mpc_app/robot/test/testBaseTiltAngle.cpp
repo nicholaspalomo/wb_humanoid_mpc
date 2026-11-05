@@ -28,9 +28,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <cmath>
+#include <numbers>
 
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc_app/robot/SimFallRecovery.h"
 
 namespace ocs2::humanoid {
@@ -76,11 +79,11 @@ TEST(BaseTiltAngle, isTheAngleBetweenTheVerticals) {
 
 TEST(BaseTiltAngle, onItsSideIsAQuarterTurnAndUpsideDownIsAHalf) {
   EXPECT_NEAR(SimFallRecovery::computeTiltangleBaseRtWorld(
-                  aboutAxis(vector3_t::UnitX(), 0.5 * M_PI)),
-              0.5 * M_PI, 1.0e-9);
+                  aboutAxis(vector3_t::UnitX(), 0.5 * std::numbers::pi)),
+              0.5 * std::numbers::pi, 1.0e-9);
   EXPECT_NEAR(SimFallRecovery::computeTiltangleBaseRtWorld(
-                  aboutAxis(vector3_t::UnitY(), M_PI)),
-              M_PI, 1.0e-9);
+                  aboutAxis(vector3_t::UnitY(), std::numbers::pi)),
+              std::numbers::pi, 1.0e-9);
 }
 
 TEST(BaseTiltAngle, staysFiniteAtTheLimits) {
@@ -88,9 +91,9 @@ TEST(BaseTiltAngle, staysFiniteAtTheLimits) {
   // a NaN: the fall check compares this against a threshold every control
   // cycle, and a NaN would compare false and silently disable the recovery.
   const scalar_t upsideDown = SimFallRecovery::computeTiltangleBaseRtWorld(
-      aboutAxis(vector3_t::UnitX(), M_PI));
+      aboutAxis(vector3_t::UnitX(), std::numbers::pi));
   EXPECT_TRUE(std::isfinite(upsideDown));
-  EXPECT_NEAR(upsideDown, M_PI, 1.0e-9);
+  EXPECT_NEAR(upsideDown, std::numbers::pi, 1.0e-9);
 }
 
 }  // namespace ocs2::humanoid

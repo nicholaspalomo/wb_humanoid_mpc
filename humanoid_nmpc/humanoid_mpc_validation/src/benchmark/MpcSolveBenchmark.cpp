@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_mpc_validation/benchmark/MpcSolveBenchmark.h"
 
+#include <cstddef>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -41,14 +42,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/CppAdInterface.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/mrt/ControlMode.h"
 #include "humanoid_common_mpc_app/robot/RobotController.h"
+#include "humanoid_mpc_validation/closed_loop/ClosedLoopDriver.h"
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopMetrics.h"
+#include "humanoid_mpc_validation/closed_loop/RecordedRobotStates.h"
+#include "humanoid_mpc_validation/closed_loop/RobotConfiguration.h"
+#include "humanoid_mpc_validation/io/JsonValue.h"
+#include "robot_model/RobotJointAction.h"
+#include "robot_model/RobotState.h"
 
 namespace ocs2::humanoid::validation {
 namespace {
@@ -60,8 +70,9 @@ class TapeOperationCounter {
   TapeOperationCounter() {
     CppAdInterface::setLibraryObserver([this](const CppAdInterface& library) {
       std::lock_guard<std::mutex> lock(mutex_);
-      if (counts_.contains(library.getLibraryFolder()))
+      if (counts_.contains(library.getLibraryFolder())) {
         return;  // a copy reloads a library already counted
+      }
       counts_.emplace(library.getLibraryFolder(),
                       library.getTapeOperationCount());
     });

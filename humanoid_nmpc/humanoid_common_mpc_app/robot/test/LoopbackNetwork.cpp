@@ -42,7 +42,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 
+#include "robot_ipc/Bus.h"
 #include "robot_ipc/BusOptions.h"
+#include "robot_ipc/NetworkConfig.h"
 #include "robot_runtime/robot_ipc/test/TestNetwork.h"
 
 namespace ocs2::humanoid::test_support {
@@ -56,8 +58,9 @@ absl::StatusOr<robot::ipc::NetworkConfig> writeLoopbackNetworkFile(
        robot::ipc::localhostNetworkConfig().topics) {
     std::vector<std::string> publishers;
     for (const std::string& publisher : topic.publishers) {
-      if (std::find(nodes.begin(), nodes.end(), publisher) != nodes.end())
+      if (std::find(nodes.begin(), nodes.end(), publisher) != nodes.end()) {
         publishers.push_back(publisher);
+      }
     }
     topic.publishers = std::move(publishers);
     network.topics.push_back(std::move(topic));

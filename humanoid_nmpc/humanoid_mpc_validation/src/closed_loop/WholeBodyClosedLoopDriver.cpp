@@ -43,7 +43,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/parameter_update/CommandLimitsReloaders.h"
+#include "humanoid_common_mpc/parameter_update/MpcParameterUpdaterModule.h"
+#include "humanoid_common_mpc_app/robot/MrtRobotController.h"
+#include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
+#include "humanoid_mpc_validation/closed_loop/ClosedLoopDriver.h"
+#include "humanoid_mpc_validation/closed_loop/RobotConfiguration.h"
+#include "humanoid_wb_mpc/WBMpcInterface.h"
 #include "humanoid_wb_mpc/command/WBMpcTargetTrajectoriesCalculator.h"
+#include "humanoid_wb_mpc/mrt/WBMpcMrtJointController.h"
 #include "humanoid_wb_mpc/mrt/WBMpcParameterUpdater.h"
 
 namespace ocs2::humanoid::validation {
@@ -135,11 +142,13 @@ absl::Status WholeBodyClosedLoopDriver::initialize(
   }
   std::unique_ptr<WBMpcMrtJointController> jointController =
       *std::move(createdController);
-  if (settings_.contactWrenchGate.has_value())
+  if (settings_.contactWrenchGate.has_value()) {
     jointController->setContactWrenchGateConfig(*settings_.contactWrenchGate);
-  if (settings_.safetyDecayTimeConstant.has_value())
+  }
+  if (settings_.safetyDecayTimeConstant.has_value()) {
     jointController->setSafetyDecayTimeConstant(
         *settings_.safetyDecayTimeConstant);
+  }
   // The whole-body sim handed the controller its posture before its mode.
   std::unique_ptr<MrtRobotController<WBMpcMrtJointController>> controller =
       std::make_unique<MrtRobotController<WBMpcMrtJointController>>(

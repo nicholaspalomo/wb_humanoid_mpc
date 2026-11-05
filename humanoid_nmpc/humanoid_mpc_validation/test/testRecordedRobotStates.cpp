@@ -27,6 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <cstddef>
 #include <random>
 #include <string>
 #include <vector>
@@ -38,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_mpc_validation/closed_loop/RecordedRobotStates.h"
 #include "humanoid_mpc_validation/io/GoldenIo.h"
+#include "robot_core/Types.h"
 #include "robot_model/RobotDescription.h"
 #include "robot_model/RobotState.h"
 
@@ -143,8 +145,9 @@ TEST(RecordedRobotStates, JointsAreMatchedByNameWhateverTheirOrder) {
       recordRobotState(state, description, Eigen::Vector4d::Zero());
   const std::vector<std::string>& names = description.getJointNames();
   std::vector<size_t> order(names.size());
-  for (size_t i = 0; i < order.size(); ++i)
+  for (size_t i = 0; i < order.size(); ++i) {
     order[i] = order.size() - 1 - i;  // reversed
+  }
   RobotStateRecord reordered = record;
   std::vector<std::string> reorderedNames(names.size());
   for (size_t i = 0; i < order.size(); ++i) {

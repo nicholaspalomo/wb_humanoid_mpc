@@ -30,20 +30,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/teleop/KeyboardVelocityCommand.h"
 
 #include <cmath>
+#include <cstddef>
 #include <filesystem>
 #include <string>
 #include <system_error>
 #include <vector>
 
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_split.h"
+#include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc_app/teleop/config/reference/KeyboardCommandLimitsFromConfig.h"
 #include "humanoid_mpc_config/reference_file.nproto.h"
+#include "humanoid_mpc_msgs/walking_velocity_command.pb.h"
 
 namespace ocs2::humanoid::teleop {
 namespace {

@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/ScriptedOperator.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -42,9 +43,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_mpc_ipc/Topics.h"
 #include "humanoid_mpc_msgs/fsm_command.pb.h"
+#include "humanoid_mpc_msgs/fsm_state.pb.h"
+#include "humanoid_mpc_msgs/loop_timing.pb.h"
+#include "humanoid_mpc_msgs/mpc_status.pb.h"
+#include "humanoid_mpc_msgs/robot_state_sample.pb.h"
 #include "humanoid_mpc_msgs/visualization_scene.pb.h"
+#include "humanoid_mpc_msgs/walking_velocity_command.pb.h"
 #include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/LoopbackNetwork.h"
 #include "robot_ipc/Delivery.h"
+#include "robot_ipc/NetworkConfig.h"
 
 namespace ocs2::humanoid::test_support {
 

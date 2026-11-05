@@ -30,6 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -38,11 +40,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "absl/synchronization/notification.h"
 #include "gtest/gtest.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/OperatorPayloadChecks.h"
+#include "humanoid_common_mpc_app/robot/FsmCommand.h"
 #include "humanoid_common_mpc_app/robot/FsmStateMailbox.h"
 #include "humanoid_common_mpc_app/robot/JointNamesByIndex.h"
 #include "humanoid_common_mpc_app/robot/OperatorCommandMailbox.h"
@@ -55,14 +61,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_config/task_file.pb.h"
 #include "humanoid_mpc_msgs/dodgeball_throw.pb.h"
 #include "humanoid_mpc_msgs/fsm_command.pb.h"
+#include "humanoid_mpc_msgs/fsm_state.nproto.h"
 #include "humanoid_mpc_msgs/joint_targets.pb.h"
+#include "humanoid_mpc_msgs/robot_state_sample.nproto.h"
 #include "humanoid_mpc_msgs/walking_velocity_command.pb.h"
 #include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/FakeRobotBackend.h"
 #include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/RobotTestSupport.h"
-#include "humanoid_state_estimator/StateEstimatorRegistry.h"
+#include "humanoid_state_estimator/StateEstimatorNames.h"
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "mujoco_sim_interface/viewer/ViewerNames.h"
 #include "nproto/Textproto.h"
+#include "robot_ipc/Bus.h"
 #include "robot_model/ContactEstimator.h"
 #include "robot_model/ContactEstimatorRegistry.h"
 #include "robot_model/RobotDescription.h"
@@ -144,9 +153,10 @@ TEST(RobotRealtimeAllocations,
       humanoid_mpc_config::MpcParameterUpdate parameters;
       parameters.mutable_task()->set_contact_estimator(
           round % 2 == 0 ? "always_in_contact" : "robot_state");
-      if (round % 2 == 0)
+      if (round % 2 == 0) {
         parameters.mutable_task()->mutable_contact_wrench_gate()->set_ramp_time(
             0.04);
+      }
       parameters.set_schema_fingerprint(mpcParameterUpdateSchemaFingerprint());
       mailbox.onMpcParameters(parameters);
       const absl::StatusOr<humanoid_mpc_msgs::DodgeballThrow> dodgeball =
@@ -166,8 +176,9 @@ TEST(RobotRealtimeAllocations,
     mailbox.takeControllerSettings([&](const ControllerSettingsUpdate& update) {
       tookSettings = true;
       if (update.hasContactEstimator &&
-          update.contactEstimatorName != estimatorName)
+          update.contactEstimatorName != estimatorName) {
         estimatorName.assign(update.contactEstimatorName);
+      }
     });
     const size_t allocations =
         robot::realtime::heapAllocationCountOnThisThread() - before;
@@ -255,8 +266,9 @@ TEST(RobotRealtimeAllocations,
   // construction.
   for (int round = 0; round < 3; ++round) {
     const size_t before = robot::realtime::heapAllocationCountOnThisThread();
-    for (int i = 0; i < 4; ++i)
+    for (int i = 0; i < 4; ++i) {
       sampler.sample(state, action, "WB_MPC", flags, measForceFeetEwrtWorld);
+    }
     EXPECT_EQ(robot::realtime::heapAllocationCountOnThisThread() - before, 0u)
         << "round " << round;
     onAnotherThread(
@@ -264,8 +276,9 @@ TEST(RobotRealtimeAllocations,
   }
   // A full ring drops and counts, still without allocating.
   const size_t before = robot::realtime::heapAllocationCountOnThisThread();
-  for (int i = 0; i < 20; ++i)
+  for (int i = 0; i < 20; ++i) {
     sampler.sample(state, action, "JOINT_PD", flags, measForceFeetEwrtWorld);
+  }
   EXPECT_EQ(robot::realtime::heapAllocationCountOnThisThread() - before, 0u);
   EXPECT_EQ(sampler.dropped(), 12u);
 }
@@ -289,8 +302,9 @@ TEST(RobotRealtimeAllocations, TheLoopRunnerAllocatesNothingBetweenCycles) {
                           robot::realtime::heapAllocationCountOnThisThread());
                   })
                   .ok());
-  while (cycles.load() <= 100)
+  while (cycles.load() <= 100) {
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
   runner.stop();
   // Ninety cycles and several closed reporting windows in between.
   EXPECT_EQ(atCycle100.load() - atCycle10.load(), 0u);
@@ -361,10 +375,12 @@ TEST(
   std::atomic<size_t> atFirst{0};
   std::atomic<size_t> atLast{0};
   controller.setCycleHook([&atFirst, &atLast](uint64_t cycle) {
-    if (cycle == kFirstSample)
+    if (cycle == kFirstSample) {
       atFirst.store(robot::realtime::heapAllocationCountOnThisThread());
-    if (cycle == kLastSample)
+    }
+    if (cycle == kLastSample) {
       atLast.store(robot::realtime::heapAllocationCountOnThisThread());
+    }
   });
   std::unique_ptr<robot::ipc::Bus> bus = robot_test::createLoopbackBus("robot");
 
@@ -393,8 +409,9 @@ TEST(
 
   const std::function<void(const std::string&, uint64_t, uint64_t)> commandAt =
       [&](const std::string& name, uint64_t sequence, uint64_t cycle) {
-        while (controller.cycles() < cycle)
+        while (controller.cycles() < cycle) {
           std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
         humanoid_mpc_msgs::FsmCommand command;
         command.set_command(name);
         command.set_sequence(sequence);
@@ -403,8 +420,9 @@ TEST(
   commandAt("JOINT_PD", /*sequence=*/1, /*cycle=*/kFirstSample + 50);
   commandAt("WB_MPC", /*sequence=*/2, /*cycle=*/kFirstSample + 200);
   commandAt("ZERO_TORQUE", /*sequence=*/3, /*cycle=*/kFirstSample + 350);
-  while (controller.cycles() <= kLastSample)
+  while (controller.cycles() <= kLastSample) {
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
   process.stop();
   backend.stop();
 

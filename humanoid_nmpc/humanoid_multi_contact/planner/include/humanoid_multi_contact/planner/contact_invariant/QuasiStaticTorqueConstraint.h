@@ -37,9 +37,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
 #include "ocs2_core/constraint/StateInputConstraintCppAd.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
-#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/multibody/model.hpp"  // IWYU pragma: keep
 
 namespace ocs2::humanoid::multi_contact {
 
@@ -75,7 +78,7 @@ class QuasiStaticTorqueConstraint final : public StateInputConstraintCppAd {
    * as `libraryName` in `folder`. */
   QuasiStaticTorqueConstraint(const PinocchioInterface& pinocchio,
                               const CentroidalModelInfo& info,
-                              std::vector<std::string> contactFrames,
+                              const std::vector<std::string>& contactFrames,
                               std::vector<JointEffortLimit> limits,
                               scalar_t margin,
                               const std::string& libraryName,

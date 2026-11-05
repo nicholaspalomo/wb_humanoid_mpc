@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <ios>
 #include <iterator>
 #include <memory>
 #include <optional>
@@ -44,16 +45,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/base/thread_annotations.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
+#include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "gtest/gtest.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/config/OperatorPayloadChecks.h"
 #include "humanoid_common_mpc/contact/ContactWrenchGate.h"
 #include "humanoid_common_mpc_app/robot/ConfigFileStore.h"
+#include "humanoid_common_mpc_app/robot/RobotBackend.h"
 #include "humanoid_common_mpc_app/robot/RobotBackendRegistry.h"
 #include "humanoid_common_mpc_app/robot/RobotProcess.h"
 #include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
@@ -80,6 +86,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_model/ContactEstimator.h"
 #include "robot_model/ContactEstimatorRegistry.h"
 #include "robot_model/RobotDescription.h"
+#include "robot_model/RobotHWInterfaceBase.h"
 #include "robot_model/RobotState.h"
 
 /*
@@ -760,8 +767,9 @@ TEST_F(RobotProcessTest,
   // would have kept the old action until the next cycle.
   EXPECT_EQ(accepted.front(), "ZERO_TORQUE") << "the first switch-on";
   EXPECT_EQ(accepted[acceptedBefore], "ZERO_TORQUE") << "the second switch-on";
-  for (size_t index = acceptedBefore + 1; index < accepted.size(); ++index)
+  for (size_t index = acceptedBefore + 1; index < accepted.size(); ++index) {
     EXPECT_EQ(accepted[index], "JOINT_PD") << index;
+  }
   EXPECT_GE(recording.safeStates(), 1u)
       << "stop() puts the backend in its safe state";
   EXPECT_TRUE(backend_->simulator()->isZeroTorqueMode());

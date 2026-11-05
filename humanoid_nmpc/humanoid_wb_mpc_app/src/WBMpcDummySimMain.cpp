@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <utility>
 
+#include "absl/base/log_severity.h"
 #include "absl/base/nullability.h"
 #include "absl/flags/flag.h"
 #include "absl/flags/parse.h"
@@ -42,15 +43,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_mpc/SystemObservation.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc_app/node/DummySimLoop.h"
 #include "humanoid_common_mpc_app/node/ExitCodes.h"
 #include "humanoid_common_mpc_app/node/MpcAppFlags.h"
 #include "humanoid_common_mpc_app/node/MpcFiles.h"
-#include "humanoid_common_mpc_app/node/MpcNodeRuntime.h"
 #include "humanoid_common_mpc_app/node/NodeBus.h"
 #include "humanoid_common_mpc_app/node/ShutdownSignal.h"
 #include "humanoid_wb_mpc/WBMpcInterface.h"

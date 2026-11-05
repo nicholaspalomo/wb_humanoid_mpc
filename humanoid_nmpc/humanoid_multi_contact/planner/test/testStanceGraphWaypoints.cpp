@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // and ends on the feet, every knot certified. A waypoint the robot cannot
 // reach ends the search with NotFound naming it.
 
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <utility>
@@ -50,6 +51,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_multi_contact/plan/multi_contact_plan.nproto.h"
 #include "humanoid_multi_contact/planner/StanceGraphPlanner.h"
 #include "humanoid_multi_contact/scenarios/Scenario.h"
+#include "humanoid_multi_contact/scenarios/scenario.nproto.h"
 #include "robot_core/ResourcePaths.h"
 
 namespace ocs2::humanoid::multi_contact {
@@ -112,7 +114,11 @@ TEST(StanceGraphWaypoints, aPlanPassesThroughItsWaypoint) {
   const absl::StatusOr<config::MultiContactPlan> plan =
       (*planner)->plan(loaded);
   ASSERT_TRUE(plan.ok()) << plan.status();
-  ASSERT_TRUE(plan->report.has_value());
+  // An if, not ASSERT_TRUE, here and below: bugprone-unchecked-optional-access
+  // sees a check only through an if.
+  if (!plan->report.has_value()) {
+    FAIL() << "plan->report has no value";
+  }
   EXPECT_TRUE(plan->report->passed);
 
   const absl::StatusOr<ContactMask> waypoint = loaded.contactSet.maskOf(

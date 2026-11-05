@@ -29,9 +29,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/visualization/PolicySnapshot.h"
 
+#include <cstddef>
+
 #include "absl/base/nullability.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/misc/LinearInterpolation.h"
+#include "ocs2_mpc/CommandData.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
 #include "ocs2_oc/oc_data/StateTrajectoryInterpolation.h"
 
 namespace ocs2::humanoid::visualization {

@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
+#include <stdlib.h>
+
 #include <cmath>
 #include <cstdlib>
 #include <exception>
@@ -43,11 +45,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/initialization/Initializer.h"
 #include "ocs2_core/model_data/ModelData.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_oc/approximate_model/LinearQuadraticApproximator.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
+#include "ocs2_oc/synchronized_module/ReferenceManagerInterface.h"
 
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
@@ -94,8 +98,9 @@ std::unique_ptr<WBMpcInterface> createShippedG1WholeBodyMpc() {
       runfilePath("robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf");
   EXPECT_FALSE(taskFile.empty() || referenceFile.empty() || urdfFile.empty())
       << "the G1 whole-body files are not in the runfiles";
-  if (taskFile.empty() || referenceFile.empty() || urdfFile.empty())
+  if (taskFile.empty() || referenceFile.empty() || urdfFile.empty()) {
     return nullptr;
+  }
   // The CppAD libraries go to a folder relative to the working directory
   // (ModelSettings::modelFolderCppAd), and the shipped file does not force a
   // recompile, so a library left there by an earlier run would be loaded

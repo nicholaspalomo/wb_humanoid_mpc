@@ -46,12 +46,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 
+#include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_multi_contact/plan/multi_contact_plan.nproto.h"
+#include "humanoid_multi_contact/planner/ContactInvariantPlanner.h"
+#include "humanoid_multi_contact/planner/StanceGraphPlanner.h"
+#include "humanoid_multi_contact/planner/StanceInverseKinematics.h"
 #include "humanoid_multi_contact/planner/contact_invariant/HardContactRefinement.h"
 #include "humanoid_multi_contact/planner/contact_invariant/PlanSeeding.h"
 #include "humanoid_multi_contact/planner/contact_invariant/PlanTrajectory.h"
+#include "humanoid_multi_contact/scenarios/Scenario.h"
 #include "humanoid_multi_contact/stability/RobotStanceModel.h"
+#include "humanoid_multi_contact/stability/StabilityCertifier.h"
 
 namespace ocs2::humanoid::multi_contact {
 

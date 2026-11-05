@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <cmath>
+#include <cstddef>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -40,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/manifold/ProductStateManifold.h"
 #include "ocs2_core/manifold/StateManifoldSegment.h"
 
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopDriver.h"
 
 namespace ocs2::humanoid::validation {

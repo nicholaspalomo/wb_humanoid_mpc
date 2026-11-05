@@ -32,7 +32,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <bit>
 #include <cmath>
-#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -45,10 +44,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_core/Dimensions.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_multi_contact/collision/CollisionModel.h"
+#include "humanoid_multi_contact/contact_set/ContactSet.h"
+#include "humanoid_multi_contact/plan/multi_contact_plan.nproto.h"
+#include "humanoid_multi_contact/stability/ContactWrenchConeCheck.h"
+#include "humanoid_multi_contact/stability/JointLimits.h"
+#include "humanoid_multi_contact/stability/RobotStanceModel.h"
+#include "humanoid_multi_contact/stability/Stance.h"
+#include "humanoid_multi_contact/stability/StaticEquilibrium.h"
 #include "humanoid_multi_contact/stability/TorqueFeasibility.h"
+#include "humanoid_multi_contact/stability/certifier_report.nproto.h"
+#include "humanoid_multi_contact/terrain/PatchFrame.h"
+#include "humanoid_multi_contact/terrain/TerrainModel.h"
 
 namespace ocs2::humanoid::multi_contact {
 namespace {
@@ -142,8 +153,9 @@ Eigen::Matrix3d computeRotmatSurfaceRtWorld(
   Eigen::Vector3d xAxisSurfaceEwrtWorld = rotmatPadRtWorld.col(kXAxisIndex);
   xAxisSurfaceEwrtWorld -= xAxisSurfaceEwrtWorld.dot(normalSurfaceEwrtWorld) *
                            normalSurfaceEwrtWorld;
-  if (xAxisSurfaceEwrtWorld.norm() < kDegenerateProjection)
+  if (xAxisSurfaceEwrtWorld.norm() < kDegenerateProjection) {
     xAxisSurfaceEwrtWorld = normalSurfaceEwrtWorld.unitOrthogonal();
+  }
   xAxisSurfaceEwrtWorld.normalize();
   Eigen::Matrix3d rotmatSurfaceRtWorld;
   rotmatSurfaceRtWorld.col(kXAxisIndex) = xAxisSurfaceEwrtWorld;

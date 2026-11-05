@@ -34,22 +34,30 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <filesystem>
 #include <memory>
 #include <optional>
-#include <string>
 #include <utility>
 
 #include "absl/base/nullability.h"
-#include "absl/log/log.h"
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h"
+#include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcParameterUpdater.h"
+#include "humanoid_common_mpc/command/TargetTrajectoriesCalculatorBase.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerModule.h"
 #include "humanoid_common_mpc/parameter_update/CommandLimitsReloaders.h"
+#include "humanoid_common_mpc/parameter_update/MpcParameterUpdaterModule.h"
+#include "humanoid_common_mpc_app/robot/MrtRobotController.h"
+#include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
+#include "humanoid_mpc_validation/closed_loop/ClosedLoopDriver.h"
+#include "humanoid_mpc_validation/closed_loop/RobotConfiguration.h"
 
 namespace ocs2::humanoid::validation {
 
@@ -154,15 +162,19 @@ absl::Status CentroidalClosedLoopDriver::initialize(
   }
   std::unique_ptr<CentroidalMpcMrtJointController> jointController =
       *std::move(createdController);
-  if (settings_.wbMpcFeedforward == WbMpcFeedforward::kGravityCompensation)
+  if (settings_.wbMpcFeedforward == WbMpcFeedforward::kGravityCompensation) {
     jointController->setUseGravityCompFeedforward(/*enable=*/true);
-  if (settings_.mpcEntryBlendTime.has_value())
+  }
+  if (settings_.mpcEntryBlendTime.has_value()) {
     jointController->setMpcEntryBlendTime(*settings_.mpcEntryBlendTime);
-  if (settings_.safetyDecayTimeConstant.has_value())
+  }
+  if (settings_.safetyDecayTimeConstant.has_value()) {
     jointController->setSafetyDecayTimeConstant(
         *settings_.safetyDecayTimeConstant);
-  if (settings_.contactWrenchGate.has_value())
+  }
+  if (settings_.contactWrenchGate.has_value()) {
     jointController->setContactWrenchGateConfig(*settings_.contactWrenchGate);
+  }
   std::unique_ptr<MrtRobotController<CentroidalMpcMrtJointController>>
       controller =
           std::make_unique<MrtRobotController<CentroidalMpcMrtJointController>>(

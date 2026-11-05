@@ -150,9 +150,10 @@ absl::Status createParentOf(const std::string& path) {
   std::error_code error;
   std::filesystem::create_directories(std::filesystem::path(path).parent_path(),
                                       error);
-  if (error)
+  if (error) {
     return absl::UnavailableError(absl::StrCat(
         "cannot create the directory of ", path, ": ", error.message()));
+  }
   return absl::OkStatus();
 }
 
@@ -160,8 +161,9 @@ absl::Status createParentOf(const std::string& path) {
 
 absl::StatusOr<ConfigSeedPolicy> configSeedPolicyFromName(
     absl::string_view name) {
-  if (name == kWhenBundleChangesSeedPolicyName)
+  if (name == kWhenBundleChangesSeedPolicyName) {
     return ConfigSeedPolicy::kWhenBundleChanges;
+  }
   if (name == kEveryStartSeedPolicyName) return ConfigSeedPolicy::kEveryStart;
   if (name == kNeverSeedPolicyName) return ConfigSeedPolicy::kNever;
   return absl::InvalidArgumentError(absl::StrCat(
@@ -241,8 +243,9 @@ absl::Status RobotConfigDirectory::prepareStore() {
   }
   const std::string marker = bootMarker();
   ASSIGN_OR_RETURN(const ReadFile previousBoot, readIfThere(marker));
-  for (size_t kind = 0; kind < kNumStoredConfigFileKinds; ++kind)
+  for (size_t kind = 0; kind < kNumStoredConfigFileKinds; ++kind) {
     RETURN_IF_ERROR(seedFile(kind));
+  }
   RETURN_IF_ERROR(mirrorContactPlanningFile());
   if (previousBoot.exists && writtenBeforeTheMachineBooted(marker)) {
     // The machine went down during the previous start (a power cut, a reboot):
@@ -260,8 +263,9 @@ absl::Status RobotConfigDirectory::prepareStore() {
                << marker
                << " is there): falling back to the bundled files for every "
                   "stored copy that differs from them.";
-    for (size_t kind = 0; kind < kNumStoredConfigFileKinds; ++kind)
+    for (size_t kind = 0; kind < kNumStoredConfigFileKinds; ++kind) {
       RETURN_IF_ERROR(rejectStoredCopy(kind));
+    }
   }
   RETURN_IF_ERROR(doneOrNotDurable(writeFileAtomically(
       marker, absl::StrCat(configSeedPolicyName(options_.seedPolicy), "\n"))));
@@ -411,8 +415,9 @@ absl::Status RobotConfigDirectory::withdrawBootMarker() {
 
 absl::Status RobotConfigDirectory::rejectStoredCopies() {
   if (storedPaths_[kTaskIndex].empty()) return absl::OkStatus();
-  for (size_t kind = 0; kind < kNumStoredConfigFileKinds; ++kind)
+  for (size_t kind = 0; kind < kNumStoredConfigFileKinds; ++kind) {
     RETURN_IF_ERROR(rejectStoredCopy(kind));
+  }
   return absl::OkStatus();
 }
 

@@ -43,9 +43,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
+#include "absl/time/time.h"
 
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc_app/teleop/KeyboardVelocityCommand.h"
 #include "humanoid_mpc_ipc/Topics.h"
+#include "humanoid_mpc_msgs/walking_velocity_command.pb.h"
+#include "robot_ipc/Bus.h"
 
 namespace ocs2::humanoid::teleop {
 namespace {
@@ -103,8 +109,9 @@ void VelocityCommandRepeater::reloadLimitsIfChanged(State& state) {
     return;
   }
   if (state.referenceFileTime.has_value() &&
-      *state.referenceFileTime == writeTime)
+      *state.referenceFileTime == writeTime) {
     return;
+  }
   absl::StatusOr<KeyboardCommandLimits> reloaded =
       loadKeyboardCommandLimits(state.referenceFile);
   if (!reloaded.ok()) {

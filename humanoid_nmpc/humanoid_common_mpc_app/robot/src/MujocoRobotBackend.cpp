@@ -37,13 +37,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ThreadAffinity.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc_app/robot/RobotBackendRegistry.h"
 #include "humanoid_common_mpc_app/robot/RobotSupervisorRegistry.h"
 #include "mujoco_sim_interface/CheaterSimContactEstimator.h"
+#include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "mujoco_sim_interface/Projectile.h"
 #include "mujoco_sim_interface/viewer/ViewerSettings.h"
+#include "robot_model/ContactEstimatorRegistry.h"
 
 namespace ocs2::humanoid {
 

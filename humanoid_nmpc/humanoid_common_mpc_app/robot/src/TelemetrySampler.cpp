@@ -30,11 +30,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/TelemetrySampler.h"
 
 #include <algorithm>
+#include <array>
+#include <atomic>
+#include <cstddef>
 #include <limits>
 #include <optional>
 #include <string>
-#include <utility>
 #include <vector>
+
+#include "absl/functional/function_ref.h"
+#include "absl/strings/string_view.h"
+
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_mpc_msgs/robot_state_sample.nproto.h"
+#include "robot_model/RobotJointAction.h"
+#include "robot_model/RobotState.h"
 
 namespace ocs2::humanoid {
 

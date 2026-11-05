@@ -30,7 +30,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/RobotProcess.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -38,25 +41,53 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 
 #include "absl/base/nullability.h"
+#include "absl/functional/function_ref.h"
 #include "absl/log/log.h"
 #include "absl/memory/memory.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "ocs2_core/PhysicalConstants.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/robot/ControllerSideSettingsFromConfig.h"
+#include "humanoid_common_mpc/contact/ContactWrenchGate.h"
 #include "humanoid_common_mpc/mrt/ContactEstimateIntake.h"
 #include "humanoid_common_mpc/mrt/ControlMode.h"
+#include "humanoid_common_mpc_app/robot/ConfigFileStore.h"
+#include "humanoid_common_mpc_app/robot/FallRecovery.h"
 #include "humanoid_common_mpc_app/robot/JointNamesByIndex.h"
+#include "humanoid_common_mpc_app/robot/MujocoViewerAnnotator.h"
+#include "humanoid_common_mpc_app/robot/OperatorCommandMailbox.h"
+#include "humanoid_common_mpc_app/robot/RealtimeEventLog.h"
+#include "humanoid_common_mpc_app/robot/RealtimeLoopRunner.h"
+#include "humanoid_common_mpc_app/robot/RobotBackend.h"
+#include "humanoid_common_mpc_app/robot/RobotController.h"
 #include "humanoid_common_mpc_app/robot/RobotSupervisorRegistry.h"
+#include "humanoid_common_mpc_app/robot/TaskFileWatcher.h"
+#include "humanoid_common_mpc_app/robot/TelemetrySampler.h"
+#include "humanoid_common_mpc_app/robot/TelemetrySink.h"
 #include "humanoid_common_mpc_app/robot/TelemetrySinkRegistry.h"
+#include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_ipc/Topics.h"
 #include "humanoid_mpc_msgs/fsm_state.nproto.pb.h"
+#include "humanoid_mpc_msgs/robot_state_sample.nproto.h"
 #include "humanoid_mpc_msgs/robot_state_sample.nproto.pb.h"
+#include "humanoid_state_estimator/StateEstimator.h"
 #include "humanoid_state_estimator/StateEstimatorRegistry.h"
+#include "robot_ipc/Bus.h"
+#include "robot_model/ContactEstimator.h"
+#include "robot_model/ContactEstimatorRegistry.h"
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotState.h"
+#include "robot_realtime/LoopTimingSnapshot.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -440,8 +471,9 @@ void RobotProcess::cycle() {
     const std::optional<contact_flag_t> planned =
         controller_->plannedContactFlags();
     if (planned.has_value()) {
-      for (size_t contact = 0; contact < kNumContacts; ++contact)
+      for (size_t contact = 0; contact < kNumContacts; ++contact) {
         plannedContactFlags_[contact] = (*planned)[contact];
+      }
       simulator_->setTargetContactFlags(plannedContactFlags_);
     } else {
       simulator_->setTargetContactFlags(noContactFlags_);
@@ -540,8 +572,9 @@ void RobotProcess::pumpRealtimeMailboxes() {
   if (sampler_ != nullptr) {
     sampler_->drain([this](const msgs::RobotStateSample& sample) {
       ToProto(sample, &telemetryMessage_);
-      for (const std::unique_ptr<TelemetrySink>& sink : sinks_)
+      for (const std::unique_ptr<TelemetrySink>& sink : sinks_) {
         sink->write(telemetryMessage_);
+      }
     });
   }
   publishFsmState();

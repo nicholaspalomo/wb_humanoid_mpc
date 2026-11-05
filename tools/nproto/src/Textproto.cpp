@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <cstring>
 #include <fstream>
+#include <ios>
 #include <optional>
 #include <sstream>
 #include <string>

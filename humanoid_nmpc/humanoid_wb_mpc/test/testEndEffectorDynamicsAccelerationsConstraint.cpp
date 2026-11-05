@@ -28,18 +28,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <algorithm>
+#include <cstddef>
 #include <memory>
 #include <random>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_nmpc/humanoid_wb_mpc/test/AffineEndEffectorDynamics.h"
@@ -260,8 +261,9 @@ matrix_t randomMatrix(Eigen::Index rows,
                       std::mt19937& generator) {
   std::uniform_real_distribution<scalar_t> coefficient(-2.0, 2.0);
   matrix_t matrix(rows, cols);
-  for (Eigen::Index i = 0; i < matrix.size(); ++i)
+  for (Eigen::Index i = 0; i < matrix.size(); ++i) {
     matrix(i) = coefficient(generator);
+  }
   return matrix;
 }
 

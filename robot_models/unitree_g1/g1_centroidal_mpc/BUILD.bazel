@@ -37,6 +37,7 @@ cc_binary(
         "//lib/ocs2:ocs2_core",
         "//robot_runtime/robot_core:resource_paths",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/base:log_severity",
         "@eigen",
         "@pinocchio",
         "@urdf",

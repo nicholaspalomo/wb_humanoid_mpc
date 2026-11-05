@@ -30,11 +30,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_multi_contact/contact_set/ContactSet.h"
 
 #include <cmath>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "Eigen/Geometry"
+#include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
@@ -43,7 +45,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Dimensions.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
-#include "humanoid_multi_contact/contact_set/contact_set.nproto.pb.h"
+#include "humanoid_multi_contact/contact_set/contact_set.nproto.h"
+#include "humanoid_multi_contact/contact_set/contact_set.nproto.pb.h"  // IWYU pragma: keep
 #include "humanoid_multi_contact/contact_set/contact_set.pb.h"
 #include "nproto/Textproto.h"
 

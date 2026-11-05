@@ -34,6 +34,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 
 #include "absl/log/absl_check.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_oc/synchronized_module/ReferenceManagerInterface.h"
 
 namespace ocs2::humanoid::multi_contact {
 

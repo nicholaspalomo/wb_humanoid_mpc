@@ -30,12 +30,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopScenario.h"
 
 #include <cmath>
+#include <numbers>
 #include <string>
 #include <vector>
 
 #include "absl/base/no_destructor.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/command/NormalizedWalkingVelocityCommand.h"
 #include "humanoid_common_mpc/command/WalkingVelocityCommand.h"
@@ -57,7 +60,8 @@ constexpr double kSlowWalkCmdLinvelBaseRtWorldEwrtHeadingX =
     0.3;  // the slower walking variant of the design's section 4.5
 constexpr double kLateralWalkDuration = 10.0;
 constexpr double kLateralWalkCmdLinvelBaseRtWorldEwrtHeadingY = 0.2;
-constexpr double kTurnInPlaceAngle = 4.0 * M_PI;  // [rad] 720 degrees
+constexpr double kTurnInPlaceAngle =
+    4.0 * std::numbers::pi;  // [rad] 720 degrees
 constexpr double kTurnInPlaceYawRate = 0.5;
 constexpr double kTurnDuration = 12.6;
 constexpr double kTurnYawRate = 1.0;
@@ -171,8 +175,9 @@ absl::StatusOr<ClosedLoopScenario> findClosedLoopScenario(
 
 double getCommandDuration(const ClosedLoopScenario& scenario) {
   double duration = 0.0;
-  for (const CommandSegment& piece : scenario.segments)
+  for (const CommandSegment& piece : scenario.segments) {
     duration += piece.duration;
+  }
   return duration;
 }
 
@@ -181,10 +186,11 @@ Eigen::Vector3d commandAt(const ClosedLoopScenario& scenario,
   if (timeSinceStart < 0.0) return Eigen::Vector3d::Zero();
   double start = 0.0;
   for (const CommandSegment& piece : scenario.segments) {
-    if (timeSinceStart < start + piece.duration)
+    if (timeSinceStart < start + piece.duration) {
       return Eigen::Vector3d(piece.cmdLinvelBaseRtWorldEwrtHeadingX,
                              piece.cmdLinvelBaseRtWorldEwrtHeadingY,
                              piece.yawRate);
+    }
     start += piece.duration;
   }
   return Eigen::Vector3d::Zero();

@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
+#include <cstddef>
 #include <limits>
 #include <memory>
 #include <string>
@@ -40,17 +41,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/ComputationRequest.h"
 #include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
+#include "ocs2_core/cost/StateInputCost.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
+#include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_nmpc/humanoid_wb_mpc/test/live_tuning/WholeBodyLiveTuningFixture.h"
 #include "humanoid_wb_mpc/WBMpcInterface.h"
 #include "humanoid_wb_mpc/WBMpcPreComputation.h"
 #include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
 #include "humanoid_wb_mpc/constraint/EndEffectorDynamicsAccelerationsConstraint.h"
+#include "humanoid_wb_mpc/constraint/EndEffectorDynamicsLinearAccConstraint.h"
 #include "humanoid_wb_mpc/constraint/ZeroAccelerationConstraintCppAd.h"
 #include "humanoid_wb_mpc/cost/EndEffectorDynamicsCostHelpers.h"
 #include "humanoid_wb_mpc/cost/EndEffectorDynamicsFootCost.h"
@@ -254,8 +264,9 @@ TEST(WholeBodyTermSetters,
   const Eigen::Index numJoints =
       static_cast<Eigen::Index>(interface->getMpcRobotModel().getJointDim());
   vector_t weights(numJoints);
-  for (Eigen::Index j = 0; j < numJoints; ++j)
+  for (Eigen::Index j = 0; j < numJoints; ++j) {
     weights(j) = 0.5 + 0.25 * static_cast<scalar_t>(j % 7);
+  }
   const std::unique_ptr<JointTorqueCostCppAd> retuned =
       jointTorqueCost(*interface, vector_t::Ones(numJoints));
   const std::unique_ptr<JointTorqueCostCppAd> fresh =

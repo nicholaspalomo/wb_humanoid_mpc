@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <ios>
 #include <memory>
 #include <optional>
 #include <string>
@@ -50,7 +51,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/synchronization/notification.h"
-#include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -65,7 +65,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_msgs/config_file_save_status.pb.h"
 #include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/RobotTestSupport.h"
 #include "robot_model/ContactEstimatorRegistry.h"
-#include "robot_model/RobotState.h"
 
 /*
  * The configuration store (ConfigFileStore.h), the robot's half of the GUI's
@@ -208,8 +207,9 @@ class Answers {
       absl::MutexLock lock(mutex_);
       size_t seen = 0;
       for (const humanoid_mpc_msgs::ConfigFileSaveStatus& status : answers_) {
-        if (status.sequence() == sequence && ++seen == occurrence)
+        if (status.sequence() == sequence && ++seen == occurrence) {
           found = status;
+        }
       }
       return found.has_value();
     });
@@ -541,8 +541,9 @@ TEST(ConfigFileStore, AFullQueueIsBusyAndARepeatOfAQueuedSaveIsDropped) {
   store->onConfigSave(taskSave(kSavedTask, /*sequence=*/50));
   ASSERT_TRUE(robot_test::waitFor([&]() { return validator.entered(); }));
   // The writer holds 50; 51-54 fill the queue of four, and 55 finds it full.
-  for (uint64_t sequence = 51; sequence <= 54; ++sequence)
+  for (uint64_t sequence = 51; sequence <= 54; ++sequence) {
     store->onConfigSave(taskSave(kSavedTask, sequence));
+  }
   store->onConfigSave(taskSave(kSavedTask, /*sequence=*/55));
   const std::optional<humanoid_mpc_msgs::ConfigFileSaveStatus> busy =
       answers.waitFor(/*sequence=*/55);
@@ -557,8 +558,9 @@ TEST(ConfigFileStore, AFullQueueIsBusyAndARepeatOfAQueuedSaveIsDropped) {
   store->onConfigSave(taskSave(kSavedTask, /*sequence=*/50));
   EXPECT_EQ(store->statistics().repeated, 2u);
   validator.release();
-  for (uint64_t sequence = 50; sequence <= 54; ++sequence)
+  for (uint64_t sequence = 50; sequence <= 54; ++sequence) {
     EXPECT_TRUE(answers.waitFor(sequence).has_value()) << sequence;
+  }
   EXPECT_EQ(validator.calls(), 5);
   EXPECT_EQ(answers.count(), 6u);
 }

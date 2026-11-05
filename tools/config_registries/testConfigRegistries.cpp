@@ -30,9 +30,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // config_registries.textproto against the registries it is written from: the
 // committed file is what print_config_registries writes and parses strictly
 // into its schema, every registry has names, once each, and every name it
-// offers is one its registry accepts.
+// offers is one its registry accepts. config_registries.nproto.pb.h is kept
+// for the FromProto() that nproto::LoadTextprotoFile() calls by
+// argument-dependent lookup, which include-cleaner does not attribute to it.
 
 #include <algorithm>
+#include <cstddef>
 #include <functional>
 #include <string>
 #include <vector>
@@ -58,7 +61,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/TelemetrySinkRegistry.h"
 #include "humanoid_common_mpc_app/robot/config/robot/RobotProcessSettingsFromConfig.h"
 #include "humanoid_mpc_config/config_registries.nproto.h"
-#include "humanoid_mpc_config/config_registries.nproto.pb.h"
+#include "humanoid_mpc_config/config_registries.nproto.pb.h"  // IWYU pragma: keep
+#include "humanoid_mpc_config/config_registries.pb.h"
 #include "humanoid_mpc_config/contact_planning_file.nproto.h"
 #include "humanoid_mpc_config/model_settings_config.nproto.h"
 #include "humanoid_mpc_config/multi_contact_plan_config.nproto.h"
@@ -299,9 +303,10 @@ TEST(ConfigRegistriesTest, EveryNameARegistryOffersIsOneItAccepts) {
         accepts.find(registry.name);
     ASSERT_NE(accept, accepts.end())
         << registry.name << " has no resolver in acceptors()";
-    for (const std::string& name : registry.names)
+    for (const std::string& name : registry.names) {
       EXPECT_TRUE(accept->second(name))
           << registry.name << " offers '" << name << "'";
+    }
     EXPECT_FALSE(accept->second("no_such_name"))
         << registry.name << " accepts anything, so it offers nothing";
   }

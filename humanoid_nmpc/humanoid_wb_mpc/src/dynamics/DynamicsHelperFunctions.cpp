@@ -29,19 +29,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_wb_mpc/dynamics/DynamicsHelperFunctions.h"
 
+#include <cstddef>
+
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
-#include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
+#include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
 
 // Pinnochio
-#include "pinocchio/algorithm/contact-dynamics.hpp"
 #include "pinocchio/algorithm/crba.hpp"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/rnea.hpp"
-#include "pinocchio/multibody/data.hpp"
-#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 
 namespace ocs2::humanoid {
 namespace {
@@ -54,10 +57,11 @@ feet_array_t<VECTOR6_T<SCALAR_T>> computeWrenchContactsEwrtWorld(
     const VECTOR_T<SCALAR_T>& input,
     const WBAccelMpcRobotModel<SCALAR_T>& mpcRobotModel) {
   feet_array_t<VECTOR6_T<SCALAR_T>> wrenchContactsEwrtWorld;
-  for (size_t i = 0; i < kNumContacts; ++i)
+  for (size_t i = 0; i < kNumContacts; ++i) {
     wrenchContactsEwrtWorld[i] =
         mpcRobotModel.getWrenchContactEwrtWorld(state, input,
                                                 /*contactIndex=*/i);
+  }
   return wrenchContactsEwrtWorld;
 }
 

@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
+#include <ios>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -44,15 +45,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/log/absl_check.h"
 #include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_mpc/MPC_Settings.h"
 #include "ocs2_mpc_test/ScriptedMpc.h"
 
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/solver/SolverSettingsFromConfig.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
@@ -154,8 +158,9 @@ class WholeBodyPdGainsHarness {
     robotState_.setQuatBaseRtWorld(
         quaternion_t(model_.getQuatBaseRtWorldXyzw(initialState)));
     const vector_t joints = model_.getJointAngles(initialState);
-    for (size_t i = 0; i < mpcJointIndices_.size(); ++i)
+    for (size_t i = 0; i < mpcJointIndices_.size(); ++i) {
       robotState_.setJointPosition(mpcJointIndices_[i], joints[i]);
+    }
     robotState_.setContactFlag(/*index=*/0, /*contactFlag=*/true);
     robotState_.setContactFlag(/*index=*/1, /*contactFlag=*/true);
     absl::StatusOr<std::unique_ptr<WBMpcMrtJointController>> created =
@@ -297,10 +302,12 @@ TEST(WBMpcMrtJointControllerPdGains,
   harness.controller().setControlMode("JOINT_PD");
   const robot::model::RobotJointAction& action = harness.cycle();
   EXPECT_EQ(actionOf(action, harness.mpcJointIndices()[0]).kp, 77.0);
-  for (size_t i = 1; i < harness.mpcJointIndices().size(); ++i)
+  for (size_t i = 1; i < harness.mpcJointIndices().size(); ++i) {
     EXPECT_EQ(actionOf(action, harness.mpcJointIndices()[i]).kp, 123.0);
-  for (size_t index : harness.otherJointIndices())
+  }
+  for (size_t index : harness.otherJointIndices()) {
     EXPECT_EQ(actionOf(action, index).kp, 123.0 * kOtherJointDefaultGainScale);
+  }
 }
 
 TEST(WBMpcMrtJointControllerPdGains,
@@ -485,9 +492,10 @@ TEST(WBMpcMrtJointControllerPdGains,
                     .ok());
     scalar_t largest = 0.0;
     const robot::model::RobotJointAction& unlimited = harness.cycle();
-    for (size_t index : harness.mpcJointIndices())
+    for (size_t index : harness.mpcJointIndices()) {
       largest = std::max(
           largest, std::abs(actionOf(unlimited, index).feed_forward_effort));
+    }
     ASSERT_GT(largest, limit) << mode;
     ASSERT_TRUE(setFromAnotherThread(harness.controller(), limited).ok());
     const robot::model::RobotJointAction& action = harness.cycle();

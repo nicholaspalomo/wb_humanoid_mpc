@@ -36,10 +36,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 
 #include "humanoid_common_mpc_app/robot/HardwareFallRecovery.h"
 #include "humanoid_common_mpc_app/robot/HardwareFsmBridge.h"
+#include "humanoid_common_mpc_app/robot/SimFallRecovery.h"
 #include "humanoid_common_mpc_app/robot/SimFsmBridge.h"
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 

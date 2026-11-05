@@ -27,14 +27,19 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <stdlib.h>
+
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <ios>
 #include <iterator>
 #include <limits>
+#include <numbers>
+#include <optional>
 #include <random>
 #include <string>
 #include <utility>
@@ -112,7 +117,7 @@ TEST(JsonValue, ADocumentReadsBackToTheSameValues) {
   document.set("flag", JsonValue::boolean(/*value=*/true));
   document.set("nothing", JsonValue());
   JsonValue& nested = document.set("nested", JsonValue::object());
-  nested.set("pi", JsonValue::number(M_PI));
+  nested.set("pi", JsonValue::number(std::numbers::pi));
   nested.set("empty", JsonValue::object());
   JsonValue& list = document.set("list", JsonValue::array());
   list.append(JsonValue::number(-0.0));
@@ -129,7 +134,7 @@ TEST(JsonValue, ADocumentReadsBackToTheSameValues) {
   EXPECT_EQ(*parsed, document);
   EXPECT_EQ(parsed->serialize(), document.serialize())
       << "writing is deterministic";
-  EXPECT_EQ(parsed->findPath("nested.pi")->asNumber(), M_PI);
+  EXPECT_EQ(parsed->findPath("nested.pi")->asNumber(), std::numbers::pi);
   EXPECT_EQ(parsed->findPath("nested.missing"), nullptr);
   EXPECT_EQ(parsed->keyAt(0), "name") << "members keep their insertion order";
 }

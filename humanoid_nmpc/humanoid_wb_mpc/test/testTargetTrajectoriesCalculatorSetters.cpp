@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <fstream>
 #include <iterator>
 #include <memory>
+#include <numbers>
 #include <string>
 #include <vector>
 
@@ -47,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 
 #include "humanoid_common_mpc/command/TargetTrajectoriesCalculatorBase.h"
@@ -156,7 +158,7 @@ void expectTheReferenceTurnsBy(const MpcRobotModelBase<scalar_t>& model,
     const scalar_t step = std::remainder(
         model.getYawBaseRtWorld(targets.stateTrajectory[i]) -
             model.getYawBaseRtWorld(targets.stateTrajectory[i - 1]),
-        2.0 * M_PI);
+        2.0 * std::numbers::pi);
     EXPECT_LE(
         std::abs(step),
         TargetTrajectoriesCalculatorBase::kKnotMaxErrYawBaseRtWorld + 1.0e-12)
@@ -173,8 +175,8 @@ void expectTheReferenceTurnsBy(const MpcRobotModelBase<scalar_t>& model,
         targets,
         startTime + duration * static_cast<scalar_t>(sample) / kSamples);
     const scalar_t refYawBaseRtWorld = model.getYawBaseRtWorld(desired);
-    const scalar_t step =
-        std::remainder(refYawBaseRtWorld - prevRefYawBaseRtWorld, 2.0 * M_PI);
+    const scalar_t step = std::remainder(
+        refYawBaseRtWorld - prevRefYawBaseRtWorld, 2.0 * std::numbers::pi);
     EXPECT_GT(step * turn, 0.0)
         << "the reference turns against the command at sample " << sample;
     const vector3_t eulerzyxBaseRtWorld = model.getEulerzyxBaseRtWorld(desired);
@@ -202,7 +204,8 @@ TEST_F(TargetTrajectoriesCalculatorSettersTest,
   for (const scalar_t turnDegrees : {kTurnDegrees, 270.0, -135.0}) {
     SCOPED_TRACE(turnDegrees);
     const vector4_t turn(0.0, 0.0, 0.0, turnDegrees);
-    const scalar_t cmdErrYawBaseRtWorld = turnDegrees * M_PI / 180.0;
+    const scalar_t cmdErrYawBaseRtWorld =
+        turnDegrees * std::numbers::pi / 180.0;
     EXPECT_DOUBLE_EQ(timeToTarget(turn), std::abs(cmdErrYawBaseRtWorld) /
                                              fileRefRateYawBaseRtWorld);
     expectTheReferenceTurnsBy(*model_,
@@ -261,11 +264,11 @@ TEST_F(TargetTrajectoriesCalculatorSettersTest,
           kEulerzyxBaseRtWorldYaw -
               2.0 * std::atan(std::tan(kEulerzyxBaseRtWorldPitch / 2.0) *
                               std::tan(kEulerzyxBaseRtWorldRoll / 2.0)),
-          2.0 * M_PI),
+          2.0 * std::numbers::pi),
       1.0e-12);
   EXPECT_EQ(initRefPoseeulerzyxBaseRtWorld(4), 0.0);
   EXPECT_EQ(initRefPoseeulerzyxBaseRtWorld(5), 0.0);
-  const scalar_t cmdErrYawBaseRtWorld = kTurnDegrees * M_PI / 180.0;
+  const scalar_t cmdErrYawBaseRtWorld = kTurnDegrees * std::numbers::pi / 180.0;
   EXPECT_NEAR(
       finalRefPoseeulerzyxBaseRtWorld(3) - initRefPoseeulerzyxBaseRtWorld(3),
       cmdErrYawBaseRtWorld, 1.0e-12);

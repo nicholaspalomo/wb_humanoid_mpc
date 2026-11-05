@@ -101,8 +101,9 @@ TEST(HotFieldCoverage, EachFormulationAppliesExactlyTheHotFieldsItReads) {
     ASSERT_FALSE(formulation.appliedFields.empty());
     for (const ConfigLeaf& leaf : leaves) {
       if (!leaf.tunable || !isReadByTheMpc(leaf.consumer) ||
-          !isReadByFormulation(leaf.formulations, formulation.name))
+          !isReadByFormulation(leaf.formulations, formulation.name)) {
         continue;
+      }
       const bool applied = coveredBy(formulation.appliedFields, leaf.path);
       if (leaf.reload == ConfigReload::kHot) {
         EXPECT_TRUE(applied) << leaf.path << " is RELOAD_HOT and read by the "
@@ -184,8 +185,9 @@ const google::protobuf::FieldDescriptor* absl_nullable fieldAt(
   const google::protobuf::FieldDescriptor* absl_nullable field = nullptr;
   for (absl::string_view segment : absl::StrSplit(path, '.')) {
     if (message == nullptr) return nullptr;
-    if (absl::EndsWith(segment, "[*]"))
+    if (absl::EndsWith(segment, "[*]")) {
       segment.remove_suffix(std::string_view("[*]").size());
+    }
     field = message->FindFieldByName(segment);
     if (field == nullptr) return nullptr;
     message = field->message_type();
@@ -239,16 +241,18 @@ TEST(HotFieldCoverage, EveryHotLeafThatIsNotANumberNamesTheTestThatAppliesIt) {
   std::set<std::string> found;
   for (const ConfigLeaf& leaf : taskFileLeaves()) {
     if (!leaf.tunable || leaf.reload != ConfigReload::kHot ||
-        !isReadByTheMpc(leaf.consumer))
+        !isReadByTheMpc(leaf.consumer)) {
       continue;
+    }
     const google::protobuf::FieldDescriptor* absl_nullable field =
         fieldAt(leaf.path);
     ASSERT_NE(field, nullptr) << leaf.path;
     if (!isNumber(*field)) found.insert(leaf.path);
   }
   std::set<std::string> listed;
-  for (const NonNumericHotLeaf& entry : kNonNumericHotLeaves)
+  for (const NonNumericHotLeaf& entry : kNonNumericHotLeaves) {
     listed.insert(entry.path);
+  }
   for (const std::string& path : found) {
     EXPECT_TRUE(listed.contains(path))
         << path

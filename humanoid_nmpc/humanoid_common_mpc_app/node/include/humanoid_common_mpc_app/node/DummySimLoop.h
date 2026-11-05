@@ -39,10 +39,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_oc/rollout/RolloutBase.h"
 
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
 #include "humanoid_mpc_ipc/RemoteMpcLink.h"
 #include "robot_ipc/Bus.h"

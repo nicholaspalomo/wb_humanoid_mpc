@@ -32,7 +32,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pthread.h>
 #include <sched.h>
 
+#include <atomic>
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <exception>
 #include <memory>
 #include <string>
@@ -46,12 +49,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
+#include "google/protobuf/message.h"
 #include "ocs2_core/PhysicalConstants.h"
+#include "ocs2_mpc/CommandData.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_oc/oc_data/PerformanceIndex.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc_app/visualization/IoThreadOutbox.h"
+#include "humanoid_common_mpc_app/visualization/PolicySnapshot.h"
+#include "humanoid_common_mpc_app/visualization/SceneBuilder.h"
+#include "humanoid_common_mpc_app/visualization/SolutionTermEvaluator.h"
+#include "humanoid_common_mpc_app/visualization/TelemetryBuilder.h"
+#include "humanoid_common_mpc_app/visualization/VisualizationConfig.h"
+#include "humanoid_common_mpc_app/visualization/VisualizationModel.h"
 #include "humanoid_mpc_ipc/Topics.h"
 #include "humanoid_mpc_msgs/robot_state_sample.nproto.pb.h"
+#include "humanoid_mpc_msgs/robot_state_sample.pb.h"
+#include "robot_ipc/Bus.h"
 #include "robot_ipc/Delivery.h"
 #include "robot_realtime/PeriodicTimer.h"
 #include "robot_realtime/RealtimeThread.h"

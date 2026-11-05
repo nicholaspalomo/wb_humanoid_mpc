@@ -107,7 +107,11 @@ TEST(ContactSetTest, PadFrames) {
   const ContactCandidate& foot = set->candidate(1);
   EXPECT_EQ(foot.kind, ContactKind::kSurface);
   EXPECT_TRUE(foot.rotmatPadRtLink.isIdentity(1.0e-12));
-  ASSERT_TRUE(foot.rectangle.has_value());
+  // An if, not ASSERT_TRUE, here and below: bugprone-unchecked-optional-access
+  // sees a check only through an if.
+  if (!foot.rectangle.has_value()) {
+    FAIL() << "foot.rectangle has no value";
+  }
   EXPECT_DOUBLE_EQ(foot.rectangle->maxPosCornersRtPadEwrtPadX, 0.1);
   EXPECT_FALSE(set->candidate(0).rectangle.has_value());
 }
@@ -155,6 +159,9 @@ TEST(ContactSetTest, RefusesInvalidCandidates) {
   pointRectangle.kind = config::ContactSet::Kind::kPoint;
   expectRefused({pointRectangle}, "has no rectangle");
   config::ContactSet::Candidate emptyRectangle = surfaceCandidate("a");
+  if (!emptyRectangle.rectangle.has_value()) {
+    FAIL() << "a surface candidate has a rectangle";
+  }
   emptyRectangle.rectangle->max_pos_corners_rt_pad_ewrt_pad_x = -0.2;
   expectRefused(
       {emptyRectangle},
@@ -201,6 +208,9 @@ TEST(ContactSetTest, AtlasContactSet) {
   EXPECT_EQ(surfaces, 5);
   // A sole is 0.24 x 0.11 m, the torso pads 0.36 x 0.30 m.
   const ContactCandidate& foot = set->candidate(0);
+  if (!foot.rectangle.has_value()) {
+    FAIL() << "the sole has no rectangle";
+  }
   EXPECT_NEAR(foot.rectangle->maxPosCornersRtPadEwrtPadX -
                   foot.rectangle->minPosCornersRtPadEwrtPadX,
               0.24, 1.0e-12);
@@ -208,6 +218,9 @@ TEST(ContactSetTest, AtlasContactSet) {
                   foot.rectangle->minPosCornersRtPadEwrtPadY,
               0.11, 1.0e-12);
   const ContactCandidate& back = set->candidate(11);
+  if (!back.rectangle.has_value()) {
+    FAIL() << "the torso pad has no rectangle";
+  }
   EXPECT_NEAR(back.rectangle->maxPosCornersRtPadEwrtPadX -
                   back.rectangle->minPosCornersRtPadEwrtPadX,
               0.36, 1.0e-12);

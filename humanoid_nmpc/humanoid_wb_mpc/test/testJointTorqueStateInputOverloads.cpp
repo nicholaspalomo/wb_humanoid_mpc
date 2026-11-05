@@ -43,12 +43,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/crba.hpp"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/joint-configuration.hpp"
 #include "pinocchio/algorithm/rnea.hpp"
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/spatial/fwd.hpp"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
@@ -71,8 +77,9 @@ namespace {
 
 std::string runfilePath(absl::string_view relativePath) {
   std::vector<std::filesystem::path> roots;
-  if (const char* absl_nullable srcDir = std::getenv("TEST_SRCDIR"))
+  if (const char* absl_nullable srcDir = std::getenv("TEST_SRCDIR")) {
     roots.emplace_back(std::filesystem::path(srcDir) / "_main");
+  }
   roots.emplace_back(std::filesystem::current_path());
   for (const std::filesystem::path& root : roots) {
     const std::filesystem::path candidate = root / std::string(relativePath);
@@ -186,14 +193,17 @@ class JointTorqueStateInputOverloadsTest : public ::testing::Test {
         << "the base orientation of the sample is not a unit quaternion";
     v_ = vector_t(model.nv);
     qddJoints_ = vector_t(model.nv - 6);
-    for (Eigen::Index i = 0; i < v_.size(); ++i)
+    for (Eigen::Index i = 0; i < v_.size(); ++i) {
       v_(i) = 0.8 * spread(i, /*phase=*/1.9);
-    for (Eigen::Index i = 0; i < qddJoints_.size(); ++i)
+    }
+    for (Eigen::Index i = 0; i < qddJoints_.size(); ++i) {
       qddJoints_(i) = 3.0 * spread(i, /*phase=*/0.4);
+    }
     wrenchFeetEwrtWorld_[0] << 30.0, -12.0, 320.0, 4.0, -6.0, 1.5;
     wrenchFeetEwrtWorld_[1] << -18.0, 25.0, 210.0, -3.0, 5.0, -0.8;
-    for (size_t i = 0; i < kNumContacts; ++i)
+    for (size_t i = 0; i < kNumContacts; ++i) {
       soleFrames_[i] = model.getFrameId(modelSettings_->contactNames[i]);
+    }
   }
 
   /** The whole-body MPC state [q, v] and input [W_left, W_right, qdd_j] that

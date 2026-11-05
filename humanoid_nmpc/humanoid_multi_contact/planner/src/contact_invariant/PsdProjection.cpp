@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_multi_contact/planner/contact_invariant/PsdProjection.h"
 
 #include "Eigen/Eigenvalues"
+#include "ocs2_core/Types.h"
 
 namespace ocs2::humanoid::multi_contact {
 

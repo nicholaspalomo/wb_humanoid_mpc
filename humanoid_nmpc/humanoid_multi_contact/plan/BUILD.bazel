@@ -52,6 +52,7 @@ cc_library(
         "//humanoid_nmpc/humanoid_multi_contact/terrain:terrain_scene_cc_proto",
         "//humanoid_nmpc/humanoid_multi_contact/terrain:terrain_scene_nproto",
         "//tools/nproto:nproto_runtime",
+        "@abseil-cpp//absl/log:absl_check",
         "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",

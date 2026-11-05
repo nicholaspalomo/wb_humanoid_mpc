@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_mpc_validation/closed_loop/RecordedRobotStates.h"
 
+#include <cstddef>
 #include <string>
 #include <utility>
 #include <vector>
@@ -37,11 +38,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
 #include "ocs2_core/Dimensions.h"
+
+#include "humanoid_mpc_validation/io/GoldenIo.h"
+#include "robot_core/Types.h"
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotState.h"
 
 namespace ocs2::humanoid::validation {
 namespace {
@@ -78,9 +85,10 @@ absl::StatusOr<const golden_matrix_t* absl_nonnull> requireMatrix(
     Eigen::Index rows,
     Eigen::Index cols) {
   const golden_matrix_t* absl_nullable matrix = golden.find(label);
-  if (matrix == nullptr)
+  if (matrix == nullptr) {
     return absl::InvalidArgumentError(
         absl::StrCat("[fromGoldenFile] no matrix '", label, "'"));
+  }
   if (matrix->rows() != rows || matrix->cols() != cols) {
     return absl::InvalidArgumentError(
         absl::StrCat("[fromGoldenFile] '", label, "' is ", matrix->rows(),
@@ -231,13 +239,15 @@ absl::StatusOr<RecordedRobotStates> fromGoldenFile(const GoldenFile& golden) {
     states.jointNames = names;
     haveJointNames = true;
   }
-  if (!haveJointNames)
+  if (!haveJointNames) {
     return absl::InvalidArgumentError(
         absl::StrCat("[fromGoldenFile] no '", kJointNamesNote, "' note"));
+  }
   const golden_matrix_t* absl_nullable time = golden.find(kTime);
-  if (time == nullptr || time->cols() != 1)
+  if (time == nullptr || time->cols() != 1) {
     return absl::InvalidArgumentError(
         absl::StrCat("[fromGoldenFile] no '", kTime, "' column"));
+  }
   const Eigen::Index rows = time->rows();
   const Eigen::Index numJoints =
       static_cast<Eigen::Index>(states.jointNames.size());

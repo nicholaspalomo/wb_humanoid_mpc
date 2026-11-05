@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cstdlib>
 #include <fstream>
+#include <ios>
 #include <memory>
 #include <string>
 #include <utility>
@@ -43,15 +44,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "google/protobuf/message.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/ProductStateManifold.h"
 #include "ocs2_core/manifold/StateManifoldSegment.h"
-#include "pinocchio/multibody/joint/joint-free-flyer.hpp"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "pinocchio/multibody/joint.hpp"
 #include "pinocchio/parsers/urdf.hpp"
 
 #include "humanoid_common_mpc_app/visualization/SceneBuilder.h"
 #include "humanoid_common_mpc_app/visualization/TelemetryBuilder.h"
 #include "humanoid_common_mpc_app/visualization/VisualizationConfig.h"
+#include "humanoid_common_mpc_app/visualization/VisualizationModel.h"
 #include "humanoid_common_mpc_app/visualization/VisualizationPublisher.h"
 #include "humanoid_nmpc/humanoid_common_mpc_app/visualization/test/VisualizationTestRobot.h"
 

@@ -37,21 +37,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <memory>
 #include <string>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
-#include "ocs2_core/ComputationRequest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/cost/StateCost.h"
 #include "ocs2_core/cost/StateCostCollection.h"
+#include "ocs2_core/cost/StateInputCost.h"
 #include "ocs2_core/cost/StateInputCostCollection.h"
+#include "ocs2_core/model_data/ModelData.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_oc/approximate_model/LinearQuadraticApproximator.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
-#include "humanoid_common_mpc/gait/GaitSchedule.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
+#include "tools/config_dump/ValueDump.h"
 
 namespace ocs2::humanoid::config_dump {
 namespace {

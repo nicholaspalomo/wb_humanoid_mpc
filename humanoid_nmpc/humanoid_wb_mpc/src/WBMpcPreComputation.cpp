@@ -32,12 +32,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_wb_mpc/WBMpcPreComputation.h"
 
+#include <cstddef>
 #include <utility>
 
 #include "absl/base/nullability.h"
+#include "ocs2_core/ComputationRequest.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/misc/Numerics.h"
-#include "pinocchio/algorithm/kinematics.hpp"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+
+#include "humanoid_common_mpc/HumanoidPreComputation.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
+#include "humanoid_wb_mpc/constraint/EndEffectorDynamicsLinearAccConstraint.h"
 
 namespace ocs2::humanoid {
 

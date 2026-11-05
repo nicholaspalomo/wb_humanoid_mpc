@@ -33,8 +33,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+
+#include "humanoid_common_mpc/command/NormalizedWalkingVelocityCommand.h"
+#include "humanoid_mpc_msgs/walking_velocity_command.pb.h"
 
 namespace ocs2::humanoid::node {
 namespace {

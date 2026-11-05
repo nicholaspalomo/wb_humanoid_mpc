@@ -32,8 +32,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <filesystem>
 #include <memory>
+#include <numbers>
 #include <random>
 #include <string>
 #include <utility>
@@ -46,10 +48,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/Types.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/crba.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -227,8 +232,9 @@ StateInput randomPoint(const WBAccelMpcRobotModel<scalar_t>& model,
     model.setWrenchContactEwrtParam(point.input, wrenchContactEwrtParam,
                                     contact);
   }
-  for (Eigen::Index j = 0; j < joints; ++j)
+  for (Eigen::Index j = 0; j < joints; ++j) {
     point.input(point.input.size() - joints + j) = 3.0 * unit(generator);
+  }
   return point;
 }
 
@@ -414,8 +420,9 @@ TEST(WBQuaternionDynamics, AtAPitchOf90DegreesTheDynamicsIsRegular) {
   const PreComputation preComputation;
   int attitude = 0;
   for (const vector3_t& eulerzyxBaseRtWorld :
-       {vector3_t(0.0, M_PI / 2.0, 0.0), vector3_t(1.2, M_PI / 2.0, -0.4),
-        vector3_t(-2.5, -M_PI / 2.0, 0.3)}) {
+       {vector3_t(0.0, std::numbers::pi / 2.0, 0.0),
+        vector3_t(1.2, std::numbers::pi / 2.0, -0.4),
+        vector3_t(-2.5, -std::numbers::pi / 2.0, 0.3)}) {
     SCOPED_TRACE(eulerzyxBaseRtWorld.transpose());
     const vector4_t xi = quaternionFromEulerZyx(eulerzyxBaseRtWorld);
     const StateInput point = randomPoint(model, xi, generator);

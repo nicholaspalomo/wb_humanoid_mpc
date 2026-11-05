@@ -31,15 +31,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <array>
 #include <climits>
+#include <cstddef>
 #include <cstdint>
 #include <fstream>
+#include <ios>
 #include <iterator>
 #include <string>
 #include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 
 namespace ocs2::humanoid::validation {
 namespace {
@@ -191,15 +195,17 @@ std::string sha256Hex(absl::string_view data) {
   std::vector<uint8_t> message(data.begin(), data.end());
   const uint64_t bitLength = static_cast<uint64_t>(data.size()) * CHAR_BIT;
   message.push_back(kPaddingLeadByte);
-  while (message.size() % kBlockBytes != kLengthFieldOffset)
+  while (message.size() % kBlockBytes != kLengthFieldOffset) {
     message.push_back(0x00);
+  }
   for (int shift = kLengthFieldBits - CHAR_BIT; shift >= 0; shift -= CHAR_BIT) {
     message.push_back(static_cast<uint8_t>(bitLength >> shift));
   }
 
   std::array<uint32_t, kHashWords> hash = kInitialHash;
-  for (size_t offset = 0; offset < message.size(); offset += kBlockBytes)
+  for (size_t offset = 0; offset < message.size(); offset += kBlockBytes) {
     compressBlock(message.data() + offset, hash);
+  }
 
   static constexpr char kHexDigits[] = "0123456789abcdef";
   std::string hex;
@@ -215,9 +221,10 @@ std::string sha256Hex(absl::string_view data) {
 
 absl::StatusOr<std::string> sha256HexOfFile(const std::string& path) {
   std::ifstream file(path, std::ios::binary);
-  if (!file.is_open())
+  if (!file.is_open()) {
     return absl::NotFoundError(
         absl::StrCat("[sha256HexOfFile] cannot read '", path, "'"));
+  }
   const std::string contents((std::istreambuf_iterator<char>(file)),
                              std::istreambuf_iterator<char>());
   return sha256Hex(contents);

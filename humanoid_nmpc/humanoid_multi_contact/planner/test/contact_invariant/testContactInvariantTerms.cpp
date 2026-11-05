@@ -47,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/ComputationRequest.h"
 #include "ocs2_core/PreComputation.h"
 #include "ocs2_core/Types.h"
+#include "ocs2_core/cost/StateInputCost.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 
 #include "humanoid_multi_contact/planner/contact_invariant/ActivationBoundsConstraint.h"
@@ -55,6 +56,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_multi_contact/planner/contact_invariant/AugmentedPreComputation.h"
 #include "humanoid_multi_contact/planner/contact_invariant/AugmentedStateCost.h"
 #include "humanoid_multi_contact/planner/contact_invariant/ContactFeatureConstraint.h"
+#include "humanoid_multi_contact/planner/contact_invariant/ContactFeatureFunction.h"
 #include "humanoid_multi_contact/planner/contact_invariant/ContactFeatureRows.h"
 #include "humanoid_multi_contact/planner/contact_invariant/ContactForceGateCost.h"
 #include "humanoid_multi_contact/planner/contact_invariant/ContactInvariantCost.h"

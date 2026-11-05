@@ -35,8 +35,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 
 #include "humanoid_common_mpc/common/ThreadAffinity.h"
-#include "humanoid_common_mpc_app/node/MpcAppFlags.h"
 #include "humanoid_common_mpc_app/robot/RobotAppOptions.h"
+#include "mujoco_sim_interface/viewer/ViewerSettings.h"
 
 // The flags of the robot binaries besides those they share with the MPC node
 // (--robot_name, --task_file,

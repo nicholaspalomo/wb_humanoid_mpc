@@ -39,9 +39,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
 #include "ocs2_robotic_tools/common/RotationTransforms.h"
 
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/config/weights/StateInputLayout.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
 
 namespace ocs2::humanoid::validation {

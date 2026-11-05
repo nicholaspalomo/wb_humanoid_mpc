@@ -29,8 +29,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/robot/JointNamesByIndex.h"
 
+#include <cstddef>
 #include <string>
 #include <vector>
+
+#include "robot_model/RobotDescription.h"
 
 namespace ocs2::humanoid {
 

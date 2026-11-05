@@ -30,7 +30,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <cmath>
+#include <cstddef>
 #include <memory>
+#include <numbers>
 #include <optional>
 #include <string>
 #include <utility>
@@ -40,8 +42,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Eigen/Geometry"
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
-#include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
 #include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_mpc_test/ScriptedMpc.h"
@@ -267,7 +269,7 @@ class WholeBodyController {
 vector4_t streamQuatBaseRtWorldXyzw(
     const vector4_t& unturnedQuatBaseRtWorldXyzw, int cycle) {
   return quaternionProduct<scalar_t>(
-      unitQuaternionOfYaw(M_PI - 0.25 +
+      unitQuaternionOfYaw(std::numbers::pi - 0.25 +
                           kRateYawBaseRtWorld * kControlPeriod *
                               static_cast<scalar_t>(cycle)),
       unturnedQuatBaseRtWorldXyzw);
@@ -311,7 +313,7 @@ TEST(WBMrtObservationDoubleCover,
   // degrees.
   for (const vector3_t& eulerzyxBaseRtWorld :
        {vector3_t(0.3, 0.1, -0.05), vector3_t(3.1, -0.2, 0.15),
-        vector3_t(-2.0, M_PI / 2.0, 0.3)}) {
+        vector3_t(-2.0, std::numbers::pi / 2.0, 0.3)}) {
     SCOPED_TRACE(eulerzyxBaseRtWorld.transpose());
     const vector4_t xi = quaternionFromEulerZyx(eulerzyxBaseRtWorld);
     WholeBodyController positive;
@@ -403,7 +405,7 @@ TEST(WBMrtObservationDoubleCover,
         canonical.controller().getCurrentObservation().state);
     if (cycle > 0) {
       EXPECT_NEAR(std::remainder(measYawBaseRtWorld - prevMeasYawBaseRtWorld,
-                                 2.0 * M_PI),
+                                 2.0 * std::numbers::pi),
                   kRateYawBaseRtWorld * kControlPeriod, 1.0e-3);
     }
     prevMeasYawBaseRtWorld = measYawBaseRtWorld;

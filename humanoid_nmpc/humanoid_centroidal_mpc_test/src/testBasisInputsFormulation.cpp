@@ -46,12 +46,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <unistd.h>
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdlib>
 #include <filesystem>
 #include <functional>
 #include <memory>
 #include <optional>
 #include <random>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -63,6 +66,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
+#include "ocs2_core/cost/StateInputCost.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
@@ -70,6 +77,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsBasisInputsAD.h"
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
 #include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/costs/ContactsFromConfig.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
@@ -82,6 +91,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/cost/TuningQuadraticStateInputCost.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
+#include "humanoid_common_mpc/pinocchio_model/PinocchioFrameConversions.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "robot_core/ResourcePaths.h"
 
@@ -153,8 +163,9 @@ const matrix_t* absl_nullable inputWeightsOf(const StateInputCost& cost) {
     return &tuning->getInputWeights();
   }
   if (const InputQuadraticCost* absl_nullable input =
-          dynamic_cast<const InputQuadraticCost*>(&cost))
+          dynamic_cast<const InputQuadraticCost*>(&cost)) {
     return &input->getInputWeights();
+  }
   return nullptr;
 }
 
@@ -388,8 +399,9 @@ TEST_F(BasisInputsFormulationTest, BasisModeDimensions) {
   // M = blkdiag(B_0, B_1, I_joints) of size wrenchInputDim x basisInputDim.
   const std::optional<matrix_t>& basisGeneratorMap =
       interface.getBasisGeneratorMap();
-  if (!basisGeneratorMap.has_value())
+  if (!basisGeneratorMap.has_value()) {
     GTEST_FAIL() << "no basis-to-wrench map under basis-vector inputs";
+  }
   const matrix_t& M = *basisGeneratorMap;
   ASSERT_EQ(static_cast<size_t>(M.rows()), interface.getWrenchInputDim());
   ASSERT_EQ(static_cast<size_t>(M.cols()), basisInputDim);
@@ -496,8 +508,9 @@ TEST_F(BasisInputsFormulationTest,
 
   const std::optional<matrix_t>& basisGeneratorMap =
       basisInterface.getBasisGeneratorMap();
-  if (!basisGeneratorMap.has_value())
+  if (!basisGeneratorMap.has_value()) {
     GTEST_FAIL() << "no basis-to-wrench map under basis-vector inputs";
+  }
   const matrix_t& M = *basisGeneratorMap;
   const vector_t localInput =
       M *
@@ -1055,8 +1068,9 @@ TEST_F(BasisInputsFormulationTest,
   // ignored the name would fail below.
   const std::optional<BasisInputsCostTransformConfig> shippedConfig =
       basis.interface->getBasisInputsCostTransformConfig();
-  if (!shippedConfig.has_value())
+  if (!shippedConfig.has_value()) {
     GTEST_FAIL() << "no cost transform under basis-vector inputs";
+  }
   ASSERT_GT((expectedR -
              transformWrenchInputCostToBasisSpace(R_wrench, *shippedConfig))
                 .cwiseAbs()

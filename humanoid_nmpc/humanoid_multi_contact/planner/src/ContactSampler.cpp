@@ -30,8 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_multi_contact/planner/ContactSampler.h"
 
 #include <algorithm>
-#include <array>
 #include <cmath>
+#include <optional>
 #include <variant>
 #include <vector>
 
@@ -39,6 +39,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
 #include "ocs2_core/Dimensions.h"
+
+#include "humanoid_multi_contact/contact_set/ContactSet.h"
+#include "humanoid_multi_contact/terrain/PatchFrame.h"
+#include "humanoid_multi_contact/terrain/TerrainModel.h"
+#include "humanoid_multi_contact/terrain/TerrainPrimitives.h"
 
 namespace ocs2::humanoid::multi_contact {
 namespace {
@@ -109,8 +114,9 @@ bool freeOfTerrain(const TerrainModel& terrain,
                    const Eigen::Vector3d& xAxisPadEwrtWorld,
                    const ContactSamplerOptions& options) {
   if (!clearAbove(terrain, posPadRtWorldEwrtWorld, normalSurfaceEwrtWorld,
-                  options))
+                  options)) {
     return false;
+  }
   if (candidate.rectangle.has_value()) {
     const ContactRectangle& rectangle = *candidate.rectangle;
     const Eigen::Vector3d yAxisPadEwrtWorld =
@@ -179,8 +185,9 @@ void sampleFace(const TerrainModel& terrain,
       patch.rotmatSurfaceRtWorld.transpose() *
       (posReachcenterRtWorldEwrtWorld - patch.posSurfaceRtWorldEwrtWorld);
   if (std::abs(posReachcenterRtSurfaceEwrtSurface.z()) >
-      maxDistPadRtReachcenter)
+      maxDistPadRtReachcenter) {
     return;
+  }
   const double radius = std::sqrt(
       maxDistPadRtReachcenter * maxDistPadRtReachcenter -
       posReachcenterRtSurfaceEwrtSurface.z() *
@@ -276,8 +283,10 @@ void sampleCapsule(const TerrainModel& terrain,
               zAxisCapsulestartEwrtWorld;
       if (normalSurfaceEwrtWorld.norm() < kDegenerateNorm) continue;
       normalSurfaceEwrtWorld.normalize();
-      if (normalSurfaceEwrtWorld.z() < options.pointMinNormalSurfaceEwrtWorldZ)
+      if (normalSurfaceEwrtWorld.z() <
+          options.pointMinNormalSurfaceEwrtWorldZ) {
         continue;
+      }
       if (!normalSurfacesEwrtWorld.empty() &&
           normalSurfacesEwrtWorld.front().dot(normalSurfaceEwrtWorld) >
               kSameNormalCosine) {
@@ -318,8 +327,9 @@ Eigen::Vector3d computeXAxisPadEwrtWorld(
       hintXAxisPadEwrtWorld -
       hintXAxisPadEwrtWorld.dot(normalSurfaceEwrtWorld) *
           normalSurfaceEwrtWorld;
-  if (xAxisPadEwrtWorld.norm() < kDegenerateNorm)
+  if (xAxisPadEwrtWorld.norm() < kDegenerateNorm) {
     return normalSurfaceEwrtWorld.unitOrthogonal();
+  }
   return xAxisPadEwrtWorld.normalized();
 }
 
@@ -351,8 +361,9 @@ std::vector<ContactSample> sampleContacts(
       const absl::StatusOr<PatchFrame> patch =
           terrain.boxFaceFrame(primitive, static_cast<BoxFace>(face));
       if (!patch.ok() ||
-          patch->getNormalSurfaceEwrtWorld().z() < minNormalSurfaceEwrtWorldZ)
+          patch->getNormalSurfaceEwrtWorld().z() < minNormalSurfaceEwrtWorldZ) {
         continue;
+      }
       sampleFace(terrain, *patch, candidate, candidateIndex,
                  posReachcenterRtWorldEwrtWorld, maxDistPadRtReachcenter,
                  hintXAxisPadEwrtWorld, options, samples);

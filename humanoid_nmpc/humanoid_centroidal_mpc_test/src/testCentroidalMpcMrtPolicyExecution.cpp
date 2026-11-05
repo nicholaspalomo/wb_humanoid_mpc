@@ -35,13 +35,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <memory>
 #include <random>
-#include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/control/ControllerBase.h"
 #include "ocs2_core/control/FeedforwardController.h"
 #include "ocs2_core/control/LinearController.h"
 #include "ocs2_core/control/ManifoldLinearController.h"
@@ -49,6 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/reference/ModeSchedule.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 
+#include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
 #include "humanoid_centroidal_mpc_test/CentroidalTestingModelInterface.h"
 #include "humanoid_common_mpc/common/StateManifoldFactory.h"
@@ -177,8 +179,9 @@ TEST(CentroidalMpcMrtPolicyExecution,
   controller.setEventSink(&sink);
   robot::model::RobotState robotState(description);
   robotState.setPosBaseRtWorldEwrtWorld(vector3_t(0.0, 0.0, 0.75));
-  for (size_t joint = 0; joint < description.getNumJoints(); ++joint)
+  for (size_t joint = 0; joint < description.getNumJoints(); ++joint) {
     robotState.setJointPosition(joint, /*jointPosition=*/0.1);
+  }
   robot::model::RobotJointAction action(description);
   const std::vector<scalar_t> nominal(description.getNumJoints(), 0.1);
   scalar_t time = 0.0;
@@ -282,8 +285,9 @@ TEST(CentroidalMpcMrtPolicyExecution,
   CentroidalMpcMrtJointController& controller = **controllerOrStatus;
   robot::model::RobotState robotState(description);
   robotState.setPosBaseRtWorldEwrtWorld(vector3_t(0.0, 0.0, 0.75));
-  for (size_t joint = 0; joint < description.getNumJoints(); ++joint)
+  for (size_t joint = 0; joint < description.getNumJoints(); ++joint) {
     robotState.setJointPosition(joint, /*jointPosition=*/0.1);
+  }
   robotState.setContactFlag(/*index=*/0, /*contactFlag=*/true);
   robotState.setContactFlag(/*index=*/1, /*contactFlag=*/true);
   robot::model::RobotJointAction action(description);
@@ -297,8 +301,9 @@ TEST(CentroidalMpcMrtPolicyExecution,
   const Eigen::Index nu = static_cast<Eigen::Index>(mpcModel.getInputDim());
   const Eigen::Index ndx = static_cast<Eigen::Index>(manifold->getTangentDim());
   vector_t input = vector_t::Zero(nu);
-  for (Eigen::Index i = 0; i < nu; ++i)
+  for (Eigen::Index i = 0; i < nu; ++i) {
     input(i) = 0.2 * std::sin(1.3 * static_cast<scalar_t>(i));
+  }
   const vector_t measured = link->lastObservation().state;
   link->deliver(policyOf(std::make_unique<FeedforwardController>(
                              scalar_array_t{time - 1.0, time + 100.0},
@@ -311,8 +316,9 @@ TEST(CentroidalMpcMrtPolicyExecution,
   std::mt19937 generator(/*sd=*/37);
   std::normal_distribution<scalar_t> normal(0.0, 1.0);
   matrix_t gain(nu, ndx);
-  for (Eigen::Index i = 0; i < gain.size(); ++i)
+  for (Eigen::Index i = 0; i < gain.size(); ++i) {
     gain.data()[i] = 20.0 * normal(generator);
+  }
   for (const scalar_t period : {0.002, 0.01, 0.017}) {
     SCOPED_TRACE(period);
     std::vector<std::vector<scalar_t>> actions;
@@ -323,8 +329,9 @@ TEST(CentroidalMpcMrtPolicyExecution,
       const scalar_t measurementTime = time + period;
       const vector_t now = link->lastObservation().state;
       vector_t later = now;
-      for (Eigen::Index i = 0; i < later.size(); ++i)
+      for (Eigen::Index i = 0; i < later.size(); ++i) {
         later(i) += 0.3 * std::cos(static_cast<scalar_t>(i));
+      }
       manifold->project(later);
       PrimalSolution plan;
       plan.timeTrajectory_ = {measurementTime, measurementTime + 1.0};

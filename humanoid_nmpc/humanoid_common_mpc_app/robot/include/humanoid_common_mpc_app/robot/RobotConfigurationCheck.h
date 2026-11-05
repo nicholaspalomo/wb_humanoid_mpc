@@ -38,7 +38,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 
-#include "humanoid_common_mpc/mrt/JointPdGains.h"
 #include "humanoid_common_mpc_app/robot/ConfigFileStore.h"
 #include "humanoid_common_mpc_app/robot/RobotBackendRegistry.h"
 #include "humanoid_common_mpc_app/robot/RobotConfigDirectory.h"

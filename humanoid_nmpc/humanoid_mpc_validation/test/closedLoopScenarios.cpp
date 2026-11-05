@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/log_severity.h"
 #include "absl/base/nullability.h"
 #include "absl/flags/flag.h"
 #include "absl/flags/parse.h"
@@ -45,10 +46,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
 
+#include "humanoid_mpc_validation/closed_loop/ClosedLoopMetrics.h"
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopMetricsSchema.h"
+#include "humanoid_mpc_validation/closed_loop/ClosedLoopScenario.h"
 #include "humanoid_mpc_validation/closed_loop/LockstepClosedLoop.h"
 #include "humanoid_mpc_validation/closed_loop/LockstepOutputs.h"
 #include "humanoid_mpc_validation/closed_loop/MetricBands.h"
+#include "humanoid_mpc_validation/closed_loop/RobotConfiguration.h"
 #include "humanoid_mpc_validation/io/GoldenIo.h"
 #include "humanoid_mpc_validation/io/JsonValue.h"
 #include "humanoid_mpc_validation/io/RunProvenance.h"
@@ -134,8 +138,9 @@ bool isWalkingScenario(const std::string& name) {
 }
 
 std::string outputDirectory() {
-  if (!absl::GetFlag(FLAGS_output_dir).empty())
+  if (!absl::GetFlag(FLAGS_output_dir).empty()) {
     return absl::GetFlag(FLAGS_output_dir);
+  }
   const char* absl_nullable undeclared =
       std::getenv("TEST_UNDECLARED_OUTPUTS_DIR");
   return undeclared != nullptr ? std::string(undeclared)
@@ -156,8 +161,9 @@ absl::Status writeComparison(const std::string& directory,
   std::ofstream stream(file);
   stream << absl::StrCat(robot, " ", scenario, " against ", baselineLabel,
                          ":\n", description, "\n");
-  if (!stream)
+  if (!stream) {
     return absl::InternalError(absl::StrCat("cannot write ", file.string()));
+  }
   return absl::OkStatus();
 }
 // LINT.ThenChange(//Makefile:closed_loop_targets)
@@ -173,9 +179,10 @@ TEST_P(ClosedLoopScenarioTest, RunsAndStaysWithinTheBaselineBands) {
   ASSERT_TRUE(scenario.ok()) << scenario.status();
 
   LockstepOptions options;
-  if (absl::GetFlag(FLAGS_threads) > 0)
+  if (absl::GetFlag(FLAGS_threads) > 0) {
     options.driver.solverThreads =
         static_cast<size_t>(absl::GetFlag(FLAGS_threads));
+  }
   options.recordRobotStates = isWalkingScenario(scenario->name);
 
   const RunEnvironment environment = runEnvironmentFromEnvironment();

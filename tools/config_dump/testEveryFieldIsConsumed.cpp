@@ -43,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <array>
+#include <cstddef>
 #include <map>
 #include <set>
 #include <string>
@@ -67,9 +68,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_config/config_options.pb.h"
 #include "humanoid_mpc_config/config_registries.nproto.h"
 #include "humanoid_mpc_config/gait_file.nproto.pb.h"
+#include "humanoid_mpc_config/gait_file.pb.h"
 #include "humanoid_mpc_config/joint_pd_gains_file.nproto.pb.h"
+#include "humanoid_mpc_config/joint_pd_gains_file.pb.h"
+#include "humanoid_mpc_config/joint_value.pb.h"
 #include "humanoid_mpc_config/reference_file.nproto.pb.h"
+#include "humanoid_mpc_config/reference_file.pb.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.pb.h"
+#include "humanoid_mpc_config/task_file.pb.h"
 #include "humanoid_mpc_config/tuning_options.pb.h"
 #include "humanoid_mpc_validation/closed_loop/RobotConfiguration.h"
 #include "nproto/Textproto.h"
@@ -308,8 +315,9 @@ void growList(Message& message, const FieldDescriptor& field) {
       return;
     case FieldDescriptor::CPPTYPE_STRING: {
       std::set<std::string> present;
-      for (int i = 0; i < reflection->FieldSize(message, &field); ++i)
+      for (int i = 0; i < reflection->FieldSize(message, &field); ++i) {
         present.insert(reflection->GetRepeatedString(message, &field, i));
+      }
       std::string added = "a_name_of_no_registry";
       for (const std::string& name :
            registryNames(field.options()
@@ -395,8 +403,9 @@ absl::StatusOr<Files> loadFiles(
  */
 absl::Status weighEveryJointTorque(
     const validation::RobotConfiguration& configuration, Files& files) {
-  if (files.task.joint_torque_weights().joints_size() > 0)
+  if (files.task.joint_torque_weights().joints_size() > 0) {
     return absl::OkStatus();
+  }
   mpc_config::TaskFile task;
   absl::Status converted = mpc_config::FromProto(files.task, &task);
   if (!converted.ok()) return converted;
@@ -434,8 +443,9 @@ std::vector<std::string> errorLines(absl::string_view dump) {
   std::vector<std::string> errors;
   for (const absl::string_view line : absl::StrSplit(dump, '\n')) {
     if (absl::StrContains(line, ".error = ") ||
-        absl::StartsWith(line, "error = "))
+        absl::StartsWith(line, "error = ")) {
       errors.emplace_back(line);
+    }
   }
   return errors;
 }
@@ -443,12 +453,15 @@ std::vector<std::string> errorLines(absl::string_view dump) {
 /** The file of `files` a walk changes: the message with descriptor
  * `descriptor`. */
 Message& fileOf(Files& files, const Descriptor& descriptor) {
-  if (&descriptor == humanoid_mpc_config::ReferenceFile::descriptor())
+  if (&descriptor == humanoid_mpc_config::ReferenceFile::descriptor()) {
     return files.reference;
-  if (&descriptor == humanoid_mpc_config::JointPdGainsFile::descriptor())
+  }
+  if (&descriptor == humanoid_mpc_config::JointPdGainsFile::descriptor()) {
     return files.pdGains;
-  if (&descriptor == humanoid_mpc_config::GaitFile::descriptor())
+  }
+  if (&descriptor == humanoid_mpc_config::GaitFile::descriptor()) {
     return files.gait;
+  }
   return files.task;
 }
 
@@ -498,8 +511,9 @@ TEST(EveryFieldIsConsumedTest,
         const bool changes = dump(*configuration, changed) != base;
         consumed[key] = consumed[key] || changes;
         ++values;
-        if (!changes)
+        if (!changes) {
           example[key] = absl::StrCat(name, ": ", elementPath(leaf));
+        }
       }
     }
   }

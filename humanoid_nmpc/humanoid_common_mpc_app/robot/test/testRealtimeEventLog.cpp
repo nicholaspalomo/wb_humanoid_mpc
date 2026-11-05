@@ -27,6 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -35,7 +36,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/mrt/ContactEstimateIntake.h"
+#include "humanoid_common_mpc/mrt/ControllerEvent.h"
+#include "humanoid_common_mpc/mrt/ControllerEventSink.h"
 #include "humanoid_common_mpc_app/robot/FallRecoveryTypes.h"
 #include "humanoid_common_mpc_app/robot/RealtimeEventLog.h"
 

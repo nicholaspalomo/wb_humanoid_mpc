@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <filesystem>
 #include <map>
 #include <memory>
@@ -41,12 +42,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "Eigen/Geometry"
 #include "absl/base/nullability.h"
-#include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/CppAdInterface.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
 
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/constraint/EndEffectorKinematicsTwistConstraint.h"
 #include "humanoid_nmpc/humanoid_wb_mpc/test/OrientationErrorRateOracle.h"
 #include "humanoid_wb_mpc/end_effector/OrientationErrorWrtPlaneRates.h"
 
@@ -278,10 +281,11 @@ vector3_t perpendicularTo(const vector3_t& normalSurfaceEwrtWorld,
 matrix3_t shortestArcFromUnitZ(const vector3_t& normalSurfaceEwrtWorld) {
   const vector3_t zCrossN = vector3_t::UnitZ().cross(normalSurfaceEwrtWorld);
   const scalar_t sine = zCrossN.norm();
-  if (sine > 0.0)
+  if (sine > 0.0) {
     return Eigen::AngleAxisd(std::atan2(sine, normalSurfaceEwrtWorld.z()),
                              zCrossN / sine)
         .toRotationMatrix();
+  }
   if (normalSurfaceEwrtWorld.z() > 0.0) return matrix3_t::Identity();
   return Eigen::AngleAxisd(std::numbers::pi, vector3_t::UnitX())
       .toRotationMatrix();
@@ -386,11 +390,13 @@ std::vector<RateCase> rateCases() {
       // plane normal.
       const vector3_t initZAxisEeEwrtWorld =
           rateCase.motion.initRotmatEeRtWorld.col(2);
-      if (i % 10 == 3)
+      if (i % 10 == 3) {
         rateCase.motion.angvelEeRtWorldEwrtWorld = 1.7 * initZAxisEeEwrtWorld;
-      if (i % 10 == 7)
+      }
+      if (i % 10 == 7) {
         rateCase.motion.angvelEeRtWorldEwrtWorld =
             -1.3 * normalSurfaceEwrtWorld;
+      }
       rateCase.name = absl::StrFormat(
           "%s_%d (tilt %.6g rad, 1 + v.n = %.3g, |w| = %.3g)",
           regimeName(regime), i, tiltangleEeRtSurface,

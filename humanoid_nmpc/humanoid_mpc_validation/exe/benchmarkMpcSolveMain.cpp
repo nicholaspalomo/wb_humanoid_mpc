@@ -36,17 +36,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/log_severity.h"
 #include "absl/base/nullability.h"
 #include "absl/flags/flag.h"
 #include "absl/flags/parse.h"
 #include "absl/log/globals.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 
 #include "humanoid_mpc_validation/benchmark/MpcSolveBenchmark.h"
 #include "humanoid_mpc_validation/benchmark/SolveBenchmarkGate.h"
+#include "humanoid_mpc_validation/closed_loop/RecordedRobotStates.h"
+#include "humanoid_mpc_validation/closed_loop/RobotConfiguration.h"
 #include "humanoid_mpc_validation/io/GoldenIo.h"
+#include "humanoid_mpc_validation/io/JsonValue.h"
 #include "humanoid_mpc_validation/io/RunProvenance.h"
 
 /*
@@ -152,9 +157,10 @@ int runBenchmark() {
   }
 
   SolveBenchmarkOptions options;
-  if (absl::GetFlag(FLAGS_threads) > 0)
+  if (absl::GetFlag(FLAGS_threads) > 0) {
     options.driver.solverThreads =
         static_cast<size_t>(absl::GetFlag(FLAGS_threads));
+  }
   options.repeats =
       static_cast<size_t>(std::max(1, absl::GetFlag(FLAGS_repeats)));
   options.warmupSolves =

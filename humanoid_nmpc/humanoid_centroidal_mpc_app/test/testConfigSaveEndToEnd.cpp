@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <ios>
 #include <iterator>
 #include <map>
 #include <memory>
@@ -43,12 +44,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/thread_annotations.h"
 #include "absl/log/check.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/ascii.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
-#include "absl/strings/strip.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -185,8 +186,9 @@ class SaveClient {
     absl::SleepFor(window);
     absl::MutexLock lock(mutex_);
     if (sampleTimes_.size() < 2 ||
-        !(sampleTimes_.back() > sampleTimes_.front()))
+        !(sampleTimes_.back() > sampleTimes_.front())) {
       return 0.0;
+    }
     return static_cast<double>(sampleTimes_.size() - 1) /
            (sampleTimes_.back() - sampleTimes_.front());
   }

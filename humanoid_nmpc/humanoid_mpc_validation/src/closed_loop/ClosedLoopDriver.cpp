@@ -32,8 +32,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopDriver.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -44,30 +46,52 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/time/time.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/initialization/Initializer.h"
 #include "ocs2_core/manifold/StateManifold.h"
+#include "ocs2_mpc/MPC_Settings.h"
+#include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 #include "ocs2_oc/oc_solver/SolverBase.h"
+#include "ocs2_oc/synchronized_module/ReferenceManagerInterface.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "ocs2_sqp/SqpSettings.h"
+#include "ocs2_sqp/SqpSolver.h"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
 
+#include "humanoid_common_mpc/command/BasePlanarMotion.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/robot/ControllerSideSettingsFromConfig.h"
 #include "humanoid_common_mpc/contact/ContactWrenchGate.h"
 #include "humanoid_common_mpc/mrt/ContactEstimateIntake.h"
+#include "humanoid_common_mpc/mrt/InProcessMpcLink.h"
+#include "humanoid_common_mpc/mrt/MpcLink.h"
+#include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_common_mpc_app/node/MpcNodeRuntime.h"
 #include "humanoid_common_mpc_app/robot/InitialSimState.h"
 #include "humanoid_common_mpc_app/robot/MujocoRobotBackend.h"
 #include "humanoid_common_mpc_app/robot/RobotBackendRegistry.h"
+#include "humanoid_common_mpc_app/robot/RobotController.h"
+#include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
 #include "humanoid_mpc_config/reference_file.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_msgs/walking_velocity_command.pb.h"
 #include "humanoid_mpc_validation/closed_loop/DriverSettingsFromConfig.h"
 #include "humanoid_mpc_validation/closed_loop/SqpStepDiagnostics.h"
 #include "mujoco_sim_interface/CheaterSimContactEstimator.h"
+#include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "mujoco_sim_interface/viewer/ViewerNames.h"
+#include "robot_model/ContactEstimator.h"
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotState.h"
 
 namespace ocs2::humanoid::validation {
 namespace {
@@ -133,9 +157,10 @@ void ClosedLoopDriver::setGuiVelocityCommand(const Eigen::Vector4d& message) {
   proto.set_cmd_lnorm_angvel_base_rt_world_ewrt_world_z(message(3));
   const absl::Status applied =
       node::applyWalkingVelocityCommand(proto, *motionManager_);
-  if (!applied.ok())
+  if (!applied.ok()) {
     LOG(ERROR) << "[ClosedLoopDriver] The MPC node refuses the GUI's message: "
                << applied;
+  }
 }
 
 Eigen::Vector3d ClosedLoopDriver::refVelocityCommand() const {
@@ -367,8 +392,9 @@ absl::Status ClosedLoopDriver::initializeShared(
                      configuration.taskFile, " has no state manifold"));
   }
   sqp::Settings settings = sqpSettings;
-  if (options.solverThreads.has_value())
+  if (options.solverThreads.has_value()) {
     settings.nThreads = *options.solverThreads;
+  }
   solverThreads_ = settings.nThreads;
   mpc_ = std::make_unique<SqpMpc>(mpcSettings, settings, problem, initializer);
   mpc_->getSolverPtr()->setReferenceManager(std::move(referenceManager));

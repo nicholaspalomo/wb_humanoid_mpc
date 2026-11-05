@@ -30,15 +30,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_validation/closed_loop/SqpStepDiagnostics.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <vector>
 
 #include "absl/types/span.h"
 #include "ocs2_core/Types.h"
+#include "ocs2_core/constraint/StateInputConstraintCollection.h"
 #include "ocs2_core/model_data/Metrics.h"
+#include "ocs2_oc/oc_data/ProblemMetrics.h"
+#include "ocs2_oc/search_strategy/FilterLinesearch.h"
+#include "ocs2_sqp/SqpSolverStatus.h"
 
 #include "humanoid_common_mpc/common/ContactTermNames.h"
+#include "humanoid_mpc_validation/closed_loop/ClosedLoopMetrics.h"
 
 namespace ocs2::humanoid::validation {
 
@@ -50,8 +56,9 @@ std::vector<size_t> normalVelocityTermIndices(
     size_t index = 0;
     if (constraints.getTermIndex(
             contact_term::name(contactName, contact_term::kNormalVelocityName),
-            index))
+            index)) {
       indices.push_back(index);
+    }
   }
   return indices;
 }

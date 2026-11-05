@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string>
 
+#include "absl/base/log_severity.h"
 #include "absl/base/nullability.h"
 #include "absl/flags/flag.h"
 #include "absl/flags/parse.h"
@@ -55,6 +56,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_multi_contact/app/CommandLinePaths.h"
 #include "humanoid_multi_contact/app/PlanMultiContact.h"
 #include "humanoid_multi_contact/plan/PlanFile.h"
+#include "humanoid_multi_contact/plan/multi_contact_plan.nproto.h"
 #include "humanoid_multi_contact/planner/MultiContactPlannerRegistry.h"
 #include "humanoid_multi_contact/scenarios/Scenario.h"
 
@@ -102,6 +104,11 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
                    plan.status().code() == absl::StatusCode::kFailedPrecondition
                ? kExitNoPlan
                : kExitError;
+  }
+  // The planners always set the report.
+  if (!plan->report.has_value()) {
+    LOG(ERROR) << "the plan has no certifier report";
+    return kExitError;
   }
   absl::PrintF("%s", multi_contact::formatReport(*plan->report));
   const absl::StatusOr<multi_contact::LoadedScenario> loaded =

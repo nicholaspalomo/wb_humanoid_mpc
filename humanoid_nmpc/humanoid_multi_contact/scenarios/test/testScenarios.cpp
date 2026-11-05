@@ -53,7 +53,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_multi_contact/stability/StabilityCertifier.h"
 #include "humanoid_multi_contact/stability/StaticEquilibrium.h"
 #include "humanoid_multi_contact/stability/certifier_report.nproto.h"
-#include "humanoid_multi_contact/terrain/TerrainModel.h"
 #include "robot_core/ResourcePaths.h"
 
 namespace ocs2::humanoid::multi_contact {
@@ -108,11 +107,17 @@ void expectStable(const config::CertifierReport::Knot& knot,
   EXPECT_TRUE(knot.passed) << absl::StrJoin(knot.failures, "; ");
   EXPECT_TRUE(knot.dynamic_condition);
   EXPECT_LE(knot.max_active_contact_distance, kDefaultContactDistanceTolerance);
-  ASSERT_TRUE(knot.static_margin.has_value());
+  // An if, not ASSERT_TRUE, here and below: bugprone-unchecked-optional-access
+  // sees a check only through an if.
+  if (!knot.static_margin.has_value()) {
+    FAIL() << "knot.static_margin has no value";
+  }
   // Every shipped posture stands with the design's margin, whether or not its
   // scenario judges it.
   EXPECT_GE(*knot.static_margin, 0.03);
-  ASSERT_TRUE(knot.joint_torque_utilization.has_value());
+  if (!knot.joint_torque_utilization.has_value()) {
+    FAIL() << "knot.joint_torque_utilization has no value";
+  }
   EXPECT_LE(*knot.joint_torque_utilization, 0.9) << knot.max_torque_joint;
   EXPECT_TRUE(knot.collision_free.value_or(false))
       << knot.min_sphere_clearance_link;
@@ -252,7 +257,9 @@ TEST(ScenariosTest, InitialAndGoalStancesPassTheCertifier) {
     expectStable(*initial, "initial posture");
     EXPECT_EQ(initial->static_condition.has_value(),
               expected.staticMargin.has_value());
-    ASSERT_TRUE(loaded->scenario.goal.posture.has_value());
+    if (!loaded->scenario.goal.posture.has_value()) {
+      FAIL() << "loaded->scenario.goal.posture has no value";
+    }
     const absl::StatusOr<config::CertifierReport::Knot> goal = certifyPosture(
         **certifier, *loaded->scenario.goal.posture, loaded->contactSet);
     ASSERT_TRUE(goal.ok()) << goal.status();

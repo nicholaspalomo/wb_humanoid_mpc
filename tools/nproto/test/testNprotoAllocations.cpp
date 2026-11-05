@@ -32,6 +32,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // when a repeated field shrinks. A binary of its own, because the allocation
 // counter replaces malloc for the whole process.
 
+// The generated conversion headers marked IWYU pragma: keep declare the
+// ToProto() / FromProto() that the test templates call by argument-dependent
+// lookup, which include-cleaner does not attribute to them.
+
 #include <cstddef>
 #include <string>
 #include <vector>
@@ -40,14 +44,30 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "robot_runtime/robot_realtime/test/AllocationCounter.h"
 #include "tools/nproto/test/ProtoAllocations.h"
-#include "tools/nproto/test/editions.nproto.pb.h"
-#include "tools/nproto/test/imports.nproto.pb.h"
-#include "tools/nproto/test/maps.nproto.pb.h"
-#include "tools/nproto/test/oneofs.nproto.pb.h"
-#include "tools/nproto/test/optionals.nproto.pb.h"
-#include "tools/nproto/test/outer.nproto.pb.h"
+#include "tools/nproto/test/editions.nproto.h"
+#include "tools/nproto/test/editions.nproto.pb.h"  // IWYU pragma: keep
+#include "tools/nproto/test/editions.pb.h"
+#include "tools/nproto/test/imports.nproto.h"
+#include "tools/nproto/test/imports.nproto.pb.h"  // IWYU pragma: keep
+#include "tools/nproto/test/imports.pb.h"
+#include "tools/nproto/test/maps.nproto.h"
+#include "tools/nproto/test/maps.nproto.pb.h"  // IWYU pragma: keep
+#include "tools/nproto/test/maps.pb.h"
+#include "tools/nproto/test/oneofs.nproto.h"
+#include "tools/nproto/test/oneofs.nproto.pb.h"  // IWYU pragma: keep
+#include "tools/nproto/test/oneofs.pb.h"
+#include "tools/nproto/test/optionals.nproto.h"
+#include "tools/nproto/test/optionals.nproto.pb.h"  // IWYU pragma: keep
+#include "tools/nproto/test/optionals.pb.h"
+#include "tools/nproto/test/outer.nproto.h"
+#include "tools/nproto/test/outer.nproto.pb.h"  // IWYU pragma: keep
+#include "tools/nproto/test/outer.pb.h"
+#include "tools/nproto/test/repeated_fields.nproto.h"
 #include "tools/nproto/test/repeated_fields.nproto.pb.h"
-#include "tools/nproto/test/scalars.nproto.pb.h"
+#include "tools/nproto/test/repeated_fields.pb.h"
+#include "tools/nproto/test/scalars.nproto.h"
+#include "tools/nproto/test/scalars.nproto.pb.h"  // IWYU pragma: keep
+#include "tools/nproto/test/scalars.pb.h"
 
 namespace nproto::test {
 namespace {

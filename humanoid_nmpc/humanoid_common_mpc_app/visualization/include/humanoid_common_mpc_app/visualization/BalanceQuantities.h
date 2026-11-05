@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <optional>
 
+#include "ocs2_core/Types.h"
+
 #include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid::visualization {

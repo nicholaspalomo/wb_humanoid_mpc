@@ -30,14 +30,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_wb_mpc/constraint/SwingLegVerticalConstraintCppAd.h"
 
+#include <cstddef>
 #include <memory>
 #include <utility>
 
 #include "absl/memory/memory.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/constraint/ConstraintOrder.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_wb_mpc/WBMpcPreComputation.h"
+#include "humanoid_wb_mpc/constraint/EndEffectorDynamicsLinearAccConstraint.h"
+#include "humanoid_wb_mpc/end_effector/EndEffectorDynamics.h"
 
 namespace ocs2::humanoid {
 

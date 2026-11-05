@@ -28,11 +28,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <ios>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -44,21 +47,32 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_mpc/MPC_Settings.h"
+#include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_mpc_test/ScriptedMpc.h"
 
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
 #include "humanoid_centroidal_mpc_test/CentroidalTestingModelInterface.h"
 #include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
+#include "humanoid_common_mpc/contact/ContactPolygon.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
+#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/mrt/ControllerEvent.h"
 #include "humanoid_common_mpc/mrt/ControllerEventSink.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
+#include "robot_core/Types.h"
+#include "robot_model/ContactEstimator.h"
 #include "robot_model/RobotDescription.h"
-#include "robot_model/RobotStateContactEstimator.h"
+#include "robot_model/RobotJointAction.h"
+#include "robot_model/RobotState.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -274,8 +288,9 @@ TEST_F(CentroidalMpcMrtJointControllerTest,
 
   size_t checkedJoints = 0;
   for (size_t index = 0; index < robotDesc.getNumJoints(); ++index) {
-    if (!atEntry.at(index).has_value() || !reference.at(index).has_value())
+    if (!atEntry.at(index).has_value() || !reference.at(index).has_value()) {
       continue;
+    }
     const ::robot::model::JointAction& action = actionOf(atEntry, index);
     // Full authority at the instant of entry: the torque must not jump when the
     // mode is switched.
@@ -364,8 +379,9 @@ TEST_F(CentroidalMpcMrtJointControllerTest,
                                 robotState.getJointPosition(index) + 0.3);
   }
   std::vector<scalar_t> postureAtEntry(robotDesc.getNumJoints(), 0.0);
-  for (size_t index = 0; index < robotDesc.getNumJoints(); ++index)
+  for (size_t index = 0; index < robotDesc.getNumJoints(); ++index) {
     postureAtEntry[index] = robotState.getJointPosition(index);
+  }
   controller.setControlMode("SAFETY");
   ::robot::model::RobotJointAction action(robotDesc);
   for (const scalar_t time : {entryTime, entryTime + decayed}) {
@@ -388,8 +404,9 @@ TEST_F(CentroidalMpcMrtJointControllerTest,
   ASSERT_LT(alpha, 1.0);
   size_t checkedJoints = 0;
   for (size_t index = 0; index < robotDesc.getNumJoints(); ++index) {
-    if (!action.at(index).has_value() || !reference.at(index).has_value())
+    if (!action.at(index).has_value() || !reference.at(index).has_value()) {
       continue;
+    }
     EXPECT_NEAR(actionOf(action, index).kp,
                 alpha * actionOf(reference, index).kp, 1.0e-9)
         << "joint " << index;

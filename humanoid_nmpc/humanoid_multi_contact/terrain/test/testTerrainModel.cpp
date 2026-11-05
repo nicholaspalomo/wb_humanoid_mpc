@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // against central differences.
 
 #include <cmath>
+#include <cstddef>
 #include <string>
 #include <utility>
 #include <variant>
@@ -46,6 +47,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "cppad/cg.hpp"
 #include "cppad/cppad.hpp"
 #include "gtest/gtest.h"
+#include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/Types.h"
 
 #include "humanoid_multi_contact/terrain/PatchFrame.h"

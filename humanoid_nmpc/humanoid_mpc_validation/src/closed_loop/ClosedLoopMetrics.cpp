@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <numbers>
 #include <optional>
 #include <string>
 #include <utility>
@@ -39,9 +41,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Eigen/Geometry"
 #include "ocs2_core/Dimensions.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopMetricsSchema.h"
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopScenario.h"
+#include "humanoid_mpc_validation/io/JsonValue.h"
 
 namespace ocs2::humanoid::validation {
 namespace {
@@ -71,8 +76,10 @@ double percentile(const std::vector<double>& sorted, double percent) {
 }  // namespace
 
 double wrapAngle(double angle) {
-  const double wrapped = std::remainder(angle, 2.0 * M_PI);  // in [-pi, pi]
-  return wrapped <= -M_PI ? wrapped + 2.0 * M_PI : wrapped;
+  const double wrapped =
+      std::remainder(angle, 2.0 * std::numbers::pi);  // in [-pi, pi]
+  return wrapped <= -std::numbers::pi ? wrapped + 2.0 * std::numbers::pi
+                                      : wrapped;
 }
 
 JsonValue summarizeSample(std::vector<double> values) {
@@ -254,8 +261,9 @@ void ClosedLoopMetrics::addSqpStep(const SqpStepSample& step) {
   } else {
     ++zeroSteps_;
   }
-  if (step.stepSize < 1.0 && step.fullStepKind == SqpStepKind::kConstraint)
+  if (step.stepSize < 1.0 && step.fullStepKind == SqpStepKind::kConstraint) {
     ++fullStepsRefusedAboveGMax_;
+  }
   switch (step.stepKind) {
     case SqpStepKind::kConstraint:
       ++acceptedByConstraint_;
@@ -279,9 +287,10 @@ void ClosedLoopMetrics::addSqpStep(const SqpStepSample& step) {
       std::max(longestViolationGrowthRun_, violationGrowthRun_);
   lastConstraintViolation_ = step.constraintViolation;
   constraintViolations_.push_back(step.constraintViolation);
-  if (step.swingNormalVelocityConstraintResidual.has_value())
+  if (step.swingNormalVelocityConstraintResidual.has_value()) {
     swingNormalVelocityConstraintResiduals_.push_back(
         *step.swingNormalVelocityConstraintResidual);
+  }
 }
 
 void ClosedLoopMetrics::setFall(double time, std::string reason) {

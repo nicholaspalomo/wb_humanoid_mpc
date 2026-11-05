@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopMetricsSchema.h"
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -38,6 +39,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+
+#include "humanoid_mpc_validation/io/JsonValue.h"
 
 namespace ocs2::humanoid::validation {
 namespace {
@@ -157,9 +160,8 @@ void collectUnknown(
   if (!path.empty()) {
     const absl::flat_hash_map<std::string, JsonFieldKind>::const_iterator
         field = known.find(path);
-    if (field != known.end())
-      return;  // a listed field, checked by kind; an open object's members are
-               // free
+    // A listed field, checked by kind; an open object's members are free.
+    if (field != known.end()) return;
   }
   if (!value.isObject()) {
     unknown.push_back(path.empty() ? "<document>" : path);
@@ -182,9 +184,10 @@ const std::vector<JsonSchemaField>& closedLoopMetricsSchema() {
 }
 
 absl::Status validateClosedLoopMetrics(const JsonValue& document) {
-  if (!document.isObject())
+  if (!document.isObject()) {
     return absl::InvalidArgumentError(
         "[validateClosedLoopMetrics] the document is not a JSON object");
+  }
   std::vector<std::string> problems;
   const JsonValue* absl_nullable schema = document.find("schema");
   if (schema == nullptr || !schema->isString() ||
@@ -204,8 +207,9 @@ absl::Status validateClosedLoopMetrics(const JsonValue& document) {
   }
   std::vector<std::string> unknown;
   collectUnknown(document, /*path=*/"", known, unknown);
-  for (const std::string& path : unknown)
+  for (const std::string& path : unknown) {
     problems.push_back(absl::StrCat(path, " is not in the schema"));
+  }
   if (problems.empty()) return absl::OkStatus();
   return absl::InvalidArgumentError(absl::StrCat(
       "[validateClosedLoopMetrics] ", absl::StrJoin(problems, "; ")));

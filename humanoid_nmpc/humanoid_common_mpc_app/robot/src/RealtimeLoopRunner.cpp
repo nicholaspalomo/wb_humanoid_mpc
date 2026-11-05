@@ -29,19 +29,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/robot/RealtimeLoopRunner.h"
 
-#include <pthread.h>
 #include <signal.h>
+#include <string.h>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstring>
 #include <exception>
 #include <string>
 #include <utility>
 
 #include "absl/base/nullability.h"
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "absl/synchronization/mutex.h"
 
+#include "robot_realtime/LoopTimingSnapshot.h"
 #include "robot_realtime/LoopTimingStats.h"
+#include "robot_realtime/PeriodicTimer.h"
+#include "robot_realtime/RealtimeThread.h"
 
 namespace ocs2::humanoid {
 

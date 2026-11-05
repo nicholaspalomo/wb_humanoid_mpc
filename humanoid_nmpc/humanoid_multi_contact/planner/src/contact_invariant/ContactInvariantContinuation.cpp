@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_multi_contact/planner/contact_invariant/ContactInvariantContinuation.h"
 
+#include <cstddef>
 #include <exception>
 #include <memory>
 #include <string>
@@ -43,10 +44,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
+#include "ocs2_sqp/SqpSettings.h"
 #include "ocs2_sqp/SqpSolver.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_multi_contact/planner/contact_invariant/AugmentedReferenceManager.h"
+#include "humanoid_multi_contact/planner/contact_invariant/ContactInvariantProblem.h"
+#include "humanoid_multi_contact/planner/contact_invariant/TrajectoryInitializer.h"
 
 namespace ocs2::humanoid::multi_contact {
 namespace {

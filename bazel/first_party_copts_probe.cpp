@@ -29,6 +29,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "bazel/first_party_copts_probe.h"
 
+// The probe compiles every third-party header family first-party code
+// includes, also the headers whose symbols it does not name (IWYU pragma:
+// keep).
+//
 // Pinocchio's forward declarations come first: they set the Boost MPL limits
 // the rest of Pinocchio needs.
 #include "pinocchio/fwd.hpp"
@@ -37,27 +41,29 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include "EGL/egl.h"
+#include "EGL/eglplatform.h"
 #include "Eigen/Core"
 #include "Eigen/Geometry"
 #include "GL/glew.h"
-#include "GLFW/glfw3.h"
+#include "GLFW/glfw3.h"  // IWYU pragma: keep
 #include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "cppad/cg.hpp"
-#include "dds/dds.h"
+#include "dds/dds.h"  // IWYU pragma: keep
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "hpipm_d_ocp_qp_ipm.h"  // NOLINT(build/include_subdir): HPIPM installs its headers in no directory
+#include "hpipm_d_ocp_qp_ipm.h"  // IWYU pragma: keep NOLINT(build/include_subdir): HPIPM installs its headers in no directory
 #include "httplib.h"  // NOLINT(build/include_subdir): cpp-httplib is a single header without a directory
 #include "mujoco/mujoco.h"
 #include "ocs2_core/Types.h"
 #include "pinocchio/algorithm/frames.hpp"
-#include "pinocchio/multibody/data.hpp"
-#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/multibody/data.hpp"  // IWYU pragma: keep
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/multibody/model.hpp"  // IWYU pragma: keep
 #include "turbojpeg.h"  // NOLINT(build/include_subdir): libjpeg-turbo installs turbojpeg.h without a directory
-#include "urdf_parser/urdf_parser.h"
+#include "urdf_parser/urdf_parser.h"  // IWYU pragma: keep
 
 #include "humanoid_mpc_msgs/robot_state_sample.nproto.h"
 #include "humanoid_mpc_msgs/robot_state_sample.pb.h"

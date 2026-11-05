@@ -32,10 +32,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/visualization/VisualizationModel.h"
 
+#include <cstddef>
+
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
-#include "pinocchio/multibody/model.hpp"
+#include "ocs2_core/Types.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "pinocchio/multibody/model.hpp"  // IWYU pragma: keep
 
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid::visualization {

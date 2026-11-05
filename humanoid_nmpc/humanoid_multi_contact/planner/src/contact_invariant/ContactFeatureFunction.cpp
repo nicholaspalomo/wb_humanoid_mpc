@@ -29,15 +29,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_multi_contact/planner/contact_invariant/ContactFeatureFunction.h"
 
+#include <cstddef>
 #include <exception>
 #include <memory>
-#include <string>
 #include <utility>
 
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/CppAdInterface.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
 
 #include "humanoid_multi_contact/planner/contact_invariant/ContactFeatureRows.h"
 
@@ -73,12 +76,12 @@ ContactFeatureFunction::Create(Function function,
                      stateDim, " and ", inputDim));
   }
   const int rows = numFeatureRows(numCandidates);
-  CppAdInterface::ad_function_t taped = [function, stateDim, inputDim](
-                                            const ad_vector_t& variables,
-                                            ad_vector_t& features) {
-    features = function(variables.head(stateDim),
-                        variables.segment(stateDim, inputDim));
-  };
+  CppAdInterface::ad_function_t taped =
+      [function = std::move(function), stateDim, inputDim](
+          const ad_vector_t& variables, ad_vector_t& features) {
+        features = function(variables.head(stateDim),
+                            variables.segment(stateDim, inputDim));
+      };
   // CppAD and the code generator throw on a library that cannot be built or
   // loaded; converted at once.
   try {  // NOLINT(exceptions): CppAD's code generation throws.

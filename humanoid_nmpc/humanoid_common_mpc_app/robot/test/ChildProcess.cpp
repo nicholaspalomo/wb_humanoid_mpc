@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <signal.h>
 #include <spawn.h>
+#include <stdlib.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -39,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/log/check.h"
+#include "absl/time/time.h"
 
 #include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/LoopbackNetwork.h"
 
@@ -49,8 +51,9 @@ ChildProcess::ChildProcess(const std::vector<std::string>& arguments) {
   name_ = arguments.front();
   std::vector<char* absl_nullable>
       argv;  // null-terminated, as posix_spawn() takes it
-  for (const std::string& argument : arguments)
+  for (const std::string& argument : arguments) {
     argv.push_back(const_cast<char*>(argument.c_str()));
+  }
   argv.push_back(nullptr);
   CHECK_EQ(::posix_spawn(&pid_, argv[0], /*file_actions=*/nullptr,
                          /*attrp=*/nullptr, argv.data(), environ),

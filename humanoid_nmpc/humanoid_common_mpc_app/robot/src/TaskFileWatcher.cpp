@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/TaskFileWatcher.h"
 
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 #include <system_error>

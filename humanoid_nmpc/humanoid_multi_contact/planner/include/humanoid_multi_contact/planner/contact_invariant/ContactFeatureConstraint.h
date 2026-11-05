@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "ocs2_core/PreComputation.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/constraint/StateInputConstraint.h"
 

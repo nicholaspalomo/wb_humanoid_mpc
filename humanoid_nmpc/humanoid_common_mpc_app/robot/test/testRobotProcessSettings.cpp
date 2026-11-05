@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <ios>
 #include <string>
 #include <vector>
 
@@ -41,10 +42,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/contact/ContactWrenchGate.h"
 #include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
 #include "humanoid_common_mpc_app/robot/TelemetrySinkRegistry.h"
-#include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_state_estimator/KalmanBaseEstimator.h"
 #include "humanoid_state_estimator/StateEstimatorRegistry.h"
 #include "mujoco_sim_interface/MujocoSimInterface.h"
@@ -337,8 +339,9 @@ TEST(RobotProcessSettings,
             settings->contactEstimator);
     EXPECT_TRUE(estimators.has(estimator) || estimator == "cheater_sim")
         << taskFile << ": contact_estimator " << estimator;
-    for (const std::string& sink : settings->telemetrySinks)
+    for (const std::string& sink : settings->telemetrySinks) {
       EXPECT_TRUE(sinks.has(sink)) << taskFile << ": telemetry sink " << sink;
+    }
     EXPECT_FALSE(settings->telemetrySinks.empty())
         << taskFile << ": every robot publishes its telemetry";
     EXPECT_TRUE(robot::mujoco_sim_interface::gantryHoldFromName(

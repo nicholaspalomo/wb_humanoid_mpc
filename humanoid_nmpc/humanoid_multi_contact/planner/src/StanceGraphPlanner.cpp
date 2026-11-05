@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -55,14 +56,29 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/PhysicalConstants.h"
 #include "pinocchio/algorithm/joint-configuration.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_multi_contact/collision/CollisionModel.h"
+#include "humanoid_multi_contact/contact_set/ContactSet.h"
 #include "humanoid_multi_contact/plan/PlanFile.h"
+#include "humanoid_multi_contact/plan/multi_contact_plan.nproto.h"
+#include "humanoid_multi_contact/planner/ContactSampler.h"
+#include "humanoid_multi_contact/planner/LazyWeightedAStar.h"
+#include "humanoid_multi_contact/planner/PlanTiming.h"
+#include "humanoid_multi_contact/planner/StanceInverseKinematics.h"
+#include "humanoid_multi_contact/planner/StanceMotion.h"
+#include "humanoid_multi_contact/scenarios/Scenario.h"
+#include "humanoid_multi_contact/scenarios/scenario.nproto.h"
 #include "humanoid_multi_contact/stability/JointLimits.h"
+#include "humanoid_multi_contact/stability/RobotStanceModel.h"
 #include "humanoid_multi_contact/stability/StabilityCertifier.h"
+#include "humanoid_multi_contact/stability/Stance.h"
 #include "humanoid_multi_contact/stability/StaticEquilibrium.h"
 #include "humanoid_multi_contact/stability/TorqueFeasibility.h"
+#include "humanoid_multi_contact/stability/certifier_report.nproto.h"
+#include "humanoid_multi_contact/terrain/PatchFrame.h"
+#include "humanoid_multi_contact/terrain/TerrainModel.h"
 
 namespace ocs2::humanoid::multi_contact {
 namespace {
@@ -676,10 +692,14 @@ void StanceGraphSearch::recordFailure(int parent,
   const StanceNode& entry = nodes_[node];
   const ContactSet& contactSet = context_.motion->model().contactSet();
   std::string change;
-  if (entry.change == Change::kAdd) {
-    change =
-        absl::StrCat("add ", describe(*placementOf(entry.stance, entry.changed),
-                                      contactSet, context_.loaded->terrain));
+  // An added contact is placed in the node's stance.
+  if (const std::optional<ContactPlacement> added =
+          placementOf(entry.stance, entry.changed);
+      entry.change == Change::kAdd && added.has_value()) {
+    change = absl::StrCat(
+        "add ", describe(*added, contactSet, context_.loaded->terrain));
+  } else if (entry.change == Change::kAdd) {
+    change = absl::StrCat("add ", contactSet.candidate(entry.changed).name);
   } else {
     change = absl::StrCat("remove ", contactSet.candidate(entry.changed).name);
   }
@@ -750,8 +770,9 @@ absl::StatusOr<std::optional<double>> StanceGraphSearch::validate(int node) {
       return std::optional<double>();
     }
     Eigen::Vector2d sumPosComRtWorldEwrtWorldXy = Eigen::Vector2d::Zero();
-    for (const Eigen::Vector2d& vertex : polygon)
+    for (const Eigen::Vector2d& vertex : polygon) {
       sumPosComRtWorldEwrtWorldXy += vertex;
+    }
     contacts.desPosComRtWorldEwrtWorldXy =
         sumPosComRtWorldEwrtWorldXy / static_cast<double>(polygon.size());
   }

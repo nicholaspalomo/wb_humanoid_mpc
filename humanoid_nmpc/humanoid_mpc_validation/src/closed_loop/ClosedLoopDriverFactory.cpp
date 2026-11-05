@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_mpc_validation/closed_loop/CentroidalClosedLoopDriver.h"
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopDriver.h"
+#include "humanoid_mpc_validation/closed_loop/RobotConfiguration.h"
 #include "humanoid_mpc_validation/closed_loop/WholeBodyClosedLoopDriver.h"
 
 namespace ocs2::humanoid::validation {

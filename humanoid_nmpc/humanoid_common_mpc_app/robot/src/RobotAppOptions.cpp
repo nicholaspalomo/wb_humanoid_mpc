@@ -46,11 +46,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_join.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
-#include "absl/strings/strip.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_rerun_viewer_proto/plot_config.nproto.h"
-#include "humanoid_rerun_viewer_proto/plot_config.nproto.pb.h"
+#include "humanoid_rerun_viewer_proto/plot_config.nproto.pb.h"  // IWYU pragma: keep
 #include "humanoid_rerun_viewer_proto/plot_config.pb.h"
 #include "mujoco_sim_interface/viewer/ViewerNames.h"
 #include "mujoco_sim_interface/viewer/ViewerSettings.h"
@@ -70,10 +69,11 @@ absl::StatusOr<std::vector<std::string>> viewerNamesFromPlotConfig(
   absl::StatusOr<rerun::PlotConfig> config =
       nproto::LoadTextprotoFile<rerun::PlotConfig,
                                 humanoid_rerun_viewer_proto::PlotConfig>(path);
-  if (!config.ok())
+  if (!config.ok()) {
     return absl::Status(
         config.status().code(),
         absl::StrCat("--plot_config=", path, ": ", config.status().message()));
+  }
   if (config->mujoco_viewer.empty()) {
     LOG(INFO) << "[robot] MuJoCo viewer: " << kDefaultViewerName
               << ", the default (--plot_config=" << path
@@ -120,9 +120,10 @@ webViewerOptionsFromFlags(const ViewerFlagValues& flags,
   }
   absl::StatusOr<std::vector<int>> cores =
       parseCoreList(flags.viewerCores, defaultViewerCores);
-  if (!cores.ok())
+  if (!cores.ok()) {
     return absl::InvalidArgumentError(absl::StrCat(
         "--viewer_cores=", flags.viewerCores, ": ", cores.status().message()));
+  }
   web.cores = *std::move(cores);
   if (flags.eglDeviceId.has_value()) {
     int device = -1;
@@ -165,9 +166,10 @@ absl::StatusOr<std::vector<std::string>> viewerNamesFromFlags(
   if (!absl::StripAsciiWhitespace(flags.viewer).empty()) {
     absl::StatusOr<std::vector<std::string>> names =
         robot::mujoco_sim_interface::parseViewerNames(flags.viewer);
-    if (!names.ok())
+    if (!names.ok()) {
       return absl::InvalidArgumentError(absl::StrCat(
           "--viewer=", flags.viewer, ": ", names.status().message()));
+    }
     return names;
   }
   const absl::string_view plotConfig =
@@ -195,8 +197,9 @@ std::optional<std::string> softwareRasterizerThreadsToSet(
     const char* absl_nullable current) {
   if (current != nullptr && *current != '\0') return std::nullopt;
   if (!absl::c_linear_search(viewer.names,
-                             robot::mujoco_sim_interface::kWebViewerName))
+                             robot::mujoco_sim_interface::kWebViewerName)) {
     return std::nullopt;
+  }
   return absl::StrCat(
       robot::mujoco_sim_interface::softwareRasterizerThreads(viewer.web));
 }

@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <ios>
 #include <iterator>
 #include <map>
 #include <memory>
@@ -44,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/Types.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
@@ -75,8 +77,9 @@ std::string runfilePath(absl::string_view relativePath) {
   roots.emplace_back(std::filesystem::current_path());
   for (const std::filesystem::path& root : roots) {
     const std::filesystem::path candidate = root / std::string(relativePath);
-    if (std::filesystem::exists(candidate))
+    if (std::filesystem::exists(candidate)) {
       return std::filesystem::absolute(candidate).string();
+    }
   }
   return std::string();
 }
@@ -153,8 +156,9 @@ TEST(CodegenDeterminism,
   std::map<std::string, std::string> second;
   std::thread([&pinocchioInterface, &modelSettings, &scratch, &second]() {
     std::vector<std::unique_ptr<char[]>> kept;
-    for (size_t size = 1; size <= 512; ++size)
+    for (size_t size = 1; size <= 512; ++size) {
       kept.push_back(std::make_unique<char[]>(size));
+    }
     second = generateFlowMapSources(pinocchioInterface, modelSettings,
                                     scratch / "second");
   }).join();
@@ -163,8 +167,9 @@ TEST(CodegenDeterminism,
   EXPECT_NE(first.find("wb_flow_map_forward_zero.c"), first.end())
       << "the zero-order model was not generated";
   size_t bytes = 0;
-  for (const std::pair<const std::string, std::string>& source : first)
+  for (const std::pair<const std::string, std::string>& source : first) {
     bytes += source.second.size();
+  }
   RecordProperty("source_files", static_cast<int>(first.size()));
   RecordProperty("source_bytes", static_cast<int>(bytes));
   ASSERT_EQ(first.size(), second.size());

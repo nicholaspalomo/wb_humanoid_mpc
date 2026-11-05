@@ -28,19 +28,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <ios>
 #include <iterator>
 #include <limits>
 #include <memory>
 #include <optional>
 #include <string>
 #include <system_error>
-#include <thread>
 #include <utility>
 #include <vector>
 
+#include "absl/base/log_severity.h"
 #include "absl/base/nullability.h"
 #include "absl/log/scoped_mock_log.h"
 #include "absl/status/status.h"
@@ -49,23 +52,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/time/time.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/initialization/DefaultInitializer.h"
+#include "ocs2_mpc/MPC_BASE.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 #include "ocs2_oc/synchronized_module/ReferenceManager.h"
 #include "ocs2_sqp/SqpMpc.h"
+#include "ocs2_sqp/SqpSettings.h"
 #include "ocs2_sqp/SqpSolver.h"
 
 #include "humanoid_centroidal_mpc/parameter_update/BasisInputsCostApplier.h"
 #include "humanoid_centroidal_mpc_test/CentroidalTestingModelInterface.h"
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
-#include "humanoid_common_mpc/common/Types.h"
-#include "humanoid_common_mpc/config/ConfigFiles.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/config/solver/SolverSettingsFromConfig.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
 #include "humanoid_common_mpc/parameter_update/HotFieldApplier.h"
 #include "humanoid_common_mpc/parameter_update/MpcParameterUpdaterModule.h"
 #include "humanoid_common_mpc/parameter_update/SqpSettingsApplier.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
+#include "support/TypedConfigFiles.h"
 
 namespace ocs2::humanoid {
 
@@ -130,9 +136,10 @@ class MpcParameterUpdaterModuleTest : public ::testing::Test {
     const vector_t state =
         testingModelInterface_.getMpcRobotModel().getNeutralState();
     // The file is polled once every hundred pre-solve hooks.
-    for (int i = 0; i < 150; ++i)
+    for (int i = 0; i < 150; ++i) {
       updater.preSolverRun(/*initTime=*/0.0, /*finalTime=*/0.01, state,
                            referenceManager);
+    }
   }
 
   CentroidalTestingModelInterface testingModelInterface_;

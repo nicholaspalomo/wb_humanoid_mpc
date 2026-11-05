@@ -31,7 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <memory>
+#include <numbers>
 #include <random>
 #include <string>
 #include <utility>
@@ -45,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/Types.h"
 #include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
@@ -52,6 +55,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/joint-configuration.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
@@ -91,8 +95,8 @@ namespace {
 constexpr scalar_t kFiniteDifferenceStep = 1.0e-6;
 constexpr scalar_t kFiniteDifferenceTolerance = 1.0e-8;
 /** Yaws beyond +-pi, which the quaternion stores modulo 2 pi. */
-constexpr std::array<scalar_t, 2> kLargeYaws = {3.0 * M_PI / 2.0,
-                                                -5.0 * M_PI / 2.0};
+constexpr std::array<scalar_t, 2> kLargeYaws = {3.0 * std::numbers::pi / 2.0,
+                                                -5.0 * std::numbers::pi / 2.0};
 
 /** The G1 whole-body model of the shipped task file, with the settings it
  * refers to and its Pinocchio model. */
@@ -139,12 +143,12 @@ scalar_t yawOfEulerZyx(const vector3_t& eulerzyxLocalRtWorld) {
       eulerzyxLocalRtWorld(0) -
           2.0 * std::atan(std::tan(eulerzyxLocalRtWorld(1) / 2.0) *
                           std::tan(eulerzyxLocalRtWorld(2) / 2.0)),
-      2.0 * M_PI);
+      2.0 * std::numbers::pi);
 }
 
 /** `angle` wrapped into [-pi, pi]. */
 scalar_t wrapped(scalar_t angle) {
-  return std::remainder(angle, 2.0 * M_PI);
+  return std::remainder(angle, 2.0 * std::numbers::pi);
 }
 
 /** The first state slot of the base linear velocity dp_W of the whole-body
@@ -362,8 +366,8 @@ TEST(
     EXPECT_NEAR(read(3), wrapped(eulerzyxBaseRtWorldYaw), 1.0e-12);
     EXPECT_NEAR(read(4), poseeulerzyxBaseRtWorld(4), 1.0e-12);
     EXPECT_NEAR(read(5), poseeulerzyxBaseRtWorld(5), 1.0e-12);
-    EXPECT_GT(read(3), -M_PI);
-    EXPECT_LE(read(3), M_PI);
+    EXPECT_GT(read(3), -std::numbers::pi);
+    EXPECT_LE(read(3), std::numbers::pi);
     EXPECT_EQ(model.getEulerzyxBaseRtWorld(written), vector3_t(read.tail<3>()));
     EXPECT_EQ(
         vector4_t(written.segment<4>(3)),
@@ -458,10 +462,12 @@ TEST(WBRobotModelBoundary, InterpolationSlerpsTheOrientationTheShorterWay) {
                 0.5 * time, 1.0e-12);
   }
   // At the knots and outside the times, the knots themselves.
-  for (const scalar_t time : {-1.0, 0.0})
+  for (const scalar_t time : {-1.0, 0.0}) {
     EXPECT_EQ(model.getDesiredState(targets, time), first) << "time " << time;
-  for (const scalar_t time : {1.0, 2.0})
+  }
+  for (const scalar_t time : {1.0, 2.0}) {
     EXPECT_EQ(model.getDesiredState(targets, time), second) << "time " << time;
+  }
 
   // Knots of the same rotation and opposite signs: no turn at all in between.
   vector_t antipodal = first;
@@ -588,8 +594,8 @@ TEST(WBRobotModelBoundary,
           model.getYawBaseRtWorld(state),
           model.getYawBaseRtWorld(stateWith(model, xi, vector3_t::Zero())),
           1.0e-12);
-      EXPECT_GT(model.getYawBaseRtWorld(state), -M_PI);
-      EXPECT_LE(model.getYawBaseRtWorld(state), M_PI);
+      EXPECT_GT(model.getYawBaseRtWorld(state), -std::numbers::pi);
+      EXPECT_LE(model.getYawBaseRtWorld(state), std::numbers::pi);
       EXPECT_LT(
           rotationDistance(
               quaternionFromEulerZyx(model.getEulerzyxBaseRtWorld(state)), xi),
@@ -668,8 +674,9 @@ TEST(WBRobotModelBoundary, TheBaseAngularVelocityIsTheStoredBodyRate) {
                                (2.0 * kFiniteDifferenceStep);
       const Eigen::Index row = j - angularVelocityStart(model);
       vector3_t expected = vector3_t::Zero();
-      if (row >= 0 && row < 3)
+      if (row >= 0 && row < 3) {
         expected = jacobian.angularVelocitySlots.col(row);
+      }
       EXPECT_LT((column - expected).cwiseAbs().maxCoeff(),
                 kFiniteDifferenceTolerance)
           << "slot " << j;
@@ -764,7 +771,8 @@ TEST(WBRobotModelBoundary, TheHeadingIsRegularAtAPitchOf90Degrees) {
   // yaw is not defined; the same attitude with the yaw and the roll moved
   // together.
   for (const vector3_t& eulerzyxBaseRtWorld :
-       {vector3_t(0.3, M_PI / 2.0, 0.2), vector3_t(0.5, M_PI / 2.0, 0.4)}) {
+       {vector3_t(0.3, std::numbers::pi / 2.0, 0.2),
+        vector3_t(0.5, std::numbers::pi / 2.0, 0.4)}) {
     SCOPED_TRACE(eulerzyxBaseRtWorld.transpose());
     vector_t state = model.getNeutralState();
     model.setEulerzyxBaseRtWorld(state, eulerzyxBaseRtWorld);

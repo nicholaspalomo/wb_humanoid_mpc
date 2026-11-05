@@ -29,13 +29,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <array>
 #include <cmath>
-#include <string>
+#include <cstddef>
 #include <vector>
 
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc_app/robot/JointNamesByIndex.h"
 #include "humanoid_common_mpc_app/robot/TelemetrySampler.h"
+#include "humanoid_mpc_msgs/robot_state_sample.nproto.h"
 #include "humanoid_mpc_msgs/robot_state_sample.nproto.pb.h"
 #include "humanoid_mpc_msgs/robot_state_sample.pb.h"
 #include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/RobotTestSupport.h"
@@ -99,8 +103,9 @@ TEST_F(TelemetrySamplerTest, TakesOneSampleEveryDecimationCycles) {
   size_t taken = 0;
   for (int cycle = 0; cycle < 23; ++cycle) {
     if (sampler.sample(state_, action_, "WB_MPC", flags_,
-                       measForceFeetEwrtWorld_))
+                       measForceFeetEwrtWorld_)) {
       ++taken;
+    }
   }
   EXPECT_EQ(taken, 4u);
   EXPECT_EQ(sampler.samplesTaken(), 4u);
@@ -190,8 +195,9 @@ TEST_F(TelemetrySamplerTest, AJointWithoutAnActionHasANanPositionTarget) {
 
 TEST_F(TelemetrySamplerTest, AFullRingDropsAndCountsTheSamples) {
   TelemetrySampler sampler(config(/*decimation=*/1, /*capacity=*/3));
-  for (int cycle = 0; cycle < 5; ++cycle)
+  for (int cycle = 0; cycle < 5; ++cycle) {
     sampler.sample(state_, action_, "WB_MPC", flags_, measForceFeetEwrtWorld_);
+  }
   EXPECT_EQ(sampler.dropped(), 2u);
   std::vector<double> times;
   EXPECT_EQ(sampler.drain([&](const msgs::RobotStateSample& sample) {

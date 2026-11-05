@@ -34,8 +34,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/log/absl_check.h"
 #include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/cost/StateCost.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 
 #include "humanoid_multi_contact/planner/contact_invariant/AugmentedPreComputation.h"
+#include "humanoid_multi_contact/planner/contact_invariant/ContactInvariantLayout.h"
 
 namespace ocs2::humanoid::multi_contact {
 

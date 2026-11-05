@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_wb_mpc/constraint/EndEffectorDynamicsAccelerationsConstraint.h"
 
+#include <cstddef>
 #include <memory>
 #include <utility>
 
@@ -40,8 +41,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/constraint/ConstraintOrder.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
 
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_wb_mpc/end_effector/EndEffectorDynamics.h"
 
 namespace ocs2::humanoid {
 

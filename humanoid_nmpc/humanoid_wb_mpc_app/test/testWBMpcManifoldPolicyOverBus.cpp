@@ -70,13 +70,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/reference/ModeSchedule.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_mpc/MPC_MRT_Interface.h"
+#include "ocs2_mpc/MRT_BASE.h"
 #include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 #include "ocs2_sqp/SqpMpc.h"
 #include "ocs2_sqp/SqpSettings.h"
 
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StateManifoldFactory.h"
-#include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
@@ -190,8 +191,9 @@ std::optional<scalar_t> firstContactEventIn(const ModeSchedule& schedule,
   for (size_t event = 0; event < schedule.eventTimes.size(); ++event) {
     const scalar_t time = schedule.eventTimes[event];
     if (time > startTime && time < finalTime &&
-        schedule.modeSequence[event] != schedule.modeSequence[event + 1])
+        schedule.modeSequence[event] != schedule.modeSequence[event + 1]) {
       return time;
+    }
   }
   return std::nullopt;
 }
@@ -327,8 +329,9 @@ TEST(WBMpcManifoldPolicyOverBus,
       });
   mrt.setCurrentObservation(observation);
   mrt.resetMpcNode(resetTargetsOf(*inProcess.interface, observation));
-  for (uint64_t solve = 0; solve < served.solveAttempts; ++solve)
+  for (uint64_t solve = 0; solve < served.solveAttempts; ++solve) {
     ASSERT_TRUE(mrt.advanceMpc().ok()) << "solve " << solve;
+  }
   ASSERT_TRUE(mrt.updatePolicy());
   const PrimalSolution& solved = mrt.getPolicy();
 

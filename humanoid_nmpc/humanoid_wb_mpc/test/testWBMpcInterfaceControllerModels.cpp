@@ -34,8 +34,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
@@ -44,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_config/xyz.nproto.h"
 #include "humanoid_wb_mpc/WBMpcInterface.h"
+#include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
 
 /*
  * WBMpcInterface::CreateControllerModels(): what the robot process of a remote

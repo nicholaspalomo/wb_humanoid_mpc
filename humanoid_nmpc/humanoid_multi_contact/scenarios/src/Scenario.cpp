@@ -30,7 +30,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_multi_contact/scenarios/Scenario.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
@@ -47,9 +49,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Dimensions.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
-#include "humanoid_multi_contact/scenarios/scenario.nproto.pb.h"
+#include "humanoid_multi_contact/collision/CollisionModel.h"
+#include "humanoid_multi_contact/collision/collision_model.nproto.h"
+#include "humanoid_multi_contact/contact_set/ContactSet.h"
+#include "humanoid_multi_contact/contact_set/contact_set.nproto.h"
+#include "humanoid_multi_contact/scenarios/scenario.nproto.h"
+#include "humanoid_multi_contact/scenarios/scenario.nproto.pb.h"  // IWYU pragma: keep
 #include "humanoid_multi_contact/scenarios/scenario.pb.h"
+#include "humanoid_multi_contact/stability/JointLimits.h"
+#include "humanoid_multi_contact/stability/RobotStanceModel.h"
+#include "humanoid_multi_contact/stability/StabilityCertifier.h"
 #include "humanoid_multi_contact/stability/StaticEquilibrium.h"
+#include "humanoid_multi_contact/terrain/TerrainModel.h"
 #include "nproto/Textproto.h"
 #include "robot_core/ResourcePaths.h"
 

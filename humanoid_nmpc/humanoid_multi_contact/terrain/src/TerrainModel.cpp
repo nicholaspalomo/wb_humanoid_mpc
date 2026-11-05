@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "Eigen/Geometry"
 #include "absl/base/nullability.h"
+#include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
@@ -45,6 +46,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Dimensions.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_multi_contact/terrain/PatchFrame.h"
+#include "humanoid_multi_contact/terrain/TerrainPrimitives.h"
+#include "humanoid_multi_contact/terrain/terrain_scene.nproto.h"
 
 namespace ocs2::humanoid::multi_contact {
 namespace {

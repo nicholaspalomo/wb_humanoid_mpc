@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <exception>
 #include <filesystem>
 #include <memory>
@@ -50,18 +51,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // Pinocchio forward declarations must be included first
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
-#include "ocs2_core/misc/Display.h"
-#include "ocs2_core/penalties/Penalties.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
+#include "ocs2_core/cost/StateCost.h"
+#include "ocs2_core/cost/StateInputCost.h"
+#include "ocs2_core/dynamics/SystemDynamicsBase.h"
+#include "ocs2_core/penalties/penalties/QuadraticPenalty.h"
 #include "ocs2_core/soft_constraint/StateInputSoftConstraint.h"
-#include "ocs2_oc/synchronized_module/SolverSynchronizedModule.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
+#include "ocs2_oc/rollout/TimeTriggeredRollout.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/HumanoidCostConstraintFactory.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ContactInputParameterization.h"
 #include "humanoid_common_mpc/common/ContactTermNames.h"
 #include "humanoid_common_mpc/common/CostTermNames.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
 #include "humanoid_common_mpc/common/StateManifoldFactory.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/costs/JointMimicFromConfig.h"
 #include "humanoid_common_mpc/config/model/MpcFormulationFromConfig.h"
@@ -69,9 +80,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/config/swing/SwingTrajectoryFromConfig.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
 #include "humanoid_common_mpc/config/weights/StateInputWeightsFromConfig.h"
+#include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/initialization/WeightCompInitializer.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
+#include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "humanoid_mpc_config/joint_weights.nproto.h"
 #include "humanoid_mpc_config/mpc_settings_config.nproto.pb.h"
 #include "humanoid_mpc_config/mpc_settings_config.pb.h"
@@ -83,6 +97,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_wb_mpc/WBMpcInterface.h"
 #include "humanoid_wb_mpc/WBMpcPreComputation.h"
+#include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
 #include "humanoid_wb_mpc/config/costs/EndEffectorDynamicsWeightsFromConfig.h"
 #include "humanoid_wb_mpc/constraint/JointMimicDynamicsConstraint.h"
 #include "humanoid_wb_mpc/constraint/SwingLegVerticalConstraintCppAd.h"
@@ -91,6 +106,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_wb_mpc/cost/EndEffectorDynamicsFootCost.h"
 #include "humanoid_wb_mpc/cost/JointTorqueCostCppAd.h"
 #include "humanoid_wb_mpc/dynamics/WBAccelDynamicsAD.h"
+#include "humanoid_wb_mpc/end_effector/EndEffectorDynamics.h"
 #include "humanoid_wb_mpc/end_effector/PinocchioEndEffectorDynamicsCppAd.h"
 #include "nproto/Textproto.h"
 

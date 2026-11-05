@@ -30,7 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_multi_contact/stability/StaticEquilibrium.h"
 
 #include <cmath>
-#include <limits>
+#include <cstddef>
 #include <numbers>
 #include <optional>
 #include <utility>
@@ -47,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_multi_contact/stability/ConvexPolygon.h"
 #include "humanoid_multi_contact/stability/LinearProgram.h"
+#include "humanoid_multi_contact/stability/Stance.h"
 
 namespace ocs2::humanoid::multi_contact {
 namespace {
@@ -282,9 +283,10 @@ absl::StatusOr<std::vector<Eigen::Vector2d>> StaticEquilibrium::refinedHull(
         grew = true;
       }
     }
-    if (grew)
+    if (grew) {
       hullPosComRtWorldEwrtWorldXySamples =
           convexHull(supportPosComRtWorldEwrtWorldXySamples, kHullTolerance);
+    }
   }
   return hullPosComRtWorldEwrtWorldXySamples;
 }

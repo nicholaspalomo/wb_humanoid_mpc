@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/functional/function_ref.h"
 #include "absl/strings/string_view.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_mpc_msgs/robot_state_sample.nproto.h"
 #include "robot_model/RobotJointAction.h"

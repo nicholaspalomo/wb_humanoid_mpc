@@ -29,6 +29,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/robot/FsmStateMailbox.h"
 
+#include <cstdint>
+
+#include "absl/strings/string_view.h"
+
+#include "humanoid_mpc_msgs/fsm_state.nproto.h"
+
 namespace ocs2::humanoid {
 
 FsmStateMailbox::FsmStateMailbox() = default;

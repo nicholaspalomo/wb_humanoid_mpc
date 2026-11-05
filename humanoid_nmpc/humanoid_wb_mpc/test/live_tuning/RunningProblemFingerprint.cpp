@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <utility>
@@ -41,24 +42,37 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/ComputationRequest.h"
 #include "ocs2_core/PreComputation.h"
 #include "ocs2_core/Types.h"
-#include "ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
+#include "ocs2_core/constraint/StateInputConstraintCollection.h"
+#include "ocs2_core/cost/StateCost.h"
+#include "ocs2_core/cost/StateCostCollection.h"
+#include "ocs2_core/cost/StateInputCost.h"
+#include "ocs2_core/misc/Collection.h"
+#include "ocs2_core/penalties/MultidimensionalPenalty.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_core/soft_constraint/StateInputSoftConstraint.h"
 #include "ocs2_core/soft_constraint/StateSoftConstraint.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 #include "ocs2_sqp/SqpSettings.h"
 #include "ocs2_sqp/SqpSolver.h"
-#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/multibody/model.hpp"  // NOLINT(misc-include-cleaner): defines ModelTpl
 
 #include "humanoid_common_mpc/common/CostTermNames.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/constraint/FootCollisionCbfConstraint.h"
 #include "humanoid_common_mpc/parameter_update/OcpTermUpdates.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "humanoid_nmpc/humanoid_wb_mpc/test/live_tuning/WholeBodyLiveTuningFixture.h"
+#include "humanoid_nmpc/humanoid_wb_mpc/test/live_tuning/WholeBodySolverStack.h"
+#include "humanoid_wb_mpc/WBMpcInterface.h"
 #include "humanoid_wb_mpc/WBMpcPreComputation.h"
+#include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
+#include "humanoid_wb_mpc/constraint/EndEffectorDynamicsLinearAccConstraint.h"
 #include "humanoid_wb_mpc/cost/EndEffectorDynamicsFootCost.h"
 #include "humanoid_wb_mpc/cost/JointTorqueCostCppAd.h"
 
@@ -108,8 +122,9 @@ template <typename Term>
 std::vector<std::string> sortedTermNames(const Collection<Term>& collection) {
   std::vector<std::string> names;
   for (const std::pair<const std::string, size_t>& entry :
-       collection.getTermNameMap())
+       collection.getTermNameMap()) {
     names.push_back(entry.first);
+  }
   std::sort(names.begin(), names.end());
   return names;
 }
@@ -144,8 +159,9 @@ EvaluationPoint pointInsideTheJointLimitBarrier(WBMpcInterface& interface) {
 std::optional<EvaluationPoint> pointInsideTheFootCollisionCbfBarrier(
     WBMpcInterface& interface, OptimalControlProblem& problem) {
   size_t index = 0;
-  if (!problem.softConstraintPtr->getTermIndex(kFootCollisionCbfTerm, index))
+  if (!problem.softConstraintPtr->getTermIndex(kFootCollisionCbfTerm, index)) {
     return std::nullopt;
+  }
   StateInputSoftConstraint* absl_nullable soft =
       dynamic_cast<StateInputSoftConstraint*>(
           &problem.softConstraintPtr->get(kFootCollisionCbfTerm));
@@ -176,8 +192,9 @@ std::optional<EvaluationPoint> pointInsideTheFootCollisionCbfBarrier(
     if (linear.f.size() == 0) return std::nullopt;
     Eigen::Index row = 0;
     const scalar_t smallestMargin = linear.f.minCoeff(&row) / cbf->getGamma();
-    if (std::abs(smallestMargin - kCbfBandMargin) <= kCbfBandMarginTolerance)
+    if (std::abs(smallestMargin - kCbfBandMargin) <= kCbfBandMarginTolerance) {
       break;
+    }
     const vector_t gradient =
         linear.dfdx.row(row).segment(jointStart, jointDim).transpose() /
         cbf->getGamma();

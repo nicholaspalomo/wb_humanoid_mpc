@@ -38,22 +38,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <optional>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "Eigen/Geometry"
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/control/ManifoldLinearController.h"
 #include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/StateManifoldFactory.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/mrt/ControllerEvent.h"
 #include "humanoid_common_mpc/mrt/ControllerEventSink.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
@@ -128,9 +131,10 @@ void runModes(WBMpcMrtJointController& controller,
       state.setTime(time);
       controller.computeJointControlAction(time, state, action);
     }
-    if (allocationsPerMode != nullptr)
+    if (allocationsPerMode != nullptr) {
       allocationsPerMode->push_back(
           robot::realtime::heapAllocationCountOnThisThread() - before);
+    }
   }
 }
 
@@ -282,8 +286,9 @@ TEST(WBMpcMrtJointControllerAllocations,
   const Eigen::Index ndx = static_cast<Eigen::Index>(manifold->getTangentDim());
   vector_t start = link->lastObservation().state;
   vector_t end = start;
-  for (Eigen::Index i = 0; i < end.size(); ++i)
+  for (Eigen::Index i = 0; i < end.size(); ++i) {
     end(i) += 0.01 * static_cast<scalar_t>(i % 7);
+  }
   manifold->project(end);
   vector_t input = vector_t::Zero(nu);
   input(2) = 150.0;  // [N] on the left foot

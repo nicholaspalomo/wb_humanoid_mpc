@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/time/time.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_mpc/MPC_BASE.h"
 
 #include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"

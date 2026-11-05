@@ -30,10 +30,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <ios>
 #include <memory>
 #include <optional>
 #include <string>
-#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -46,7 +46,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/config/ConfigFiles.h"
-#include "humanoid_common_mpc/mrt/JointPdGains.h"
 #include "humanoid_common_mpc_app/robot/ConfigFileStore.h"
 #include "humanoid_common_mpc_app/robot/RobotConfigDirectory.h"
 #include "humanoid_common_mpc_app/robot/RobotConfigurationCheck.h"
@@ -55,9 +54,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_msgs/config_file_kind.nproto.h"
 #include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/RobotTestSupport.h"
 #include "robot_model/AlwaysInContactEstimator.h"
-#include "robot_model/ContactEstimator.h"
 #include "robot_model/ContactEstimatorRegistry.h"
-#include "robot_model/RobotState.h"
 
 /*
  * checkRobotConfiguration(), the checks start-up and a save share: a

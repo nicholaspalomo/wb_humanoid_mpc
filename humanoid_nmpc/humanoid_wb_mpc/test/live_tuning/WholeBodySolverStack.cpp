@@ -33,25 +33,31 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <limits>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
-#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_mpc/MPC_MRT_Interface.h"
 #include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
+#include "ocs2_sqp/SqpMpc.h"
 
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
-#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
+#include "humanoid_common_mpc/parameter_update/MpcParameterUpdaterModule.h"
 #include "humanoid_mpc_config/mpc_parameter_update.nproto.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_nmpc/humanoid_wb_mpc/test/live_tuning/WholeBodyLiveTuningFixture.h"
+#include "humanoid_wb_mpc/WBMpcInterface.h"
 #include "humanoid_wb_mpc/mrt/WBMpcParameterUpdater.h"
 #include "humanoid_wb_mpc/mrt/WBMpcResetTarget.h"
 
@@ -192,8 +198,9 @@ std::vector<PrimalSolution> WholeBodySolverStack::solve(size_t count) {
 
 scalar_t policyDifference(const std::vector<PrimalSolution>& expected,
                           const std::vector<PrimalSolution>& actual) {
-  if (expected.size() != actual.size())
+  if (expected.size() != actual.size()) {
     return std::numeric_limits<scalar_t>::infinity();
+  }
   scalar_t largest = 0.0;
   for (size_t i = 0; i < expected.size(); ++i) {
     const PrimalSolution& a = expected[i];
@@ -205,10 +212,12 @@ scalar_t policyDifference(const std::vector<PrimalSolution>& expected,
         a.modeSchedule_.modeSequence != b.modeSchedule_.modeSequence) {
       return std::numeric_limits<scalar_t>::infinity();
     }
-    for (size_t k = 0; k < a.stateTrajectory_.size(); ++k)
+    for (size_t k = 0; k < a.stateTrajectory_.size(); ++k) {
       appendDifference(a.stateTrajectory_[k], b.stateTrajectory_[k], largest);
-    for (size_t k = 0; k < a.inputTrajectory_.size(); ++k)
+    }
+    for (size_t k = 0; k < a.inputTrajectory_.size(); ++k) {
       appendDifference(a.inputTrajectory_[k], b.inputTrajectory_[k], largest);
+    }
   }
   return largest;
 }

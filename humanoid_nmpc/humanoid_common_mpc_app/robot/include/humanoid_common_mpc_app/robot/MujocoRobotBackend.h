@@ -38,9 +38,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc_app/robot/RobotBackend.h"
 #include "humanoid_common_mpc_app/robot/RobotBackendRegistry.h"
 #include "mujoco_sim_interface/MujocoSimInterface.h"
+#include "robot_model/ContactEstimatorRegistry.h"
+#include "robot_model/RobotHWInterfaceBase.h"
 
 namespace ocs2::humanoid {
 

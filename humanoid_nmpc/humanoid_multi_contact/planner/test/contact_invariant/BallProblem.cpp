@@ -35,10 +35,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "Eigen/Core"
 #include "absl/status/statusor.h"
+#include "ocs2_core/Dimensions.h"
 #include "ocs2_core/PhysicalConstants.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/Types.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
+#include "humanoid_multi_contact/planner/contact_invariant/ContactFeatureFunction.h"
 #include "humanoid_multi_contact/planner/contact_invariant/ContactFeatureRows.h"
+#include "humanoid_multi_contact/planner/contact_invariant/ContactInvariantLayout.h"
+#include "humanoid_multi_contact/terrain/TerrainModel.h"
 #include "humanoid_multi_contact/terrain/terrain_scene.nproto.h"
 
 namespace ocs2::humanoid::multi_contact {

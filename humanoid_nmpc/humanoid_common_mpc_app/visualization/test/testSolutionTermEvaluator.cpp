@@ -28,6 +28,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <cmath>
+#include <cstddef>
 #include <memory>
 #include <random>
 #include <string>
@@ -39,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/ComputationRequest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/constraint/LinearStateConstraint.h"
 #include "ocs2_core/constraint/LinearStateInputConstraint.h"
 #include "ocs2_core/cost/QuadraticStateCost.h"
@@ -76,8 +78,9 @@ matrix_t randomSpd(std::mt19937& generator, int size) {
   std::normal_distribution<scalar_t> normal;
   matrix_t a(size, size);
   for (int row = 0; row < size; ++row) {
-    for (int column = 0; column < size; ++column)
+    for (int column = 0; column < size; ++column) {
       a(row, column) = normal(generator);
+    }
   }
   return a * a.transpose() + matrix_t::Identity(size, size);
 }
@@ -93,8 +96,9 @@ matrix_t randomMatrix(std::mt19937& generator, int rows, int columns) {
   std::normal_distribution<scalar_t> normal;
   matrix_t m(rows, columns);
   for (int row = 0; row < rows; ++row) {
-    for (int column = 0; column < columns; ++column)
+    for (int column = 0; column < columns; ++column) {
       m(row, column) = normal(generator);
+    }
   }
   return m;
 }

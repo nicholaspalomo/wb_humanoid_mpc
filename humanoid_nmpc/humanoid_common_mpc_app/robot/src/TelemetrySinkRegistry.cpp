@@ -35,9 +35,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 
 #include "humanoid_common_mpc_app/robot/BusTelemetrySink.h"
+#include "humanoid_common_mpc_app/robot/TelemetrySink.h"
 
 namespace ocs2::humanoid {
 

@@ -52,7 +52,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact/ContactWrenchGate.h"
 #include "humanoid_common_mpc_app/robot/FsmCommand.h"
 #include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
-#include "humanoid_mpc_config/joint_pd_gains_file.pb.h"
 #include "humanoid_mpc_config/joint_pd_gains_update.pb.h"
 #include "humanoid_mpc_config/mpc_parameter_update.pb.h"
 #include "humanoid_mpc_msgs/dodgeball_throw.pb.h"

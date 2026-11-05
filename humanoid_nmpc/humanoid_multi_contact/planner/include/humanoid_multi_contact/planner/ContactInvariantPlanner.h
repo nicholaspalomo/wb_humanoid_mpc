@@ -42,7 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_multi_contact/planner/contact_invariant/ContactInvariantContinuation.h"
 #include "humanoid_multi_contact/planner/contact_invariant/ContactInvariantProblem.h"
 #include "humanoid_multi_contact/planner/contact_invariant/HardContactRefinement.h"
-#include "humanoid_multi_contact/planner/contact_invariant/RobotContactFeatures.h"
+#include "humanoid_multi_contact/planner/contact_invariant/PlanTrajectory.h"
 #include "humanoid_multi_contact/planner/contact_invariant/StanceThresholding.h"
 #include "humanoid_multi_contact/scenarios/Scenario.h"
 

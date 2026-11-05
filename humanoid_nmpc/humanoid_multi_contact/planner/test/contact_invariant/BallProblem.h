@@ -34,9 +34,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/PreComputation.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/cost/StateCost.h"
 #include "ocs2_core/dynamics/SystemDynamicsBase.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
 #include "humanoid_multi_contact/planner/contact_invariant/ContactFeatureFunction.h"

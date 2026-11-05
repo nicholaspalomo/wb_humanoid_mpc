@@ -46,9 +46,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_oc/oc_data/StateTrajectoryInterpolation.h"
 
+#include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_mpc_config/xyz.nproto.h"
+#include "humanoid_multi_contact/contact_set/ContactSet.h"
+#include "humanoid_multi_contact/plan/multi_contact_plan.nproto.h"
+#include "humanoid_multi_contact/planner/contact_invariant/PlanTrajectory.h"
+#include "humanoid_multi_contact/scenarios/Scenario.h"
+#include "humanoid_multi_contact/scenarios/scenario.nproto.h"
+#include "humanoid_multi_contact/stability/RobotStanceModel.h"
 #include "robot_core/ResourcePaths.h"
 
 namespace ocs2::humanoid::multi_contact {

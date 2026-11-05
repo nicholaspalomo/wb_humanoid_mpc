@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include "absl/base/nullability.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
 #include "ocs2_core/dynamics/SystemDynamicsBaseAD.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 

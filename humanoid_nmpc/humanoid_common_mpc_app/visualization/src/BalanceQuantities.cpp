@@ -30,9 +30,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/visualization/BalanceQuantities.h"
 
 #include <cmath>
+#include <cstddef>
 #include <optional>
 
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
+
+#include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid::visualization {
 

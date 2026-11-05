@@ -34,7 +34,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <memory>
 #include <string>
-#include <vector>
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"

@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <filesystem>
 #include <memory>
 #include <numbers>
@@ -48,13 +49,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_format.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
 #include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "ocs2_robotic_tools/common/RotationTransforms.h"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/joint-configuration.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/spatial/fwd.hpp"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
@@ -323,8 +329,9 @@ StancePoint stancePoint(const StanceFootModels& models,
   StancePoint point{.name = name,
                     .state = models.interface->getInitialState(),
                     .input = vector_t::Zero(robotModel.getInputDim())};
-  for (Eigen::Index j = 0; j < joints; ++j)
+  for (Eigen::Index j = 0; j < joints; ++j) {
     point.state(7 + j) += 0.1 * unit(generator);
+  }
   // The foot's attitude relative to the base, at a base of identity attitude.
   vector_t q = point.state.head(nq);
   q.segment<4>(3) = Eigen::Quaterniond::Identity().coeffs();
@@ -333,9 +340,10 @@ StancePoint stancePoint(const StanceFootModels& models,
   const Eigen::Quaterniond quatBaseRtWorld(
       matrix3_t(rotmatFootRtWorld * rotmatFootRtBase.transpose()));
   point.state.segment<4>(3) = quatBaseRtWorld.normalized().coeffs();
-  for (Eigen::Index i = 0; i < nv; ++i)
+  for (Eigen::Index i = 0; i < nv; ++i) {
     point.state(nq + i) =
         randomRateBound * unit(generator) * (i < 3 ? 1.0 / 3.0 : 1.0);
+  }
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
     const Eigen::Index start = static_cast<Eigen::Index>(6 * foot);
     point.input.segment<3>(start) =
@@ -344,8 +352,9 @@ StancePoint stancePoint(const StanceFootModels& models,
     point.input.segment<3>(start + 3) =
         5.0 * vector3_t(unit(generator), unit(generator), unit(generator));
   }
-  for (Eigen::Index j = 0; j < joints; ++j)
+  for (Eigen::Index j = 0; j < joints; ++j) {
     point.input(6 * kNumContacts + j) = 5.0 * unit(generator);
+  }
   return point;
 }
 

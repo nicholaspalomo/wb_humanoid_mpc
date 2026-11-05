@@ -49,26 +49,47 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_join.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_core/PhysicalConstants.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/manifold/StateManifold.h"
+#include "ocs2_core/penalties/penalties/RelaxedBarrierPenalty.h"
 #include "ocs2_core/soft_constraint/StateInputSoftConstraint.h"
 #include "ocs2_core/soft_constraint/StateSoftConstraint.h"
+#include "ocs2_oc/oc_data/PerformanceIndex.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 #include "ocs2_oc/oc_data/StateTrajectoryInterpolation.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "ocs2_sqp/SqpSettings.h"
 #include "ocs2_sqp/SqpSolver.h"
+#include "pinocchio/multibody/fwd.hpp"
 
+#include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/multi_contact/MultiContactPlanSource.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_multi_contact/collision/CollisionModel.h"
+#include "humanoid_multi_contact/contact_set/ContactSet.h"
 #include "humanoid_multi_contact/plan/PlanFile.h"
+#include "humanoid_multi_contact/plan/multi_contact_plan.nproto.h"
+#include "humanoid_multi_contact/planner/contact_invariant/ContactFeatureFunction.h"
 #include "humanoid_multi_contact/planner/contact_invariant/LandingAlignmentCost.h"
 #include "humanoid_multi_contact/planner/contact_invariant/LibraryName.h"
 #include "humanoid_multi_contact/planner/contact_invariant/LiftOffUnloadingCost.h"
+#include "humanoid_multi_contact/planner/contact_invariant/PlanTrajectory.h"
 #include "humanoid_multi_contact/planner/contact_invariant/QuasiStaticTorqueConstraint.h"
 #include "humanoid_multi_contact/planner/contact_invariant/RobotContactFeatures.h"
+#include "humanoid_multi_contact/planner/contact_invariant/SupportPolygonConstraint.h"
 #include "humanoid_multi_contact/planner/contact_invariant/TerrainClearanceConstraint.h"
 #include "humanoid_multi_contact/planner/contact_invariant/TrajectoryInitializer.h"
+#include "humanoid_multi_contact/scenarios/Scenario.h"
 #include "humanoid_multi_contact/stability/JointLimits.h"
+#include "humanoid_multi_contact/stability/RobotStanceModel.h"
+#include "humanoid_multi_contact/stability/StabilityCertifier.h"
 #include "humanoid_multi_contact/stability/StaticEquilibrium.h"
+#include "humanoid_multi_contact/stability/certifier_report.nproto.h"
 
 namespace ocs2::humanoid::multi_contact {
 namespace {
@@ -544,6 +565,13 @@ absl::StatusOr<RefinementResult> HardContactRefinement::refine(
     seconds += result.seconds;
     iterations += result.sqpIterations;
     result.polygonUpdates = update;
+    // solve() certifies the plan, which sets its report.
+    if (!result.plan.report.has_value()) {
+      return absl::InternalError(absl::StrFormat(
+          "contact_invariant: solve 3 of '%s' gave a plan without a certifier "
+          "report",
+          loaded_.scenario.name));
+    }
     LOG(INFO) << absl::StrFormat(
         "contact_invariant: solve 3 of '%s' (polygons %d): %d iterations in "
         "%.1f s, %d of %d knots fail the certifier",

@@ -30,10 +30,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/OperatorCommandMailbox.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <cstddef>
 #include <filesystem>
 #include <limits>
-#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -41,17 +42,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/container/flat_hash_map.h"
 #include "absl/log/log.h"
 #include "absl/memory/memory.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/synchronization/mutex.h"
+#include "google/protobuf/map.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/OperatorPayloadChecks.h"
 #include "humanoid_common_mpc/config/robot/ControllerSideSettingsFromConfig.h"
+#include "humanoid_common_mpc/contact/ContactWrenchGate.h"
+#include "humanoid_common_mpc_app/robot/FsmCommand.h"
 #include "humanoid_common_mpc_app/robot/config/robot/DodgeballThrowFromMessage.h"
 #include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
 #include "humanoid_mpc_config/joint_pd_gains_file.nproto.pb.h"
-#include "humanoid_mpc_config/joint_pd_gains_file.pb.h"
+#include "humanoid_mpc_config/joint_pd_gains_update.pb.h"
 #include "humanoid_mpc_config/mpc_parameter_update.nproto.h"
 #include "humanoid_mpc_config/mpc_parameter_update.nproto.pb.h"
 #include "humanoid_mpc_config/mpc_parameter_update.pb.h"
@@ -59,7 +67,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_msgs/dodgeball_throw.nproto.h"
 #include "humanoid_mpc_msgs/dodgeball_throw.nproto.pb.h"
 #include "humanoid_mpc_msgs/dodgeball_throw.pb.h"
+#include "humanoid_mpc_msgs/fsm_command.pb.h"
+#include "humanoid_mpc_msgs/joint_targets.pb.h"
+#include "humanoid_mpc_msgs/walking_velocity_command.pb.h"
+#include "mujoco_sim_interface/MujocoSimInterface.h"
+#include "robot_ipc/Bus.h"
 #include "robot_ipc/Delivery.h"
+#include "robot_model/ContactEstimator.h"
+#include "robot_model/ContactEstimatorRegistry.h"
 
 namespace ocs2::humanoid {
 namespace {

@@ -138,6 +138,7 @@ cc_library(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:str_format",
+        "@abseil-cpp//absl/strings:string_view",
         "@eigen",
     ],
 )
@@ -165,7 +166,11 @@ cc_test(
     size = "small",
     srcs = ["test/testStaticEquilibrium.cpp"],
     copts = FIRST_PARTY_COPTS,
-    deps = _TEST_DEPS + [":equilibrium"],
+    deps = _TEST_DEPS + [
+        ":equilibrium",
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set",
+        "//lib/ocs2:ocs2_dimensions",
+    ],
 )
 
 # The Atlas model: every parent joint of the contact set is a joint of atlas.urdf, the Jacobians against differences
@@ -181,6 +186,7 @@ cc_test(
         ":equilibrium",
         ":robot_stance_model",
         "//humanoid_nmpc/humanoid_multi_contact/contact_set",
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set:contact_set_nproto",
         "//lib/ocs2:ocs2_physical_constants",
     ],
 )

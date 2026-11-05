@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_validation/closed_loop/DriverSettingsFromConfig.h"
 
 #include <array>
+#include <cstddef>
 
 #include "Eigen/Core"
 #include "absl/status/status.h"

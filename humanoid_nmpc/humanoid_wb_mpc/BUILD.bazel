@@ -39,7 +39,6 @@ cc_library(
         "//humanoid_nmpc/humanoid_common_mpc:orientation",
         "//lib/ocs2:ocs2_robotic_tools",
         "//humanoid_nmpc/humanoid_common_mpc:lookahead_policy_evaluator",
-        "//humanoid_nmpc/humanoid_mpc_ipc:realtime_policy_evaluator",
         "//robot_runtime/robot_model",
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_centroidal_model",
@@ -68,6 +67,12 @@ cc_library(
         "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//tools/nproto:nproto_runtime",
+        "//humanoid_nmpc/humanoid_common_mpc:controller_event",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_mpc_ipc",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_dimensions",
+        "//lib/ocs2:ocs2_oc",
     ],
 )
 
@@ -81,6 +86,7 @@ cc_library(
     deps = [
         ":humanoid_wb_mpc",
         "@abseil-cpp//absl/base:nullability",
+        "//lib/ocs2:ocs2_core_types",
     ],
 )
 
@@ -96,6 +102,8 @@ cc_library(
         "//humanoid_nmpc/humanoid_common_mpc",
         "//lib/ocs2:ocs2_robotic_tools",
         "@eigen",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
     ],
 )
 
@@ -116,10 +124,10 @@ cc_test(
         "//humanoid_nmpc/humanoid_common_mpc",
         "//lib/ocs2:ocs2_core",
         "@abseil-cpp//absl/base:nullability",
-        "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:str_format",
         "@eigen",
         "@googletest//:gtest_main",
+        "//lib/ocs2:ocs2_core_types",
     ],
 )
 
@@ -139,6 +147,7 @@ cc_test(
         "@abseil-cpp//absl/strings",
         "@eigen",
         "@googletest//:gtest_main",
+        "//lib/ocs2:ocs2_core_types",
     ],
 )
 
@@ -173,6 +182,8 @@ cc_test(
         "@eigen",
         "@googletest//:gtest_main",
         "@pinocchio",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
     ],
 )
 
@@ -193,6 +204,7 @@ cc_test(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
+        "//lib/ocs2:ocs2_core_types",
     ],
 )
 
@@ -216,6 +228,7 @@ cc_test(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
+        "@abseil-cpp//absl/base:log_severity",
     ],
 )
 
@@ -240,6 +253,7 @@ cc_test(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
+        "//lib/ocs2:ocs2_core_types",
     ],
 )
 
@@ -270,6 +284,9 @@ cc_test(
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
         "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_pinocchio_interface",
     ],
 )
 
@@ -294,6 +311,9 @@ cc_test(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_pinocchio_interface",
     ],
 )
 
@@ -339,6 +359,10 @@ cc_test(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_pinocchio_interface",
     ],
 )
 
@@ -361,6 +385,9 @@ cc_test(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_pinocchio_interface",
     ],
 )
 
@@ -391,6 +418,10 @@ cc_test(
         "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
         "@pinocchio",
+        "//humanoid_nmpc/humanoid_common_mpc:controller_event",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_pinocchio_interface",
     ],
 )
 
@@ -420,6 +451,10 @@ cc_test(
         "@eigen",
         "@googletest//:gtest_main",
         "@pinocchio",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_pinocchio_interface",
     ],
 )
 
@@ -446,6 +481,10 @@ cc_test(
         "@eigen",
         "@googletest//:gtest_main",
         "@pinocchio",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
     ],
 )
 
@@ -476,6 +515,9 @@ cc_test(
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
         "@pinocchio",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
+        "@abseil-cpp//absl/log:absl_check",
     ],
 )
 
@@ -511,6 +553,7 @@ cc_test(
         "@eigen",
         "@googletest//:gtest_main",
         "@pinocchio",
+        "//lib/ocs2:ocs2_core_types",
     ],
 )
 
@@ -543,6 +586,8 @@ cc_test(
         "@eigen",
         "@googletest//:gtest_main",
         "@pinocchio",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
     ],
 )
 
@@ -565,7 +610,6 @@ cc_test(
     deps = [
         ":humanoid_wb_mpc",
         "//humanoid_nmpc/humanoid_common_mpc",
-        "//humanoid_nmpc/humanoid_common_mpc:orientation",
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_oc",
         "//lib/ocs2:ocs2_sqp",
@@ -576,6 +620,7 @@ cc_test(
         "@eigen",
         "@googletest//:gtest_main",
         "@pinocchio",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
     ],
 )
 
@@ -606,11 +651,11 @@ cc_test(
         "//robot_runtime/robot_model",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status:statusor",
-        "@abseil-cpp//absl/strings",
         "@eigen",
         "@googletest//:gtest_main",
         "@pinocchio",
         "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
+        "//lib/ocs2:ocs2_core_types",
     ],
 )
 
@@ -641,6 +686,9 @@ cc_test(
         "@googletest//:gtest_main",
         "@pinocchio",
         "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_pinocchio_interface",
     ],
 )
 
@@ -667,6 +715,7 @@ cc_test(
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
         "@protobuf",
+        "//lib/ocs2:ocs2_core_types",
     ],
 )
 
@@ -683,11 +732,11 @@ cc_test(
         ":affine_end_effector_dynamics",
         ":humanoid_wb_mpc",
         "//lib/ocs2:ocs2_core",
-        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
+        "//lib/ocs2:ocs2_core_types",
     ],
 )
 
@@ -713,6 +762,7 @@ cc_test(
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
         "@pinocchio",
+        "//lib/ocs2:ocs2_core_types",
     ],
 )
 
@@ -736,6 +786,7 @@ cc_test(
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
         "@pinocchio",
+        "//lib/ocs2:ocs2_core",
     ],
 )
 
@@ -760,6 +811,7 @@ cc_test(
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
         "@pinocchio",
+        "//lib/ocs2:ocs2_core_types",
     ],
 )
 
@@ -792,6 +844,7 @@ cc_test(
         "@googletest//:gtest_main",
         "@pinocchio",
         "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
+        "//lib/ocs2:ocs2_core_types",
     ],
 )
 
@@ -820,6 +873,7 @@ cc_test(
         "@eigen",
         "@googletest//:gtest_main",
         "@pinocchio",
+        "//lib/ocs2:ocs2_core_types",
     ],
 )
 
@@ -850,6 +904,8 @@ cc_test(
         "@eigen",
         "@googletest//:gtest_main",
         "@pinocchio",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
     ],
 )
 
@@ -873,11 +929,11 @@ cc_test(
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//lib/ocs2:ocs2_core",
         "//robot_runtime/robot_core:resource_paths",
-        "@abseil-cpp//absl/status:statusor",
         "@eigen",
         "@googletest//:gtest_main",
         "@pinocchio",
         "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
+        "//lib/ocs2:ocs2_core_types",
     ],
 )
 
@@ -904,6 +960,10 @@ cc_test(
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
         "@pinocchio",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_pinocchio_interface",
     ],
 )
 
@@ -932,6 +992,7 @@ cc_test(
         "@pinocchio",
         "@abseil-cpp//absl/status:status_matchers",
         "@googletest//:gtest",
+        "//lib/ocs2:ocs2_core_types",
     ],
 )
 
@@ -976,6 +1037,9 @@ cc_test(
         "@googletest//:gtest_main",
         "@pinocchio",
         "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_pinocchio_interface",
     ],
 )
 
@@ -1000,6 +1064,7 @@ cc_test(
         "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
         "@pinocchio",
+        "//lib/ocs2:ocs2_core_types",
     ],
 )
 
@@ -1047,6 +1112,8 @@ cc_test(
         "@googletest//:gtest_main",
         "@pinocchio",
         "@protobuf",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
     ],
 )
 
@@ -1070,5 +1137,6 @@ cc_test(
         "@abseil-cpp//absl/strings",
         "@eigen",
         "@googletest//:gtest_main",
+        "//lib/ocs2:ocs2_core_types",
     ],
 )

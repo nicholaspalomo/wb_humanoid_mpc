@@ -34,6 +34,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/memory/memory.h"
+#include "absl/status/statusor.h"
+#include "ocs2_mpc/SystemObservation.h"
+
+#include "humanoid_common_mpc/mrt/MpcLink.h"
+#include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
+#include "humanoid_mpc_ipc/RemoteMpcLink.h"
+#include "robot_ipc/Bus.h"
 
 namespace ocs2::humanoid {
 

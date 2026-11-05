@@ -32,9 +32,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 
 #include "Eigen/Geometry"
+#include "ocs2_core/Types.h"
 #include "ocs2_robotic_tools/common/RotationTransforms.h"
+
+#include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid::test_support {
 

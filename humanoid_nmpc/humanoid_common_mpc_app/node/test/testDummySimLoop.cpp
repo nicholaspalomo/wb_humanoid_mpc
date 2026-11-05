@@ -41,13 +41,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/control/ControllerBase.h"
 #include "ocs2_core/dynamics/LinearSystemDynamics.h"
+#include "ocs2_core/reference/ModeSchedule.h"
 #include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_mpc_test/ScriptedMpc.h"
 #include "ocs2_oc/rollout/RolloutBase.h"
 #include "ocs2_oc/rollout/TimeTriggeredRollout.h"
 
 #include "humanoid_common_mpc_app/node/DummySimLoop.h"
 #include "humanoid_mpc_ipc/MpcServer.h"
+#include "humanoid_mpc_ipc/RemoteMpcLink.h"
 #include "humanoid_nmpc/humanoid_mpc_ipc/test/MpcLinkTestSupport.h"
 #include "robot_ipc/Bus.h"
 

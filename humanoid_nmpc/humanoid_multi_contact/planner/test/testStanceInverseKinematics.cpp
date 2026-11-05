@@ -44,12 +44,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/algorithm/joint-configuration.hpp"
 
 #include "humanoid_multi_contact/collision/CollisionModel.h"
+#include "humanoid_multi_contact/collision/collision_model.nproto.h"
 #include "humanoid_multi_contact/contact_set/ContactSet.h"
+#include "humanoid_multi_contact/contact_set/contact_set.nproto.h"
 #include "humanoid_multi_contact/planner/StanceInverseKinematics.h"
 #include "humanoid_multi_contact/planner/StanceMotion.h"
 #include "humanoid_multi_contact/stability/RobotStanceModel.h"
-#include "humanoid_multi_contact/stability/StaticEquilibrium.h"
+#include "humanoid_multi_contact/terrain/PatchFrame.h"
 #include "humanoid_multi_contact/terrain/TerrainModel.h"
+#include "humanoid_multi_contact/terrain/terrain_scene.nproto.h"
 #include "robot_core/ResourcePaths.h"
 
 namespace ocs2::humanoid::multi_contact {
@@ -236,7 +239,11 @@ TEST(StanceInverseKinematics, ShiftsTheComOntoOneFoot) {
   EXPECT_TRUE(result->feasible)
       << result->failure << " after " << result->iterations << " iterations ("
       << result->termination << ")";
-  ASSERT_TRUE(result->comMargin.has_value());
+  // An if, not ASSERT_TRUE, here and below: bugprone-unchecked-optional-access
+  // sees a check only through an if.
+  if (!result->comMargin.has_value()) {
+    FAIL() << "result->comMargin has no value";
+  }
   EXPECT_GE(*result->comMargin, kMargin - 1.0e-3);
   EXPECT_LE(result->maxNormErrPosPadRtWorldEwrtWorld,
             kNomMaxNormErrPosPadRtWorldEwrtWorld);
@@ -275,7 +282,9 @@ TEST(StanceInverseKinematics, ReachesAHandOntoTheBox) {
             kNomMaxNormErrPosPadRtWorldEwrtWorld);
   EXPECT_LE(result->pointMaxTiltanglePadRtSurface,
             kNomMaxTiltanglePadRtSurface);
-  ASSERT_TRUE(result->terrainClearance.has_value());
+  if (!result->terrainClearance.has_value()) {
+    FAIL() << "result->terrainClearance has no value";
+  }
   EXPECT_GE(*result->terrainClearance, 0.0);
 }
 
@@ -326,7 +335,9 @@ TEST(StanceInverseKinematics, KeepsTheShinsOffTheFloorWhenCrouching) {
   ASSERT_TRUE(result.ok()) << result.status();
   EXPECT_LE(result->maxNormErrPosPadRtWorldEwrtWorld,
             kNomMaxNormErrPosPadRtWorldEwrtWorld);
-  ASSERT_TRUE(result->terrainClearance.has_value());
+  if (!result->terrainClearance.has_value()) {
+    FAIL() << "result->terrainClearance has no value";
+  }
   EXPECT_GE(*result->terrainClearance, 0.0) << result->terrainClearanceLink;
   EXPECT_LT(result->q.z(), q.z() - 0.2);
 }

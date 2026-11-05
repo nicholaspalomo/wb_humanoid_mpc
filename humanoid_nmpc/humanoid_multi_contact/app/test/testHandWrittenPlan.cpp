@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -49,7 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_multi_contact/contact_set/ContactSet.h"
 #include "humanoid_multi_contact/plan/PlanFile.h"
 #include "humanoid_multi_contact/plan/multi_contact_plan.nproto.h"
-#include "humanoid_multi_contact/plan/multi_contact_plan.nproto.pb.h"
+#include "humanoid_multi_contact/plan/multi_contact_plan.nproto.pb.h"  // IWYU pragma: keep
 #include "humanoid_multi_contact/plan/multi_contact_plan.pb.h"
 #include "humanoid_multi_contact/scenarios/Scenario.h"
 #include "humanoid_multi_contact/stability/StabilityCertifier.h"
@@ -96,7 +97,11 @@ TEST(HandWrittenPlanTest, EveryKnotPasses) {
       certifyPlanFile(resolved(kScenario), resolved(kPlan),
                       /*samplesBetweenKnots=*/0);
   ASSERT_TRUE(plan.ok()) << plan.status();
-  ASSERT_TRUE(plan->report.has_value());
+  // An if, not ASSERT_TRUE, here and below: bugprone-unchecked-optional-access
+  // sees a check only through an if.
+  if (!plan->report.has_value()) {
+    FAIL() << "plan->report has no value";
+  }
   const config::CertifierReport& report = *plan->report;
   EXPECT_TRUE(report.passed) << formatReport(report);
   ASSERT_EQ(report.knots.size(), plan->knots.size());
@@ -106,7 +111,9 @@ TEST(HandWrittenPlanTest, EveryKnotPasses) {
     EXPECT_EQ(knot.static_condition, true);
     EXPECT_TRUE(knot.dynamic_condition);
     EXPECT_FALSE(knot.transition_condition.has_value());
-    ASSERT_TRUE(knot.static_margin.has_value());
+    if (!knot.static_margin.has_value()) {
+      FAIL() << "knot.static_margin has no value";
+    }
     EXPECT_GE(*knot.static_margin, 0.03);
     EXPECT_GE(knot.support_pos_com_rt_world_ewrt_world_xy_samples.size(), 4u);
     EXPECT_EQ(knot.active_contacts.size(), 2u);
@@ -117,8 +124,12 @@ TEST(HandWrittenPlanTest, EveryKnotPasses) {
   EXPECT_NEAR(report.knots[2].pos_com_rt_world_ewrt_world(0) -
                   report.knots[0].pos_com_rt_world_ewrt_world(0),
               0.06, 1.0e-9);
-  EXPECT_LE(*report.knots[2].static_margin,
-            *report.knots[0].static_margin + 1.0e-9);
+  const std::optional<double> swayMargin = report.knots[2].static_margin;
+  const std::optional<double> startMargin = report.knots[0].static_margin;
+  if (!swayMargin.has_value() || !startMargin.has_value()) {
+    FAIL() << "knots 0 and 2 have no static margin";
+  }
+  EXPECT_LE(*swayMargin, *startMargin + 1.0e-9);
   EXPECT_FALSE(formatReport(report).empty());
 }
 
@@ -128,7 +139,9 @@ TEST(HandWrittenPlanTest, TheMotionBetweenTheKnotsPassesToo) {
       certifyPlanFile(resolved(kScenario), resolved(kPlan),
                       /*samplesBetweenKnots=*/3);
   ASSERT_TRUE(plan.ok()) << plan.status();
-  ASSERT_TRUE(plan->report.has_value());
+  if (!plan->report.has_value()) {
+    FAIL() << "plan->report has no value";
+  }
   EXPECT_TRUE(plan->report->passed) << formatReport(*plan->report);
   EXPECT_EQ(certifyPlanFile(resolved(kScenario), resolved(kPlan),
                             /*samplesBetweenKnots=*/-1)
@@ -220,8 +233,11 @@ TEST(HandWrittenPlanTest,
   EXPECT_FALSE(report->passed);
   // The CoM is between the feet, not above the left one.
   EXPECT_EQ(report->knots[3].static_condition, false);
-  ASSERT_TRUE(report->knots[3].static_margin.has_value());
-  EXPECT_LT(*report->knots[3].static_margin, 0.0);
+  const std::optional<double> margin = report->knots[3].static_margin;
+  if (!margin.has_value()) {
+    FAIL() << "knot 3 has no static margin";
+  }
+  EXPECT_LT(*margin, 0.0);
   // The stance changes by one contact into and out of knot 3, and the left
   // foot alone does not hold the robot at either side of the change.
   EXPECT_EQ(report->knots[3].transition_condition, false);
@@ -305,7 +321,9 @@ TEST(HandWrittenPlanTest, TheTorquesAreJudgedOnlyUnderPositionAndEffort) {
     const config::CertifierReport::Knot& knot = reported->knots[k];
     EXPECT_EQ(knot.static_condition, true);
     // The utilization is still reported, the same as when it is judged.
-    ASSERT_TRUE(knot.joint_torque_utilization.has_value());
+    if (!knot.joint_torque_utilization.has_value()) {
+      FAIL() << "knot.joint_torque_utilization has no value";
+    }
     EXPECT_GT(*knot.joint_torque_utilization, kTinyJointTorqueMargin);
     EXPECT_EQ(knot.joint_torque_utilization,
               judged->knots[k].joint_torque_utilization);

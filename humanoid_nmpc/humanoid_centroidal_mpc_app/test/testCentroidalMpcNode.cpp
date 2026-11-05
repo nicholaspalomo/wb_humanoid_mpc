@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <atomic>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <fstream>
 #include <functional>
@@ -43,7 +44,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
-#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
@@ -51,6 +51,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/time/time.h"
 #include "gtest/gtest.h"
 #include "ocs2_centroidal_model/AccessHelperFunctions.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_mpc_test/ScriptedMpc.h"
 #include "ocs2_sqp/SqpSolver.h"
@@ -60,23 +62,31 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc_app/CentroidalMpcNode.h"
 #include "humanoid_common_mpc/common/CostTermNames.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/OperatorPayloadChecks.h"
 #include "humanoid_common_mpc/cost/TuningQuadraticStateInputCost.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/mrt/InProcessMpcLink.h"
 #include "humanoid_common_mpc/mrt/MpcLink.h"
+#include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "humanoid_common_mpc_app/node/DummySimLoop.h"
 #include "humanoid_common_mpc_app/node/MpcFiles.h"
 #include "humanoid_common_mpc_app/node/MpcNodeRuntime.h"
 #include "humanoid_common_mpc_app/teleop/KeyboardVelocityCommand.h"
 #include "humanoid_common_mpc_app/visualization/VisualizationPublisher.h"
 #include "humanoid_mpc_config/mpc_parameter_update.pb.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_config/task_file.pb.h"
+#include "humanoid_mpc_ipc/MpcMessageConversions.h"
+#include "humanoid_mpc_ipc/MpcServer.h"
 #include "humanoid_mpc_ipc/Topics.h"
 #include "humanoid_mpc_msgs/controller_type.pb.h"
 #include "humanoid_mpc_msgs/fsm_state.pb.h"
 #include "humanoid_mpc_msgs/loop_timing.pb.h"
+#include "humanoid_mpc_msgs/mpc_observation.pb.h"
+#include "humanoid_mpc_msgs/mpc_policy.pb.h"
 #include "humanoid_mpc_msgs/mpc_status.pb.h"
 #include "humanoid_mpc_msgs/robot_state_sample.pb.h"
 #include "humanoid_mpc_msgs/walking_velocity_command.pb.h"
@@ -497,9 +507,10 @@ class DummySimRunner {
     if (started) absl::SleepFor(duration);
     stop_.store(true);
     runner.join();
-    if (!started)
+    if (!started) {
       return absl::DeadlineExceededError(
           "the dummy simulator received no policy");
+    }
     return status;
   }
 
@@ -615,8 +626,9 @@ vector3_t samplePosBaseRtWorldEwrtWorld(
     const test_support::ScriptedOperator& remoteControl) {
   const std::optional<humanoid_mpc_msgs::RobotStateSample> sample =
       remoteControl.sample();
-  if (!sample.has_value())
+  if (!sample.has_value()) {
     return vector3_t::Constant(std::numeric_limits<scalar_t>::quiet_NaN());
+  }
   return vector3_t(sample->pos_base_rt_world_ewrt_world().x(),
                    sample->pos_base_rt_world_ewrt_world().y(),
                    sample->pos_base_rt_world_ewrt_world().z());

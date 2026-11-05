@@ -33,7 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_mpc_msgs/viewer_annotations.nproto.h"
 #include "mujoco_sim_interface/MujocoContactPatch.h"
 #include "mujoco_sim_interface/MujocoSimInterface.h"

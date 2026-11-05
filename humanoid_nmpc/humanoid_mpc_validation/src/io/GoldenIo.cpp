@@ -30,23 +30,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_validation/io/GoldenIo.h"
 
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <ios>
 #include <iterator>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/ascii.h"
 #include "absl/strings/match.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_split.h"
+#include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
 
 #include "humanoid_mpc_validation/io/Sha256.h"
@@ -177,9 +182,10 @@ absl::StatusOr<GoldenFile> parseGoldenFile(absl::string_view text) {
   const std::vector<absl::string_view> lines = absl::StrSplit(text, '\n');
   GoldenFile golden;
   size_t index = 0;
-  if (lines.empty() || lines[0] != kMagicLine)
+  if (lines.empty() || lines[0] != kMagicLine) {
     return lineError(/*lineNumber=*/1,
                      absl::StrCat("expected '", kMagicLine, "'"));
+  }
   ++index;
   absl::flat_hash_set<std::string> labels;
   while (index < lines.size()) {
@@ -194,15 +200,17 @@ absl::StatusOr<GoldenFile> parseGoldenFile(absl::string_view text) {
       golden.provenance.worktreeState = std::string(rest);
     } else if (absl::ConsumePrefix(&rest, kConfigPrefix)) {
       const size_t space = rest.find(' ');
-      if (space == absl::string_view::npos)
+      if (space == absl::string_view::npos) {
         return lineError(lineNumber, "a configuration hash without a path");
+      }
       golden.provenance.configurationHashes.emplace_back(
           std::string(rest.substr(space + 1)),
           std::string(rest.substr(0, space)));
     } else if (absl::ConsumePrefix(&rest, kNotePrefix)) {
       const size_t colon = rest.find(kNoteSeparator);
-      if (colon == absl::string_view::npos)
+      if (colon == absl::string_view::npos) {
         return lineError(lineNumber, "a note without ': '");
+      }
       golden.provenance.notes.emplace_back(
           std::string(rest.substr(0, colon)),
           std::string(rest.substr(colon + kNoteSeparator.size())));
@@ -220,9 +228,10 @@ absl::StatusOr<GoldenFile> parseGoldenFile(absl::string_view text) {
       }
       GoldenEntry entry;
       entry.label = std::string(fields[kMatrixLabelField]);
-      if (!labels.insert(entry.label).second)
+      if (!labels.insert(entry.label).second) {
         return lineError(lineNumber, absl::StrCat("the label '", entry.label,
                                                   "' is used twice"));
+      }
       entry.value.resize(rows, cols);
       if (cols > 0) {
         for (int64_t row = 0; row < rows; ++row) {
@@ -269,22 +278,25 @@ absl::Status writeGoldenFile(const std::string& path,
   std::error_code error;
   if (!parent.empty()) std::filesystem::create_directories(parent, error);
   std::ofstream file(path, std::ios::binary | std::ios::trunc);
-  if (!file.is_open())
+  if (!file.is_open()) {
     return absl::InternalError(
         absl::StrCat("[writeGoldenFile] cannot write '", path, "'"));
+  }
   file << *text;
   file.close();
-  if (!file)
+  if (!file) {
     return absl::InternalError(
         absl::StrCat("[writeGoldenFile] writing '", path, "' failed"));
+  }
   return absl::OkStatus();
 }
 
 absl::StatusOr<GoldenFile> readGoldenFile(const std::string& path) {
   std::ifstream file(path, std::ios::binary);
-  if (!file.is_open())
+  if (!file.is_open()) {
     return absl::NotFoundError(
         absl::StrCat("[readGoldenFile] cannot read '", path, "'"));
+  }
   const std::string text((std::istreambuf_iterator<char>(file)),
                          std::istreambuf_iterator<char>());
   return parseGoldenFile(text);

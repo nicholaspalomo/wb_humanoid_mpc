@@ -36,9 +36,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
@@ -51,9 +53,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/PhysicalConstants.h"
 #include "ocs2_core/PreComputation.h"
 #include "ocs2_core/Types.h"
+#include "pinocchio/multibody/fwd.hpp"
 
+#include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_multi_contact/collision/CollisionModel.h"
+#include "humanoid_multi_contact/contact_set/ContactSet.h"
+#include "humanoid_multi_contact/plan/multi_contact_plan.nproto.h"
+#include "humanoid_multi_contact/planner/contact_invariant/ContactFeatureFunction.h"
 #include "humanoid_multi_contact/planner/contact_invariant/ContactFeatureRows.h"
 #include "humanoid_multi_contact/planner/contact_invariant/HardContactRefinement.h"
 #include "humanoid_multi_contact/planner/contact_invariant/PlanSeeding.h"
@@ -295,6 +303,9 @@ TEST(RobotContactInvariantTerms, TheMomentumRateIsTheForcesOverTheMass) {
 
 TEST(RobotContactInvariantTerms, TheSphereClearanceIsTheStanceModelsSpheres) {
   const AtlasModels atlas = atlasModels();
+  if (!atlas.scenario.collisionModelConfig.has_value()) {
+    FAIL() << "the scenario has no collision model";
+  }
   absl::StatusOr<CollisionModel> collision = CollisionModel::Create(
       *atlas.scenario.collisionModelConfig, *atlas.stanceModel);
   ASSERT_TRUE(collision.ok()) << collision.status();

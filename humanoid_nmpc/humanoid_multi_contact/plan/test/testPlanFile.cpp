@@ -31,7 +31,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // refusal of a plan made for another contact set or terrain scene.
 
 #include <cstdlib>
-#include <filesystem>
 #include <string>
 #include <variant>
 

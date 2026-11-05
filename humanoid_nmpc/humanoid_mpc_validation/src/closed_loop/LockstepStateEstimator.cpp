@@ -34,9 +34,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 
+#include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
 #include "humanoid_common_mpc_app/robot/RobotSetUpSteps.h"
+#include "humanoid_state_estimator/StateEstimator.h"
+#include "humanoid_state_estimator/StateEstimatorRegistry.h"
+#include "robot_model/RobotDescription.h"
 
 namespace ocs2::humanoid::validation {
 

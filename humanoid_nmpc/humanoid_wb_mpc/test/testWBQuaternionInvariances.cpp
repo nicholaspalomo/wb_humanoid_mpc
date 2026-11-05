@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <filesystem>
 #include <limits>
 #include <memory>
+#include <numbers>
 #include <string>
 #include <utility>
 #include <vector>
@@ -46,8 +47,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/ComputationRequest.h"
 #include "ocs2_core/PreComputation.h"
 #include "ocs2_core/Types.h"
+#include "ocs2_core/constraint/StateConstraint.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
+#include "ocs2_core/constraint/StateInputConstraintCollection.h"
+#include "ocs2_core/cost/StateCost.h"
+#include "ocs2_core/cost/StateInputCost.h"
+#include "ocs2_core/cost/StateInputCostCollection.h"
 #include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
 #include "ocs2_core/reference/ModeSchedule.h"
@@ -57,8 +65,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_sqp/SqpSettings.h"
 #include "ocs2_sqp/SqpSolver.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
-#include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_wb_mpc/WBMpcInterface.h"
@@ -189,8 +198,9 @@ template <typename Collection>
 std::vector<std::string> sortedNames(const Collection& collection) {
   std::vector<std::string> names;
   for (const std::pair<const std::string, size_t>& entry :
-       collection.getTermNameMap())
+       collection.getTermNameMap()) {
     names.push_back(entry.first);
+  }
   std::sort(names.begin(), names.end());
   return names;
 }
@@ -200,8 +210,9 @@ std::vector<std::string> sortedNames(const Collection& collection) {
 void appendTerms(TermCollection collection,
                  const std::vector<std::string>& names,
                  std::vector<TermReference>& terms) {
-  for (const std::string& name : names)
+  for (const std::string& name : names) {
     terms.push_back(TermReference{.collection = collection, .name = name});
+  }
 }
 
 /** Every registered term of `problem` and its dynamics; a test failure for a
@@ -335,9 +346,10 @@ TermEvaluation evaluate(
           term.collection == TermCollection::kCost ? *problem.costPtr
                                                    : *problem.softConstraintPtr;
       const StateInputCost& cost = collection.get(term.name);
-      if (cost.isActive(t))
+      if (cost.isActive(t)) {
         evaluation =
             costEvaluation(cost, point, target, preComputation, derivatives);
+      }
       return evaluation;
     }
     case TermCollection::kStateCost:
@@ -345,12 +357,15 @@ TermEvaluation evaluate(
     case TermCollection::kFinalCost:
     case TermCollection::kFinalSoftConstraint: {
       StateCostCollection* absl_nonnull collection = problem.stateCostPtr.get();
-      if (term.collection == TermCollection::kStateSoftConstraint)
+      if (term.collection == TermCollection::kStateSoftConstraint) {
         collection = problem.stateSoftConstraintPtr.get();
-      if (term.collection == TermCollection::kFinalCost)
+      }
+      if (term.collection == TermCollection::kFinalCost) {
         collection = problem.finalCostPtr.get();
-      if (term.collection == TermCollection::kFinalSoftConstraint)
+      }
+      if (term.collection == TermCollection::kFinalSoftConstraint) {
         collection = problem.finalSoftConstraintPtr.get();
+      }
       if (term.collection == TermCollection::kFinalCost ||
           term.collection == TermCollection::kFinalSoftConstraint) {
         preComputation.requestFinal(
@@ -358,9 +373,10 @@ TermEvaluation evaluate(
             x);
       }
       const StateCost& cost = collection->get(term.name);
-      if (cost.isActive(t))
+      if (cost.isActive(t)) {
         evaluation =
             costEvaluation(cost, point, target, preComputation, derivatives);
+      }
       return evaluation;
     }
     case TermCollection::kEqualityConstraint:
@@ -373,9 +389,10 @@ TermEvaluation evaluate(
       evaluation.active = constraint.isActive(t);
       if (evaluation.active) {
         evaluation.value = constraint.getValue(t, x, u, preComputation);
-        if (withJacobian)
+        if (withJacobian) {
           evaluation.stateJacobian =
               constraint.getLinearApproximation(t, x, u, preComputation).dfdx;
+        }
       }
       return evaluation;
     }
@@ -385,12 +402,15 @@ TermEvaluation evaluate(
     case TermCollection::kFinalInequalityConstraint: {
       StateConstraintCollection* absl_nonnull collection =
           problem.stateEqualityConstraintPtr.get();
-      if (term.collection == TermCollection::kStateInequalityConstraint)
+      if (term.collection == TermCollection::kStateInequalityConstraint) {
         collection = problem.stateInequalityConstraintPtr.get();
-      if (term.collection == TermCollection::kFinalEqualityConstraint)
+      }
+      if (term.collection == TermCollection::kFinalEqualityConstraint) {
         collection = problem.finalEqualityConstraintPtr.get();
-      if (term.collection == TermCollection::kFinalInequalityConstraint)
+      }
+      if (term.collection == TermCollection::kFinalInequalityConstraint) {
         collection = problem.finalInequalityConstraintPtr.get();
+      }
       if (term.collection == TermCollection::kFinalEqualityConstraint ||
           term.collection == TermCollection::kFinalInequalityConstraint) {
         preComputation.requestFinal(
@@ -400,9 +420,10 @@ TermEvaluation evaluate(
       evaluation.active = constraint.isActive(t);
       if (evaluation.active) {
         evaluation.value = constraint.getValue(t, x, preComputation);
-        if (withJacobian)
+        if (withJacobian) {
           evaluation.stateJacobian =
               constraint.getLinearApproximation(t, x, preComputation).dfdx;
+        }
       }
       return evaluation;
     }
@@ -410,10 +431,11 @@ TermEvaluation evaluate(
       evaluation.active = true;
       evaluation.value =
           problem.dynamicsPtr->computeFlowMap(t, x, u, preComputation);
-      if (withJacobian)
+      if (withJacobian) {
         evaluation.stateJacobian =
             problem.dynamicsPtr->linearApproximation(t, x, u, preComputation)
                 .dfdx;
+      }
       return evaluation;
     }
   }
@@ -434,8 +456,9 @@ scalar_t relativeDifference(const vector_t& a, const vector_t& b) {
 vector_t withoutRateQuatBaseRtWorldXyzw(const TermReference& term,
                                         Eigen::Index orientationStart,
                                         vector_t value) {
-  if (term.collection == TermCollection::kDynamics)
+  if (term.collection == TermCollection::kDynamics) {
     value.segment<4>(orientationStart).setZero();
+  }
   return value;
 }
 
@@ -512,8 +535,9 @@ vector_t walkingInput(WBMpcInterface& interface) {
     model.setWrenchContactEwrtParam(input, wrenchContactEwrtParam, contact);
   }
   const Eigen::Index joints = static_cast<Eigen::Index>(model.getJointDim());
-  for (Eigen::Index j = 0; j < joints; ++j)
+  for (Eigen::Index j = 0; j < joints; ++j) {
     input(input.size() - joints + j) = std::sin(0.4 * static_cast<scalar_t>(j));
+  }
   return input;
 }
 
@@ -750,12 +774,14 @@ TEST(WBQuaternionInvariances,
   const WBAccelMpcRobotModel<scalar_t>& model = interface->getMpcRobotModel();
   const TargetTrajectories target = levelTarget(*interface);
   for (const vector6_t& poseeulerzyxBaseRtWorld :
-       {(vector6_t() << 0.0, 0.0, 0.75, 0.4, M_PI / 2.0, 0.2).finished(),
-        (vector6_t() << 0.0, 0.0, 0.75, -1.0, -M_PI / 2.0, 0.0).finished()}) {
+       {(vector6_t() << 0.0, 0.0, 0.75, 0.4, std::numbers::pi / 2.0, 0.2)
+            .finished(),
+        (vector6_t() << 0.0, 0.0, 0.75, -1.0, -std::numbers::pi / 2.0, 0.0)
+            .finished()}) {
     SCOPED_TRACE(poseeulerzyxBaseRtWorld.transpose());
     const vector_t state = walkingState(*interface, poseeulerzyxBaseRtWorld);
-    ASSERT_NEAR(std::abs(model.getEulerzyxBaseRtWorld(state)(1)), M_PI / 2.0,
-                1.0e-6);
+    ASSERT_NEAR(std::abs(model.getEulerzyxBaseRtWorld(state)(1)),
+                std::numbers::pi / 2.0, 1.0e-6);
     for (const scalar_t time : {kStanceTime, kSwingTime}) {
       OptimalControlProblem problem = problemAt(*interface, state, target);
       const EvaluationPoint point{
@@ -796,8 +822,9 @@ TEST(WBQuaternionInvariances,
                   1.0, 1.0e-12)
           << "node " << k;
     }
-    for (size_t k = 0; k < solution.inputTrajectory_.size(); ++k)
+    for (size_t k = 0; k < solution.inputTrajectory_.size(); ++k) {
       EXPECT_TRUE(solution.inputTrajectory_[k].allFinite()) << "node " << k;
+    }
     EXPECT_TRUE(std::isfinite(solver.getPerformanceIndeces().cost));
     EXPECT_TRUE(std::isfinite(solver.getPerformanceIndeces().merit));
   }
@@ -816,18 +843,21 @@ TEST(WBQuaternionInvariances,
     std::vector<TermEvaluation> original;
     OptimalControlProblem problem = problemAt(*interface, point.state, target);
     const std::vector<TermReference> terms = registeredTerms(problem);
-    for (const TermReference& term : terms)
+    for (const TermReference& term : terms) {
       original.push_back(evaluate(problem, term, point));
+    }
     for (const scalar_t angle :
-         {M_PI - 0.01, -M_PI + 0.01, 10.0 * M_PI + 0.1}) {
+         {std::numbers::pi - 0.01, -std::numbers::pi + 0.01,
+          10.0 * std::numbers::pi + 0.1}) {
       SCOPED_TRACE(absl::StrCat("turned by ", angle, " at t = ", point.time));
       const EvaluationPoint turned{
           .time = point.time,
           .state = turnedState(model, point.state, angle),
           .input = turnedInput(model, point.input, angle)};
       TargetTrajectories turnedTarget = target;
-      for (vector_t& knot : turnedTarget.stateTrajectory)
+      for (vector_t& knot : turnedTarget.stateTrajectory) {
         knot = turnedState(model, knot, angle);
+      }
       OptimalControlProblem turnedProblem =
           problemAt(*interface, turned.state, turnedTarget);
       for (size_t i = 0; i < terms.size(); ++i) {

@@ -47,7 +47,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "mujoco_sim_interface/MujocoUtils.h"
 #include "mujoco_sim_interface/viewer/ViewerNames.h"
 #include "robot_model/RobotDescription.h"
-#include "robot_model/RobotState.h"
 
 /*
  * Every robot configuration's MuJoCo scene against the gantry hold its task

@@ -29,8 +29,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/robot/FsmCommand.h"
 
+#include <string.h>
+
 #include <algorithm>
 #include <cstring>
+#include <optional>
+
+#include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/mrt/ControlMode.h"
 
@@ -38,14 +43,18 @@ namespace ocs2::humanoid {
 
 std::optional<FsmCommandKind> parseFsmCommand(absl::string_view command) {
   // LINT.IfChange(fsm_command_names)
-  if (command == control_mode::kZeroJointTorque || command == "DISABLE_TORQUES")
+  if (command == control_mode::kZeroJointTorque ||
+      command == "DISABLE_TORQUES") {
     return FsmCommandKind::kZeroTorque;
+  }
   if (command == control_mode::kJointPd) return FsmCommandKind::kJointPd;
-  if (command == control_mode::kGravityComp)
+  if (command == control_mode::kGravityComp) {
     return FsmCommandKind::kGravityComp;
+  }
   if (command == control_mode::kWbMpc || command == control_mode::kMpcActive ||
-      command == "ENABLE_TORQUES")
+      command == "ENABLE_TORQUES") {
     return FsmCommandKind::kWbMpc;
+  }
   if (command == control_mode::kSafety) return FsmCommandKind::kSafety;
   if (command == "LOCK_GANTRY") return FsmCommandKind::kLockGantry;
   if (command == "UNLOCK_GANTRY") return FsmCommandKind::kUnlockGantry;

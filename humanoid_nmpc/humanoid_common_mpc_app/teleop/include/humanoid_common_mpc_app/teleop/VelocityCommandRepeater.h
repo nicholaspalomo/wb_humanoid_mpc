@@ -44,7 +44,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc_app/teleop/KeyboardVelocityCommand.h"
-#include "humanoid_mpc_msgs/walking_velocity_command.pb.h"
 #include "robot_ipc/Bus.h"
 
 namespace ocs2::humanoid::teleop {

@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -41,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "Eigen/Geometry"
+#include "absl/container/flat_hash_map.h"
 #include "absl/log/log.h"
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
@@ -50,11 +52,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
 #include "pinocchio/algorithm/joint-configuration.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_multi_contact/collision/CollisionModel.h"
+#include "humanoid_multi_contact/contact_set/ContactSet.h"
+#include "humanoid_multi_contact/planner/StanceInverseKinematics.h"
 #include "humanoid_multi_contact/planner/SwingPath.h"
 #include "humanoid_multi_contact/stability/ConvexPolygon.h"
+#include "humanoid_multi_contact/stability/JointLimits.h"
+#include "humanoid_multi_contact/stability/RobotStanceModel.h"
 #include "humanoid_multi_contact/stability/StabilityCertifier.h"
+#include "humanoid_multi_contact/stability/Stance.h"
+#include "humanoid_multi_contact/stability/StaticEquilibrium.h"
 #include "humanoid_multi_contact/stability/TorqueFeasibility.h"
 
 namespace ocs2::humanoid::multi_contact {
@@ -266,8 +276,9 @@ bool placementsOverlap(const ContactPlacement& first,
             second.normalSurfaceEwrtWorld.cross(second.xAxisPadEwrtWorld))}) {
     if (separatedAlong(firstPosCornersRtWorldEwrtWorld,
                        secondPosCornersRtWorldEwrtWorld,
-                       separatingAxisEwrtWorld, margin))
+                       separatingAxisEwrtWorld, margin)) {
       return false;
+    }
   }
   return true;
 }
@@ -493,7 +504,7 @@ absl::StatusOr<std::optional<std::string>> StanceMotion::sweptClearance(
       tangent.head<kPositionDim>().norm() / options_.sweep->baseTranslation);
   const int intervals = std::max(options_.sweep->minIntervals,
                                  static_cast<int>(std::ceil(samples)));
-  ASSIGN_OR_RETURN(const std::optional<std::string> chord,
+  ASSIGN_OR_RETURN(std::optional<std::string> chord,
                    padChordCollision(from, to, stance, intervals));
   if (chord.has_value()) return chord;
   std::vector<Eigen::Vector2d> supportPosComRtWorldEwrtWorldXySamples;
@@ -511,8 +522,9 @@ absl::StatusOr<std::optional<std::string>> StanceMotion::sweptClearance(
           "%.2f of the way between two knots, %s", fraction, *penetration));
     }
     // sphereClearance() set the model's configuration.
-    if (supportPosComRtWorldEwrtWorldXySamples.size() < kMinPolygonVertices)
+    if (supportPosComRtWorldEwrtWorldXySamples.size() < kMinPolygonVertices) {
       continue;
+    }
     const double margin = signedDistanceToConvexPolygon(
         supportPosComRtWorldEwrtWorldXySamples,
         model().getPosComRtWorldEwrtWorld().head<kHorizontalPositionDim>());
@@ -544,8 +556,9 @@ absl::StatusOr<std::optional<std::string>> StanceMotion::jumpComDefect(
   ASSIGN_OR_RETURN(
       const std::vector<Eigen::Vector2d> supportPosComRtWorldEwrtWorldXySamples,
       polygonOf(stance));
-  if (supportPosComRtWorldEwrtWorldXySamples.size() < kMinPolygonVertices)
+  if (supportPosComRtWorldEwrtWorldXySamples.size() < kMinPolygonVertices) {
     return std::optional<std::string>();
+  }
   for (int i = 1; i < intervals; ++i) {
     const double fraction = static_cast<double>(i) / intervals;
     RETURN_IF_ERROR(
@@ -568,6 +581,9 @@ absl::StatusOr<std::optional<std::string>> StanceMotion::padChordCollision(
     const Eigen::VectorXd& to,
     const StancePlacements& stance,
     int intervals) {
+  // Only called with a sweep resolution (sweptClearance()).
+  if (!options_.sweep.has_value()) return std::optional<std::string>();
+  const double tolerance = options_.sweep->tolerance;
   RobotStanceModel& robot = model();
   const ContactSet& contactSet = robot.contactSet();
   // The points of each free pad's geometry, in its frame (z =
@@ -626,7 +642,7 @@ absl::StatusOr<std::optional<std::string>> StanceMotion::padChordCollision(
               points[p].posSphereRtPadEwrtPad;
       const double depth = points[p].radius - ik_->terrain().signedDistance(
                                                   posSphereRtWorldEwrtWorld);
-      if (depth > options_.sweep->tolerance) {
+      if (depth > tolerance) {
         return std::optional<std::string>(absl::StrFormat(
             "%.2f of the way between two knots, the straight path of the pad "
             "of %s is %.4f m inside the terrain",
@@ -837,11 +853,12 @@ struct Swing {
   Eigen::Vector3d computeDesPosPadRtWorldEwrtWorld(double fraction,
                                                    double s) const {
     if (path.has_value()) return path->getDesPosPadRtWorldEwrtWorld(fraction);
-    const Eigen::Vector3d liftoffDesPosPadRtWorldEwrtWorld =
+    Eigen::Vector3d liftoffDesPosPadRtWorldEwrtWorld =
         initPosPadRtWorldEwrtWorld +
         std::clamp(fraction, 0.0, 1.0) * clearance * initNormalSurfaceEwrtWorld;
-    if (!finalPosPadRtWorldEwrtWorld.has_value() || fraction <= 1.0)
+    if (!finalPosPadRtWorldEwrtWorld.has_value() || fraction <= 1.0) {
       return liftoffDesPosPadRtWorldEwrtWorld;
+    }
     const double share = std::clamp((s - span) / (1.0 - span), 0.0, 1.0);
     return liftoffDesPosPadRtWorldEwrtWorld +
            share * (*finalPosPadRtWorldEwrtWorld -
@@ -932,13 +949,14 @@ double postureProgress(const SegmentPath& path, double s) {
  * the first half of the swing, so that a sole that starts tilted (a foot
  * whose toes rest on the floor behind a kneeling robot) turns level while it
  * swings instead of flipping its ankle at the first knot; the level itself
- * from the start when it starts within 1e-6 rad of it. */
-Eigen::Vector3d computeDesZAxisPadEwrtWorld(const Swing& swing,
-                                            double fraction) {
+ * from the start when it starts within 1e-6 rad of it.
+ * `levelNormalSurfaceEwrtWorld` is the swing's level normal. */
+Eigen::Vector3d computeDesZAxisPadEwrtWorld(
+    const Swing& swing,
+    const Eigen::Vector3d& levelNormalSurfaceEwrtWorld,
+    double fraction) {
   constexpr double kLevelTurnEnd = 0.5;
   constexpr double kLevelAlready = 1.0e-6;
-  const Eigen::Vector3d& levelNormalSurfaceEwrtWorld =
-      *swing.levelNormalSurfaceEwrtWorld;
   if (std::acos(std::clamp(
           swing.initZAxisPadEwrtWorld.dot(levelNormalSurfaceEwrtWorld), -1.0,
           1.0)) < kLevelAlready) {
@@ -999,8 +1017,8 @@ void configureKnot(const pinocchio::Model& model,
       target.desZAxisPadEwrtWorld = swing.initZAxisPadEwrtWorld;
     }
     if (swing.levelNormalSurfaceEwrtWorld.has_value()) {
-      target.desZAxisPadEwrtWorld =
-          computeDesZAxisPadEwrtWorld(swing, fraction);
+      target.desZAxisPadEwrtWorld = computeDesZAxisPadEwrtWorld(
+          swing, *swing.levelNormalSurfaceEwrtWorld, fraction);
     }
     problem.padTargets.push_back(target);
     if (swing.lifts && fraction <= swing.liftEnd()) {
@@ -1165,7 +1183,7 @@ absl::StatusOr<Bridge> bridge(StanceMotion& motion,
   ASSIGN_OR_RETURN(Bridge first, bridge(motion, stance, path, fromS, fromKnot,
                                         middleS, middle.q, depth - 1, problem));
   if (!first.feasible) return first;
-  ASSIGN_OR_RETURN(const Bridge second,
+  ASSIGN_OR_RETURN(Bridge second,
                    bridge(motion, stance, path, middleS, middle.q, toS, toKnot,
                           depth - 1, problem));
   if (!second.feasible) return second;

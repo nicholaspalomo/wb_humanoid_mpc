@@ -46,12 +46,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 
 #include "humanoid_multi_contact/collision/CollisionModel.h"
+#include "humanoid_multi_contact/collision/collision_model.nproto.h"
 #include "humanoid_multi_contact/contact_set/ContactSet.h"
+#include "humanoid_multi_contact/contact_set/contact_set.nproto.h"
 #include "humanoid_multi_contact/planner/StanceInverseKinematics.h"
 #include "humanoid_multi_contact/planner/StanceMotion.h"
 #include "humanoid_multi_contact/stability/JointLimits.h"
 #include "humanoid_multi_contact/stability/RobotStanceModel.h"
+#include "humanoid_multi_contact/terrain/PatchFrame.h"
 #include "humanoid_multi_contact/terrain/TerrainModel.h"
+#include "humanoid_multi_contact/terrain/terrain_scene.nproto.h"
 #include "robot_core/ResourcePaths.h"
 
 namespace ocs2::humanoid::multi_contact {
@@ -179,6 +183,22 @@ ContactPlacement onFloor(int candidate,
                           .xAxisPadEwrtWorld = Eigen::Vector3d::UnitX()};
 }
 
+/** The failure that `check` reports, or a failed expectation and "" for an
+ * error or a pass: bugprone-unchecked-optional-access does not see
+ * googletest's ASSERTs. */
+std::string failureOf(const absl::StatusOr<std::optional<std::string>>& check) {
+  if (!check.ok()) {
+    ADD_FAILURE() << check.status();
+    return "";
+  }
+  const std::optional<std::string>& failure = *check;
+  if (!failure.has_value()) {
+    ADD_FAILURE() << "the check passes";
+    return "";
+  }
+  return *failure;
+}
+
 TEST(StanceMotion, StepsForwardOnTheFloor) {
   std::unique_ptr<StanceMotion> motion = atlasMotion();
   RobotStanceModel& model = motion->model();
@@ -299,9 +319,9 @@ TEST(StanceMotion, TheStaticsCheckJudgesTheTorquesOnlyUnderPositionAndEffort) {
         motion->checkStatics(q0, both);
     ASSERT_TRUE(failure.ok()) << failure.status();
     if (limits == JointLimits::kPositionAndEffort) {
-      ASSERT_TRUE(failure->has_value());
-      EXPECT_NE((*failure)->find("torque utilization"), std::string::npos)
-          << **failure;
+      const std::string message = failureOf(failure);
+      EXPECT_NE(message.find("torque utilization"), std::string::npos)
+          << message;
     } else {
       EXPECT_FALSE(failure->has_value()) << failure->value_or("");
     }
@@ -337,8 +357,9 @@ TEST(StanceMotion, ASphereInTheTerrainCountsOutsideTheStancesPadsOnly) {
   const absl::StatusOr<std::optional<std::string>> swinging =
       motion->checkSphereClearance(sunk, rightOnly);
   ASSERT_TRUE(swinging.ok()) << swinging.status();
-  ASSERT_TRUE(swinging->has_value());
-  EXPECT_NE((*swinging)->find("l_foot"), std::string::npos) << **swinging;
+  const std::string swingingMessage = failureOf(swinging);
+  EXPECT_NE(swingingMessage.find("l_foot"), std::string::npos)
+      << swingingMessage;
   const absl::StatusOr<std::optional<std::string>> held =
       motion->checkSphereClearance(sunk, both);
   ASSERT_TRUE(held.ok()) << held.status();
@@ -412,8 +433,9 @@ TEST(StanceMotion, ASweepThroughTheTerrainBetweenClearKnotsIsFound) {
   const absl::StatusOr<std::optional<std::string>> swept =
       motion->sweptClearance(before, after, none);
   ASSERT_TRUE(swept.ok()) << swept.status();
-  ASSERT_TRUE(swept->has_value());
-  EXPECT_NE((*swept)->find("between two knots"), std::string::npos) << **swept;
+  const std::string sweptMessage = failureOf(swept);
+  EXPECT_NE(sweptMessage.find("between two knots"), std::string::npos)
+      << sweptMessage;
   // Without a sweep resolution, only the knots are checked.
   std::unique_ptr<StanceMotion> knotsOnly =
       atlasMotion(defaultOptions(), terrainOf(/*wall=*/true));
@@ -441,10 +463,10 @@ TEST(StanceMotion, AFreePadsStraightPathThroughTheTerrainIsFound) {
   const absl::StatusOr<std::optional<std::string>> swept =
       motion->sweptClearance(before, after, StancePlacements());
   ASSERT_TRUE(swept.ok()) << swept.status();
-  ASSERT_TRUE(swept->has_value());
-  EXPECT_NE((*swept)->find("straight path of the pad of knee_l_contact"),
+  const std::string sweptMessage = failureOf(swept);
+  EXPECT_NE(sweptMessage.find("straight path of the pad of knee_l_contact"),
             std::string::npos)
-      << **swept;
+      << sweptMessage;
 }
 
 TEST(StanceMotion, ASegmentsStepsClearTheTerrainBetweenItsKnots) {
@@ -511,9 +533,9 @@ TEST(StanceMotion, AJumpThatTakesTheCoMIntoTheMarginIsFound) {
   const absl::StatusOr<std::optional<std::string>> outside =
       motion->jumpComDefect(q0, shifted->q, rightOnly);
   ASSERT_TRUE(outside.ok()) << outside.status();
-  ASSERT_TRUE(outside->has_value());
-  EXPECT_TRUE(absl::StrContains(**outside, "through a jump, the CoM"))
-      << **outside;
+  const std::string outsideMessage = failureOf(outside);
+  EXPECT_TRUE(absl::StrContains(outsideMessage, "through a jump, the CoM"))
+      << outsideMessage;
   const absl::StatusOr<std::optional<std::string>> inside =
       motion->jumpComDefect(q0, shifted->q, both);
   ASSERT_TRUE(inside.ok()) << inside.status();

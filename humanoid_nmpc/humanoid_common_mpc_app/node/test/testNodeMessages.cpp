@@ -36,12 +36,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/command/NormalizedWalkingVelocityCommand.h"
 #include "humanoid_common_mpc/command/WalkingVelocityCommand.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/TargetContactPose.h"
 #include "humanoid_common_mpc_app/node/ViewerAnnotations.h"
 #include "humanoid_common_mpc_app/node/WalkingVelocityCommandConversions.h"
+#include "humanoid_mpc_msgs/target_contact_patch.pb.h"
 #include "humanoid_mpc_msgs/viewer_annotations.pb.h"
 #include "humanoid_mpc_msgs/walking_velocity_command.pb.h"
 

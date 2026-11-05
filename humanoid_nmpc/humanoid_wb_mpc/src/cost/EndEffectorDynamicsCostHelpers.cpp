@@ -30,6 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_wb_mpc/cost/EndEffectorDynamicsCostHelpers.h"
 
+#include "ocs2_core/Types.h"
+
 namespace ocs2::humanoid {
 
 VECTOR18_T<scalar_t> EndEffectorDynamicsWeights::toVector() const {

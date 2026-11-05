@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_multi_contact/stability/ContactWrenchConeCheck.h"
 #include "humanoid_multi_contact/stability/JointLimits.h"
 #include "humanoid_multi_contact/stability/RobotStanceModel.h"
+#include "humanoid_multi_contact/stability/Stance.h"
 #include "humanoid_multi_contact/stability/StaticEquilibrium.h"
 #include "humanoid_multi_contact/stability/certifier_report.nproto.h"
 #include "humanoid_multi_contact/terrain/TerrainModel.h"

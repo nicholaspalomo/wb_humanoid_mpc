@@ -44,10 +44,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
 #include "humanoid_mpc_validation/closed_loop/LockstepStateEstimator.h"
 #include "humanoid_state_estimator/StateEstimator.h"
 #include "humanoid_state_estimator/StateEstimatorNames.h"
+#include "humanoid_state_estimator/StateEstimatorRegistry.h"
 #include "robot_model/RobotDescription.h"
 #include "robot_model/RobotState.h"
 

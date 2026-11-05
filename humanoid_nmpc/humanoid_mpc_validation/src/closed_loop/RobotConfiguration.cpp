@@ -36,7 +36,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/no_destructor.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 
 namespace ocs2::humanoid::validation {
 namespace {
@@ -132,8 +134,9 @@ std::vector<std::string> RobotConfiguration::configurationFiles() const {
           .string();
   std::error_code
       error;  // a file that cannot be examined is not listed, as a missing one
-  if (std::filesystem::exists(contactPlanningFile, error))
+  if (std::filesystem::exists(contactPlanningFile, error)) {
     files.push_back(contactPlanningFile);
+  }
   return files;
 }
 

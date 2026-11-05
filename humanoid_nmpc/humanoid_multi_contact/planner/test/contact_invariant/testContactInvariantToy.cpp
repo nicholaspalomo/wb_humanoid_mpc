@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -47,15 +48,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 #include "ocs2_core/PhysicalConstants.h"
 #include "ocs2_core/Types.h"
+#include "ocs2_core/integration/SensitivityIntegrator.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 #include "ocs2_oc/synchronized_module/ReferenceManager.h"
 #include "ocs2_sqp/SqpSettings.h"
 
-#include "humanoid_multi_contact/planner/contact_invariant/ContactFeatureRows.h"
+#include "humanoid_multi_contact/planner/contact_invariant/ContactFeatureFunction.h"
 #include "humanoid_multi_contact/planner/contact_invariant/ContactInvariantContinuation.h"
 #include "humanoid_multi_contact/planner/contact_invariant/StanceThresholding.h"
+#include "humanoid_multi_contact/planner/contact_invariant/TrajectoryInitializer.h"
 #include "humanoid_nmpc/humanoid_multi_contact/planner/test/contact_invariant/BallProblem.h"
 
 namespace ocs2::humanoid::multi_contact {
@@ -204,8 +207,9 @@ TEST(ContactInvariantToy, TheBallDiscoversTheFloorToReachItsGoal) {
   double impulseInTheAir = 0.0;
   for (size_t n = 0; n + 1 < trace.distances.size(); ++n) {
     impulse += trace.normWnormForceBallEwrtWorldTraj[n];
-    if (trace.distances[n] > 0.25)
+    if (trace.distances[n] > 0.25) {
       impulseInTheAir += trace.normWnormForceBallEwrtWorldTraj[n];
+    }
   }
   EXPECT_LT(impulseInTheAir, 0.1 * impulse);
   const vector_t& end = final.states.back();

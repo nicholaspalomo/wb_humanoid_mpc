@@ -31,7 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <memory>
+#include <numbers>
 #include <string>
 #include <utility>
 #include <vector>
@@ -41,14 +43,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_mpc/CommandData.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/algorithm/centroidal.hpp"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
 
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
@@ -58,7 +64,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/visualization/SolutionTermEvaluator.h"
 #include "humanoid_common_mpc_app/visualization/TelemetryBuilder.h"
 #include "humanoid_common_mpc_app/visualization/VisualizationConfig.h"
+#include "humanoid_common_mpc_app/visualization/VisualizationModel.h"
+#include "humanoid_mpc_msgs/robot_state_sample.nproto.h"
 #include "humanoid_mpc_msgs/robot_state_sample.nproto.pb.h"
+#include "humanoid_mpc_msgs/robot_state_sample.pb.h"
+#include "humanoid_mpc_msgs/scalar_group.pb.h"
+#include "humanoid_mpc_msgs/telemetry_series.pb.h"
 #include "humanoid_nmpc/humanoid_common_mpc_app/visualization/test/VisualizationTestRobot.h"
 
 namespace ocs2::humanoid::visualization {
@@ -746,7 +757,8 @@ TEST_F(TelemetryBuilderTest,
 TEST_F(TelemetryBuilderTest,
        AtThePitchSingularityOnlyTheEulerRatesAreNotANumber) {
   humanoid_mpc_msgs::RobotStateSample proto = robot_->robotState(
-      /*time=*/0.1, vector3_t(0.0, 0.0, 0.7), vector3_t(0.2, M_PI / 2.0, 0.3));
+      /*time=*/0.1, vector3_t(0.0, 0.0, 0.7),
+      vector3_t(0.2, std::numbers::pi / 2.0, 0.3));
   proto.mutable_angvel_base_rt_world_ewrt_base()->set_y(0.4);
   const humanoid_mpc_msgs::TelemetrySeries& series =
       builder_->build(decode(withMeasForceFeetEwrtWorldZ(
@@ -768,8 +780,8 @@ TEST_F(TelemetryBuilderTest,
       }
     }
   }
-  EXPECT_NEAR(valueOf(series, "base_pose/pitch", "measured"), M_PI / 2.0,
-              1.0e-9);
+  EXPECT_NEAR(valueOf(series, "base_pose/pitch", "measured"),
+              std::numbers::pi / 2.0, 1.0e-9);
   EXPECT_EQ(valueOf(series, "base_pose/angular_velocity_y", "measured"), 0.4);
 }
 
@@ -999,7 +1011,7 @@ TEST_F(TelemetryBuilderTest, TheMeasuredAcomTurnsWithTheRobot) {
       &observation_, &policy_);
   EXPECT_NEAR(std::remainder(valueOf(turned, "acom/yaw", "measured") -
                                  valueOf(first, "acom/yaw", "measured") - kTurn,
-                             2.0 * M_PI),
+                             2.0 * std::numbers::pi),
               0.0, 1.0e-9);
   EXPECT_NEAR(valueOf(turned, "acom/pitch", "measured"),
               valueOf(first, "acom/pitch", "measured"), 1.0e-9);
@@ -1088,8 +1100,9 @@ TEST_F(TelemetryBuilderTest, EveryValueIsFinite) {
       // The measured ZMP (the sensors carry 300 N each) and the plan's (a
       // stance foot carries 300 N at every time).
       EXPECT_TRUE(std::isfinite(valueOf(series, "zmp/x", "measured")));
-      if (policy != nullptr)
+      if (policy != nullptr) {
         EXPECT_TRUE(std::isfinite(valueOf(series, "zmp/y", "plan")));
+      }
     }
   }
 }

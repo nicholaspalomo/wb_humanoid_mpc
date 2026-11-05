@@ -33,6 +33,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 
+#include "humanoid_common_mpc/command/WalkingVelocityCommand.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact_planning/TargetContactPose.h"
+#include "humanoid_mpc_msgs/target_contact_patch.pb.h"
+#include "humanoid_mpc_msgs/viewer_annotations.pb.h"
+
 namespace ocs2::humanoid::node {
 
 void targetContactPatchToProto(
@@ -59,8 +65,9 @@ void targetContactPatchToProto(
   if (!desPoseFootRtWorld.valid ||
       !desPoseFootRtWorld.posFootRtWorldEwrtWorldXy.allFinite() ||
       !std::isfinite(desPoseFootRtWorld.posFootRtWorldEwrtWorldZ) ||
-      !std::isfinite(desPoseFootRtWorld.eulerzyxFootRtWorldYaw))
+      !std::isfinite(desPoseFootRtWorld.eulerzyxFootRtWorldYaw)) {
     return;
+  }
   humanoid_mpc_msgs::TargetContactPatch::Pose* absl_nonnull placement =
       patch->mutable_des_pose_foot_rt_world();
   placement->set_x(desPoseFootRtWorld.posFootRtWorldEwrtWorldXy(0));

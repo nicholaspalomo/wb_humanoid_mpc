@@ -365,7 +365,9 @@ TEST(PlannedMotion, everyContactInContactRestsOnAPhaseThroughTheCycle) {
   const PlannedMotion motion =
       motionOf(*models, source, cycle, PlanRepetition::kPeriodic);
   const size_t n = models->modelSettings().contactNames.size();
-  const scalar_t period = *motion.period();
+  const std::optional<scalar_t> optionalPeriod = motion.period();
+  if (!optionalPeriod.has_value()) GTEST_FAIL();
+  const scalar_t period = *optionalPeriod;
   const MpcRobotModelBase<scalar_t>& model = models->getMpcRobotModel();
   PinocchioInterface pinocchio = models->getPinocchioInterface();
   constexpr scalar_t kStep = 1.0e-3;  // [s]
@@ -475,7 +477,9 @@ TEST(PlannedMotion, thePeriodicMotionIsContinuousAtBothSeams) {
                        .lpNorm<Eigen::Infinity>() /
                    (knots.timeTrajectory[k + 1] - knots.timeTrajectory[k]));
   }
-  const scalar_t period = *motion.period();
+  const std::optional<scalar_t> optionalPeriod = motion.period();
+  if (!optionalPeriod.has_value()) GTEST_FAIL();
+  const scalar_t period = *optionalPeriod;
   const scalar_t end = source.plan.knots.back().time;
   constexpr scalar_t kStep = 1.0e-3;  // [s]
   constexpr scalar_t kWindow = 0.1;   // [s]
@@ -572,7 +576,9 @@ TEST(PlannedMotion, theReversedSwingsStepDownTheStairs) {
   const PlannedMotion motion =
       motionOf(*models, source, cycle, PlanRepetition::kPeriodic);
   const scalar_t end = source.plan.knots.back().time;
-  const scalar_t period = *motion.period();
+  const std::optional<scalar_t> optionalPeriod = motion.period();
+  if (!optionalPeriod.has_value()) GTEST_FAIL();
+  const scalar_t period = *optionalPeriod;
   for (const absl::string_view name : {"foot_l_contact", "foot_r_contact"}) {
     const size_t foot = contactIndex(*models, name);
     size_t up = 0;

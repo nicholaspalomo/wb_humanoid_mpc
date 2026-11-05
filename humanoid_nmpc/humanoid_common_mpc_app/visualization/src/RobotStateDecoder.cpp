@@ -29,7 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/visualization/RobotStateDecoder.h"
 
+#include <array>
 #include <cmath>
+#include <cstddef>
 #include <limits>
 #include <string>
 #include <utility>
@@ -40,8 +42,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
+#include "humanoid_mpc_msgs/quaternion.nproto.h"
+#include "humanoid_mpc_msgs/robot_state_sample.nproto.h"
+#include "humanoid_mpc_msgs/vector3.nproto.h"
 
 namespace ocs2::humanoid::visualization {
 

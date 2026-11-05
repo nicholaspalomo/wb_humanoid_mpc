@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include "absl/status/statusor.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/command/NormalizedWalkingVelocityCommand.h"
 #include "humanoid_mpc_msgs/walking_velocity_command.pb.h"

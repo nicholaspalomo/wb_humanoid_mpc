@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/visualization/IoThreadOutbox.h"
 
+#include <atomic>
 #include <cstddef>
 #include <memory>
 #include <string>

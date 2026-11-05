@@ -32,12 +32,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <utility>
 
+#include "absl/functional/function_ref.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
+#include "humanoid_common_mpc_app/robot/RobotAppOptions.h"
 #include "humanoid_common_mpc_app/robot/RobotConfigDirectory.h"
 #include "humanoid_common_mpc_app/robot/RobotStack.h"
 #include "humanoid_mpc_config/task_file.nproto.h"

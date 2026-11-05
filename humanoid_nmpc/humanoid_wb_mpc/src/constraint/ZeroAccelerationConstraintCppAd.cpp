@@ -30,15 +30,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_wb_mpc/constraint/ZeroAccelerationConstraintCppAd.h"
 
+#include <cstddef>
 #include <memory>
 #include <utility>
 
 #include "absl/memory/memory.h"
 #include "absl/status/statusor.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/constraint/ConstraintOrder.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
 #include "ocs2_core/misc/Numerics.h"
 
+#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
+#include "humanoid_wb_mpc/constraint/EndEffectorDynamicsAccelerationsConstraint.h"
+#include "humanoid_wb_mpc/end_effector/EndEffectorDynamics.h"
 
 namespace ocs2::humanoid {
 
@@ -106,8 +115,10 @@ bool ZeroAccelerationConstraintCppAd::isActive(scalar_t time) const {
 /******************************************************************************************************/
 scalar_t ZeroAccelerationConstraintCppAd::groundTerm(scalar_t time) const {
   const matrix_t& positionGains = eeAccelConstraintPtr_->getConfig().Ax;
-  if (positionGains.rows() <= kHeightRow || positionGains.cols() <= kHeightRow)
+  if (positionGains.rows() <= kHeightRow ||
+      positionGains.cols() <= kHeightRow) {
     return 0.0;
+  }
   return positionGains(kHeightRow, kHeightRow) *
          referenceManagerPtr_->getSwingTrajectoryPlanner()
              ->getDesPosFootRtWorldEwrtWorldZ(contactPointIndex_, time);

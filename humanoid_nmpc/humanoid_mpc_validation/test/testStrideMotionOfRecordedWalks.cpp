@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Eigen/Geometry"
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/command/BasePlanarMotion.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -163,15 +164,17 @@ scalar_t strideOfYawRate(const RecordedRobotStates& recording) {
                        computeTwistBaseRtWorldEwrtWorld(records[next])(5));
   }
   scalar_t mean = 0.0;
-  for (const scalar_t value : rate)
+  for (const scalar_t value : rate) {
     mean += value / static_cast<scalar_t>(rate.size());
+  }
   scalar_t bestLag = 0.0;
   scalar_t bestCorrelation = -1.0e300;
   for (size_t lag = static_cast<size_t>(0.8 / kGrid);
        lag <= static_cast<size_t>(2.2 / kGrid) && lag < rate.size(); ++lag) {
     scalar_t correlation = 0.0;
-    for (size_t i = 0; i + lag < rate.size(); ++i)
+    for (size_t i = 0; i + lag < rate.size(); ++i) {
       correlation += (rate[i] - mean) * (rate[i + lag] - mean);
+    }
     if (correlation > bestCorrelation) {
       bestCorrelation = correlation;
       bestLag = static_cast<scalar_t>(lag) * kGrid;
@@ -288,8 +291,9 @@ TEST(StrideMotionOfRecordedWalks, AnAddedTurnReadsExactlyAsThatTurn) {
         strideMeansOf(recording, cycle, /*turnRate=*/0.2);
     ASSERT_EQ(turning.turns.size(), straight.turns.size());
     ASSERT_FALSE(turning.turns.empty());
-    for (size_t i = 0; i < turning.turns.size(); ++i)
+    for (size_t i = 0; i < turning.turns.size(); ++i) {
       EXPECT_NEAR(turning.turns[i] - straight.turns[i], 0.2, 1.0e-12) << i;
+    }
   }
 }
 
@@ -302,8 +306,9 @@ scalar_t fractionMovingSidewaysFasterThan(const RecordedRobotStates& recording,
     if (std::abs(
             instantaneousPlanarMotion(record.quatBaseRtWorldXyzw,
                                       computeTwistBaseRtWorldEwrtWorld(record))
-                .linvelBaseRtWorldEwrtHeadingXy(1)) > speed)
+                .linvelBaseRtWorldEwrtHeadingXy(1)) > speed) {
       ++faster;
+    }
   }
   return static_cast<scalar_t>(faster) /
          static_cast<scalar_t>(recording.records.size());
@@ -347,8 +352,9 @@ BridgedMeans meansWithAGap(const std::vector<RobotStateRecord>& records,
   BridgedMeans result;
   int seeds = 0;
   for (const RobotStateRecord& record : records) {
-    if (record.time > gapStart + 1.0e-9 && record.time < gapEnd - 1.0e-9)
+    if (record.time > gapStart + 1.0e-9 && record.time < gapEnd - 1.0e-9) {
       continue;
+    }
     history.addSample(record.time,
                       vector2_t(record.posBaseRtWorldEwrtWorld.head<2>()),
                       yawOf(record.quatBaseRtWorldXyzw), [&seeds]() {
@@ -392,8 +398,9 @@ TEST(StrideMotionOfRecordedWalks,
       for (size_t start = 0; start < records.size(); start += 7) {
         const scalar_t gapStart = records[start].time;
         if (gapStart - cycle < records.front().time ||
-            gapStart + gap + cycle > records.back().time)
+            gapStart + gap + cycle > records.back().time) {
           continue;
+        }
         ++stalls;
         const BridgedMeans bridged =
             meansWithAGap(records, cycle, gapStart, gapStart + gap);
@@ -430,8 +437,9 @@ TEST(StrideMotionOfRecordedWalks,
           }
         }
       }
-      if (stalls == 0)
+      if (stalls == 0) {
         continue;  // a recording shorter than two strides and the stall
+      }
       EXPECT_LT(beforeStallLargestNormErrLinvelBaseRtWorldEwrtHeadingXy,
                 0.0075);
       EXPECT_LT(largestTurnError, 0.045);
@@ -450,8 +458,9 @@ TEST(StrideMotionOfRecordedWalks,
   const std::map<std::string, scalar_t> cycles = gaitCycles();
   for (const RecordedWalk& walk : recordedWalks()) {
     if (!walk.file.starts_with("unitree_g1_walk") &&
-        !walk.file.starts_with("unitree_r1"))
+        !walk.file.starts_with("unitree_r1")) {
       continue;
+    }
     SCOPED_TRACE(walk.file);
     const RecordedRobotStates recording = loadRecording(walk.file);
     ASSERT_GT(recording.records.size(), 100);

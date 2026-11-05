@@ -40,7 +40,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/mrt/ControllerEvent.h"
 #include "humanoid_common_mpc/mrt/ControllerEventSink.h"
-#include "humanoid_common_mpc_app/robot/FallRecoveryTypes.h"
 #include "robot_realtime/SpscQueue.h"
 
 namespace ocs2::humanoid {

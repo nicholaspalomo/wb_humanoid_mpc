@@ -32,10 +32,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <limits>
 #include <memory>
+#include <numbers>
 #include <optional>
 #include <string>
 #include <utility>
@@ -45,19 +47,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/thread_annotations.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_mpc/CommandData.h"
 #include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_oc/oc_data/PerformanceIndex.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
+#include "ocs2_oc/synchronized_module/ReferenceManagerInterface.h"
 #include "ocs2_oc/synchronized_module/SolverSynchronizedModule.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/centroidal.hpp"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/OperatorPayloadChecks.h"
 #include "humanoid_common_mpc/config/reference/ReferenceFromConfig.h"
 #include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "humanoid_common_mpc_app/node/MpcNodeRuntime.h"
@@ -65,6 +75,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_config/mpc_parameter_update.pb.h"
 #include "humanoid_mpc_config/reference_file.nproto.h"
 #include "humanoid_mpc_ipc/MpcMessageConversions.h"
+#include "humanoid_mpc_ipc/MpcServer.h"
 #include "humanoid_mpc_ipc/Topics.h"
 #include "humanoid_mpc_msgs/mpc_observation.pb.h"
 #include "humanoid_mpc_msgs/mpc_policy.pb.h"
@@ -72,7 +83,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_nmpc/humanoid_common_mpc_app/node/test/ScriptedRobot.h"
 #include "humanoid_nmpc/humanoid_mpc_ipc/test/MpcLinkTestSupport.h"
 #include "robot_ipc/Bus.h"
-#include "robot_ipc/Delivery.h"
 #include "support/AtlasReferenceStack.h"
 
 /*
@@ -448,8 +458,9 @@ TEST(MpcNodeRuntime,
   // is commanded to stand, at its height.
   const absl::Time deadline = absl::Now() + absl::Seconds(5);
   while (harness.runtime().statistics().walkingCommandTimeouts == 0 &&
-         absl::Now() < deadline)
+         absl::Now() < deadline) {
     absl::SleepFor(absl::Milliseconds(5));
+  }
   EXPECT_EQ(harness.runtime().statistics().walkingCommandTimeouts, 1u);
   const WalkingVelocityCommand stopped =
       motionManager.getScaledWalkingVelocityCommand();
@@ -895,7 +906,7 @@ TEST(
   const SwayingWalk walk{.start = 2.5,
                          .linvelBaseRtWorldEwrtWorldX = 0.2,
                          .amplitudeYawBaseRtWorld = 0.08,
-                         .frequency = 2.0 * M_PI / kCycle};
+                         .frequency = 2.0 * std::numbers::pi / kCycle};
   ASSERT_GT(walk.amplitudeYawBaseRtWorld * walk.frequency, 0.15)
       << "the sway alone must turn fast enough to raise slow_walk";
   Harness harness;
@@ -945,16 +956,18 @@ TEST(
   ASSERT_GT(solves.size(), 1000U);
   // The first solve leaves stance on the command; slow_walk holds through every
   // stall.
-  for (size_t i = 1; i < solves.size(); ++i)
+  for (size_t i = 1; i < solves.size(); ++i) {
     EXPECT_EQ(solves[i].gait, "slow_walk") << "t = " << solves[i].time;
+  }
   const scalar_t insideTheStallBound =
       2.0 * walk.amplitudeYawBaseRtWorld / kCycle;
   for (const Stall& stall : stalls) {
     SCOPED_TRACE(stall.end - stall.start);
     for (const MotionManagerRecorder::Solve& solve : solves) {
       if (solve.time < stall.end - 1.0e-9 ||
-          solve.time > stall.end + kCycle + (stall.end - stall.start))
+          solve.time > stall.end + kCycle + (stall.end - stall.start)) {
         continue;
+      }
       // The window holds the stall: a mean for the targets, no measurement for
       // the gait switches.
       if (solve.time - kCycle < stall.end - 1.0e-6) {

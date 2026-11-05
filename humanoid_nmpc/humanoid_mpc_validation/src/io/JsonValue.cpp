@@ -34,9 +34,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <ios>
 #include <iterator>
 #include <limits>
+#include <optional>
 #include <string>
+#include <system_error>
 #include <utility>
 
 #include "absl/base/nullability.h"
@@ -45,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_split.h"
+#include "absl/strings/string_view.h"
 
 namespace ocs2::humanoid::validation {
 namespace {
@@ -182,8 +186,9 @@ class Parser {
     absl::StatusOr<JsonValue> value = parseValue(/*depth=*/0);
     if (!value.ok()) return value;
     skipWhitespace();
-    if (offset_ != text_.size())
+    if (offset_ != text_.size()) {
       return error("unexpected text after the document");
+    }
     return value;
   }
 
@@ -234,40 +239,48 @@ class Parser {
     if (text_[offset_] == '-') ++offset_;
     const size_t digitsStart = offset_;
     while (offset_ < text_.size() && text_[offset_] >= '0' &&
-           text_[offset_] <= '9')
+           text_[offset_] <= '9') {
       ++offset_;
+    }
     if (offset_ == digitsStart) return error("a number without digits");
-    if (text_[digitsStart] == '0' && offset_ - digitsStart > 1)
+    if (text_[digitsStart] == '0' && offset_ - digitsStart > 1) {
       return error("a number with a leading zero");
+    }
     if (offset_ < text_.size() && text_[offset_] == '.') {
       ++offset_;
       const size_t fractionStart = offset_;
       while (offset_ < text_.size() && text_[offset_] >= '0' &&
-             text_[offset_] <= '9')
+             text_[offset_] <= '9') {
         ++offset_;
-      if (offset_ == fractionStart)
+      }
+      if (offset_ == fractionStart) {
         return error("a number without digits after the decimal point");
+      }
     }
     if (offset_ < text_.size() &&
         (text_[offset_] == 'e' || text_[offset_] == 'E')) {
       ++offset_;
       if (offset_ < text_.size() &&
-          (text_[offset_] == '+' || text_[offset_] == '-'))
+          (text_[offset_] == '+' || text_[offset_] == '-')) {
         ++offset_;
+      }
       const size_t exponentStart = offset_;
       while (offset_ < text_.size() && text_[offset_] >= '0' &&
-             text_[offset_] <= '9')
+             text_[offset_] <= '9') {
         ++offset_;
-      if (offset_ == exponentStart)
+      }
+      if (offset_ == exponentStart) {
         return error("a number without exponent digits");
+      }
     }
     const std::string literal(text_.substr(start, offset_ - start));
     return JsonValue::number(std::strtod(literal.c_str(), /*endptr=*/nullptr));
   }
 
   absl::StatusOr<uint32_t> parseHexQuad() {
-    if (offset_ + kHexQuadDigits > text_.size())
+    if (offset_ + kHexQuadDigits > text_.size()) {
       return error("a truncated \\u escape");
+    }
     uint32_t value = 0;
     for (int i = 0; i < kHexQuadDigits; ++i) {
       const char c = text_[offset_++];
@@ -292,8 +305,9 @@ class Parser {
       if (offset_ >= text_.size()) return error("an unterminated string");
       const char c = text_[offset_++];
       if (c == '"') return out;
-      if (static_cast<unsigned char>(c) < kFirstNonControlCharacter)
+      if (static_cast<unsigned char>(c) < kFirstNonControlCharacter) {
         return error("a control character in a string");
+      }
       if (c != '\\') {
         out.push_back(c);
         continue;
@@ -331,8 +345,9 @@ class Parser {
             offset_ += kUnicodeEscapePrefix.size();
             const absl::StatusOr<uint32_t> low = parseHexQuad();
             if (!low.ok()) return low.status();
-            if (*low < kLowSurrogateBegin || *low >= kLowSurrogateEnd)
+            if (*low < kLowSurrogateBegin || *low >= kLowSurrogateEnd) {
               return error("an unpaired surrogate");
+            }
             *codePoint =
                 kSurrogatePairBase +
                 ((*codePoint - kHighSurrogateBegin) << kSurrogatePayloadBits) +
@@ -384,15 +399,18 @@ class Parser {
     }
     while (true) {
       skipWhitespace();
-      if (offset_ >= text_.size() || text_[offset_] != '"')
+      if (offset_ >= text_.size() || text_[offset_] != '"') {
         return error("expected a member name");
+      }
       absl::StatusOr<std::string> key = parseString();
       if (!key.ok()) return key.status();
-      if (object.find(*key) != nullptr)
+      if (object.find(*key) != nullptr) {
         return error(absl::StrCat("a duplicate member '", *key, "'"));
+      }
       skipWhitespace();
-      if (offset_ >= text_.size() || text_[offset_] != ':')
+      if (offset_ >= text_.size() || text_[offset_] != ':') {
         return error("expected ':' after a member name");
+      }
       ++offset_;
       absl::StatusOr<JsonValue> value = parseValue(depth + 1);
       if (!value.ok()) return value;
@@ -560,8 +578,9 @@ void JsonValue::serializeTo(std::string& out, int indent) const {
       // An array of scalars stays on one line; one that holds arrays or objects
       // puts an element on each line.
       bool scalars = true;
-      for (const JsonValue& element : elements_)
+      for (const JsonValue& element : elements_) {
         scalars = scalars && !element.isArray() && !element.isObject();
+      }
       if (scalars) {
         out.push_back('[');
         for (size_t i = 0; i < elements_.size(); ++i) {
@@ -627,15 +646,17 @@ bool operator==(const JsonValue& lhs, const JsonValue& rhs) {
 
 absl::StatusOr<JsonValue> readJsonFile(const std::string& path) {
   std::ifstream file(path, std::ios::binary);
-  if (!file.is_open())
+  if (!file.is_open()) {
     return absl::NotFoundError(
         absl::StrCat("[readJsonFile] cannot read '", path, "'"));
+  }
   const std::string text((std::istreambuf_iterator<char>(file)),
                          std::istreambuf_iterator<char>());
   absl::StatusOr<JsonValue> value = JsonValue::parse(text);
-  if (!value.ok())
+  if (!value.ok()) {
     return absl::InvalidArgumentError(
         absl::StrCat(path, ": ", value.status().message()));
+  }
   return value;
 }
 
@@ -645,14 +666,16 @@ absl::Status writeJsonFile(const std::string& path, const JsonValue& value) {
   std::error_code error;
   if (!parent.empty()) std::filesystem::create_directories(parent, error);
   std::ofstream file(path, std::ios::binary | std::ios::trunc);
-  if (!file.is_open())
+  if (!file.is_open()) {
     return absl::InternalError(
         absl::StrCat("[writeJsonFile] cannot write '", path, "'"));
+  }
   file << value.serialize() << "\n";
   file.close();
-  if (!file)
+  if (!file) {
     return absl::InternalError(
         absl::StrCat("[writeJsonFile] writing '", path, "' failed"));
+  }
   return absl::OkStatus();
 }
 

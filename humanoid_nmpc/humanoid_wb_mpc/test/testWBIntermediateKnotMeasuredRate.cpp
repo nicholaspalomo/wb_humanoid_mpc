@@ -32,17 +32,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstddef>
 #include <memory>
+#include <numbers>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 
 #include "humanoid_common_mpc/command/BasePlanarMotion.h"
 #include "humanoid_common_mpc/command/TargetTrajectoriesCalculatorBase.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
@@ -171,7 +174,8 @@ PlanarPose integrated(const PlanarPose& start,
  */
 scalar_t computeErrYawBaseRtWorld(scalar_t yawBaseRtWorld,
                                   scalar_t refYawBaseRtWorld) {
-  return std::remainder(yawBaseRtWorld - refYawBaseRtWorld, 2.0 * M_PI);
+  return std::remainder(yawBaseRtWorld - refYawBaseRtWorld,
+                        2.0 * std::numbers::pi);
 }
 
 /** The planar pose of a knot. */
@@ -332,7 +336,7 @@ TEST(WBIntermediateKnotMeasuredRate,
                   knot.yawBaseRtWorld,
                   planarBaseOf(*g1->model, targets.stateTrajectory[i - 1])
                       .yawBaseRtWorld)),
-              0.5 * M_PI + 1.0e-12);
+              0.5 * std::numbers::pi + 1.0e-12);
     if (i <= firstParts) {
       const PlanarPose onTheArc = integrated(
           start, meanLinvelBaseRtWorldEwrtHeadingXy, meanRateYawBaseRtWorld,

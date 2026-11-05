@@ -31,17 +31,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <cmath>
+#include <cstddef>
 #include <functional>
 
 #include "Eigen/Core"
 #include "Eigen/Geometry"
 #include "gtest/gtest.h"
 #include "ocs2_centroidal_model/AccessHelperFunctions.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
 #include "ocs2_centroidal_model/ModelHelperFunctions.h"
+#include "ocs2_core/Types.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/algorithm/centroidal.hpp"
 #include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 
 #include "humanoid_centroidal_mpc_test/CentroidalTestingModelInterface.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -93,13 +97,15 @@ vector_t makeInput(const CentroidalModelInfo& info) {
     const scalar_t sign = i % 2 == 0 ? 1.0 : -1.0;
     centroidal_model::getForceContactEwrtWorld(input, i, info) << 20.0 * sign,
         -10.0, 200.0 + 30.0 * sign;
-    if (i >= info.numThreeDofContacts)
+    if (i >= info.numThreeDofContacts) {
       centroidal_model::getTorqueContactEwrtWorld(input, i, info) << 1.0,
           -2.0 * sign, 0.5;
+    }
   }
   vector_t jointVelocities(info.actuatedDofNum);
-  for (Eigen::Index i = 0; i < jointVelocities.size(); ++i)
+  for (Eigen::Index i = 0; i < jointVelocities.size(); ++i) {
     jointVelocities(i) = 0.5 * spread(static_cast<size_t>(i), /*phase=*/1.9);
+  }
   centroidal_model::getJointVelocities(input, info) = jointVelocities;
   return input;
 }
@@ -256,9 +262,10 @@ TEST(TestCentroidalConversions,
               (data.oMf[info.endEffectorFrameIndices[i]].translation() -
                posComRtWorldEwrtWorld)
                   .cross(forceContactEwrtWorld);
-          if (i >= info.numThreeDofContacts)
+          if (i >= info.numThreeDofContacts) {
             rateCmomComRtWorldEwrtWorld.tail<3>() +=
                 centroidal_model::getTorqueContactEwrtWorld(input, i, info);
+          }
         }
         return rateCmomComRtWorldEwrtWorld;
       };

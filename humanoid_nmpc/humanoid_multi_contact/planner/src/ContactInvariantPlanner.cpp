@@ -37,7 +37,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <optional>
 #include <string>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -47,7 +46,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
@@ -55,20 +53,41 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/time/time.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/PhysicalConstants.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/ProductStateManifold.h"
+#include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/manifold/StateManifoldSegment.h"
+#include "ocs2_core/penalties/penalties/RelaxedBarrierPenalty.h"
+#include "ocs2_core/penalties/penalties/SquaredHingePenalty.h"
 #include "ocs2_core/soft_constraint/StateSoftConstraint.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
+#include "ocs2_sqp/SqpSettings.h"
 
+#include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/multi_contact/MultiContactPlanSource.h"
 #include "humanoid_common_mpc/common/ContactTermNames.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_multi_contact/collision/CollisionModel.h"
+#include "humanoid_multi_contact/contact_set/ContactSet.h"
 #include "humanoid_multi_contact/plan/PlanFile.h"
+#include "humanoid_multi_contact/plan/multi_contact_plan.nproto.h"
+#include "humanoid_multi_contact/planner/contact_invariant/ContactFeatureFunction.h"
+#include "humanoid_multi_contact/planner/contact_invariant/ContactInvariantContinuation.h"
+#include "humanoid_multi_contact/planner/contact_invariant/ContactInvariantLayout.h"
+#include "humanoid_multi_contact/planner/contact_invariant/HardContactRefinement.h"
 #include "humanoid_multi_contact/planner/contact_invariant/LibraryName.h"
 #include "humanoid_multi_contact/planner/contact_invariant/PlanSeeding.h"
 #include "humanoid_multi_contact/planner/contact_invariant/PlanTrajectory.h"
+#include "humanoid_multi_contact/planner/contact_invariant/RobotContactFeatures.h"
+#include "humanoid_multi_contact/planner/contact_invariant/StanceThresholding.h"
 #include "humanoid_multi_contact/planner/contact_invariant/TerrainClearanceConstraint.h"
+#include "humanoid_multi_contact/planner/contact_invariant/TrajectoryInitializer.h"
+#include "humanoid_multi_contact/scenarios/Scenario.h"
 #include "humanoid_multi_contact/stability/RobotStanceModel.h"
+#include "humanoid_multi_contact/stability/certifier_report.nproto.h"
+#include "humanoid_multi_contact/terrain/TerrainModel.h"
 
 namespace ocs2::humanoid::multi_contact {
 namespace {
@@ -429,6 +448,12 @@ absl::StatusOr<OptimalControlProblem> physicalProblemOf(
     physical.softConstraintPtr->erase(
         contact_term::name(name, contact_term::kPointFrictionCone));
   }
+  if (!loaded.collisionModelConfig.has_value()) {
+    // plan() checks it first.
+    return absl::FailedPreconditionError(absl::StrCat(
+        "scenario '", loaded.scenario.name,
+        "': the contact-invariant planner needs a collision_model_file"));
+  }
   ASSIGN_OR_RETURN(
       CollisionModel collision,
       CollisionModel::Create(*loaded.collisionModelConfig, *robot.stanceModel));
@@ -723,6 +748,12 @@ absl::StatusOr<config::MultiContactPlan> refinedPlan(
     const LoadedScenario& loaded,
     absl::string_view planner) {
   ASSIGN_OR_RETURN(RefinementResult result, refinement.refine(seed, guess));
+  // refine() certifies the plan, which sets its report.
+  if (!result.plan.report.has_value()) {
+    return absl::InternalError(absl::StrFormat(
+        "%s: the plan for '%s' has no certifier report after solve 3", planner,
+        loaded.scenario.name));
+  }
   LOG(INFO) << absl::StrFormat(
       "%s: '%s' solve 3: %d SQP iterations in %.1f s, %d polygon updates; "
       "the stances %s",

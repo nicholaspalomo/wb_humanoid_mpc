@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
+#include <stdlib.h>
+
 #include <cstdlib>
 #include <filesystem>
 #include <memory>
@@ -41,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_wb_mpc/WBMpcInterface.h"
@@ -97,8 +100,9 @@ std::string runfilePath(absl::string_view relativePath) {
   roots.emplace_back(std::filesystem::current_path());
   for (const std::filesystem::path& root : roots) {
     const std::filesystem::path candidate = root / std::string(relativePath);
-    if (std::filesystem::exists(candidate))
+    if (std::filesystem::exists(candidate)) {
       return std::filesystem::absolute(candidate).string();
+    }
   }
   return std::string();
 }
@@ -120,8 +124,9 @@ std::unique_ptr<WBMpcInterface> g1ControllerModelsInAFreshDirectory(
       runfilePath("robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf");
   EXPECT_FALSE(taskFile.empty() || referenceFile.empty() || urdfFile.empty())
       << "the G1 whole-body files are not in the runfiles";
-  if (taskFile.empty() || referenceFile.empty() || urdfFile.empty())
+  if (taskFile.empty() || referenceFile.empty() || urdfFile.empty()) {
     return nullptr;
+  }
   std::string freshDirectory = (std::filesystem::path(testing::TempDir()) /
                                 absl::StrCat(testName, "_XXXXXX"))
                                    .string();

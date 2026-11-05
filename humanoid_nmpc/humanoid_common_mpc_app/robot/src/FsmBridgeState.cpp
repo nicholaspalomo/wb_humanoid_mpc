@@ -29,9 +29,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/robot/FsmBridgeState.h"
 
+#include <cstddef>
+
 #include "absl/base/nullability.h"
 
 #include "humanoid_common_mpc/mrt/ControlMode.h"
+#include "humanoid_common_mpc_app/robot/FsmStateMailbox.h"
+#include "humanoid_common_mpc_app/robot/OperatorCommandMailbox.h"
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotState.h"
 
 namespace ocs2::humanoid {
 

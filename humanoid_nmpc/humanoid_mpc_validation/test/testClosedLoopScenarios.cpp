@@ -29,9 +29,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <numbers>
 #include <regex>
 #include <set>
 #include <string>
@@ -46,7 +48,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/command/NormalizedWalkingVelocityCommand.h"
-#include "humanoid_common_mpc/command/WalkingVelocityCommand.h"
 #include "humanoid_common_mpc_app/node/WalkingVelocityCommandConversions.h"
 #include "humanoid_mpc_msgs/walking_velocity_command.pb.h"
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopScenario.h"
@@ -70,8 +71,9 @@ double integrate(const ClosedLoopScenario& scenario,
                  int component,
                  double step = 1.0e-3) {
   double sum = 0.0;
-  for (double t = 0.5 * step; t < getCommandDuration(scenario); t += step)
+  for (double t = 0.5 * step; t < getCommandDuration(scenario); t += step) {
     sum += commandAt(scenario, t)(component) * step;
+  }
   return sum;
 }
 
@@ -143,7 +145,7 @@ TEST(ClosedLoopScenarios, TheCommandsAreWhatSection4Point5Asks) {
     heading += piece.duration * piece.yawRate;
     peakHeading = std::max(peakHeading, heading);
   }
-  EXPECT_NEAR(peakHeading, 4.0 * M_PI, 1.0e-12);
+  EXPECT_NEAR(peakHeading, 4.0 * std::numbers::pi, 1.0e-12);
   EXPECT_NEAR(heading, 0.0, 1.0e-12);
   EXPECT_EQ(turn.segments[0].cmdLinvelBaseRtWorldEwrtHeadingX, 0.0)
       << "in place";
@@ -276,8 +278,9 @@ absl::flat_hash_map<std::string, std::string> launchFileVariables(
   std::string line;
   while (std::getline(file, line)) {
     std::smatch match;
-    if (std::regex_search(line, match, declaration))
+    if (std::regex_search(line, match, declaration)) {
       variables[match[1].str()] = match[2].str();
+    }
   }
   // Every "{name}" by the value of `name`, pass by pass: a value may refer to
   // variables that refer to others.

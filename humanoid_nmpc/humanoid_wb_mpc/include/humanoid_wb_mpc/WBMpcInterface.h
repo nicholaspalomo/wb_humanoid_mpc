@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
 #include <memory>
 #include <string>
 
@@ -38,10 +39,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
+#include "ocs2_core/cost/StateInputCost.h"
 #include "ocs2_core/manifold/StateManifold.h"
-#include "ocs2_core/penalties/Penalties.h"
 #include "ocs2_mpc/MPC_Settings.h"
-#include "ocs2_oc/rollout/TimeTriggeredRollout.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
+#include "ocs2_oc/rollout/RolloutBase.h"
+#include "ocs2_oc/rollout/RolloutSettings.h"
+#include "ocs2_oc/synchronized_module/ReferenceManagerInterface.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "ocs2_robotic_tools/common/RobotInterface.h"
 #include "ocs2_sqp/SqpSettings.h"

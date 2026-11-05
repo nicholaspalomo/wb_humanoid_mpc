@@ -33,6 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/flags/flag.h"
 
+#include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
+
 // LINT.IfChange(centroidal_app_flags)
 ABSL_FLAG(std::string,
           multi_contact_scenario,

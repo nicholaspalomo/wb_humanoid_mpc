@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_wb_mpc/end_effector/PinocchioEndEffectorDynamicsCppAd.h"
 
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <utility>
@@ -39,12 +40,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/CppAdInterface.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "ocs2_robotic_tools/common/RotationTransforms.h"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/spatial.hpp"
 
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
 #include "humanoid_wb_mpc/dynamics/DynamicsHelperFunctions.h"
+#include "humanoid_wb_mpc/end_effector/EndEffectorDynamics.h"
 #include "humanoid_wb_mpc/end_effector/OrientationErrorWrtPlaneRates.h"
 
 namespace ocs2::humanoid {

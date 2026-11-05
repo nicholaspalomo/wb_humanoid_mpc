@@ -31,14 +31,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/mrt/ControlMode.h"
+#include "humanoid_common_mpc_app/robot/FallRecoveryTypes.h"
+#include "humanoid_common_mpc_app/robot/RealtimeEventLog.h"
+#include "mujoco_sim_interface/MujocoSimInterface.h"
+#include "robot_model/RobotState.h"
 
 namespace ocs2::humanoid {
 
@@ -74,22 +83,26 @@ bool SimFallRecovery::isAtRest(
     const std::vector<size_t>& jointIndices,
     const Config& config) {
   if (computeTiltangleBaseRtWorld(robotState.getQuatBaseRtWorld()) >
-      config.settleMaxTiltangleBaseRtWorld)
+      config.settleMaxTiltangleBaseRtWorld) {
     return false;
+  }
   if (robotState.getLinvelBaseRtWorldEwrtBase().norm() >
-      config.settleMaxSpeedBaseRtWorld)
+      config.settleMaxSpeedBaseRtWorld) {
     return false;
+  }
   if (robotState.getAngvelBaseRtWorldEwrtBase().norm() >
-      config.settleMaxNormAngvelBaseRtWorldEwrtBase)
+      config.settleMaxNormAngvelBaseRtWorldEwrtBase) {
     return false;
+  }
   for (size_t joint : jointIndices) {
     if (joint >= nominalJointPositions.size()) continue;
     // A joint the simulator does not report has no say in whether the robot is
     // at rest.
     if (!robotState.hasJoint(joint)) continue;
     if (std::abs(robotState.getJointPosition(joint) -
-                 nominalJointPositions[joint]) > config.settleJointError)
+                 nominalJointPositions[joint]) > config.settleJointError) {
       return false;
+    }
   }
   return true;
 }
@@ -191,9 +204,10 @@ SimFallRecovery::Cycle SimFallRecovery::update(
       // A catch during a sequence (the simulator reset the robot while it hung
       // lifted) keeps the height the sequence returns to: the gantry is not at
       // the standing height then.
-      if (phase_ == Phase::kIdle)
+      if (phase_ == Phase::kIdle) {
         standingGantryPosBaseRtWorldEwrtWorldZ_ =
             robotInterface.getGantryPosBaseRtWorldEwrtWorldZ();
+      }
       rampStartGantryPosBaseRtWorldEwrtWorldZ_ =
           std::max(standingGantryPosBaseRtWorldEwrtWorldZ_,
                    robotInterface.getGantryPosBaseRtWorldEwrtWorldZ());
@@ -251,8 +265,9 @@ void SimFallRecovery::stepSettleSequence(
       robotInterface.setGantryPosBaseRtWorldEwrtWorldZ(
           gantryPosBaseRtWorldEwrtWorldZ);
       if (gantryPosBaseRtWorldEwrtWorldZ >=
-          liftedGantryPosBaseRtWorldEwrtWorldZ)
+          liftedGantryPosBaseRtWorldEwrtWorldZ) {
         enterPhase(Phase::kSettlingLifted, time);
+      }
       break;
     }
     case Phase::kSettlingLifted:
@@ -276,8 +291,9 @@ void SimFallRecovery::stepSettleSequence(
       robotInterface.setGantryPosBaseRtWorldEwrtWorldZ(
           gantryPosBaseRtWorldEwrtWorldZ);
       if (gantryPosBaseRtWorldEwrtWorldZ <=
-          standingGantryPosBaseRtWorldEwrtWorldZ_)
+          standingGantryPosBaseRtWorldEwrtWorldZ_) {
         enterPhase(Phase::kSettlingOnFeet, time);
+      }
       break;
     }
     case Phase::kSettlingOnFeet:

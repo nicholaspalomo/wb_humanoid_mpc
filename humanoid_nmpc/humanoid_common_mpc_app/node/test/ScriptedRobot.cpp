@@ -29,18 +29,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_nmpc/humanoid_common_mpc_app/node/test/ScriptedRobot.h"
 
+#include <cstddef>
+#include <cstdint>
+#include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 
 #include "absl/log/check.h"
 #include "absl/status/statusor.h"
+#include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "google/protobuf/message.h"
+#include "ocs2_mpc/SystemObservation.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_mpc_ipc/MpcMessageConversions.h"
 #include "humanoid_mpc_ipc/Topics.h"
+#include "humanoid_mpc_msgs/mpc_observation.pb.h"
+#include "humanoid_mpc_msgs/mpc_policy.pb.h"
+#include "robot_ipc/Bus.h"
 #include "robot_ipc/BusOptions.h"
 #include "robot_ipc/Delivery.h"
 #include "robot_runtime/robot_ipc/test/TestNetwork.h"
@@ -143,8 +153,9 @@ std::optional<humanoid_mpc_msgs::MpcPolicy> ScriptedRobot::policySolvedAt(
     double time) const {
   absl::MutexLock lock(mutex_);
   for (size_t index = policies_.size(); index-- > 0;) {
-    if (policies_[index].init_observation().time() == time)
+    if (policies_[index].init_observation().time() == time) {
       return policies_[index];
+    }
   }
   return std::nullopt;
 }

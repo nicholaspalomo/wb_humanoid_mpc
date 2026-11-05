@@ -43,18 +43,30 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/time/time.h"
+#include "ocs2_mpc/CommandData.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
 
+#include "humanoid_common_mpc/command/NormalizedWalkingVelocityCommand.h"
+#include "humanoid_common_mpc/command/WalkingVelocityCommand.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/ThreadAffinity.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/OperatorPayloadChecks.h"
+#include "humanoid_common_mpc/contact_planning/TargetContactPose.h"
+#include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "humanoid_common_mpc_app/node/ViewerAnnotations.h"
 #include "humanoid_common_mpc_app/node/WalkingVelocityCommandConversions.h"
 #include "humanoid_mpc_config/mpc_parameter_update.nproto.h"
 #include "humanoid_mpc_config/mpc_parameter_update.nproto.pb.h"
 #include "humanoid_mpc_config/mpc_parameter_update.pb.h"
+#include "humanoid_mpc_ipc/MpcServer.h"
 #include "humanoid_mpc_ipc/Topics.h"
+#include "humanoid_mpc_msgs/viewer_annotations.pb.h"
 #include "humanoid_mpc_msgs/walking_velocity_command.pb.h"
+#include "robot_ipc/Bus.h"
 #include "robot_ipc/Delivery.h"
+#include "robot_realtime/RealtimeThread.h"
 
 namespace ocs2::humanoid::node {
 namespace {
@@ -249,12 +261,14 @@ absl::Status MpcNodeRuntime::addWalkingCommandWatchdog(
       period, [motionManager = std::move(motionManager), counters = counters_,
                maxAge, timeout]() {
         if (!counters->lastWalkingCommandTime.has_value() ||
-            counters->walkingCommandTimedOut)
+            counters->walkingCommandTimedOut) {
           return;
+        }
         if (std::chrono::steady_clock::now() -
                 *counters->lastWalkingCommandTime <=
-            maxAge)
+            maxAge) {
           return;
+        }
         humanoid_mpc_msgs::WalkingVelocityCommand stop;
         stop.set_cmd_pos_base_rt_surface_ewrt_world_z(
             counters->prevCmdPosBaseRtSurfaceEwrtWorldZ);

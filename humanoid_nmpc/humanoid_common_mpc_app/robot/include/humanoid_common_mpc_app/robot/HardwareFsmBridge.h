@@ -35,8 +35,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Types.h"
 
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc_app/robot/FsmBridge.h"
 #include "humanoid_common_mpc_app/robot/FsmBridgeState.h"
 #include "humanoid_common_mpc_app/robot/FsmStateMailbox.h"

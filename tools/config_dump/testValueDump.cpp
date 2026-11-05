@@ -32,7 +32,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstring>
 #include <limits>
 #include <random>
-#include <string>
 
 #include "Eigen/Core"
 #include "absl/strings/match.h"
@@ -122,8 +121,9 @@ TEST(ValueDumpTest, AFingerprintHashesEqualValuesEqually) {
   std::mt19937_64 generator(/*seed=*/5);
   std::uniform_real_distribution<double> uniform(/*a=*/-1.0, /*b=*/1.0);
   Eigen::MatrixXd matrix(6, 5);
-  for (Eigen::Index i = 0; i < matrix.size(); ++i)
+  for (Eigen::Index i = 0; i < matrix.size(); ++i) {
     matrix(i) = (i % 3 == 0) ? 0.0 : uniform(generator);
+  }
   matrix(1, 1) = std::numeric_limits<double>::quiet_NaN();
   const uint64_t hash = matrixHash(matrix);
 

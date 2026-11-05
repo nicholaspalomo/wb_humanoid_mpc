@@ -30,12 +30,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/teleop/LineReader.h"
 
 #include <poll.h>
+#include <sys/poll.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 #include <cerrno>
 #include <cstddef>
+#include <optional>
 #include <string>
 #include <utility>
+
+#include "absl/functional/function_ref.h"
+#include "absl/time/time.h"
 
 namespace ocs2::humanoid::teleop {
 namespace {
@@ -72,8 +78,9 @@ std::optional<std::string> LineReader::readLine(
         ::poll(&descriptor, /*nfds=*/1,
                static_cast<int>(absl::ToInt64Milliseconds(pollPeriod_)));
     if (ready < 0) {
-      if (errno == EINTR)
+      if (errno == EINTR) {
         continue;  // a signal: look at the stop predicate again
+      }
       return std::nullopt;
     }
     if (ready == 0) continue;

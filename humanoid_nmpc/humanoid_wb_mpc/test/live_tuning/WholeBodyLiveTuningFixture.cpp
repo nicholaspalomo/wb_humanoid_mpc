@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_nmpc/humanoid_wb_mpc/test/live_tuning/WholeBodyLiveTuningFixture.h"
 
+#include <stdlib.h>
+
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
@@ -43,18 +45,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/no_destructor.h"
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
-#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
+#include "humanoid_mpc_config/contacts_config.nproto.h"
 #include "humanoid_mpc_config/joint_value.nproto.h"
+#include "humanoid_mpc_config/reference_file.nproto.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
+#include "humanoid_wb_mpc/WBMpcInterface.h"
+#include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
 
 namespace ocs2::humanoid::live_tuning_test {
 namespace {
@@ -79,8 +88,9 @@ std::string runfilePath(absl::string_view relativePath) {
   roots.emplace_back(std::filesystem::current_path());
   for (const std::filesystem::path& root : roots) {
     const std::filesystem::path candidate = root / std::string(relativePath);
-    if (std::filesystem::exists(candidate))
+    if (std::filesystem::exists(candidate)) {
       return std::filesystem::absolute(candidate).string();
+    }
   }
   return std::string();
 }

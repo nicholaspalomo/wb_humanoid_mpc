@@ -33,8 +33,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include "absl/base/nullability.h"
+#include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/mrt/ControlMode.h"
+#include "humanoid_common_mpc_app/robot/FsmCommand.h"
+#include "humanoid_common_mpc_app/robot/FsmStateMailbox.h"
+#include "humanoid_common_mpc_app/robot/OperatorCommandMailbox.h"
+#include "humanoid_common_mpc_app/robot/RealtimeEventLog.h"
+#include "mujoco_sim_interface/MujocoSimInterface.h"
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotState.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -91,9 +99,10 @@ bool SimFsmBridge::processCommands(std::string& currentModeName) {
     case FsmCommandKind::kZeroTorque:
       // 1. Zero-torque mode commands
       if (!simulator_->isZeroTorqueMode()) {
-        if (eventLog_ != nullptr)
+        if (eventLog_ != nullptr) {
           eventLog_->post(RealtimeEventCode::kTorquesDisabled, /*detail=*/0,
                           name);
+        }
         simulator_->disableTorques();
       }
       currentModeName.assign(control_mode::kZeroJointTorque.data(),
@@ -108,9 +117,10 @@ bool SimFsmBridge::processCommands(std::string& currentModeName) {
       // MPC_ACTIVE, ENABLE_TORQUES) Every mode command is reported, also one
       // between two active modes (JOINT_PD to WB_MPC), which switches nothing.
       if (simulator_->isZeroTorqueMode()) {
-        if (eventLog_ != nullptr)
+        if (eventLog_ != nullptr) {
           eventLog_->post(RealtimeEventCode::kTorquesEnabled, /*detail=*/0,
                           name);
+        }
         simulator_->enableTorques();
       } else if (eventLog_ != nullptr) {
         eventLog_->post(RealtimeEventCode::kModeCommanded, /*detail=*/0, name);
@@ -123,15 +133,17 @@ bool SimFsmBridge::processCommands(std::string& currentModeName) {
     case FsmCommandKind::kLockGantry:
       // 3. Virtual gantry locking / unlocking commands
       if (simulator_->isGantryLocked()) return false;
-      if (eventLog_ != nullptr)
+      if (eventLog_ != nullptr) {
         eventLog_->post(RealtimeEventCode::kGantryLockCommanded);
+      }
       simulator_->lockGantry();
       publishFsmState(currentModeName);
       return true;
     case FsmCommandKind::kUnlockGantry:
       if (!simulator_->isGantryLocked()) return false;
-      if (eventLog_ != nullptr)
+      if (eventLog_ != nullptr) {
         eventLog_->post(RealtimeEventCode::kGantryUnlockCommanded);
+      }
       simulator_->unlockGantry();
       publishFsmState(currentModeName);
       return true;

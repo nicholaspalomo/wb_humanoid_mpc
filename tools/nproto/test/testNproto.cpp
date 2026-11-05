@@ -31,6 +31,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // conversions: the type of every kind of field, defaults, equality, round
 // trips, presence, oneofs, maps, and the errors of FromProto().
 
+// The generated conversion headers marked IWYU pragma: keep declare the
+// ToProto() / FromProto() that the test templates call by argument-dependent
+// lookup, which include-cleaner does not attribute to them.
+
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -47,23 +51,53 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "gtest/gtest.h"
 
-#include "nproto_test/other/point.nproto.pb.h"
-#include "nproto_test/other/unit.nproto.pb.h"
+#include "nproto_test/other/point.nproto.h"
+#include "nproto_test/other/point.nproto.pb.h"  // IWYU pragma: keep
+#include "nproto_test/other/point.pb.h"
+#include "nproto_test/other/unit.nproto.h"
 #include "tools/nproto/test/ProtoTestValues.h"
-#include "tools/nproto/test/defaults.nproto.pb.h"
+#include "tools/nproto/test/defaults.nproto.h"
+#include "tools/nproto/test/defaults.nproto.pb.h"  // IWYU pragma: keep
+#include "tools/nproto/test/defaults.pb.h"
+#include "tools/nproto/test/editions.nproto.h"
 #include "tools/nproto/test/editions.nproto.pb.h"
-#include "tools/nproto/test/empty.nproto.pb.h"
+#include "tools/nproto/test/editions.pb.h"
+#include "tools/nproto/test/empty.nproto.h"
+#include "tools/nproto/test/empty.nproto.pb.h"  // IWYU pragma: keep
+#include "tools/nproto/test/empty.pb.h"
+#include "tools/nproto/test/imports.nproto.h"
 #include "tools/nproto/test/imports.nproto.pb.h"
-#include "tools/nproto/test/long_names.nproto.pb.h"
+#include "tools/nproto/test/imports.pb.h"
+#include "tools/nproto/test/long_names.nproto.h"
+#include "tools/nproto/test/long_names.nproto.pb.h"  // IWYU pragma: keep
+#include "tools/nproto/test/long_names.pb.h"
+#include "tools/nproto/test/maps.nproto.h"
 #include "tools/nproto/test/maps.nproto.pb.h"
+#include "tools/nproto/test/maps.pb.h"
+#include "tools/nproto/test/oneofs.nproto.h"
 #include "tools/nproto/test/oneofs.nproto.pb.h"
+#include "tools/nproto/test/oneofs.pb.h"
+#include "tools/nproto/test/optionals.nproto.h"
 #include "tools/nproto/test/optionals.nproto.pb.h"
+#include "tools/nproto/test/optionals.pb.h"
+#include "tools/nproto/test/outer.nproto.h"
 #include "tools/nproto/test/outer.nproto.pb.h"
+#include "tools/nproto/test/outer.pb.h"
+#include "tools/nproto/test/repeated_fields.nproto.h"
 #include "tools/nproto/test/repeated_fields.nproto.pb.h"
-#include "tools/nproto/test/retired.nproto.pb.h"
-#include "tools/nproto/test/scalars.nproto.pb.h"
+#include "tools/nproto/test/repeated_fields.pb.h"
+#include "tools/nproto/test/retired.nproto.h"
+#include "tools/nproto/test/retired.nproto.pb.h"  // IWYU pragma: keep
+#include "tools/nproto/test/retired.pb.h"
+#include "tools/nproto/test/scalars.nproto.h"
+#include "tools/nproto/test/scalars.nproto.pb.h"  // IWYU pragma: keep
+#include "tools/nproto/test/scalars.pb.h"
+#include "tools/nproto/test/severity.nproto.h"
 #include "tools/nproto/test/severity.nproto.pb.h"
-#include "tools/nproto/test/shadowing.nproto.pb.h"
+#include "tools/nproto/test/severity.pb.h"
+#include "tools/nproto/test/shadowing.nproto.h"
+#include "tools/nproto/test/shadowing.nproto.pb.h"  // IWYU pragma: keep
+#include "tools/nproto/test/shadowing.pb.h"
 
 namespace nproto::test {
 namespace {

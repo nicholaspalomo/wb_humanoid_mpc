@@ -29,7 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // The struct headers nproto generates hold plain C++ only: this file includes
 // them alone, without protobuf or Abseil, and compiles with -Wall -Wextra
-// -Wpedantic -Werror.
+// -Wpedantic -Werror. Every struct header is included, also the ones no test
+// below names (IWYU pragma: keep), so that each of them is compiled alone.
 
 #include "gtest/gtest.h"
 
@@ -42,9 +43,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "tools/nproto/test/maps.nproto.h"
 #include "tools/nproto/test/oneofs.nproto.h"
 #include "tools/nproto/test/optionals.nproto.h"
-#include "tools/nproto/test/outer.nproto.h"
+#include "tools/nproto/test/outer.nproto.h"  // IWYU pragma: keep
 #include "tools/nproto/test/repeated_fields.nproto.h"
-#include "tools/nproto/test/scalars.nproto.h"
+#include "tools/nproto/test/scalars.nproto.h"  // IWYU pragma: keep
 #include "tools/nproto/test/severity.nproto.h"
 #include "tools/nproto/test/shadowing.nproto.h"
 

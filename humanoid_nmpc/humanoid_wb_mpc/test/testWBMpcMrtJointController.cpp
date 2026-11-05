@@ -53,11 +53,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_mpc/MPC_Settings.h"
 #include "ocs2_mpc_test/ScriptedMpc.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/algorithm/rnea.hpp"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/solver/SolverSettingsFromConfig.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
@@ -65,6 +69,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/mrt/ControllerEvent.h"
 #include "humanoid_common_mpc/mrt/ControllerEventSink.h"
 #include "humanoid_common_mpc/mrt/InProcessMpcLink.h"
+#include "humanoid_common_mpc/mrt/MpcLink.h"
 #include "humanoid_common_mpc/mrt/SafetyDecay.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
@@ -106,8 +111,9 @@ const robot::model::JointAction& actionOf(
 
 std::string runfilePath(absl::string_view relativePath) {
   std::vector<std::filesystem::path> roots;
-  if (const char* absl_nullable srcDir = std::getenv("TEST_SRCDIR"))
+  if (const char* absl_nullable srcDir = std::getenv("TEST_SRCDIR")) {
     roots.emplace_back(std::filesystem::path(srcDir) / "_main");
+  }
   roots.emplace_back(std::filesystem::current_path());
   for (const std::filesystem::path& root : roots) {
     const std::filesystem::path candidate = root / std::string(relativePath);
@@ -220,8 +226,9 @@ class WholeBodyHarness {
     robotState_.setQuatBaseRtWorld(
         quaternion_t(model_.getQuatBaseRtWorldXyzw(state)));
     const vector_t joints = model_.getJointAngles(state);
-    for (size_t i = 0; i < mpcJointIndices_.size(); ++i)
+    for (size_t i = 0; i < mpcJointIndices_.size(); ++i) {
       robotState_.setJointPosition(mpcJointIndices_[i], joints[i]);
+    }
     robotState_.setContactFlag(/*index=*/0, /*contactFlag=*/true);
     robotState_.setContactFlag(/*index=*/1, /*contactFlag=*/true);
   }
@@ -238,8 +245,10 @@ class WholeBodyHarness {
     controller_->startMpcThread(robotState_);
     const std::chrono::steady_clock::time_point deadline =
         std::chrono::steady_clock::now() + std::chrono::seconds(20);
-    while (!controller_->ready() && std::chrono::steady_clock::now() < deadline)
+    while (!controller_->ready() &&
+           std::chrono::steady_clock::now() < deadline) {
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
     ASSERT_TRUE(controller_->ready()) << "the solver thread produced no policy";
   }
 
@@ -334,8 +343,9 @@ TEST(WBMpcMrtJointController, TheControllerCanBeDestroyedWhileItsSolverRuns) {
   });
   const std::chrono::steady_clock::time_point deadline =
       std::chrono::steady_clock::now() + std::chrono::seconds(5);
-  while (!destroyed.load() && std::chrono::steady_clock::now() < deadline)
+  while (!destroyed.load() && std::chrono::steady_clock::now() < deadline) {
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
   if (!destroyed.load()) {
     // The destructor is stuck joining the solver thread; the process could not
     // end, so it is ended here.
@@ -351,8 +361,9 @@ TEST(WBMpcMrtJointController,
   WholeBodyHarness harness;
   const robot::model::RobotDescription& description = harness.description();
   std::vector<scalar_t> nominal(description.getNumJoints(), 0.0);
-  for (size_t joint = 0; joint < nominal.size(); ++joint)
+  for (size_t joint = 0; joint < nominal.size(); ++joint) {
     nominal[joint] = 0.1 * static_cast<scalar_t>(joint % 3) - 0.1;
+  }
   harness.controller().setNominalJointPositions(nominal);
 
   // Positive control: WB_MPC, before any policy, does not command the nominal
@@ -565,9 +576,10 @@ TEST(WBMpcMrtJointController,
   ASSERT_EQ(target.timeTrajectory.size(), 2u);
   EXPECT_GT(target.timeTrajectory[1], target.timeTrajectory[0]);
   scalar_t sumForceContactsEwrtParamZ = 0.0;
-  for (size_t foot = 0; foot < kNumContacts; ++foot)
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
     sumForceContactsEwrtParamZ += harness.model().getForceContactEwrtParam(
         target.inputTrajectory[0], foot)(2);
+  }
   PinocchioInterface pinocchioInterface = harness.pinocchioInterface();
   EXPECT_NEAR(sumForceContactsEwrtParamZ,
               pinocchio::computeTotalMass(pinocchioInterface.getModel()) * 9.81,
@@ -652,8 +664,9 @@ TEST(WBMpcMrtJointController, RepeatedFailuresBackOffAndHoldJointPd) {
   const std::chrono::steady_clock::time_point start =
       std::chrono::steady_clock::now();
   while (std::chrono::steady_clock::now() - start <
-         std::chrono::milliseconds(1500))
+         std::chrono::milliseconds(1500)) {
     held = harness.cycle(std::chrono::milliseconds(5));
+  }
   EXPECT_FALSE(harness.controller().isMpcHealthy());
   EXPECT_LE(harness.controller().getResetSupervisor().numResetsServed() -
                 resetsBefore,
@@ -821,8 +834,9 @@ TEST(WBMpcMrtJointController,
 std::vector<scalar_t> mpcJointPositions(WholeBodyHarness& harness) {
   std::vector<scalar_t> jointPositions(harness.description().getNumJoints(),
                                        0.0);
-  for (size_t index : harness.mpcJointIndices())
+  for (size_t index : harness.mpcJointIndices()) {
     jointPositions[index] = harness.robotState().getJointPosition(index);
+  }
   return jointPositions;
 }
 
@@ -914,8 +928,9 @@ TEST(WBMpcMrtJointController,
   harness.cycleAt(entryTime);
   const robot::model::RobotJointAction completed =
       harness.cycleAt(entryTime + 4.0 * timeConstant);
-  for (size_t index : harness.mpcJointIndices())
+  for (size_t index : harness.mpcJointIndices()) {
     ASSERT_DOUBLE_EQ(actionOf(completed, index).kp, 0.0) << "positive control";
+  }
 
   const robot::model::RobotJointAction& afterRewind =
       harness.cycleAt(/*time=*/0.0);

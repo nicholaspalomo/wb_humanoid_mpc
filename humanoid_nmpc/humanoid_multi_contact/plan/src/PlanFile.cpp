@@ -32,24 +32,30 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <ios>
 #include <string>
 #include <system_error>
 
+#include "absl/log/absl_check.h"
 #include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/strings/strip.h"
 #include "google/protobuf/io/coded_stream.h"
 #include "google/protobuf/io/zero_copy_stream_impl_lite.h"
 #include "google/protobuf/message.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_multi_contact/contact_set/contact_set.nproto.h"
 #include "humanoid_multi_contact/contact_set/contact_set.nproto.pb.h"
 #include "humanoid_multi_contact/contact_set/contact_set.pb.h"
+#include "humanoid_multi_contact/plan/multi_contact_plan.nproto.h"
 #include "humanoid_multi_contact/plan/multi_contact_plan.nproto.pb.h"
 #include "humanoid_multi_contact/plan/multi_contact_plan.pb.h"
+#include "humanoid_multi_contact/terrain/terrain_scene.nproto.h"
 #include "humanoid_multi_contact/terrain/terrain_scene.nproto.pb.h"
 #include "humanoid_multi_contact/terrain/terrain_scene.pb.h"
 #include "nproto/Textproto.h"

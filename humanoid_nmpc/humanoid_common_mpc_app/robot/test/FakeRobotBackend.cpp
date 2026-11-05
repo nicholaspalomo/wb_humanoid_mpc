@@ -31,13 +31,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <array>
 #include <chrono>
+#include <cstdint>
 #include <thread>
 #include <utility>
 #include <vector>
 
 #include "absl/status/status.h"
+#include "absl/strings/string_view.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc_app/robot/RobotSupervisorRegistry.h"
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotState.h"
 
 namespace ocs2::humanoid::robot_test {
 namespace {
@@ -125,8 +131,9 @@ void FakeRobotBackend::runDriver() {
     trajectory_(static_cast<double>(step) * periodSeconds, driverState_);
     hardware_.publish(driverState_);
     statesPublished_.fetch_add(1);
-    if (hardware_.take(driverAction_) && jointTorquesEnabled_.load())
+    if (hardware_.take(driverAction_) && jointTorquesEnabled_.load()) {
       actionsExecuted_.fetch_add(1);
+    }
   }
 }
 

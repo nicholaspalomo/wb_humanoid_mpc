@@ -41,11 +41,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/no_destructor.h"
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopScenario.h"
 #include "humanoid_mpc_validation/closed_loop/RobotConfiguration.h"
+#include "humanoid_mpc_validation/io/JsonValue.h"
 
 namespace ocs2::humanoid::validation {
 namespace {
@@ -225,12 +227,14 @@ std::string describeClosedLoopComparison(
     const ClosedLoopComparison& comparison) {
   std::string text =
       absl::StrCat("violations (", comparison.violations.size(), "):");
-  for (const std::string& violation : comparison.violations)
+  for (const std::string& violation : comparison.violations) {
     absl::StrAppend(&text, "\n  ", violation);
+  }
   absl::StrAppend(&text, "\nimprovements (", comparison.improvements.size(),
                   "):");
-  for (const std::string& improvement : comparison.improvements)
+  for (const std::string& improvement : comparison.improvements) {
     absl::StrAppend(&text, "\n  ", improvement);
+  }
   return text;
 }
 
@@ -259,8 +263,9 @@ ClosedLoopComparison compareClosedLoopMetrics(const JsonValue& candidate,
   for (const MetricBand& band : closedLoopMetricBands()) {
     const std::optional<HeldNumber> held =
         candidateNumberHeldTo(candidate, baseline, band.path, comparison);
-    if (held.has_value())
+    if (held.has_value()) {
       holdToBand(band, held->value, held->reference, comparison);
+    }
   }
 
   if (options.compareSolveTime) {
@@ -278,9 +283,10 @@ ClosedLoopComparison compareClosedLoopMetrics(const JsonValue& candidate,
   // or above the bound.
   const std::optional<double> normDeviation =
       numberAt(candidate, "quaternion_norm.max_deviation");
-  if (!normDeviation.has_value())
+  if (!normDeviation.has_value()) {
     candidateNumberHeldTo(candidate, baseline, "quaternion_norm.max_deviation",
                           comparison);
+  }
   if (normDeviation.has_value() &&
       (!std::isfinite(*normDeviation) ||
        *normDeviation >= kMaxUnitQuaternionNormDeviation)) {
@@ -306,8 +312,9 @@ absl::StatusOr<ArchivedComparison> compareArchivedClosedLoopRuns(
           "[compareArchivedClosedLoopRuns] no directory '", directory, "'"));
     }
   }
-  if (!options.robot.empty())
+  if (!options.robot.empty()) {
     RETURN_IF_ERROR(findRobotConfiguration(options.robot).status());
+  }
 
   ArchivedComparison result;
   const std::filesystem::path candidateDirectory(options.candidateDirectory);
@@ -317,8 +324,9 @@ absl::StatusOr<ArchivedComparison> compareArchivedClosedLoopRuns(
     for (const ClosedLoopScenario& scenario : closedLoopScenarios()) {
       if (!isRegularFile(
               candidateDirectory /
-              archivedMetricsFileName(configuration.name, scenario.name)))
+              archivedMetricsFileName(configuration.name, scenario.name))) {
         continue;
+      }
       if (!isRegularFile(
               baselineDirectory /
               archivedMetricsFileName(configuration.name, scenario.name))) {

@@ -31,7 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <memory>
+#include <numbers>
 #include <string>
 #include <thread>
 #include <utility>
@@ -39,10 +41,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_mpc/MPC_Settings.h"
+#include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_mpc_test/ScriptedMpc.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
 #include "humanoid_common_mpc/config/weights/StateInputWeightsFromConfig.h"
@@ -218,13 +225,13 @@ TEST(WBMpcResetTarget, IsUprightAtTheTwistHeadingOfTheObservedAttitude) {
         eulerzyxBaseRtWorld(0) -
             2.0 * std::atan(std::tan(eulerzyxBaseRtWorld(1) / 2.0) *
                             std::tan(eulerzyxBaseRtWorld(2) / 2.0)),
-        2.0 * M_PI);
+        2.0 * std::numbers::pi);
     EXPECT_NEAR(measYawBaseRtWorld, expectedMeasYawBaseRtWorld, 1.0e-12);
     const vector3_t refEulerzyxBaseRtWorld =
         model.getEulerzyxBaseRtWorld(target);
     EXPECT_NEAR(refEulerzyxBaseRtWorld(0), measYawBaseRtWorld, 1.0e-12);
-    EXPECT_GT(refEulerzyxBaseRtWorld(0), -M_PI);
-    EXPECT_LE(refEulerzyxBaseRtWorld(0), M_PI);
+    EXPECT_GT(refEulerzyxBaseRtWorld(0), -std::numbers::pi);
+    EXPECT_LE(refEulerzyxBaseRtWorld(0), std::numbers::pi);
     EXPECT_EQ(refEulerzyxBaseRtWorld(1), 0.0);
     EXPECT_EQ(refEulerzyxBaseRtWorld(2), 0.0);
     // Its attitude is the heading quaternion of the observed one, up to the
@@ -280,8 +287,9 @@ TEST(WBMpcResetTarget, IsWhatTheInProcessLinkResetsTheMpcTo) {
   const std::vector<size_t> jointIndices =
       g1.description().getJointIndices(g1.modelSettings().mpcModelJointNames);
   const vector_t joints = g1.model().getJointAngles(initialState);
-  for (size_t i = 0; i < jointIndices.size(); ++i)
+  for (size_t i = 0; i < jointIndices.size(); ++i) {
     robotState.setJointPosition(jointIndices[i], joints[i]);
+  }
 
   SystemObservation startObservation;
   {

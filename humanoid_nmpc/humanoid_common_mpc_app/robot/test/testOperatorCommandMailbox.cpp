@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <chrono>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <limits>
 #include <memory>
@@ -46,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/config/OperatorPayloadChecks.h"
 #include "humanoid_common_mpc/contact/ContactWrenchGate.h"
+#include "humanoid_common_mpc_app/robot/FsmCommand.h"
 #include "humanoid_common_mpc_app/robot/JointNamesByIndex.h"
 #include "humanoid_common_mpc_app/robot/OperatorCommandMailbox.h"
 #include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
@@ -60,7 +63,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_msgs/joint_targets.pb.h"
 #include "humanoid_mpc_msgs/walking_velocity_command.pb.h"
 #include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/RobotTestSupport.h"
+#include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "nproto/Textproto.h"
+#include "robot_ipc/Bus.h"
+#include "robot_model/ContactEstimator.h"
 #include "robot_model/ContactEstimatorRegistry.h"
 #include "robot_model/RobotDescription.h"
 #include "robot_model/RobotStateContactEstimator.h"
@@ -246,8 +252,9 @@ TEST_F(OperatorCommandMailboxTest,
   EXPECT_DOUBLE_EQ(posture[0], 0.5)
       << "kept from the first message: a target that is not finite is refused";
   EXPECT_DOUBLE_EQ(posture[1], -0.5);
-  for (size_t joint = 2; joint < posture.size(); ++joint)
+  for (size_t joint = 2; joint < posture.size(); ++joint) {
     EXPECT_DOUBLE_EQ(posture[joint], 0.25) << joint;
+  }
   EXPECT_FALSE(mailbox->takeNominalPosture(posture)) << "taken once";
   EXPECT_EQ(mailbox->statistics().jointTargetsRejected, 1u);
 }
@@ -641,8 +648,9 @@ TEST_F(OperatorCommandMailboxTest, TheHandlersAreTheBusesSubscriptions) {
     operatorBus->publish(ipc::topics::kOperatorMpcParameters, update)
         .IgnoreError();
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    for (const ControllerSettingsUpdate& taken : takeAll(*mailbox))
+    for (const ControllerSettingsUpdate& taken : takeAll(*mailbox)) {
       updates.push_back(taken);
+    }
     return !updates.empty();
   }));
   ASSERT_FALSE(updates.empty());

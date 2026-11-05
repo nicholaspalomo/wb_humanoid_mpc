@@ -36,6 +36,7 @@ Contact:  manuel.galliker@1x.tech
 
 #include <array>
 #include <chrono>
+#include <cstddef>
 #include <exception>
 #include <random>
 #include <string>
@@ -44,6 +45,7 @@ Contact:  manuel.galliker@1x.tech
 
 #include "Eigen/Core"
 #include "Eigen/Geometry"
+#include "absl/base/log_severity.h"
 #include "absl/log/globals.h"
 #include "absl/log/initialize.h"
 #include "absl/log/log.h"
@@ -59,8 +61,8 @@ Contact:  manuel.galliker@1x.tech
 #include "pinocchio/algorithm/joint-configuration.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
 #include "pinocchio/algorithm/rnea.hpp"
-#include "pinocchio/multibody/data.hpp"
-#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/spatial/fwd.hpp"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -126,8 +128,9 @@ InverseDynamicsSamples randomInverseDynamicsSamples(
     samples.qd.push_back(randomNormal(nv, generator));
     samples.qddJoints.push_back(randomNormal(numJoints, generator));
     std::array<VECTOR6_T<scalar_t>, 2> wrenchFeetEwrtWorld;
-    for (VECTOR6_T<scalar_t>& wrenchFootEwrtWorld : wrenchFeetEwrtWorld)
+    for (VECTOR6_T<scalar_t>& wrenchFootEwrtWorld : wrenchFeetEwrtWorld) {
       wrenchFootEwrtWorld = randomNormal(/*size=*/6, generator);
+    }
     samples.wrenchFeetEwrtWorld.push_back(wrenchFeetEwrtWorld);
   }
   return samples;

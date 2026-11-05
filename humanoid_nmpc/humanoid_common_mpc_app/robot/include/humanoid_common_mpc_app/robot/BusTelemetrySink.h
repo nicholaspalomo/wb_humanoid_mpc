@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc_app/robot/TelemetrySink.h"
+#include "humanoid_mpc_msgs/robot_state_sample.pb.h"
 #include "robot_ipc/Bus.h"
 
 namespace ocs2::humanoid {

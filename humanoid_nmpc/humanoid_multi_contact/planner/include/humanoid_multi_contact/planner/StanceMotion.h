@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_multi_contact/contact_set/ContactSet.h"
 #include "humanoid_multi_contact/planner/StanceInverseKinematics.h"
 #include "humanoid_multi_contact/stability/JointLimits.h"
+#include "humanoid_multi_contact/stability/RobotStanceModel.h"
 #include "humanoid_multi_contact/stability/StabilityCertifier.h"
 #include "humanoid_multi_contact/stability/StaticEquilibrium.h"
 #include "humanoid_multi_contact/terrain/PatchFrame.h"

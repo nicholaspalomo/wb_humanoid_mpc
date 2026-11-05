@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_multi_contact/stability/RobotStanceModel.h"
 
 #include <cmath>
+#include <cstddef>
 #include <exception>
 #include <memory>
 #include <string>
@@ -49,12 +50,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/algorithm/centroidal.hpp"
 #include "pinocchio/algorithm/jacobian.hpp"
 #include "pinocchio/algorithm/joint-configuration.hpp"
-#include "pinocchio/algorithm/kinematics.hpp"
 #include "pinocchio/algorithm/rnea.hpp"
-#include "pinocchio/multibody/joint/joint-free-flyer.hpp"
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/multibody/joint/joint-free-flyer.hpp"  // IWYU pragma: keep
 #include "pinocchio/parsers/urdf.hpp"
+#include "pinocchio/spatial/fwd.hpp"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_multi_contact/contact_set/ContactSet.h"
 
 namespace ocs2::humanoid::multi_contact {
 namespace {
@@ -75,10 +78,10 @@ Eigen::Matrix3d crossMatrix(const Eigen::Vector3d& v) {
 
 }  // namespace
 
-RobotStanceModel::RobotStanceModel(pinocchio::Model model,
+RobotStanceModel::RobotStanceModel(const pinocchio::Model& model,
                                    ContactSet contacts,
                                    std::vector<pinocchio::JointIndex> padJoints)
-    : model_(std::move(model)),
+    : model_(model),
       data_(model_),
       contacts_(std::move(contacts)),
       padJoints_(std::move(padJoints)) {}
@@ -107,7 +110,7 @@ absl::StatusOr<std::unique_ptr<RobotStanceModel>> RobotStanceModel::Create(
     padJoints.push_back(model.getJointId(candidate.parentJoint));
   }
   std::unique_ptr<RobotStanceModel> stanceModel = absl::WrapUnique(
-      new RobotStanceModel(std::move(model), contacts, std::move(padJoints)));
+      new RobotStanceModel(model, contacts, std::move(padJoints)));
   stanceModel->mass_ = pinocchio::computeTotalMass(stanceModel->model_);
   for (pinocchio::JointIndex joint = kRootJoint + 1;
        joint < static_cast<pinocchio::JointIndex>(stanceModel->model_.njoints);

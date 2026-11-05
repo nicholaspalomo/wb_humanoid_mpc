@@ -33,8 +33,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "ocs2_core/PreComputation.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/cost/StateInputCost.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 
 #include "humanoid_multi_contact/planner/contact_invariant/ContactFeatureFunction.h"
 

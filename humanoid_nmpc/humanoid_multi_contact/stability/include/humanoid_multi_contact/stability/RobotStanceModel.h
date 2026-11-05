@@ -40,11 +40,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
-#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
-#include "pinocchio/multibody/data.hpp"
-#include "pinocchio/multibody/model.hpp"
-#include "pinocchio/spatial/se3.hpp"
+#include "pinocchio/multibody/data.hpp"  // IWYU pragma: keep
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/multibody/model.hpp"  // IWYU pragma: keep
+#include "pinocchio/spatial/fwd.hpp"
+#include "pinocchio/spatial/se3.hpp"  // IWYU pragma: keep
 
 #include "humanoid_multi_contact/contact_set/ContactSet.h"
 
@@ -216,7 +217,7 @@ class RobotStanceModel {
   }
 
  private:
-  RobotStanceModel(pinocchio::Model model,
+  RobotStanceModel(const pinocchio::Model& model,
                    ContactSet contacts,
                    std::vector<pinocchio::JointIndex> padJoints);
 

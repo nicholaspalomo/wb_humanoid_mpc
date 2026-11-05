@@ -34,12 +34,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // --sample_rate and a new policy every
 // --policy_period until --duration has passed.
 
-#include <chrono>
 #include <exception>
 #include <iostream>
 #include <memory>
 #include <string>
-#include <thread>
 #include <utility>
 
 #include "absl/base/nullability.h"
@@ -53,6 +51,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/constraint/LinearStateInputConstraint.h"
 #include "ocs2_core/cost/QuadraticStateCost.h"
 #include "ocs2_core/cost/QuadraticStateInputCost.h"
@@ -61,7 +60,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc_app/visualization/VisualizationModel.h"
 #include "humanoid_common_mpc_app/visualization/VisualizationPublisher.h"
 #include "humanoid_nmpc/humanoid_common_mpc_app/visualization/test/VisualizationTestRobot.h"
 #include "robot_ipc/Bus.h"

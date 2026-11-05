@@ -31,24 +31,34 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/robot/RobotSetUpSteps.h"
 
-#include <filesystem>
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
-#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 
+#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc_app/robot/ConfigFileStore.h"
+#include "humanoid_common_mpc_app/robot/RemoteMpcLinkAdapter.h"
+#include "humanoid_common_mpc_app/robot/RobotAppOptions.h"
+#include "humanoid_common_mpc_app/robot/RobotBackendRegistry.h"
+#include "humanoid_common_mpc_app/robot/RobotConfigDirectory.h"
+#include "humanoid_common_mpc_app/robot/RobotConfigurationCheck.h"
+#include "humanoid_common_mpc_app/robot/RobotProcess.h"
+#include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
 #include "humanoid_common_mpc_app/robot/RobotStartup.h"
 #include "humanoid_common_mpc_app/robot/TaskFileWatcher.h"
 #include "humanoid_common_mpc_app/robot/config/robot/RobotProcessSettingsFromConfig.h"
 #include "humanoid_mpc_ipc/RemoteMpcLink.h"
+#include "humanoid_mpc_msgs/loop_timing.pb.h"
+#include "humanoid_mpc_msgs/viewer_annotations.nproto.h"
 #include "humanoid_state_estimator/ContactKinematics.h"
+#include "robot_model/ContactEstimatorRegistry.h"
 
 namespace ocs2::humanoid {
 
@@ -126,8 +136,9 @@ std::vector<estimation::ContactPointSpec> stateEstimatorContacts(
        ++contact) {
     estimation::ContactPointSpec spec{
         .frameNames = {modelSettings.contactNames6DoF[contact]}};
-    if (contact < modelSettings.contactParentJointNames.size())
+    if (contact < modelSettings.contactParentJointNames.size()) {
       spec.frameNames.push_back(modelSettings.contactParentJointNames[contact]);
+    }
     contacts.push_back(std::move(spec));
   }
   return contacts;

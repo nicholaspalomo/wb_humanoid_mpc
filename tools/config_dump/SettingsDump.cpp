@@ -44,6 +44,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "ocs2_core/integration/Integrator.h"
 #include "ocs2_core/integration/SensitivityIntegrator.h"
+#include "ocs2_core/reference/ModeSchedule.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_mpc/MPC_Settings.h"
+#include "ocs2_oc/rollout/RolloutSettings.h"
+#include "ocs2_sqp/SqpSettings.h"
+
+#include "hpipm_interface/HpipmInterfaceSettings.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
+#include "humanoid_common_mpc/mrt/JointPdGains.h"
+#include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
+#include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
+#include "humanoid_common_mpc_app/robot/SimFallRecovery.h"
+#include "humanoid_common_mpc_app/teleop/KeyboardVelocityCommand.h"
+#include "humanoid_common_mpc_app/visualization/VisualizationConfig.h"
+#include "humanoid_state_estimator/KalmanBaseEstimator.h"
+#include "tools/config_dump/ValueDump.h"
 
 namespace ocs2::humanoid::config_dump {
 namespace {

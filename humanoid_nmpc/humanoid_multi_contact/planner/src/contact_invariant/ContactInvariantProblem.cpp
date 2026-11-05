@@ -33,7 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <memory>
 #include <string>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -41,9 +40,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/misc/Collection.h"
+#include "ocs2_core/penalties/penalties/RelaxedBarrierPenalty.h"
+#include "ocs2_core/penalties/penalties/SquaredHingePenalty.h"
 #include "ocs2_core/soft_constraint/StateInputSoftConstraint.h"
 #include "ocs2_core/soft_constraint/StateSoftConstraint.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_multi_contact/planner/contact_invariant/ActivationBoundsConstraint.h"
@@ -54,7 +57,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_multi_contact/planner/contact_invariant/AugmentedStateInputConstraint.h"
 #include "humanoid_multi_contact/planner/contact_invariant/AugmentedStateInputCost.h"
 #include "humanoid_multi_contact/planner/contact_invariant/ContactFeatureConstraint.h"
+#include "humanoid_multi_contact/planner/contact_invariant/ContactFeatureFunction.h"
 #include "humanoid_multi_contact/planner/contact_invariant/ContactFeatureRows.h"
+#include "humanoid_multi_contact/planner/contact_invariant/ContactForceGateCost.h"
+#include "humanoid_multi_contact/planner/contact_invariant/ContactInvariantCost.h"
+#include "humanoid_multi_contact/planner/contact_invariant/ContactInvariantLayout.h"
 #include "humanoid_multi_contact/planner/contact_invariant/MomentumRateCost.h"
 
 namespace ocs2::humanoid::multi_contact {

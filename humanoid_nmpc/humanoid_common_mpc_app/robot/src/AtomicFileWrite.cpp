@@ -30,7 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/AtomicFileWrite.h"
 
 #include <fcntl.h>
-#include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 #include <cerrno>
@@ -54,8 +54,9 @@ constexpr size_t kReadChunk = 64 * 1024;
 /** Closes the descriptor `fd`; the errno's status naming `path` when that fails
  * (a deferred write error). */
 absl::Status closeFile(int fd, absl::string_view path) {
-  if (::close(fd) != 0)
+  if (::close(fd) != 0) {
     return absl::ErrnoToStatus(errno, absl::StrCat("close(", path, ")"));
+  }
   return absl::OkStatus();
 }
 
@@ -86,11 +87,13 @@ absl::Status syncDirectoryOf(absl::string_view path) {
       std::filesystem::path(std::string(path)).parent_path().string();
   if (directory.empty()) directory = ".";
   const int fd = ::open(directory.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-  if (fd < 0)
+  if (fd < 0) {
     return absl::ErrnoToStatus(errno, absl::StrCat("open(", directory, ")"));
+  }
   absl::Status status = absl::OkStatus();
-  if (::fsync(fd) != 0)
+  if (::fsync(fd) != 0) {
     status = absl::ErrnoToStatus(errno, absl::StrCat("fsync(", directory, ")"));
+  }
   const absl::Status closed = closeFile(fd, directory);
   return status.ok() ? closed : status;
 }
@@ -118,9 +121,10 @@ absl::StatusOr<int> createTemporary(const std::string& temporary) {
   if (fd < 0 && errno == EEXIST && ::unlink(temporary.c_str()) == 0) {
     fd = ::open(temporary.c_str(), kFlags, kMode);
   }
-  if (fd < 0)
+  if (fd < 0) {
     return absl::ErrnoToStatus(
         errno, absl::StrCat("open(", temporary, ", O_CREAT | O_EXCL)"));
+  }
   return fd;
 }
 
@@ -129,8 +133,9 @@ absl::Status fillTemporary(int fd,
                            const std::string& temporary,
                            absl::string_view contents) {
   absl::Status status = writeAll(fd, contents, temporary);
-  if (status.ok() && ::fsync(fd) != 0)
+  if (status.ok() && ::fsync(fd) != 0) {
     status = absl::ErrnoToStatus(errno, absl::StrCat("fsync(", temporary, ")"));
+  }
   const absl::Status closed = closeFile(fd, temporary);
   return status.ok() ? closed : status;
 }
@@ -158,8 +163,9 @@ absl::Status writeFileAtomically(absl::string_view path,
 absl::StatusOr<std::string> readFileBytes(absl::string_view path) {
   const std::string file(path);
   const int fd = ::open(file.c_str(), O_RDONLY | O_CLOEXEC);
-  if (fd < 0)
+  if (fd < 0) {
     return absl::ErrnoToStatus(errno, absl::StrCat("open(", file, ")"));
+  }
   std::string contents;
   std::string chunk(kReadChunk, '\0');
   absl::Status status = absl::OkStatus();

@@ -33,6 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/flags/flag.h"
 
+#include "humanoid_common_mpc_app/node/MpcFiles.h"
+
 // LINT.IfChange(mpc_app_flags)
 ABSL_FLAG(std::string,
           robot_name,

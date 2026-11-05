@@ -76,6 +76,7 @@ cc_test(
         ":collision",
         ":collision_model_nproto",
         "//humanoid_nmpc/humanoid_multi_contact/contact_set",
+        "//humanoid_nmpc/humanoid_multi_contact/contact_set:contact_set_nproto",
         "//humanoid_nmpc/humanoid_multi_contact/stability:robot_stance_model",
         "//humanoid_nmpc/humanoid_multi_contact/terrain",
         "//humanoid_nmpc/humanoid_multi_contact/terrain:terrain_scene_nproto",
@@ -85,6 +86,7 @@ cc_test(
         "@abseil-cpp//absl/strings",
         "@eigen",
         "@googletest//:gtest_main",
+        "@pinocchio",
     ],
 )
 

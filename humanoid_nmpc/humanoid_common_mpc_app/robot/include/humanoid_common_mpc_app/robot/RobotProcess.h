@@ -45,7 +45,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/time/time.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc_app/robot/ConfigFileStore.h"
 #include "humanoid_common_mpc_app/robot/FallRecovery.h"
@@ -72,6 +74,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_ipc/Bus.h"
 #include "robot_model/ContactEstimatorRegistry.h"
 #include "robot_model/RobotState.h"
+#include "robot_realtime/LoopTimingSnapshot.h"
 
 namespace ocs2::humanoid {
 

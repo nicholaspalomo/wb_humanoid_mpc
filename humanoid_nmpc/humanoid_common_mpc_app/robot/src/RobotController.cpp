@@ -29,11 +29,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/robot/RobotController.h"
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+
+#include "robot_model/RobotDescription.h"
 
 namespace ocs2::humanoid {
 

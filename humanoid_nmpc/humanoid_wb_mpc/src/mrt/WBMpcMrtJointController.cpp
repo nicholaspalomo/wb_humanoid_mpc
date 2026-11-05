@@ -34,11 +34,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -49,23 +51,44 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
+#include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/manifold/StateManifold.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_mpc/MPC_BASE.h"
+#include "ocs2_mpc/MPC_MRT_Interface.h"
+#include "ocs2_mpc/MRT_BASE.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/StateManifoldFactory.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/robot/JointPdGainsFromConfig.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/mrt/ControlMode.h"
+#include "humanoid_common_mpc/mrt/ControllerEvent.h"
+#include "humanoid_common_mpc/mrt/ControllerEventSink.h"
 #include "humanoid_common_mpc/mrt/InProcessMpcLink.h"
 #include "humanoid_common_mpc/mrt/JointActionAccess.h"
+#include "humanoid_common_mpc/mrt/JointPdGains.h"
 #include "humanoid_common_mpc/mrt/LoggingControllerEventSink.h"
 #include "humanoid_common_mpc/mrt/LookaheadPolicyEvaluator.h"
+#include "humanoid_common_mpc/mrt/MpcLink.h"
 #include "humanoid_common_mpc/mrt/SafetyDecay.h"
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
-#include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
-#include "humanoid_wb_mpc/dynamics/DynamicsHelperFunctions.h"
+#include "humanoid_common_mpc/pinocchio_model/RealtimeRigidBodyDynamics.h"
+#include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
+#include "humanoid_mpc_ipc/MpcMessageConversions.h"
+#include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
 #include "humanoid_wb_mpc/mrt/WBMpcResetTarget.h"
+#include "robot_model/ContactEstimator.h"
+#include "robot_model/RobotDescription.h"
 #include "robot_model/RobotJointAction.h"
+#include "robot_model/RobotState.h"
 #include "robot_model/RobotStateContactEstimator.h"
 
 namespace ocs2::humanoid {
@@ -604,9 +627,10 @@ void WBMpcMrtJointController::fillSafetyAction(
   // full gain would be a lunge, not a safe stop.
   if (!safetyDecayStartTime_.has_value()) {
     // Sized by the constructor: no allocation.
-    for (size_t i = 0; i < mpcJointIndices_.size(); ++i)
+    for (size_t i = 0; i < mpcJointIndices_.size(); ++i) {
       safetyHoldMpcJointPositions_[i] =
           robotState.getJointPosition(mpcJointIndices_[i]);
+    }
     for (size_t i = 0; i < otherJointIndices_.size(); ++i) {
       safetyHoldOtherJointPositions_[i] =
           robotState.getJointPosition(otherJointIndices_[i]);

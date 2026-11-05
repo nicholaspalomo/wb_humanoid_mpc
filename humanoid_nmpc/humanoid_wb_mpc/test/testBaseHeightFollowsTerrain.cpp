@@ -42,17 +42,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/dynamics/LinearSystemDynamics.h"
 #include "ocs2_core/initialization/DefaultInitializer.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_mpc/MPC_Settings.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
+#include "ocs2_oc/synchronized_module/ReferenceManagerInterface.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "ocs2_sqp/SqpMpc.h"
 #include "ocs2_sqp/SqpSettings.h"
 
+#include "humanoid_common_mpc/command/BasePlanarMotion.h"
 #include "humanoid_common_mpc/command/NormalizedWalkingVelocityCommand.h"
-#include "humanoid_common_mpc/command/WalkingVelocityCommand.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/swing/SwingTrajectoryFromConfig.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
@@ -63,7 +69,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
-#include "humanoid_common_mpc/parameter_update/HotFieldApplier.h"
 #include "humanoid_common_mpc/parameter_update/MpcParameterUpdaterModule.h"
 #include "humanoid_common_mpc/parameter_update/ReferenceManagerApplier.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
@@ -293,9 +298,10 @@ class WholeBodyReferences {
                                     ModeNumber::kStance);
     motionManager_->preSolverRun(time, time + kHorizon, initialState_,
                                  *referenceManager_);
-    if (parameterUpdater_ != nullptr)
+    if (parameterUpdater_ != nullptr) {
       parameterUpdater_->preSolverRun(time, time + kHorizon, initialState_,
                                       *referenceManager_);
+    }
   }
 
   /** Runs `updater` in every cycle from now on, after the motion manager; it

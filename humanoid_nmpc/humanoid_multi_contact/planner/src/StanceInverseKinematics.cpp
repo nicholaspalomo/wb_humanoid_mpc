@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <limits>
 #include <memory>
 #include <string>
@@ -51,11 +52,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_format.h"
 #include "ocs2_core/Dimensions.h"
 #include "pinocchio/algorithm/joint-configuration.hpp"
-#include "pinocchio/spatial/skew.hpp"
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/spatial.hpp"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_multi_contact/collision/CollisionModel.h"
+#include "humanoid_multi_contact/contact_set/ContactSet.h"
 #include "humanoid_multi_contact/stability/ConvexPolygon.h"
 #include "humanoid_multi_contact/stability/LinearProgram.h"
+#include "humanoid_multi_contact/stability/RobotStanceModel.h"
+#include "humanoid_multi_contact/terrain/TerrainModel.h"
 
 namespace ocs2::humanoid::multi_contact {
 namespace {
@@ -357,8 +363,9 @@ void addComPolygon(const RobotStanceModel& model,
                    QpTerms& terms) {
   const std::vector<Eigen::Vector2d>& supportPosComRtWorldEwrtWorldXySamples =
       problem.supportPosComRtWorldEwrtWorldXySamples;
-  if (supportPosComRtWorldEwrtWorldXySamples.size() < kMinPolygonVertices)
+  if (supportPosComRtWorldEwrtWorldXySamples.size() < kMinPolygonVertices) {
     return;
+  }
   const Eigen::Vector2d posComRtWorldEwrtWorldXy =
       model.getPosComRtWorldEwrtWorld().head<kHorizontalPositionDim>();
   for (size_t i = 0; i < supportPosComRtWorldEwrtWorldXySamples.size(); ++i) {

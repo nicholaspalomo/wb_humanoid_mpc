@@ -29,11 +29,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/base/log_severity.h"
 #include "absl/base/nullability.h"
 #include "absl/flags/parse.h"
 #include "absl/flags/usage.h"
@@ -43,29 +45,37 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/StateManifold.h"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StateManifoldFactory.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/ThreadAffinity.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/contact_planning/ContactPlanningFromConfig.h"
 #include "humanoid_common_mpc/config/costs/ContactsFromConfig.h"
 #include "humanoid_common_mpc/config/model/MpcFormulationFromConfig.h"
+#include "humanoid_common_mpc/contact/ContactPolygon.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
+#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/mrt/MpcLink.h"
 #include "humanoid_common_mpc_app/node/NodeBus.h"
 #include "humanoid_common_mpc_app/node/ShutdownSignal.h"
 #include "humanoid_common_mpc_app/robot/InitialSimState.h"
 #include "humanoid_common_mpc_app/robot/MrtRobotController.h"
 #include "humanoid_common_mpc_app/robot/RemoteMpcLinkAdapter.h"
 #include "humanoid_common_mpc_app/robot/RobotAppFlags.h"
+#include "humanoid_common_mpc_app/robot/RobotAppOptions.h"
 #include "humanoid_common_mpc_app/robot/RobotBackendRegistry.h"
 #include "humanoid_common_mpc_app/robot/RobotConfigDirectory.h"
 #include "humanoid_common_mpc_app/robot/RobotConfigurationCheck.h"
@@ -76,8 +86,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/RobotStack.h"
 #include "humanoid_common_mpc_app/robot/RobotStartup.h"
 #include "humanoid_mpc_ipc/MpcMessageConversions.h"
+#include "humanoid_mpc_ipc/RemoteMpcLink.h"
+#include "mujoco_sim_interface/MujocoContactPatch.h"
+#include "robot_core/Types.h"
 #include "robot_model/ContactEstimatorRegistry.h"
 #include "robot_model/RobotDescription.h"
+#include "robot_model/RobotState.h"
 
 /*
  * humanoid_centroidal_mpc_robot: the robot process of the centroidal MPC
@@ -196,8 +210,9 @@ absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> controllerModelsOf(
   absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface =
       CentroidalMpcInterface::CreateControllerModels(
           centroidalMpcConfigOf(files), urdfFile);
-  if (!interface.ok())
+  if (!interface.ok()) {
     return withConfigFile(interface.status(), files.taskSource);
+  }
   return interface;
 }
 

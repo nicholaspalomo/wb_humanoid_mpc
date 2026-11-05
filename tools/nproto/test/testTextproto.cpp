@@ -33,6 +33,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // schema. tools/nproto/test/test_nproto_textproto.py feeds the Python parser
 // the same inputs and expects the same answers.
 
+// The generated conversion headers marked IWYU pragma: keep declare the
+// ToProto() / FromProto() that the test templates call by argument-dependent
+// lookup, which include-cleaner does not attribute to them.
+
 #include <cstdlib>
 #include <fstream>
 #include <string>
@@ -48,10 +52,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "tools/nproto/test/ProtoTestValues.h"
 #include "tools/nproto/test/defaults.pb.h"
 #include "tools/nproto/test/maps.pb.h"
-#include "tools/nproto/test/oneofs.nproto.pb.h"
+#include "tools/nproto/test/oneofs.nproto.h"
+#include "tools/nproto/test/oneofs.nproto.pb.h"  // IWYU pragma: keep
+#include "tools/nproto/test/oneofs.pb.h"
 #include "tools/nproto/test/repeated_fields.pb.h"
 #include "tools/nproto/test/retired.pb.h"
-#include "tools/nproto/test/scalars.nproto.pb.h"
+#include "tools/nproto/test/scalars.nproto.h"
+#include "tools/nproto/test/scalars.nproto.pb.h"  // IWYU pragma: keep
+#include "tools/nproto/test/scalars.pb.h"
 
 namespace nproto::test {
 namespace {

@@ -43,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 
 #include "humanoid_multi_contact/planner/ContactInvariantPlanner.h"
+#include "humanoid_multi_contact/planner/MultiContactPlanner.h"
 #include "humanoid_multi_contact/planner/StanceGraphPlanner.h"
 #include "humanoid_multi_contact/planner/StanceGraphThenContactInvariantPlanner.h"
 #include "humanoid_multi_contact/scenarios/Scenario.h"

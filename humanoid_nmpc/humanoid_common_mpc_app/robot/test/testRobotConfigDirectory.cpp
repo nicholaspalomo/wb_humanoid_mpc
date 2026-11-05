@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <ios>
 #include <iterator>
 #include <string>
 #include <system_error>
@@ -347,8 +348,9 @@ struct FakeBringUp {
 
   absl::StatusOr<RobotStack> operator()(const RobotConfigDirectory& directory) {
     attempts.push_back(directory.files().taskFile);
-    if (fails(directory))
+    if (fails(directory)) {
       return absl::UnavailableError("the bus port 5600 is in use");
+    }
     return RobotStack{};
   }
 };

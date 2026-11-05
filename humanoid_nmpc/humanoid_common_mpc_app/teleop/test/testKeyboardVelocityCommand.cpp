@@ -31,10 +31,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <ios>
 #include <memory>
 #include <optional>
 #include <string>
@@ -349,8 +351,9 @@ TEST(VelocityCommandRepeater,
 
   (*repeater)->setCommand(vector4_t(0.5, 0.0, 0.0, 0.0), *limits);
   const absl::Time deadline = absl::Now() + absl::Seconds(10);
-  while (receivedCount.load() < 3 && absl::Now() < deadline)
+  while (receivedCount.load() < 3 && absl::Now() < deadline) {
     absl::SleepFor(absl::Milliseconds(5));
+  }
   ASSERT_GE(receivedCount.load(), 3);
   {
     absl::MutexLock lock(mutex);

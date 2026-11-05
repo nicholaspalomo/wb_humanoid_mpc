@@ -29,7 +29,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/robot/MujocoViewerAnnotator.h"
 
+#include <cstddef>
+
 #include "absl/base/nullability.h"
+
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_mpc_msgs/target_contact_patch.nproto.h"
+#include "humanoid_mpc_msgs/viewer_annotations.nproto.h"
+#include "mujoco_sim_interface/MujocoContactPatch.h"
+#include "mujoco_sim_interface/MujocoSimInterface.h"
 
 namespace ocs2::humanoid {
 namespace {

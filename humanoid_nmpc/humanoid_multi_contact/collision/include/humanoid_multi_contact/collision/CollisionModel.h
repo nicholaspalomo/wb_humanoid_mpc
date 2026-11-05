@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Eigen/Core"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "pinocchio/multibody/fwd.hpp"
 
 #include "humanoid_multi_contact/collision/collision_model.nproto.h"
 #include "humanoid_multi_contact/contact_set/ContactSet.h"

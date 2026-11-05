@@ -33,19 +33,30 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <exception>
 #include <memory>
 #include <string>
 #include <utility>
 
+#include "absl/functional/function_ref.h"
 #include "absl/log/log.h"
 #include "absl/memory/memory.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "ocs2_core/PhysicalConstants.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_oc/rollout/RolloutBase.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_mpc_ipc/RemoteMpcLink.h"
+#include "robot_ipc/Bus.h"
 #include "robot_realtime/PeriodicTimer.h"
 
 namespace ocs2::humanoid::node {

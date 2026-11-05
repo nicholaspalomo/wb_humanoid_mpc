@@ -48,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 #include "ocs2_sqp/SqpSolver.h"
@@ -63,6 +64,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_nmpc/humanoid_wb_mpc/test/live_tuning/RunningProblemFingerprint.h"
 #include "humanoid_nmpc/humanoid_wb_mpc/test/live_tuning/WholeBodyLiveTuningFixture.h"
 #include "humanoid_nmpc/humanoid_wb_mpc/test/live_tuning/WholeBodySolverStack.h"
+#include "humanoid_wb_mpc/WBMpcInterface.h"
 #include "humanoid_wb_mpc/config/costs/EndEffectorDynamicsWeightsFromConfig.h"
 #include "humanoid_wb_mpc/parameter_update/WholeBodyHotFieldAppliers.h"
 
@@ -199,8 +201,9 @@ constexpr std::array<absl::string_view, 4> kOrientationWeightBlocks = {
 mpc_config::TaskFile withOrientationWeightsMoved(
     const mpc_config::TaskFile& task) {
   mpc_config::TaskFile moved = task;
-  for (const absl::string_view block : kOrientationWeightBlocks)
+  for (const absl::string_view block : kOrientationWeightBlocks) {
     moved = withMovedLeaves(moved, block, LeafStep::kMoved);
+  }
   return moved;
 }
 
@@ -270,9 +273,10 @@ scalar_t largestUnitQuaternionNormDeviation(
       interface.getMpcRobotModel().getBaseOrientationStartIndex());
   scalar_t largest = 0.0;
   for (const PrimalSolution& policy : policies) {
-    for (const vector_t& state : policy.stateTrajectory_)
+    for (const vector_t& state : policy.stateTrajectory_) {
       largest =
           std::max(largest, std::abs(state.segment<4>(start).norm() - 1.0));
+    }
   }
   return largest;
 }
@@ -490,8 +494,9 @@ TEST(
         "contacts.contact_wrench_cone_soft_constraint.mu",
         "model_settings.foot_constraint.soft_constraint_weight"}) {
     bool found = false;
-    for (const std::string& leaf : leaves)
+    for (const std::string& leaf : leaves) {
       found = found || absl::StartsWith(leaf, block);
+    }
     EXPECT_TRUE(found) << "the variant sets no applied leaf " << block;
   }
 }

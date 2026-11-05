@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <csignal>
 
 #include "absl/time/clock.h"
+#include "absl/time/time.h"
 
 namespace ocs2::humanoid::node {
 namespace {

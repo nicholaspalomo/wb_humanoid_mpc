@@ -43,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "google/protobuf/message.h"
 #include "gtest/gtest.h"
 
+#include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.pb.h"
 #include "humanoid_mpc_config/task_file.pb.h"
 #include "humanoid_wb_mpc/parameter_update/WholeBodyHotFieldAppliers.h"
@@ -62,8 +63,9 @@ constexpr char kPosSurfaceRtWorldEwrtWorldZ[] =
  * list indices): at or below one of `names`. */
 bool isApplied(absl::string_view path, const std::vector<std::string>& names) {
   for (const std::string& name : names) {
-    if (path == name || absl::StartsWith(path, absl::StrCat(name, ".")))
+    if (path == name || absl::StartsWith(path, absl::StrCat(name, "."))) {
       return true;
+    }
   }
   return false;
 }
@@ -124,12 +126,14 @@ class LeafWalk {
       }
       if (field->is_repeated() || !isNumeric(*field) ||
           fieldPlainPath == kPosSurfaceRtWorldEwrtWorldZ ||
-          !isApplied(fieldPlainPath, names_))
+          !isApplied(fieldPlainPath, names_)) {
         continue;
+      }
       leaves_.push_back(fieldPath);
       if (move_ && absl::StartsWith(fieldPath, prefix_) &&
-          (!onlyLeaf_.has_value() || *onlyLeaf_ == fieldPath))
+          (!onlyLeaf_.has_value() || *onlyLeaf_ == fieldPath)) {
         moveLeaf(message, *field);
+      }
     }
   }
 

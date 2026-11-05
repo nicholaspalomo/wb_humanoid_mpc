@@ -45,18 +45,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
 #include "ocs2_centroidal_model/AccessHelperFunctions.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_centroidal_model/ModelHelperFunctions.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/control/ManifoldLinearController.h"
 #include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/reference/ModeSchedule.h"
+#include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
+#include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
 #include "humanoid_centroidal_mpc_test/CentroidalTestingModelInterface.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StateManifoldFactory.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/mrt/ControllerEvent.h"
 #include "humanoid_common_mpc/mrt/ControllerEventSink.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/NullMpcLink.h"
@@ -128,9 +136,10 @@ void runModes(CentroidalMpcMrtJointController& controller,
       state.setTime(time);
       controller.computeJointControlAction(time, state, action);
     }
-    if (allocationsPerMode != nullptr)
+    if (allocationsPerMode != nullptr) {
       allocationsPerMode->push_back(
           robot::realtime::heapAllocationCountOnThisThread() - before);
+    }
   }
 }
 
@@ -375,9 +384,10 @@ TEST_P(
     feet_array_t<vector6_t> wrenchFeetEwrtWorld;
     for (size_t i = 0; i < kNumContacts; ++i) {
       wrenchFeetEwrtWorld[i].setZero();
-      if (contacts[i])
+      if (contacts[i]) {
         wrenchFeetEwrtWorld[i](2) = computeRobotWeight(reference) /
                                     static_cast<scalar_t>(numStanceLegs);
+      }
       if (effective.getContactInputDim(i) == kContactWrenchDim) {
         EXPECT_LT(
             (effective.getWrenchContactEwrtWorld(observation.state, input, i) -
@@ -428,8 +438,9 @@ TEST_P(CentroidalControllerOnShippedRobot, ExecutingAPolicyAllocatesNothing) {
   const Eigen::Index ndx = static_cast<Eigen::Index>(manifold->getTangentDim());
   const vector_t start = link_->lastObservation().state;
   vector_t end = start;
-  for (Eigen::Index i = 0; i < end.size(); ++i)
+  for (Eigen::Index i = 0; i < end.size(); ++i) {
     end(i) += 0.01 * static_cast<scalar_t>(i % 7);
+  }
   manifold->project(end);
   PinocchioInterface reference = interface_->getPinocchioInterface();
   const vector_t input = weightCompensatingInput(

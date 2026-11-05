@@ -54,8 +54,9 @@ LockstepSolveSchedule::LockstepSolveSchedule(double firstSolveTime,
 
 bool LockstepSolveSchedule::isDue(double time,
                                   bool resetRequestedSinceFailure) const {
-  if (retryUntil_.has_value())
+  if (retryUntil_.has_value()) {
     return resetRequestedSinceFailure || time + timeTolerance_ >= *retryUntil_;
+  }
   return time + timeTolerance_ >= nextSolveTime_;
 }
 
@@ -67,9 +68,10 @@ void LockstepSolveSchedule::onSolve(double time, double retryDelay) {
   }
   // Without a period every cycle solves, as the solver thread runs back to back
   // without a frequency.
-  if (period_ > 0.0)
+  if (period_ > 0.0) {
     nextSolveTime_ =
         firstPeriodicTimeAfter(nextSolveTime_, period_, time + timeTolerance_);
+  }
   if (retryDelay > 0.0) retryUntil_ = time + retryDelay;
 }
 

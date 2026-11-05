@@ -29,10 +29,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_multi_contact/planner/contact_invariant/ContactFeatureConstraint.h"
 
+#include <cstddef>
 #include <utility>
 #include <vector>
 
 #include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/constraint/ConstraintOrder.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
 
 #include "humanoid_multi_contact/planner/contact_invariant/AugmentedPreComputation.h"
 

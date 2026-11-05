@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cmath>
 #include <cstddef>
+#include <numbers>
 #include <random>
 #include <string>
 #include <vector>
@@ -37,8 +38,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
 
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
 #include "humanoid_common_mpc/config/weights/StateInputWeightsFromConfig.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
@@ -285,7 +288,7 @@ TEST_P(EulerChartLayouts,
     vector_t euler = randomEulerState(layout, engine);
     // A yaw beyond pi comes back wrapped; the rest of the state as it was.
     euler(static_cast<Eigen::Index>(angles)) +=
-        trial % 2 == 0 ? 0.0 : 2.0 * M_PI;
+        trial % 2 == 0 ? 0.0 : 2.0 * std::numbers::pi;
     const absl::StatusOr<vector_t> physical =
         physicalStateFromEulerState(euler, layout);
     ASSERT_TRUE(physical.ok()) << physical.status();
@@ -298,8 +301,8 @@ TEST_P(EulerChartLayouts,
         eulerStateFromPhysicalState(scaled, layout);
     ASSERT_TRUE(back.ok()) << back.status();
     vector_t expected = euler;
-    expected(static_cast<Eigen::Index>(angles)) =
-        std::remainder(euler(static_cast<Eigen::Index>(angles)), 2.0 * M_PI);
+    expected(static_cast<Eigen::Index>(angles)) = std::remainder(
+        euler(static_cast<Eigen::Index>(angles)), 2.0 * std::numbers::pi);
     EXPECT_LT((*back - expected).cwiseAbs().maxCoeff(), 1.0e-13) << trial;
   }
 }
@@ -351,7 +354,7 @@ TEST(EulerChart, TheSingularityIsWherePitchIsAQuarterTurn) {
       vector_t::Zero(static_cast<Eigen::Index>(getEulerStateDim(layout)));
   euler(
       static_cast<Eigen::Index>(blockStart(layout, "eulerzyx_base_rt_world")) +
-      1) = 0.5 * M_PI;
+      1) = 0.5 * std::numbers::pi;
   const absl::StatusOr<matrix_t> tangentJacobian =
       physicalTangentJacobian(euler, layout);
   ASSERT_TRUE(tangentJacobian.ok());

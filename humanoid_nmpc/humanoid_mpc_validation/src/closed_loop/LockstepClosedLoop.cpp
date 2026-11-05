@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -43,17 +44,32 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "Eigen/Geometry"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/types/span.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/mrt/ControlMode.h"
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_common_mpc_app/robot/RobotController.h"
+#include "humanoid_mpc_validation/closed_loop/ClosedLoopDriver.h"
+#include "humanoid_mpc_validation/closed_loop/ClosedLoopMetrics.h"
+#include "humanoid_mpc_validation/closed_loop/ClosedLoopScenario.h"
 #include "humanoid_mpc_validation/closed_loop/LockstepSolveSchedule.h"
 #include "humanoid_mpc_validation/closed_loop/LockstepStateEstimator.h"
+#include "humanoid_mpc_validation/closed_loop/RecordedRobotStates.h"
+#include "humanoid_mpc_validation/closed_loop/RobotConfiguration.h"
 #include "humanoid_mpc_validation/closed_loop/TimeSeriesLabels.h"
+#include "humanoid_mpc_validation/io/GoldenIo.h"
+#include "humanoid_mpc_validation/io/JsonValue.h"
 #include "humanoid_state_estimator/StateEstimator.h"
 #include "mujoco_sim_interface/MujocoSimInterface.h"
+#include "robot_core/Types.h"
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotJointAction.h"
+#include "robot_model/RobotState.h"
 
 namespace ocs2::humanoid::validation {
 namespace {
@@ -82,8 +98,9 @@ class RowCollector {
   void append(const Eigen::VectorXd& row) { rows_.push_back(row); }
   golden_matrix_t matrix() const {
     golden_matrix_t matrix(static_cast<Eigen::Index>(rows_.size()), cols_);
-    for (size_t row = 0; row < rows_.size(); ++row)
+    for (size_t row = 0; row < rows_.size(); ++row) {
       matrix.row(static_cast<Eigen::Index>(row)) = rows_[row].transpose();
+    }
     return matrix;
   }
 
@@ -108,9 +125,10 @@ void appendSqpStepRows(double time,
       stepKindCode(step.fullStepKind), step.fullStepConstraintViolation,
       step.constraintViolation;
   sqpSteps.append(row);
-  if (step.swingNormalVelocityConstraintResidual.has_value())
+  if (step.swingNormalVelocityConstraintResidual.has_value()) {
     swingResiduals.append(
         Eigen::Vector2d(time, *step.swingNormalVelocityConstraintResidual));
+  }
 }
 
 }  // namespace
@@ -247,8 +265,9 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(
     // does not delay it: the commands start standingTime after the gantry let
     // go.
     if (phase == Phase::kStanding &&
-        time - phaseStart >= scenario.standingTime - kTimeTolerance)
+        time - phaseStart >= scenario.standingTime - kTimeTolerance) {
       phase = Phase::kCommands;
+    }
     if (phase == Phase::kCommands && !commandStartTime.has_value()) {
       // The first cycle of the commands.
       commandStartTime = time;
@@ -257,8 +276,9 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(
           driver->resetSupervisor().numFullResetsServed();
     }
     if (phase == Phase::kCommands &&
-        time - *commandStartTime >= commandDuration - kTimeTolerance)
+        time - *commandStartTime >= commandDuration - kTimeTolerance) {
       break;
+    }
     const bool inCommands = phase == Phase::kCommands;
 
     // The GUI's velocity message, which the MPC node takes in whenever it
@@ -311,9 +331,10 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(
         solve.unitQuaternionNormDeviation =
             driver->maxUnitQuaternionNormDeviation();
         solve.sqpStep = outcome.sqpStep;
-        if (outcome.sqpStep.has_value())
+        if (outcome.sqpStep.has_value()) {
           appendSqpStepRows(time, *outcome.sqpStep, seriesSolveSqpStep,
                             seriesSolveSwingResidual);
+        }
         metrics.addSolve(solve);
         if (options_.recordRobotStates &&
             time - *commandStartTime >=
@@ -351,8 +372,9 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(
       // one that commanded it; from that cycle on it says when the entry is
       // over.
       if (!entryEndTime.has_value() && time > phaseStart + kTimeTolerance &&
-          !driver->isEnteringMpc())
+          !driver->isEnteringMpc()) {
         entryEndTime = time;
+      }
       if (entryEndTime.has_value() &&
           time - *entryEndTime >=
               options_.timeline.entryMargin - kTimeTolerance) {
@@ -388,8 +410,9 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(
               driver->currentObservation());
       const std::vector<bool> contacts = sim.getGroundTruthContactFlags();
       for (size_t contact = 0; contact < 2 && contact < contacts.size();
-           ++contact)
+           ++contact) {
         sample.contactFlags[contact] = contacts[contact];
+      }
       ASSIGN_OR_RETURN(
           sample.jointTorques,
           jointFeedbackTorques(action, state, driver->mpcJointIndices()));
@@ -426,8 +449,9 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(
   counters.fullResetsServed =
       static_cast<size_t>(driver->resetSupervisor().numFullResetsServed() -
                           fullResetsAtCommandStart);
-  if (!commandStartTime.has_value())
+  if (!commandStartTime.has_value()) {
     counters.resetsServed = counters.fullResetsServed = 0;
+  }
   counters.simulatorResets =
       static_cast<size_t>(sim.resetEpoch() - initialResetEpoch);
   metrics.setCounters(counters);
@@ -466,8 +490,9 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(
                        : std::nullopt));
   settings.set("command_duration_s", JsonValue::number(commandDuration));
   JsonValue limits = JsonValue::array();
-  for (Eigen::Index i = 0; i < 3; ++i)
+  for (Eigen::Index i = 0; i < 3; ++i) {
     limits.append(JsonValue::number(driver->commandLimits()(i)));
+  }
   settings.set("command_limits", std::move(limits));
   settings.set("command_saturated", JsonValue::boolean(commandSaturated));
   settings.set("scenario_description", JsonValue::string(scenario.description));

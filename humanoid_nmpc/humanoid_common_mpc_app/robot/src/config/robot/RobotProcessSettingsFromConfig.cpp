@@ -41,9 +41,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/robot/ControllerSideSettingsFromConfig.h"
-#include "humanoid_common_mpc/contact/ContactWrenchGate.h"
 #include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
+#include "humanoid_mpc_config/kalman_state_estimator_config.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
+#include "humanoid_state_estimator/KalmanBaseEstimator.h"
 
 namespace ocs2::humanoid {
 namespace {

@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/robot/RobotAppFlags.h"
 
+#include <stdlib.h>
+
 #include <cstdlib>
 #include <optional>
 #include <string>
@@ -37,13 +39,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/flags/flag.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/ThreadAffinity.h"
+#include "humanoid_common_mpc_app/node/MpcAppFlags.h"
+#include "humanoid_common_mpc_app/node/MpcFiles.h"
 #include "humanoid_common_mpc_app/robot/RobotAppOptions.h"
 #include "humanoid_common_mpc_app/robot/RobotBackendRegistry.h"
 #include "humanoid_common_mpc_app/robot/RobotConfigDirectory.h"
+#include "mujoco_sim_interface/viewer/ViewerSettings.h"
 #include "mujoco_sim_interface/viewer/WebViewerOptions.h"
 #include "robot_realtime/RealtimeThread.h"
 
